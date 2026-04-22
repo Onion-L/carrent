@@ -7,3 +7,4 @@ out
 release
 coverage
 *.tsbuildinfo
+.gstack/

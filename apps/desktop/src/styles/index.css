@@ -2,11 +2,50 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  background: rgb(var(--color-bg));
-  color: rgb(var(--color-fg));
-}
+@layer base {
+  :root {
+    --color-bg: 24 24 24;
+    --color-surface: 30 30 30;
+    --color-fg: 224 224 224;
+    --color-muted: 130 130 130;
+    --color-border: 45 45 45;
+    --color-brand: 74 108 247;
+    --color-success: 70 170 110;
+    --color-warning: 232 125 90;
+    --color-danger: 200 80 80;
+    --radius-sm: 0.375rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.75rem;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "SFMono-Regular", "IBM Plex Mono", Consolas, monospace;
+    color-scheme: dark;
+  }
 
-#root {
-  min-height: 100vh;
+  body {
+    background: rgb(var(--color-bg));
+    color: rgb(var(--color-fg));
+    margin: 0;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+  }
+
+  #root {
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+  }
+
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+
+  .drag-region button,
+  .drag-region input,
+  .drag-region textarea,
+  .drag-region select {
+    -webkit-app-region: no-drag;
+  }
 }

@@ -15,6 +15,7 @@
   "dependencies": {
     "@carrent/ui": "workspace:*",
     "electron": "^41.2.2",
+    "lucide-react": "^1.8.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-router-dom": "^7.14.2"

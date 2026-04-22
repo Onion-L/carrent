@@ -10,8 +10,10 @@ function createWindow() {
     height: 840,
     minWidth: 1080,
     minHeight: 720,
-    backgroundColor: "#f7f4ee",
+    backgroundColor: "#181818",
     autoHideMenuBar: true,
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 16, y: 14 },
     show: false,
     webPreferences: {
       preload: join(__dirname, "../preload/index.mjs"),

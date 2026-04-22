@@ -1,0 +1,17 @@
+:root {
+  --color-bg: 247 244 238;
+  --color-surface: 255 252 247;
+  --color-fg: 26 29 33;
+  --color-muted: 99 107 119;
+  --color-border: 220 214 204;
+  --color-brand: 31 92 79;
+  --color-success: 41 122 84;
+  --color-warning: 181 119 36;
+  --color-danger: 181 70 70;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  --font-sans: "Avenir Next", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", monospace;
+  color-scheme: light;
+}

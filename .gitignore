@@ -1,0 +1,9 @@
+.turbo
+node_modules
+.DS_Store
+.astro
+dist
+out
+release
+coverage
+*.tsbuildinfo

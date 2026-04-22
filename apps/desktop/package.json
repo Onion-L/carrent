@@ -1,0 +1,49 @@
+{
+  "name": "@carrent/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "dist": "electron-vite build && electron-builder",
+    "lint": "bunx prettier --check .",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit",
+    "format": "bunx prettier --write ."
+  },
+  "dependencies": {
+    "@carrent/ui": "workspace:*",
+    "electron": "^41.2.2",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-router-dom": "^7.14.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.5.0",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^5.0.0",
+    "postcss": "^8.5.10",
+    "tailwindcss": "3"
+  },
+  "build": {
+    "appId": "com.carrent.desktop",
+    "productName": "Carrent",
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    }
+  }
+}

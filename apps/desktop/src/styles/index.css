@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: rgb(var(--color-bg));
+  color: rgb(var(--color-fg));
+}
+
+#root {
+  min-height: 100vh;
+}

@@ -1,0 +1,6 @@
+.astro
+.turbo
+node_modules
+dist
+out
+release

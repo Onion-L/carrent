@@ -6,6 +6,10 @@ import type {
 import { runtimeCatalog } from "./runtimeCatalog";
 import { detectRuntime } from "./runtimeDetector";
 import { runLocalCheck, runModelPing } from "./runtimeVerifier";
+import {
+  runtimeProcessManager,
+  type RuntimeProcessManager,
+} from "./runtimeProcessManager";
 
 interface IpcMainLike {
   handle: (
@@ -13,7 +17,9 @@ interface IpcMainLike {
     listener: (
       event: unknown,
       runtimeId?: RuntimeId,
-    ) => Promise<RuntimeRecord[] | RuntimeVerificationResult>,
+    ) =>
+      | Promise<RuntimeRecord[] | RuntimeVerificationResult | void>
+      | void,
   ) => void;
 }
 
@@ -21,6 +27,12 @@ interface RuntimeIpcServices {
   list: () => Promise<RuntimeRecord[]>;
   localCheck: (runtimeId: RuntimeId) => Promise<RuntimeVerificationResult>;
   modelPing: (runtimeId: RuntimeId) => Promise<RuntimeVerificationResult>;
+  start: (runtimeId: RuntimeId) => Promise<void>;
+  stop: (runtimeId: RuntimeId) => Promise<void>;
+  restart: (runtimeId: RuntimeId) => Promise<void>;
+  startAll: () => Promise<void>;
+  stopAll: () => Promise<void>;
+  restartAll: () => Promise<void>;
 }
 
 export function registerRuntimeIpc(
@@ -34,9 +46,23 @@ export function registerRuntimeIpc(
   ipcMainLike.handle("runtimes:model-ping", async (_event, runtimeId) =>
     services.modelPing(assertRuntimeId(runtimeId)),
   );
+  ipcMainLike.handle("runtimes:start", (_event, runtimeId) =>
+    services.start(assertRuntimeId(runtimeId)),
+  );
+  ipcMainLike.handle("runtimes:stop", (_event, runtimeId) =>
+    services.stop(assertRuntimeId(runtimeId)),
+  );
+  ipcMainLike.handle("runtimes:restart", (_event, runtimeId) =>
+    services.restart(assertRuntimeId(runtimeId)),
+  );
+  ipcMainLike.handle("runtimes:start-all", () => services.startAll());
+  ipcMainLike.handle("runtimes:stop-all", () => services.stopAll());
+  ipcMainLike.handle("runtimes:restart-all", () => services.restartAll());
 }
 
-export function createRuntimeIpcServices(): RuntimeIpcServices {
+export function createRuntimeIpcServices(
+  processManager: RuntimeProcessManager = runtimeProcessManager,
+): RuntimeIpcServices {
   return {
     async list() {
       return Promise.all(runtimeCatalog.map((runtime) => detectRuntime(runtime)));
@@ -46,6 +72,24 @@ export function createRuntimeIpcServices(): RuntimeIpcServices {
     },
     async modelPing(runtimeId) {
       return runModelPing(getRuntimeDescriptor(runtimeId));
+    },
+    async start(runtimeId) {
+      processManager.start(runtimeId);
+    },
+    async stop(runtimeId) {
+      processManager.stop(runtimeId);
+    },
+    async restart(runtimeId) {
+      processManager.restart(runtimeId);
+    },
+    async startAll() {
+      processManager.startAll();
+    },
+    async stopAll() {
+      processManager.stopAll();
+    },
+    async restartAll() {
+      processManager.restartAll();
     },
   };
 }

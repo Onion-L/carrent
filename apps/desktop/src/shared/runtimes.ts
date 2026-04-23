@@ -1,5 +1,7 @@
 export type RuntimeAvailability = "detected" | "unavailable";
 
+export type RuntimeStatus = "running" | "stopped";
+
 export type RuntimeConfigState = "configured" | "missing" | "unknown";
 
 export type RuntimeVerificationState =
@@ -17,12 +19,15 @@ export interface RuntimeRecord {
   path?: string;
   version?: string;
   availability: RuntimeAvailability;
+  status: RuntimeStatus;
   configuration: RuntimeConfigState;
   verification: RuntimeVerificationState;
   lastCheckedAt?: string;
   lastVerifiedAt?: string;
+  lastRestartedAt?: string;
   lastError?: string;
   supportsModelPing: boolean;
+  pid?: number;
 }
 
 export interface RuntimeLocalCheck {

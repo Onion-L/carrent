@@ -13,7 +13,7 @@ describe("registerRuntimeIpc", () => {
       (
         event: unknown,
         runtimeId?: "codex" | "claude-code",
-      ) => Promise<RuntimeRecord[] | RuntimeVerificationResult>
+      ) => Promise<RuntimeRecord[] | RuntimeVerificationResult | void> | void
     >();
     const calls: string[] = [];
     const listResult: RuntimeRecord[] = [
@@ -22,6 +22,7 @@ describe("registerRuntimeIpc", () => {
         name: "Codex",
         command: "codex",
         availability: "detected",
+        status: "stopped",
         configuration: "configured",
         verification: "never",
         supportsModelPing: true,
@@ -54,6 +55,24 @@ describe("registerRuntimeIpc", () => {
           calls.push(`model-ping:${runtimeId}`);
           return modelPingResult;
         },
+        start: async (runtimeId) => {
+          calls.push(`start:${runtimeId}`);
+        },
+        stop: async (runtimeId) => {
+          calls.push(`stop:${runtimeId}`);
+        },
+        restart: async (runtimeId) => {
+          calls.push(`restart:${runtimeId}`);
+        },
+        startAll: async () => {
+          calls.push("start-all");
+        },
+        stopAll: async () => {
+          calls.push("stop-all");
+        },
+        restartAll: async () => {
+          calls.push("restart-all");
+        },
       },
     );
 
@@ -61,6 +80,12 @@ describe("registerRuntimeIpc", () => {
       "runtimes:list",
       "runtimes:local-check",
       "runtimes:model-ping",
+      "runtimes:restart",
+      "runtimes:restart-all",
+      "runtimes:start",
+      "runtimes:start-all",
+      "runtimes:stop",
+      "runtimes:stop-all",
     ]);
 
     expect(await handlers.get("runtimes:list")?.({})).toEqual(listResult);
@@ -70,10 +95,22 @@ describe("registerRuntimeIpc", () => {
     expect(await handlers.get("runtimes:model-ping")?.({}, "claude-code")).toEqual(
       modelPingResult,
     );
+    await handlers.get("runtimes:start")?.({}, "codex");
+    await handlers.get("runtimes:stop")?.({}, "claude-code");
+    await handlers.get("runtimes:restart")?.({}, "codex");
+    await handlers.get("runtimes:start-all")?.({});
+    await handlers.get("runtimes:stop-all")?.({});
+    await handlers.get("runtimes:restart-all")?.({});
     expect(calls).toEqual([
       "list",
       "local-check:codex",
       "model-ping:claude-code",
+      "start:codex",
+      "stop:claude-code",
+      "restart:codex",
+      "start-all",
+      "stop-all",
+      "restart-all",
     ]);
   });
 });

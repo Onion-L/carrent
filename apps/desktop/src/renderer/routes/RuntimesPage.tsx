@@ -2,106 +2,268 @@ import { useState } from "react";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { OpenAIIcon } from "../components/icons/OpenAIIcon";
 import { ClaudeIcon } from "../components/icons/ClaudeIcon";
+import { RotateCcw, Square, Play } from "lucide-react";
 
 function RuntimeIcon({ name }: { name: string }) {
   const key = name.toLowerCase();
   if (key.includes("codex") || key.includes("openai")) {
     return (
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2a2a2a] text-white">
-        <OpenAIIcon className="h-6 w-6" />
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#2a2a2a] text-white">
+        <OpenAIIcon className="h-5 w-5" />
       </div>
     );
   }
   if (key.includes("claude")) {
     return (
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2a2a2a]">
-        <ClaudeIcon className="h-6 w-6" />
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#2a2a2a]">
+        <ClaudeIcon className="h-5 w-5" />
       </div>
     );
   }
-  // Fallback: first letter
   return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2a2a2a] text-[16px] font-bold text-[#ddd]">
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#2a2a2a] text-[14px] font-bold text-[#ddd]">
       {name.charAt(0).toUpperCase()}
     </div>
   );
 }
 
-function getRuntimeDisplayName(name: string): string {
-  return `${name}`;
+function formatDuration(minutes: number): string {
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${Math.floor(minutes)}m`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (mins === 0) return `${hours}h`;
+  return `${hours}h ${mins}m`;
+}
+
+function getOverallStatus(runtimes: Array<{ status: "running" | "stopped"; name: string; lastRestartedAt?: string }>) {
+  const running = runtimes.filter((r) => r.status === "running");
+  const anyRunning = running.length > 0;
+
+  let uptimeText = "";
+  if (anyRunning && running[0].lastRestartedAt) {
+    const minutes = Math.floor(
+      (Date.now() - new Date(running[0].lastRestartedAt).getTime()) / 60000,
+    );
+    uptimeText = formatDuration(minutes);
+  }
+
+  const names = running.map((r) => r.name.toLowerCase()).join(", ");
+
+  return { anyRunning, uptimeText, names, runningCount: running.length };
 }
 
 export function RuntimesPage() {
-  const { runtimes, loading } = useRuntimes();
+  const {
+    runtimes,
+    loading,
+    actionStateById,
+    start,
+    stop,
+    restart,
+    startAll,
+    stopAll,
+    restartAll,
+  } = useRuntimes();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const selectedRuntime = runtimes.find((r) => r.id === selectedId);
 
+  const isActionPending = (id: string) => {
+    const state = actionStateById[id];
+    return state && state !== "idle";
+  };
+
+  const isAnyActionPending = runtimes.some((r) => isActionPending(r.id));
+  const { anyRunning, uptimeText, names } = getOverallStatus(runtimes);
+
   return (
-    <div className="flex h-full w-full bg-[#181818]">
-      {/* Left: runtime list */}
-      <div className="flex h-full w-[280px] flex-col border-r border-[#252525] bg-[#181818]">
-        <div className="px-4 pb-2 pt-3">
-          <h2 className="text-[13px] font-semibold text-[#ddd]">Runtimes</h2>
+    <div className="flex h-full w-full flex-col bg-[#181818]">
+      {/* Global control bar */}
+      <div className="flex items-center justify-between border-b border-[#252525] px-6 py-4">
+        <div className="flex items-center gap-3">
+          <div
+            className={`h-2.5 w-2.5 rounded-full ${
+              anyRunning ? "bg-emerald-500" : "bg-[#555]"
+            }`}
+          />
+          <span className="text-[14px] text-[#ccc]">
+            {anyRunning
+              ? `Running${uptimeText ? ` · ${uptimeText}` : ""}${names ? ` · ${names}` : ""}`
+              : "Stopped"}
+          </span>
         </div>
-
-        <div className="flex-1 overflow-auto">
-          {loading && runtimes.length === 0 ? (
-            <div className="px-4 py-8 text-center text-[13px] text-[#555]">
-              Detecting...
-            </div>
-          ) : (
-            runtimes.map((runtime) => {
-              const isActive = runtime.id === selectedId;
-              const isOnline = runtime.availability === "detected";
-              return (
-                <button
-                  key={runtime.id}
-                  onClick={() => setSelectedId(runtime.id)}
-                  className={`flex w-full items-center gap-3 border-b border-[#252525] px-4 py-3 text-left transition ${
-                    isActive ? "bg-[#252525]" : "hover:bg-[#1e1e1e]"
-                  }`}
-                >
-                  <RuntimeIcon name={runtime.name} />
-
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[14px] font-medium text-[#ddd]">
-                      {getRuntimeDisplayName(runtime.name)}
-                    </div>
-                  </div>
-
-                  <div
-                    className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                      isOnline ? "bg-emerald-500" : "bg-[#444]"
-                    }`}
-                  />
-                </button>
-              );
-            })
-          )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={restartAll}
+            disabled={isAnyActionPending}
+            className="flex items-center gap-2 rounded-lg border border-[#2f2f2f] bg-[#252525] px-3 py-1.5 text-[13px] text-[#ccc] transition hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Restart
+          </button>
+          <button
+            onClick={stopAll}
+            disabled={isAnyActionPending}
+            className="flex items-center gap-2 rounded-lg border border-[#2f2f2f] bg-[#252525] px-3 py-1.5 text-[13px] text-[#ccc] transition hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Square className="h-3.5 w-3.5" />
+            Stop
+          </button>
         </div>
       </div>
 
-      {/* Right: content area */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        {selectedRuntime ? (
-          <div className="flex flex-1 flex-col items-center justify-center text-[#666]">
-            <RuntimeIcon name={selectedRuntime.name} />
-            <h3 className="mt-4 text-[18px] font-semibold text-[#ddd]">
-              {selectedRuntime.name}
-            </h3>
-            <p className="mt-1 text-[13px] text-[#666]">
-              {selectedRuntime.path ?? "No path configured"}
-            </p>
-            <p className="mt-4 text-[13px] text-[#555]">
-              Runtime detail panel placeholder
-            </p>
+      {/* Content area */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left: runtime list */}
+        <div className="flex h-full w-[280px] flex-col border-r border-[#252525] bg-[#181818]">
+          <div className="flex items-center justify-between px-4 pb-2 pt-3">
+            <h2 className="text-[13px] font-semibold text-[#ddd]">Runtimes</h2>
+            <span className="text-[12px] text-[#666]">
+              {runtimes.filter((r) => r.availability === "detected").length}/
+              {runtimes.length} online
+            </span>
           </div>
-        ) : (
-          <div className="flex flex-1 flex-col items-center justify-center text-[#555]">
-            <p className="text-[15px]">Select a runtime to view details</p>
+
+          <div className="flex-1 overflow-auto">
+            {loading && runtimes.length === 0 ? (
+              <div className="px-4 py-8 text-center text-[13px] text-[#555]">
+                Detecting...
+              </div>
+            ) : (
+              runtimes.map((runtime) => {
+                const isActive = runtime.id === selectedId;
+                const isOnline = runtime.availability === "detected";
+                return (
+                  <button
+                    key={runtime.id}
+                    onClick={() => setSelectedId(runtime.id)}
+                    className={`flex w-full items-center gap-3 border-b border-[#252525] px-4 py-3 text-left transition ${
+                      isActive ? "bg-[#252525]" : "hover:bg-[#1e1e1e]"
+                    }`}
+                  >
+                    <RuntimeIcon name={runtime.name} />
+
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[14px] font-medium text-[#ddd]">
+                        {runtime.name}
+                      </div>
+                      {runtime.path && (
+                        <div className="truncate text-[12px] text-[#666]">
+                          {runtime.path}
+                        </div>
+                      )}
+                    </div>
+
+                    <div
+                      className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                        isOnline ? "bg-emerald-500" : "bg-[#444]"
+                      }`}
+                    />
+                  </button>
+                );
+              })
+            )}
           </div>
-        )}
+        </div>
+
+        {/* Right: detail area */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {selectedRuntime ? (
+            <div className="flex flex-1 flex-col">
+              {/* Detail header */}
+              <div className="flex items-center justify-between border-b border-[#252525] px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <RuntimeIcon name={selectedRuntime.name} />
+                  <div>
+                    <h3 className="text-[16px] font-semibold text-[#ddd]">
+                      {selectedRuntime.name}
+                    </h3>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <div
+                        className={`h-2 w-2 rounded-full ${
+                          selectedRuntime.status === "running"
+                            ? "bg-emerald-500"
+                            : "bg-[#555]"
+                        }`}
+                      />
+                      <span className="text-[12px] text-[#999]">
+                        {selectedRuntime.status === "running"
+                          ? "Running"
+                          : "Stopped"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                {selectedRuntime.status === "stopped" && (
+                  <button
+                    onClick={() => start(selectedRuntime.id)}
+                    disabled={isActionPending(selectedRuntime.id)}
+                    className="flex items-center gap-2 rounded-lg border border-[#2f2f2f] bg-[#252525] px-3 py-1.5 text-[13px] text-[#ccc] transition hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                    Start
+                  </button>
+                )}
+              </div>
+
+              {/* Detail info */}
+              <div className="flex-1 px-6 py-5">
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-[12px] font-medium uppercase tracking-wider text-[#666]">
+                      Status
+                    </div>
+                    <div className="mt-1 text-[14px] text-[#ccc]">
+                      {selectedRuntime.status === "running"
+                        ? "Running"
+                        : "Stopped"}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[12px] font-medium uppercase tracking-wider text-[#666]">
+                      Last restarted
+                    </div>
+                    <div className="mt-1 text-[14px] text-[#ccc]">
+                      {selectedRuntime.lastRestartedAt
+                        ? new Date(
+                            selectedRuntime.lastRestartedAt,
+                          ).toLocaleString()
+                        : "Never"}
+                    </div>
+                  </div>
+
+                  {selectedRuntime.status === "running" && (
+                    <div>
+                      <div className="text-[12px] font-medium uppercase tracking-wider text-[#666]">
+                        CLI
+                      </div>
+                      <div className="mt-1 rounded-lg bg-[#1e1e1e] px-3 py-2 font-mono text-[13px] text-[#aaa]">
+                        {selectedRuntime.command}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedRuntime.path && (
+                    <div>
+                      <div className="text-[12px] font-medium uppercase tracking-wider text-[#666]">
+                        Path
+                      </div>
+                      <div className="mt-1 text-[14px] text-[#888]">
+                        {selectedRuntime.path}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center text-[#555]">
+              <p className="text-[15px]">Select a runtime to view details</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

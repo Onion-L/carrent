@@ -15,6 +15,12 @@ declare global {
         list: () => Promise<RuntimeRecord[]>;
         localCheck: (id: RuntimeId) => Promise<RuntimeVerificationResult>;
         modelPing: (id: RuntimeId) => Promise<RuntimeVerificationResult>;
+        start: (id: RuntimeId) => Promise<void>;
+        stop: (id: RuntimeId) => Promise<void>;
+        restart: (id: RuntimeId) => Promise<void>;
+        startAll: () => Promise<void>;
+        stopAll: () => Promise<void>;
+        restartAll: () => Promise<void>;
       };
     };
   }

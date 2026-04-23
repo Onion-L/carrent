@@ -9,6 +9,15 @@ const carrent = {
       ipcRenderer.invoke("runtimes:local-check", id),
     modelPing: (id: "codex" | "claude-code") =>
       ipcRenderer.invoke("runtimes:model-ping", id),
+    start: (id: "codex" | "claude-code") =>
+      ipcRenderer.invoke("runtimes:start", id),
+    stop: (id: "codex" | "claude-code") =>
+      ipcRenderer.invoke("runtimes:stop", id),
+    restart: (id: "codex" | "claude-code") =>
+      ipcRenderer.invoke("runtimes:restart", id),
+    startAll: () => ipcRenderer.invoke("runtimes:start-all"),
+    stopAll: () => ipcRenderer.invoke("runtimes:stop-all"),
+    restartAll: () => ipcRenderer.invoke("runtimes:restart-all"),
   },
 };
 

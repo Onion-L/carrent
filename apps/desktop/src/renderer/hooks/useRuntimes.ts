@@ -6,7 +6,13 @@ import type {
   RuntimeVerificationResult,
 } from "../../shared/runtimes";
 
-type RuntimeActionState = "idle" | "local-check" | "model-ping";
+type RuntimeActionState =
+  | "idle"
+  | "local-check"
+  | "model-ping"
+  | "starting"
+  | "stopping"
+  | "restarting";
 
 type UseRuntimesState = {
   runtimes: RuntimeRecord[];
@@ -56,6 +62,112 @@ export function useRuntimes() {
 
   async function runModelPing(id: RuntimeId) {
     await runVerification(id, "model-ping", window.carrent.runtimes.modelPing);
+  }
+
+  async function start(id: RuntimeId) {
+    await runLifecycleAction(id, "starting", window.carrent.runtimes.start);
+  }
+
+  async function stop(id: RuntimeId) {
+    await runLifecycleAction(id, "stopping", window.carrent.runtimes.stop);
+  }
+
+  async function restart(id: RuntimeId) {
+    await runLifecycleAction(id, "restarting", window.carrent.runtimes.restart);
+  }
+
+  async function startAll() {
+    await runGlobalAction("starting", window.carrent.runtimes.startAll);
+  }
+
+  async function stopAll() {
+    await runGlobalAction("stopping", window.carrent.runtimes.stopAll);
+  }
+
+  async function restartAll() {
+    await runGlobalAction("restarting", window.carrent.runtimes.restartAll);
+  }
+
+  async function runGlobalAction(
+    action: Extract<
+      RuntimeActionState,
+      "starting" | "stopping" | "restarting"
+    >,
+    actionRunner: () => Promise<void>,
+  ) {
+    // Mark all runtimes as pending
+    setState((current) => {
+      const next: Record<string, RuntimeActionState> = {
+        ...current.actionStateById,
+      };
+      for (const runtime of current.runtimes) {
+        next[runtime.id] = action;
+      }
+      return {
+        ...current,
+        error: undefined,
+        actionStateById: next,
+      };
+    });
+
+    try {
+      await actionRunner();
+      await refresh();
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        error: getErrorMessage(error, `${action} all failed.`),
+      }));
+    } finally {
+      setState((current) => {
+        const next: Record<string, RuntimeActionState> = {
+          ...current.actionStateById,
+        };
+        for (const runtime of current.runtimes) {
+          next[runtime.id] = "idle";
+        }
+        return {
+          ...current,
+          actionStateById: next,
+        };
+      });
+    }
+  }
+
+  async function runLifecycleAction(
+    id: RuntimeId,
+    action: Extract<
+      RuntimeActionState,
+      "starting" | "stopping" | "restarting"
+    >,
+    actionRunner: (runtimeId: RuntimeId) => Promise<void>,
+  ) {
+    setState((current) => ({
+      ...current,
+      error: undefined,
+      actionStateById: {
+        ...current.actionStateById,
+        [id]: action,
+      },
+    }));
+
+    try {
+      await actionRunner(id);
+      await refresh();
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        error: getErrorMessage(error, `${action} failed.`),
+      }));
+    } finally {
+      setState((current) => ({
+        ...current,
+        actionStateById: {
+          ...current.actionStateById,
+          [id]: "idle",
+        },
+      }));
+    }
   }
 
   async function runVerification(
@@ -109,6 +221,12 @@ export function useRuntimes() {
     refresh,
     runLocalCheck,
     runModelPing,
+    start,
+    stop,
+    restart,
+    startAll,
+    stopAll,
+    restartAll,
   };
 }
 

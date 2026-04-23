@@ -28,6 +28,15 @@ function createRuntimeDescriptor(): RuntimeDescriptor {
   };
 }
 
+function stoppedPgrepResult() {
+  return {
+    ok: false,
+    exitCode: 1,
+    stdout: "",
+    stderr: "",
+  };
+}
+
 describe("detectRuntime", () => {
   it("returns detected runtime with version and configured state", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "runtime-detector-"));
@@ -45,6 +54,7 @@ describe("detectRuntime", () => {
         stdout: "codex 0.1.0\n",
         stderr: "",
       },
+      stoppedPgrepResult(),
     ];
     const calls: Array<{ command: string; args: string[]; cwd?: string }> = [];
     const runtime = {
@@ -63,6 +73,7 @@ describe("detectRuntime", () => {
       });
 
       expect(result.availability).toBe("detected");
+      expect(result.status).toBe("stopped");
       expect(result.configuration).toBe("configured");
       expect(result.path).toBe("/usr/local/bin/codex");
       expect(result.version).toBe("codex 0.1.0");
@@ -76,6 +87,11 @@ describe("detectRuntime", () => {
         {
           command: "codex",
           args: ["--version"],
+          cwd: os.homedir(),
+        },
+        {
+          command: "pgrep",
+          args: ["-x", "codex"],
           cwd: os.homedir(),
         },
       ]);
@@ -99,6 +115,12 @@ describe("detectRuntime", () => {
         stdout: "codex 0.1.0\r\n",
         stderr: "",
       },
+      {
+        ok: false,
+        exitCode: 1,
+        stdout: "",
+        stderr: "",
+      },
     ];
 
     await detectRuntime(createRuntimeDescriptor(), {
@@ -115,6 +137,11 @@ describe("detectRuntime", () => {
       args: ["codex"],
       cwd: os.homedir(),
     });
+    expect(calls[2]).toEqual({
+      command: "tasklist",
+      args: ["/FI", "IMAGENAME eq codex.exe", "/NH"],
+      cwd: os.homedir(),
+    });
   });
 
   it("returns unavailable when the command is missing", async () => {
@@ -128,6 +155,7 @@ describe("detectRuntime", () => {
     });
 
     expect(result.availability).toBe("unavailable");
+    expect(result.status).toBe("stopped");
     expect(result.configuration).toBe("unknown");
     expect(result.path).toBeUndefined();
     expect(result.version).toBeUndefined();
@@ -147,6 +175,7 @@ describe("detectRuntime", () => {
         stdout: "codex 0.1.0\n",
         stderr: "",
       },
+      stoppedPgrepResult(),
     ];
 
     const result = await detectRuntime(createRuntimeDescriptor(), {
@@ -155,6 +184,7 @@ describe("detectRuntime", () => {
     });
 
     expect(result.availability).toBe("detected");
+    expect(result.status).toBe("stopped");
     expect(result.configuration).toBe("missing");
     expect(result.version).toBe("codex 0.1.0");
   });
@@ -178,6 +208,7 @@ describe("detectRuntime", () => {
         stdout: "codex 0.1.0\n",
         stderr: "",
       },
+      stoppedPgrepResult(),
     ];
 
     await detectRuntime(runtime, {
@@ -209,6 +240,7 @@ describe("detectRuntime", () => {
         stderr:
           "version probe timed out with a very long stderr payload that should be trimmed for UI display",
       },
+      stoppedPgrepResult(),
     ];
 
     const result = await detectRuntime(createRuntimeDescriptor(), {
@@ -217,10 +249,43 @@ describe("detectRuntime", () => {
     });
 
     expect(result.availability).toBe("detected");
+    expect(result.status).toBe("stopped");
     expect(result.configuration).toBe("configured");
     expect(result.version).toBeUndefined();
     expect(result.lastError).toBe(
       "version probe timed out with a very long stderr payload that should be trimmed for UI display",
     );
+  });
+
+  it("detects running status when pgrep finds the process", async () => {
+    const commands = [
+      {
+        ok: true,
+        exitCode: 0,
+        stdout: "/usr/local/bin/codex\n",
+        stderr: "",
+      },
+      {
+        ok: true,
+        exitCode: 0,
+        stdout: "codex 0.1.0\n",
+        stderr: "",
+      },
+      {
+        ok: true,
+        exitCode: 0,
+        stdout: "12345\n",
+        stderr: "",
+      },
+    ];
+
+    const result = await detectRuntime(createRuntimeDescriptor(), {
+      run: async () => commands.shift()!,
+      pathExists: async () => true,
+    });
+
+    expect(result.availability).toBe("detected");
+    expect(result.status).toBe("running");
+    expect(result.pid).toBe(12345);
   });
 });

@@ -92,11 +92,6 @@ export function RuntimesPage() {
                     <div className="truncate text-[14px] font-medium text-[#ddd]">
                       {runtime.name}
                     </div>
-                    {runtime.path && (
-                      <div className="truncate text-[12px] text-[#666]">
-                        {runtime.path}
-                      </div>
-                    )}
                   </div>
 
                   <div
@@ -186,16 +181,7 @@ export function RuntimesPage() {
                   </div>
                 )}
 
-                {selectedRuntime.path && (
-                  <div>
-                    <div className="text-[12px] font-medium uppercase tracking-wider text-[#666]">
-                      Path
-                    </div>
-                    <div className="mt-1 text-[14px] text-[#888]">
-                      {selectedRuntime.path}
-                    </div>
-                  </div>
-                )}
+
               </div>
             </div>
           </div>

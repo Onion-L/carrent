@@ -6,6 +6,11 @@ const MIN_WIDTH = 180;
 const DEFAULT_WIDTH = 240;
 const COLLAPSED_WIDTH = 0;
 const EXPAND_TRIGGER_WIDTH = 40;
+const MAX_WIDTH_RATIO = 0.45;
+
+function getMaxWidth() {
+  return Math.floor(window.innerWidth * MAX_WIDTH_RATIO);
+}
 
 export function DesktopShell({ children }: { children: React.ReactNode }) {
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
@@ -27,7 +32,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isDragging.current) return;
-    const newWidth = Math.max(MIN_WIDTH, e.clientX);
+    const newWidth = Math.min(Math.max(MIN_WIDTH, e.clientX), getMaxWidth());
     if (sidebarRef.current) {
       sidebarRef.current.style.width = `${newWidth}px`;
     }
@@ -38,17 +43,28 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     isDragging.current = false;
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
-    setSidebarWidth(Math.max(MIN_WIDTH, e.clientX));
+    setSidebarWidth(Math.min(Math.max(MIN_WIDTH, e.clientX), getMaxWidth()));
   }, []);
 
   useEffect(() => {
+    const handleWindowResize = () => {
+      const maxW = getMaxWidth();
+      if (!isCollapsed && sidebarWidth > maxW) {
+        setSidebarWidth(maxW);
+        if (sidebarRef.current) {
+          sidebarRef.current.style.width = `${maxW}px`;
+        }
+      }
+    };
+    window.addEventListener("resize", handleWindowResize);
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
     return () => {
+      window.removeEventListener("resize", handleWindowResize);
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [handleMouseMove, handleMouseUp]);
+  }, [handleMouseMove, handleMouseUp, isCollapsed, sidebarWidth]);
 
   const handleCollapse = useCallback(() => {
     setIsCollapsed(true);

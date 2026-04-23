@@ -18,11 +18,9 @@ describe("createProcessRunner", () => {
   it("marks timed out commands explicitly", async () => {
     const runner = createProcessRunner();
 
-    const result = await runner.run(
-      process.execPath,
-      ["-e", "setTimeout(() => {}, 1000)"],
-      { timeoutMs: 10 },
-    );
+    const result = await runner.run(process.execPath, ["-e", "setTimeout(() => {}, 1000)"], {
+      timeoutMs: 10,
+    });
 
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(null);

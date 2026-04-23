@@ -46,9 +46,7 @@ describe("runtimeCatalog", () => {
   });
 
   it("defines the confirmed claude-code model ping", () => {
-    const claudeCode = runtimeCatalog.find(
-      (runtime) => runtime.id === "claude-code",
-    );
+    const claudeCode = runtimeCatalog.find((runtime) => runtime.id === "claude-code");
 
     expect(claudeCode).toBeDefined();
     expect(claudeCode?.supportsModelPing).toBe(true);

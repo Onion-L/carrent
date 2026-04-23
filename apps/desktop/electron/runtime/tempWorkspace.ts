@@ -8,8 +8,6 @@ export async function createTempWorkspace(): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), TEMP_WORKSPACE_PREFIX));
 }
 
-export async function cleanupTempWorkspace(
-  workspacePath: string,
-): Promise<void> {
+export async function cleanupTempWorkspace(workspacePath: string): Promise<void> {
   await rm(workspacePath, { recursive: true, force: true });
 }

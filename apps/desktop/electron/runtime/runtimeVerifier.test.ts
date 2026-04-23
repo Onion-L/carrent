@@ -135,9 +135,7 @@ describe("runLocalCheck", () => {
         timeoutMs: 5000,
       },
     ]);
-    expect(calls[0]?.args.join(" ").includes("Reply with exactly OK.")).toBe(
-      false,
-    );
+    expect(calls[0]?.args.join(" ").includes("Reply with exactly OK.")).toBe(false);
     expect(calls[0]?.cwd === process.cwd()).toBe(false);
   });
 
@@ -146,10 +144,7 @@ describe("runLocalCheck", () => {
       createTempWorkspace: async () => path.join(os.tmpdir(), "runtime-failure"),
       cleanupTempWorkspace: async () => {},
       now: () => new Date("2026-04-23T00:00:00.000Z"),
-      run: async () =>
-        createFailureResult(
-          "x".repeat(400),
-        ),
+      run: async () => createFailureResult("x".repeat(400)),
     });
 
     expect(result.verification).toBe("failed");

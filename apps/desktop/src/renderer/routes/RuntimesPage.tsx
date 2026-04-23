@@ -36,7 +36,9 @@ function formatDuration(minutes: number): string {
   return `${hours}h ${mins}m`;
 }
 
-function getOverallStatus(runtimes: Array<{ status: "running" | "stopped"; name: string; lastRestartedAt?: string }>) {
+function getOverallStatus(
+  runtimes: Array<{ status: "running" | "stopped"; name: string; lastRestartedAt?: string }>,
+) {
   const running = runtimes.filter((r) => r.status === "running");
   const anyRunning = running.length > 0;
 
@@ -84,9 +86,7 @@ export function RuntimesPage() {
       <div className="flex items-center justify-between border-b border-[#252525] px-6 py-4">
         <div className="flex items-center gap-3">
           <div
-            className={`h-2.5 w-2.5 rounded-full ${
-              anyRunning ? "bg-emerald-500" : "bg-[#555]"
-            }`}
+            className={`h-2.5 w-2.5 rounded-full ${anyRunning ? "bg-emerald-500" : "bg-[#555]"}`}
           />
           <span className="text-[14px] text-[#ccc]">
             {anyRunning
@@ -121,16 +121,14 @@ export function RuntimesPage() {
           <div className="flex items-center justify-between px-4 pb-2 pt-3">
             <h2 className="text-[13px] font-semibold text-[#ddd]">Runtimes</h2>
             <span className="text-[12px] text-[#666]">
-              {runtimes.filter((r) => r.availability === "detected").length}/
-              {runtimes.length} online
+              {runtimes.filter((r) => r.availability === "detected").length}/{runtimes.length}{" "}
+              online
             </span>
           </div>
 
           <div className="flex-1 overflow-auto">
             {loading && runtimes.length === 0 ? (
-              <div className="px-4 py-8 text-center text-[13px] text-[#555]">
-                Detecting...
-              </div>
+              <div className="px-4 py-8 text-center text-[13px] text-[#555]">Detecting...</div>
             ) : (
               runtimes.map((runtime) => {
                 const isActive = runtime.id === selectedId;
@@ -150,9 +148,7 @@ export function RuntimesPage() {
                         {runtime.name}
                       </div>
                       {runtime.path && (
-                        <div className="truncate text-[12px] text-[#666]">
-                          {runtime.path}
-                        </div>
+                        <div className="truncate text-[12px] text-[#666]">{runtime.path}</div>
                       )}
                     </div>
 
@@ -183,15 +179,11 @@ export function RuntimesPage() {
                     <div className="mt-0.5 flex items-center gap-2">
                       <div
                         className={`h-2 w-2 rounded-full ${
-                          selectedRuntime.status === "running"
-                            ? "bg-emerald-500"
-                            : "bg-[#555]"
+                          selectedRuntime.status === "running" ? "bg-emerald-500" : "bg-[#555]"
                         }`}
                       />
                       <span className="text-[12px] text-[#999]">
-                        {selectedRuntime.status === "running"
-                          ? "Running"
-                          : "Stopped"}
+                        {selectedRuntime.status === "running" ? "Running" : "Stopped"}
                       </span>
                     </div>
                   </div>
@@ -223,9 +215,7 @@ export function RuntimesPage() {
                       Status
                     </div>
                     <div className="mt-1 text-[14px] text-[#ccc]">
-                      {selectedRuntime.status === "running"
-                        ? "Running"
-                        : "Stopped"}
+                      {selectedRuntime.status === "running" ? "Running" : "Stopped"}
                     </div>
                   </div>
 
@@ -235,9 +225,7 @@ export function RuntimesPage() {
                     </div>
                     <div className="mt-1 text-[14px] text-[#ccc]">
                       {selectedRuntime.lastRestartedAt
-                        ? new Date(
-                            selectedRuntime.lastRestartedAt,
-                          ).toLocaleString()
+                        ? new Date(selectedRuntime.lastRestartedAt).toLocaleString()
                         : "Never"}
                     </div>
                   </div>
@@ -258,9 +246,7 @@ export function RuntimesPage() {
                       <div className="text-[12px] font-medium uppercase tracking-wider text-[#666]">
                         Path
                       </div>
-                      <div className="mt-1 text-[14px] text-[#888]">
-                        {selectedRuntime.path}
-                      </div>
+                      <div className="mt-1 text-[14px] text-[#888]">{selectedRuntime.path}</div>
                     </div>
                   )}
                 </div>

@@ -4,11 +4,7 @@ export type RuntimeStatus = "running" | "stopped";
 
 export type RuntimeConfigState = "configured" | "missing" | "unknown";
 
-export type RuntimeVerificationState =
-  | "never"
-  | "passed"
-  | "failed"
-  | "unsupported";
+export type RuntimeVerificationState = "never" | "passed" | "failed" | "unsupported";
 
 export type RuntimeId = "codex" | "claude-code";
 
@@ -63,14 +59,11 @@ export interface RuntimeDescriptorWithModelPing extends RuntimeDescriptorBase {
   };
 }
 
-export interface RuntimeDescriptorWithoutModelPing
-  extends RuntimeDescriptorBase {
+export interface RuntimeDescriptorWithoutModelPing extends RuntimeDescriptorBase {
   supportsModelPing: false;
   verification: {
     modelPing?: never;
   };
 }
 
-export type RuntimeDescriptor =
-  | RuntimeDescriptorWithModelPing
-  | RuntimeDescriptorWithoutModelPing;
+export type RuntimeDescriptor = RuntimeDescriptorWithModelPing | RuntimeDescriptorWithoutModelPing;

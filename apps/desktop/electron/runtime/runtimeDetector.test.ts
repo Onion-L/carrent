@@ -219,10 +219,7 @@ describe("detectRuntime", () => {
       },
     });
 
-    expect(checkedPaths).toEqual([
-      `${os.homedir()}/relative-config`,
-      "/tmp/absolute-config",
-    ]);
+    expect(checkedPaths).toEqual([`${os.homedir()}/relative-config`, "/tmp/absolute-config"]);
   });
 
   it("keeps availability detected when version probing fails", async () => {

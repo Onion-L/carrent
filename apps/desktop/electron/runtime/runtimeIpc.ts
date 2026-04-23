@@ -6,10 +6,7 @@ import type {
 import { runtimeCatalog } from "./runtimeCatalog";
 import { detectRuntime } from "./runtimeDetector";
 import { runLocalCheck, runModelPing } from "./runtimeVerifier";
-import {
-  runtimeProcessManager,
-  type RuntimeProcessManager,
-} from "./runtimeProcessManager";
+import { runtimeProcessManager, type RuntimeProcessManager } from "./runtimeProcessManager";
 
 interface IpcMainLike {
   handle: (
@@ -17,9 +14,7 @@ interface IpcMainLike {
     listener: (
       event: unknown,
       runtimeId?: RuntimeId,
-    ) =>
-      | Promise<RuntimeRecord[] | RuntimeVerificationResult | void>
-      | void,
+    ) => Promise<RuntimeRecord[] | RuntimeVerificationResult | void> | void,
   ) => void;
 }
 

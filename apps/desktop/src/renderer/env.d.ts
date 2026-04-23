@@ -1,10 +1,6 @@
 /// <reference types="vite/client" />
 
-import type {
-  RuntimeId,
-  RuntimeRecord,
-  RuntimeVerificationResult,
-} from "../shared/runtimes";
+import type { RuntimeId, RuntimeRecord, RuntimeVerificationResult } from "../shared/runtimes";
 
 declare global {
   interface Window {

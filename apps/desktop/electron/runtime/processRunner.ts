@@ -60,18 +60,16 @@ export function createProcessRunner(): ProcessRunner {
               signal?: NodeJS.Signals | null;
             };
 
-              resolve({
-                ok: false,
-                exitCode:
-                  typeof childError.code === "number" ? childError.code : null,
-                stdout,
-                stderr,
-                errorCode:
-                  typeof childError.code === "string" ? childError.code : undefined,
-                signal: childError.signal ?? null,
-                timedOut,
-              });
-            },
+            resolve({
+              ok: false,
+              exitCode: typeof childError.code === "number" ? childError.code : null,
+              stdout,
+              stderr,
+              errorCode: typeof childError.code === "string" ? childError.code : undefined,
+              signal: childError.signal ?? null,
+              timedOut,
+            });
+          },
         );
 
         const timeoutHandle =

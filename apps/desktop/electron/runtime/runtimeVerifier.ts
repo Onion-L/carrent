@@ -1,19 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type {
-  RuntimeDescriptor,
-  RuntimeVerificationResult,
-} from "../../src/shared/runtimes";
-import {
-  createProcessRunner,
-  type ProcessRunner,
-  type ProcessRunnerResult,
-} from "./processRunner";
-import {
-  cleanupTempWorkspace,
-  createTempWorkspace,
-} from "./tempWorkspace";
+import type { RuntimeDescriptor, RuntimeVerificationResult } from "../../src/shared/runtimes";
+import { createProcessRunner, type ProcessRunner, type ProcessRunnerResult } from "./processRunner";
+import { cleanupTempWorkspace, createTempWorkspace } from "./tempWorkspace";
 
 const LOCAL_CHECK_TIMEOUT_MS = 5000;
 const MODEL_PING_TIMEOUT_MS = 15000;
@@ -40,8 +30,7 @@ export async function runLocalCheck(
 ): Promise<RuntimeVerificationResult> {
   const run = deps.run ?? createProcessRunner().run;
   const makeTempWorkspace = deps.createTempWorkspace ?? createTempWorkspace;
-  const removeTempWorkspace =
-    deps.cleanupTempWorkspace ?? cleanupTempWorkspace;
+  const removeTempWorkspace = deps.cleanupTempWorkspace ?? cleanupTempWorkspace;
   const now = deps.now ?? (() => new Date());
   const workspacePath = await makeTempWorkspace();
 
@@ -51,12 +40,7 @@ export async function runLocalCheck(
       timeoutMs: LOCAL_CHECK_TIMEOUT_MS,
     });
 
-    return createVerificationResult(
-      result,
-      "Local check failed.",
-      LOCAL_CHECK_TIMEOUT_MS,
-      now,
-    );
+    return createVerificationResult(result, "Local check failed.", LOCAL_CHECK_TIMEOUT_MS, now);
   } finally {
     await removeTempWorkspace(workspacePath);
   }
@@ -78,8 +62,7 @@ export async function runModelPing(
 
   const run = deps.run ?? createProcessRunner().run;
   const makeTempWorkspace = deps.createTempWorkspace ?? createTempWorkspace;
-  const removeTempWorkspace =
-    deps.cleanupTempWorkspace ?? cleanupTempWorkspace;
+  const removeTempWorkspace = deps.cleanupTempWorkspace ?? cleanupTempWorkspace;
   const workspacePath = await makeTempWorkspace();
   const command = buildArgs(workspacePath);
 
@@ -90,12 +73,7 @@ export async function runModelPing(
     });
 
     if (!result.ok) {
-      return createVerificationResult(
-        result,
-        "Model ping failed.",
-        MODEL_PING_TIMEOUT_MS,
-        now,
-      );
+      return createVerificationResult(result, "Model ping failed.", MODEL_PING_TIMEOUT_MS, now);
     }
 
     const response = await readModelPingResponse(readTextFile, result.stdout, command);
@@ -173,9 +151,7 @@ function createVerificationResult(
   return {
     verification: result.ok ? "passed" : "failed",
     lastVerifiedAt: now().toISOString(),
-    lastError: result.ok
-      ? undefined
-      : summarizeFailure(result, fallbackMessage, timeoutMs),
+    lastError: result.ok ? undefined : summarizeFailure(result, fallbackMessage, timeoutMs),
   };
 }
 
@@ -226,10 +202,12 @@ async function readModelPingResponse(
 }
 
 function firstNonEmptyLine(value: string): string {
-  return value
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .find((line) => line.length > 0) ?? "";
+  return (
+    value
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ""
+  );
 }
 
 function truncateSummary(value: string): string {

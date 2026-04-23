@@ -2,14 +2,8 @@ import { access } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type {
-  RuntimeDescriptor,
-  RuntimeRecord,
-} from "../../src/shared/runtimes";
-import {
-  createProcessRunner,
-  type ProcessRunner,
-} from "./processRunner";
+import type { RuntimeDescriptor, RuntimeRecord } from "../../src/shared/runtimes";
+import { createProcessRunner, type ProcessRunner } from "./processRunner";
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const MAX_ERROR_LENGTH = 120;
@@ -56,21 +50,14 @@ export async function detectRuntime(
     timeoutMs: DEFAULT_TIMEOUT_MS,
   });
   const configuration = await detectConfiguration(runtime, pathExists);
-  const processStatus = await detectProcessStatus(
-    runtime.command,
-    platform,
-    run,
-  );
-
+  const processStatus = await detectProcessStatus(runtime.command, platform, run);
 
   return {
     id: runtime.id,
     name: runtime.name,
     command: runtime.command,
     path: detectedPath || undefined,
-    version: versionResult.ok
-      ? firstNonEmptyLine(versionResult.stdout) || undefined
-      : undefined,
+    version: versionResult.ok ? firstNonEmptyLine(versionResult.stdout) || undefined : undefined,
     availability: "detected",
     status: processStatus.status,
     configuration,
@@ -90,11 +77,7 @@ async function detectProcessStatus(
   run: ProcessRunner["run"],
 ): Promise<{ status: "running" | "stopped"; pid?: number }> {
   if (platform === "win32") {
-    const result = await run("tasklist", [
-      "/FI",
-      `IMAGENAME eq ${command}.exe`,
-      "/NH",
-    ], {
+    const result = await run("tasklist", ["/FI", `IMAGENAME eq ${command}.exe`, "/NH"], {
       cwd: DETECTION_CWD,
     });
     if (result.ok && result.stdout.toLowerCase().includes(command.toLowerCase())) {
@@ -155,10 +138,12 @@ function expandHomeDir(inputPath: string): string {
 }
 
 function firstNonEmptyLine(value: string): string {
-  return value
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .find((line) => line.length > 0) ?? "";
+  return (
+    value
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ""
+  );
 }
 
 function summarizeError(stderr: string, stdout: string): string | undefined {

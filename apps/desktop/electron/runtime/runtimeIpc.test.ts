@@ -1,9 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type {
-  RuntimeRecord,
-  RuntimeVerificationResult,
-} from "../../src/shared/runtimes";
+import type { RuntimeRecord, RuntimeVerificationResult } from "../../src/shared/runtimes";
 import { registerRuntimeIpc } from "./runtimeIpc";
 
 describe("registerRuntimeIpc", () => {
@@ -89,12 +86,8 @@ describe("registerRuntimeIpc", () => {
     ]);
 
     expect(await handlers.get("runtimes:list")?.({})).toEqual(listResult);
-    expect(await handlers.get("runtimes:local-check")?.({}, "codex")).toEqual(
-      localCheckResult,
-    );
-    expect(await handlers.get("runtimes:model-ping")?.({}, "claude-code")).toEqual(
-      modelPingResult,
-    );
+    expect(await handlers.get("runtimes:local-check")?.({}, "codex")).toEqual(localCheckResult);
+    expect(await handlers.get("runtimes:model-ping")?.({}, "claude-code")).toEqual(modelPingResult);
     await handlers.get("runtimes:start")?.({}, "codex");
     await handlers.get("runtimes:stop")?.({}, "claude-code");
     await handlers.get("runtimes:restart")?.({}, "codex");

@@ -1,10 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type {
-  RuntimeId,
-  RuntimeRecord,
-  RuntimeVerificationResult,
-} from "../../shared/runtimes";
+import type { RuntimeId, RuntimeRecord, RuntimeVerificationResult } from "../../shared/runtimes";
 
 type RuntimeActionState =
   | "idle"
@@ -89,10 +85,7 @@ export function useRuntimes() {
   }
 
   async function runGlobalAction(
-    action: Extract<
-      RuntimeActionState,
-      "starting" | "stopping" | "restarting"
-    >,
+    action: Extract<RuntimeActionState, "starting" | "stopping" | "restarting">,
     actionRunner: () => Promise<void>,
   ) {
     // Mark all runtimes as pending
@@ -136,10 +129,7 @@ export function useRuntimes() {
 
   async function runLifecycleAction(
     id: RuntimeId,
-    action: Extract<
-      RuntimeActionState,
-      "starting" | "stopping" | "restarting"
-    >,
+    action: Extract<RuntimeActionState, "starting" | "stopping" | "restarting">,
     actionRunner: (runtimeId: RuntimeId) => Promise<void>,
   ) {
     setState((current) => ({

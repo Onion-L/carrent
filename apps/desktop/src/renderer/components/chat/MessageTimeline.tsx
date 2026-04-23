@@ -6,9 +6,7 @@ function AgentBadge({ agentId }: { agentId: string }) {
   const agent = agents.find((a) => a.id === agentId);
   if (!agent) return null;
   return (
-    <span className="rounded bg-[#252525] px-1.5 py-0.5 text-[11px] text-[#888]">
-      {agent.name}
-    </span>
+    <span className="rounded bg-[#252525] px-1.5 py-0.5 text-[11px] text-[#888]">{agent.name}</span>
   );
 }
 
@@ -16,9 +14,7 @@ function UserMessageBubble({ content, timestamp }: { content: string; timestamp:
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-[#2a2a2a] px-4 py-3">
-        <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#eee]">
-          {content}
-        </p>
+        <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#eee]">{content}</p>
       </div>
       <span className="text-[11px] text-[#555]">{timestamp}</span>
     </div>
@@ -47,9 +43,7 @@ function AssistantMessage({
           <AgentBadge agentId={agentId} />
         </div>
         {content && (
-          <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#ccc]">
-            {content}
-          </p>
+          <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#ccc]">{content}</p>
         )}
         <span className="text-[11px] text-[#555]">
           {timestamp}
@@ -65,20 +59,14 @@ export function MessageTimeline() {
     <div className="flex flex-1 flex-col overflow-auto px-4 py-6">
       {messages.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
-          <p className="text-[15px] text-[#555]">
-            Send a message to start the conversation.
-          </p>
+          <p className="text-[15px] text-[#555]">Send a message to start the conversation.</p>
         </div>
       ) : (
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
           {messages.map((msg) => {
             if (msg.role === "user") {
               return (
-                <UserMessageBubble
-                  key={msg.id}
-                  content={msg.content}
-                  timestamp={msg.timestamp}
-                />
+                <UserMessageBubble key={msg.id} content={msg.content} timestamp={msg.timestamp} />
               );
             }
 

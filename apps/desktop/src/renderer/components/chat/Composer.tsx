@@ -4,9 +4,7 @@ import { agents, currentProject } from "../../mock/uiShellData";
 
 export function Composer() {
   const [input, setInput] = useState("");
-  const [selectedAgentId] = useState(
-    agents.find((a) => a.selected)?.id ?? agents[0]?.id
-  );
+  const [selectedAgentId] = useState(agents.find((a) => a.selected)?.id ?? agents[0]?.id);
 
   return (
     <div className="px-4 pb-4 pt-2">

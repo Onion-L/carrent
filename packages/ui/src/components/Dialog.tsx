@@ -39,26 +39,17 @@ export function Dialog({
         <div className="flex items-start justify-between gap-4 border-b border-border p-6">
           <div className="space-y-1">
             <h2 className="text-lg font-semibold">{title}</h2>
-            {description ? (
-              <p className="text-sm text-muted">{description}</p>
-            ) : null}
+            {description ? <p className="text-sm text-muted">{description}</p> : null}
           </div>
           {onClose ? (
-            <Button
-              aria-label="Close dialog"
-              onClick={onClose}
-              size="sm"
-              variant="ghost"
-            >
+            <Button aria-label="Close dialog" onClick={onClose} size="sm" variant="ghost">
               Close
             </Button>
           ) : null}
         </div>
         <div className="p-6">{children}</div>
         {actions ? (
-          <div className="flex justify-end gap-3 border-t border-border p-6">
-            {actions}
-          </div>
+          <div className="flex justify-end gap-3 border-t border-border p-6">{actions}</div>
         ) : null}
       </div>
     </div>

@@ -4,7 +4,7 @@ import { threads, currentProject } from "../../mock/uiShellData";
 
 export function ThreadHistoryPane() {
   const [activeThreadId, setActiveThreadId] = useState(
-    threads.find((t) => t.active)?.id ?? threads[0]?.id
+    threads.find((t) => t.active)?.id ?? threads[0]?.id,
   );
 
   return (
@@ -24,9 +24,7 @@ export function ThreadHistoryPane() {
         {threads.length === 0 ? (
           <div className="px-2 py-6 text-center">
             <p className="text-[13px] text-[#555]">No threads yet</p>
-            <p className="mt-1 text-[12px] text-[#444]">
-              Start a new thread to begin
-            </p>
+            <p className="mt-1 text-[12px] text-[#444]">Start a new thread to begin</p>
           </div>
         ) : (
           threads.map((thread) => {

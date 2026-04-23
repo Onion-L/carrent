@@ -7,9 +7,9 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "lint": "bunx prettier --check .",
+    "lint": "oxlint .",
     "typecheck": "astro check",
-    "format": "bunx prettier --write ."
+    "format": "oxfmt . --write"
   },
   "dependencies": {
     "@astrojs/react": "^5.0.3",

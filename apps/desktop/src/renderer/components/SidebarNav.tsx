@@ -22,7 +22,7 @@ export function SidebarNav() {
   const navigate = useNavigate();
   const [projectExpanded, setProjectExpanded] = useState(true);
   const [activeThreadId, setActiveThreadId] = useState(
-    threads.find((t) => t.active)?.id ?? threads[0]?.id
+    threads.find((t) => t.active)?.id ?? threads[0]?.id,
   );
 
   const handleThreadClick = (threadId: string) => {
@@ -82,9 +82,7 @@ export function SidebarNav() {
                     }`}
                   >
                     <span className="truncate text-[13px]">{thread.title}</span>
-                    <span className="shrink-0 text-[11px] text-[#555]">
-                      {thread.updatedAt}
-                    </span>
+                    <span className="shrink-0 text-[11px] text-[#555]">{thread.updatedAt}</span>
                   </button>
                 );
               })}

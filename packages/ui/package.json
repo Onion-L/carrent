@@ -2,6 +2,9 @@
   "name": "@carrent/ui",
   "version": "0.0.0",
   "private": true,
+  "files": [
+    "src"
+  ],
   "type": "module",
   "sideEffects": [
     "**/*.css"
@@ -11,21 +14,18 @@
     "./globals.css": "./src/styles/globals.css",
     "./tokens.css": "./src/styles/tokens.css"
   },
-  "files": [
-    "src"
-  ],
-  "peerDependencies": {
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5"
-  },
   "scripts": {
     "build": "bun --eval \"import { mkdir } from 'node:fs/promises'; await mkdir('out', { recursive: true }); await Bun.write('out/.stamp', 'source package\\n'); console.log('No build step for @carrent/ui')\"",
-    "lint": "bunx prettier --check .",
+    "lint": "oxlint .",
     "typecheck": "bunx tsc -p tsconfig.json --noEmit",
-    "format": "bunx prettier --write ."
+    "format": "oxfmt . --write"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3"
+  },
+  "peerDependencies": {
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
   }
 }

@@ -8,9 +8,9 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "dist": "electron-vite build && electron-builder",
-    "lint": "bunx prettier --check .",
+    "lint": "oxlint .",
     "typecheck": "bunx tsc -p tsconfig.json --noEmit",
-    "format": "bunx prettier --write ."
+    "format": "oxfmt . --write"
   },
   "dependencies": {
     "@carrent/ui": "workspace:*",

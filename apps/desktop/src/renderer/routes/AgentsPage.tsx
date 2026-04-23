@@ -5,7 +5,7 @@ import { agents, runtimes } from "../mock/uiShellData";
 
 export function AgentsPage() {
   const [selectedAgentId, setSelectedAgentId] = useState(
-    agents.find((a) => a.selected)?.id ?? agents[0]?.id
+    agents.find((a) => a.selected)?.id ?? agents[0]?.id,
   );
 
   const selectedAgent = agents.find((a) => a.id === selectedAgentId);
@@ -65,9 +65,7 @@ export function AgentsPage() {
                   <Bot className="h-5 w-5 text-[#888]" />
                 </div>
                 <div>
-                  <h2 className="text-[18px] font-semibold text-[#eee]">
-                    {selectedAgent.name}
-                  </h2>
+                  <h2 className="text-[18px] font-semibold text-[#eee]">{selectedAgent.name}</h2>
                   <p className="text-[13px] text-[#666]">{selectedAgent.runtime}</p>
                 </div>
               </div>
@@ -79,9 +77,7 @@ export function AgentsPage() {
 
             <div className="space-y-5">
               <div>
-                <label className="mb-1.5 block text-[13px] font-medium text-[#aaa]">
-                  Name
-                </label>
+                <label className="mb-1.5 block text-[13px] font-medium text-[#aaa]">Name</label>
                 <Input value={selectedAgent.name} readOnly className="bg-[#1e1e1e]" />
               </div>
 
@@ -100,11 +96,7 @@ export function AgentsPage() {
                 <label className="mb-1.5 block text-[13px] font-medium text-[#aaa]">
                   Default Runtime
                 </label>
-                <Select
-                  disabled
-                  className="bg-[#1e1e1e]"
-                  value={selectedAgent.runtime}
-                >
+                <Select disabled className="bg-[#1e1e1e]" value={selectedAgent.runtime}>
                   {runtimes.map((rt) => (
                     <option key={rt.id} value={rt.id}>
                       {rt.name}

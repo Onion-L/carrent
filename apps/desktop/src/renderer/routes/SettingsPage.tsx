@@ -71,8 +71,7 @@ export function SettingsPage() {
             <div className="flex items-center justify-between py-2">
               <span className="text-[13px] text-[#aaa]">Runtime connections</span>
               <span className="inline-flex items-center gap-1 text-[13px] text-emerald-400">
-                <Monitor className="h-3 w-3" />
-                1 connected
+                <Monitor className="h-3 w-3" />1 connected
               </span>
             </div>
           </SectionCard>

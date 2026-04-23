@@ -71,7 +71,8 @@ export const messages: Message[] = [
     id: "m3",
     role: "user",
     agentId: "frontend",
-    content: "scan this project and tell me what you think is vulnerable before shipping, respond in Chinese",
+    content:
+      "scan this project and tell me what you think is vulnerable before shipping, respond in Chinese",
     timestamp: "19:47:46",
   },
   {
@@ -85,6 +86,18 @@ export const messages: Message[] = [
 ];
 
 export const runtimes = [
-  { id: "codex", name: "Codex CLI", status: "detected" as const, version: "local", path: "/usr/local/bin/codex" },
-  { id: "claude-code", name: "Claude Code", status: "unavailable" as const, version: "unknown", path: "/usr/local/bin/claude" },
+  {
+    id: "codex",
+    name: "Codex CLI",
+    status: "detected" as const,
+    version: "local",
+    path: "/usr/local/bin/codex",
+  },
+  {
+    id: "claude-code",
+    name: "Claude Code",
+    status: "unavailable" as const,
+    version: "unknown",
+    path: "/usr/local/bin/claude",
+  },
 ];

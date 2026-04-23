@@ -10,13 +10,7 @@ export interface FormFieldProps {
   className?: string;
 }
 
-export function FormField({
-  label,
-  helperText,
-  error,
-  children,
-  className,
-}: FormFieldProps) {
+export function FormField({ label, helperText, error, children, className }: FormFieldProps) {
   return (
     <label className={cn("grid gap-2", className)}>
       <span className="text-sm font-medium text-fg">{label}</span>

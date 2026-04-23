@@ -48,7 +48,8 @@ export function RuntimesPage() {
             <Monitor className="h-10 w-10" />
             <p className="text-[15px]">No runtimes detected</p>
             <p className="max-w-sm text-center text-[13px]">
-              Carrent will scan for local CLI tools here. Install a supported runtime to get started.
+              Carrent will scan for local CLI tools here. Install a supported runtime to get
+              started.
             </p>
           </div>
         ) : (
@@ -64,9 +65,7 @@ export function RuntimesPage() {
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-[14px] font-medium text-[#ddd]">
-                        {rt.name}
-                      </span>
+                      <span className="text-[14px] font-medium text-[#ddd]">{rt.name}</span>
                       <StatusBadge status={rt.status} />
                     </div>
                     <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-[#666]">

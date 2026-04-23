@@ -100,7 +100,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
             {/* Resize handle */}
             <div
               onMouseDown={handleStartResize}
-              className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize bg-transparent transition hover:bg-[#444] active:bg-[#4a6cf7]"
+              className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize bg-transparent transition hover:bg-[#444]"
             />
           </>
         )}

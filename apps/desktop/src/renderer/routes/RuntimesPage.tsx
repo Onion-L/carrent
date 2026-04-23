@@ -93,7 +93,15 @@ export function RuntimesPage() {
               : "Stopped"}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={stopAll}
+            disabled={isAnyActionPending}
+            className="flex items-center gap-1.5 text-[13px] text-[#999] transition hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Square className="h-3.5 w-3.5" />
+            Stop
+          </button>
           <button
             onClick={restartAll}
             disabled={isAnyActionPending}
@@ -101,14 +109,6 @@ export function RuntimesPage() {
           >
             <RotateCcw className="h-3.5 w-3.5" />
             Restart
-          </button>
-          <button
-            onClick={stopAll}
-            disabled={isAnyActionPending}
-            className="flex items-center gap-2 rounded-lg border border-[#2f2f2f] bg-[#252525] px-3 py-1.5 text-[13px] text-[#ccc] transition hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Square className="h-3.5 w-3.5" />
-            Stop
           </button>
         </div>
       </div>

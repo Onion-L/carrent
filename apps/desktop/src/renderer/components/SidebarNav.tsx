@@ -9,7 +9,7 @@ import {
   FolderOpen,
   SquarePen,
 } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { currentProject, threads } from "../mock/uiShellData";
 
@@ -19,13 +19,22 @@ const workspaceNavItems = [
 ];
 
 export function SidebarNav() {
+  const navigate = useNavigate();
   const [projectExpanded, setProjectExpanded] = useState(true);
   const [activeThreadId, setActiveThreadId] = useState(
     threads.find((t) => t.active)?.id ?? threads[0]?.id
   );
 
+  const handleThreadClick = (threadId: string) => {
+    setActiveThreadId(threadId);
+    navigate("/");
+  };
+
   return (
-    <aside className="flex h-full flex-col bg-[#1e1e1e]">
+    <aside
+      className="flex h-full flex-col bg-[#1e1e1e]"
+      style={{ paddingTop: "env(titlebar-area-height, 38px)" }}
+    >
       {/* Projects section */}
       <div className="flex max-h-[50%] flex-col">
         <div className="flex items-center justify-between px-4 py-1.5">
@@ -65,7 +74,7 @@ export function SidebarNav() {
                 return (
                   <button
                     key={thread.id}
-                    onClick={() => setActiveThreadId(thread.id)}
+                    onClick={() => handleThreadClick(thread.id)}
                     className={`flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left transition ${
                       isActive
                         ? "bg-[#2a2a2a] text-[#eee]"

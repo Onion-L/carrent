@@ -11,7 +11,7 @@ export const agents = [
 ];
 
 export const threads = [
-  { id: "thread-1", title: "Project onboarding", updatedAt: "2m ago", active: true },
+  { id: "thread-1", title: "hi", updatedAt: "2d ago", active: true },
   { id: "thread-2", title: "Refactor entry flow", updatedAt: "1h ago" },
 ];
 

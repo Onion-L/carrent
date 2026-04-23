@@ -84,20 +84,3 @@ export const messages: Message[] = [
     duration: "6.2s",
   },
 ];
-
-export const runtimes = [
-  {
-    id: "codex",
-    name: "Codex CLI",
-    status: "detected" as const,
-    version: "local",
-    path: "/usr/local/bin/codex",
-  },
-  {
-    id: "claude-code",
-    name: "Claude Code",
-    status: "unavailable" as const,
-    version: "unknown",
-    path: "/usr/local/bin/claude",
-  },
-];

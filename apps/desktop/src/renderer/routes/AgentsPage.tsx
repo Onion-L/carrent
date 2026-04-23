@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { Button, Input, Textarea, Select } from "@carrent/ui";
 import { Bot, Plus, Trash2 } from "lucide-react";
-import { agents, runtimes } from "../mock/uiShellData";
+import { agents } from "../mock/uiShellData";
+
+const runtimeOptions = [
+  { id: "codex", name: "Codex" },
+  { id: "claude-code", name: "Claude Code" },
+] as const;
 
 export function AgentsPage() {
   const [selectedAgentId, setSelectedAgentId] = useState(
@@ -97,7 +102,7 @@ export function AgentsPage() {
                   Default Runtime
                 </label>
                 <Select disabled className="bg-[#1e1e1e]" value={selectedAgent.runtime}>
-                  {runtimes.map((rt) => (
+                  {runtimeOptions.map((rt) => (
                     <option key={rt.id} value={rt.id}>
                       {rt.name}
                     </option>

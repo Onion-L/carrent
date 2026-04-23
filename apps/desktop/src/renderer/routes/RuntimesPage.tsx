@@ -28,7 +28,7 @@ function RuntimeIcon({ name }: { name: string }) {
 }
 
 function getRuntimeDisplayName(name: string): string {
-  return `${name} (oniondeMacBook-Pro...)`;
+  return `${name}`;
 }
 
 export function RuntimesPage() {
@@ -67,12 +67,6 @@ export function RuntimesPage() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[14px] font-medium text-[#ddd]">
                       {getRuntimeDisplayName(runtime.name)}
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-[#666]">
-                      <div className="flex h-4 w-4 items-center justify-center overflow-hidden rounded-full bg-[#333] text-[10px]">
-                        O
-                      </div>
-                      <span>onionl5236</span>
                     </div>
                   </div>
 

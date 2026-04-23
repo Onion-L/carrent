@@ -45,13 +45,16 @@ describe("runtimeCatalog", () => {
     });
   });
 
-  it("marks claude-code model ping as unsupported until confirmed", () => {
+  it("defines the confirmed claude-code model ping", () => {
     const claudeCode = runtimeCatalog.find(
       (runtime) => runtime.id === "claude-code",
     );
 
     expect(claudeCode).toBeDefined();
-    expect(claudeCode?.supportsModelPing).toBe(false);
-    expect(claudeCode?.verification.modelPing).toBeUndefined();
+    expect(claudeCode?.supportsModelPing).toBe(true);
+    expect(claudeCode?.verification.modelPing).toEqual({
+      prompt: "Reply with exactly OK.",
+      mayUseTokens: true,
+    });
   });
 });

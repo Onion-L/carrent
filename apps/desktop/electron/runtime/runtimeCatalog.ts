@@ -26,12 +26,17 @@ export const runtimeCatalog = [
     command: "claude",
     versionArgs: ["--version"],
     configMarkers: ["~/.claude"],
-    supportsModelPing: false,
+    supportsModelPing: true,
     detection: {
       localCheck: {
         mayUseTokens: false,
       },
     },
-    verification: {},
+    verification: {
+      modelPing: {
+        prompt: "Reply with exactly OK.",
+        mayUseTokens: true,
+      },
+    },
   },
 ] satisfies RuntimeDescriptor[];

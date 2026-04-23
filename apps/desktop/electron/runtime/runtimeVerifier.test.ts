@@ -29,6 +29,28 @@ function createRuntimeDescriptor(): RuntimeDescriptor {
   };
 }
 
+function createClaudeRuntimeDescriptor(): RuntimeDescriptor {
+  return {
+    id: "claude-code",
+    name: "Claude Code",
+    command: "claude",
+    versionArgs: ["--version"],
+    configMarkers: ["~/.claude"],
+    supportsModelPing: true,
+    detection: {
+      localCheck: {
+        mayUseTokens: false,
+      },
+    },
+    verification: {
+      modelPing: {
+        prompt: "Reply with exactly OK.",
+        mayUseTokens: true,
+      },
+    },
+  };
+}
+
 function createSuccessResult(stdout: string) {
   return {
     ok: true,
@@ -241,13 +263,59 @@ describe("runModelPing", () => {
     ]);
   });
 
+  it("runs claude-code model ping in print mode and reads from stdout", async () => {
+    const tempWorkspacePath = path.join(os.tmpdir(), "runtime-verifier-claude-ping");
+    const calls: Array<{
+      command: string;
+      args: string[];
+      cwd?: string;
+      timeoutMs?: number;
+    }> = [];
+
+    const result = await runModelPing(createClaudeRuntimeDescriptor(), {
+      createTempWorkspace: async () => tempWorkspacePath,
+      cleanupTempWorkspace: async () => {},
+      now: () => new Date("2026-04-23T00:00:00.000Z"),
+      readFile: async () => {
+        throw new Error("should not read from file for claude-code");
+      },
+      run: async (command, args, options) => {
+        calls.push({
+          command,
+          args,
+          cwd: options?.cwd,
+          timeoutMs: options?.timeoutMs,
+        });
+        return createSuccessResult("OK\n");
+      },
+    });
+
+    expect(result).toEqual({
+      verification: "passed",
+      lastVerifiedAt: "2026-04-23T00:00:00.000Z",
+    });
+    expect(calls).toEqual([
+      {
+        command: "claude",
+        args: [
+          "--print",
+          "--output-format",
+          "text",
+          "--no-session-persistence",
+          "--tools",
+          "",
+          "Reply with exactly OK.",
+        ],
+        cwd: tempWorkspacePath,
+        timeoutMs: 15000,
+      },
+    ]);
+  });
+
   it("returns unsupported without invoking the CLI when ping is not supported", async () => {
     let runCalls = 0;
     const runtime = {
-      ...createRuntimeDescriptor(),
-      id: "claude-code",
-      name: "Claude Code",
-      command: "claude",
+      ...createClaudeRuntimeDescriptor(),
       supportsModelPing: false,
       verification: {},
     } as RuntimeDescriptor;

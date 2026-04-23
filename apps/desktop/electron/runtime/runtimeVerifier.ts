@@ -20,6 +20,12 @@ const MODEL_PING_TIMEOUT_MS = 15000;
 const MAX_SUMMARY_CHARS = 240;
 const FIXED_MODEL_PING_PROMPT = "Reply with exactly OK.";
 
+interface ModelPingCommand {
+  args: string[];
+  responseSource: "stdout" | "file";
+  outputFilePath?: string;
+}
+
 interface RuntimeVerifierDeps {
   run?: ProcessRunner["run"];
   createTempWorkspace?: () => Promise<string>;
@@ -75,10 +81,10 @@ export async function runModelPing(
   const removeTempWorkspace =
     deps.cleanupTempWorkspace ?? cleanupTempWorkspace;
   const workspacePath = await makeTempWorkspace();
-  const outputFilePath = path.join(workspacePath, "model-ping.txt");
+  const command = buildArgs(workspacePath);
 
   try {
-    const result = await run(runtime.command, buildArgs(outputFilePath), {
+    const result = await run(runtime.command, command.args, {
       cwd: workspacePath,
       timeoutMs: MODEL_PING_TIMEOUT_MS,
     });
@@ -92,7 +98,7 @@ export async function runModelPing(
       );
     }
 
-    const response = await readModelPingResponse(readTextFile, outputFilePath);
+    const response = await readModelPingResponse(readTextFile, result.stdout, command);
 
     if (response === "OK") {
       return {
@@ -117,21 +123,42 @@ export async function runModelPing(
 
 function getModelPingArgs(
   runtime: RuntimeDescriptor,
-): ((outputFilePath: string) => string[]) | null {
+): ((workspacePath: string) => ModelPingCommand) | null {
   if (!runtime.supportsModelPing || runtime.verification.modelPing == null) {
     return null;
   }
 
   switch (runtime.id) {
     case "codex":
-      return (outputFilePath) => [
-        "exec",
-        "--skip-git-repo-check",
-        "--ephemeral",
-        "--output-last-message",
-        outputFilePath,
-        FIXED_MODEL_PING_PROMPT,
-      ];
+      return (workspacePath) => {
+        const outputFilePath = path.join(workspacePath, "model-ping.txt");
+
+        return {
+          args: [
+            "exec",
+            "--skip-git-repo-check",
+            "--ephemeral",
+            "--output-last-message",
+            outputFilePath,
+            FIXED_MODEL_PING_PROMPT,
+          ],
+          responseSource: "file",
+          outputFilePath,
+        };
+      };
+    case "claude-code":
+      return () => ({
+        args: [
+          "--print",
+          "--output-format",
+          "text",
+          "--no-session-persistence",
+          "--tools",
+          "",
+          FIXED_MODEL_PING_PROMPT,
+        ],
+        responseSource: "stdout",
+      });
     default:
       return null;
   }
@@ -180,10 +207,19 @@ function summarizeFailure(
 
 async function readModelPingResponse(
   readTextFile: (filePath: string) => Promise<string>,
-  outputFilePath: string,
+  stdout: string,
+  command: ModelPingCommand,
 ): Promise<string> {
+  if (command.responseSource === "stdout") {
+    return normalizeResponse(stdout);
+  }
+
+  if (command.outputFilePath == null) {
+    return "";
+  }
+
   try {
-    return normalizeResponse(await readTextFile(outputFilePath));
+    return normalizeResponse(await readTextFile(command.outputFilePath));
   } catch {
     return "";
   }

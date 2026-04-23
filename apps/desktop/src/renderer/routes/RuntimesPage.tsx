@@ -61,6 +61,7 @@ export function RuntimesPage() {
     start,
     stop,
     restart,
+    runLocalCheck,
     startAll,
     stopAll,
     restartAll,
@@ -205,6 +206,13 @@ export function RuntimesPage() {
                     Start
                   </button>
                 )}
+                <button
+                  onClick={() => runLocalCheck(selectedRuntime.id)}
+                  disabled={isActionPending(selectedRuntime.id)}
+                  className="flex items-center gap-2 rounded-lg border border-[#2f2f2f] bg-[#252525] px-3 py-1.5 text-[13px] text-[#ccc] transition hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Test
+                </button>
               </div>
 
               {/* Detail info */}

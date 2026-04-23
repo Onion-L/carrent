@@ -11,7 +11,7 @@ export function Composer() {
   const selectedAgent = agents.find((a) => a.id === selectedAgentId);
 
   return (
-    <div className="border-t border-[#2a2a2a] px-4 pb-3 pt-3">
+    <div className="px-4 pb-3 pt-3">
       <div className="mx-auto max-w-3xl rounded-2xl border border-[#2f2f2f] bg-[#1e1e1e] p-4">
         <textarea
           value={input}

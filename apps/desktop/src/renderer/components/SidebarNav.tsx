@@ -10,7 +10,6 @@ import {
   ChevronRight,
   FolderOpen,
   SquarePen,
-  PanelLeftClose,
   Wand2,
   Puzzle,
   Zap,
@@ -33,29 +32,17 @@ const workspaceNavItems = [
   { to: "/runtimes", label: "Runtimes", icon: Monitor },
 ];
 
-export function SidebarNav({ onToggle }: { onToggle: () => void }) {
+export function SidebarNav() {
   const [projectExpanded, setProjectExpanded] = useState(true);
   const [activeThreadId, setActiveThreadId] = useState(
     threads.find((t) => t.active)?.id ?? threads[0]?.id
   );
 
   return (
-    <aside className="flex h-full flex-col bg-[#1e1e1e]">
-      {/* Title bar strip */}
-      <div
-        className="drag-region flex shrink-0 items-center justify-between px-3"
-        style={{ height: "env(titlebar-area-height, 38px)" }}
-      >
-        <span className="text-[13px] font-semibold text-[#ddd]">Carrent</span>
-        <button
-          onClick={onToggle}
-          className="no-drag flex h-7 w-7 items-center justify-center rounded-md text-[#555] transition hover:bg-[#2a2a2a] hover:text-[#888]"
-          title="Collapse sidebar"
-        >
-          <PanelLeftClose className="h-4 w-4" />
-        </button>
-      </div>
-
+    <aside
+      className="flex h-full flex-col bg-[#1e1e1e]"
+      style={{ paddingTop: "env(titlebar-area-height, 38px)" }}
+    >
       {/* Top nav */}
       <nav className="px-2 pb-2">
         {topNavItems.map((item) => (

@@ -1,6 +1,8 @@
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { registerRuntimeIpc } from "./runtime/runtimeIpc";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -41,6 +43,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  registerRuntimeIpc(ipcMain);
   createWindow();
 
   app.on("activate", () => {

@@ -27,7 +27,7 @@ function RuntimeIcon({ name }: { name: string }) {
 }
 
 export function RuntimesPage() {
-  const { runtimes, loading, actionStateById, runLocalCheck } = useRuntimes();
+  const { runtimes, loading, actionStateById, runModelPing } = useRuntimes();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const selectedRuntime = runtimes.find((r) => r.id === selectedId);
@@ -140,11 +140,11 @@ export function RuntimesPage() {
                 </div>
               </div>
               <button
-                onClick={() => runLocalCheck(selectedRuntime.id)}
+                onClick={() => runModelPing(selectedRuntime.id)}
                 disabled={isActionPending(selectedRuntime.id)}
                 className="flex items-center gap-2 rounded-lg border border-[#2f2f2f] bg-[#252525] px-3 py-1.5 text-[13px] text-[#ccc] transition hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Test
+                Test Connection
               </button>
             </div>
 

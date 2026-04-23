@@ -33,26 +33,13 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const handleMouseUp = useCallback(
-    (e: MouseEvent) => {
-      if (!isDragging.current) return;
-      isDragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-
-      const finalWidth = Math.max(MIN_WIDTH, e.clientX);
-      if (finalWidth <= MIN_WIDTH + 20) {
-        setIsCollapsed(true);
-        setSidebarWidth(COLLAPSED_WIDTH);
-        if (sidebarRef.current) {
-          sidebarRef.current.style.width = `${COLLAPSED_WIDTH}px`;
-        }
-      } else {
-        setSidebarWidth(finalWidth);
-      }
-    },
-    []
-  );
+  const handleMouseUp = useCallback((e: MouseEvent) => {
+    if (!isDragging.current) return;
+    isDragging.current = false;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    setSidebarWidth(Math.max(MIN_WIDTH, e.clientX));
+  }, []);
 
   useEffect(() => {
     document.addEventListener("mousemove", handleMouseMove);

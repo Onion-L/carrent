@@ -84,7 +84,7 @@ export function SidebarNav() {
 
           {/* Expanded threads */}
           {projectExpanded && (
-            <div className="ml-5 border-l border-[#2a2a2a]">
+            <div className="ml-5">
               {threads.map((thread) => {
                 const isActive = thread.id === activeThreadId;
                 return (

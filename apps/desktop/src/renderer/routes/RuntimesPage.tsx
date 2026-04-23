@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { OpenAIIcon } from "../components/icons/OpenAIIcon";
 import { ClaudeIcon } from "../components/icons/ClaudeIcon";
-import { RotateCcw, Square, Play } from "lucide-react";
+import { RotateCcw, Square } from "lucide-react";
 
 function RuntimeIcon({ name }: { name: string }) {
   const key = name.toLowerCase();
@@ -60,9 +60,6 @@ export function RuntimesPage() {
     runtimes,
     loading,
     actionStateById,
-    start,
-    stop,
-    restart,
     runLocalCheck,
     startAll,
     stopAll,
@@ -188,16 +185,6 @@ export function RuntimesPage() {
                     </div>
                   </div>
                 </div>
-                {selectedRuntime.status === "stopped" && (
-                  <button
-                    onClick={() => start(selectedRuntime.id)}
-                    disabled={isActionPending(selectedRuntime.id)}
-                    className="flex items-center gap-2 rounded-lg border border-[#2f2f2f] bg-[#252525] px-3 py-1.5 text-[13px] text-[#ccc] transition hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Play className="h-3.5 w-3.5" />
-                    Start
-                  </button>
-                )}
                 <button
                   onClick={() => runLocalCheck(selectedRuntime.id)}
                   disabled={isActionPending(selectedRuntime.id)}

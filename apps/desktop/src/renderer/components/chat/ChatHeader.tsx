@@ -1,25 +1,9 @@
-import { Upload, Square, Maximize2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { useSidebar } from "../SidebarContext";
+import { Upload, Square, Maximize2 } from "lucide-react";
 
 export function ChatHeader() {
-  const { toggle, isCollapsed } = useSidebar();
-
   return (
     <header className="flex shrink-0 items-center justify-between px-4 py-2">
-      <div className="flex items-center gap-3">
-        <button
-          onClick={toggle}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-[#555] transition hover:bg-[#252525] hover:text-[#888]"
-          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {isCollapsed ? (
-            <PanelLeftOpen className="h-4 w-4" />
-          ) : (
-            <PanelLeftClose className="h-4 w-4" />
-          )}
-        </button>
-        <h1 className="text-[15px] font-semibold text-[#eee]">New Chat</h1>
-      </div>
+      <h1 className="text-[15px] font-semibold text-[#eee]">New Chat</h1>
       <div className="flex items-center gap-2">
         <button className="flex items-center gap-1.5 rounded-md border border-[#333] bg-[#252525] px-3 py-1 text-[12px] text-[#bbb] transition hover:bg-[#2f2f2f]">
           <Upload className="h-3.5 w-3.5" />

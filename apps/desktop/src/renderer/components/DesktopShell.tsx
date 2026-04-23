@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { PanelLeftOpen, PanelLeftClose } from "lucide-react";
 import { SidebarNav } from "./SidebarNav";
 import { SidebarContext } from "./SidebarContext";
 
@@ -79,11 +80,26 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarContext.Provider value={{ toggle: handleToggle, isCollapsed }}>
-      <div className="flex h-screen w-screen overflow-hidden bg-[#181818]">
+      <div className="grid h-screen w-screen grid-cols-[auto_1fr] grid-rows-[env(titlebar-area-height,38px)_1fr] overflow-hidden bg-[#181818]">
+        {/* Title bar — full width */}
+        <div className="drag-region col-span-2 flex items-center px-4">
+          <button
+            onClick={handleToggle}
+            className="no-drag ml-[72px] flex h-7 w-7 items-center justify-center rounded-md text-[#555] transition hover:bg-[#252525] hover:text-[#888]"
+            title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {isCollapsed ? (
+              <PanelLeftOpen className="h-4 w-4" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+
         {/* Sidebar */}
         <div
           ref={sidebarRef}
-          className="relative flex shrink-0 flex-col overflow-hidden"
+          className="relative flex flex-col overflow-hidden"
           style={{
             width: isCollapsed ? COLLAPSED_WIDTH : sidebarWidth,
             transition: isCollapsed ? "width 200ms ease" : undefined,
@@ -92,7 +108,6 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
           {!isCollapsed && (
             <>
               <SidebarNav />
-              {/* Resize handle */}
               <div
                 onMouseDown={handleStartResize}
                 className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize bg-transparent transition hover:bg-[#444]"
@@ -101,7 +116,10 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
           )}
         </div>
 
-        <main className="flex min-w-0 flex-1 flex-col">{children}</main>
+        {/* Main */}
+        <main className="flex min-w-0 flex-col overflow-hidden">
+          {children}
+        </main>
       </div>
     </SidebarContext.Provider>
   );

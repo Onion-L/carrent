@@ -1,33 +1,19 @@
 import {
-  MessageSquare,
   Bot,
   Monitor,
   Settings,
-  Search,
   ArrowUpDown,
   Plus,
   ChevronDown,
   ChevronRight,
   FolderOpen,
   SquarePen,
-  Wand2,
-  Puzzle,
-  Zap,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
 import { currentProject, threads } from "../mock/uiShellData";
 
-const topNavItems = [
-  { to: "/", label: "New Chat", icon: SquarePen },
-  { to: "/search", label: "Search", icon: Search },
-  { to: "/skills", label: "Skills", icon: Wand2 },
-  { to: "/plugins", label: "Plugins", icon: Puzzle },
-  { to: "/automations", label: "Automations", icon: Zap },
-];
-
 const workspaceNavItems = [
-  { to: "/", label: "Chat", icon: MessageSquare },
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/runtimes", label: "Runtimes", icon: Monitor },
 ];
@@ -39,33 +25,9 @@ export function SidebarNav() {
   );
 
   return (
-    <aside
-      className="flex h-full flex-col bg-[#1e1e1e]"
-      style={{ paddingTop: "env(titlebar-area-height, 38px)" }}
-    >
-      {/* Top nav */}
-      <nav className="px-2 pb-2">
-        {topNavItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === "/"}
-            className={({ isActive }) =>
-              `flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px] transition ${
-                isActive
-                  ? "bg-[#2a2a2a] font-medium text-[#eee]"
-                  : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
-              }`
-            }
-          >
-            <item.icon className="h-4 w-4" />
-            <span>{item.label}</span>
-          </NavLink>
-        ))}
-      </nav>
-
+    <aside className="flex h-full flex-col bg-[#1e1e1e]">
       {/* Projects section */}
-      <div className="flex max-h-[40%] flex-col">
+      <div className="flex max-h-[50%] flex-col">
         <div className="flex items-center justify-between px-4 py-1.5">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
             Projects

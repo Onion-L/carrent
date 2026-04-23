@@ -28,16 +28,20 @@ export function createProcessRunner(): ProcessRunner {
   return {
     run(command, args, options) {
       return new Promise<ProcessRunnerResult>((resolve) => {
-        execFile(
+        let timedOut = false;
+        const childProcess = execFile(
           command,
           args,
           {
             cwd: options?.cwd,
             env: options?.env,
-            timeout: options?.timeoutMs,
             windowsHide: true,
           },
           (error, stdout, stderr) => {
+            if (timeoutHandle != null) {
+              clearTimeout(timeoutHandle);
+            }
+
             if (!error) {
               resolve({
                 ok: true,
@@ -56,19 +60,27 @@ export function createProcessRunner(): ProcessRunner {
               signal?: NodeJS.Signals | null;
             };
 
-            resolve({
-              ok: false,
-              exitCode:
-                typeof childError.code === "number" ? childError.code : null,
-              stdout,
-              stderr,
-              errorCode:
-                typeof childError.code === "string" ? childError.code : undefined,
-              signal: childError.signal ?? null,
-              timedOut: childError.killed === true && options?.timeoutMs != null,
-            });
-          },
+              resolve({
+                ok: false,
+                exitCode:
+                  typeof childError.code === "number" ? childError.code : null,
+                stdout,
+                stderr,
+                errorCode:
+                  typeof childError.code === "string" ? childError.code : undefined,
+                signal: childError.signal ?? null,
+                timedOut,
+              });
+            },
         );
+
+        const timeoutHandle =
+          options?.timeoutMs == null
+            ? undefined
+            : setTimeout(() => {
+                timedOut = true;
+                childProcess.kill();
+              }, options.timeoutMs);
       });
     },
   };

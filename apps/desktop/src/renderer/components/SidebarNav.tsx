@@ -111,7 +111,12 @@ export function SidebarNav() {
 
       {/* ---- Bottom: Navigation (fills remaining space) ---- */}
       <div className="flex flex-1 flex-col border-t border-[#252525]">
-        <nav className="flex-1 overflow-auto px-2 pt-2">
+        <div className="flex items-center justify-between px-4 py-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
+            Workspace
+          </span>
+        </div>
+        <nav className="flex-1 overflow-auto px-2 pt-1">
           {navItems.map((item) => (
             <NavLink
               key={item.to}

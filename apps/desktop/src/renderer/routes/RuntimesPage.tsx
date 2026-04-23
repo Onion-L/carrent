@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Plug } from "lucide-react";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { OpenAIIcon } from "../components/icons/OpenAIIcon";
 import { ClaudeIcon } from "../components/icons/ClaudeIcon";
@@ -27,7 +28,7 @@ function RuntimeIcon({ name }: { name: string }) {
 }
 
 export function RuntimesPage() {
-  const { runtimes, loading, actionStateById, runModelPing } = useRuntimes();
+  const { runtimes, loading, actionStateById, runModelPing, stop } = useRuntimes();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const selectedRuntime = runtimes.find((r) => r.id === selectedId);
@@ -92,6 +93,9 @@ export function RuntimesPage() {
                     <div className="truncate text-[14px] font-medium text-[#ddd]">
                       {runtime.name}
                     </div>
+                    <div className="mt-0.5 text-[12px] text-[#888]">
+                      {runtime.status === "running" ? "Running" : "Stopped"}
+                    </div>
                   </div>
 
                   <div
@@ -134,13 +138,25 @@ export function RuntimesPage() {
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => runModelPing(selectedRuntime.id)}
-                disabled={isActionPending(selectedRuntime.id)}
-                className="flex items-center gap-2 rounded-lg border border-[#2f2f2f] bg-[#252525] px-3 py-1.5 text-[13px] text-[#ccc] transition hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Test Connection
-              </button>
+              <div className="flex items-center gap-3">
+                {selectedRuntime.status === "running" && (
+                  <button
+                    onClick={() => stop(selectedRuntime.id)}
+                    disabled={isActionPending(selectedRuntime.id)}
+                    className="text-[13px] text-[#888] transition hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Stop
+                  </button>
+                )}
+                <button
+                  onClick={() => runModelPing(selectedRuntime.id)}
+                  disabled={isActionPending(selectedRuntime.id)}
+                  className="flex items-center gap-2 rounded-lg border border-[#2f2f2f] bg-[#252525] px-3 py-1.5 text-[13px] text-[#ccc] transition hover:bg-[#2f2f2f] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plug className="h-3.5 w-3.5" />
+                  Test Connection
+                </button>
+              </div>
             </div>
 
             {/* Detail info */}

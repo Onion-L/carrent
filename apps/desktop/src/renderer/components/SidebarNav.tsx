@@ -110,7 +110,7 @@ export function SidebarNav() {
       </div>
 
       {/* ---- Bottom: Navigation (fills remaining space) ---- */}
-      <div className="flex flex-1 flex-col border-t border-[#252525]">
+      <div className="flex flex-1 flex-col">
         <div className="flex items-center justify-between px-4 py-1.5">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
             Workspace

@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,7 +7,16 @@ import { registerRuntimeIpc } from "./runtime/runtimeIpc";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-function createWindow() {
+function resolveIconPath() {
+  const iconPath = [
+    join(app.getAppPath(), "build", "icon.png"),
+    join(__dirname, "../../build/icon.png"),
+  ].find((candidate) => existsSync(candidate));
+
+  return iconPath;
+}
+
+function createWindow(icon: string | undefined) {
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 840,
@@ -17,6 +27,7 @@ function createWindow() {
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 14 },
     show: false,
+    ...(icon && process.platform !== "darwin" ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.mjs"),
       contextIsolation: true,
@@ -43,12 +54,18 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  const icon = resolveIconPath();
+
+  if (process.platform === "darwin" && icon && !app.isPackaged) {
+    app.dock?.setIcon(icon);
+  }
+
   registerRuntimeIpc(ipcMain);
-  createWindow();
+  createWindow(icon);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+      createWindow(icon);
     }
   });
 });

@@ -41,6 +41,7 @@
       "output": "release"
     },
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         "dmg",
         "zip"

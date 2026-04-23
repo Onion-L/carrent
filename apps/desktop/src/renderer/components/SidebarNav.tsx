@@ -33,8 +33,8 @@ export function SidebarNav() {
       className="flex h-full w-[240px] flex-col border-r border-[#252525] bg-[#181818]"
       style={{ paddingTop: "env(titlebar-area-height, 38px)" }}
     >
-      {/* ---- Top half: Projects section ---- */}
-      <div className="flex h-1/2 flex-col">
+      {/* ---- Top: Projects section (max 50%, scroll if overflow) ---- */}
+      <div className="flex max-h-[50%] flex-col">
         {/* Search */}
         <div className="px-3 py-2">
           <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[14px] transition hover:bg-[#252525]">
@@ -62,7 +62,7 @@ export function SidebarNav() {
         </div>
 
         {/* Project tree */}
-        <div className="flex-1 overflow-auto px-2">
+        <div className="flex-1 overflow-auto px-2 pb-2">
           {/* Project folder row */}
           <button
             onClick={() => setProjectExpanded(!projectExpanded)}
@@ -109,8 +109,8 @@ export function SidebarNav() {
         </div>
       </div>
 
-      {/* ---- Bottom half: Navigation ---- */}
-      <div className="flex h-1/2 flex-col border-t border-[#252525]">
+      {/* ---- Bottom: Navigation (fills remaining space) ---- */}
+      <div className="flex flex-1 flex-col border-t border-[#252525]">
         <nav className="flex-1 overflow-auto px-2 pt-2">
           {navItems.map((item) => (
             <NavLink

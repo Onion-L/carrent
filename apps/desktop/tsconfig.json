@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "include": [
+    "electron/**/*.d.ts",
     "electron/**/*.ts",
     "src/**/*.d.ts",
     "src/**/*.ts",

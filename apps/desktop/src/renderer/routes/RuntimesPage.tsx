@@ -1,25 +1,33 @@
 import { useState } from "react";
 import { useRuntimes } from "../hooks/useRuntimes";
+import { OpenAIIcon } from "../components/icons/OpenAIIcon";
+import { ClaudeIcon } from "../components/icons/ClaudeIcon";
 
-const RUNTIME_ICONS: Record<string, string> = {
-  hermes: "🐱",
-  gemini: "💎",
-  claude: "✺",
-  codex: "◯",
-  opencode: "❐",
-  kimi: "K",
-};
-
-function getRuntimeIcon(name: string): string {
+function RuntimeIcon({ name }: { name: string }) {
   const key = name.toLowerCase();
-  for (const [k, v] of Object.entries(RUNTIME_ICONS)) {
-    if (key.includes(k)) return v;
+  if (key.includes("codex") || key.includes("openai")) {
+    return (
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2a2a2a] text-white">
+        <OpenAIIcon className="h-6 w-6" />
+      </div>
+    );
   }
-  return "◯";
+  if (key.includes("claude")) {
+    return (
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2a2a2a]">
+        <ClaudeIcon className="h-6 w-6" />
+      </div>
+    );
+  }
+  // Fallback: first letter
+  return (
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2a2a2a] text-[16px] font-bold text-[#ddd]">
+      {name.charAt(0).toUpperCase()}
+    </div>
+  );
 }
 
 function getRuntimeDisplayName(name: string): string {
-  // Append a mock device name
   return `${name} (oniondeMacBook-Pro...)`;
 }
 
@@ -54,12 +62,8 @@ export function RuntimesPage() {
                     isActive ? "bg-[#252525]" : "hover:bg-[#1e1e1e]"
                   }`}
                 >
-                  {/* Icon */}
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2a2a2a] text-[18px]">
-                    {getRuntimeIcon(runtime.name)}
-                  </div>
+                  <RuntimeIcon name={runtime.name} />
 
-                  {/* Info */}
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[14px] font-medium text-[#ddd]">
                       {getRuntimeDisplayName(runtime.name)}
@@ -72,7 +76,6 @@ export function RuntimesPage() {
                     </div>
                   </div>
 
-                  {/* Status dot */}
                   <div
                     className={`h-2.5 w-2.5 shrink-0 rounded-full ${
                       isOnline ? "bg-emerald-500" : "bg-[#444]"
@@ -89,9 +92,7 @@ export function RuntimesPage() {
       <div className="flex min-w-0 flex-1 flex-col">
         {selectedRuntime ? (
           <div className="flex flex-1 flex-col items-center justify-center text-[#666]">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#252525] text-[28px]">
-              {getRuntimeIcon(selectedRuntime.name)}
-            </div>
+            <RuntimeIcon name={selectedRuntime.name} />
             <h3 className="mt-4 text-[18px] font-semibold text-[#ddd]">
               {selectedRuntime.name}
             </h3>

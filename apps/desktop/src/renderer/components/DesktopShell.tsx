@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { PanelLeftOpen, PanelLeftClose } from "lucide-react";
 import { SidebarNav } from "./SidebarNav";
 
 const MIN_WIDTH = 180;
@@ -18,17 +17,13 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
 
   const sidebarRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
-  const startXRef = useRef(0);
-  const startWidthRef = useRef(DEFAULT_WIDTH);
 
   const handleStartResize = useCallback(() => {
     if (isCollapsed) return;
     isDragging.current = true;
-    startXRef.current = 0;
-    startWidthRef.current = sidebarWidth;
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-  }, [isCollapsed, sidebarWidth]);
+  }, [isCollapsed]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isDragging.current) return;
@@ -83,27 +78,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   }, [isCollapsed]);
 
   return (
-    <div className="relative flex h-screen w-screen overflow-hidden bg-[#181818]">
-      {/* Fixed titlebar toggle button — always visible, outside sidebar */}
-      <div
-        className="pointer-events-none absolute left-0 top-0 z-50 flex items-center"
-        style={{ height: "env(titlebar-area-height, 38px)" }}
-      >
-        {/* Spacer for macOS traffic lights (~72px) */}
-        <div className="w-[72px] shrink-0" />
-        <button
-          onClick={handleToggle}
-          className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-md text-[#555] transition hover:bg-[#252525] hover:text-[#888]"
-          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {isCollapsed ? (
-            <PanelLeftOpen className="h-4 w-4" />
-          ) : (
-            <PanelLeftClose className="h-4 w-4" />
-          )}
-        </button>
-      </div>
-
+    <div className="flex h-screen w-screen overflow-hidden bg-[#181818]">
       {/* Sidebar */}
       <div
         ref={sidebarRef}
@@ -111,12 +86,11 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
         style={{
           width: isCollapsed ? COLLAPSED_WIDTH : sidebarWidth,
           transition: isCollapsed ? "width 200ms ease" : undefined,
-          paddingTop: isCollapsed ? undefined : "env(titlebar-area-height, 38px)",
         }}
       >
         {!isCollapsed && (
           <>
-            <SidebarNav />
+            <SidebarNav onToggle={handleToggle} />
             {/* Resize handle */}
             <div
               onMouseDown={handleStartResize}
@@ -129,7 +103,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
       {/* Collapsed trigger strip */}
       {isCollapsed && (
         <div
-          className="flex shrink-0 flex-col items-center border-r border-[#252525] bg-[#181818]"
+          className="flex shrink-0 flex-col items-center border-r border-[#252525] bg-[#1e1e1e]"
           style={{
             width: EXPAND_TRIGGER_WIDTH,
             paddingTop: "env(titlebar-area-height, 38px)",
@@ -140,12 +114,26 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
             className="mt-2 flex h-8 w-8 items-center justify-center rounded-md text-[#666] transition hover:bg-[#252525] hover:text-[#ccc]"
             title="Expand sidebar"
           >
-            <PanelLeftOpen className="h-4 w-4" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect width="18" height="18" x="3" y="3" rx="2" />
+              <path d="M9 3v18" />
+              <path d="m14 9 3 3-3 3" />
+            </svg>
           </button>
         </div>
       )}
 
-      <main className="flex min-w-0 flex-1">{children}</main>
+      <main className="flex min-w-0 flex-1 flex-col">{children}</main>
     </div>
   );
 }

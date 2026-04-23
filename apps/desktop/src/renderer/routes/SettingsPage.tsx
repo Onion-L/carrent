@@ -38,7 +38,7 @@ export function SettingsPage() {
   return (
     <div className="flex h-full w-full flex-col overflow-auto bg-[#181818]">
       <div className="mx-auto w-full max-w-2xl p-6">
-        <div className="mb-6 flex items-center gap-2">
+        <div className="drag-region mb-6 flex items-center gap-2">
           <Settings className="h-5 w-5 text-[#888]" />
           <h1 className="text-[18px] font-semibold text-[#eee]">Settings</h1>
         </div>

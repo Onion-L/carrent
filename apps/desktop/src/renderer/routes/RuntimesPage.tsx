@@ -40,7 +40,7 @@ export function RuntimesPage() {
   return (
     <div className="flex h-full w-full flex-col bg-[#181818]">
       {/* Top status bar */}
-      <div className="flex items-center gap-3 border-b border-[#252525] px-6 py-3">
+      <div className="drag-region flex items-center gap-3 border-b border-[#252525] px-6 py-3">
         <div
           className={`h-2 w-2 rounded-full ${
             runtimes.some((r) => r.status === "running")

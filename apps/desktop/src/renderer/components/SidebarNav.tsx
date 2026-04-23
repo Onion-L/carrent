@@ -31,10 +31,11 @@ export function SidebarNav() {
   };
 
   return (
-    <aside
-      className="flex h-full flex-col bg-[#1e1e1e]"
-      style={{ paddingTop: "env(titlebar-area-height, 38px)" }}
-    >
+    <aside className="flex h-full flex-col bg-[#1e1e1e]">
+      <div
+        className="drag-region shrink-0"
+        style={{ height: "env(titlebar-area-height, 38px)" }}
+      />
       {/* Projects section */}
       <div className="flex max-h-[50%] flex-col">
         <div className="flex items-center justify-between px-4 py-1.5">

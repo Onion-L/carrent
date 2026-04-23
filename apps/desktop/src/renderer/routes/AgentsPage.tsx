@@ -22,7 +22,7 @@ export function AgentsPage() {
     <div className="flex h-full w-full">
       {/* Agent list sidebar */}
       <div className="flex h-full w-[220px] flex-col border-r border-[#252525] bg-[#181818]">
-        <div className="flex items-center justify-between px-3 py-3">
+        <div className="drag-region flex items-center justify-between px-3 py-3">
           <span className="text-[12px] font-medium uppercase tracking-wider text-[#666]">
             Agents
           </span>
@@ -62,6 +62,10 @@ export function AgentsPage() {
 
       {/* Agent detail */}
       <div className="flex min-w-0 flex-1 flex-col overflow-auto bg-[#181818]">
+        <div
+          className="drag-region shrink-0"
+          style={{ height: "env(titlebar-area-height, 38px)" }}
+        />
         {selectedAgent ? (
           <div className="mx-auto w-full max-w-2xl p-6">
             <div className="mb-6 flex items-center justify-between">

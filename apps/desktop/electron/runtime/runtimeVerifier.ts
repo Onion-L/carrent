@@ -6,9 +6,9 @@ import { createProcessRunner, type ProcessRunner, type ProcessRunnerResult } fro
 import { cleanupTempWorkspace, createTempWorkspace } from "./tempWorkspace";
 
 const LOCAL_CHECK_TIMEOUT_MS = 5000;
-const MODEL_PING_TIMEOUT_MS = 15000;
+const MODEL_PING_TIMEOUT_MS = 60000;
 const MAX_SUMMARY_CHARS = 240;
-const FIXED_MODEL_PING_PROMPT = "Reply with exactly OK.";
+const FIXED_MODEL_PING_PROMPT = "Reply with only OK";
 
 interface ModelPingCommand {
   args: string[];
@@ -78,7 +78,7 @@ export async function runModelPing(
 
     const response = await readModelPingResponse(readTextFile, result.stdout, command);
 
-    if (response === "OK") {
+    if (isExpectedModelPingResponse(response)) {
       return {
         verification: "passed",
         lastVerifiedAt: now().toISOString(),
@@ -126,15 +126,7 @@ function getModelPingArgs(
       };
     case "claude-code":
       return () => ({
-        args: [
-          "--print",
-          "--output-format",
-          "text",
-          "--no-session-persistence",
-          "--tools",
-          "",
-          FIXED_MODEL_PING_PROMPT,
-        ],
+        args: ["--print", FIXED_MODEL_PING_PROMPT],
         responseSource: "stdout",
       });
     default:
@@ -159,7 +151,7 @@ function summarizeFailure(
   result: ProcessRunnerResult,
   fallbackMessage: string,
   timeoutMs: number,
-): string {
+): string | undefined {
   if (result.timedOut) {
     return `${fallbackMessage} Timed out after ${timeoutMs}ms.`;
   }
@@ -220,6 +212,12 @@ function truncateSummary(value: string): string {
 
 function normalizeResponse(value: string): string {
   return value.trim();
+}
+
+function isExpectedModelPingResponse(value: string): boolean {
+  const normalized = value.trim().replace(/^["'`]+|["'`]+$/g, "");
+
+  return normalized === "OK" || normalized === "OK.";
 }
 
 async function defaultReadFile(filePath: string): Promise<string> {

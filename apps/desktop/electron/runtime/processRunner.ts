@@ -71,6 +71,7 @@ export function createProcessRunner(): ProcessRunner {
             });
           },
         );
+        childProcess.stdin?.end();
 
         const timeoutHandle =
           options?.timeoutMs == null

@@ -36,13 +36,25 @@ export function useRuntimes() {
     }));
 
     try {
-      const runtimes = await window.carrent.runtimes.list();
+      const freshRuntimes = await window.carrent.runtimes.list();
 
-      setState((current) => ({
-        ...current,
-        runtimes,
-        loading: false,
-      }));
+      setState((current) => {
+        const merged = freshRuntimes.map((fresh) => {
+          const existing = current.runtimes.find((r) => r.id === fresh.id);
+          if (!existing) return fresh;
+          return {
+            ...fresh,
+            verification: existing.verification,
+            lastVerifiedAt: existing.lastVerifiedAt,
+            lastError: existing.lastError,
+          };
+        });
+        return {
+          ...current,
+          runtimes: merged,
+          loading: false,
+        };
+      });
     } catch (error) {
       setState((current) => ({
         ...current,
@@ -194,6 +206,8 @@ export function useRuntimes() {
           [id]: "idle",
         },
       }));
+
+      await refresh();
     } catch (error) {
       setState((current) => ({
         ...current,

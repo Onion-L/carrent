@@ -201,10 +201,10 @@ describe("runModelPing", () => {
           "--ephemeral",
           "--output-last-message",
           outputFilePath,
-          "Reply with exactly OK.",
+          "Reply with only OK",
         ],
         cwd: tempWorkspacePath,
-        timeoutMs: 15000,
+        timeoutMs: 60000,
       },
     ]);
     expect(readPaths).toEqual([outputFilePath]);
@@ -252,10 +252,24 @@ describe("runModelPing", () => {
           "--ephemeral",
           "--output-last-message",
           path.join(os.tmpdir(), "runtime-fixed-prompt", "model-ping.txt"),
-          "Reply with exactly OK.",
+          "Reply with only OK",
         ],
       },
     ]);
+  });
+
+  it("accepts a minimal OK response with trailing punctuation", async () => {
+    const result = await runModelPing(createClaudeRuntimeDescriptor(), {
+      createTempWorkspace: async () => path.join(os.tmpdir(), "runtime-ok-period"),
+      cleanupTempWorkspace: async () => {},
+      now: () => new Date("2026-04-23T00:00:00.000Z"),
+      run: async () => createSuccessResult("OK.\n"),
+    });
+
+    expect(result).toEqual({
+      verification: "passed",
+      lastVerifiedAt: "2026-04-23T00:00:00.000Z",
+    });
   });
 
   it("runs claude-code model ping in print mode and reads from stdout", async () => {
@@ -292,17 +306,9 @@ describe("runModelPing", () => {
     expect(calls).toEqual([
       {
         command: "claude",
-        args: [
-          "--print",
-          "--output-format",
-          "text",
-          "--no-session-persistence",
-          "--tools",
-          "",
-          "Reply with exactly OK.",
-        ],
+        args: ["--print", "Reply with only OK"],
         cwd: tempWorkspacePath,
-        timeoutMs: 15000,
+        timeoutMs: 60000,
       },
     ]);
   });
@@ -399,7 +405,7 @@ describe("runModelPing", () => {
     expect(result).toEqual({
       verification: "failed",
       lastVerifiedAt: "2026-04-23T00:00:00.000Z",
-      lastError: "Model ping failed. Timed out after 15000ms.",
+      lastError: "Model ping failed. Timed out after 60000ms.",
     });
     expect(cleanedPaths).toEqual([path.join(os.tmpdir(), "runtime-timeout")]);
   });

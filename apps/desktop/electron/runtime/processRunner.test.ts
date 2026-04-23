@@ -28,4 +28,21 @@ describe("createProcessRunner", () => {
     expect(result.signal).toBe("SIGTERM");
     expect(result.timedOut).toBe(true);
   });
+
+  it("closes stdin so non-interactive CLIs do not wait for EOF", async () => {
+    const runner = createProcessRunner();
+
+    const result = await runner.run(
+      process.execPath,
+      [
+        "-e",
+        "process.stdin.resume(); process.stdin.on('end', () => console.log('stdin closed'));",
+      ],
+      { timeoutMs: 1000 },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.stdout.trim()).toBe("stdin closed");
+    expect(result.timedOut).toBe(false);
+  });
 });

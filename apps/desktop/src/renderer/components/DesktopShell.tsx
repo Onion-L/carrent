@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { PanelLeftOpen } from "lucide-react";
+import { PanelLeftOpen, PanelLeftClose } from "lucide-react";
 import { SidebarNav } from "./SidebarNav";
 
 const MIN_WIDTH = 180;
@@ -24,7 +24,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   const handleStartResize = useCallback(() => {
     if (isCollapsed) return;
     isDragging.current = true;
-    startXRef.current = 0; // will be set in mousemove
+    startXRef.current = 0;
     startWidthRef.current = sidebarWidth;
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
@@ -66,24 +66,44 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     };
   }, [handleMouseMove, handleMouseUp, isCollapsed, sidebarWidth]);
 
-  const handleCollapse = useCallback(() => {
-    setIsCollapsed(true);
-    setSidebarWidth(COLLAPSED_WIDTH);
-    if (sidebarRef.current) {
-      sidebarRef.current.style.width = `${COLLAPSED_WIDTH}px`;
+  const handleToggle = useCallback(() => {
+    if (isCollapsed) {
+      setIsCollapsed(false);
+      setSidebarWidth(DEFAULT_WIDTH);
+      if (sidebarRef.current) {
+        sidebarRef.current.style.width = `${DEFAULT_WIDTH}px`;
+      }
+    } else {
+      setIsCollapsed(true);
+      setSidebarWidth(COLLAPSED_WIDTH);
+      if (sidebarRef.current) {
+        sidebarRef.current.style.width = `${COLLAPSED_WIDTH}px`;
+      }
     }
-  }, []);
-
-  const handleExpand = useCallback(() => {
-    setIsCollapsed(false);
-    setSidebarWidth(DEFAULT_WIDTH);
-    if (sidebarRef.current) {
-      sidebarRef.current.style.width = `${DEFAULT_WIDTH}px`;
-    }
-  }, []);
+  }, [isCollapsed]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#181818]">
+    <div className="relative flex h-screen w-screen overflow-hidden bg-[#181818]">
+      {/* Fixed titlebar toggle button — always visible, outside sidebar */}
+      <div
+        className="pointer-events-none absolute left-0 top-0 z-50 flex items-center"
+        style={{ height: "env(titlebar-area-height, 38px)" }}
+      >
+        {/* Spacer for macOS traffic lights (~72px) */}
+        <div className="w-[72px] shrink-0" />
+        <button
+          onClick={handleToggle}
+          className="pointer-events-auto flex h-7 w-7 items-center justify-center rounded-md text-[#555] transition hover:bg-[#252525] hover:text-[#888]"
+          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {isCollapsed ? (
+            <PanelLeftOpen className="h-4 w-4" />
+          ) : (
+            <PanelLeftClose className="h-4 w-4" />
+          )}
+        </button>
+      </div>
+
       {/* Sidebar */}
       <div
         ref={sidebarRef}
@@ -96,7 +116,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
       >
         {!isCollapsed && (
           <>
-            <SidebarNav onCollapse={handleCollapse} />
+            <SidebarNav />
             {/* Resize handle */}
             <div
               onMouseDown={handleStartResize}
@@ -116,7 +136,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
           }}
         >
           <button
-            onClick={handleExpand}
+            onClick={handleToggle}
             className="mt-2 flex h-8 w-8 items-center justify-center rounded-md text-[#666] transition hover:bg-[#252525] hover:text-[#ccc]"
             title="Expand sidebar"
           >

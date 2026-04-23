@@ -10,7 +10,6 @@ import {
   ChevronRight,
   FolderOpen,
   SquarePen,
-  PanelLeftClose,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
@@ -23,11 +22,7 @@ const navItems = [
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
-export function SidebarNav({
-  onCollapse,
-}: {
-  onCollapse: () => void;
-}) {
+export function SidebarNav() {
   const [projectExpanded, setProjectExpanded] = useState(true);
   const [activeThreadId, setActiveThreadId] = useState(
     threads.find((t) => t.active)?.id ?? threads[0]?.id
@@ -35,17 +30,6 @@ export function SidebarNav({
 
   return (
     <aside className="flex h-full flex-col border-r border-[#252525] bg-[#181818]">
-      {/* Collapse button row */}
-      <div className="flex items-center justify-end px-3 pt-2">
-        <button
-          onClick={onCollapse}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-[#555] transition hover:bg-[#252525] hover:text-[#888]"
-          title="Collapse sidebar"
-        >
-          <PanelLeftClose className="h-4 w-4" />
-        </button>
-      </div>
-
       {/* ---- Top: Projects section (max 50%, scroll if overflow) ---- */}
       <div className="flex max-h-[50%] flex-col">
         {/* Search */}

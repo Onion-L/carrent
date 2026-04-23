@@ -38,8 +38,28 @@ export function RuntimesPage() {
   };
 
   return (
-    <div className="flex h-full w-full bg-[#181818]">
-      {/* Left: runtime list */}
+    <div className="flex h-full w-full flex-col bg-[#181818]">
+      {/* Top status bar */}
+      <div className="flex items-center gap-3 border-b border-[#252525] px-6 py-3">
+        <div
+          className={`h-2 w-2 rounded-full ${
+            runtimes.some((r) => r.status === "running")
+              ? "bg-emerald-500"
+              : "bg-[#555]"
+          }`}
+        />
+        <span className="text-[13px] text-[#999]">
+          {runtimes.some((r) => r.status === "running") ? "Running" : "Stopped"}
+        </span>
+        {runtimes.length > 0 && (
+          <span className="text-[13px] text-[#666]">
+            · {runtimes.map((r) => r.name).join(", ")}
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left: runtime list */}
       <div className="flex h-full w-[280px] flex-col border-r border-[#252525] bg-[#181818]">
         <div className="flex items-center justify-between px-4 pb-2 pt-3">
           <h2 className="text-[13px] font-semibold text-[#ddd]">Runtimes</h2>
@@ -186,5 +206,6 @@ export function RuntimesPage() {
         )}
       </div>
     </div>
+  </div>
   );
 }

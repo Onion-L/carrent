@@ -24,10 +24,8 @@ const navItems = [
 ];
 
 export function SidebarNav({
-  width,
   onCollapse,
 }: {
-  width: number;
   onCollapse: () => void;
 }) {
   const [projectExpanded, setProjectExpanded] = useState(true);

@@ -310,7 +310,7 @@ export function SidebarNav() {
       <div className="flex flex-1 flex-col">
         <div className="flex items-center px-4 py-1.5">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
-            Chats
+            Workspace
           </span>
         </div>
         <nav className="flex-1 overflow-auto px-2 pt-1">

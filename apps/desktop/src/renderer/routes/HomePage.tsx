@@ -1,14 +1,10 @@
 import { ChatHeader } from "../components/chat/ChatHeader";
 import { Composer } from "../components/chat/Composer";
 import { MessageTimeline } from "../components/chat/MessageTimeline";
-import { useActiveThread } from "../context/ActiveThreadContext";
-import { projects, messages } from "../mock/uiShellData";
+import { useWorkspace } from "../context/WorkspaceContext";
 
 export function HomePage() {
-  const { activeThreadId } = useActiveThread();
-
-  const allThreads = projects.flatMap((p) => p.threads);
-  const currentThread = allThreads.find((t) => t.id === activeThreadId);
+  const { activeThreadId, currentThread, messages } = useWorkspace();
   const threadMessages = messages.filter((m) => m.threadId === activeThreadId);
   const hasMessages = threadMessages.length > 0;
 

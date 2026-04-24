@@ -13,8 +13,7 @@ import {
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
-import { projects } from "../mock/uiShellData";
-import { useActiveThread } from "../context/ActiveThreadContext";
+import { useWorkspace } from "../context/WorkspaceContext";
 import { splitProjectThreads } from "../lib/projectThreads";
 
 const workspaceNavItems = [
@@ -24,19 +23,22 @@ const workspaceNavItems = [
 
 export function SidebarNav() {
   const navigate = useNavigate();
-  const { activeThreadId, setActiveThreadId } = useActiveThread();
+  const {
+    projects,
+    activeThreadId,
+    setActiveThreadId,
+    createThread,
+    toggleThreadPin,
+    archiveThread,
+  } = useWorkspace();
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(
     projects.filter((p) => p.active).map((p) => p.id),
-  );
-  const [projectThreadsMap, setProjectThreadsMap] = useState(() =>
-    Object.fromEntries(projects.map((p) => [p.id, p.threads])),
   );
   const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
   const [draftThreadTitle, setDraftThreadTitle] = useState("");
   const draftInputRef = useRef<HTMLInputElement>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [openThreadMenuId, setOpenThreadMenuId] = useState<string | null>(null);
-
 
   const handleThreadClick = (threadId: string) => {
     setActiveThreadId(threadId);
@@ -69,17 +71,9 @@ export function SidebarNav() {
     const title = draftThreadTitle.trim();
     if (!title || !draftProjectId) return;
 
-    const newThread = {
-      id: `thread-${Date.now()}`,
-      title,
-      updatedAt: "now",
-    };
+    const newThread = createThread(draftProjectId, title);
+    if (!newThread) return;
 
-    setProjectThreadsMap((prev) => ({
-      ...prev,
-      [draftProjectId]: [newThread, ...(prev[draftProjectId] ?? [])],
-    }));
-    setActiveThreadId(newThread.id);
     setDraftProjectId(null);
     setDraftThreadTitle("");
     navigate("/");
@@ -111,12 +105,7 @@ export function SidebarNav() {
   }, [openThreadMenuId]);
 
   const togglePin = (projectId: string, threadId: string) => {
-    setProjectThreadsMap((prev) => ({
-      ...prev,
-      [projectId]: (prev[projectId] ?? []).map((t) =>
-        t.id === threadId ? { ...t, pinned: !t.pinned } : t,
-      ),
-    }));
+    toggleThreadPin(projectId, threadId);
     setOpenThreadMenuId(null);
   };
 
@@ -124,23 +113,7 @@ export function SidebarNav() {
     if (!window.confirm("Archive this thread?")) return;
 
     setOpenThreadMenuId(null);
-
-    const currentThreads = projectThreadsMap[projectId] ?? [];
-    const nextThreads = currentThreads.map((t) =>
-      t.id === threadId ? { ...t, archived: true } : t,
-    );
-
-    setProjectThreadsMap((prev) => ({
-      ...prev,
-      [projectId]: nextThreads,
-    }));
-
-    if (activeThreadId === threadId) {
-      const { active: nextActive } = splitProjectThreads(
-        nextThreads.filter((t) => t.id !== threadId),
-      );
-      setActiveThreadId(nextActive[0]?.id ?? null);
-    }
+    archiveThread(projectId, threadId);
   };
 
   return (
@@ -171,8 +144,7 @@ export function SidebarNav() {
         <div className="flex-1 overflow-auto px-2 pb-2 mt-1">
           {projects.map((project) => {
             const isExpanded = expandedProjectIds.includes(project.id);
-            const threads = projectThreadsMap[project.id] ?? [];
-            const { active } = splitProjectThreads(threads);
+            const { active } = splitProjectThreads(project.threads);
 
             return (
               <div key={project.id}>

@@ -6,7 +6,6 @@ import {
   Plus,
   FolderOpen,
   Folder,
-  SquarePen,
   Pin,
   MoreHorizontal,
   Archive,
@@ -309,18 +308,10 @@ export function SidebarNav() {
 
       {/* Workspace section */}
       <div className="flex flex-1 flex-col">
-        <div className="flex items-center justify-between px-4 py-1.5">
+        <div className="flex items-center px-4 py-1.5">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
             Chats
           </span>
-          <div className="flex items-center gap-1">
-            <button className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]">
-              <ArrowUpDown className="h-3 w-3" />
-            </button>
-            <button className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]">
-              <SquarePen className="h-3 w-3" />
-            </button>
-          </div>
         </div>
         <nav className="flex-1 overflow-auto px-2 pt-1">
           {workspaceNavItems.map((item) => (

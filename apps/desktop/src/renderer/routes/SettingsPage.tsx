@@ -1,5 +1,5 @@
 import { Settings, Monitor, Palette, Activity, FolderOpen } from "lucide-react";
-import { currentProject } from "../mock/uiShellData";
+import { useWorkspace } from "../context/WorkspaceContext";
 
 function SectionCard({
   title,
@@ -35,6 +35,8 @@ function Divider() {
 }
 
 export function SettingsPage() {
+  const { currentProject } = useWorkspace();
+
   return (
     <div className="flex h-full w-full flex-col overflow-auto bg-[#181818]">
       <div className="mx-auto w-full max-w-2xl p-6">
@@ -46,9 +48,9 @@ export function SettingsPage() {
         <div className="space-y-4">
           {/* Workspace */}
           <SectionCard title="Workspace" icon={FolderOpen}>
-            <Field label="Current project" value={currentProject.name} />
+            <Field label="Current project" value={currentProject?.name ?? "No project"} />
             <Divider />
-            <Field label="Project path" value={currentProject.path} />
+            <Field label="Project path" value={currentProject?.path ?? "-"} />
             <Divider />
             <Field label="Auto-detect runtimes" value="Enabled" />
           </SectionCard>

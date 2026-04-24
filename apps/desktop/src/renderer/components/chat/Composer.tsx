@@ -1,8 +1,10 @@
 import { ArrowUp, ChevronDown, FolderGit, GitBranch, Hand, Plus } from "lucide-react";
 import { useState } from "react";
-import { agents, currentProject } from "../../mock/uiShellData";
+import { useWorkspace } from "../../context/WorkspaceContext";
+import { agents } from "../../mock/uiShellData";
 
 export function Composer() {
+  const { currentProject } = useWorkspace();
   const [input, setInput] = useState("");
   const [selectedAgentId] = useState(agents.find((a) => a.selected)?.id ?? agents[0]?.id);
 
@@ -54,7 +56,7 @@ export function Composer() {
       <div className="mx-auto mt-2 flex max-w-2xl items-center gap-4 px-1">
         <button className="flex items-center gap-1.5 text-[12px] text-[#666] transition hover:text-[#999]">
           <FolderGit className="h-3 w-3" />
-          <span>{currentProject.name}</span>
+          <span>{currentProject?.name ?? "No project"}</span>
           <ChevronDown className="h-3 w-3" />
         </button>
         <button className="flex items-center gap-1.5 text-[12px] text-[#666] transition hover:text-[#999]">

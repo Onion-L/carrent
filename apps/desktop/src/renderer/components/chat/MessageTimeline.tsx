@@ -1,5 +1,5 @@
-import { User, Bot } from "lucide-react";
-import { messages, agents } from "../../mock/uiShellData";
+import { Bot } from "lucide-react";
+import { agents, type Message } from "../../mock/uiShellData";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 
 function AgentBadge({ agentId }: { agentId: string }) {
@@ -54,7 +54,7 @@ function AssistantMessage({
   );
 }
 
-export function MessageTimeline() {
+export function MessageTimeline({ messages }: { messages: Message[] }) {
   return (
     <div className="flex flex-1 flex-col overflow-auto px-4 py-6">
       {messages.length === 0 ? (

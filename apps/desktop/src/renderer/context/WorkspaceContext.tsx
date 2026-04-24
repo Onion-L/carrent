@@ -31,6 +31,7 @@ export type WorkspaceContextValue = {
     agentId: string;
     content: string;
   }) => Message;
+  updateMessage: (id: string, content: string) => void;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue>({
@@ -44,6 +45,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   toggleThreadPin: () => {},
   archiveThread: () => {},
   appendMessage: () => ({ id: "", role: "user", agentId: "", threadId: "", content: "", timestamp: "" }),
+  updateMessage: () => {},
 });
 
 function formatTime(date: Date): string {
@@ -103,6 +105,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return newMessage;
   };
 
+  const updateMessage = (id: string, content: string) => {
+    setMessages((prev) =>
+      prev.map((msg) => (msg.id === id ? { ...msg, content } : msg)),
+    );
+  };
+
   return (
     <WorkspaceContext.Provider
       value={{
@@ -116,6 +124,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         toggleThreadPin,
         archiveThread,
         appendMessage,
+        updateMessage,
       }}
     >
       {children}

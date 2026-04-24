@@ -43,7 +43,7 @@ export function createChatRunner(processRunner: ProcessRunner): ChatRunner {
   };
 }
 
-function getRuntimeCommand(
+export function getRuntimeCommand(
   runtimeId: "codex" | "claude-code",
   prompt: string,
 ): { command: string; args: string[] } {

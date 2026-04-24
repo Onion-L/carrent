@@ -2,8 +2,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type { ChatTurnRequest, ChatRunEvent } from "../../shared/chat";
 
 export type ChatRunCallbacks = {
-  onComplete: (text: string) => void;
-  onError: (error: string) => void;
+  onDelta?: (text: string) => void;
+  onComplete?: (text: string) => void;
+  onError?: (error: string) => void;
+  onStop?: () => void;
 };
 
 export function useChatRun() {
@@ -21,17 +23,20 @@ export function useChatRun() {
       const pending = pendingRef.current;
       if (!pending || event.runId !== pending.runId) return;
 
-      if (event.type === "completed") {
+      if (event.type === "delta") {
+        pending.onDelta?.(event.text);
+      } else if (event.type === "completed") {
         setIsSending(false);
-        pending.onComplete(event.text);
+        pending.onComplete?.(event.text);
         pendingRef.current = null;
       } else if (event.type === "failed") {
         setIsSending(false);
         setLastError(event.error);
-        pending.onError(event.error);
+        pending.onError?.(event.error);
         pendingRef.current = null;
       } else if (event.type === "stopped") {
         setIsSending(false);
+        pending.onStop?.();
         pendingRef.current = null;
       }
     });

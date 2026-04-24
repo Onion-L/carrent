@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import type { ChatRunEvent, ChatTurnRequest } from "../../src/shared/chat";
+import type { ChatTurnRequest } from "../../src/shared/chat";
 import { registerChatIpc } from "./chatIpc";
-import type { ChatRunnerResult } from "./chatRunner";
+
 
 function makeRequest(
   overrides: Partial<ChatTurnRequest> = {},
@@ -32,19 +32,19 @@ describe("registerChatIpc", () => {
         },
       },
       {
-        chatRunner: {
-          run: () => Promise.resolve({ ok: true, text: "hi" } as ChatRunnerResult),
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
         },
-        emit: () => {},
       },
     );
 
     expect([...handlers.keys()].sort()).toEqual(["chat:send", "chat:stop"]);
   });
 
-  it("chat:send returns a runId and emits completed on success", async () => {
+  it("chat:send returns a runId and starts the session", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const emitted: ChatRunEvent[] = [];
+    const started: { runId: string; request: ChatTurnRequest }[] = [];
 
     registerChatIpc(
       {
@@ -53,10 +53,12 @@ describe("registerChatIpc", () => {
         },
       },
       {
-        chatRunner: {
-          run: () => Promise.resolve({ ok: true, text: "Done" }),
+        sessionManager: {
+          start: (runId, request) => {
+            started.push({ runId, request });
+          },
+          stop: () => {},
         },
-        emit: (evt) => emitted.push(evt),
       },
     );
 
@@ -64,19 +66,13 @@ describe("registerChatIpc", () => {
       runId: string;
     };
     expect(result.runId).toBeString();
-
-    const completed = emitted.find((e) => e.type === "completed");
-    expect(completed).toBeDefined();
-    expect(completed).toMatchObject({
-      type: "completed",
-      runId: result.runId,
-      text: "Done",
-    });
+    expect(started).toHaveLength(1);
+    expect(started[0].request.message).toBe("Hello");
   });
 
-  it("chat:send emits failed on runner error", async () => {
+  it("chat:stop calls session manager stop", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const emitted: ChatRunEvent[] = [];
+    const stopped: string[] = [];
 
     registerChatIpc(
       {
@@ -85,23 +81,16 @@ describe("registerChatIpc", () => {
         },
       },
       {
-        chatRunner: {
-          run: () => Promise.resolve({ ok: false, error: "Boom" }),
+        sessionManager: {
+          start: () => {},
+          stop: (runId) => {
+            stopped.push(runId);
+          },
         },
-        emit: (evt) => emitted.push(evt),
       },
     );
 
-    const result = (await handlers.get("chat:send")?.({}, makeRequest())) as {
-      runId: string;
-    };
-
-    const failed = emitted.find((e) => e.type === "failed");
-    expect(failed).toBeDefined();
-    expect(failed).toMatchObject({
-      type: "failed",
-      runId: result.runId,
-      error: "Boom",
-    });
+    await handlers.get("chat:stop")?.({}, "run-123");
+    expect(stopped).toEqual(["run-123"]);
   });
 });

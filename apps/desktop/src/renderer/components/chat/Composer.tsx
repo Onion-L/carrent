@@ -8,7 +8,7 @@ import {
   Bot,
   Square,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { agents } from "../../mock/uiShellData";
 import { useChatRun } from "../../hooks/useChatRun";
@@ -19,6 +19,7 @@ export function Composer() {
     activeThreadId,
     messages,
     appendMessage,
+    updateMessage,
   } = useWorkspace();
   const { isSending, send, stop } = useChatRun();
   const [input, setInput] = useState("");
@@ -26,6 +27,7 @@ export function Composer() {
     agents.find((a) => a.selected)?.id ?? agents[0]?.id,
   );
   const [showAgentPicker, setShowAgentPicker] = useState(false);
+  const accumulatedRef = useRef("");
 
   const selectedAgent = agents.find((a) => a.id === selectedAgentId);
   const canSend =
@@ -44,6 +46,16 @@ export function Composer() {
       agentId: selectedAgent.id,
       content: messageText,
     });
+
+    // Create pending assistant message
+    const assistantMsg = appendMessage({
+      threadId: activeThreadId,
+      role: "assistant",
+      agentId: selectedAgent.id,
+      content: "",
+    });
+
+    accumulatedRef.current = "";
 
     const threadMessages = messages.filter((m) => m.threadId === activeThreadId);
     const transcript = threadMessages
@@ -69,21 +81,21 @@ export function Composer() {
         message: messageText,
       },
       {
+        onDelta: (text) => {
+          accumulatedRef.current += text;
+          updateMessage(assistantMsg.id, accumulatedRef.current);
+        },
         onComplete: (text) => {
-          appendMessage({
-            threadId: activeThreadId,
-            role: "assistant",
-            agentId: selectedAgent.id,
-            content: text,
-          });
+          updateMessage(assistantMsg.id, text);
         },
         onError: (error) => {
-          appendMessage({
-            threadId: activeThreadId,
-            role: "assistant",
-            agentId: selectedAgent.id,
-            content: `Error: ${error}`,
-          });
+          updateMessage(assistantMsg.id, `Error: ${error}`);
+        },
+        onStop: () => {
+          updateMessage(
+            assistantMsg.id,
+            accumulatedRef.current + "\n\n[Stopped]",
+          );
         },
       },
     );

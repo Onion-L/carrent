@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 
 import { registerRuntimeIpc } from "./runtime/runtimeIpc";
 import { registerChatIpc } from "./chat/chatIpc";
-import { createChatRunner } from "./chat/chatRunner";
-import { createProcessRunner } from "./runtime/processRunner";
+import { createChatSessionManager } from "./chat/chatSessionManager";
+import { spawn } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -64,13 +64,17 @@ app.whenReady().then(() => {
   }
 
   registerRuntimeIpc(ipcMain);
+  const emitChatEvent = (event: unknown) => {
+    BrowserWindow.getAllWindows().forEach((win) => {
+      win.webContents.send("chat:event", event);
+    });
+  };
+
   registerChatIpc(ipcMain, {
-    chatRunner: createChatRunner(createProcessRunner()),
-    emit: (event) => {
-      BrowserWindow.getAllWindows().forEach((win) => {
-        win.webContents.send("chat:event", event);
-      });
-    },
+    sessionManager: createChatSessionManager({
+      emit: emitChatEvent as (event: { type: string }) => void,
+      spawn,
+    }),
   });
   createWindow(icon);
 

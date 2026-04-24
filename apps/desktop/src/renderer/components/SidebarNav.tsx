@@ -7,6 +7,9 @@ import {
   FolderOpen,
   Folder,
   SquarePen,
+  Pin,
+  MoreHorizontal,
+  Archive,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
@@ -31,6 +34,11 @@ export function SidebarNav() {
   const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
   const [draftThreadTitle, setDraftThreadTitle] = useState("");
   const draftInputRef = useRef<HTMLInputElement>(null);
+  const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
+  const [openThreadMenuId, setOpenThreadMenuId] = useState<string | null>(null);
+  const [expandedArchivedProjectIds, setExpandedArchivedProjectIds] = useState<
+    string[]
+  >([]);
 
   const handleThreadClick = (threadId: string) => {
     setActiveThreadId(threadId);
@@ -85,6 +93,45 @@ export function SidebarNav() {
     }
   }, [draftProjectId]);
 
+  const togglePin = (projectId: string, threadId: string) => {
+    setProjectThreadsMap((prev) => ({
+      ...prev,
+      [projectId]: (prev[projectId] ?? []).map((t) =>
+        t.id === threadId ? { ...t, pinned: !t.pinned } : t,
+      ),
+    }));
+    setOpenThreadMenuId(null);
+  };
+
+  const archiveThreadAction = (projectId: string, threadId: string) => {
+    setOpenThreadMenuId(null);
+
+    const currentThreads = projectThreadsMap[projectId] ?? [];
+    const nextThreads = currentThreads.map((t) =>
+      t.id === threadId ? { ...t, archived: true } : t,
+    );
+
+    setProjectThreadsMap((prev) => ({
+      ...prev,
+      [projectId]: nextThreads,
+    }));
+
+    if (activeThreadId === threadId) {
+      const { active: nextActive } = splitProjectThreads(
+        nextThreads.filter((t) => t.id !== threadId),
+      );
+      setActiveThreadId(nextActive[0]?.id ?? null);
+    }
+  };
+
+  const toggleArchivedExpanded = (projectId: string) => {
+    setExpandedArchivedProjectIds((prev) =>
+      prev.includes(projectId)
+        ? prev.filter((id) => id !== projectId)
+        : [...prev, projectId],
+    );
+  };
+
   return (
     <aside className="flex h-full flex-col bg-[#1e1e1e]">
       <div
@@ -108,7 +155,10 @@ export function SidebarNav() {
           {projects.map((project) => {
             const isExpanded = expandedProjectIds.includes(project.id);
             const threads = projectThreadsMap[project.id] ?? [];
-            const { active } = splitProjectThreads(threads);
+            const { active, archived } = splitProjectThreads(threads);
+            const isArchivedExpanded = expandedArchivedProjectIds.includes(
+              project.id,
+            );
 
             return (
               <div key={project.id}>
@@ -160,23 +210,104 @@ export function SidebarNav() {
                     )}
                     {active.map((thread) => {
                       const isActive = thread.id === activeThreadId;
+                      const showActions =
+                        isActive || hoveredThreadId === thread.id;
+                      const menuOpen = openThreadMenuId === thread.id;
+
                       return (
-                        <button
-                          key={thread.id}
-                          onClick={() => handleThreadClick(thread.id)}
-                          className={`flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left transition mt-0.5 ${
-                            isActive
-                              ? "bg-[#2a2a2a] text-[#eee]"
-                              : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
-                          }`}
-                        >
-                          <span className="truncate text-[13px]">{thread.title}</span>
-                          <span className="shrink-0 text-[11px] text-[#555]">
-                            {thread.updatedAt}
-                          </span>
-                        </button>
+                        <div key={thread.id} className="relative mt-0.5">
+                          <button
+                            onClick={() => handleThreadClick(thread.id)}
+                            onMouseEnter={() => setHoveredThreadId(thread.id)}
+                            onMouseLeave={() =>
+                              setHoveredThreadId((prev) =>
+                                prev === thread.id ? null : prev,
+                              )
+                            }
+                            className={`flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left transition ${
+                              isActive
+                                ? "bg-[#2a2a2a] text-[#eee]"
+                                : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5 truncate">
+                              {thread.pinned && (
+                                <Pin className="h-3 w-3 text-[#888]" />
+                              )}
+                              <span className="truncate text-[13px]">
+                                {thread.title}
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="shrink-0 text-[11px] text-[#555]">
+                                {thread.updatedAt}
+                              </span>
+                              {showActions && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenThreadMenuId(
+                                      menuOpen ? null : thread.id,
+                                    );
+                                  }}
+                                  className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                                >
+                                  <MoreHorizontal className="h-3 w-3" />
+                                </button>
+                              )}
+                            </span>
+                          </button>
+
+                          {menuOpen && (
+                            <div className="absolute right-0 top-full z-10 mt-0.5 w-32 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  togglePin(project.id, thread.id);
+                                }}
+                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                              >
+                                <Pin className="h-3 w-3" />
+                                {thread.pinned ? "Unpin" : "Pin"}
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  archiveThreadAction(project.id, thread.id);
+                                }}
+                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                              >
+                                <Archive className="h-3 w-3" />
+                                Archive
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
+
+                    {archived.length > 0 && (
+                      <button
+                        onClick={() => toggleArchivedExpanded(project.id)}
+                        className="mt-1 flex w-full items-center gap-1.5 rounded-md px-3 py-1 text-left text-[12px] text-[#666] transition hover:text-[#999]"
+                      >
+                        <Archive className="h-3 w-3" />
+                        <span>Archived ({archived.length})</span>
+                      </button>
+                    )}
+
+                    {isArchivedExpanded && archived.length > 0 && (
+                      <div className="mt-0.5 pl-2">
+                        {archived.map((thread) => (
+                          <div
+                            key={thread.id}
+                            className="flex w-full items-center rounded-md px-3 py-1 text-[12px] text-[#555]"
+                          >
+                            <span className="truncate">{thread.title}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

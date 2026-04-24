@@ -36,9 +36,7 @@ export function SidebarNav() {
   const draftInputRef = useRef<HTMLInputElement>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [openThreadMenuId, setOpenThreadMenuId] = useState<string | null>(null);
-  const [expandedArchivedProjectIds, setExpandedArchivedProjectIds] = useState<
-    string[]
-  >([]);
+
 
   const handleThreadClick = (threadId: string) => {
     setActiveThreadId(threadId);
@@ -93,6 +91,25 @@ export function SidebarNav() {
     }
   }, [draftProjectId]);
 
+  useEffect(() => {
+    if (!openThreadMenuId) return;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      const inside =
+        target instanceof Element &&
+        target.closest(
+          '[data-thread-menu="true"], [data-thread-menu-trigger="true"]',
+        );
+      if (!inside) {
+        setOpenThreadMenuId(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [openThreadMenuId]);
+
   const togglePin = (projectId: string, threadId: string) => {
     setProjectThreadsMap((prev) => ({
       ...prev,
@@ -104,6 +121,8 @@ export function SidebarNav() {
   };
 
   const archiveThreadAction = (projectId: string, threadId: string) => {
+    if (!window.confirm("Archive this thread?")) return;
+
     setOpenThreadMenuId(null);
 
     const currentThreads = projectThreadsMap[projectId] ?? [];
@@ -122,14 +141,6 @@ export function SidebarNav() {
       );
       setActiveThreadId(nextActive[0]?.id ?? null);
     }
-  };
-
-  const toggleArchivedExpanded = (projectId: string) => {
-    setExpandedArchivedProjectIds((prev) =>
-      prev.includes(projectId)
-        ? prev.filter((id) => id !== projectId)
-        : [...prev, projectId],
-    );
   };
 
   return (
@@ -155,10 +166,7 @@ export function SidebarNav() {
           {projects.map((project) => {
             const isExpanded = expandedProjectIds.includes(project.id);
             const threads = projectThreadsMap[project.id] ?? [];
-            const { active, archived } = splitProjectThreads(threads);
-            const isArchivedExpanded = expandedArchivedProjectIds.includes(
-              project.id,
-            );
+            const { active } = splitProjectThreads(threads);
 
             return (
               <div key={project.id}>
@@ -244,6 +252,7 @@ export function SidebarNav() {
                               </span>
                               {showActions && (
                                 <button
+                                  data-thread-menu-trigger="true"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setOpenThreadMenuId(
@@ -259,7 +268,10 @@ export function SidebarNav() {
                           </button>
 
                           {menuOpen && (
-                            <div className="absolute right-0 top-full z-10 mt-0.5 w-32 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg">
+                            <div
+                              data-thread-menu="true"
+                              className="absolute right-0 top-full z-10 mt-0.5 w-32 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg"
+                            >
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -275,9 +287,9 @@ export function SidebarNav() {
                                   e.stopPropagation();
                                   archiveThreadAction(project.id, thread.id);
                                 }}
-                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 transition hover:bg-[#333]"
                               >
-                                <Archive className="h-3 w-3" />
+                                <Archive className="h-3 w-3 text-red-400" />
                                 Archive
                               </button>
                             </div>
@@ -286,28 +298,7 @@ export function SidebarNav() {
                       );
                     })}
 
-                    {archived.length > 0 && (
-                      <button
-                        onClick={() => toggleArchivedExpanded(project.id)}
-                        className="mt-1 flex w-full items-center gap-1.5 rounded-md px-3 py-1 text-left text-[12px] text-[#666] transition hover:text-[#999]"
-                      >
-                        <Archive className="h-3 w-3" />
-                        <span>Archived ({archived.length})</span>
-                      </button>
-                    )}
 
-                    {isArchivedExpanded && archived.length > 0 && (
-                      <div className="mt-0.5 pl-2">
-                        {archived.map((thread) => (
-                          <div
-                            key={thread.id}
-                            className="flex w-full items-center rounded-md px-3 py-1 text-[12px] text-[#555]"
-                          >
-                            <span className="truncate">{thread.title}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 )}
               </div>

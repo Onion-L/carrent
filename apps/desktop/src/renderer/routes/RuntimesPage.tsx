@@ -303,12 +303,14 @@ export function RuntimesPage() {
                       Version
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-[14px] text-[#ccc]">
-                      <span
-                        className={isRefreshingVersion ? "animate-pulse text-[#999]" : undefined}
-                        aria-live="polite"
-                      >
-                        {selectedRuntime.version ?? "Unknown"}
-                      </span>
+                      {isRefreshingVersion ? (
+                        <span className="flex items-center gap-1.5 text-[#888]">
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                          Refreshing…
+                        </span>
+                      ) : (
+                        <span>{selectedRuntime.version ?? "Unknown"}</span>
+                      )}
                       <button
                         onClick={() => refreshVersion(selectedRuntime.id)}
                         disabled={isActionPending(selectedRuntime.id)}

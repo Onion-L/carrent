@@ -97,7 +97,7 @@ export function AgentsPage() {
                 <Textarea
                   readOnly
                   className="min-h-32 bg-[#1e1e1e]"
-                  value="You are a helpful assistant focused on this specific responsibility."
+                  value={selectedAgent.responsibility}
                 />
               </div>
 

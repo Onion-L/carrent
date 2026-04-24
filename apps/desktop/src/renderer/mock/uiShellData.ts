@@ -58,10 +58,37 @@ export const initialActiveThreadId =
 export const currentProject =
   projects.find((project) => project.active) ?? projects[0];
 
-export const agents = [
-  { id: "architect", name: "Architect", runtime: "codex", selected: true },
-  { id: "frontend", name: "Frontend", runtime: "codex" },
-  { id: "reviewer", name: "Reviewer", runtime: "claude-code" },
+export type AgentRecord = {
+  id: string;
+  name: string;
+  runtime: "codex" | "claude-code";
+  responsibility: string;
+  selected?: boolean;
+};
+
+export const agents: AgentRecord[] = [
+  {
+    id: "architect",
+    name: "Architect",
+    runtime: "codex",
+    selected: true,
+    responsibility:
+      "You are a senior software architect. Focus on system design, API contracts, data models, and technical decisions. Provide high-level architecture recommendations and identify trade-offs.",
+  },
+  {
+    id: "frontend",
+    name: "Frontend",
+    runtime: "codex",
+    responsibility:
+      "You are a senior frontend engineer. Focus on React components, CSS, accessibility, performance, and user experience. Write clean, maintainable UI code with modern best practices.",
+  },
+  {
+    id: "reviewer",
+    name: "Reviewer",
+    runtime: "claude-code",
+    responsibility:
+      "You are a meticulous code reviewer. Analyze code for bugs, security issues, performance bottlenecks, and style violations. Suggest concrete improvements with explanations.",
+  },
 ];
 
 type ChangedFile = {

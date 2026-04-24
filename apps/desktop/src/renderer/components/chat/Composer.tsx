@@ -1,4 +1,4 @@
-import { ArrowUp, ChevronDown, FolderGit, GitBranch, Hand, Plus } from "lucide-react";
+import { ArrowUp, ChevronDown, FolderGit, GitBranch, Hand, Plus, Bot } from "lucide-react";
 import { useState } from "react";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { agents } from "../../mock/uiShellData";
@@ -6,7 +6,12 @@ import { agents } from "../../mock/uiShellData";
 export function Composer() {
   const { currentProject } = useWorkspace();
   const [input, setInput] = useState("");
-  const [selectedAgentId] = useState(agents.find((a) => a.selected)?.id ?? agents[0]?.id);
+  const [selectedAgentId, setSelectedAgentId] = useState(
+    agents.find((a) => a.selected)?.id ?? agents[0]?.id,
+  );
+  const [showAgentPicker, setShowAgentPicker] = useState(false);
+
+  const selectedAgent = agents.find((a) => a.id === selectedAgentId);
 
   return (
     <div className="px-4 pb-4 pt-2">
@@ -14,7 +19,7 @@ export function Composer() {
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask Codex, @ add files, / enter commands, $ use skills"
+          placeholder={`Message ${selectedAgent?.name ?? "Agent"}...`}
           className="w-full resize-none bg-transparent text-[14px] text-[#ddd] placeholder-[#666] outline-none"
           rows={3}
         />
@@ -31,19 +36,42 @@ export function Composer() {
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="rounded-md bg-[#333] px-2 py-1 text-[12px] text-[#888]">
-              aigocode_codex
-            </span>
-            <button className="flex items-center gap-1 rounded-md bg-[#333] px-2 py-1 text-[12px] text-[#aaa] transition hover:bg-[#3a3a3a]">
-              <span>GPT-5.4</span>
-              <ChevronDown className="h-3 w-3 text-[#666]" />
-            </button>
-            <button className="flex items-center gap-1 rounded-md bg-[#333] px-2 py-1 text-[12px] text-[#aaa] transition hover:bg-[#3a3a3a]">
-              <span>Ultra High</span>
-              <ChevronDown className="h-3 w-3 text-[#666]" />
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowAgentPicker((v) => !v)}
+                className="flex items-center gap-1 rounded-md bg-[#333] px-2 py-1 text-[12px] text-[#aaa] transition hover:bg-[#3a3a3a]"
+              >
+                <Bot className="h-3 w-3" />
+                <span>{selectedAgent?.name ?? "Agent"}</span>
+                <ChevronDown className="h-3 w-3 text-[#666]" />
+              </button>
+              {showAgentPicker && (
+                <div className="absolute bottom-full right-0 mb-1 w-40 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg">
+                  {agents.map((agent) => (
+                    <button
+                      key={agent.id}
+                      onClick={() => {
+                        setSelectedAgentId(agent.id);
+                        setShowAgentPicker(false);
+                      }}
+                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-[#333] ${
+                        agent.id === selectedAgentId
+                          ? "text-[#eee]"
+                          : "text-[#999]"
+                      }`}
+                    >
+                      <Bot className="h-3 w-3" />
+                      <span>{agent.name}</span>
+                      <span className="ml-auto text-[10px] text-[#666]">
+                        {agent.runtime}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
-              disabled={!selectedAgentId}
+              disabled={!selectedAgentId || !input.trim()}
               className="flex h-8 w-8 items-center justify-center rounded-full bg-[#4a6cf7] text-white transition hover:bg-[#3d5de4] disabled:opacity-40"
             >
               <ArrowUp className="h-4 w-4" />

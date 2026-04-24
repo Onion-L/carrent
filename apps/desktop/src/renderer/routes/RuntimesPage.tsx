@@ -1,30 +1,70 @@
 import { useState, useCallback, useMemo } from "react";
-import { Plug, GripVertical, RefreshCw, CircleStop } from "lucide-react";
+import {
+  GripVertical,
+  RefreshCw,
+  Square,
+  Play,
+  Plug,
+  Monitor,
+  ChevronRight,
+} from "lucide-react";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { OpenAIIcon } from "../components/icons/OpenAIIcon";
 import { ClaudeIcon } from "../components/icons/ClaudeIcon";
 
 const RUNTIME_ORDER_KEY = "carrent:runtimeOrder";
 
-function RuntimeIcon({ name }: { name: string }) {
+function RuntimeIcon({ name, size = "md" }: { name: string; size?: "sm" | "md" | "lg" }) {
   const key = name.toLowerCase();
+  const sizeClasses = {
+    sm: "h-8 w-8 rounded-lg",
+    md: "h-10 w-10 rounded-xl",
+    lg: "h-12 w-12 rounded-xl",
+  };
+  const iconSizes = {
+    sm: "h-4 w-4",
+    md: "h-5 w-5",
+    lg: "h-6 w-6",
+  };
+
   if (key.includes("codex") || key.includes("openai")) {
     return (
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#252525] text-white">
-        <OpenAIIcon className="h-5 w-5" />
+      <div
+        className={`flex shrink-0 items-center justify-center bg-[#252525] text-white ${sizeClasses[size]}`}
+      >
+        <OpenAIIcon className={iconSizes[size]} />
       </div>
     );
   }
   if (key.includes("claude")) {
     return (
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#252525]">
-        <ClaudeIcon className="h-5 w-5" />
+      <div className={`flex shrink-0 items-center justify-center bg-[#252525] ${sizeClasses[size]}`}>
+        <ClaudeIcon className={iconSizes[size]} />
       </div>
     );
   }
   return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#252525] text-[15px] font-bold text-[#ddd]">
+    <div
+      className={`flex shrink-0 items-center justify-center bg-[#252525] text-[15px] font-bold text-[#ddd] ${sizeClasses[size]}`}
+    >
       {name.charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
+function RuntimeListSkeleton() {
+  return (
+    <div className="space-y-1 px-3 py-2">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-lg px-3 py-3">
+          <div className="h-4 w-4 shrink-0 rounded bg-[#252525]" />
+          <div className="h-8 w-8 shrink-0 rounded-lg bg-[#252525]" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="h-3.5 w-24 rounded bg-[#252525]" />
+            <div className="h-2.5 w-16 rounded bg-[#252525]" />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -53,6 +93,7 @@ export function RuntimesPage() {
     loading,
     actionStateById,
     runModelPing,
+    start,
     stop,
     refreshVersion,
   } = useRuntimes();
@@ -125,55 +166,41 @@ export function RuntimesPage() {
     setDragOverId(null);
   }, []);
 
-  const isRefreshingVersion =
-    selectedRuntime != null &&
-    getActionState(selectedRuntime.id) === "refreshing-version";
+  const onlineCount = sortedRuntimes.filter((r) => r.availability === "detected").length;
 
   return (
-    <div className="flex h-full w-full flex-col bg-[#181818]">
+    <div className="flex h-full w-full flex-col bg-bg">
       {/* Top status bar */}
-      <div className="drag-region flex items-center gap-3 border-b border-[#252525] px-6 py-3">
-        <div
-          className={`h-2 w-2 rounded-full ${
-            sortedRuntimes.some((r) => r.status === "running")
-              ? "bg-emerald-500"
-              : "bg-[#555]"
-          }`}
-        />
-        <span className="text-[13px] text-[#999]">
-          {sortedRuntimes.some((r) => r.status === "running")
-            ? "Running"
-            : "Stopped"}
+      <div className="drag-region flex items-center gap-3 border-b border-border px-5 py-2.5">
+        <div className={`h-2 w-2 rounded-full ${onlineCount > 0 ? "bg-success" : "bg-muted"}`} />
+        <span className="text-xs text-muted">
+          {onlineCount > 0 ? `${onlineCount} online` : "All offline"}
         </span>
-        {sortedRuntimes.length > 0 && (
-          <span className="text-[13px] text-[#666]">
-            · {sortedRuntimes.map((r) => r.name).join(", ")}
-          </span>
-        )}
+        <span className="text-xs text-[#555]">/</span>
+        <span className="text-xs text-[#555]">{sortedRuntimes.length} runtimes</span>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left: runtime list */}
-        <div className="flex h-full w-[280px] flex-col border-r border-[#252525] bg-[#181818]">
+        <div className="flex h-full w-[260px] shrink-0 flex-col border-r border-border bg-bg">
           <div className="flex items-center justify-between px-4 pb-2 pt-3">
-            <h2 className="text-[13px] font-semibold text-[#ddd]">Runtimes</h2>
-            <span className="text-[12px] text-[#666]">
-              {sortedRuntimes.filter((r) => r.availability === "detected").length}
-              /{sortedRuntimes.length} online
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">Runtimes</h2>
+            <span className="text-[11px] text-[#555]">
+              {onlineCount}/{sortedRuntimes.length}
             </span>
           </div>
 
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto px-2 pb-2">
             {loading && sortedRuntimes.length === 0 ? (
-              <div className="px-4 py-8 text-center text-[13px] text-[#555]">
-                Detecting...
-              </div>
+              <RuntimeListSkeleton />
             ) : (
               sortedRuntimes.map((runtime) => {
                 const isActive = runtime.id === selectedId;
                 const isOnline = runtime.availability === "detected";
                 const isDragging = draggedId === runtime.id;
                 const isDragOver = dragOverId === runtime.id;
+                const isRunning = runtime.status === "running";
+
                 return (
                   <div key={runtime.id}>
                     <div
@@ -182,38 +209,47 @@ export function RuntimesPage() {
                       onDragOver={(e) => handleDragOver(e, runtime.id)}
                       onDrop={() => handleDrop(runtime.id)}
                       onDragEnd={handleDragEnd}
-                      className={`flex w-full cursor-move items-center gap-2 border-b border-[#252525] px-3 py-3 text-left transition ${
-                        isActive ? "bg-[#252525]" : "hover:bg-[#1e1e1e]"
+                      className={`group flex w-full cursor-move items-center gap-2 rounded-lg px-2.5 py-2.5 text-left transition ${
+                        isActive ? "bg-surface" : "hover:bg-surface/60"
                       } ${isDragging ? "opacity-40" : "opacity-100"} ${
                         isDragOver && draggedId !== runtime.id
-                          ? "border-t-2 border-t-[#444] bg-[#1c1c1c]"
+                          ? "ring-1 ring-inset ring-[#444]"
                           : ""
                       }`}
                     >
-                      <GripVertical className="h-4 w-4 shrink-0 text-[#444]" />
+                      <GripVertical className="h-3.5 w-3.5 shrink-0 text-[#444] opacity-0 transition group-hover:opacity-100" />
                       <div
-                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3"
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5"
                         onClick={() => setSelectedId(runtime.id)}
                       >
-                        <RuntimeIcon name={runtime.name} />
+                        <div className="relative">
+                          <RuntimeIcon name={runtime.name} size="sm" />
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-bg ${
+                              isOnline ? "bg-success" : "bg-[#444]"
+                            }`}
+                          />
+                        </div>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-[14px] font-medium text-[#ddd]">
+                          <div className="truncate text-[13px] font-medium text-fg">
                             {runtime.name}
                           </div>
-                          <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-[#888]">
+                          <div className="mt-0.5 flex items-center gap-1.5">
                             <span
-                              className={`inline-block h-1.5 w-1.5 rounded-full ${
-                                isOnline ? "bg-emerald-500" : "bg-[#444]"
+                              className={`inline-block h-1 w-1 rounded-full ${
+                                isRunning ? "bg-success" : "bg-[#555]"
                               }`}
                             />
-                            {runtime.status === "running" ? "Running" : "Stopped"}
+                            <span className="text-[11px] text-muted">
+                              {isRunning ? "Running" : "Stopped"}
+                            </span>
                           </div>
                         </div>
                       </div>
 
-                      <div
-                        className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                          isOnline ? "bg-emerald-500" : "bg-[#444]"
+                      <ChevronRight
+                        className={`h-3.5 w-3.5 shrink-0 transition ${
+                          isActive ? "text-fg" : "text-[#444]"
                         }`}
                       />
                     </div>
@@ -227,124 +263,126 @@ export function RuntimesPage() {
         {/* Right: detail area */}
         <div className="flex min-w-0 flex-1 flex-col overflow-auto">
           {selectedRuntime ? (
-            <div className="mx-auto w-full max-w-[640px] px-8 py-10">
+            <div className="mx-auto w-full max-w-xl px-10 py-10">
               {/* Header */}
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-4">
-                  <RuntimeIcon name={selectedRuntime.name} />
-                  <div>
-                    <h3 className="text-[20px] font-semibold text-[#eee]">
-                      {selectedRuntime.name}
-                    </h3>
-                    <div className="mt-1 flex items-center gap-2">
-                      <span
-                        className={`inline-block h-2 w-2 rounded-full ${
-                          selectedRuntime.availability === "detected"
-                            ? "bg-emerald-500"
-                            : "bg-[#555]"
-                        }`}
-                      />
-                      <span
-                        className={`text-[13px] ${
-                          selectedRuntime.availability === "detected"
-                            ? "text-emerald-400"
-                            : "text-[#666]"
-                        }`}
-                      >
-                        {selectedRuntime.availability === "detected"
-                          ? "Online"
-                          : "Offline"}
-                      </span>
-                    </div>
+              <div className="flex items-center gap-4">
+                <RuntimeIcon name={selectedRuntime.name} size="lg" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-lg font-semibold tracking-tight text-fg">
+                    {selectedRuntime.name}
+                  </h3>
+                  <div className="mt-1 flex items-center gap-3 text-xs text-muted">
+                    <span
+                      className={
+                        selectedRuntime.availability === "detected"
+                          ? "text-success"
+                          : "text-[#555]"
+                      }
+                    >
+                      {selectedRuntime.availability === "detected" ? "Online" : "Offline"}
+                    </span>
+                    <span className="text-[#333]">·</span>
+                    <span
+                      className={
+                        selectedRuntime.status === "running" ? "text-success" : "text-[#555]"
+                      }
+                    >
+                      {selectedRuntime.status === "running" ? "Running" : "Stopped"}
+                    </span>
+                    <span className="text-[#333]">·</span>
+                    <span>
+                      {selectedRuntime.id === "claude-code"
+                        ? "Anthropic"
+                        : selectedRuntime.id === "codex"
+                          ? "OpenAI"
+                          : selectedRuntime.id}
+                    </span>
                   </div>
                 </div>
-
-                {selectedRuntime.status === "running" && (
+                <div className="flex items-center gap-1">
+                  {selectedRuntime.status === "running" ? (
+                    <button
+                      onClick={() => stop(selectedRuntime.id)}
+                      disabled={isActionPending(selectedRuntime.id)}
+                      className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted transition hover:bg-surface hover:text-fg disabled:opacity-50"
+                    >
+                      <Square className="h-3.5 w-3.5" />
+                      Stop
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => start(selectedRuntime.id)}
+                      disabled={isActionPending(selectedRuntime.id)}
+                      className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted transition hover:bg-surface hover:text-fg disabled:opacity-50"
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                      Start
+                    </button>
+                  )}
                   <button
-                    onClick={() => stop(selectedRuntime.id)}
+                    onClick={() => runModelPing(selectedRuntime.id)}
                     disabled={isActionPending(selectedRuntime.id)}
-                    className="flex items-center gap-1.5 rounded-lg border border-[#2f2f2f] px-3 py-1.5 text-[13px] text-[#888] transition hover:border-[#444] hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted transition hover:bg-surface hover:text-fg disabled:opacity-50"
                   >
-                    <CircleStop className="h-3.5 w-3.5" />
-                    Stop
+                    {getActionState(selectedRuntime.id) === "model-ping" ? (
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        Testing…
+                      </>
+                    ) : (
+                      <>
+                        <Plug className="h-3.5 w-3.5" />
+                        Test Connection
+                      </>
+                    )}
                   </button>
-                )}
+                </div>
               </div>
 
-              {/* Info list */}
-              <div className="mt-10 space-y-0">
-                {/* Status */}
-                <div className="flex items-center justify-between border-b border-[#252525] py-4">
-                  <span className="text-[14px] text-[#666]">Status</span>
-                  <span
-                    className={`text-[14px] ${
-                      selectedRuntime.status === "running"
-                        ? "text-emerald-400"
-                        : "text-[#888]"
-                    }`}
-                  >
-                    {selectedRuntime.status === "running" ? "Running" : "Stopped"}
-                  </span>
-                </div>
-
-                {/* Provider */}
-                <div className="flex items-center justify-between border-b border-[#252525] py-4">
-                  <span className="text-[14px] text-[#666]">Provider</span>
-                  <span className="text-[14px] text-[#ccc]">
-                    {selectedRuntime.id === "claude-code"
-                      ? "Anthropic"
-                      : selectedRuntime.id === "codex"
-                        ? "OpenAI"
-                        : selectedRuntime.id}
-                  </span>
-                </div>
-
-                {/* Version */}
-                <div className="flex items-center justify-between border-b border-[#252525] py-4">
-                  <span className="text-[14px] text-[#666]">Version</span>
+              {/* Info rows */}
+              <div className="mt-10 space-y-5">
+                <div className="flex items-baseline justify-between gap-4">
+                  <span className="text-xs text-muted">Version</span>
                   <div className="flex items-center gap-2">
-                    {isRefreshingVersion ? (
-                      <span className="inline-flex items-center gap-1.5 text-[14px] text-[#888]">
+                    {getActionState(selectedRuntime.id) === "refreshing-version" ? (
+                      <span className="inline-flex items-center gap-1.5 text-sm text-muted">
                         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                         Refreshing…
                       </span>
                     ) : (
-                      <span className="text-[14px] text-[#ccc]">
+                      <span className="text-sm text-fg">
                         {selectedRuntime.version ?? "Unknown"}
                       </span>
                     )}
                     <button
                       onClick={() => refreshVersion(selectedRuntime.id)}
                       disabled={isActionPending(selectedRuntime.id)}
-                      className={`flex items-center rounded p-1 text-[#666] transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                        isRefreshingVersion
-                          ? "text-[#999]"
-                          : "hover:text-[#999]"
-                      }`}
-                      title={isRefreshingVersion ? "Refreshing version" : "Refresh version"}
-                      aria-label={isRefreshingVersion ? "Refreshing version" : "Refresh version"}
+                      className="text-[#444] transition hover:text-muted disabled:opacity-50"
+                      title="Refresh version"
                     >
                       <RefreshCw
-                        className={`h-3.5 w-3.5 ${isRefreshingVersion ? "animate-spin" : ""}`}
+                        className={`h-3.5 w-3.5 ${
+                          getActionState(selectedRuntime.id) === "refreshing-version"
+                            ? "animate-spin"
+                            : ""
+                        }`}
                       />
                     </button>
                   </div>
                 </div>
 
-                {/* Last Seen */}
-                <div className="flex items-center justify-between border-b border-[#252525] py-4">
-                  <span className="text-[14px] text-[#666]">Last Seen</span>
-                  <span className="text-[14px] text-[#ccc]">
+                <div className="flex items-baseline justify-between gap-4">
+                  <span className="text-xs text-muted">Last checked</span>
+                  <span className="text-sm text-fg">
                     {selectedRuntime.lastCheckedAt
                       ? new Date(selectedRuntime.lastCheckedAt).toLocaleString()
                       : "Never"}
                   </span>
                 </div>
 
-                {/* Last Restarted */}
-                <div className="flex items-center justify-between border-b border-[#252525] py-4">
-                  <span className="text-[14px] text-[#666]">Last Restarted</span>
-                  <span className="text-[14px] text-[#ccc]">
+                <div className="flex items-baseline justify-between gap-4">
+                  <span className="text-xs text-muted">Last restarted</span>
+                  <span className="text-sm text-fg">
                     {selectedRuntime.lastRestartedAt
                       ? new Date(selectedRuntime.lastRestartedAt).toLocaleString()
                       : "Never"}
@@ -353,31 +391,48 @@ export function RuntimesPage() {
               </div>
 
               {/* Actions */}
-              <div className="mt-10">
-                <span className="text-[14px] text-[#666]">Connection Test</span>
-                <button
-                  onClick={() => runModelPing(selectedRuntime.id)}
-                  disabled={isActionPending(selectedRuntime.id)}
-                  className="mt-3 flex items-center gap-2 rounded-lg border border-[#2f2f2f] px-4 py-2 text-[13px] text-[#ccc] transition hover:border-[#444] hover:bg-[#1e1e1e] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Plug className="h-3.5 w-3.5" />
-                  Test Connection
-                </button>
+              <div className="mt-10 border-t border-border pt-6">
+
+                {/* Verification result */}
+                {selectedRuntime.verification !== "never" && (
+                  <div className="mt-4 text-xs">
+                    {selectedRuntime.verification === "passed" && (
+                      <span className="text-success">
+                        Passed
+                        {selectedRuntime.lastVerifiedAt
+                          ? ` · ${new Date(selectedRuntime.lastVerifiedAt).toLocaleString()}`
+                          : ""}
+                      </span>
+                    )}
+                    {selectedRuntime.verification === "failed" && (
+                      <span className="text-danger">
+                        Failed
+                        {selectedRuntime.lastVerifiedAt
+                          ? ` · ${new Date(selectedRuntime.lastVerifiedAt).toLocaleString()}`
+                          : ""}
+                      </span>
+                    )}
+                    {selectedRuntime.verification === "unsupported" && (
+                      <span className="text-warning">Unsupported</span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Error */}
               {selectedRuntime.lastError && (
-                <div className="mt-8">
-                  <span className="text-[14px] text-[#666]">Last Error</span>
-                  <pre className="mt-2 whitespace-pre-wrap break-all rounded-lg border border-red-500/15 bg-red-500/5 p-3 font-mono text-[12px] leading-relaxed text-red-300/80">
+                <div className="mt-6 border-t border-border pt-6">
+                  <p className="text-xs text-danger">Last error</p>
+                  <p className="mt-2 whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-danger/70">
                     {selectedRuntime.lastError}
-                  </pre>
+                  </p>
                 </div>
               )}
             </div>
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center text-[#555]">
-              <p className="text-[15px]">Select a runtime to view details</p>
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-[#444]">
+              <Monitor className="h-5 w-5" />
+              <p className="text-sm">Select a runtime to view details</p>
             </div>
           )}
         </div>

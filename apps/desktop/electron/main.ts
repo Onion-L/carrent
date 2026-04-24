@@ -4,6 +4,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { registerRuntimeIpc } from "./runtime/runtimeIpc";
+import { registerChatIpc } from "./chat/chatIpc";
+import { createChatRunner } from "./chat/chatRunner";
+import { createProcessRunner } from "./runtime/processRunner";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -61,6 +64,14 @@ app.whenReady().then(() => {
   }
 
   registerRuntimeIpc(ipcMain);
+  registerChatIpc(ipcMain, {
+    chatRunner: createChatRunner(createProcessRunner()),
+    emit: (event) => {
+      BrowserWindow.getAllWindows().forEach((win) => {
+        win.webContents.send("chat:event", event);
+      });
+    },
+  });
   createWindow(icon);
 
   app.on("activate", () => {

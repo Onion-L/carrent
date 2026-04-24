@@ -1,10 +1,26 @@
-import { ArrowUp, ChevronDown, FolderGit, GitBranch, Hand, Plus, Bot } from "lucide-react";
+import {
+  ArrowUp,
+  ChevronDown,
+  FolderGit,
+  GitBranch,
+  Hand,
+  Plus,
+  Bot,
+  Square,
+} from "lucide-react";
 import { useState } from "react";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { agents } from "../../mock/uiShellData";
+import { useChatRun } from "../../hooks/useChatRun";
 
 export function Composer() {
-  const { currentProject } = useWorkspace();
+  const {
+    currentProject,
+    activeThreadId,
+    messages,
+    appendMessage,
+  } = useWorkspace();
+  const { isSending, send, stop } = useChatRun();
   const [input, setInput] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState(
     agents.find((a) => a.selected)?.id ?? agents[0]?.id,
@@ -12,6 +28,66 @@ export function Composer() {
   const [showAgentPicker, setShowAgentPicker] = useState(false);
 
   const selectedAgent = agents.find((a) => a.id === selectedAgentId);
+  const canSend =
+    !!input.trim() && !!activeThreadId && !!currentProject && !!selectedAgent;
+
+  const handleSend = async () => {
+    if (!canSend) return;
+
+    const messageText = input.trim();
+    setInput("");
+
+    // Append user message immediately
+    appendMessage({
+      threadId: activeThreadId,
+      role: "user",
+      agentId: selectedAgent.id,
+      content: messageText,
+    });
+
+    const threadMessages = messages.filter((m) => m.threadId === activeThreadId);
+    const transcript = threadMessages
+      .filter((m) => m.type !== "changed_files")
+      .slice(-6)
+      .map((m) => ({
+        role: m.role,
+        content: m.content ?? "",
+        agentId: m.agentId,
+      }));
+
+    await send(
+      {
+        projectPath: currentProject.path,
+        threadId: activeThreadId,
+        runtimeId: selectedAgent.runtime,
+        agent: {
+          id: selectedAgent.id,
+          name: selectedAgent.name,
+          responsibility: selectedAgent.responsibility,
+        },
+        transcript,
+        message: messageText,
+      },
+      {
+        onComplete: (text) => {
+          appendMessage({
+            threadId: activeThreadId,
+            role: "assistant",
+            agentId: selectedAgent.id,
+            content: text,
+          });
+        },
+        onError: (error) => {
+          appendMessage({
+            threadId: activeThreadId,
+            role: "assistant",
+            agentId: selectedAgent.id,
+            content: `Error: ${error}`,
+          });
+        },
+      },
+    );
+  };
 
   return (
     <div className="px-4 pb-4 pt-2">
@@ -22,6 +98,14 @@ export function Composer() {
           placeholder={`Message ${selectedAgent?.name ?? "Agent"}...`}
           className="w-full resize-none bg-transparent text-[14px] text-[#ddd] placeholder-[#666] outline-none"
           rows={3}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              if (canSend && !isSending) {
+                handleSend();
+              }
+            }
+          }}
         />
         <div className="mt-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -70,12 +154,22 @@ export function Composer() {
                 </div>
               )}
             </div>
-            <button
-              disabled={!selectedAgentId || !input.trim()}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-[#4a6cf7] text-white transition hover:bg-[#3d5de4] disabled:opacity-40"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </button>
+            {isSending ? (
+              <button
+                onClick={stop}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[#c44] text-white transition hover:bg-[#b33]"
+              >
+                <Square className="h-4 w-4" />
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!canSend}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[#4a6cf7] text-white transition hover:bg-[#3d5de4] disabled:opacity-40"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>

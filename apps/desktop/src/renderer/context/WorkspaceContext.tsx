@@ -25,6 +25,12 @@ export type WorkspaceContextValue = {
   createThread: (projectId: string, title: string) => ThreadRecord | null;
   toggleThreadPin: (projectId: string, threadId: string) => void;
   archiveThread: (projectId: string, threadId: string) => void;
+  appendMessage: (message: {
+    threadId: string;
+    role: "user" | "assistant";
+    agentId: string;
+    content: string;
+  }) => Message;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue>({
@@ -37,11 +43,20 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   createThread: () => null,
   toggleThreadPin: () => {},
   archiveThread: () => {},
+  appendMessage: () => ({ id: "", role: "user", agentId: "", threadId: "", content: "", timestamp: "" }),
 });
+
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState(initialProjects);
-  const [messages] = useState(initialMessages);
+  const [messages, setMessages] = useState(initialMessages);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(
     initialActiveThreadId,
   );
@@ -72,6 +87,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const appendMessage = (message: {
+    threadId: string;
+    role: "user" | "assistant";
+    agentId: string;
+    content: string;
+  }): Message => {
+    const newMessage: Message = {
+      ...message,
+      type: "text",
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: formatTime(new Date()),
+    };
+    setMessages((prev) => [...prev, newMessage]);
+    return newMessage;
+  };
+
   return (
     <WorkspaceContext.Provider
       value={{
@@ -84,6 +115,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         createThread,
         toggleThreadPin,
         archiveThread,
+        appendMessage,
       }}
     >
       {children}

@@ -1,0 +1,57 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+import type { ChatTurnRequest, ChatRunEvent } from "../../shared/chat";
+
+export type ChatRunCallbacks = {
+  onComplete: (text: string) => void;
+  onError: (error: string) => void;
+};
+
+export function useChatRun() {
+  const [isSending, setIsSending] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const pendingRef = useRef<
+    | (ChatRunCallbacks & {
+        runId: string;
+      })
+    | null
+  >(null);
+
+  useEffect(() => {
+    return window.carrent.chat.onEvent((event: ChatRunEvent) => {
+      const pending = pendingRef.current;
+      if (!pending || event.runId !== pending.runId) return;
+
+      if (event.type === "completed") {
+        setIsSending(false);
+        pending.onComplete(event.text);
+        pendingRef.current = null;
+      } else if (event.type === "failed") {
+        setIsSending(false);
+        setLastError(event.error);
+        pending.onError(event.error);
+        pendingRef.current = null;
+      } else if (event.type === "stopped") {
+        setIsSending(false);
+        pendingRef.current = null;
+      }
+    });
+  }, []);
+
+  const send = useCallback(
+    async (request: ChatTurnRequest, callbacks: ChatRunCallbacks) => {
+      setIsSending(true);
+      setLastError(null);
+      const { runId } = await window.carrent.chat.send(request);
+      pendingRef.current = { runId, ...callbacks };
+    },
+    [],
+  );
+
+  const stop = useCallback(async () => {
+    if (pendingRef.current) {
+      await window.carrent.chat.stop(pendingRef.current.runId);
+    }
+  }, []);
+
+  return { isSending, lastError, send, stop };
+}

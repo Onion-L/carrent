@@ -1,33 +1,15 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { useWorkspace } from "./WorkspaceContext";
 
-export type ActiveThreadContextValue = {
-  activeThreadId: string | null;
-  setActiveThreadId: (id: string | null) => void;
-};
+export type ActiveThreadContextValue = Pick<
+  ReturnType<typeof useWorkspace>,
+  "activeThreadId" | "setActiveThreadId"
+>;
 
-const ActiveThreadContext = createContext<ActiveThreadContextValue>({
-  activeThreadId: null,
-  setActiveThreadId: () => {},
-});
+export function useActiveThread(): ActiveThreadContextValue {
+  const { activeThreadId, setActiveThreadId } = useWorkspace();
 
-export function ActiveThreadProvider({
-  children,
-  initialThreadId,
-}: {
-  children: ReactNode;
-  initialThreadId?: string | null;
-}) {
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(
-    initialThreadId ?? null,
-  );
-
-  return (
-    <ActiveThreadContext.Provider value={{ activeThreadId, setActiveThreadId }}>
-      {children}
-    </ActiveThreadContext.Provider>
-  );
-}
-
-export function useActiveThread() {
-  return useContext(ActiveThreadContext);
+  return {
+    activeThreadId,
+    setActiveThreadId,
+  };
 }

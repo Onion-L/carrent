@@ -5,17 +5,11 @@ import { AgentsPage } from "./routes/AgentsPage";
 import { HomePage } from "./routes/HomePage";
 import { RuntimesPage } from "./routes/RuntimesPage";
 import { SettingsPage } from "./routes/SettingsPage";
-import { ActiveThreadProvider } from "./context/ActiveThreadContext";
-import { projects } from "./mock/uiShellData";
-
-const initialThreadId =
-  projects
-    .flatMap((p) => p.threads)
-    .find((t) => t.active)?.id ?? null;
+import { WorkspaceProvider } from "./context/WorkspaceContext";
 
 export default function App() {
   return (
-    <ActiveThreadProvider initialThreadId={initialThreadId}>
+    <WorkspaceProvider>
       <DesktopShell>
         <Routes>
           <Route element={<HomePage />} path="/" />
@@ -25,6 +19,6 @@ export default function App() {
           <Route element={<HomePage />} path="*" />
         </Routes>
       </DesktopShell>
-    </ActiveThreadProvider>
+    </WorkspaceProvider>
   );
 }

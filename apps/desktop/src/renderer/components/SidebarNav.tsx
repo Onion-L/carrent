@@ -4,14 +4,15 @@ import {
   Settings,
   ArrowUpDown,
   Plus,
-  ChevronDown,
-  ChevronRight,
   FolderOpen,
+  Folder,
   SquarePen,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { currentProject, threads } from "../mock/uiShellData";
+import { projects } from "../mock/uiShellData";
+import { useActiveThread } from "../context/ActiveThreadContext";
+import { splitProjectThreads } from "../lib/projectThreads";
 
 const workspaceNavItems = [
   { to: "/agents", label: "Agents", icon: Bot },
@@ -20,14 +21,25 @@ const workspaceNavItems = [
 
 export function SidebarNav() {
   const navigate = useNavigate();
-  const [projectExpanded, setProjectExpanded] = useState(true);
-  const [activeThreadId, setActiveThreadId] = useState(
-    threads.find((t) => t.active)?.id ?? threads[0]?.id,
+  const { activeThreadId, setActiveThreadId } = useActiveThread();
+  const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(
+    projects.filter((p) => p.active).map((p) => p.id),
+  );
+  const [projectThreadsMap, setProjectThreadsMap] = useState(() =>
+    Object.fromEntries(projects.map((p) => [p.id, p.threads])),
   );
 
   const handleThreadClick = (threadId: string) => {
     setActiveThreadId(threadId);
     navigate("/");
+  };
+
+  const toggleProjectExpanded = (projectId: string) => {
+    setExpandedProjectIds((prev) =>
+      prev.includes(projectId)
+        ? prev.filter((id) => id !== projectId)
+        : [...prev, projectId],
+    );
   };
 
   return (
@@ -46,49 +58,67 @@ export function SidebarNav() {
             <button className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]">
               <ArrowUpDown className="h-3 w-3" />
             </button>
-            <button className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]">
-              <Plus className="h-3 w-3" />
-            </button>
           </div>
         </div>
 
         <div className="flex-1 overflow-auto px-2 pb-2 mt-1">
-          <button
-            onClick={() => setProjectExpanded(!projectExpanded)}
-            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition hover:bg-[#2a2a2a]"
-          >
-            {projectExpanded ? (
-              <ChevronDown className="h-3.5 w-3.5 text-[#666]" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-[#666]" />
-            )}
-            <FolderOpen className="h-4 w-4 text-[#888]" />
-            <span className="flex-1 text-[13px] font-medium text-[#ddd]">
-              {currentProject.name}
-            </span>
-          </button>
+          {projects.map((project) => {
+            const isExpanded = expandedProjectIds.includes(project.id);
+            const threads = projectThreadsMap[project.id] ?? [];
+            const { active } = splitProjectThreads(threads);
 
-          {projectExpanded && (
-            <div className="ml-5 mt-1">
-              {threads.map((thread) => {
-                const isActive = thread.id === activeThreadId;
-                return (
+            return (
+              <div key={project.id}>
+                <button
+                  onClick={() => toggleProjectExpanded(project.id)}
+                  className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition hover:bg-[#2a2a2a]"
+                >
+                  {isExpanded ? (
+                    <FolderOpen className="h-4 w-4 text-[#888]" />
+                  ) : (
+                    <Folder className="h-4 w-4 text-[#888]" />
+                  )}
+                  <span className="flex-1 text-[13px] font-medium text-[#ddd]">
+                    {project.name}
+                  </span>
                   <button
-                    key={thread.id}
-                    onClick={() => handleThreadClick(thread.id)}
-                    className={`flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left transition mt-0.5 ${
-                      isActive
-                        ? "bg-[#2a2a2a] text-[#eee]"
-                        : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
-                    }`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // inline draft will be wired in Task 3
+                    }}
+                    className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                    title="New thread"
                   >
-                    <span className="truncate text-[13px]">{thread.title}</span>
-                    <span className="shrink-0 text-[11px] text-[#555]">{thread.updatedAt}</span>
+                    <Plus className="h-3 w-3" />
                   </button>
-                );
-              })}
-            </div>
-          )}
+                </button>
+
+                {isExpanded && (
+                  <div className="ml-5 mt-1">
+                    {active.map((thread) => {
+                      const isActive = thread.id === activeThreadId;
+                      return (
+                        <button
+                          key={thread.id}
+                          onClick={() => handleThreadClick(thread.id)}
+                          className={`flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left transition mt-0.5 ${
+                            isActive
+                              ? "bg-[#2a2a2a] text-[#eee]"
+                              : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
+                          }`}
+                        >
+                          <span className="truncate text-[13px]">{thread.title}</span>
+                          <span className="shrink-0 text-[11px] text-[#555]">
+                            {thread.updatedAt}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 

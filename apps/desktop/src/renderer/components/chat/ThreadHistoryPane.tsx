@@ -1,10 +1,11 @@
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { threads, currentProject } from "../../mock/uiShellData";
+import { currentProject } from "../../mock/uiShellData";
 
 export function ThreadHistoryPane() {
+  const projectThreads = currentProject.threads;
   const [activeThreadId, setActiveThreadId] = useState(
-    threads.find((t) => t.active)?.id ?? threads[0]?.id,
+    projectThreads.find((t) => t.active)?.id ?? projectThreads[0]?.id,
   );
 
   return (
@@ -21,13 +22,13 @@ export function ThreadHistoryPane() {
 
       {/* Thread list */}
       <div className="flex-1 overflow-auto px-2">
-        {threads.length === 0 ? (
+        {projectThreads.length === 0 ? (
           <div className="px-2 py-6 text-center">
             <p className="text-[13px] text-[#555]">No threads yet</p>
             <p className="mt-1 text-[12px] text-[#444]">Start a new thread to begin</p>
           </div>
         ) : (
-          threads.map((thread) => {
+          projectThreads.map((thread) => {
             const isActive = thread.id === activeThreadId;
             return (
               <button

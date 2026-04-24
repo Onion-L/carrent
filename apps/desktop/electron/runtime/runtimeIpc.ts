@@ -11,11 +11,11 @@ import { runtimeProcessManager, type RuntimeProcessManager } from "./runtimeProc
 interface IpcMainLike {
   handle: (
     channel: string,
-    listener: (
-      event: unknown,
-      runtimeId?: RuntimeId,
-    ) => Promise<RuntimeRecord[] | RuntimeVerificationResult | void> | void,
-  ) => void;
+      listener: (
+        event: unknown,
+        runtimeId?: RuntimeId,
+      ) => Promise<RuntimeRecord[] | RuntimeRecord | RuntimeVerificationResult | void> | void,
+    ) => void;
 }
 
 interface RuntimeIpcServices {
@@ -25,6 +25,7 @@ interface RuntimeIpcServices {
   start: (runtimeId: RuntimeId) => Promise<void>;
   stop: (runtimeId: RuntimeId) => Promise<void>;
   restart: (runtimeId: RuntimeId) => Promise<void>;
+  refreshVersion: (runtimeId: RuntimeId) => Promise<RuntimeRecord>;
   startAll: () => Promise<void>;
   stopAll: () => Promise<void>;
   restartAll: () => Promise<void>;
@@ -49,6 +50,9 @@ export function registerRuntimeIpc(
   );
   ipcMainLike.handle("runtimes:restart", (_event, runtimeId) =>
     services.restart(assertRuntimeId(runtimeId)),
+  );
+  ipcMainLike.handle("runtimes:refresh-version", (_event, runtimeId) =>
+    services.refreshVersion(assertRuntimeId(runtimeId)),
   );
   ipcMainLike.handle("runtimes:start-all", () => services.startAll());
   ipcMainLike.handle("runtimes:stop-all", () => services.stopAll());
@@ -76,6 +80,9 @@ export function createRuntimeIpcServices(
     },
     async restart(runtimeId) {
       processManager.restart(runtimeId);
+    },
+    async refreshVersion(runtimeId) {
+      return detectRuntime(getRuntimeDescriptor(runtimeId));
     },
     async startAll() {
       processManager.startAll();

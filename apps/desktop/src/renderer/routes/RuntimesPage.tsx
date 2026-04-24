@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
-import { Plug, GripVertical } from "lucide-react";
+import { Plug, GripVertical, RefreshCw } from "lucide-react";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { OpenAIIcon } from "../components/icons/OpenAIIcon";
 import { ClaudeIcon } from "../components/icons/ClaudeIcon";
@@ -48,7 +48,7 @@ function writeStoredOrder(order: string[]) {
 }
 
 export function RuntimesPage() {
-  const { runtimes, loading, actionStateById, runModelPing, stop } = useRuntimes();
+  const { runtimes, loading, actionStateById, runModelPing, stop, refreshVersion } = useRuntimes();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [orderedIds, setOrderedIds] = useState<string[]>(() => {
     const stored = readStoredOrder();
@@ -69,9 +69,10 @@ export function RuntimesPage() {
 
   const selectedRuntime = sortedRuntimes.find((r) => r.id === selectedId);
 
+  const getActionState = (id: string) => actionStateById[id] ?? "idle";
+
   const isActionPending = (id: string) => {
-    const state = actionStateById[id];
-    return state && state !== "idle";
+    return getActionState(id) !== "idle";
   };
 
   const handleDragStart = useCallback((id: string) => {
@@ -116,6 +117,9 @@ export function RuntimesPage() {
     setDraggedId(null);
     setDragOverId(null);
   }, []);
+
+  const isRefreshingVersion =
+    selectedRuntime != null && getActionState(selectedRuntime.id) === "refreshing-version";
 
   return (
     <div className="flex h-full w-full flex-col bg-[#181818]">
@@ -281,16 +285,57 @@ export function RuntimesPage() {
                     </div>
                   </div>
 
-                  {selectedRuntime.status === "running" && (
-                    <div>
-                      <div className="text-[12px] font-medium uppercase tracking-wider text-[#666]">
-                        CLI
-                      </div>
-                      <div className="mt-1 rounded-lg bg-[#1e1e1e] px-3 py-2 font-mono text-[13px] text-[#aaa]">
-                        {selectedRuntime.command}
-                      </div>
+                  <div>
+                    <div className="text-[12px] font-medium uppercase tracking-wider text-[#666]">
+                      Provider
                     </div>
-                  )}
+                    <div className="mt-1 text-[14px] text-[#ccc]">
+                      {selectedRuntime.id === "claude-code"
+                        ? "Anthropic"
+                        : selectedRuntime.id === "codex"
+                          ? "OpenAI"
+                          : selectedRuntime.id}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[12px] font-medium uppercase tracking-wider text-[#666]">
+                      Version
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-[14px] text-[#ccc]">
+                      <span
+                        className={isRefreshingVersion ? "animate-pulse text-[#999]" : undefined}
+                        aria-live="polite"
+                      >
+                        {selectedRuntime.version ?? "Unknown"}
+                      </span>
+                      <button
+                        onClick={() => refreshVersion(selectedRuntime.id)}
+                        disabled={isActionPending(selectedRuntime.id)}
+                        className={`flex items-center rounded p-1 text-[#666] transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                          isRefreshingVersion ? "bg-[#2f2f2f] text-[#999]" : "hover:bg-[#2f2f2f] hover:text-[#999]"
+                        }`}
+                        title={isRefreshingVersion ? "Refreshing version" : "Refresh version"}
+                        aria-label={isRefreshingVersion ? "Refreshing version" : "Refresh version"}
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingVersion ? "animate-spin" : ""}`} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[12px] font-medium uppercase tracking-wider text-[#666]">
+                      Last Seen
+                    </div>
+                    <div className="mt-1 text-[14px] text-[#ccc]">
+                      {selectedRuntime.lastCheckedAt
+                        ? new Date(
+                            selectedRuntime.lastCheckedAt,
+                          ).toLocaleString()
+                        : "Never"}
+                    </div>
+                  </div>
+
                 </div>
               </div>
             </div>

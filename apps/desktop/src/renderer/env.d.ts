@@ -14,6 +14,7 @@ declare global {
         start: (id: RuntimeId) => Promise<void>;
         stop: (id: RuntimeId) => Promise<void>;
         restart: (id: RuntimeId) => Promise<void>;
+        refreshVersion: (id: RuntimeId) => Promise<RuntimeRecord>;
         startAll: () => Promise<void>;
         stopAll: () => Promise<void>;
         restartAll: () => Promise<void>;

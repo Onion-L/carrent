@@ -8,7 +8,8 @@ type RuntimeActionState =
   | "model-ping"
   | "starting"
   | "stopping"
-  | "restarting";
+  | "restarting"
+  | "refreshing-version";
 
 type UseRuntimesState = {
   runtimes: RuntimeRecord[];
@@ -82,6 +83,35 @@ export function useRuntimes() {
 
   async function restart(id: RuntimeId) {
     await runLifecycleAction(id, "restarting", window.carrent.runtimes.restart);
+  }
+
+  async function refreshVersion(id: RuntimeId) {
+    setState((current) => ({
+      ...current,
+      error: undefined,
+      actionStateById: {
+        ...current.actionStateById,
+        [id]: "refreshing-version",
+      },
+    }));
+
+    try {
+      await window.carrent.runtimes.refreshVersion(id);
+      await refresh();
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        error: getErrorMessage(error, "Refresh version failed."),
+      }));
+    } finally {
+      setState((current) => ({
+        ...current,
+        actionStateById: {
+          ...current.actionStateById,
+          [id]: "idle",
+        },
+      }));
+    }
   }
 
   async function startAll() {
@@ -228,6 +258,7 @@ export function useRuntimes() {
     start,
     stop,
     restart,
+    refreshVersion,
     startAll,
     stopAll,
     restartAll,

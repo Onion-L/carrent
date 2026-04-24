@@ -10,7 +10,7 @@ describe("registerRuntimeIpc", () => {
       (
         event: unknown,
         runtimeId?: "codex" | "claude-code",
-      ) => Promise<RuntimeRecord[] | RuntimeVerificationResult | void> | void
+      ) => Promise<RuntimeRecord[] | RuntimeRecord | RuntimeVerificationResult | void> | void
     >();
     const calls: string[] = [];
     const listResult: RuntimeRecord[] = [
@@ -61,6 +61,10 @@ describe("registerRuntimeIpc", () => {
         restart: async (runtimeId) => {
           calls.push(`restart:${runtimeId}`);
         },
+        refreshVersion: async (runtimeId) => {
+          calls.push(`refresh-version:${runtimeId}`);
+          return listResult[0];
+        },
         startAll: async () => {
           calls.push("start-all");
         },
@@ -77,6 +81,7 @@ describe("registerRuntimeIpc", () => {
       "runtimes:list",
       "runtimes:local-check",
       "runtimes:model-ping",
+      "runtimes:refresh-version",
       "runtimes:restart",
       "runtimes:restart-all",
       "runtimes:start",
@@ -88,6 +93,7 @@ describe("registerRuntimeIpc", () => {
     expect(await handlers.get("runtimes:list")?.({})).toEqual(listResult);
     expect(await handlers.get("runtimes:local-check")?.({}, "codex")).toEqual(localCheckResult);
     expect(await handlers.get("runtimes:model-ping")?.({}, "claude-code")).toEqual(modelPingResult);
+    expect(await handlers.get("runtimes:refresh-version")?.({}, "codex")).toEqual(listResult[0]);
     await handlers.get("runtimes:start")?.({}, "codex");
     await handlers.get("runtimes:stop")?.({}, "claude-code");
     await handlers.get("runtimes:restart")?.({}, "codex");
@@ -98,6 +104,7 @@ describe("registerRuntimeIpc", () => {
       "list",
       "local-check:codex",
       "model-ping:claude-code",
+      "refresh-version:codex",
       "start:codex",
       "stop:claude-code",
       "restart:codex",

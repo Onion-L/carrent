@@ -10,6 +10,7 @@ const carrent = {
     start: (id: "codex" | "claude-code") => ipcRenderer.invoke("runtimes:start", id),
     stop: (id: "codex" | "claude-code") => ipcRenderer.invoke("runtimes:stop", id),
     restart: (id: "codex" | "claude-code") => ipcRenderer.invoke("runtimes:restart", id),
+    refreshVersion: (id: "codex" | "claude-code") => ipcRenderer.invoke("runtimes:refresh-version", id),
     startAll: () => ipcRenderer.invoke("runtimes:start-all"),
     stopAll: () => ipcRenderer.invoke("runtimes:stop-all"),
     restartAll: () => ipcRenderer.invoke("runtimes:restart-all"),

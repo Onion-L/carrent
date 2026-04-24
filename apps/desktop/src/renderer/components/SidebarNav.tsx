@@ -176,18 +176,20 @@ export function SidebarNav() {
 
             return (
               <div key={project.id}>
-                <button
-                  onClick={() => toggleProjectExpanded(project.id)}
-                  className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition hover:bg-[#2a2a2a]"
-                >
-                  {isExpanded ? (
-                    <FolderOpen className="h-4 w-4 text-[#888]" />
-                  ) : (
-                    <Folder className="h-4 w-4 text-[#888]" />
-                  )}
-                  <span className="flex-1 text-[13px] font-medium text-[#ddd]">
-                    {project.name}
-                  </span>
+                <div className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition hover:bg-[#2a2a2a]">
+                  <button
+                    onClick={() => toggleProjectExpanded(project.id)}
+                    className="flex flex-1 items-center gap-1.5 text-left"
+                  >
+                    {isExpanded ? (
+                      <FolderOpen className="h-4 w-4 text-[#888]" />
+                    ) : (
+                      <Folder className="h-4 w-4 text-[#888]" />
+                    )}
+                    <span className="text-[13px] font-medium text-[#ddd]">
+                      {project.name}
+                    </span>
+                  </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -198,7 +200,7 @@ export function SidebarNav() {
                   >
                     <Plus className="h-3 w-3" />
                   </button>
-                </button>
+                </div>
 
                 {isExpanded && (
                   <div className="ml-5 mt-1">
@@ -229,20 +231,23 @@ export function SidebarNav() {
                       const menuOpen = openThreadMenuId === thread.id;
 
                       return (
-                        <div key={thread.id} className="relative mt-0.5">
+                        <div
+                          key={thread.id}
+                          className={`relative mt-0.5 flex items-center justify-between rounded-md px-3 py-1.5 text-left transition ${
+                            isActive
+                              ? "bg-[#2a2a2a] text-[#eee]"
+                              : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
+                          }`}
+                          onMouseEnter={() => setHoveredThreadId(thread.id)}
+                          onMouseLeave={() =>
+                            setHoveredThreadId((prev) =>
+                              prev === thread.id ? null : prev,
+                            )
+                          }
+                        >
                           <button
                             onClick={() => handleThreadClick(thread.id)}
-                            onMouseEnter={() => setHoveredThreadId(thread.id)}
-                            onMouseLeave={() =>
-                              setHoveredThreadId((prev) =>
-                                prev === thread.id ? null : prev,
-                              )
-                            }
-                            className={`flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left transition ${
-                              isActive
-                                ? "bg-[#2a2a2a] text-[#eee]"
-                                : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
-                            }`}
+                            className="flex flex-1 items-center justify-between text-left"
                           >
                             <span className="flex items-center gap-1.5 truncate">
                               {thread.pinned && (
@@ -252,26 +257,24 @@ export function SidebarNav() {
                                 {thread.title}
                               </span>
                             </span>
-                            <span className="flex items-center gap-1">
-                              <span className="shrink-0 text-[11px] text-[#555]">
-                                {thread.updatedAt}
-                              </span>
-                              {showActions && (
-                                <button
-                                  data-thread-menu-trigger="true"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setOpenThreadMenuId(
-                                      menuOpen ? null : thread.id,
-                                    );
-                                  }}
-                                  className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
-                                >
-                                  <MoreHorizontal className="h-3 w-3" />
-                                </button>
-                              )}
+                            <span className="shrink-0 text-[11px] text-[#555]">
+                              {thread.updatedAt}
                             </span>
                           </button>
+                          {showActions && (
+                            <button
+                              data-thread-menu-trigger="true"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenThreadMenuId(
+                                  menuOpen ? null : thread.id,
+                                );
+                              }}
+                              className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                            >
+                              <MoreHorizontal className="h-3 w-3" />
+                            </button>
+                          )}
 
                           {menuOpen && (
                             <div

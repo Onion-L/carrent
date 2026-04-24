@@ -1,18 +1,51 @@
-export const currentProject = {
-  id: "timbre",
-  name: "Timbre",
-  path: "/Users/onion/workbench/timbre",
+export type ThreadRecord = {
+  id: string;
+  title: string;
+  updatedAt: string;
+  pinned?: boolean;
+  archived?: boolean;
+  active?: boolean;
 };
+
+export type ProjectRecord = {
+  id: string;
+  name: string;
+  path: string;
+  active?: boolean;
+  threads: ThreadRecord[];
+};
+
+export const projects: ProjectRecord[] = [
+  {
+    id: "timbre",
+    name: "Timbre",
+    path: "/Users/onion/workbench/timbre",
+    active: true,
+    threads: [
+      { id: "thread-1", title: "hi", updatedAt: "2d ago", active: true },
+      { id: "thread-2", title: "Refactor entry flow", updatedAt: "1h ago" },
+      { id: "thread-3", title: "Design review notes", updatedAt: "3h ago", pinned: true },
+      { id: "thread-4", title: "Old exploration", updatedAt: "5d ago", archived: true },
+    ],
+  },
+  {
+    id: "carrent",
+    name: "Carrent",
+    path: "/Users/onion/workbench/carrent",
+    threads: [
+      { id: "thread-5", title: "Landing page copy", updatedAt: "30m ago" },
+      { id: "thread-6", title: "Auth flow spike", updatedAt: "2h ago", archived: true },
+    ],
+  },
+];
+
+export const currentProject =
+  projects.find((project) => project.active) ?? projects[0];
 
 export const agents = [
   { id: "architect", name: "Architect", runtime: "codex", selected: true },
   { id: "frontend", name: "Frontend", runtime: "codex" },
   { id: "reviewer", name: "Reviewer", runtime: "claude-code" },
-];
-
-export const threads = [
-  { id: "thread-1", title: "hi", updatedAt: "2d ago", active: true },
-  { id: "thread-2", title: "Refactor entry flow", updatedAt: "1h ago" },
 ];
 
 type ChangedFile = {

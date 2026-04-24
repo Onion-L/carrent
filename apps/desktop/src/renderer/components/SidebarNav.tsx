@@ -9,6 +9,7 @@ import {
   Pin,
   MoreHorizontal,
   Archive,
+  SquarePen,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
@@ -157,6 +158,12 @@ export function SidebarNav() {
           <div className="flex items-center gap-1">
             <button className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]">
               <ArrowUpDown className="h-3 w-3" />
+            </button>
+            <button
+              className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]"
+              title="New project"
+            >
+              <SquarePen className="h-3 w-3" />
             </button>
           </div>
         </div>

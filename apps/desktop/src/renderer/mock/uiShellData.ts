@@ -21,21 +21,13 @@ export const projects: ProjectRecord[] = [
     name: "Timbre",
     path: "/Users/onion/workbench/timbre",
     active: true,
-    threads: [
-      { id: "thread-1", title: "hi", updatedAt: "2d ago", active: true },
-      { id: "thread-2", title: "Refactor entry flow", updatedAt: "1h ago" },
-      { id: "thread-3", title: "Design review notes", updatedAt: "3h ago", pinned: true },
-      { id: "thread-4", title: "Old exploration", updatedAt: "5d ago", archived: true },
-    ],
+    threads: [],
   },
   {
     id: "carrent",
     name: "Carrent",
     path: "/Users/onion/workbench/carrent",
-    threads: [
-      { id: "thread-5", title: "Landing page copy", updatedAt: "30m ago" },
-      { id: "thread-6", title: "Auth flow spike", updatedAt: "2h ago", archived: true },
-    ],
+    threads: [],
   },
 ];
 

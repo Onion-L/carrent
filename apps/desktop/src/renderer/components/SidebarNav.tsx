@@ -9,7 +9,7 @@ import {
   SquarePen,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { projects } from "../mock/uiShellData";
 import { useActiveThread } from "../context/ActiveThreadContext";
 import { splitProjectThreads } from "../lib/projectThreads";
@@ -28,6 +28,9 @@ export function SidebarNav() {
   const [projectThreadsMap, setProjectThreadsMap] = useState(() =>
     Object.fromEntries(projects.map((p) => [p.id, p.threads])),
   );
+  const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
+  const [draftThreadTitle, setDraftThreadTitle] = useState("");
+  const draftInputRef = useRef<HTMLInputElement>(null);
 
   const handleThreadClick = (threadId: string) => {
     setActiveThreadId(threadId);
@@ -41,6 +44,46 @@ export function SidebarNav() {
         : [...prev, projectId],
     );
   };
+
+  const openDraft = (projectId: string) => {
+    setDraftProjectId(projectId);
+    setDraftThreadTitle("");
+    // ensure project is expanded so draft is visible
+    setExpandedProjectIds((prev) =>
+      prev.includes(projectId) ? prev : [...prev, projectId],
+    );
+  };
+
+  const cancelDraft = () => {
+    setDraftProjectId(null);
+    setDraftThreadTitle("");
+  };
+
+  const saveDraft = () => {
+    const title = draftThreadTitle.trim();
+    if (!title || !draftProjectId) return;
+
+    const newThread = {
+      id: `thread-${Date.now()}`,
+      title,
+      updatedAt: "now",
+    };
+
+    setProjectThreadsMap((prev) => ({
+      ...prev,
+      [draftProjectId]: [newThread, ...(prev[draftProjectId] ?? [])],
+    }));
+    setActiveThreadId(newThread.id);
+    setDraftProjectId(null);
+    setDraftThreadTitle("");
+    navigate("/");
+  };
+
+  useEffect(() => {
+    if (draftProjectId && draftInputRef.current) {
+      draftInputRef.current.focus();
+    }
+  }, [draftProjectId]);
 
   return (
     <aside className="flex h-full flex-col bg-[#1e1e1e]">
@@ -84,7 +127,7 @@ export function SidebarNav() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      // inline draft will be wired in Task 3
+                      openDraft(project.id);
                     }}
                     className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
                     title="New thread"
@@ -95,6 +138,26 @@ export function SidebarNav() {
 
                 {isExpanded && (
                   <div className="ml-5 mt-1">
+                    {draftProjectId === project.id && (
+                      <div className="flex w-full items-center rounded-md px-3 py-1.5 bg-[#252525] mt-0.5">
+                        <input
+                          ref={draftInputRef}
+                          value={draftThreadTitle}
+                          onChange={(e) => setDraftThreadTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              saveDraft();
+                            } else if (e.key === "Escape") {
+                              e.preventDefault();
+                              cancelDraft();
+                            }
+                          }}
+                          placeholder="Thread title..."
+                          className="flex-1 bg-transparent text-[13px] text-[#ddd] placeholder-[#555] outline-none"
+                        />
+                      </div>
+                    )}
                     {active.map((thread) => {
                       const isActive = thread.id === activeThreadId;
                       return (

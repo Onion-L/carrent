@@ -71,46 +71,4 @@ type ChangedFilesMessage = Omit<MessageBase, "role"> & {
 
 export type Message = TextMessage | ChangedFilesMessage;
 
-export const messages: Message[] = [
-  {
-    id: "m1",
-    role: "assistant",
-    agentId: "architect",
-    threadId: "thread-1",
-    content: "我先读取会话启动要求相关的 skill，然后直接回复你。",
-    timestamp: "19:42:20",
-    duration: "7.3s",
-  },
-  {
-    id: "m2",
-    role: "assistant",
-    agentId: "architect",
-    threadId: "thread-1",
-    type: "changed_files",
-    timestamp: "19:42:29",
-    duration: "9.0s",
-    changedFiles: [
-      { path: "Sources/App", additions: 1, deletions: 0, isFolder: true },
-      { path: "Sources/App/HomeView.swift", additions: 1, deletions: 0, fileType: "swift" },
-      { path: "README.md", additions: 14, deletions: 0, fileType: "markdown" },
-    ],
-  },
-  {
-    id: "m3",
-    role: "user",
-    agentId: "frontend",
-    threadId: "thread-1",
-    content:
-      "scan this project and tell me what you think is vulnerable before shipping, respond in Chinese",
-    timestamp: "19:47:46",
-  },
-  {
-    id: "m4",
-    role: "assistant",
-    agentId: "reviewer",
-    threadId: "thread-1",
-    content: "使用 review skill 做一次发版前审查。重点看安全风险、数据暴露和构建配置。",
-    timestamp: "19:47:52",
-    duration: "6.2s",
-  },
-];
+export const messages: Message[] = [];

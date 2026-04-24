@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import type { RuntimeId, RuntimeRecord, RuntimeVerificationResult } from "../shared/runtimes";
+import type { ChatTurnRequest, ChatRunEvent } from "../shared/chat";
 
 declare global {
   interface Window {
@@ -18,6 +19,11 @@ declare global {
         startAll: () => Promise<void>;
         stopAll: () => Promise<void>;
         restartAll: () => Promise<void>;
+      };
+      chat: {
+        send: (request: ChatTurnRequest) => Promise<{ runId: string }>;
+        stop: (runId: string) => Promise<void>;
+        onEvent: (listener: (event: ChatRunEvent) => void) => () => void;
       };
     };
   }

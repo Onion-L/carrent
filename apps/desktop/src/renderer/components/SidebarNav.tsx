@@ -52,7 +52,7 @@ export function SidebarNav() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto px-2 pb-2">
+        <div className="flex-1 overflow-auto px-2 pb-2 mt-1">
           <button
             onClick={() => setProjectExpanded(!projectExpanded)}
             className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition hover:bg-[#2a2a2a]"
@@ -69,14 +69,14 @@ export function SidebarNav() {
           </button>
 
           {projectExpanded && (
-            <div className="ml-5">
+            <div className="ml-5 mt-1">
               {threads.map((thread) => {
                 const isActive = thread.id === activeThreadId;
                 return (
                   <button
                     key={thread.id}
                     onClick={() => handleThreadClick(thread.id)}
-                    className={`flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left transition ${
+                    className={`flex w-full items-center justify-between rounded-md px-3 py-1.5 text-left transition mt-0.5 ${
                       isActive
                         ? "bg-[#2a2a2a] text-[#eee]"
                         : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"

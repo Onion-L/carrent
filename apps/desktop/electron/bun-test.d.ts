@@ -12,6 +12,7 @@ declare module "bun:test" {
     toContain(expected: string): void;
     toMatchObject(expected: unknown): void;
     toBeString(): void;
+    toBeLessThan(expected: number): void;
     not: Matchers<T>;
   }
 

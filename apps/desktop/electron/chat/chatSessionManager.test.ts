@@ -129,11 +129,7 @@ describe("createChatSessionManager", () => {
 
     const failed = emitted.find((e) => e.type === "failed");
     expect(failed).toBeDefined();
-    expect(failed).toMatchObject({
-      type: "failed",
-      runId: "run-3",
-      error: "Something went wrong",
-    });
+    expect(failed?.error).toContain("Something went wrong");
   });
 
   it("emits failed on spawn error", async () => {
@@ -152,10 +148,45 @@ describe("createChatSessionManager", () => {
 
     const failed = emitted.find((e) => e.type === "failed");
     expect(failed).toBeDefined();
-    expect(failed).toMatchObject({
-      type: "failed",
-      runId: "run-4",
-      error: "ENOENT",
+    expect(failed?.error).toContain("not found");
+  });
+
+  it("emits failed when project path is missing", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
     });
+
+    manager.start("run-5", makeRequest({ projectPath: "" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const failed = emitted.find((e) => e.type === "failed");
+    expect(failed).toBeDefined();
+    expect(failed?.error).toContain("Project path is missing");
+  });
+
+  it("normalizes non-zero exit with stderr", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start("run-6", makeRequest());
+    mockChild.stderr.emit("data", Buffer.from("Out of credits"));
+    mockChild.emit("close", 1, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const failed = emitted.find((e) => e.type === "failed");
+    expect(failed).toBeDefined();
+    expect(failed?.error).toContain("Agent returned an error");
+    expect(failed?.error).toContain("Out of credits");
   });
 });

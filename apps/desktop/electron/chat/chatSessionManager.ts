@@ -31,6 +31,15 @@ export function createChatSessionManager(options: {
   const TIMEOUT_MS = 120_000;
 
   function start(runId: string, request: ChatTurnRequest) {
+    if (!request.projectPath) {
+      options.emit({
+        type: "failed",
+        runId,
+        error: "Project path is missing. Select a project to chat.",
+      });
+      return;
+    }
+
     const prompt = buildChatPrompt(request);
     const { command, args } = getRuntimeCommand(request.runtimeId, prompt);
 
@@ -85,11 +94,11 @@ export function createChatSessionManager(options: {
       }
 
       if (code !== 0) {
-        options.emit({
-          type: "failed",
-          runId,
-          error: session.stderr.trim() || `Command exited with code ${code}`,
-        });
+        const stderr = session.stderr.trim();
+        const error = stderr
+          ? `Agent returned an error: ${stderr}`
+          : `Agent exited with code ${code}`;
+        options.emit({ type: "failed", runId, error });
         return;
       }
 
@@ -114,10 +123,16 @@ export function createChatSessionManager(options: {
     child.on("error", (err) => {
       clearTimeout(session.timeoutHandle);
       sessions.delete(runId);
+
+      const normalized =
+        err.message.includes("ENOENT")
+          ? `Agent runtime not found. Make sure ${command} is installed and available in your PATH.`
+          : err.message;
+
       options.emit({
         type: "failed",
         runId,
-        error: err.message,
+        error: normalized,
       });
     });
 

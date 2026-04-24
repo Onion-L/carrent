@@ -65,4 +65,19 @@ describe("buildChatPrompt", () => {
     expect(prompt).toContain("user: What is the best pattern?");
     expect(prompt).toContain("assistant: Use composition.");
   });
+
+  it("caps transcript by total serialized character count", () => {
+    const longContent = "a".repeat(2000);
+    const transcript = Array.from({ length: 4 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: longContent,
+    }));
+
+    const prompt = buildChatPrompt(makeRequest({ transcript, message: "Hi" }));
+
+    // 4 messages * 2000 chars = 8000+ chars, should be capped to under 6000
+    // by dropping messages from the front
+    const transcriptSection = prompt.split("Recent conversation:")[1]?.split("user: Hi")[0] ?? "";
+    expect(transcriptSection.length).toBeLessThan(6000);
+  });
 });

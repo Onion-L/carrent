@@ -329,7 +329,7 @@ export function SidebarNav() {
               to={item.to}
               end={item.to === "/"}
               className={({ isActive }) =>
-                `flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px] transition ${
+                `flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition ${
                   isActive
                     ? "bg-[#2a2a2a] font-medium text-[#eee]"
                     : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
@@ -348,7 +348,7 @@ export function SidebarNav() {
         <NavLink
           to="/settings"
           className={({ isActive }) =>
-            `flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-[13px] transition ${
+            `flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition ${
               isActive
                 ? "bg-[#2a2a2a] font-medium text-[#eee]"
                 : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"

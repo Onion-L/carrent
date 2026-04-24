@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { SidebarNav } from "./SidebarNav";
 
 const MIN_WIDTH = 180;
-const DEFAULT_WIDTH = 240;
+const DEFAULT_WIDTH = 280;
 const COLLAPSED_WIDTH = 0;
 const MAX_WIDTH_RATIO = 0.45;
 

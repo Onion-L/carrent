@@ -9,6 +9,7 @@ import {
 } from "../mock/uiShellData";
 import {
   archiveThreadInProjects,
+  createProjectInProjects,
   createThreadInProjects,
   findCurrentProject,
   findCurrentThread,
@@ -22,6 +23,7 @@ export type WorkspaceContextValue = {
   currentThread: ThreadRecord | null;
   currentProject: ProjectRecord | null;
   setActiveThreadId: (id: string | null) => void;
+  createProject: (folderPath: string) => ProjectRecord | null;
   createThread: (projectId: string, title: string) => ThreadRecord | null;
   toggleThreadPin: (projectId: string, threadId: string) => void;
   archiveThread: (projectId: string, threadId: string) => void;
@@ -41,6 +43,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   currentThread: null,
   currentProject: null,
   setActiveThreadId: () => {},
+  createProject: () => null,
   createThread: () => null,
   toggleThreadPin: () => {},
   archiveThread: () => {},
@@ -65,6 +68,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const currentThread = findCurrentThread(projects, activeThreadId);
   const currentProject = findCurrentProject(projects, activeThreadId);
+
+  const createProject = (folderPath: string) => {
+    const result = createProjectInProjects(projects, folderPath);
+    setProjects(result.projects);
+    return result.project;
+  };
 
   const createThread = (projectId: string, title: string) => {
     const result = createThreadInProjects(projects, projectId, title);
@@ -120,6 +129,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         currentThread,
         currentProject,
         setActiveThreadId,
+        createProject,
         createThread,
         toggleThreadPin,
         archiveThread,

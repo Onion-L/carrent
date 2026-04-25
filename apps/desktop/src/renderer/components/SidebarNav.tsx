@@ -27,6 +27,7 @@ export function SidebarNav() {
     projects,
     activeThreadId,
     setActiveThreadId,
+    createProject,
     createThread,
     toggleThreadPin,
     archiveThread,
@@ -133,6 +134,19 @@ export function SidebarNav() {
               <ArrowUpDown className="h-3 w-3" />
             </button>
             <button
+              onClick={async () => {
+                const result = await window.carrent.dialog.openDirectory();
+                if (!result.canceled && result.filePaths.length > 0) {
+                  const newProject = createProject(result.filePaths[0]);
+                  if (newProject) {
+                    setExpandedProjectIds((prev) =>
+                      prev.includes(newProject.id)
+                        ? prev
+                        : [...prev, newProject.id],
+                    );
+                  }
+                }
+              }}
               className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]"
               title="New project"
             >

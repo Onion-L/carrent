@@ -27,6 +27,13 @@ const carrent = {
       return () => ipcRenderer.removeListener("chat:event", wrapped);
     },
   },
+  dialog: {
+    openDirectory: () =>
+      ipcRenderer.invoke("dialog:open-directory") as Promise<{
+        canceled: boolean;
+        filePaths: string[];
+      }>,
+  },
 };
 
 contextBridge.exposeInMainWorld("carrent", carrent);

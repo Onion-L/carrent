@@ -1,5 +1,24 @@
+import { basename } from "node:path";
 import type { ProjectRecord, ThreadRecord } from "../mock/uiShellData";
 import { splitProjectThreads } from "./projectThreads";
+
+export function createProjectInProjects(
+  projects: ProjectRecord[],
+  folderPath: string,
+) {
+  const name = basename(folderPath);
+  const project: ProjectRecord = {
+    id: `project-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name,
+    path: folderPath,
+    threads: [],
+  };
+
+  return {
+    projects: [...projects, project],
+    project,
+  };
+}
 
 export function findCurrentThread(
   projects: ProjectRecord[],

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, shell, dialog } from "electron";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,6 +64,14 @@ app.whenReady().then(() => {
   }
 
   registerRuntimeIpc(ipcMain);
+
+  ipcMain.handle("dialog:open-directory", async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ["openDirectory"],
+    });
+    return result;
+  });
+
   const emitChatEvent = (event: unknown) => {
     BrowserWindow.getAllWindows().forEach((win) => {
       win.webContents.send("chat:event", event);

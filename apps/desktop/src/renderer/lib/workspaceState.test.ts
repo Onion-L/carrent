@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { ProjectRecord, ThreadRecord } from "../mock/uiShellData";
 import {
   archiveThreadInProjects,
+  createProjectInProjects,
   createThreadInProjects,
   findCurrentProject,
   findCurrentThread,
@@ -87,5 +88,20 @@ describe("workspaceState", () => {
         ?.archived,
     ).toBe(true);
     expect(result.nextActiveThreadId).toBe("thread-a");
+  });
+
+  it("creates a project from a folder path", () => {
+    const projects = [makeProject({ id: "project-a" })];
+    const result = createProjectInProjects(projects, "/Users/onion/workbench/new-app");
+
+    expect(result.projects).toHaveLength(2);
+    expect(result.project).toBeDefined();
+    expect(result.project?.path).toBe("/Users/onion/workbench/new-app");
+    expect(result.project?.threads).toHaveLength(0);
+  });
+
+  it("uses the folder basename as the project name", () => {
+    const result = createProjectInProjects([], "/Users/onion/workbench/my-project");
+    expect(result.project?.name).toBe("my-project");
   });
 });

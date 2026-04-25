@@ -25,6 +25,9 @@ declare global {
         stop: (runId: string) => Promise<void>;
         onEvent: (listener: (event: ChatRunEvent) => void) => () => void;
       };
+      dialog: {
+        openDirectory: () => Promise<{ canceled: boolean; filePaths: string[] }>;
+      };
     };
   }
 }

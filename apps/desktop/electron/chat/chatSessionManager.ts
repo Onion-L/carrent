@@ -15,7 +15,12 @@ interface ChatSession {
 export type SpawnFn = (
   command: string,
   args: string[],
-  options: { cwd: string; timeout?: number; windowsHide?: boolean },
+  options: {
+    cwd: string;
+    timeout?: number;
+    windowsHide?: boolean;
+    stdio?: ["ignore", "pipe", "pipe"];
+  },
 ) => ChildProcess;
 
 export interface ChatSessionManager {
@@ -165,6 +170,7 @@ function getSessionRuntimeCommand(
     "--print",
     "--output-format",
     "stream-json",
+    "--verbose",
     "--include-partial-messages",
   ];
 
@@ -247,6 +253,7 @@ export function createChatSessionManager(options: {
 
     const child = options.spawn(command, args, {
       cwd: request.projectPath,
+      stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
     const claudeStreamState =

@@ -92,6 +92,25 @@ describe("createChatSessionManager", () => {
     });
   });
 
+  it("starts CLI children with stdin ignored so providers do not wait for EOF", async () => {
+    const mockChild = createMockChildProcess();
+    let capturedStdio: unknown;
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (_command, _args, options) => {
+        capturedStdio = (options as { stdio?: unknown }).stdio;
+        return mockChild;
+      },
+    });
+
+    manager.start("run-stdin", makeRequest());
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(capturedStdio).toEqual(["ignore", "pipe", "pipe"]);
+  });
+
   it("stop kills the active child and emits stopped", async () => {
     const mockChild = createMockChildProcess();
     const emitted: ChatRunEvent[] = [];
@@ -291,6 +310,27 @@ describe("createChatSessionManager", () => {
       runId: "run-9",
       text: "Hello world",
     });
+  });
+
+  it("passes verbose when using claude stream-json output", async () => {
+    const mockChild = createMockChildProcess();
+    let capturedArgs: string[] = [];
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (_command, args) => {
+        capturedArgs = args;
+        return mockChild;
+      },
+    });
+
+    manager.start("run-claude-verbose", makeRequest({ runtimeId: "claude-code" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(capturedArgs).toContain("--output-format");
+    expect(capturedArgs).toContain("stream-json");
+    expect(capturedArgs).toContain("--verbose");
   });
 
   it("resumes the previous claude session for the same thread", async () => {

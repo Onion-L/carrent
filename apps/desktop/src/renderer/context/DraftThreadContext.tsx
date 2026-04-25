@@ -32,13 +32,15 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
   const [drafts, setDrafts] = useState<DraftThreadRecord[]>([]);
 
   const createDraft = (projectId: string, title: string) => {
-    const result = createDraftThread(drafts, projectId, title);
-    if (!result.draft) {
-      return null;
-    }
+    let nextDraft: DraftThreadRecord | null = null;
 
-    setDrafts(result.drafts);
-    return result.draft;
+    setDrafts((prev) => {
+      const result = createDraftThread(prev, projectId, title);
+      nextDraft = result.draft;
+      return result.drafts;
+    });
+
+    return nextDraft;
   };
 
   const appendDraftMessage = (draftId: string, message: Message) => {

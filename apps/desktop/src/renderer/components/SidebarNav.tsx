@@ -12,7 +12,7 @@ import {
   SquarePen,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useDraftThread } from "../context/DraftThreadContext";
 import { splitProjectThreads } from "../lib/projectThreads";
@@ -44,9 +44,6 @@ export function SidebarNav() {
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(
     projects.filter((p) => p.active).map((p) => p.id),
   );
-  const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
-  const [draftThreadTitle, setDraftThreadTitle] = useState("");
-  const draftInputRef = useRef<HTMLInputElement>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [openThreadMenuId, setOpenThreadMenuId] = useState<string | null>(null);
 
@@ -64,36 +61,16 @@ export function SidebarNav() {
   };
 
   const openDraft = (projectId: string) => {
-    setDraftProjectId(projectId);
-    setDraftThreadTitle("");
-    // ensure project is expanded so draft is visible
+    const draft = createDraft(projectId);
+    if (!draft) {
+      return;
+    }
+
     setExpandedProjectIds((prev) =>
       prev.includes(projectId) ? prev : [...prev, projectId],
     );
-  };
-
-  const cancelDraft = () => {
-    setDraftProjectId(null);
-    setDraftThreadTitle("");
-  };
-
-  const saveDraft = () => {
-    const title = draftThreadTitle.trim();
-    if (!title || !draftProjectId) return;
-
-    const draft = createDraft(draftProjectId, title);
-    if (!draft) return;
-
-    setDraftProjectId(null);
-    setDraftThreadTitle("");
     navigate(buildDraftPath(draft.draftId));
   };
-
-  useEffect(() => {
-    if (draftProjectId && draftInputRef.current) {
-      draftInputRef.current.focus();
-    }
-  }, [draftProjectId]);
 
   useEffect(() => {
     if (!openThreadMenuId) return;
@@ -199,26 +176,6 @@ export function SidebarNav() {
 
                 {isExpanded && (
                   <div className="ml-5 mt-1">
-                    {draftProjectId === project.id && (
-                      <div className="flex w-full items-center rounded-md px-3 py-1.5 bg-[#252525] mt-0.5">
-                        <input
-                          ref={draftInputRef}
-                          value={draftThreadTitle}
-                          onChange={(e) => setDraftThreadTitle(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              saveDraft();
-                            } else if (e.key === "Escape") {
-                              e.preventDefault();
-                              cancelDraft();
-                            }
-                          }}
-                          placeholder="Thread title..."
-                          className="flex-1 bg-transparent text-[13px] text-[#ddd] placeholder-[#555] outline-none"
-                        />
-                      </div>
-                    )}
                     {active.map((thread) => {
                       const isActive = thread.id === activeThreadId;
                       const showActions =

@@ -43,6 +43,12 @@ describe("draftThreads", () => {
     expect(buildDraftThreadRecord("project-1", "   ")).toBe(null);
   });
 
+  it("builds a draft record with the default title used by one-click creation", () => {
+    const draft = buildDraftThreadRecord("project-1", "New thread");
+
+    expect(draft?.title).toBe("New thread");
+  });
+
   it("creates a draft with draftId and preallocated threadId", () => {
     const result = createDraftThread([], "project-1", " New thread ");
     const draft = result.draft;

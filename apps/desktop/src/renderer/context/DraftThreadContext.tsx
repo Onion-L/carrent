@@ -40,7 +40,7 @@ export function getVerificationDraftById(draftId: string) {
 
 export type DraftThreadContextValue = {
   drafts: DraftThreadRecord[];
-  createDraft: (projectId: string, title: string) => DraftThreadRecord | null;
+  createDraft: (projectId: string) => DraftThreadRecord | null;
   appendDraftMessage: (draftId: string, message: Message) => void;
   updateDraftMessage: (draftId: string, messageId: string, content: string) => void;
   markPromotedDraftThreadByRef: (draftId: string, realThreadId: string) => void;
@@ -71,8 +71,8 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
     return nextDrafts;
   };
 
-  const createDraft = (projectId: string, title: string) => {
-    const draft = buildDraftThreadRecord(projectId, title);
+  const createDraft = (projectId: string) => {
+    const draft = buildDraftThreadRecord(projectId, "New thread");
     if (!draft) {
       return null;
     }

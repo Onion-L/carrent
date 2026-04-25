@@ -8,6 +8,26 @@ import {
 } from "../lib/draftThreads";
 import type { Message } from "../mock/uiShellData";
 
+const initialDrafts: DraftThreadRecord[] = [
+  {
+    draftId: "foo",
+    projectId: "project-1",
+    title: "Draft thread",
+    preallocatedThreadId: "draft-foo-thread",
+    createdAt: "2026-04-25T00:00:00.000Z",
+    messages: [
+      {
+        id: "draft-foo-message-1",
+        role: "user",
+        agentId: "architect",
+        timestamp: "09:00",
+        threadId: "draft-foo-thread",
+        content: "Sketch the draft-first thread flow before promotion.",
+      },
+    ],
+  },
+];
+
 export type DraftThreadContextValue = {
   drafts: DraftThreadRecord[];
   createDraft: (projectId: string, title: string) => DraftThreadRecord | null;
@@ -29,7 +49,7 @@ const DraftThreadContext = createContext<DraftThreadContextValue>({
 });
 
 export function DraftThreadProvider({ children }: { children: ReactNode }) {
-  const [drafts, setDrafts] = useState<DraftThreadRecord[]>([]);
+  const [drafts, setDrafts] = useState<DraftThreadRecord[]>(initialDrafts);
 
   const createDraft = (projectId: string, title: string) => {
     const draft = buildDraftThreadRecord(projectId, title);

@@ -55,8 +55,8 @@ describe("resolveDraftRouteData", () => {
     expect(resolveDraftRouteData([makeDraft()], "draft-missing")).toBe(null);
   });
 
-  it("provides a seeded verification draft for /draft/foo", () => {
-    const result = resolveDraftRouteData([], "foo");
+  it("reads the verification draft when it exists in context drafts", () => {
+    const result = resolveDraftRouteData([makeDraft({ draftId: "foo", title: "Draft thread" })], "foo");
 
     expect(result?.draftId).toBe("foo");
     expect(result?.title).toBe("Draft thread");

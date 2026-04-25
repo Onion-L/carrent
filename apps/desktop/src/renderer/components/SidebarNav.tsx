@@ -10,6 +10,9 @@ import {
   MoreHorizontal,
   Archive,
   SquarePen,
+  ExternalLink,
+  Link,
+  Trash2,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
@@ -37,6 +40,7 @@ export function SidebarNav() {
     activeThreadId,
     setActiveThreadId,
     createProject,
+    removeProject,
     toggleThreadPin,
     archiveThread,
   } = useWorkspace();
@@ -46,6 +50,8 @@ export function SidebarNav() {
   );
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [openThreadMenuId, setOpenThreadMenuId] = useState<string | null>(null);
+  const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
+  const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
 
   const handleThreadClick = (projectId: string, threadId: string) => {
     setActiveThreadId(threadId);
@@ -90,6 +96,25 @@ export function SidebarNav() {
     document.addEventListener("mousedown", handleMouseDown);
     return () => document.removeEventListener("mousedown", handleMouseDown);
   }, [openThreadMenuId]);
+
+  useEffect(() => {
+    if (!openProjectMenuId) return;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      const inside =
+        target instanceof Element &&
+        target.closest(
+          '[data-project-menu="true"], [data-project-menu-trigger="true"]',
+        );
+      if (!inside) {
+        setOpenProjectMenuId(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [openProjectMenuId]);
 
   const togglePin = (projectId: string, threadId: string) => {
     toggleThreadPin(projectId, threadId);
@@ -148,7 +173,15 @@ export function SidebarNav() {
 
             return (
               <div key={project.id}>
-                <div className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition hover:bg-[#2a2a2a]">
+                <div
+                  className="relative flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition hover:bg-[#2a2a2a]"
+                  onMouseEnter={() => setHoveredProjectId(project.id)}
+                  onMouseLeave={() =>
+                    setHoveredProjectId((prev) =>
+                      prev === project.id ? null : prev,
+                    )
+                  }
+                >
                   <button
                     onClick={() => toggleProjectExpanded(project.id)}
                     className="flex flex-1 items-center gap-1.5 text-left"
@@ -162,16 +195,81 @@ export function SidebarNav() {
                       {project.name}
                     </span>
                   </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openDraft(project.id);
-                    }}
-                    className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
-                    title="New thread"
-                  >
-                    <Plus className="h-3 w-3" />
-                  </button>
+                  {hoveredProjectId === project.id && (
+                    <>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDraft(project.id);
+                        }}
+                        className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                        title="New thread"
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                      <button
+                        data-project-menu-trigger="true"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenProjectMenuId(
+                            openProjectMenuId === project.id
+                              ? null
+                              : project.id,
+                          );
+                        }}
+                        className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                      >
+                        <MoreHorizontal className="h-3 w-3" />
+                      </button>
+                    </>
+                  )}
+
+                  {openProjectMenuId === project.id && (
+                    <div
+                      data-project-menu="true"
+                      className="absolute right-0 top-full z-10 mt-0.5 w-44 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg"
+                    >
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.carrent.shell.showInFolder(project.path);
+                          setOpenProjectMenuId(null);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        Locate on Disk
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.carrent.clipboard.writeText(project.path);
+                          setOpenProjectMenuId(null);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                      >
+                        <Link className="h-3 w-3" />
+                        Copy location
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (
+                            window.confirm(
+                              `Remove "${project.name}" from the list?`,
+                            )
+                          ) {
+                            removeProject(project.id);
+                          }
+                          setOpenProjectMenuId(null);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 transition hover:bg-[#333]"
+                      >
+                        <Trash2 className="h-3 w-3 text-red-400" />
+                        Forget project
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {isExpanded && (

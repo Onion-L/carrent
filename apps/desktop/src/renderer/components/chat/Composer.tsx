@@ -1,26 +1,69 @@
 import {
   ArrowUp,
+  Bot,
   ChevronDown,
   FolderGit,
   GitBranch,
   Hand,
   Plus,
-  Bot,
   Square,
 } from "lucide-react";
 import { useState, useRef } from "react";
-import { useWorkspace } from "../../context/WorkspaceContext";
-import { agents } from "../../mock/uiShellData";
-import { useChatRun } from "../../hooks/useChatRun";
 
-export function Composer() {
-  const {
-    currentProject,
-    activeThreadId,
-    messages,
-    appendMessage,
-    updateMessage,
-  } = useWorkspace();
+import { useDraftThread } from "../../context/DraftThreadContext";
+import { useWorkspace } from "../../context/WorkspaceContext";
+import { useChatRun } from "../../hooks/useChatRun";
+import { agents } from "../../mock/uiShellData";
+import type { Message } from "../../mock/uiShellData";
+
+type ComposerProps =
+  | {
+      mode: "draft";
+      draftId: string;
+      projectId: string;
+      title: string;
+      preallocatedThreadId: string;
+      messages: Message[];
+    }
+  | {
+      mode: "thread";
+      projectId: string;
+      threadId: string;
+      messages: Message[];
+    };
+
+function formatTime(date: Date) {
+  return date.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function createMessageId() {
+  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function buildTextMessage(
+  threadId: string,
+  role: "user" | "assistant",
+  agentId: string,
+  content: string,
+): Message {
+  return {
+    id: createMessageId(),
+    role,
+    agentId,
+    threadId,
+    content,
+    timestamp: formatTime(new Date()),
+    type: "text",
+  };
+}
+
+export function Composer(props: ComposerProps) {
+  const { projects, appendMessage, updateMessage } = useWorkspace();
+  const { appendDraftMessage, updateDraftMessage } = useDraftThread();
   const { isSending, send, stop } = useChatRun();
   const [input, setInput] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState(
@@ -28,37 +71,53 @@ export function Composer() {
   );
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const accumulatedRef = useRef("");
+  const project = projects.find((item) => item.id === props.projectId) ?? null;
+  const threadId =
+    props.mode === "draft" ? props.preallocatedThreadId : props.threadId;
 
   const selectedAgent = agents.find((a) => a.id === selectedAgentId);
-  const canSend =
-    !!input.trim() && !!activeThreadId && !!currentProject && !!selectedAgent;
+  const canSend = !!input.trim() && !!project && !!selectedAgent;
 
   const handleSend = async () => {
     if (!canSend) return;
 
     const messageText = input.trim();
+    const agentId = selectedAgent.id;
     setInput("");
 
-    // Append user message immediately
-    appendMessage({
-      threadId: activeThreadId,
-      role: "user",
-      agentId: selectedAgent.id,
-      content: messageText,
-    });
+    const appendLocalMessage = (
+      role: "user" | "assistant",
+      content: string,
+    ) => {
+      if (props.mode === "thread") {
+        return appendMessage({
+          threadId,
+          role,
+          agentId,
+          content,
+        });
+      }
 
-    // Create pending assistant message
-    const assistantMsg = appendMessage({
-      threadId: activeThreadId,
-      role: "assistant",
-      agentId: selectedAgent.id,
-      content: "",
-    });
+      const message = buildTextMessage(threadId, role, agentId, content);
+      appendDraftMessage(props.draftId, message);
+      return message;
+    };
+
+    const updateLocalMessage = (messageId: string, content: string) => {
+      if (props.mode === "thread") {
+        updateMessage(messageId, content);
+        return;
+      }
+
+      updateDraftMessage(props.draftId, messageId, content);
+    };
+
+    appendLocalMessage("user", messageText);
+    const assistantMsg = appendLocalMessage("assistant", "");
 
     accumulatedRef.current = "";
 
-    const threadMessages = messages.filter((m) => m.threadId === activeThreadId);
-    const transcript = threadMessages
+    const transcript = props.messages
       .filter((m) => m.type !== "changed_files")
       .slice(-6)
       .map((m) => ({
@@ -69,11 +128,19 @@ export function Composer() {
 
     await send(
       {
-        projectPath: currentProject.path,
-        threadId: activeThreadId,
+        projectPath: project.path,
+        threadId,
+        draftRef:
+          props.mode === "draft"
+            ? {
+                draftId: props.draftId,
+                projectId: props.projectId,
+                title: props.title,
+              }
+            : undefined,
         runtimeId: selectedAgent.runtime,
         agent: {
-          id: selectedAgent.id,
+          id: agentId,
           name: selectedAgent.name,
           responsibility: selectedAgent.responsibility,
         },
@@ -83,16 +150,16 @@ export function Composer() {
       {
         onDelta: (text) => {
           accumulatedRef.current += text;
-          updateMessage(assistantMsg.id, accumulatedRef.current);
+          updateLocalMessage(assistantMsg.id, accumulatedRef.current);
         },
         onComplete: (text) => {
-          updateMessage(assistantMsg.id, text);
+          updateLocalMessage(assistantMsg.id, text);
         },
         onError: (error) => {
-          updateMessage(assistantMsg.id, `Error: ${error}`);
+          updateLocalMessage(assistantMsg.id, `Error: ${error}`);
         },
         onStop: () => {
-          updateMessage(
+          updateLocalMessage(
             assistantMsg.id,
             accumulatedRef.current + "\n\n[Stopped]",
           );
@@ -190,7 +257,7 @@ export function Composer() {
       <div className="mx-auto mt-2 flex max-w-2xl items-center gap-4 px-1">
         <button className="flex items-center gap-1.5 text-[12px] text-[#666] transition hover:text-[#999]">
           <FolderGit className="h-3 w-3" />
-          <span>{currentProject?.name ?? "No project"}</span>
+          <span>{project?.name ?? "No project"}</span>
           <ChevronDown className="h-3 w-3" />
         </button>
         <button className="flex items-center gap-1.5 text-[12px] text-[#666] transition hover:text-[#999]">

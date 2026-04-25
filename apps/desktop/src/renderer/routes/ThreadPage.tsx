@@ -31,7 +31,14 @@ export function ThreadPage() {
     <div className="flex h-full w-full flex-col">
       <ChatHeader title={routeData?.thread.title ?? "Thread not found"} />
       <MessageTimeline messages={routeData?.messages ?? []} />
-      <Composer />
+      {routeData ? (
+        <Composer
+          mode="thread"
+          projectId={routeData.project.id}
+          threadId={routeData.thread.id}
+          messages={routeData.messages}
+        />
+      ) : null}
     </div>
   );
 }

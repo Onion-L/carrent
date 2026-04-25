@@ -76,40 +76,14 @@ export function resolveWorkspaceThreadRouteData(
 ) {
   const project = projects.find((item) => item.id === projectId);
   const thread = project?.threads.find((item) => item.id === threadId);
-
-  if (project && thread) {
-    return {
-      project,
-      thread,
-      messages: messages.filter((message) => message.threadId === threadId),
-    };
-  }
-
-  if (projectId !== "project-1" || threadId !== "thread-1") {
-    return null;
-  }
-
-  const verificationProject =
-    projects.find((item) => item.id === "carrent") ??
-    projects.find((item) => item.active) ??
-    null;
-  const verificationThread =
-    verificationProject?.threads.find(
-      (item) => item.id === "thread-carrent-shared-workspace",
-    ) ??
-    verificationProject?.threads.find((item) => item.active) ??
-    null;
-
-  if (!verificationProject || !verificationThread) {
+  if (!project || !thread) {
     return null;
   }
 
   return {
-    project: verificationProject,
-    thread: verificationThread,
-    messages: messages.filter(
-      (message) => message.threadId === verificationThread.id,
-    ),
+    project,
+    thread,
+    messages: messages.filter((message) => message.threadId === threadId),
   };
 }
 

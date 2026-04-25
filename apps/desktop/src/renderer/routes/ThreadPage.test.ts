@@ -103,8 +103,8 @@ describe("resolveThreadRouteData", () => {
       "thread-1",
     );
 
-    expect(result?.project.id).toBe("carrent");
-    expect(result?.thread.id).toBe("thread-carrent-shared-workspace");
+    expect(result?.project.id).toBe("project-1");
+    expect(result?.thread.id).toBe("thread-1");
     expect(result?.thread.title).toBe("Shared workspace thread state");
     expect(result?.messages.map((message) => message.id)).toEqual([
       "message-carrent-1",

@@ -35,13 +35,13 @@ export const projects: ProjectRecord[] = [
     ],
   },
   {
-    id: "carrent",
+    id: "project-1",
     name: "Carrent",
     path: "/Users/onion/workbench/carrent",
     active: true,
     threads: [
       {
-        id: "thread-carrent-shared-workspace",
+        id: "thread-1",
         title: "Shared workspace thread state",
         updatedAt: "now",
         active: true,
@@ -145,7 +145,7 @@ export const messages: Message[] = [
     role: "user",
     agentId: "architect",
     timestamp: "11:02",
-    threadId: "thread-carrent-shared-workspace",
+    threadId: "thread-1",
     content: "Make sidebar thread state drive the main chat area instead of static mock data.",
   },
   {
@@ -154,7 +154,7 @@ export const messages: Message[] = [
     agentId: "frontend",
     timestamp: "11:05",
     duration: "1m 12s",
-    threadId: "thread-carrent-shared-workspace",
+    threadId: "thread-1",
     content: "Use one renderer workspace context for projects, messages, and activeThreadId. Keep mutations inside the provider.",
   },
 ];

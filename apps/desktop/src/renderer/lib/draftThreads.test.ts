@@ -23,14 +23,20 @@ function makeDraft(
 describe("draftThreads", () => {
   it("creates a draft with draftId and preallocated threadId", () => {
     const result = createDraftThread([], "project-1", " New thread ");
+    const draft = result.draft;
 
-    expect(result.draft?.projectId).toBe("project-1");
-    expect(result.draft?.title).toBe("New thread");
-    expect(result.draft?.draftId).toMatch(/^draft-/);
-    expect(result.draft?.preallocatedThreadId).toMatch(/^thread-/);
-    expect(result.draft?.draftId).not.toBe(result.draft?.preallocatedThreadId);
-    expect(result.draft?.createdAt).toBeString();
-    expect(result.draft?.messages).toEqual([]);
+    expect(draft === null).toBe(false);
+    if (!draft) {
+      throw new Error("Expected draft to be created");
+    }
+
+    expect(draft.projectId).toBe("project-1");
+    expect(draft.title).toBe("New thread");
+    expect(/^draft-/.test(draft.draftId)).toBe(true);
+    expect(/^thread-/.test(draft.preallocatedThreadId)).toBe(true);
+    expect(draft.draftId).not.toBe(draft.preallocatedThreadId);
+    expect(draft.createdAt).toBeString();
+    expect(draft.messages).toEqual([]);
     expect(result.drafts).toHaveLength(1);
   });
 
@@ -39,7 +45,7 @@ describe("draftThreads", () => {
 
     const result = createDraftThread(drafts, "project-1", "   ");
 
-    expect(result.draft).toBeNull();
+    expect(result.draft).toBe(null);
     expect(result.drafts).toBe(drafts);
     expect(result.drafts).toHaveLength(1);
   });

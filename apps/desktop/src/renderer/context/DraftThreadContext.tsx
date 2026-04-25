@@ -1,4 +1,10 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import {
   buildDraftThreadRecord,
@@ -15,7 +21,7 @@ export function getVerificationDraftById(draftId: string) {
 
   return {
     draftId: "foo",
-    projectId: "carrent",
+    projectId: "project-1",
     title: "Draft thread",
     preallocatedThreadId: "draft-foo-thread",
     createdAt: "2026-04-25T00:00:00.000Z",
@@ -54,6 +60,16 @@ const DraftThreadContext = createContext<DraftThreadContextValue>({
 
 export function DraftThreadProvider({ children }: { children: ReactNode }) {
   const [drafts, setDrafts] = useState<DraftThreadRecord[]>([]);
+  const draftsRef = useRef<DraftThreadRecord[]>([]);
+
+  const updateDrafts = (
+    updater: (currentDrafts: DraftThreadRecord[]) => DraftThreadRecord[],
+  ) => {
+    const nextDrafts = updater(draftsRef.current);
+    draftsRef.current = nextDrafts;
+    setDrafts(nextDrafts);
+    return nextDrafts;
+  };
 
   const createDraft = (projectId: string, title: string) => {
     const draft = buildDraftThreadRecord(projectId, title);
@@ -61,13 +77,13 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
       return null;
     }
 
-    setDrafts((prev) => [...prev, draft]);
+    updateDrafts((prev) => [...prev, draft]);
 
     return draft;
   };
 
   const appendDraftMessage = (draftId: string, message: Message) => {
-    setDrafts((prev) =>
+    updateDrafts((prev) =>
       prev.map((draft) =>
         draft.draftId === draftId
           ? { ...draft, messages: [...draft.messages, message] }
@@ -81,7 +97,7 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
     messageId: string,
     content: string,
   ) => {
-    setDrafts((prev) =>
+    updateDrafts((prev) =>
       prev.map((draft) =>
         draft.draftId === draftId
           ? {
@@ -99,17 +115,17 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
     draftId: string,
     realThreadId: string,
   ) => {
-    setDrafts((prev) =>
+    updateDrafts((prev) =>
       markDraftThreadPromotion(prev, draftId, realThreadId),
     );
   };
 
   const finalizePromotedDraftThreadByRef = (draftId: string) => {
-    setDrafts((prev) => finalizeDraftThreadPromotion(prev, draftId));
+    updateDrafts((prev) => finalizeDraftThreadPromotion(prev, draftId));
   };
 
   const getDraftById = (draftId: string) =>
-    drafts.find((draft) => draft.draftId === draftId) ??
+    draftsRef.current.find((draft) => draft.draftId === draftId) ??
     getVerificationDraftById(draftId);
 
   return (

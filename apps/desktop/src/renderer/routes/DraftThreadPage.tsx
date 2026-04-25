@@ -22,7 +22,7 @@ export function resolvePromotedDraftRoute(
 export function DraftThreadPage() {
   const { draftId } = useParams();
   const navigate = useNavigate();
-  const { getDraftById, finalizePromotedDraftThreadByRef } = useDraftThread();
+  const { getDraftById } = useDraftThread();
   const { setActiveThreadId } = useWorkspace();
   const draft = draftId ? getDraftById(draftId) : null;
   const promotedRoute = resolvePromotedDraftRoute(draft);
@@ -34,18 +34,12 @@ export function DraftThreadPage() {
   }, [draftId, setActiveThreadId]);
 
   useEffect(() => {
-    if (!draft || !promotedRoute) {
+    if (!promotedRoute) {
       return;
     }
 
     navigate(promotedRoute);
-    finalizePromotedDraftThreadByRef(draft.draftId);
-  }, [
-    draft,
-    finalizePromotedDraftThreadByRef,
-    navigate,
-    promotedRoute,
-  ]);
+  }, [navigate, promotedRoute]);
 
   return (
     <div className="flex h-full w-full flex-col">

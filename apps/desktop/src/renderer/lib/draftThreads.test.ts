@@ -32,8 +32,8 @@ describe("draftThreads", () => {
 
     expect(draft.projectId).toBe("project-1");
     expect(draft.title).toBe("New thread");
-    expect(/^draft-/.test(draft.draftId)).toBe(true);
-    expect(/^thread-/.test(draft.preallocatedThreadId)).toBe(true);
+    expect(draft.draftId.startsWith("draft-")).toBe(true);
+    expect(draft.preallocatedThreadId.startsWith("thread-")).toBe(true);
     expect(draft.draftId).not.toBe(draft.preallocatedThreadId);
     expect(draft.createdAt).toBeString();
     expect(draft.messages).toEqual([]);
@@ -54,8 +54,8 @@ describe("draftThreads", () => {
 
     expect(draft.projectId).toBe("project-1");
     expect(draft.title).toBe("New thread");
-    expect(/^draft-/.test(draft.draftId)).toBe(true);
-    expect(/^thread-/.test(draft.preallocatedThreadId)).toBe(true);
+    expect(draft.draftId.startsWith("draft-")).toBe(true);
+    expect(draft.preallocatedThreadId.startsWith("thread-")).toBe(true);
     expect(draft.draftId).not.toBe(draft.preallocatedThreadId);
     expect(draft.createdAt).toBeString();
     expect(draft.messages).toEqual([]);

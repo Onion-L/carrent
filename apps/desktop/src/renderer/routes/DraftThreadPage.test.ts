@@ -45,7 +45,7 @@ describe("getVerificationDraftById", () => {
     const result = getVerificationDraftById("foo");
 
     expect(result?.draftId).toBe("foo");
-    expect(result?.projectId).toBe("carrent");
+    expect(result?.projectId).toBe("project-1");
     expect(result?.messages).toHaveLength(1);
   });
 });

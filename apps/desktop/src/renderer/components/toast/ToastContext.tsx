@@ -39,20 +39,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`pointer-events-auto flex items-center gap-2 rounded-lg border px-4 py-2.5 text-[13px] shadow-lg transition-all ${
-              toast.type === "error"
-                ? "border-red-900/40 bg-[#2a1a1a] text-red-300"
-                : toast.type === "success"
-                  ? "border-emerald-900/40 bg-[#1a2a1a] text-emerald-300"
-                  : "border-[#333] bg-[#252525] text-[#ccc]"
-            }`}
+            className="pointer-events-auto flex items-center gap-2 rounded-lg border border-[#333] bg-[#252525] px-4 py-2.5 text-[13px] text-[#ccc] shadow-lg transition-all"
           >
-            {toast.type === "success" && (
-              <span className="h-2 w-2 rounded-full bg-emerald-400" />
-            )}
-            {toast.type === "error" && (
-              <span className="h-2 w-2 rounded-full bg-red-400" />
-            )}
             {toast.message}
           </div>
         ))}

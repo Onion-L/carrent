@@ -14,6 +14,7 @@ import {
 import { NavLink, useNavigate } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { useDraftThread } from "../context/DraftThreadContext";
 import { splitProjectThreads } from "../lib/projectThreads";
 
 const workspaceNavItems = [
@@ -32,10 +33,10 @@ export function SidebarNav() {
     activeThreadId,
     setActiveThreadId,
     createProject,
-    createThread,
     toggleThreadPin,
     archiveThread,
   } = useWorkspace();
+  const { createDraft } = useDraftThread();
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(
     projects.filter((p) => p.active).map((p) => p.id),
   );
@@ -76,12 +77,12 @@ export function SidebarNav() {
     const title = draftThreadTitle.trim();
     if (!title || !draftProjectId) return;
 
-    const newThread = createThread(draftProjectId, title);
-    if (!newThread) return;
+    const draft = createDraft(draftProjectId, title);
+    if (!draft) return;
 
     setDraftProjectId(null);
     setDraftThreadTitle("");
-    navigate("/");
+    navigate(`/draft/${draft.draftId}`);
   };
 
   useEffect(() => {

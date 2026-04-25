@@ -14,6 +14,7 @@ import {
   findCurrentProject,
   findCurrentThread,
   toggleThreadPinInProjects,
+  upsertThreadInProjects,
 } from "../lib/workspaceState";
 
 export type WorkspaceContextValue = {
@@ -33,6 +34,7 @@ export type WorkspaceContextValue = {
   setActiveThreadId: (id: string | null) => void;
   createProject: (folderPath: string) => ProjectRecord | null;
   createThread: (projectId: string, title: string) => ThreadRecord | null;
+  upsertThread: (projectId: string, thread: ThreadRecord) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
   archiveThread: (projectId: string, threadId: string) => void;
   appendMessage: (message: {
@@ -54,6 +56,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   setActiveThreadId: () => {},
   createProject: () => null,
   createThread: () => null,
+  upsertThread: () => {},
   toggleThreadPin: () => {},
   archiveThread: () => {},
   appendMessage: () => ({ id: "", role: "user", agentId: "", threadId: "", content: "", timestamp: "" }),
@@ -116,6 +119,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return result.thread;
   };
 
+  const upsertThread = (projectId: string, thread: ThreadRecord) => {
+    setProjects((prev) => upsertThreadInProjects(prev, projectId, thread));
+  };
+
   const toggleThreadPin = (projectId: string, threadId: string) => {
     setProjects(toggleThreadPinInProjects(projects, projectId, threadId));
   };
@@ -162,6 +169,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setActiveThreadId,
         createProject,
         createThread,
+        upsertThread,
         toggleThreadPin,
         archiveThread,
         appendMessage,

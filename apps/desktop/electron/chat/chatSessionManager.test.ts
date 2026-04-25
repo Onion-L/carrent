@@ -252,4 +252,291 @@ describe("createChatSessionManager", () => {
       agentId: "architect",
     });
   });
+
+  it("parses claude stream-json into text deltas and final text", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start("run-9", makeRequest({ runtimeId: "claude-code" }));
+
+    mockChild.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"type":"system","subtype":"init","session_id":"sess-1"}\n{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Hel',
+      ),
+    );
+    mockChild.stdout.emit(
+      "data",
+      Buffer.from(
+        'lo"}}}\n{"type":"stream_event","event":{"delta":{"type":"text_delta","text":" world"}}}\n',
+      ),
+    );
+    mockChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const deltas = emitted.filter((e) => e.type === "delta");
+    expect(deltas).toHaveLength(2);
+    expect(deltas[0]).toMatchObject({ type: "delta", text: "Hello" });
+    expect(deltas[1]).toMatchObject({ type: "delta", text: " world" });
+
+    const completed = emitted.find((e) => e.type === "completed");
+    expect(completed).toMatchObject({
+      type: "completed",
+      runId: "run-9",
+      text: "Hello world",
+    });
+  });
+
+  it("resumes the previous claude session for the same thread", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const firstChild = createMockChildProcess();
+    const secondChild = createMockChildProcess();
+    const spawnCalls: Array<{
+      command: string;
+      args: string[];
+      cwd: string;
+    }> = [];
+    const children = [firstChild, secondChild];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: (command, args, options) => {
+        spawnCalls.push({
+          command,
+          args,
+          cwd: options.cwd,
+        });
+        const child = children.shift();
+        if (!child) {
+          throw new Error("missing mock child");
+        }
+        return child;
+      },
+    });
+
+    manager.start("run-10", makeRequest({ runtimeId: "claude-code" }));
+    firstChild.stdout.emit(
+      "data",
+      Buffer.from('{"type":"system","subtype":"init","session_id":"sess-abc"}\n'),
+    );
+    firstChild.stdout.emit(
+      "data",
+      Buffer.from('{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Hi"}}}\n'),
+    );
+    firstChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    manager.start(
+      "run-11",
+      makeRequest({
+        runtimeId: "claude-code",
+        message: "Follow up",
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(spawnCalls).toHaveLength(2);
+    expect(spawnCalls[0]?.command).toBe("claude");
+    expect(spawnCalls[0]?.args).toContain("--output-format");
+    expect(spawnCalls[0]?.args).toContain("stream-json");
+    expect(spawnCalls[1]?.args).toContain("--resume");
+    expect(spawnCalls[1]?.args).toContain("sess-abc");
+    expect(emitted.some((event) => event.type === "failed")).toBe(false);
+  });
+
+  it("does not reuse a claude session after switching agents", async () => {
+    const firstChild = createMockChildProcess();
+    const secondChild = createMockChildProcess();
+    const spawnCalls: string[][] = [];
+    const children = [firstChild, secondChild];
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (_command, args) => {
+        spawnCalls.push(args);
+        const child = children.shift();
+        if (!child) {
+          throw new Error("missing mock child");
+        }
+        return child;
+      },
+    });
+
+    manager.start("run-12", makeRequest({ runtimeId: "claude-code" }));
+    firstChild.stdout.emit(
+      "data",
+      Buffer.from('{"type":"system","subtype":"init","session_id":"sess-architect"}\n'),
+    );
+    firstChild.stdout.emit(
+      "data",
+      Buffer.from('{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Hi"}}}\n'),
+    );
+    firstChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    manager.start(
+      "run-13",
+      makeRequest({
+        runtimeId: "claude-code",
+        agent: {
+          id: "reviewer",
+          name: "Reviewer",
+          responsibility: "You are a reviewer.",
+        },
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(spawnCalls).toHaveLength(2);
+    expect(spawnCalls[1]).not.toContain("--resume");
+    expect(spawnCalls[1]).not.toContain("sess-architect");
+  });
+
+  it("does not remember a claude session from a failed run", async () => {
+    const firstChild = createMockChildProcess();
+    const secondChild = createMockChildProcess();
+    const spawnCalls: string[][] = [];
+    const children = [firstChild, secondChild];
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (_command, args) => {
+        spawnCalls.push(args);
+        const child = children.shift();
+        if (!child) {
+          throw new Error("missing mock child");
+        }
+        return child;
+      },
+    });
+
+    manager.start("run-14", makeRequest({ runtimeId: "claude-code" }));
+    firstChild.stdout.emit(
+      "data",
+      Buffer.from('{"type":"system","subtype":"init","session_id":"sess-failed"}\n'),
+    );
+    firstChild.stderr.emit("data", Buffer.from("No credits"));
+    firstChild.emit("close", 1, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    manager.start("run-15", makeRequest({ runtimeId: "claude-code" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(spawnCalls).toHaveLength(2);
+    expect(spawnCalls[1]).not.toContain("--resume");
+    expect(spawnCalls[1]).not.toContain("sess-failed");
+  });
+
+  it("retries claude with transcript when resume fails", async () => {
+    const firstChild = createMockChildProcess();
+    const resumedChild = createMockChildProcess();
+    const retryChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+    const spawnCalls: string[][] = [];
+    const children = [firstChild, resumedChild, retryChild];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: (_command, args) => {
+        spawnCalls.push(args);
+        const child = children.shift();
+        if (!child) {
+          throw new Error("missing mock child");
+        }
+        return child;
+      },
+    });
+
+    manager.start("run-16", makeRequest({ runtimeId: "claude-code" }));
+    firstChild.stdout.emit(
+      "data",
+      Buffer.from('{"type":"system","subtype":"init","session_id":"sess-old"}\n'),
+    );
+    firstChild.stdout.emit(
+      "data",
+      Buffer.from('{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Hi"}}}\n'),
+    );
+    firstChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    manager.start(
+      "run-17",
+      makeRequest({
+        runtimeId: "claude-code",
+        transcript: [{ role: "user", content: "Earlier question" }],
+        message: "Follow up",
+      }),
+    );
+    resumedChild.stderr.emit("data", Buffer.from("Could not resume session"));
+    resumedChild.emit("close", 1, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    retryChild.stdout.emit(
+      "data",
+      Buffer.from('{"type":"system","subtype":"init","session_id":"sess-new"}\n'),
+    );
+    retryChild.stdout.emit(
+      "data",
+      Buffer.from('{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Recovered"}}}\n'),
+    );
+    retryChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(spawnCalls).toHaveLength(3);
+    expect(spawnCalls[1]).toContain("--resume");
+    expect(spawnCalls[1]).toContain("sess-old");
+    expect(spawnCalls[1].join("\n")).not.toContain("Earlier question");
+    expect(spawnCalls[2]).not.toContain("--resume");
+    expect(spawnCalls[2].join("\n")).toContain("Earlier question");
+    expect(emitted.find((event) => event.type === "failed")).toBeUndefined();
+    expect(emitted.filter((event) => event.type === "completed").at(-1)).toMatchObject({
+      type: "completed",
+      text: "Recovered",
+    });
+  });
+
+  it("uses claude final assistant text when partial deltas are absent", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start("run-18", makeRequest({ runtimeId: "claude-code" }));
+    mockChild.stdout.emit(
+      "data",
+      Buffer.from(
+        [
+          '{"type":"system","subtype":"init","session_id":"sess-final"}',
+          '{"type":"assistant","message":{"content":[{"type":"text","text":"Final answer"}]}}',
+        ].join("\n") + "\n",
+      ),
+    );
+    mockChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(emitted.filter((event) => event.type === "delta")).toHaveLength(0);
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Final answer",
+    });
+  });
 });

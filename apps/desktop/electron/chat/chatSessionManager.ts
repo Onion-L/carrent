@@ -23,11 +23,169 @@ export interface ChatSessionManager {
   stop: (runId: string) => void;
 }
 
+type ClaudeStreamState = {
+  buffer: string;
+  text: string;
+  finalText: string;
+  sessionId: string | null;
+};
+
+function createClaudeStreamState(): ClaudeStreamState {
+  return {
+    buffer: "",
+    text: "",
+    finalText: "",
+    sessionId: null,
+  };
+}
+
+function extractClaudeSessionId(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const value = (payload as { session_id?: unknown }).session_id;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function extractClaudeTextDelta(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const event = (payload as { event?: unknown }).event;
+  if (!event || typeof event !== "object") {
+    return null;
+  }
+
+  const delta = (event as { delta?: unknown }).delta;
+  if (!delta || typeof delta !== "object") {
+    return null;
+  }
+
+  const text = (delta as { text?: unknown }).text;
+  return typeof text === "string" && text.length > 0 ? text : null;
+}
+
+function extractClaudeFinalText(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const result = (payload as { result?: unknown }).result;
+  if (typeof result === "string" && result.length > 0) {
+    return result;
+  }
+
+  const message = (payload as { message?: unknown }).message;
+  if (!message || typeof message !== "object") {
+    return null;
+  }
+
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) {
+    return null;
+  }
+
+  const text = content
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return "";
+      }
+
+      const value = (item as { text?: unknown }).text;
+      return typeof value === "string" ? value : "";
+    })
+    .join("");
+
+  return text.length > 0 ? text : null;
+}
+
+function consumeClaudeStreamChunk(
+  state: ClaudeStreamState,
+  chunk: string,
+  onDelta: (text: string) => void,
+) {
+  state.buffer += chunk;
+  const lines = state.buffer.split("\n");
+  state.buffer = lines.pop() ?? "";
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    try {
+      const payload = JSON.parse(trimmed);
+      const sessionId = extractClaudeSessionId(payload);
+      if (sessionId) {
+        state.sessionId = sessionId;
+      }
+
+      const finalText = extractClaudeFinalText(payload);
+      if (finalText) {
+        state.finalText = finalText;
+      }
+
+      const delta = extractClaudeTextDelta(payload);
+      if (!delta) {
+        continue;
+      }
+
+      state.text += delta;
+      onDelta(delta);
+    } catch {
+      continue;
+    }
+  }
+}
+
+function buildRequestSessionKey(request: ChatTurnRequest) {
+  return `${request.runtimeId}:${request.projectPath}:${request.threadId}:${request.agent.id}`;
+}
+
+function getSessionRuntimeCommand(
+  request: ChatTurnRequest,
+  options?: {
+    includeTranscript?: boolean;
+    resumeSessionId?: string | null;
+  },
+) {
+  const resumeSessionId = options?.resumeSessionId ?? null;
+  const prompt = buildChatPrompt(request, {
+    includeTranscript: options?.includeTranscript,
+  });
+
+  if (request.runtimeId !== "claude-code") {
+    return getRuntimeCommand(request.runtimeId, prompt);
+  }
+
+  const args = [
+    "--print",
+    "--output-format",
+    "stream-json",
+    "--include-partial-messages",
+  ];
+
+  if (resumeSessionId) {
+    args.push("--resume", resumeSessionId);
+  }
+
+  args.push(prompt);
+
+  return {
+    command: "claude",
+    args,
+  };
+}
+
 export function createChatSessionManager(options: {
   emit: (event: ChatRunEvent) => void;
   spawn: SpawnFn;
 }): ChatSessionManager {
   const sessions = new Map<string, ChatSession>();
+  const runtimeSessions = new Map<string, string>();
   const TIMEOUT_MS = 120_000;
 
   function start(runId: string, request: ChatTurnRequest) {
@@ -41,12 +199,43 @@ export function createChatSessionManager(options: {
       return;
     }
 
-    const prompt = buildChatPrompt(request);
-    const { command, args } = getRuntimeCommand(request.runtimeId, prompt);
+    const requestSessionKey = buildRequestSessionKey(request);
+    const resumeSessionId =
+      request.runtimeId === "claude-code"
+        ? runtimeSessions.get(requestSessionKey) ?? null
+        : null;
 
-    const child = options.spawn(command, args, {
-      cwd: request.projectPath,
-      windowsHide: true,
+    spawnAttempt({
+      runId,
+      request,
+      requestSessionKey,
+      resumeSessionId,
+      includeTranscript: !(request.runtimeId === "claude-code" && resumeSessionId),
+      allowResumeFallback: request.runtimeId === "claude-code" && !!resumeSessionId,
+      emitLifecycleEvents: true,
+    });
+  }
+
+  function spawnAttempt({
+    runId,
+    request,
+    requestSessionKey,
+    resumeSessionId,
+    includeTranscript,
+    allowResumeFallback,
+    emitLifecycleEvents,
+  }: {
+    runId: string;
+    request: ChatTurnRequest;
+    requestSessionKey: string;
+    resumeSessionId: string | null;
+    includeTranscript: boolean;
+    allowResumeFallback: boolean;
+    emitLifecycleEvents: boolean;
+  }) {
+    const { command, args } = getSessionRuntimeCommand(request, {
+      includeTranscript,
+      resumeSessionId,
     });
 
     const timeoutHandle = setTimeout(() => {
@@ -55,6 +244,13 @@ export function createChatSessionManager(options: {
         session.child.kill("SIGTERM");
       }
     }, TIMEOUT_MS);
+
+    const child = options.spawn(command, args, {
+      cwd: request.projectPath,
+      windowsHide: true,
+    });
+    const claudeStreamState =
+      request.runtimeId === "claude-code" ? createClaudeStreamState() : null;
 
     const session: ChatSession = {
       runId,
@@ -68,6 +264,18 @@ export function createChatSessionManager(options: {
 
     child.stdout?.on("data", (data: Buffer) => {
       const chunk = data.toString();
+      if (claudeStreamState) {
+        consumeClaudeStreamChunk(claudeStreamState, chunk, (text) => {
+          options.emit({
+            type: "delta",
+            runId,
+            requestKey: request.requestKey,
+            text,
+          });
+        });
+        return;
+      }
+
       session.stdout += chunk;
       options.emit({
         type: "delta",
@@ -85,6 +293,17 @@ export function createChatSessionManager(options: {
       clearTimeout(session.timeoutHandle);
       sessions.delete(runId);
 
+      if (claudeStreamState?.buffer.trim()) {
+        consumeClaudeStreamChunk(claudeStreamState, "\n", (text) => {
+          options.emit({
+            type: "delta",
+            runId,
+            requestKey: request.requestKey,
+            text,
+          });
+        });
+      }
+
       if (session.stoppedByUser) {
         options.emit({ type: "stopped", runId, requestKey: request.requestKey });
         return;
@@ -101,6 +320,20 @@ export function createChatSessionManager(options: {
       }
 
       if (code !== 0) {
+        if (allowResumeFallback) {
+          runtimeSessions.delete(requestSessionKey);
+          spawnAttempt({
+            runId,
+            request,
+            requestSessionKey,
+            resumeSessionId: null,
+            includeTranscript: true,
+            allowResumeFallback: false,
+            emitLifecycleEvents: false,
+          });
+          return;
+        }
+
         const stderr = session.stderr.trim();
         const error = stderr
           ? `Agent returned an error: ${stderr}`
@@ -109,7 +342,9 @@ export function createChatSessionManager(options: {
         return;
       }
 
-      const text = session.stdout.trim();
+      const text = claudeStreamState
+        ? (claudeStreamState.text || claudeStreamState.finalText).trim()
+        : session.stdout.trim();
       if (!text) {
         options.emit({
           type: "failed",
@@ -118,6 +353,10 @@ export function createChatSessionManager(options: {
           error: "Received empty response from agent.",
         });
         return;
+      }
+
+      if (claudeStreamState?.sessionId) {
+        runtimeSessions.set(requestSessionKey, claudeStreamState.sessionId);
       }
 
       options.emit({
@@ -145,6 +384,10 @@ export function createChatSessionManager(options: {
         error: normalized,
       });
     });
+
+    if (!emitLifecycleEvents) {
+      return;
+    }
 
     if (request.draftRef) {
       options.emit({

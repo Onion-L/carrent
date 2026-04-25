@@ -3,8 +3,12 @@ import type { ChatTurnRequest } from "../../src/shared/chat";
 const MAX_TRANSCRIPT_MESSAGES = 6;
 const MAX_TRANSCRIPT_CHARS = 6000;
 
-export function buildChatPrompt(request: ChatTurnRequest): string {
-  const recentTranscript = trimTranscript(request.transcript);
+export function buildChatPrompt(
+  request: ChatTurnRequest,
+  options?: { includeTranscript?: boolean },
+): string {
+  const recentTranscript =
+    options?.includeTranscript === false ? [] : trimTranscript(request.transcript);
 
   const parts: string[] = [
     `Project: ${request.projectPath}`,

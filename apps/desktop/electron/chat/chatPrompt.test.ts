@@ -66,6 +66,23 @@ describe("buildChatPrompt", () => {
     expect(prompt).toContain("assistant: Use composition.");
   });
 
+  it("can omit transcript when the runtime resumes its own session", () => {
+    const prompt = buildChatPrompt(
+      makeRequest({
+        transcript: [
+          { role: "user", content: "Earlier question" },
+          { role: "assistant", content: "Earlier answer" },
+        ],
+        message: "Only send this turn",
+      }),
+      { includeTranscript: false },
+    );
+
+    expect(prompt).not.toContain("Recent conversation:");
+    expect(prompt).not.toContain("Earlier question");
+    expect(prompt).toContain("Only send this turn");
+  });
+
   it("caps transcript by total serialized character count", () => {
     const longContent = "a".repeat(2000);
     const transcript = Array.from({ length: 4 }, (_, i) => ({

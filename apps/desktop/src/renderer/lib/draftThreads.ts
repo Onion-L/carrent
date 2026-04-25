@@ -12,7 +12,7 @@ export type DraftThreadRecord = {
 
 type CreateDraftThreadResult = {
   drafts: DraftThreadRecord[];
-  draft: DraftThreadRecord;
+  draft: DraftThreadRecord | null;
 };
 
 function createId(prefix: string) {
@@ -24,10 +24,18 @@ export function createDraftThread(
   projectId: string,
   title: string,
 ): CreateDraftThreadResult {
+  const nextTitle = title.trim();
+  if (!nextTitle) {
+    return {
+      drafts,
+      draft: null,
+    };
+  }
+
   const draft: DraftThreadRecord = {
     draftId: createId("draft"),
     projectId,
-    title: title.trim(),
+    title: nextTitle,
     preallocatedThreadId: createId("thread"),
     createdAt: new Date().toISOString(),
     messages: [],
@@ -58,5 +66,8 @@ export function finalizePromotedDraftThreadByRef(
   drafts: DraftThreadRecord[],
   draftId: string,
 ) {
-  return drafts.filter((draft) => draft.draftId !== draftId);
+  return drafts.filter(
+    (draft) =>
+      draft.draftId !== draftId || typeof draft.promotedToThreadId !== "string",
+  );
 }

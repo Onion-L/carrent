@@ -35,6 +35,7 @@ export function createChatSessionManager(options: {
       options.emit({
         type: "failed",
         runId,
+        requestKey: request.requestKey,
         error: "Project path is missing. Select a project to chat.",
       });
       return;
@@ -68,7 +69,12 @@ export function createChatSessionManager(options: {
     child.stdout?.on("data", (data: Buffer) => {
       const chunk = data.toString();
       session.stdout += chunk;
-      options.emit({ type: "delta", runId, text: chunk });
+      options.emit({
+        type: "delta",
+        runId,
+        requestKey: request.requestKey,
+        text: chunk,
+      });
     });
 
     child.stderr?.on("data", (data: Buffer) => {
@@ -80,7 +86,7 @@ export function createChatSessionManager(options: {
       sessions.delete(runId);
 
       if (session.stoppedByUser) {
-        options.emit({ type: "stopped", runId });
+        options.emit({ type: "stopped", runId, requestKey: request.requestKey });
         return;
       }
 
@@ -88,6 +94,7 @@ export function createChatSessionManager(options: {
         options.emit({
           type: "failed",
           runId,
+          requestKey: request.requestKey,
           error: "Command timed out. Try again or simplify your request.",
         });
         return;
@@ -98,7 +105,7 @@ export function createChatSessionManager(options: {
         const error = stderr
           ? `Agent returned an error: ${stderr}`
           : `Agent exited with code ${code}`;
-        options.emit({ type: "failed", runId, error });
+        options.emit({ type: "failed", runId, requestKey: request.requestKey, error });
         return;
       }
 
@@ -107,6 +114,7 @@ export function createChatSessionManager(options: {
         options.emit({
           type: "failed",
           runId,
+          requestKey: request.requestKey,
           error: "Received empty response from agent.",
         });
         return;
@@ -115,6 +123,7 @@ export function createChatSessionManager(options: {
       options.emit({
         type: "completed",
         runId,
+        requestKey: request.requestKey,
         text,
         finishedAt: new Date().toISOString(),
       });
@@ -132,6 +141,7 @@ export function createChatSessionManager(options: {
       options.emit({
         type: "failed",
         runId,
+        requestKey: request.requestKey,
         error: normalized,
       });
     });
@@ -140,6 +150,7 @@ export function createChatSessionManager(options: {
       options.emit({
         type: "thread-upserted",
         runId,
+        requestKey: request.requestKey,
         draftId: request.draftRef.draftId,
         projectId: request.draftRef.projectId,
         thread: {
@@ -153,6 +164,7 @@ export function createChatSessionManager(options: {
     options.emit({
       type: "started",
       runId,
+      requestKey: request.requestKey,
       threadId: request.threadId,
       agentId: request.agent.id,
     });

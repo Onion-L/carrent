@@ -1,6 +1,7 @@
 import type { RuntimeId } from "./runtimes";
 
 export interface ChatTurnRequest {
+  requestKey?: string;
   projectPath: string;
   threadId: string;
   draftRef?: {
@@ -22,10 +23,14 @@ export interface ChatTurnRequest {
   message: string;
 }
 
+type ChatRunEventBase = {
+  runId: string;
+  requestKey?: string;
+};
+
 export type ChatRunEvent =
-  | {
+  | (ChatRunEventBase & {
       type: "thread-upserted";
-      runId: string;
       draftId: string;
       projectId: string;
       thread: {
@@ -33,9 +38,17 @@ export type ChatRunEvent =
         title: string;
         updatedAt: string;
       };
-    }
-  | { type: "started"; runId: string; threadId: string; agentId: string }
-  | { type: "delta"; runId: string; text: string }
-  | { type: "completed"; runId: string; text: string; finishedAt: string }
-  | { type: "failed"; runId: string; error: string }
-  | { type: "stopped"; runId: string };
+    })
+  | (ChatRunEventBase & {
+      type: "started";
+      threadId: string;
+      agentId: string;
+    })
+  | (ChatRunEventBase & { type: "delta"; text: string })
+  | (ChatRunEventBase & {
+      type: "completed";
+      text: string;
+      finishedAt: string;
+    })
+  | (ChatRunEventBase & { type: "failed"; error: string })
+  | (ChatRunEventBase & { type: "stopped" });

@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import type { ChatTurnRequest, ChatRunEvent } from "../../shared/chat";
+import { useCallback, useEffect, useState } from "react";
+
+import type { ChatRunEvent, ChatTurnRequest } from "../../shared/chat";
 
 export type ChatRunCallbacks = {
   onDelta?: (text: string) => void;
@@ -8,25 +9,149 @@ export type ChatRunCallbacks = {
   onStop?: () => void;
 };
 
-type ChatRunStoreListener = {
-  setIsSending: (value: boolean) => void;
-  setLastError: (value: string | null) => void;
+type ChatRunSnapshot = {
+  isSending: boolean;
+  lastError: string | null;
 };
 
-let activeCallbacks:
-  | (ChatRunCallbacks & {
-      runId: string;
-    })
-  | null = null;
-let teardownChatListener: VoidFunction | null = null;
-const storeListeners = new Set<ChatRunStoreListener>();
+type ChatRunStoreListener = () => void;
 
-function notifyIsSending(value: boolean) {
-  storeListeners.forEach((listener) => listener.setIsSending(value));
+type PendingChatRun = {
+  requestKey: string;
+  runId: string | null;
+  callbacks: ChatRunCallbacks;
+};
+
+export function createChatRunCoordinator() {
+  let snapshot: ChatRunSnapshot = {
+    isSending: false,
+    lastError: null,
+  };
+  let pending: PendingChatRun | null = null;
+  const listeners = new Set<ChatRunStoreListener>();
+
+  const emit = () => {
+    listeners.forEach((listener) => listener());
+  };
+
+  const clearPending = () => {
+    pending = null;
+  };
+
+  const finishPendingRun = () => {
+    clearPending();
+    snapshot = {
+      ...snapshot,
+      isSending: false,
+    };
+    emit();
+  };
+
+  return {
+    subscribe(listener: ChatRunStoreListener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    getSnapshot() {
+      return snapshot;
+    },
+    getPendingRunId() {
+      return pending?.runId ?? null;
+    },
+    beginRequest(requestKey: string, callbacks: ChatRunCallbacks) {
+      pending = {
+        requestKey,
+        runId: null,
+        callbacks,
+      };
+      snapshot = {
+        isSending: true,
+        lastError: null,
+      };
+      emit();
+    },
+    attachRunId(requestKey: string, runId: string) {
+      if (!pending || pending.requestKey !== requestKey) {
+        return;
+      }
+
+      pending = {
+        ...pending,
+        runId,
+      };
+    },
+    failRequest(requestKey: string, error: string) {
+      if (!pending || pending.requestKey !== requestKey) {
+        return;
+      }
+
+      snapshot = {
+        isSending: false,
+        lastError: error,
+      };
+      pending.callbacks.onError?.(error);
+      clearPending();
+      emit();
+    },
+    handleEvent(event: ChatRunEvent) {
+      if (!pending) {
+        return;
+      }
+
+      const matchesRequestKey =
+        typeof event.requestKey === "string" &&
+        event.requestKey === pending.requestKey;
+      const matchesRunId =
+        typeof pending.runId === "string" && event.runId === pending.runId;
+
+      if (!matchesRequestKey && !matchesRunId) {
+        return;
+      }
+
+      if (!pending.runId) {
+        pending = {
+          ...pending,
+          runId: event.runId,
+        };
+      }
+
+      if (event.type === "delta") {
+        pending.callbacks.onDelta?.(event.text);
+        return;
+      }
+
+      if (event.type === "completed") {
+        pending.callbacks.onComplete?.(event.text);
+        finishPendingRun();
+        return;
+      }
+
+      if (event.type === "failed") {
+        snapshot = {
+          isSending: false,
+          lastError: event.error,
+        };
+        pending.callbacks.onError?.(event.error);
+        clearPending();
+        emit();
+        return;
+      }
+
+      if (event.type === "stopped") {
+        pending.callbacks.onStop?.();
+        finishPendingRun();
+      }
+    },
+  };
 }
 
-function notifyLastError(value: string | null) {
-  storeListeners.forEach((listener) => listener.setLastError(value));
+const chatRunCoordinator = createChatRunCoordinator();
+let teardownChatListener: VoidFunction | null = null;
+
+function createRequestKey() {
+  return `request-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function ensureChatListener() {
@@ -35,93 +160,54 @@ function ensureChatListener() {
   }
 
   teardownChatListener = window.carrent.chat.onEvent((event: ChatRunEvent) => {
-    const pending = activeCallbacks;
-    if (!pending || event.runId !== pending.runId) return;
-
-    if (event.type === "delta") {
-      pending.onDelta?.(event.text);
-    } else if (event.type === "completed") {
-      notifyIsSending(false);
-      pending.onComplete?.(event.text);
-      activeCallbacks = null;
-    } else if (event.type === "failed") {
-      notifyIsSending(false);
-      notifyLastError(event.error);
-      pending.onError?.(event.error);
-      activeCallbacks = null;
-    } else if (event.type === "stopped") {
-      notifyIsSending(false);
-      pending.onStop?.();
-      activeCallbacks = null;
-    }
+    chatRunCoordinator.handleEvent(event);
   });
 }
 
 export function useChatRun() {
-  const [isSending, setIsSending] = useState(activeCallbacks !== null);
-  const [lastError, setLastError] = useState<string | null>(null);
-  const storeListenerRef = useRef<ChatRunStoreListener>({
-    setIsSending,
-    setLastError,
-  });
-
-  storeListenerRef.current = {
-    setIsSending,
-    setLastError,
-  };
+  const [snapshot, setSnapshot] = useState(() =>
+    chatRunCoordinator.getSnapshot(),
+  );
 
   useEffect(() => {
     ensureChatListener();
 
-    const listener = storeListenerRef.current;
-    storeListeners.add(listener);
-    return () => {
-      storeListeners.delete(listener);
-    };
-  }, []);
-
-  const pendingRef = useRef<
-    | (ChatRunCallbacks & {
-        runId: string;
-      })
-    | null
-  >(null);
-
-  useEffect(() => {
-    pendingRef.current = activeCallbacks;
+    return chatRunCoordinator.subscribe(() => {
+      setSnapshot(chatRunCoordinator.getSnapshot());
+    });
   }, []);
 
   const send = useCallback(
     async (request: ChatTurnRequest, callbacks: ChatRunCallbacks) => {
       ensureChatListener();
-      setIsSending(true);
-      setLastError(null);
-      notifyIsSending(true);
-      notifyLastError(null);
+      const requestKey = createRequestKey();
+      chatRunCoordinator.beginRequest(requestKey, callbacks);
 
       try {
-        const { runId } = await window.carrent.chat.send(request);
-        const nextPending = { runId, ...callbacks };
-        pendingRef.current = nextPending;
-        activeCallbacks = nextPending;
+        const { runId } = await window.carrent.chat.send({
+          ...request,
+          requestKey,
+        });
+        chatRunCoordinator.attachRunId(requestKey, runId);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        setIsSending(false);
-        setLastError(message);
-        notifyIsSending(false);
-        notifyLastError(message);
-        callbacks.onError?.(message);
+        chatRunCoordinator.failRequest(requestKey, message);
       }
     },
     [],
   );
 
   const stop = useCallback(async () => {
-    const pending = pendingRef.current ?? activeCallbacks;
-    if (pending) {
-      await window.carrent.chat.stop(pending.runId);
+    const runId = chatRunCoordinator.getPendingRunId();
+    if (runId) {
+      await window.carrent.chat.stop(runId);
     }
   }, []);
 
-  return { isSending, lastError, send, stop };
+  return {
+    isSending: snapshot.isSending,
+    lastError: snapshot.lastError,
+    send,
+    stop,
+  };
 }

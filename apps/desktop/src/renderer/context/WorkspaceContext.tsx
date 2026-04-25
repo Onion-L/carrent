@@ -37,6 +37,7 @@ export type WorkspaceContextValue = {
   upsertThread: (projectId: string, thread: ThreadRecord) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
   archiveThread: (projectId: string, threadId: string) => void;
+  upsertMessages: (messages: Message[]) => void;
   appendMessage: (message: {
     threadId: string;
     role: "user" | "assistant";
@@ -59,6 +60,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   upsertThread: () => {},
   toggleThreadPin: () => {},
   archiveThread: () => {},
+  upsertMessages: () => {},
   appendMessage: () => ({ id: "", role: "user", agentId: "", threadId: "", content: "", timestamp: "" }),
   updateMessage: () => {},
 });
@@ -88,6 +90,27 @@ export function resolveWorkspaceThreadRouteData(
     thread,
     messages: messages.filter((message) => message.threadId === threadId),
   };
+}
+
+export function mergeMessagesIntoWorkspace(
+  existingMessages: Message[],
+  incomingMessages: Message[],
+) {
+  const incomingById = new Map(
+    incomingMessages.map((message) => [message.id, message]),
+  );
+  const merged = existingMessages.map(
+    (message) => incomingById.get(message.id) ?? message,
+  );
+  const knownIds = new Set(existingMessages.map((message) => message.id));
+
+  incomingMessages.forEach((message) => {
+    if (!knownIds.has(message.id)) {
+      merged.push(message);
+    }
+  });
+
+  return merged;
 }
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
@@ -135,6 +158,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const upsertMessages = (incomingMessages: Message[]) => {
+    setMessages((prev) => mergeMessagesIntoWorkspace(prev, incomingMessages));
+  };
+
   const appendMessage = (message: {
     threadId: string;
     role: "user" | "assistant";
@@ -172,6 +199,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         upsertThread,
         toggleThreadPin,
         archiveThread,
+        upsertMessages,
         appendMessage,
         updateMessage,
       }}

@@ -5,8 +5,8 @@ import { useDraftThread } from "../context/DraftThreadContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 
 export function useDraftThreadPromotion() {
-  const { markPromotedDraftThreadByRef } = useDraftThread();
-  const { upsertThread } = useWorkspace();
+  const { getDraftById, markPromotedDraftThreadByRef } = useDraftThread();
+  const { upsertMessages, upsertThread } = useWorkspace();
 
   useEffect(() => {
     return window.carrent.chat.onEvent((event: ChatRunEvent) => {
@@ -14,8 +14,13 @@ export function useDraftThreadPromotion() {
         return;
       }
 
+      const draft = getDraftById(event.draftId);
+
       upsertThread(event.projectId, event.thread);
+      if (draft) {
+        upsertMessages(draft.messages);
+      }
       markPromotedDraftThreadByRef(event.draftId, event.thread.id);
     });
-  }, [markPromotedDraftThreadByRef, upsertThread]);
+  }, [getDraftById, markPromotedDraftThreadByRef, upsertMessages, upsertThread]);
 }

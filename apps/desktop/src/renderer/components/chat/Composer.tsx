@@ -90,44 +90,27 @@ export function Composer(props: ComposerProps) {
       content: string,
     ) => {
       if (props.mode === "thread") {
-        return {
-          primary: appendMessage({
-            threadId,
-            role,
-            agentId,
-            content,
-          }),
-        };
-      }
-
-      const draftMessage = buildTextMessage(threadId, role, agentId, content);
-      appendDraftMessage(props.draftId, draftMessage);
-
-      return {
-        primary: draftMessage,
-        mirror: appendMessage({
+        return appendMessage({
           threadId,
           role,
           agentId,
           content,
-        }),
-      };
+        });
+      }
+
+      const draftMessage = buildTextMessage(threadId, role, agentId, content);
+      appendDraftMessage(props.draftId, draftMessage);
+      return draftMessage;
     };
 
-    const updateLocalMessage = (
-      messageIds: { primary: { id: string }; mirror?: { id: string } },
-      content: string,
-    ) => {
+    const updateLocalMessage = (messageId: string, content: string) => {
       if (props.mode === "thread") {
-        updateMessage(messageIds.primary.id, content);
+        updateMessage(messageId, content);
         return;
       }
 
-      updateDraftMessage(props.draftId, messageIds.primary.id, content);
-
-      if (messageIds.mirror) {
-        updateMessage(messageIds.mirror.id, content);
-      }
+      updateDraftMessage(props.draftId, messageId, content);
+      updateMessage(messageId, content);
     };
 
     appendLocalMessage("user", messageText);
@@ -168,17 +151,17 @@ export function Composer(props: ComposerProps) {
       {
         onDelta: (text) => {
           accumulatedRef.current += text;
-          updateLocalMessage(assistantMsg, accumulatedRef.current);
+          updateLocalMessage(assistantMsg.id, accumulatedRef.current);
         },
         onComplete: (text) => {
-          updateLocalMessage(assistantMsg, text);
+          updateLocalMessage(assistantMsg.id, text);
         },
         onError: (error) => {
-          updateLocalMessage(assistantMsg, `Error: ${error}`);
+          updateLocalMessage(assistantMsg.id, `Error: ${error}`);
         },
         onStop: () => {
           updateLocalMessage(
-            assistantMsg,
+            assistantMsg.id,
             accumulatedRef.current + "\n\n[Stopped]",
           );
         },

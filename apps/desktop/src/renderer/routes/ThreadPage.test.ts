@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type { Message, ProjectRecord, ThreadRecord } from "../mock/uiShellData";
+import { messages as seededMessages, projects as seededProjects, type Message, type ProjectRecord, type ThreadRecord } from "../mock/uiShellData";
 import { resolveThreadRouteData } from "./ThreadPage";
 
 type TextMessage = {
@@ -77,26 +77,20 @@ describe("resolveThreadRouteData", () => {
     expect(resolveThreadRouteData(projects, [], "project-1", "thread-2")).toBe(null);
   });
 
-  it("maps the verification route to the seeded active thread", () => {
-    const projects = [
-      makeProject(
-        { id: "carrent", active: true },
-        [makeThread({ id: "thread-carrent", active: true, title: "Seeded thread" })],
-      ),
-    ];
-    const messages: Message[] = [
-      makeMessage({ id: "message-seeded", threadId: "thread-carrent" }),
-    ];
-
+  it("reads the verification route directly from seeded workspace data", () => {
     const result = resolveThreadRouteData(
-      projects,
-      messages,
+      seededProjects,
+      seededMessages,
       "project-1",
       "thread-1",
     );
 
-    expect(result?.project.id).toBe("carrent");
-    expect(result?.thread.id).toBe("thread-carrent");
-    expect(result?.messages.map((message) => message.id)).toEqual(["message-seeded"]);
+    expect(result?.project.id).toBe("project-1");
+    expect(result?.thread.id).toBe("thread-1");
+    expect(result?.thread.title).toBe("Shared workspace thread state");
+    expect(result?.messages.map((message) => message.id)).toEqual([
+      "message-carrent-1",
+      "message-carrent-2",
+    ]);
   });
 });

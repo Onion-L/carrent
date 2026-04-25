@@ -229,9 +229,11 @@ export function SidebarNav() {
                                 {thread.title}
                               </span>
                             </span>
-                            <span className="shrink-0 text-[11px] text-[#555]">
-                              {thread.updatedAt}
-                            </span>
+                            {!showActions && (
+                              <span className="shrink-0 text-[11px] text-[#555]">
+                                {thread.updatedAt}
+                              </span>
+                            )}
                           </button>
                           {showActions && (
                             <button

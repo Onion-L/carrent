@@ -2,8 +2,6 @@ import {
   ArrowUp,
   Bot,
   ChevronDown,
-  FolderGit,
-  GitBranch,
   Hand,
   Plus,
   Square,
@@ -171,105 +169,89 @@ export function Composer(props: ComposerProps) {
 
   return (
     <div className="px-4 pb-4 pt-2">
-      <div className="mx-auto max-w-2xl rounded-2xl border border-[#333] bg-[#252525] p-4">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={`Message ${selectedAgent?.name ?? "Agent"}...`}
-          className="w-full resize-none bg-transparent text-[14px] text-[#ddd] placeholder-[#666] outline-none"
-          rows={3}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              if (canSend && !isSending) {
-                handleSend();
+      <div className="mx-auto max-w-3xl">
+        <div className="rounded-2xl border border-[#2a2a2a] bg-[#1e1e1e] p-3">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={`Message ${selectedAgent?.name ?? "Agent"}...`}
+            className="w-full resize-none bg-transparent text-[14px] text-[#ddd] placeholder-[#555] outline-none"
+            rows={2}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (canSend && !isSending) {
+                  handleSend();
+                }
               }
-            }
-          }}
-        />
-        <div className="mt-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <button className="flex h-7 w-7 items-center justify-center rounded-md text-[#888] transition hover:bg-[#333] hover:text-[#ccc]">
-              <Plus className="h-4 w-4" />
-            </button>
-            <button className="flex items-center gap-1 rounded-md bg-[#333] px-2 py-1 text-[12px] text-[#aaa] transition hover:bg-[#3a3a3a]">
-              <Hand className="h-3 w-3" />
-              <span>Default Access</span>
-              <ChevronDown className="h-3 w-3 text-[#666]" />
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <button
-                onClick={() => setShowAgentPicker((v) => !v)}
-                className="flex items-center gap-1 rounded-md bg-[#333] px-2 py-1 text-[12px] text-[#aaa] transition hover:bg-[#3a3a3a]"
-              >
-                <Bot className="h-3 w-3" />
-                <span>{selectedAgent?.name ?? "Agent"}</span>
-                <ChevronDown className="h-3 w-3 text-[#666]" />
+            }}
+          />
+          <div className="mt-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button className="flex h-6 w-6 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]">
+                <Plus className="h-3.5 w-3.5" />
               </button>
-              {showAgentPicker && (
-                <div className="absolute bottom-full right-0 mb-1 w-40 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg">
-                  {agents.map((agent) => (
-                    <button
-                      key={agent.id}
-                      onClick={() => {
-                        setSelectedAgentId(agent.id);
-                        setShowAgentPicker(false);
-                      }}
-                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-[#333] ${
-                        agent.id === selectedAgentId
-                          ? "text-[#eee]"
-                          : "text-[#999]"
-                      }`}
-                    >
-                      <Bot className="h-3 w-3" />
-                      <span>{agent.name}</span>
-                      <span className="ml-auto text-[10px] text-[#666]">
-                        {agent.runtime}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+              <button className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]">
+                <Hand className="h-3 w-3" />
+                <span>Default</span>
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <button
+                  onClick={() => setShowAgentPicker((v) => !v)}
+                  className="flex items-center gap-1.5 rounded-full border border-[#333] bg-[#252525] px-2.5 py-1 text-[11px] text-[#aaa] transition hover:border-[#444] hover:bg-[#2a2a2a]"
+                >
+                  <Bot className="h-3 w-3" />
+                  <span>{selectedAgent?.name ?? "Agent"}</span>
+                  <ChevronDown className="h-3 w-3 text-[#666]" />
+                </button>
+                {showAgentPicker && (
+                  <div className="absolute bottom-full right-0 mb-1.5 w-40 rounded-lg border border-[#333] bg-[#1e1e1e] py-1 shadow-xl">
+                    {agents.map((agent) => (
+                      <button
+                        key={agent.id}
+                        onClick={() => {
+                          setSelectedAgentId(agent.id);
+                          setShowAgentPicker(false);
+                        }}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-[#252525] ${
+                          agent.id === selectedAgentId
+                            ? "text-[#eee]"
+                            : "text-[#999]"
+                        }`}
+                      >
+                        <Bot className="h-3 w-3" />
+                        <span>{agent.name}</span>
+                        <span className="ml-auto text-[10px] text-[#666]">
+                          {agent.runtime}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {isSending ? (
+                <button
+                  onClick={stop}
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-[#c44] text-white transition hover:bg-[#b33]"
+                >
+                  <Square className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleSend}
+                  disabled={!canSend}
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-[#4a6cf7] text-white transition hover:bg-[#3d5de4] disabled:opacity-30"
+                >
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </button>
               )}
             </div>
-            {isSending ? (
-              <button
-                onClick={stop}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-[#c44] text-white transition hover:bg-[#b33]"
-              >
-                <Square className="h-4 w-4" />
-              </button>
-            ) : (
-              <button
-                onClick={handleSend}
-                disabled={!canSend}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-[#4a6cf7] text-white transition hover:bg-[#3d5de4] disabled:opacity-40"
-              >
-                <ArrowUp className="h-4 w-4" />
-              </button>
-            )}
           </div>
         </div>
-      </div>
-
-      {/* Bottom status bar */}
-      <div className="mx-auto mt-2 flex max-w-2xl items-center gap-4 px-1">
-        <button className="flex items-center gap-1.5 text-[12px] text-[#666] transition hover:text-[#999]">
-          <FolderGit className="h-3 w-3" />
-          <span>{project?.name ?? "No project"}</span>
-          <ChevronDown className="h-3 w-3" />
-        </button>
-        <button className="flex items-center gap-1.5 text-[12px] text-[#666] transition hover:text-[#999]">
-          <span>Local</span>
-          <ChevronDown className="h-3 w-3" />
-        </button>
-        <button className="flex items-center gap-1 text-[12px] text-[#666] transition hover:text-[#999]">
-          <GitBranch className="h-3 w-3" />
-          <span>main</span>
-          <ChevronDown className="h-3 w-3" />
-        </button>
       </div>
     </div>
   );

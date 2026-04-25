@@ -2,21 +2,22 @@ import { Bot } from "lucide-react";
 import { agents, type Message } from "../../mock/uiShellData";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 
-function AgentBadge({ agentId }: { agentId: string }) {
+function AgentLabel({ agentId }: { agentId: string }) {
   const agent = agents.find((a) => a.id === agentId);
   if (!agent) return null;
   return (
-    <span className="rounded bg-[#252525] px-1.5 py-0.5 text-[11px] text-[#888]">{agent.name}</span>
+    <span className="text-[12px] font-medium text-[#666]">{agent.name}</span>
   );
 }
 
-function UserMessageBubble({ content, timestamp }: { content: string; timestamp: string }) {
+function UserMessage({ content }: { content: string }) {
   return (
-    <div className="flex flex-col items-end gap-1">
-      <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-[#2a2a2a] px-4 py-3">
-        <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#eee]">{content}</p>
+    <div className="flex justify-end">
+      <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-[#2a2a2a] px-4 py-3">
+        <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#eee]">
+          {content}
+        </p>
       </div>
-      <span className="text-[11px] text-[#555]">{timestamp}</span>
     </div>
   );
 }
@@ -24,81 +25,107 @@ function UserMessageBubble({ content, timestamp }: { content: string; timestamp:
 function AssistantMessage({
   content,
   timestamp,
-  duration,
   agentId,
 }: {
   content?: string;
   timestamp: string;
-  duration?: string;
   agentId: string;
 }) {
+  const isStreaming = content === "";
+
   return (
     <div className="flex gap-3">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#2a2a2a] text-[#888]">
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#252525] text-[#666]">
         <Bot className="h-3.5 w-3.5" />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-[13px] font-medium text-[#bbb]">Assistant</span>
-          <AgentBadge agentId={agentId} />
+          <AgentLabel agentId={agentId} />
+          <span className="text-[11px] text-[#444]">{timestamp}</span>
         </div>
-        {content && (
-          <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#ccc]">{content}</p>
+        {isStreaming ? (
+          <div className="flex items-center gap-1 py-1">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#4a6cf7]" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#4a6cf7] [animation-delay:150ms]" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#4a6cf7] [animation-delay:300ms]" />
+          </div>
+        ) : (
+          <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#ccc]">
+            {content}
+          </p>
         )}
-        <span className="text-[11px] text-[#555]">
-          {timestamp}
-          {duration && ` · ${duration}`}
-        </span>
       </div>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-4">
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#252525]">
+        <Bot className="h-5 w-5 text-[#555]" />
+      </div>
+      <p className="text-[15px] text-[#555]">What should we build?</p>
     </div>
   );
 }
 
 export function MessageTimeline({ messages }: { messages: Message[] }) {
   return (
-    <div className="flex flex-1 flex-col overflow-auto px-4 py-6">
+    <div className="flex flex-1 flex-col overflow-auto">
       {messages.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-[15px] text-[#555]">Send a message to start the conversation.</p>
-        </div>
+        <EmptyState />
       ) : (
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-          {messages.map((msg) => {
+        <div className="mx-auto flex w-full max-w-3xl flex-col">
+          {messages.map((msg, idx) => {
+            const isLast = idx === messages.length - 1;
+
             if (msg.role === "user") {
               return (
-                <UserMessageBubble key={msg.id} content={msg.content} timestamp={msg.timestamp} />
+                <div
+                  key={msg.id}
+                  className={`px-4 py-5 ${!isLast ? "border-b border-[#222]" : ""}`}
+                >
+                  <UserMessage content={msg.content} />
+                </div>
               );
             }
 
             if (msg.type === "changed_files") {
               return (
-                <div key={msg.id} className="flex gap-3">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#2a2a2a] text-[#888]">
-                    <Bot className="h-3.5 w-3.5" />
-                  </div>
-                  <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[13px] font-medium text-[#bbb]">Assistant</span>
-                      <AgentBadge agentId={msg.agentId} />
+                <div
+                  key={msg.id}
+                  className={`px-4 py-5 ${!isLast ? "border-b border-[#222]" : ""}`}
+                >
+                  <div className="flex gap-3">
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#252525] text-[#666]">
+                      <Bot className="h-3.5 w-3.5" />
                     </div>
-                    <ChangedFilesCard message={msg} />
-                    <span className="text-[11px] text-[#555]">
-                      {msg.timestamp}
-                      {msg.duration && ` · ${msg.duration}`}
-                    </span>
+                    <div className="flex min-w-0 flex-1 flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <AgentLabel agentId={msg.agentId} />
+                        <span className="text-[11px] text-[#444]">
+                          {msg.timestamp}
+                        </span>
+                      </div>
+                      <ChangedFilesCard message={msg} />
+                    </div>
                   </div>
                 </div>
               );
             }
 
             return (
-              <AssistantMessage
+              <div
                 key={msg.id}
-                content={msg.content}
-                timestamp={msg.timestamp}
-                duration={msg.duration}
-                agentId={msg.agentId}
-              />
+                className={`px-4 py-5 ${!isLast ? "border-b border-[#222]" : ""}`}
+              >
+                <AssistantMessage
+                  content={msg.content}
+                  timestamp={msg.timestamp}
+                  agentId={msg.agentId}
+                />
+              </div>
             );
           })}
         </div>

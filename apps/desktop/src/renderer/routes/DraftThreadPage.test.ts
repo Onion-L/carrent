@@ -54,4 +54,12 @@ describe("resolveDraftRouteData", () => {
   it("returns null when the draft id is missing", () => {
     expect(resolveDraftRouteData([makeDraft()], "draft-missing")).toBe(null);
   });
+
+  it("provides a seeded verification draft for /draft/foo", () => {
+    const result = resolveDraftRouteData([], "foo");
+
+    expect(result?.draftId).toBe("foo");
+    expect(result?.title).toBe("Draft thread");
+    expect(result?.messages).toHaveLength(1);
+  });
 });

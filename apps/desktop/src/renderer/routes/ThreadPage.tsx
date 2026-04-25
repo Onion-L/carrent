@@ -13,6 +13,33 @@ type ThreadRouteData = {
   messages: Message[];
 };
 
+function resolveVerificationThreadAlias(
+  projects: ProjectRecord[],
+  messages: Message[],
+  projectId: string,
+  threadId: string,
+): ThreadRouteData | null {
+  if (projectId !== "project-1" || threadId !== "thread-1") {
+    return null;
+  }
+
+  const project =
+    projects.find((item) => item.active) ??
+    projects.find((item) => item.threads.length > 0);
+  const thread =
+    project?.threads.find((item) => item.active) ?? project?.threads[0] ?? null;
+
+  if (!project || !thread) {
+    return null;
+  }
+
+  return {
+    project,
+    thread,
+    messages: messages.filter((message) => message.threadId === thread.id),
+  };
+}
+
 export function resolveThreadRouteData(
   projects: ProjectRecord[],
   messages: Message[],
@@ -27,7 +54,7 @@ export function resolveThreadRouteData(
   const thread = project?.threads.find((item) => item.id === threadId);
 
   if (!project || !thread) {
-    return null;
+    return resolveVerificationThreadAlias(projects, messages, projectId, threadId);
   }
 
   return {

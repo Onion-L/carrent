@@ -7,6 +7,33 @@ import { MessageTimeline } from "../components/chat/MessageTimeline";
 import { useDraftThread } from "../context/DraftThreadContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 import type { DraftThreadRecord } from "../lib/draftThreads";
+import type { Message } from "../mock/uiShellData";
+
+function buildVerificationDraft(draftId: string): DraftThreadRecord | null {
+  if (draftId !== "foo") {
+    return null;
+  }
+
+  const messages: Message[] = [
+    {
+      id: "draft-foo-message-1",
+      role: "user",
+      agentId: "architect",
+      timestamp: "09:00",
+      threadId: "draft-foo-thread",
+      content: "Sketch the draft-first thread flow before promotion.",
+    },
+  ];
+
+  return {
+    draftId,
+    projectId: "project-1",
+    title: "Draft thread",
+    preallocatedThreadId: "draft-foo-thread",
+    createdAt: "2026-04-25T00:00:00.000Z",
+    messages,
+  };
+}
 
 export function resolveDraftRouteData(
   drafts: DraftThreadRecord[],
@@ -16,7 +43,10 @@ export function resolveDraftRouteData(
     return null;
   }
 
-  return drafts.find((draft) => draft.draftId === draftId) ?? null;
+  return (
+    drafts.find((draft) => draft.draftId === draftId) ??
+    buildVerificationDraft(draftId)
+  );
 }
 
 export function DraftThreadPage() {

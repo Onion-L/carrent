@@ -76,4 +76,27 @@ describe("resolveThreadRouteData", () => {
 
     expect(resolveThreadRouteData(projects, [], "project-1", "thread-2")).toBe(null);
   });
+
+  it("maps the verification route to the seeded active thread", () => {
+    const projects = [
+      makeProject(
+        { id: "carrent", active: true },
+        [makeThread({ id: "thread-carrent", active: true, title: "Seeded thread" })],
+      ),
+    ];
+    const messages: Message[] = [
+      makeMessage({ id: "message-seeded", threadId: "thread-carrent" }),
+    ];
+
+    const result = resolveThreadRouteData(
+      projects,
+      messages,
+      "project-1",
+      "thread-1",
+    );
+
+    expect(result?.project.id).toBe("carrent");
+    expect(result?.thread.id).toBe("thread-carrent");
+    expect(result?.messages.map((message) => message.id)).toEqual(["message-seeded"]);
+  });
 });

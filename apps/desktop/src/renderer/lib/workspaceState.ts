@@ -87,6 +87,33 @@ export function createThreadInProjects(
   };
 }
 
+export function upsertThreadInProjects(
+  projects: ProjectRecord[],
+  projectId: string,
+  thread: ThreadRecord,
+) {
+  return projects.map((project) => {
+    if (project.id !== projectId) {
+      return project;
+    }
+
+    const existingThread = project.threads.find((item) => item.id === thread.id);
+    const nextThread = existingThread ? { ...existingThread, ...thread } : thread;
+    const nextThreads =
+      existingThread === undefined
+        ? [nextThread, ...project.threads]
+        : [
+            nextThread,
+            ...project.threads.filter((item) => item.id !== thread.id),
+          ];
+
+    return {
+      ...project,
+      threads: nextThreads,
+    };
+  });
+}
+
 export function toggleThreadPinInProjects(
   projects: ProjectRecord[],
   projectId: string,

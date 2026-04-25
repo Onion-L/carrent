@@ -14,6 +14,7 @@ import {
   findCurrentProject,
   findCurrentThread,
   toggleThreadPinInProjects,
+  upsertThreadInProjects,
 } from "../lib/workspaceState";
 
 export type WorkspaceContextValue = {
@@ -22,11 +23,21 @@ export type WorkspaceContextValue = {
   activeThreadId: string | null;
   currentThread: ThreadRecord | null;
   currentProject: ProjectRecord | null;
+  getThreadRouteData: (
+    projectId: string,
+    threadId: string,
+  ) => {
+    project: ProjectRecord;
+    thread: ThreadRecord;
+    messages: Message[];
+  } | null;
   setActiveThreadId: (id: string | null) => void;
   createProject: (folderPath: string) => ProjectRecord | null;
   createThread: (projectId: string, title: string) => ThreadRecord | null;
+  upsertThread: (projectId: string, thread: ThreadRecord) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
   archiveThread: (projectId: string, threadId: string) => void;
+  upsertMessages: (messages: Message[]) => void;
   appendMessage: (message: {
     threadId: string;
     role: "user" | "assistant";
@@ -42,11 +53,14 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   activeThreadId: null,
   currentThread: null,
   currentProject: null,
+  getThreadRouteData: () => null,
   setActiveThreadId: () => {},
   createProject: () => null,
   createThread: () => null,
+  upsertThread: () => {},
   toggleThreadPin: () => {},
   archiveThread: () => {},
+  upsertMessages: () => {},
   appendMessage: () => ({ id: "", role: "user", agentId: "", threadId: "", content: "", timestamp: "" }),
   updateMessage: () => {},
 });
@@ -59,6 +73,46 @@ function formatTime(date: Date): string {
   });
 }
 
+export function resolveWorkspaceThreadRouteData(
+  projects: ProjectRecord[],
+  messages: Message[],
+  projectId: string,
+  threadId: string,
+) {
+  const project = projects.find((item) => item.id === projectId);
+  const thread = project?.threads.find((item) => item.id === threadId);
+  if (!project || !thread) {
+    return null;
+  }
+
+  return {
+    project,
+    thread,
+    messages: messages.filter((message) => message.threadId === threadId),
+  };
+}
+
+export function mergeMessagesIntoWorkspace(
+  existingMessages: Message[],
+  incomingMessages: Message[],
+) {
+  const incomingById = new Map(
+    incomingMessages.map((message) => [message.id, message]),
+  );
+  const merged = existingMessages.map(
+    (message) => incomingById.get(message.id) ?? message,
+  );
+  const knownIds = new Set(existingMessages.map((message) => message.id));
+
+  incomingMessages.forEach((message) => {
+    if (!knownIds.has(message.id)) {
+      merged.push(message);
+    }
+  });
+
+  return merged;
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState(initialProjects);
   const [messages, setMessages] = useState(initialMessages);
@@ -68,6 +122,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const currentThread = findCurrentThread(projects, activeThreadId);
   const currentProject = findCurrentProject(projects, activeThreadId);
+  const getThreadRouteData = (projectId: string, threadId: string) =>
+    resolveWorkspaceThreadRouteData(projects, messages, projectId, threadId);
 
   const createProject = (folderPath: string) => {
     const result = createProjectInProjects(projects, folderPath);
@@ -86,6 +142,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return result.thread;
   };
 
+  const upsertThread = (projectId: string, thread: ThreadRecord) => {
+    setProjects((prev) => upsertThreadInProjects(prev, projectId, thread));
+  };
+
   const toggleThreadPin = (projectId: string, threadId: string) => {
     setProjects(toggleThreadPinInProjects(projects, projectId, threadId));
   };
@@ -96,6 +156,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (activeThreadId === threadId) {
       setActiveThreadId(result.nextActiveThreadId);
     }
+  };
+
+  const upsertMessages = (incomingMessages: Message[]) => {
+    setMessages((prev) => mergeMessagesIntoWorkspace(prev, incomingMessages));
   };
 
   const appendMessage = (message: {
@@ -128,11 +192,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         activeThreadId,
         currentThread,
         currentProject,
+        getThreadRouteData,
         setActiveThreadId,
         createProject,
         createThread,
+        upsertThread,
         toggleThreadPin,
         archiveThread,
+        upsertMessages,
         appendMessage,
         updateMessage,
       }}

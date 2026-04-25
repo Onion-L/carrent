@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { ChatTurnRequest, ChatRunEvent } from "../src/shared/chat";
 
 const carrent = {
@@ -22,7 +22,7 @@ const carrent = {
     stop: (runId: string) =>
       ipcRenderer.invoke("chat:stop", runId) as Promise<void>,
     onEvent: (listener: (event: ChatRunEvent) => void) => {
-      const wrapped = (_event: unknown, evt: ChatRunEvent) => listener(evt);
+      const wrapped = (_event: IpcRendererEvent, evt: ChatRunEvent) => listener(evt);
       ipcRenderer.on("chat:event", wrapped);
       return () => ipcRenderer.removeListener("chat:event", wrapped);
     },

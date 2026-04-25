@@ -12,7 +12,7 @@ function getMaxWidth() {
 
 export function DesktopShell({ children }: { children: React.ReactNode }) {
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed] = useState(false);
 
   const sidebarRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);

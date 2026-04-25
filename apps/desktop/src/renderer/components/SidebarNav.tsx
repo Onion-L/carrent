@@ -14,12 +14,21 @@ import {
 import { NavLink, useNavigate } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { useDraftThread } from "../context/DraftThreadContext";
 import { splitProjectThreads } from "../lib/projectThreads";
 
 const workspaceNavItems = [
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/runtimes", label: "Runtimes", icon: Monitor },
 ];
+
+export function buildThreadPath(projectId: string, threadId: string) {
+  return `/thread/${projectId}/${threadId}`;
+}
+
+export function buildDraftPath(draftId: string) {
+  return `/draft/${draftId}`;
+}
 
 export function SidebarNav() {
   const navigate = useNavigate();
@@ -28,10 +37,10 @@ export function SidebarNav() {
     activeThreadId,
     setActiveThreadId,
     createProject,
-    createThread,
     toggleThreadPin,
     archiveThread,
   } = useWorkspace();
+  const { createDraft } = useDraftThread();
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(
     projects.filter((p) => p.active).map((p) => p.id),
   );
@@ -41,9 +50,9 @@ export function SidebarNav() {
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [openThreadMenuId, setOpenThreadMenuId] = useState<string | null>(null);
 
-  const handleThreadClick = (threadId: string) => {
+  const handleThreadClick = (projectId: string, threadId: string) => {
     setActiveThreadId(threadId);
-    navigate("/");
+    navigate(buildThreadPath(projectId, threadId));
   };
 
   const toggleProjectExpanded = (projectId: string) => {
@@ -72,12 +81,12 @@ export function SidebarNav() {
     const title = draftThreadTitle.trim();
     if (!title || !draftProjectId) return;
 
-    const newThread = createThread(draftProjectId, title);
-    if (!newThread) return;
+    const draft = createDraft(draftProjectId, title);
+    if (!draft) return;
 
     setDraftProjectId(null);
     setDraftThreadTitle("");
-    navigate("/");
+    navigate(buildDraftPath(draft.draftId));
   };
 
   useEffect(() => {
@@ -232,7 +241,7 @@ export function SidebarNav() {
                           }
                         >
                           <button
-                            onClick={() => handleThreadClick(thread.id)}
+                            onClick={() => handleThreadClick(project.id, thread.id)}
                             className="flex flex-1 items-center justify-between text-left"
                           >
                             <span className="flex items-center gap-1.5 truncate">

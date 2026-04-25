@@ -6,6 +6,7 @@ import {
   createThreadInProjects,
   findCurrentProject,
   findCurrentThread,
+  upsertThreadInProjects,
 } from "./workspaceState";
 
 function makeThread(overrides: Partial<ThreadRecord> = {}): ThreadRecord {
@@ -103,5 +104,90 @@ describe("workspaceState", () => {
   it("uses the folder basename as the project name", () => {
     const result = createProjectInProjects([], "/Users/onion/workbench/my-project");
     expect(result.project?.name).toBe("my-project");
+  });
+
+  it("upserts a promoted real thread into the target project", () => {
+    const promotedThread = makeThread({
+      id: "thread-real",
+      title: "Promoted thread",
+      updatedAt: "now",
+    });
+    const projects = [
+      makeProject(
+        { id: "project-a" },
+        [makeThread({ id: "thread-a", title: "Existing A" })],
+      ),
+      makeProject(
+        { id: "project-b" },
+        [makeThread({ id: "thread-b", title: "Existing B" })],
+      ),
+    ];
+
+    const result = upsertThreadInProjects(projects, "project-b", promotedThread);
+
+    expect(result[0]).toBe(projects[0]);
+    expect(result[1]?.threads[0]).toEqual(promotedThread);
+    expect(result[1]?.threads).toHaveLength(2);
+    expect(result[1]?.threads[1]?.id).toBe("thread-b");
+  });
+
+  it("merges promoted thread data into an existing thread without dropping local flags", () => {
+    const originalThread = makeThread({
+      id: "thread-real",
+      title: "Old title",
+      updatedAt: "1h",
+      pinned: true,
+      archived: true,
+      active: true,
+    });
+    const promotedThread = makeThread({
+      id: "thread-real",
+      title: "New title",
+      updatedAt: "now",
+    });
+    const projects = [
+      makeProject(
+        { id: "project-a" },
+        [
+          originalThread,
+          makeThread({ id: "thread-a", title: "Existing A" }),
+        ],
+      ),
+    ];
+
+    const result = upsertThreadInProjects(projects, "project-a", promotedThread);
+
+    expect(result[0]?.threads).toHaveLength(2);
+    expect(result[0]?.threads[0]).toEqual({
+      ...originalThread,
+      ...promotedThread,
+    });
+    expect(
+      result[0]?.threads.filter((thread) => thread.id === "thread-real"),
+    ).toHaveLength(1);
+  });
+
+  it("leaves projects unchanged when the target project does not exist", () => {
+    const projects = [
+      makeProject(
+        { id: "project-a" },
+        [makeThread({ id: "thread-a", pinned: true })],
+      ),
+      makeProject(
+        { id: "project-b" },
+        [makeThread({ id: "thread-b", archived: true })],
+      ),
+    ];
+    const promotedThread = makeThread({
+      id: "thread-real",
+      title: "Promoted thread",
+      updatedAt: "now",
+    });
+
+    const result = upsertThreadInProjects(projects, "project-missing", promotedThread);
+
+    expect(result).toEqual(projects);
+    expect(result[0]).toBe(projects[0]);
+    expect(result[1]).toBe(projects[1]);
   });
 });

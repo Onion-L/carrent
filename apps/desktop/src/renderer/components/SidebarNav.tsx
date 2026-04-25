@@ -26,6 +26,10 @@ export function buildThreadPath(projectId: string, threadId: string) {
   return `/thread/${projectId}/${threadId}`;
 }
 
+export function buildDraftPath(draftId: string) {
+  return `/draft/${draftId}`;
+}
+
 export function SidebarNav() {
   const navigate = useNavigate();
   const {
@@ -82,7 +86,7 @@ export function SidebarNav() {
 
     setDraftProjectId(null);
     setDraftThreadTitle("");
-    navigate(`/draft/${draft.draftId}`);
+    navigate(buildDraftPath(draft.draftId));
   };
 
   useEffect(() => {

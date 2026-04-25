@@ -46,8 +46,15 @@ export function useChatRun() {
     async (request: ChatTurnRequest, callbacks: ChatRunCallbacks) => {
       setIsSending(true);
       setLastError(null);
-      const { runId } = await window.carrent.chat.send(request);
-      pendingRef.current = { runId, ...callbacks };
+      try {
+        const { runId } = await window.carrent.chat.send(request);
+        pendingRef.current = { runId, ...callbacks };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setIsSending(false);
+        setLastError(message);
+        callbacks.onError?.(message);
+      }
     },
     [],
   );

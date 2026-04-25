@@ -97,12 +97,13 @@ export function upsertThreadInProjects(
       return project;
     }
 
-    const existingIndex = project.threads.findIndex((item) => item.id === thread.id);
+    const existingThread = project.threads.find((item) => item.id === thread.id);
+    const nextThread = existingThread ? { ...existingThread, ...thread } : thread;
     const nextThreads =
-      existingIndex === -1
-        ? [thread, ...project.threads]
+      existingThread === undefined
+        ? [nextThread, ...project.threads]
         : [
-            thread,
+            nextThread,
             ...project.threads.filter((item) => item.id !== thread.id),
           ];
 

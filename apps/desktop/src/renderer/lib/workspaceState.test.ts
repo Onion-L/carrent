@@ -131,11 +131,14 @@ describe("workspaceState", () => {
     expect(result[1]?.threads[1]?.id).toBe("thread-b");
   });
 
-  it("does not duplicate a thread when the same thread id is promoted twice", () => {
+  it("merges promoted thread data into an existing thread without dropping local flags", () => {
     const originalThread = makeThread({
       id: "thread-real",
       title: "Old title",
       updatedAt: "1h",
+      pinned: true,
+      archived: true,
+      active: true,
     });
     const promotedThread = makeThread({
       id: "thread-real",
@@ -155,9 +158,36 @@ describe("workspaceState", () => {
     const result = upsertThreadInProjects(projects, "project-a", promotedThread);
 
     expect(result[0]?.threads).toHaveLength(2);
-    expect(result[0]?.threads[0]).toEqual(promotedThread);
+    expect(result[0]?.threads[0]).toEqual({
+      ...originalThread,
+      ...promotedThread,
+    });
     expect(
       result[0]?.threads.filter((thread) => thread.id === "thread-real"),
     ).toHaveLength(1);
+  });
+
+  it("leaves projects unchanged when the target project does not exist", () => {
+    const projects = [
+      makeProject(
+        { id: "project-a" },
+        [makeThread({ id: "thread-a", pinned: true })],
+      ),
+      makeProject(
+        { id: "project-b" },
+        [makeThread({ id: "thread-b", archived: true })],
+      ),
+    ];
+    const promotedThread = makeThread({
+      id: "thread-real",
+      title: "Promoted thread",
+      updatedAt: "now",
+    });
+
+    const result = upsertThreadInProjects(projects, "project-missing", promotedThread);
+
+    expect(result).toEqual(projects);
+    expect(result[0]).toBe(projects[0]);
+    expect(result[1]).toBe(projects[1]);
   });
 });

@@ -134,8 +134,36 @@ export function SidebarNav() {
         className="drag-region shrink-0"
         style={{ height: "env(titlebar-area-height, 38px)" }}
       />
+      {/* Workspace section */}
+      <div className="flex flex-col shrink-0">
+        <div className="flex items-center px-4 py-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
+            Workspace
+          </span>
+        </div>
+        <nav className="px-2 pt-1 pb-2">
+          {workspaceNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === "/"}
+              className={({ isActive }) =>
+                `flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition ${
+                  isActive
+                    ? "bg-[#2a2a2a] font-medium text-[#eee]"
+                    : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
+                }`
+              }
+            >
+              <item.icon className="h-4 w-4" />
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+      </div>
+
       {/* Projects section */}
-      <div className="flex max-h-[50%] flex-col">
+      <div className="flex flex-1 flex-col min-h-0">
         <div className="flex items-center justify-between px-4 py-1.5">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
             Projects
@@ -366,34 +394,6 @@ export function SidebarNav() {
             );
           })}
         </div>
-      </div>
-
-      {/* Workspace section */}
-      <div className="flex flex-1 flex-col">
-        <div className="flex items-center px-4 py-1.5">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
-            Workspace
-          </span>
-        </div>
-        <nav className="flex-1 overflow-auto px-2 pt-1">
-          {workspaceNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === "/"}
-              className={({ isActive }) =>
-                `flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition ${
-                  isActive
-                    ? "bg-[#2a2a2a] font-medium text-[#eee]"
-                    : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
-                }`
-              }
-            >
-              <item.icon className="h-4 w-4" />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
-        </nav>
       </div>
 
       {/* Settings */}

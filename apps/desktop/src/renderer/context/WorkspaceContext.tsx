@@ -13,6 +13,7 @@ import {
   createThreadInProjects,
   findCurrentProject,
   findCurrentThread,
+  renameProjectInProjects,
   toggleThreadPinInProjects,
   upsertThreadInProjects,
 } from "../lib/workspaceState";
@@ -34,6 +35,7 @@ export type WorkspaceContextValue = {
   setActiveThreadId: (id: string | null) => void;
   createProject: (folderPath: string) => ProjectRecord | null;
   removeProject: (projectId: string) => void;
+  renameProject: (projectId: string, newName: string) => boolean;
   createThread: (projectId: string, title: string) => ThreadRecord | null;
   upsertThread: (projectId: string, thread: ThreadRecord) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
@@ -58,6 +60,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   setActiveThreadId: () => {},
   createProject: () => null,
   removeProject: () => {},
+  renameProject: () => false,
   createThread: () => null,
   upsertThread: () => {},
   toggleThreadPin: () => {},
@@ -137,6 +140,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setProjects((prev) => prev.filter((p) => p.id !== projectId));
   };
 
+  const renameProject = (projectId: string, newName: string) => {
+    const result = renameProjectInProjects(projects, projectId, newName);
+    if (result.renamed) {
+      setProjects(result.projects);
+    }
+    return result.renamed;
+  };
+
   const createThread = (projectId: string, title: string) => {
     const result = createThreadInProjects(projects, projectId, title);
     if (!result.thread) {
@@ -202,6 +213,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setActiveThreadId,
         createProject,
         removeProject,
+        renameProject,
         createThread,
         upsertThread,
         toggleThreadPin,

@@ -19,6 +19,22 @@ export function createProjectInProjects(
   };
 }
 
+export function renameProjectInProjects(
+  projects: ProjectRecord[],
+  projectId: string,
+  newName: string,
+) {
+  const trimmed = newName.trim();
+  if (!trimmed) return { projects, renamed: false as boolean };
+
+  return {
+    projects: projects.map((p) =>
+      p.id === projectId ? { ...p, name: trimmed } : p,
+    ),
+    renamed: true,
+  };
+}
+
 export function findCurrentThread(
   projects: ProjectRecord[],
   activeThreadId: string | null,

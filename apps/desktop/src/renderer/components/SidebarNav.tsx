@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Link,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
@@ -41,6 +42,7 @@ export function SidebarNav() {
     setActiveThreadId,
     createProject,
     removeProject,
+    renameProject,
     toggleThreadPin,
     archiveThread,
   } = useWorkspace();
@@ -52,6 +54,8 @@ export function SidebarNav() {
   const [openThreadMenuId, setOpenThreadMenuId] = useState<string | null>(null);
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editingProjectName, setEditingProjectName] = useState("");
 
   const handleThreadClick = (projectId: string, threadId: string) => {
     setActiveThreadId(threadId);
@@ -210,47 +214,74 @@ export function SidebarNav() {
                     )
                   }
                 >
-                  <button
-                    onClick={() => toggleProjectExpanded(project.id)}
-                    className="flex flex-1 items-center gap-1.5 text-left"
-                  >
-                    {isExpanded ? (
-                      <FolderOpen className="h-4 w-4 text-[#888]" />
-                    ) : (
-                      <Folder className="h-4 w-4 text-[#888]" />
-                    )}
-                    <span className="text-[13px] font-medium text-[#ddd]">
-                      {project.name}
-                    </span>
-                  </button>
-                  {hoveredProjectId === project.id && (
-                    <>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openDraft(project.id);
-                        }}
-                        className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
-                        title="New thread"
-                      >
-                        <Plus className="h-3 w-3" />
-                      </button>
-                      <button
-                        data-project-menu-trigger="true"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenProjectMenuId(
-                            openProjectMenuId === project.id
-                              ? null
-                              : project.id,
-                          );
-                        }}
-                        className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
-                      >
-                        <MoreHorizontal className="h-3 w-3" />
-                      </button>
-                    </>
+                  {editingProjectId === project.id ? (
+                    <input
+                      autoFocus
+                      value={editingProjectName}
+                      onChange={(e) => setEditingProjectName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          renameProject(project.id, editingProjectName);
+                          setEditingProjectId(null);
+                          setEditingProjectName("");
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          setEditingProjectId(null);
+                          setEditingProjectName("");
+                        }
+                      }}
+                      onBlur={() => {
+                        renameProject(project.id, editingProjectName);
+                        setEditingProjectId(null);
+                        setEditingProjectName("");
+                      }}
+                      className="flex-1 bg-transparent text-[13px] text-[#ddd] outline-none"
+                    />
+                  ) : (
+                    <button
+                      onClick={() => toggleProjectExpanded(project.id)}
+                      className="flex flex-1 items-center gap-1.5 text-left"
+                    >
+                      {isExpanded ? (
+                        <FolderOpen className="h-4 w-4 text-[#888]" />
+                      ) : (
+                        <Folder className="h-4 w-4 text-[#888]" />
+                      )}
+                      <span className="text-[13px] font-medium text-[#ddd]">
+                        {project.name}
+                      </span>
+                    </button>
                   )}
+                  {hoveredProjectId === project.id &&
+                    editingProjectId !== project.id && (
+                      <>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDraft(project.id);
+                          }}
+                          className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                          title="New thread"
+                        >
+                          <Plus className="h-3 w-3" />
+                        </button>
+                        <button
+                          data-project-menu-trigger="true"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenProjectMenuId(
+                              openProjectMenuId === project.id
+                                ? null
+                                : project.id,
+                            );
+                          }}
+                          className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                        >
+                          <MoreHorizontal className="h-3 w-3" />
+                        </button>
+                      </>
+                    )}
 
                   {openProjectMenuId === project.id && (
                     <div
@@ -266,7 +297,19 @@ export function SidebarNav() {
                         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
                       >
                         <ExternalLink className="h-3 w-3" />
-                        Locate on Disk
+                        Open in Finder
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenProjectMenuId(null);
+                          setEditingProjectId(project.id);
+                          setEditingProjectName(project.name);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                      >
+                        <Pencil className="h-3 w-3" />
+                        Rename project
                       </button>
                       <button
                         onClick={(e) => {
@@ -284,7 +327,7 @@ export function SidebarNav() {
                           e.stopPropagation();
                           if (
                             window.confirm(
-                              `Remove "${project.name}" from the list?`,
+                              `Delete "${project.name}"?`,
                             )
                           ) {
                             removeProject(project.id);
@@ -294,7 +337,7 @@ export function SidebarNav() {
                         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 transition hover:bg-[#333]"
                       >
                         <Trash2 className="h-3 w-3 text-red-400" />
-                        Forget project
+                        Delete
                       </button>
                     </div>
                   )}

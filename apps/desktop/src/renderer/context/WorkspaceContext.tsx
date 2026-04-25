@@ -33,6 +33,7 @@ export type WorkspaceContextValue = {
   } | null;
   setActiveThreadId: (id: string | null) => void;
   createProject: (folderPath: string) => ProjectRecord | null;
+  removeProject: (projectId: string) => void;
   createThread: (projectId: string, title: string) => ThreadRecord | null;
   upsertThread: (projectId: string, thread: ThreadRecord) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
@@ -56,6 +57,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   getThreadRouteData: () => null,
   setActiveThreadId: () => {},
   createProject: () => null,
+  removeProject: () => {},
   createThread: () => null,
   upsertThread: () => {},
   toggleThreadPin: () => {},
@@ -131,6 +133,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return result.project;
   };
 
+  const removeProject = (projectId: string) => {
+    setProjects((prev) => prev.filter((p) => p.id !== projectId));
+  };
+
   const createThread = (projectId: string, title: string) => {
     const result = createThreadInProjects(projects, projectId, title);
     if (!result.thread) {
@@ -195,6 +201,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         getThreadRouteData,
         setActiveThreadId,
         createProject,
+        removeProject,
         createThread,
         upsertThread,
         toggleThreadPin,

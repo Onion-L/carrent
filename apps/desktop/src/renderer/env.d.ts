@@ -28,6 +28,12 @@ declare global {
       dialog: {
         openDirectory: () => Promise<{ canceled: boolean; filePaths: string[] }>;
       };
+      shell: {
+        showInFolder: (filePath: string) => Promise<void>;
+      };
+      clipboard: {
+        writeText: (text: string) => Promise<void>;
+      };
     };
   }
 }

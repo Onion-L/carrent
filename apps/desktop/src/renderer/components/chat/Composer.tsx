@@ -59,6 +59,24 @@ function buildTextMessage(
   };
 }
 
+type ComposerKeyDownEvent = {
+  key: string;
+  shiftKey: boolean;
+  keyCode?: number;
+  nativeEvent: {
+    isComposing?: boolean;
+  };
+};
+
+export function shouldSubmitComposerOnKeyDown(event: ComposerKeyDownEvent) {
+  return (
+    event.key === "Enter" &&
+    !event.shiftKey &&
+    !event.nativeEvent.isComposing &&
+    event.keyCode !== 229
+  );
+}
+
 export function Composer(props: ComposerProps) {
   const { projects, appendMessage, updateMessage } = useWorkspace();
   const { appendDraftMessage, updateDraftMessage } = useDraftThread();
@@ -178,7 +196,7 @@ export function Composer(props: ComposerProps) {
             className="w-full resize-none bg-transparent text-[14px] text-[#ddd] placeholder-[#555] outline-none"
             rows={2}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (shouldSubmitComposerOnKeyDown(e)) {
                 e.preventDefault();
                 if (canSend && !isSending) {
                   handleSend();

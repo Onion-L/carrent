@@ -34,6 +34,14 @@ const carrent = {
         filePaths: string[];
       }>,
   },
+  shell: {
+    showInFolder: (filePath: string) =>
+      ipcRenderer.invoke("shell:show-in-folder", filePath),
+  },
+  clipboard: {
+    writeText: (text: string) =>
+      ipcRenderer.invoke("clipboard:write-text", text),
+  },
 };
 
 contextBridge.exposeInMainWorld("carrent", carrent);

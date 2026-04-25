@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, shell, dialog, clipboard } from "electron";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -70,6 +70,14 @@ app.whenReady().then(() => {
       properties: ["openDirectory"],
     });
     return result;
+  });
+
+  ipcMain.handle("shell:show-in-folder", async (_event, filePath: string) => {
+    shell.showItemInFolder(filePath);
+  });
+
+  ipcMain.handle("clipboard:write-text", async (_event, text: string) => {
+    clipboard.writeText(text);
   });
 
   const emitChatEvent = (event: unknown) => {

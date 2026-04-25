@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 
 import {
-  createDraftThread,
+  buildDraftThreadRecord,
   finalizePromotedDraftThreadByRef as finalizeDraftThreadPromotion,
   markPromotedDraftThreadByRef as markDraftThreadPromotion,
   type DraftThreadRecord,
@@ -32,15 +32,14 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
   const [drafts, setDrafts] = useState<DraftThreadRecord[]>([]);
 
   const createDraft = (projectId: string, title: string) => {
-    let nextDraft: DraftThreadRecord | null = null;
+    const draft = buildDraftThreadRecord(projectId, title);
+    if (!draft) {
+      return null;
+    }
 
-    setDrafts((prev) => {
-      const result = createDraftThread(prev, projectId, title);
-      nextDraft = result.draft;
-      return result.drafts;
-    });
+    setDrafts((prev) => [...prev, draft]);
 
-    return nextDraft;
+    return draft;
   };
 
   const appendDraftMessage = (draftId: string, message: Message) => {

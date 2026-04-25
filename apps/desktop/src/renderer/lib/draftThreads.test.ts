@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { DraftThreadRecord } from "./draftThreads";
 import {
+  buildDraftThreadRecord,
   createDraftThread,
   finalizePromotedDraftThreadByRef,
   markPromotedDraftThreadByRef,
@@ -21,6 +22,27 @@ function makeDraft(
 }
 
 describe("draftThreads", () => {
+  it("builds a trimmed draft record", () => {
+    const draft = buildDraftThreadRecord("project-1", " New thread ");
+
+    expect(draft === null).toBe(false);
+    if (!draft) {
+      throw new Error("Expected draft to be created");
+    }
+
+    expect(draft.projectId).toBe("project-1");
+    expect(draft.title).toBe("New thread");
+    expect(/^draft-/.test(draft.draftId)).toBe(true);
+    expect(/^thread-/.test(draft.preallocatedThreadId)).toBe(true);
+    expect(draft.draftId).not.toBe(draft.preallocatedThreadId);
+    expect(draft.createdAt).toBeString();
+    expect(draft.messages).toEqual([]);
+  });
+
+  it("returns no draft record for a blank title", () => {
+    expect(buildDraftThreadRecord("project-1", "   ")).toBe(null);
+  });
+
   it("creates a draft with draftId and preallocated threadId", () => {
     const result = createDraftThread([], "project-1", " New thread ");
     const draft = result.draft;
@@ -38,6 +60,7 @@ describe("draftThreads", () => {
     expect(draft.createdAt).toBeString();
     expect(draft.messages).toEqual([]);
     expect(result.drafts).toHaveLength(1);
+    expect(result.drafts[0]).toEqual(draft);
   });
 
   it("returns no draft for a blank title and leaves drafts unchanged", () => {

@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 
 import { DesktopShell } from "./components/DesktopShell";
+import { ToastProvider } from "./components/toast/ToastContext";
 import { DraftThreadProvider } from "./context/DraftThreadContext";
 import { AgentsPage } from "./routes/AgentsPage";
 import { DraftThreadPage } from "./routes/DraftThreadPage";
@@ -14,17 +15,19 @@ export default function App() {
   return (
     <WorkspaceProvider>
       <DraftThreadProvider>
-        <DesktopShell>
-          <Routes>
-            <Route element={<HomePage />} path="/" />
-            <Route element={<DraftThreadPage />} path="/draft/:draftId" />
-            <Route element={<ThreadPage />} path="/thread/:projectId/:threadId" />
-            <Route element={<AgentsPage />} path="/agents" />
-            <Route element={<RuntimesPage />} path="/runtimes" />
-            <Route element={<SettingsPage />} path="/settings" />
-            <Route element={<HomePage />} path="*" />
-          </Routes>
-        </DesktopShell>
+        <ToastProvider>
+          <DesktopShell>
+            <Routes>
+              <Route element={<HomePage />} path="/" />
+              <Route element={<DraftThreadPage />} path="/draft/:draftId" />
+              <Route element={<ThreadPage />} path="/thread/:projectId/:threadId" />
+              <Route element={<AgentsPage />} path="/agents" />
+              <Route element={<RuntimesPage />} path="/runtimes" />
+              <Route element={<SettingsPage />} path="/settings" />
+              <Route element={<HomePage />} path="*" />
+            </Routes>
+          </DesktopShell>
+        </ToastProvider>
       </DraftThreadProvider>
     </WorkspaceProvider>
   );

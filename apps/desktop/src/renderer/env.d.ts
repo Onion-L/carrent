@@ -29,7 +29,7 @@ declare global {
         openDirectory: () => Promise<{ canceled: boolean; filePaths: string[] }>;
       };
       shell: {
-        showInFolder: (filePath: string) => Promise<void>;
+        openPath: (filePath: string) => Promise<string>;
       };
       clipboard: {
         writeText: (text: string) => Promise<void>;

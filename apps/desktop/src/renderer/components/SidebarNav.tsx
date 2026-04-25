@@ -19,6 +19,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useDraftThread } from "../context/DraftThreadContext";
+import { useToast } from "../components/toast/ToastContext";
 import { splitProjectThreads } from "../lib/projectThreads";
 
 const workspaceNavItems = [
@@ -47,6 +48,7 @@ export function SidebarNav() {
     archiveThread,
   } = useWorkspace();
   const { createDraft } = useDraftThread();
+  const { showToast } = useToast();
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(
     projects.filter((p) => p.active).map((p) => p.id),
   );
@@ -291,7 +293,7 @@ export function SidebarNav() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          window.carrent.shell.showInFolder(project.path);
+                          void window.carrent.shell.openPath(project.path);
                           setOpenProjectMenuId(null);
                         }}
                         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
@@ -316,6 +318,7 @@ export function SidebarNav() {
                           e.stopPropagation();
                           window.carrent.clipboard.writeText(project.path);
                           setOpenProjectMenuId(null);
+                          showToast("Path copied to clipboard", "success");
                         }}
                         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
                       >

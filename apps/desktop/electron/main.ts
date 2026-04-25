@@ -72,8 +72,9 @@ app.whenReady().then(() => {
     return result;
   });
 
-  ipcMain.handle("shell:show-in-folder", async (_event, filePath: string) => {
-    shell.showItemInFolder(filePath);
+  ipcMain.handle("shell:open-path", async (_event, filePath: string) => {
+    const result = await shell.openPath(filePath);
+    return result;
   });
 
   ipcMain.handle("clipboard:write-text", async (_event, text: string) => {

@@ -35,8 +35,8 @@ const carrent = {
       }>,
   },
   shell: {
-    showInFolder: (filePath: string) =>
-      ipcRenderer.invoke("shell:show-in-folder", filePath),
+    openPath: (filePath: string) =>
+      ipcRenderer.invoke("shell:open-path", filePath) as Promise<string>,
   },
   clipboard: {
     writeText: (text: string) =>

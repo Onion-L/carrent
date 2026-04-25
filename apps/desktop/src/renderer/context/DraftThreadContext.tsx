@@ -8,10 +8,14 @@ import {
 } from "../lib/draftThreads";
 import type { Message } from "../mock/uiShellData";
 
-const initialDrafts: DraftThreadRecord[] = [
-  {
+export function getVerificationDraftById(draftId: string) {
+  if (draftId !== "foo") {
+    return null;
+  }
+
+  return {
     draftId: "foo",
-    projectId: "project-1",
+    projectId: "carrent",
     title: "Draft thread",
     preallocatedThreadId: "draft-foo-thread",
     createdAt: "2026-04-25T00:00:00.000Z",
@@ -23,10 +27,10 @@ const initialDrafts: DraftThreadRecord[] = [
         timestamp: "09:00",
         threadId: "draft-foo-thread",
         content: "Sketch the draft-first thread flow before promotion.",
-      },
+      } satisfies Message,
     ],
-  },
-];
+  } satisfies DraftThreadRecord;
+}
 
 export type DraftThreadContextValue = {
   drafts: DraftThreadRecord[];
@@ -49,7 +53,7 @@ const DraftThreadContext = createContext<DraftThreadContextValue>({
 });
 
 export function DraftThreadProvider({ children }: { children: ReactNode }) {
-  const [drafts, setDrafts] = useState<DraftThreadRecord[]>(initialDrafts);
+  const [drafts, setDrafts] = useState<DraftThreadRecord[]>([]);
 
   const createDraft = (projectId: string, title: string) => {
     const draft = buildDraftThreadRecord(projectId, title);
@@ -105,7 +109,8 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
   };
 
   const getDraftById = (draftId: string) =>
-    drafts.find((draft) => draft.draftId === draftId) ?? null;
+    drafts.find((draft) => draft.draftId === draftId) ??
+    getVerificationDraftById(draftId);
 
   return (
     <DraftThreadContext.Provider

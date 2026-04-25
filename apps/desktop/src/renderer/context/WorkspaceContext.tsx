@@ -22,6 +22,14 @@ export type WorkspaceContextValue = {
   activeThreadId: string | null;
   currentThread: ThreadRecord | null;
   currentProject: ProjectRecord | null;
+  getThreadRouteData: (
+    projectId: string,
+    threadId: string,
+  ) => {
+    project: ProjectRecord;
+    thread: ThreadRecord;
+    messages: Message[];
+  } | null;
   setActiveThreadId: (id: string | null) => void;
   createProject: (folderPath: string) => ProjectRecord | null;
   createThread: (projectId: string, title: string) => ThreadRecord | null;
@@ -42,6 +50,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   activeThreadId: null,
   currentThread: null,
   currentProject: null,
+  getThreadRouteData: () => null,
   setActiveThreadId: () => {},
   createProject: () => null,
   createThread: () => null,
@@ -59,6 +68,51 @@ function formatTime(date: Date): string {
   });
 }
 
+export function resolveWorkspaceThreadRouteData(
+  projects: ProjectRecord[],
+  messages: Message[],
+  projectId: string,
+  threadId: string,
+) {
+  const project = projects.find((item) => item.id === projectId);
+  const thread = project?.threads.find((item) => item.id === threadId);
+
+  if (project && thread) {
+    return {
+      project,
+      thread,
+      messages: messages.filter((message) => message.threadId === threadId),
+    };
+  }
+
+  if (projectId !== "project-1" || threadId !== "thread-1") {
+    return null;
+  }
+
+  const verificationProject =
+    projects.find((item) => item.id === "carrent") ??
+    projects.find((item) => item.active) ??
+    null;
+  const verificationThread =
+    verificationProject?.threads.find(
+      (item) => item.id === "thread-carrent-shared-workspace",
+    ) ??
+    verificationProject?.threads.find((item) => item.active) ??
+    null;
+
+  if (!verificationProject || !verificationThread) {
+    return null;
+  }
+
+  return {
+    project: verificationProject,
+    thread: verificationThread,
+    messages: messages.filter(
+      (message) => message.threadId === verificationThread.id,
+    ),
+  };
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState(initialProjects);
   const [messages, setMessages] = useState(initialMessages);
@@ -68,6 +122,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const currentThread = findCurrentThread(projects, activeThreadId);
   const currentProject = findCurrentProject(projects, activeThreadId);
+  const getThreadRouteData = (projectId: string, threadId: string) =>
+    resolveWorkspaceThreadRouteData(projects, messages, projectId, threadId);
 
   const createProject = (folderPath: string) => {
     const result = createProjectInProjects(projects, folderPath);
@@ -128,6 +184,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         activeThreadId,
         currentThread,
         currentProject,
+        getThreadRouteData,
         setActiveThreadId,
         createProject,
         createThread,

@@ -6,24 +6,12 @@ import { Composer } from "../components/chat/Composer";
 import { MessageTimeline } from "../components/chat/MessageTimeline";
 import { useDraftThread } from "../context/DraftThreadContext";
 import { useWorkspace } from "../context/WorkspaceContext";
-import type { DraftThreadRecord } from "../lib/draftThreads";
-
-export function resolveDraftRouteData(
-  drafts: DraftThreadRecord[],
-  draftId?: string,
-) {
-  if (!draftId) {
-    return null;
-  }
-
-  return drafts.find((draft) => draft.draftId === draftId) ?? null;
-}
 
 export function DraftThreadPage() {
   const { draftId } = useParams();
-  const { drafts } = useDraftThread();
+  const { getDraftById } = useDraftThread();
   const { setActiveThreadId } = useWorkspace();
-  const draft = resolveDraftRouteData(drafts, draftId);
+  const draft = draftId ? getDraftById(draftId) : null;
 
   useEffect(() => {
     setActiveThreadId(null);

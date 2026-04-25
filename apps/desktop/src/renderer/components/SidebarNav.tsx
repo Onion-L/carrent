@@ -21,6 +21,10 @@ const workspaceNavItems = [
   { to: "/runtimes", label: "Runtimes", icon: Monitor },
 ];
 
+export function buildThreadPath(projectId: string, threadId: string) {
+  return `/thread/${projectId}/${threadId}`;
+}
+
 export function SidebarNav() {
   const navigate = useNavigate();
   const {
@@ -41,9 +45,9 @@ export function SidebarNav() {
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [openThreadMenuId, setOpenThreadMenuId] = useState<string | null>(null);
 
-  const handleThreadClick = (threadId: string) => {
+  const handleThreadClick = (projectId: string, threadId: string) => {
     setActiveThreadId(threadId);
-    navigate("/");
+    navigate(buildThreadPath(projectId, threadId));
   };
 
   const toggleProjectExpanded = (projectId: string) => {
@@ -232,7 +236,7 @@ export function SidebarNav() {
                           }
                         >
                           <button
-                            onClick={() => handleThreadClick(thread.id)}
+                            onClick={() => handleThreadClick(project.id, thread.id)}
                             className="flex flex-1 items-center justify-between text-left"
                           >
                             <span className="flex items-center gap-1.5 truncate">

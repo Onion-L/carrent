@@ -5,42 +5,23 @@ import { ChatHeader } from "../components/chat/ChatHeader";
 import { Composer } from "../components/chat/Composer";
 import { MessageTimeline } from "../components/chat/MessageTimeline";
 import { useWorkspace } from "../context/WorkspaceContext";
-import type { Message, ProjectRecord, ThreadRecord } from "../mock/uiShellData";
-
-type ThreadRouteData = {
-  project: ProjectRecord;
-  thread: ThreadRecord;
-  messages: Message[];
-};
 
 export function resolveThreadRouteData(
-  projects: ProjectRecord[],
-  messages: Message[],
+  getThreadRouteData: ReturnType<typeof useWorkspace>["getThreadRouteData"],
   projectId?: string,
   threadId?: string,
-): ThreadRouteData | null {
+) {
   if (!projectId || !threadId) {
     return null;
   }
 
-  const project = projects.find((item) => item.id === projectId);
-  const thread = project?.threads.find((item) => item.id === threadId);
-
-  if (!project || !thread) {
-    return null;
-  }
-
-  return {
-    project,
-    thread,
-    messages: messages.filter((message) => message.threadId === threadId),
-  };
+  return getThreadRouteData(projectId, threadId);
 }
 
 export function ThreadPage() {
   const { projectId, threadId } = useParams();
-  const { projects, messages, setActiveThreadId } = useWorkspace();
-  const routeData = resolveThreadRouteData(projects, messages, projectId, threadId);
+  const { getThreadRouteData, setActiveThreadId } = useWorkspace();
+  const routeData = resolveThreadRouteData(getThreadRouteData, projectId, threadId);
 
   useEffect(() => {
     setActiveThreadId(routeData?.thread.id ?? null);

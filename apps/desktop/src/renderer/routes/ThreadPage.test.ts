@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
+import { resolveWorkspaceThreadRouteData } from "../context/WorkspaceContext";
 import { messages as seededMessages, projects as seededProjects, type Message, type ProjectRecord, type ThreadRecord } from "../mock/uiShellData";
 import { resolveThreadRouteData } from "./ThreadPage";
 
@@ -61,7 +62,12 @@ describe("resolveThreadRouteData", () => {
       makeMessage({ id: "message-2", threadId: "thread-2" }),
     ];
 
-    const result = resolveThreadRouteData(projects, messages, "project-1", "thread-1");
+    const result = resolveThreadRouteData(
+      (projectId, threadId) =>
+        resolveWorkspaceThreadRouteData(projects, messages, projectId, threadId),
+      "project-1",
+      "thread-1",
+    );
 
     expect(result?.project.id).toBe("project-1");
     expect(result?.thread.id).toBe("thread-1");
@@ -74,19 +80,31 @@ describe("resolveThreadRouteData", () => {
       makeProject({ id: "project-2" }, [makeThread({ id: "thread-2" })]),
     ];
 
-    expect(resolveThreadRouteData(projects, [], "project-1", "thread-2")).toBe(null);
+    expect(
+      resolveThreadRouteData(
+        (projectId, threadId) =>
+          resolveWorkspaceThreadRouteData(projects, [], projectId, threadId),
+        "project-1",
+        "thread-2",
+      ),
+    ).toBe(null);
   });
 
   it("reads the verification route directly from seeded workspace data", () => {
     const result = resolveThreadRouteData(
-      seededProjects,
-      seededMessages,
+      (projectId, threadId) =>
+        resolveWorkspaceThreadRouteData(
+          seededProjects,
+          seededMessages,
+          projectId,
+          threadId,
+        ),
       "project-1",
       "thread-1",
     );
 
-    expect(result?.project.id).toBe("project-1");
-    expect(result?.thread.id).toBe("thread-1");
+    expect(result?.project.id).toBe("carrent");
+    expect(result?.thread.id).toBe("thread-carrent-shared-workspace");
     expect(result?.thread.title).toBe("Shared workspace thread state");
     expect(result?.messages.map((message) => message.id)).toEqual([
       "message-carrent-1",

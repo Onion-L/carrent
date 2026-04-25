@@ -189,4 +189,67 @@ describe("createChatSessionManager", () => {
     expect(failed?.error).toContain("Agent returned an error");
     expect(failed?.error).toContain("Out of credits");
   });
+
+  it("emits thread-upserted before started for a draft-first message", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start(
+      "run-7",
+      makeRequest({
+        threadId: "thread-promoted",
+        draftRef: {
+          draftId: "draft-1",
+          projectId: "project-1",
+          title: "New Draft Thread",
+        },
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(emitted[0]).toMatchObject({
+      type: "thread-upserted",
+      runId: "run-7",
+      draftId: "draft-1",
+      projectId: "project-1",
+      thread: {
+        id: "thread-promoted",
+        title: "New Draft Thread",
+      },
+    });
+    expect(emitted[1]).toMatchObject({
+      type: "started",
+      runId: "run-7",
+      threadId: "thread-promoted",
+      agentId: "architect",
+    });
+  });
+
+  it("does not emit thread-upserted for a normal real-thread message", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start("run-8", makeRequest());
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(emitted.some((event) => event.type === "thread-upserted")).toBe(false);
+    expect(emitted[0]).toMatchObject({
+      type: "started",
+      runId: "run-8",
+      threadId: "thread-1",
+      agentId: "architect",
+    });
+  });
 });

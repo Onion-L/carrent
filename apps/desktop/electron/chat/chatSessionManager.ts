@@ -136,6 +136,20 @@ export function createChatSessionManager(options: {
       });
     });
 
+    if (request.draftRef) {
+      options.emit({
+        type: "thread-upserted",
+        runId,
+        draftId: request.draftRef.draftId,
+        projectId: request.draftRef.projectId,
+        thread: {
+          id: request.threadId,
+          title: request.draftRef.title,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    }
+
     options.emit({
       type: "started",
       runId,

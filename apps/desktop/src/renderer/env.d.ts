@@ -23,7 +23,7 @@ declare global {
       chat: {
         send: (request: ChatTurnRequest) => Promise<{ runId: string }>;
         stop: (runId: string) => Promise<void>;
-        onEvent: (listener: (event: ChatRunEvent) => void) => () => void;
+        onEvent: (listener: (event: ChatRunEvent) => void) => VoidFunction;
       };
       dialog: {
         openDirectory: () => Promise<{ canceled: boolean; filePaths: string[] }>;

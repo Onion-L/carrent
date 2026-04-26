@@ -17,6 +17,8 @@ export function buildNewAgent(now = new Date()): AgentRecord {
     name: "",
     runtime: "codex",
     responsibility: "",
+    description: "",
+    avatar: "",
     createdAt: formatISO(now),
     updatedAt: formatISO(now),
   };

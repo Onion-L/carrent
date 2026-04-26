@@ -87,6 +87,8 @@ function RuntimePicker({ value, onChange }: { value: string; onChange: (value: s
   );
 }
 
+type TabId = "instruction" | "settings";
+
 export function AgentsPage() {
   const {
     agents,
@@ -105,10 +107,12 @@ export function AgentsPage() {
 
   const [draft, setDraft] = useState<AgentRecord | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [tab, setTab] = useState<TabId>("instruction");
 
   useEffect(() => {
     if (selectedAgent) {
       setDraft({ ...selectedAgent });
+      setTab("instruction");
     } else {
       setDraft(null);
     }
@@ -127,10 +131,7 @@ export function AgentsPage() {
   const handleSave = () => {
     if (!draft) return;
     setIsSaving(true);
-    const result = updateAgent(draft);
-    if (!result.ok) {
-      // Error is already captured by validation in the form
-    }
+    updateAgent(draft);
     setTimeout(() => setIsSaving(false), 600);
   };
 
@@ -144,7 +145,9 @@ export function AgentsPage() {
     draft && selectedAgent
       ? draft.name !== selectedAgent.name ||
         draft.responsibility !== selectedAgent.responsibility ||
-        draft.runtime !== selectedAgent.runtime
+        draft.runtime !== selectedAgent.runtime ||
+        draft.description !== selectedAgent.description ||
+        draft.avatar !== selectedAgent.avatar
       : false;
 
   return (
@@ -180,7 +183,9 @@ export function AgentsPage() {
                       : "text-[#999] hover:bg-[#222] hover:text-[#ccc]"
                   }`}
                 >
-                  <Bot className="h-4 w-4 shrink-0" />
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#252525] text-[13px]">
+                    {agent.avatar || <Bot className="h-4 w-4 text-[#888]" />}
+                  </div>
                   <div className="flex min-w-0 flex-col">
                     <span className="text-[13px] font-medium">{agent.name || "New Agent"}</span>
                     <span className="text-[11px] text-[#666]">{agent.runtime}</span>
@@ -199,11 +204,12 @@ export function AgentsPage() {
           style={{ height: "env(titlebar-area-height, 38px)" }}
         />
         {draft ? (
-          <div className="mx-auto w-full max-w-2xl p-6">
-            <div className="mb-6 flex items-center justify-between">
+          <div className="flex flex-1 flex-col">
+            {/* Header */}
+            <div className="mx-auto flex w-full max-w-2xl items-center justify-between border-b border-[#252525] px-6 py-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#252525]">
-                  <Bot className="h-5 w-5 text-[#888]" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#252525] text-[18px]">
+                  {draft.avatar || <Bot className="h-5 w-5 text-[#888]" />}
                 </div>
                 <div>
                   <h2 className="text-[18px] font-semibold text-[#eee]">
@@ -223,68 +229,148 @@ export function AgentsPage() {
               </Button>
             </div>
 
-            <div className="space-y-5">
-              <div>
-                <label className="mb-1.5 block text-[13px] font-medium text-[#aaa]">Name</label>
-                <Input
-                  value={draft.name}
-                  onChange={(e) => setDraft((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
-                  className="bg-[#1e1e1e]"
-                  placeholder="Agent name"
-                />
-              </div>
+            {/* Tabs */}
+            <div className="mx-auto flex w-full max-w-2xl gap-1 border-b border-[#252525] px-6">
+              <button
+                onClick={() => setTab("instruction")}
+                className={`relative px-4 py-2.5 text-[13px] font-medium transition ${
+                  tab === "instruction"
+                    ? "text-[#eee]"
+                    : "text-[#666] hover:text-[#999]"
+                }`}
+              >
+                Instruction
+                {tab === "instruction" && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#4a6cf7]" />
+                )}
+              </button>
+              <button
+                onClick={() => setTab("settings")}
+                className={`relative px-4 py-2.5 text-[13px] font-medium transition ${
+                  tab === "settings"
+                    ? "text-[#eee]"
+                    : "text-[#666] hover:text-[#999]"
+                }`}
+              >
+                Settings
+                {tab === "settings" && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#4a6cf7]" />
+                )}
+              </button>
+            </div>
 
-              <div>
-                <label className="mb-1.5 block text-[13px] font-medium text-[#aaa]">
-                  Responsibility Prompt
-                </label>
-                <Textarea
-                  className="min-h-32 bg-[#1e1e1e]"
-                  value={draft.responsibility}
-                  onChange={(e) =>
-                    setDraft((prev) => (prev ? { ...prev, responsibility: e.target.value } : prev))
-                  }
-                  placeholder="Describe the agent's role and behavior..."
-                />
-              </div>
+            {/* Tab content */}
+            <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col overflow-auto p-6">
+              {tab === "instruction" ? (
+                <div className="flex flex-1 flex-col">
+                  <label className="mb-2 text-[13px] font-medium text-[#aaa]">
+                    System Prompt
+                  </label>
+                  <Textarea
+                    className="min-h-0 flex-1 resize-none bg-[#1e1e1e]"
+                    value={draft.responsibility}
+                    onChange={(e) =>
+                      setDraft((prev) =>
+                        prev ? { ...prev, responsibility: e.target.value } : prev,
+                      )
+                    }
+                    placeholder="Describe the agent's role, behavior, and any constraints..."
+                  />
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  <div>
+                    <label className="mb-1.5 block text-[13px] font-medium text-[#aaa]">
+                      Avatar
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#252525] text-[18px]">
+                        {draft.avatar || <Bot className="h-5 w-5 text-[#666]" />}
+                      </div>
+                      <Input
+                        value={draft.avatar ?? ""}
+                        onChange={(e) =>
+                          setDraft((prev) =>
+                            prev ? { ...prev, avatar: e.target.value } : prev,
+                          )
+                        }
+                        className="flex-1 bg-[#1e1e1e]"
+                        placeholder="Emoji or icon (e.g. 🤖)"
+                        maxLength={4}
+                      />
+                    </div>
+                  </div>
 
-              <div>
-                <label className="mb-1.5 block text-[13px] font-medium text-[#aaa]">
-                  Default Runtime
-                </label>
-                <RuntimePicker
-                  value={draft.runtime}
-                  onChange={(runtime) =>
-                    setDraft((prev) =>
-                      prev
-                        ? { ...prev, runtime: runtime as AgentRecord["runtime"] }
-                        : prev,
-                    )
-                  }
-                />
-              </div>
+                  <div>
+                    <label className="mb-1.5 block text-[13px] font-medium text-[#aaa]">
+                      Name
+                    </label>
+                    <Input
+                      value={draft.name}
+                      onChange={(e) =>
+                        setDraft((prev) => (prev ? { ...prev, name: e.target.value } : prev))
+                      }
+                      className="bg-[#1e1e1e]"
+                      placeholder="Agent name"
+                    />
+                  </div>
 
-              <div className="flex gap-3 pt-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={!hasChanges || isSaving}
-                  className="gap-1.5 border-0 bg-white !text-black hover:bg-[#f0f0f0] disabled:bg-[#333] disabled:!text-[#666] disabled:opacity-100"
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    "Save Changes"
-                  )}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={handleCancel}>
-                  Cancel
-                </Button>
-              </div>
+                  <div>
+                    <label className="mb-1.5 block text-[13px] font-medium text-[#aaa]">
+                      Description
+                    </label>
+                    <Textarea
+                      className="min-h-20 bg-[#1e1e1e]"
+                      value={draft.description ?? ""}
+                      onChange={(e) =>
+                        setDraft((prev) =>
+                          prev ? { ...prev, description: e.target.value } : prev,
+                        )
+                      }
+                      placeholder="Short description of what this agent is for..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-[13px] font-medium text-[#aaa]">
+                      Runtime
+                    </label>
+                    <RuntimePicker
+                      value={draft.runtime}
+                      onChange={(runtime) =>
+                        setDraft((prev) =>
+                          prev
+                            ? { ...prev, runtime: runtime as AgentRecord["runtime"] }
+                            : prev,
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer actions */}
+            <div className="mx-auto flex w-full max-w-2xl gap-3 border-t border-[#252525] px-6 py-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSave}
+                disabled={!hasChanges || isSaving}
+                className="gap-1.5 border-0 bg-white !text-black hover:bg-[#f0f0f0] disabled:bg-[#333] disabled:!text-[#666] disabled:opacity-100"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Changes"
+                )}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleCancel}>
+                Cancel
+              </Button>
             </div>
           </div>
         ) : (

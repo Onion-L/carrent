@@ -55,7 +55,7 @@ describe("validateAgent", () => {
 
   it("rejects invalid runtime", () => {
     const agent = makeAgent({ runtime: "invalid" as "codex" });
-    expect(validateAgent(agent)).toBe("Runtime must be codex or claude-code.");
+    expect(validateAgent(agent)).toBe("Runtime must be codex, claude-code, or pi.");
   });
 
   it("accepts a valid agent", () => {

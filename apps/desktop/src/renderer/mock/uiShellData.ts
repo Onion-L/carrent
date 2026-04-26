@@ -61,6 +61,8 @@ export type AgentRecord = {
   name: string;
   runtime: "codex" | "claude-code" | "pi";
   responsibility: string;
+  description?: string;
+  avatar?: string;
   selected?: boolean;
   createdAt?: string;
   updatedAt?: string;

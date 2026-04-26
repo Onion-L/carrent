@@ -352,7 +352,7 @@ export function Composer(props: ComposerProps) {
               <div className="relative">
                 <button
                   onClick={() => setShowAgentPicker((v) => !v)}
-                  className="flex items-center gap-1.5 rounded-full border border-[#333] bg-[#252525] px-2.5 py-1 text-[11px] text-[#aaa] transition hover:border-[#444] hover:bg-[#2a2a2a]"
+                  className="flex items-center gap-1.5 rounded-full border border-[#444] bg-white px-2.5 py-1 text-[11px] text-[#181818] transition hover:bg-zinc-200"
                 >
                   <Bot className="h-3 w-3" />
                   <span>{selectedAgent?.name ?? "Agent"}</span>

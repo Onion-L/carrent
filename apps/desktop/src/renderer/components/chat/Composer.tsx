@@ -356,7 +356,7 @@ export function Composer(props: ComposerProps) {
                 >
                   <Bot className="h-3 w-3" />
                   <span>{selectedAgent?.name ?? "Agent"}</span>
-                  <ChevronDown className="h-3 w-3 text-[#666]" />
+                  <ChevronDown className="h-3 w-3" />
                 </button>
                 {showAgentPicker && (
                   <div className="absolute bottom-full right-0 mb-1.5 w-40 rounded-lg border border-[#333] bg-[#1e1e1e] py-1 shadow-xl">
@@ -373,7 +373,7 @@ export function Composer(props: ComposerProps) {
                       >
                         <Bot className="h-3 w-3" />
                         <span>{agent.name}</span>
-                        <span className="ml-auto text-[10px] text-[#666]">{agent.runtime}</span>
+                        <span className="ml-auto text-[10px] text-white/40">{agent.runtime}</span>
                       </button>
                     ))}
                   </div>

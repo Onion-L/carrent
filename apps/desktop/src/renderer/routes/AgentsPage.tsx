@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Input, Textarea, Select } from "@carrent/ui";
 import { Bot, Plus, Trash2 } from "lucide-react";
-import { agents } from "../mock/uiShellData";
+import { useAgents } from "../context/AgentContext";
+import type { AgentRecord } from "../mock/uiShellData";
 
 const runtimeOptions = [
   { id: "codex", name: "Codex" },
@@ -9,14 +10,49 @@ const runtimeOptions = [
 ] as const;
 
 export function AgentsPage() {
-  const [selectedAgentId, setSelectedAgentId] = useState(
-    agents.find((a) => a.selected)?.id ?? agents[0]?.id,
-  );
+  const {
+    agents,
+    selectedAgentId,
+    selectedAgent,
+    setSelectedAgentId,
+    createAgent,
+    updateAgent,
+    deleteAgent,
+  } = useAgents();
 
-  const selectedAgent = agents.find((a) => a.id === selectedAgentId);
+  const [draft, setDraft] = useState<AgentRecord | null>(null);
 
-  // Empty state placeholder (toggle via comment for now)
-  // const agents = [];
+  useEffect(() => {
+    if (selectedAgent) {
+      setDraft({ ...selectedAgent });
+    } else {
+      setDraft(null);
+    }
+  }, [selectedAgent]);
+
+  const handleCreate = () => {
+    const agent = createAgent();
+    setSelectedAgentId(agent.id);
+  };
+
+  const handleDelete = () => {
+    if (!selectedAgentId) return;
+    deleteAgent(selectedAgentId);
+  };
+
+  const handleSave = () => {
+    if (!draft) return;
+    const result = updateAgent(draft);
+    if (!result.ok) {
+      // Error is already captured by validation in the form
+    }
+  };
+
+  const handleCancel = () => {
+    if (selectedAgent) {
+      setDraft({ ...selectedAgent });
+    }
+  };
 
   return (
     <div className="flex h-full w-full">
@@ -26,7 +62,10 @@ export function AgentsPage() {
           <span className="text-[12px] font-medium uppercase tracking-wider text-[#666]">
             Agents
           </span>
-          <button className="flex h-7 w-7 items-center justify-center rounded-md text-[#888] transition hover:bg-[#252525] hover:text-[#ccc]">
+          <button
+            onClick={handleCreate}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-[#888] transition hover:bg-[#252525] hover:text-[#ccc]"
+          >
             <Plus className="h-4 w-4" />
           </button>
         </div>
@@ -50,7 +89,7 @@ export function AgentsPage() {
                 >
                   <Bot className="h-4 w-4 shrink-0" />
                   <div className="flex min-w-0 flex-col">
-                    <span className="text-[13px] font-medium">{agent.name}</span>
+                    <span className="text-[13px] font-medium">{agent.name || "New Agent"}</span>
                     <span className="text-[11px] text-[#666]">{agent.runtime}</span>
                   </div>
                 </button>
@@ -66,7 +105,7 @@ export function AgentsPage() {
           className="drag-region shrink-0"
           style={{ height: "env(titlebar-area-height, 38px)" }}
         />
-        {selectedAgent ? (
+        {draft ? (
           <div className="mx-auto w-full max-w-2xl p-6">
             <div className="mb-6 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -74,11 +113,18 @@ export function AgentsPage() {
                   <Bot className="h-5 w-5 text-[#888]" />
                 </div>
                 <div>
-                  <h2 className="text-[18px] font-semibold text-[#eee]">{selectedAgent.name}</h2>
-                  <p className="text-[13px] text-[#666]">{selectedAgent.runtime}</p>
+                  <h2 className="text-[18px] font-semibold text-[#eee]">
+                    {draft.name || "New Agent"}
+                  </h2>
+                  <p className="text-[13px] text-[#666]">{draft.runtime}</p>
                 </div>
               </div>
-              <Button variant="secondary" size="sm" className="gap-1.5 text-[#c44]">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="gap-1.5 text-[#c44]"
+                onClick={handleDelete}
+              >
                 <Trash2 className="h-4 w-4" />
                 Delete
               </Button>
@@ -87,7 +133,12 @@ export function AgentsPage() {
             <div className="space-y-5">
               <div>
                 <label className="mb-1.5 block text-[13px] font-medium text-[#aaa]">Name</label>
-                <Input value={selectedAgent.name} readOnly className="bg-[#1e1e1e]" />
+                <Input
+                  value={draft.name}
+                  onChange={(e) => setDraft((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+                  className="bg-[#1e1e1e]"
+                  placeholder="Agent name"
+                />
               </div>
 
               <div>
@@ -95,9 +146,12 @@ export function AgentsPage() {
                   Responsibility Prompt
                 </label>
                 <Textarea
-                  readOnly
                   className="min-h-32 bg-[#1e1e1e]"
-                  value={selectedAgent.responsibility}
+                  value={draft.responsibility}
+                  onChange={(e) =>
+                    setDraft((prev) => (prev ? { ...prev, responsibility: e.target.value } : prev))
+                  }
+                  placeholder="Describe the agent's role and behavior..."
                 />
               </div>
 
@@ -105,7 +159,17 @@ export function AgentsPage() {
                 <label className="mb-1.5 block text-[13px] font-medium text-[#aaa]">
                   Default Runtime
                 </label>
-                <Select disabled className="bg-[#1e1e1e]" value={selectedAgent.runtime}>
+                <Select
+                  className="bg-[#1e1e1e]"
+                  value={draft.runtime}
+                  onChange={(e) =>
+                    setDraft((prev) =>
+                      prev
+                        ? { ...prev, runtime: e.target.value as AgentRecord["runtime"] }
+                        : prev,
+                    )
+                  }
+                >
                   {runtimeOptions.map((rt) => (
                     <option key={rt.id} value={rt.id}>
                       {rt.name}
@@ -115,10 +179,10 @@ export function AgentsPage() {
               </div>
 
               <div className="flex gap-3 pt-2">
-                <Button variant="primary" size="sm">
+                <Button variant="primary" size="sm" onClick={handleSave}>
                   Save Changes
                 </Button>
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="sm" onClick={handleCancel}>
                   Cancel
                 </Button>
               </div>

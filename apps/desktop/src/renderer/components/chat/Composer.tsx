@@ -6,9 +6,14 @@ import {
   Plus,
   Square,
 } from "lucide-react";
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
+import {
+  TYPEWRITER_INTERVAL_MS,
+  getNextTypewriterText,
+  hasPendingTypewriterText,
+} from "./typewriter";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import { agents } from "../../mock/uiShellData";
@@ -86,13 +91,35 @@ export function Composer(props: ComposerProps) {
     agents.find((a) => a.selected)?.id ?? agents[0]?.id,
   );
   const [showAgentPicker, setShowAgentPicker] = useState(false);
-  const accumulatedRef = useRef("");
+  const receivedTextRef = useRef("");
+  const visibleTextRef = useRef("");
+  const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeAssistantMessageIdRef = useRef<string | null>(null);
+  const flushTypewriterRef = useRef<VoidFunction | null>(null);
   const project = projects.find((item) => item.id === props.projectId) ?? null;
   const threadId =
     props.mode === "draft" ? props.preallocatedThreadId : props.threadId;
 
   const selectedAgent = agents.find((a) => a.id === selectedAgentId);
   const canSend = !!input.trim() && !!project && !!selectedAgent;
+
+  const stopTypewriter = () => {
+    if (typewriterTimerRef.current) {
+      clearInterval(typewriterTimerRef.current);
+      typewriterTimerRef.current = null;
+    }
+  };
+
+  const flushActiveTypewriter = () => {
+    stopTypewriter();
+    flushTypewriterRef.current?.();
+  };
+
+  useEffect(() => {
+    return () => {
+      flushActiveTypewriter();
+    };
+  }, []);
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -129,10 +156,56 @@ export function Composer(props: ComposerProps) {
       updateMessage(messageId, content);
     };
 
+    const startTypewriter = (messageId: string) => {
+      activeAssistantMessageIdRef.current = messageId;
+
+      if (typewriterTimerRef.current) {
+        return;
+      }
+
+      typewriterTimerRef.current = setInterval(() => {
+        const nextVisibleText = getNextTypewriterText(
+          visibleTextRef.current,
+          receivedTextRef.current,
+        );
+
+        if (nextVisibleText !== visibleTextRef.current) {
+          visibleTextRef.current = nextVisibleText;
+          updateLocalMessage(messageId, nextVisibleText);
+        }
+
+        if (
+          !hasPendingTypewriterText(
+            visibleTextRef.current,
+            receivedTextRef.current,
+          )
+        ) {
+          stopTypewriter();
+        }
+      }, TYPEWRITER_INTERVAL_MS);
+    };
+
     appendLocalMessage("user", messageText);
     const assistantMsg = appendLocalMessage("assistant", "");
 
-    accumulatedRef.current = "";
+    flushActiveTypewriter();
+    receivedTextRef.current = "";
+    visibleTextRef.current = "";
+    activeAssistantMessageIdRef.current = assistantMsg.id;
+    flushTypewriterRef.current = () => {
+      const activeMessageId = activeAssistantMessageIdRef.current;
+      if (!activeMessageId) {
+        return;
+      }
+
+      if (visibleTextRef.current !== receivedTextRef.current) {
+        visibleTextRef.current = receivedTextRef.current;
+        updateLocalMessage(activeMessageId, receivedTextRef.current);
+      }
+
+      activeAssistantMessageIdRef.current = null;
+      flushTypewriterRef.current = null;
+    };
 
     const transcript = props.messages
       .filter((m) => m.type !== "changed_files")
@@ -166,20 +239,27 @@ export function Composer(props: ComposerProps) {
       },
       {
         onDelta: (text) => {
-          accumulatedRef.current += text;
-          updateLocalMessage(assistantMsg.id, accumulatedRef.current);
+          receivedTextRef.current += text;
+          startTypewriter(assistantMsg.id);
         },
         onComplete: (text) => {
-          updateLocalMessage(assistantMsg.id, text);
+          receivedTextRef.current = text;
+          startTypewriter(assistantMsg.id);
         },
         onError: (error) => {
+          stopTypewriter();
           updateLocalMessage(assistantMsg.id, `Error: ${error}`);
+          activeAssistantMessageIdRef.current = null;
+          flushTypewriterRef.current = null;
         },
         onStop: () => {
+          stopTypewriter();
           updateLocalMessage(
             assistantMsg.id,
-            accumulatedRef.current + "\n\n[Stopped]",
+            `${receivedTextRef.current || visibleTextRef.current}\n\n[Stopped]`,
           );
+          activeAssistantMessageIdRef.current = null;
+          flushTypewriterRef.current = null;
         },
       },
     );

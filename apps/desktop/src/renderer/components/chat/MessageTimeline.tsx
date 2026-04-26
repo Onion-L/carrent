@@ -44,10 +44,16 @@ function AssistantMessage({
           <span className="text-[11px] text-[#444]">{timestamp}</span>
         </div>
         {isStreaming ? (
-          <div className="flex items-center gap-1 py-1">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#4a6cf7]" />
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#4a6cf7] [animation-delay:150ms]" />
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#4a6cf7] [animation-delay:300ms]" />
+          <div className="flex items-center py-1">
+            {"Thinking".split("").map((char, i) => (
+              <span
+                key={i}
+                className="inline-block animate-pulse text-[13px] text-[#666]"
+                style={{ animationDelay: `${i * 120}ms` }}
+              >
+                {char}
+              </span>
+            ))}
           </div>
         ) : (
           <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#ccc]">

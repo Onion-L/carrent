@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import {
   initialActiveThreadId,
   messages as initialMessages,
@@ -18,11 +18,16 @@ import {
   toggleThreadPinInProjects,
   upsertThreadInProjects,
 } from "../lib/workspaceState";
+import {
+  buildWorkspaceSnapshot,
+  useDebouncedWorkspaceSave,
+} from "../hooks/useDebouncedWorkspaceSave";
 
 export type WorkspaceContextValue = {
   projects: ProjectRecord[];
   messages: Message[];
   activeThreadId: string | null;
+  hasHydrated: boolean;
   currentThread: ThreadRecord | null;
   currentProject: ProjectRecord | null;
   getThreadRouteData: (
@@ -85,6 +90,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   }),
   updateMessage: () => {},
   updateMessageParts: () => {},
+  hasHydrated: false,
 });
 
 function formatTime(date: Date): string {
@@ -191,11 +197,42 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState(initialProjects);
   const [messages, setMessages] = useState(initialMessages);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(initialActiveThreadId);
+  const [hasHydrated, setHasHydrated] = useState(false);
 
   const currentThread = findCurrentThread(projects, activeThreadId);
   const currentProject = findCurrentProject(projects, activeThreadId);
   const getThreadRouteData = (projectId: string, threadId: string) =>
     resolveWorkspaceThreadRouteData(projects, messages, projectId, threadId);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    window.carrent.workspace
+      .load()
+      .then((snapshot) => {
+        if (cancelled || !snapshot) return;
+        setProjects(snapshot.projects);
+        setMessages(snapshot.messages);
+        setActiveThreadId(snapshot.activeThreadId);
+      })
+      .catch((error) => {
+        console.error("[workspace] failed to load", error);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setHasHydrated(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useDebouncedWorkspaceSave(
+    buildWorkspaceSnapshot({ projects, messages, activeThreadId, drafts: [] }),
+    hasHydrated,
+  );
 
   const createProject = (folderPath: string) => {
     const result = createProjectInProjects(projects, folderPath);
@@ -284,6 +321,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         projects,
         messages,
         activeThreadId,
+        hasHydrated,
         currentThread,
         currentProject,
         getThreadRouteData,

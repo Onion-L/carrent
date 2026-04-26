@@ -412,9 +412,15 @@ function getSessionRuntimeCommand(
   };
 }
 
+export type ProviderSessionStore = {
+  get: (key: string) => string | undefined;
+  set: (key: string, sessionId: string) => void | Promise<void>;
+};
+
 export function createChatSessionManager(options: {
   emit: (event: ChatRunEvent) => void;
   spawn: SpawnFn;
+  providerSessions?: ProviderSessionStore;
 }): ChatSessionManager {
   const sessions = new Map<string, ChatSession>();
   const runtimeSessions = new Map<string, string>();
@@ -433,7 +439,11 @@ export function createChatSessionManager(options: {
 
     const requestSessionKey = buildRequestSessionKey(request);
     const resumeSessionId =
-      request.runtimeId === "claude-code" ? (runtimeSessions.get(requestSessionKey) ?? null) : null;
+      request.runtimeId === "claude-code"
+        ? (runtimeSessions.get(requestSessionKey) ??
+            options.providerSessions?.get(requestSessionKey) ??
+            null)
+        : null;
 
     spawnAttempt({
       runId,
@@ -642,6 +652,11 @@ export function createChatSessionManager(options: {
 
       if (claudeStreamState?.sessionId) {
         runtimeSessions.set(requestSessionKey, claudeStreamState.sessionId);
+        try {
+          options.providerSessions?.set(requestSessionKey, claudeStreamState.sessionId);
+        } catch {
+          // Best-effort persistence; do not block UI on save failure.
+        }
       }
 
       options.emit({

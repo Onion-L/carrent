@@ -58,7 +58,7 @@ function createWindow(icon: string | undefined) {
   mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const icon = resolveIconPath();
 
   if (process.platform === "darwin" && icon && !app.isPackaged) {
@@ -92,10 +92,20 @@ app.whenReady().then(() => {
     });
   };
 
+  const providerSessionsSnapshot = await workspaceStore.loadProviderSessions();
+  const providerSessionMemory = { ...providerSessionsSnapshot.sessions };
+
   registerChatIpc(ipcMain, {
     sessionManager: createChatSessionManager({
       emit: emitChatEvent as (event: { type: string }) => void,
       spawn,
+      providerSessions: {
+        get: (key) => providerSessionMemory[key],
+        set: (key, sessionId) => {
+          providerSessionMemory[key] = sessionId;
+          workspaceStore.saveProviderSessions({ version: 1, sessions: providerSessionMemory });
+        },
+      },
     }),
   });
   createWindow(icon);

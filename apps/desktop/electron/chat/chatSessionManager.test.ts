@@ -718,4 +718,89 @@ describe("createChatSessionManager", () => {
       text: "Final answer",
     });
   });
+
+  it("calls provider session set when claude returns a session_id", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+    const sessionSets: Array<{ key: string; sessionId: string }> = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+      providerSessions: {
+        get: () => undefined,
+        set: (key, sessionId) => {
+          sessionSets.push({ key, sessionId });
+        },
+      },
+    });
+
+    manager.start("run-session-persist", makeRequest({ runtimeId: "claude-code" }));
+    mockChild.stdout.emit(
+      "data",
+      Buffer.from(
+        [
+          '{"type":"system","subtype":"init","session_id":"sess-persist-1"}',
+          '{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Hi"}}}',
+        ].join("\n") + "\n",
+      ),
+    );
+    mockChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(sessionSets).toHaveLength(1);
+    expect(sessionSets[0]).toEqual({
+      key: "claude-code:/Users/onion/workbench/timbre:thread-1:architect",
+      sessionId: "sess-persist-1",
+    });
+  });
+
+  it("uses persisted session id for claude resume on next request", async () => {
+    const firstChild = createMockChildProcess();
+    const secondChild = createMockChildProcess();
+    const spawnCalls: string[][] = [];
+    const children = [firstChild, secondChild];
+    const persistedSessions = new Map<string, string>();
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (_command, args) => {
+        spawnCalls.push(args);
+        const child = children.shift();
+        if (!child) {
+          throw new Error("missing mock child");
+        }
+        return child;
+      },
+      providerSessions: {
+        get: (key) => persistedSessions.get(key),
+        set: (key, sessionId) => {
+          persistedSessions.set(key, sessionId);
+        },
+      },
+    });
+
+    manager.start("run-first", makeRequest({ runtimeId: "claude-code" }));
+    firstChild.stdout.emit(
+      "data",
+      Buffer.from('{"type":"system","subtype":"init","session_id":"sess-resume"}\n'),
+    );
+    firstChild.stdout.emit(
+      "data",
+      Buffer.from('{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Hi"}}}\n'),
+    );
+    firstChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    manager.start("run-second", makeRequest({ runtimeId: "claude-code" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(spawnCalls).toHaveLength(2);
+    expect(spawnCalls[0]).not.toContain("--resume");
+    expect(spawnCalls[1]).toContain("--resume");
+    expect(spawnCalls[1]).toContain("sess-resume");
+  });
 });

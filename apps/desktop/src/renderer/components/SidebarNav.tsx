@@ -20,6 +20,7 @@ import { useState, useEffect } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useDraftThread } from "../context/DraftThreadContext";
 import { useToast } from "../components/toast/ToastContext";
+import { formatRelativeTime } from "../lib/formatRelativeTime";
 import { splitProjectThreads } from "../lib/projectThreads";
 
 const workspaceNavItems = [
@@ -383,7 +384,7 @@ export function SidebarNav() {
                             </span>
                             {!showActions && (
                               <span className="shrink-0 text-[11px] text-[#555]">
-                                {thread.updatedAt}
+                                {formatRelativeTime(thread.updatedAt)}
                               </span>
                             )}
                           </button>

@@ -1,6 +1,7 @@
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { currentProject } from "../../mock/uiShellData";
+import { formatRelativeTime } from "../../lib/formatRelativeTime";
 
 export function ThreadHistoryPane() {
   const projectThreads = currentProject.threads;
@@ -41,7 +42,7 @@ export function ThreadHistoryPane() {
                 }`}
               >
                 <span className="text-[13px] font-medium">{thread.title}</span>
-                <span className="text-[11px] text-[#666]">{thread.updatedAt}</span>
+                <span className="text-[11px] text-[#666]">{formatRelativeTime(thread.updatedAt)}</span>
               </button>
             );
           })

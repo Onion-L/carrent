@@ -81,7 +81,7 @@ export function createThreadInProjects(
   const thread: ThreadRecord = {
     id: `thread-${Date.now()}`,
     title: nextTitle,
-    updatedAt: "now",
+    updatedAt: new Date().toISOString(),
   };
 
   let foundProject = false;

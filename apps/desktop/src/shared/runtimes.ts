@@ -6,7 +6,7 @@ export type RuntimeConfigState = "configured" | "missing" | "unknown";
 
 export type RuntimeVerificationState = "never" | "passed" | "failed" | "unsupported";
 
-export type RuntimeId = "codex" | "claude-code";
+export type RuntimeId = "codex" | "claude-code" | "pi";
 
 export interface RuntimeRecord {
   id: RuntimeId;

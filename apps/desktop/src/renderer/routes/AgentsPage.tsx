@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Input, Textarea } from "@carrent/ui";
-import { Bot, Plus, Trash2, ChevronUp } from "lucide-react";
+import { Bot, Plus, Trash2, ChevronUp, Loader2 } from "lucide-react";
 import { useAgents } from "../context/AgentContext";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { RuntimeIcon } from "../components/RuntimeIcon";
@@ -98,6 +98,7 @@ export function AgentsPage() {
   } = useAgents();
 
   const [draft, setDraft] = useState<AgentRecord | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (selectedAgent) {
@@ -119,10 +120,12 @@ export function AgentsPage() {
 
   const handleSave = () => {
     if (!draft) return;
+    setIsSaving(true);
     const result = updateAgent(draft);
     if (!result.ok) {
       // Error is already captured by validation in the form
     }
+    setTimeout(() => setIsSaving(false), 600);
   };
 
   const handleCancel = () => {
@@ -257,13 +260,20 @@ export function AgentsPage() {
 
               <div className="flex gap-3 pt-2">
                 <Button
-                  variant="primary"
+                  variant="ghost"
                   size="sm"
                   onClick={handleSave}
-                  disabled={!hasChanges}
-                  className="border-0 bg-white text-black hover:bg-[#eee] disabled:bg-[#333] disabled:text-[#666] disabled:opacity-100"
+                  disabled={!hasChanges || isSaving}
+                  className="gap-1.5 border-0 bg-white text-black hover:bg-[#eee] disabled:bg-[#333] disabled:text-[#666] disabled:opacity-100"
                 >
-                  Save Changes
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Changes"
+                  )}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={handleCancel}>
                   Cancel

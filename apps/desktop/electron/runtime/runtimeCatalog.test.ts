@@ -6,8 +6,8 @@ describe("runtimeCatalog", () => {
   it("supports only the V1 runtimes", () => {
     const runtimeIds = new Set(runtimeCatalog.map((runtime) => runtime.id));
 
-    expect(runtimeIds).toEqual(new Set(["codex", "claude-code"]));
-    expect(runtimeCatalog).toHaveLength(2);
+    expect(runtimeIds).toEqual(new Set(["codex", "claude-code", "pi"]));
+    expect(runtimeCatalog).toHaveLength(3);
   });
 
   it("defines zero-token local checks for every runtime", () => {

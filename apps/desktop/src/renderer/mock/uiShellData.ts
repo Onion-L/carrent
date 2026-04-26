@@ -59,7 +59,7 @@ export const currentProject = projects.find((project) => project.active) ?? proj
 export type AgentRecord = {
   id: string;
   name: string;
-  runtime: "codex" | "claude-code";
+  runtime: "codex" | "claude-code" | "pi";
   responsibility: string;
   selected?: boolean;
   createdAt?: string;

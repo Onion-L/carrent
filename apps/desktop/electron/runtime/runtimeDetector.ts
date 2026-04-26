@@ -57,7 +57,9 @@ export async function detectRuntime(
     name: runtime.name,
     command: runtime.command,
     path: detectedPath || undefined,
-    version: versionResult.ok ? firstNonEmptyLine(versionResult.stdout) || undefined : undefined,
+    version: versionResult.ok
+      ? firstNonEmptyLine(versionResult.stdout) || firstNonEmptyLine(versionResult.stderr) || undefined
+      : undefined,
     availability: "detected",
     status: processStatus.status,
     configuration,

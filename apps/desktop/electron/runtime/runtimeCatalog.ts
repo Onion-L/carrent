@@ -39,4 +39,23 @@ export const runtimeCatalog = [
       },
     },
   },
+  {
+    id: "pi",
+    name: "pi",
+    command: "pi",
+    versionArgs: ["--version"],
+    configMarkers: ["~/.pi"],
+    supportsModelPing: true,
+    detection: {
+      localCheck: {
+        mayUseTokens: false,
+      },
+    },
+    verification: {
+      modelPing: {
+        prompt: "Reply with exactly OK.",
+        mayUseTokens: true,
+      },
+    },
+  },
 ] satisfies RuntimeDescriptor[];

@@ -31,8 +31,8 @@ export function validateAgent(agent: AgentRecord): string | null {
     return "Responsibility is required.";
   }
 
-  if (agent.runtime !== "codex" && agent.runtime !== "claude-code") {
-    return "Runtime must be codex or claude-code.";
+  if (agent.runtime !== "codex" && agent.runtime !== "claude-code" && agent.runtime !== "pi") {
+    return "Runtime must be codex, claude-code, or pi.";
   }
 
   return null;

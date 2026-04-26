@@ -1,5 +1,6 @@
 import { OpenAIIcon } from "./icons/OpenAIIcon";
 import { ClaudeIcon } from "./icons/ClaudeIcon";
+import { PiIcon } from "./icons/PiIcon";
 
 export function RuntimeIcon({ name, size = "md" }: { name: string; size?: "sm" | "md" | "lg" }) {
   const key = name.toLowerCase();
@@ -29,6 +30,15 @@ export function RuntimeIcon({ name, size = "md" }: { name: string; size?: "sm" |
         className={`flex shrink-0 items-center justify-center bg-[#252525] ${sizeClasses[size]}`}
       >
         <ClaudeIcon className={iconSizes[size]} />
+      </div>
+    );
+  }
+  if (key.includes("pi")) {
+    return (
+      <div
+        className={`flex shrink-0 items-center justify-center bg-[#252525] text-white ${sizeClasses[size]}`}
+      >
+        <PiIcon className={iconSizes[size]} />
       </div>
     );
   }

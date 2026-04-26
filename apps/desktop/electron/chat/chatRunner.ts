@@ -1,5 +1,6 @@
 import type { ProcessRunner } from "../runtime/processRunner";
 import type { ChatTurnRequest } from "../../src/shared/chat";
+import type { RuntimeId } from "../../src/shared/runtimes";
 import { buildChatPrompt } from "./chatPrompt";
 
 export interface ChatRunnerResult {
@@ -44,7 +45,7 @@ export function createChatRunner(processRunner: ProcessRunner): ChatRunner {
 }
 
 export function getRuntimeCommand(
-  runtimeId: "codex" | "claude-code",
+  runtimeId: RuntimeId,
   prompt: string,
 ): { command: string; args: string[] } {
   switch (runtimeId) {
@@ -57,6 +58,11 @@ export function getRuntimeCommand(
       return {
         command: "claude",
         args: ["--print", prompt],
+      };
+    case "pi":
+      return {
+        command: "pi",
+        args: ["-p", prompt],
       };
     default:
       throw new Error(`Unknown runtime: ${runtimeId}`);

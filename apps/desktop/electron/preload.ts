@@ -1,18 +1,19 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { ChatTurnRequest, ChatRunEvent } from "../src/shared/chat";
 import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../src/shared/workspacePersistence";
+import type { RuntimeId } from "../src/shared/runtimes";
 
 const carrent = {
   platform: process.platform,
   electronVersion: process.versions.electron,
   runtimes: {
     list: () => ipcRenderer.invoke("runtimes:list"),
-    localCheck: (id: "codex" | "claude-code") => ipcRenderer.invoke("runtimes:local-check", id),
-    modelPing: (id: "codex" | "claude-code") => ipcRenderer.invoke("runtimes:model-ping", id),
-    start: (id: "codex" | "claude-code") => ipcRenderer.invoke("runtimes:start", id),
-    stop: (id: "codex" | "claude-code") => ipcRenderer.invoke("runtimes:stop", id),
-    restart: (id: "codex" | "claude-code") => ipcRenderer.invoke("runtimes:restart", id),
-    refreshVersion: (id: "codex" | "claude-code") => ipcRenderer.invoke("runtimes:refresh-version", id),
+    localCheck: (id: RuntimeId) => ipcRenderer.invoke("runtimes:local-check", id),
+    modelPing: (id: RuntimeId) => ipcRenderer.invoke("runtimes:model-ping", id),
+    start: (id: RuntimeId) => ipcRenderer.invoke("runtimes:start", id),
+    stop: (id: RuntimeId) => ipcRenderer.invoke("runtimes:stop", id),
+    restart: (id: RuntimeId) => ipcRenderer.invoke("runtimes:restart", id),
+    refreshVersion: (id: RuntimeId) => ipcRenderer.invoke("runtimes:refresh-version", id),
     startAll: () => ipcRenderer.invoke("runtimes:start-all"),
     stopAll: () => ipcRenderer.invoke("runtimes:stop-all"),
     restartAll: () => ipcRenderer.invoke("runtimes:restart-all"),

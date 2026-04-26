@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type { RuntimeRecord, RuntimeVerificationResult } from "../../src/shared/runtimes";
+import type { RuntimeId, RuntimeRecord, RuntimeVerificationResult } from "../../src/shared/runtimes";
 import { registerRuntimeIpc } from "./runtimeIpc";
 
 describe("registerRuntimeIpc", () => {
@@ -9,7 +9,7 @@ describe("registerRuntimeIpc", () => {
       string,
       (
         event: unknown,
-        runtimeId?: "codex" | "claude-code",
+        runtimeId?: RuntimeId,
       ) => Promise<RuntimeRecord[] | RuntimeRecord | RuntimeVerificationResult | void> | void
     >();
     const calls: string[] = [];

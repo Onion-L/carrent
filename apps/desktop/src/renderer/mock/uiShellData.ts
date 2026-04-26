@@ -62,6 +62,8 @@ export type AgentRecord = {
   runtime: "codex" | "claude-code";
   responsibility: string;
   selected?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export const agents: AgentRecord[] = [

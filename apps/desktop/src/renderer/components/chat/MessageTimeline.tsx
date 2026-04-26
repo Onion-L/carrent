@@ -136,14 +136,12 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
           <EmptyState />
         ) : (
           <div className="mx-auto flex w-full max-w-3xl flex-col">
-            {messages.map((msg, idx) => {
-              const isLast = idx === messages.length - 1;
-
+            {messages.map((msg) => {
               if (msg.role === "user") {
                 return (
                   <div
                     key={msg.id}
-                    className={`px-4 py-5 ${!isLast ? "border-b border-[#222]" : ""}`}
+                    className="px-4 py-5"
                   >
                     <UserMessage content={msg.content} />
                   </div>
@@ -154,7 +152,7 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
                 return (
                   <div
                     key={msg.id}
-                    className={`px-4 py-5 ${!isLast ? "border-b border-[#222]" : ""}`}
+                    className="px-4 py-5"
                   >
                     <div className="flex gap-3">
                       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#252525] text-[#666]">
@@ -175,7 +173,7 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
               return (
                 <div
                   key={msg.id}
-                  className={`px-4 py-5 ${!isLast ? "border-b border-[#222]" : ""}`}
+                  className="px-4 py-5"
                 >
                   <AssistantMessage message={msg} timestamp={msg.timestamp} agentId={msg.agentId} />
                 </div>

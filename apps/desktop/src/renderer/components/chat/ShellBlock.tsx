@@ -47,7 +47,7 @@ export function ShellBlock({ shell }: { shell: ShellPart }) {
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center justify-between gap-3 border-b border-[#282828] bg-[#1c1c1c] px-3 py-2 text-left transition hover:bg-[#222]"
+        className="flex w-full items-center justify-between gap-3 bg-[#1c1c1c] px-3 py-2 text-left transition hover:bg-[#222]"
         aria-expanded={expanded}
       >
         <div className="flex min-w-0 items-center gap-2 text-[12px] font-medium text-[#d5d5d5]">

@@ -59,9 +59,7 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
   const { drafts, setDrafts } = useWorkspace();
 
   const updateDrafts = (updater: (currentDrafts: DraftThreadRecord[]) => DraftThreadRecord[]) => {
-    const nextDrafts = updater(drafts);
-    setDrafts(nextDrafts);
-    return nextDrafts;
+    setDrafts(updater);
   };
 
   const createDraft = (projectId: string) => {

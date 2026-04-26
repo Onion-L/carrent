@@ -41,7 +41,7 @@ export type WorkspaceContextValue = {
     messages: Message[];
   } | null;
   setActiveThreadId: (id: string | null) => void;
-  setDrafts: (drafts: DraftThreadRecord[]) => void;
+  setDrafts: (drafts: DraftThreadRecord[] | ((prev: DraftThreadRecord[]) => DraftThreadRecord[])) => void;
   createProject: (folderPath: string) => ProjectRecord | null;
   removeProject: (projectId: string) => void;
   renameProject: (projectId: string, newName: string) => boolean;

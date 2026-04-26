@@ -7,7 +7,8 @@ import { registerRuntimeIpc } from "./runtime/runtimeIpc";
 import { registerChatIpc } from "./chat/chatIpc";
 import { createChatSessionManager } from "./chat/chatSessionManager";
 import { createWorkspaceStore } from "./workspace/workspaceStore";
-import { registerWorkspaceIpc } from "./workspace/workspaceIpc";
+import { getLastWorkspaceSnapshot, registerWorkspaceIpc } from "./workspace/workspaceIpc";
+import type { WorkspaceStore } from "./workspace/workspaceStore";
 import { spawn } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -58,6 +59,8 @@ function createWindow(icon: string | undefined) {
   mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
 }
 
+let workspaceStore: WorkspaceStore | null = null;
+
 app.whenReady().then(async () => {
   const icon = resolveIconPath();
 
@@ -67,8 +70,9 @@ app.whenReady().then(async () => {
 
   registerRuntimeIpc(ipcMain);
 
-  const workspaceStore = createWorkspaceStore(app.getPath("userData"));
-  registerWorkspaceIpc(ipcMain, workspaceStore);
+  const store = createWorkspaceStore(app.getPath("userData"));
+  workspaceStore = store;
+  registerWorkspaceIpc(ipcMain, store);
 
   ipcMain.handle("dialog:open-directory", async () => {
     const result = await dialog.showOpenDialog({
@@ -92,7 +96,7 @@ app.whenReady().then(async () => {
     });
   };
 
-  const providerSessionsSnapshot = await workspaceStore.loadProviderSessions();
+  const providerSessionsSnapshot = await store.loadProviderSessions();
   const providerSessionMemory = { ...providerSessionsSnapshot.sessions };
 
   registerChatIpc(ipcMain, {
@@ -103,7 +107,7 @@ app.whenReady().then(async () => {
         get: (key) => providerSessionMemory[key],
         set: (key, sessionId) => {
           providerSessionMemory[key] = sessionId;
-          workspaceStore.saveProviderSessions({ version: 1, sessions: providerSessionMemory });
+          store.saveProviderSessions({ version: 1, sessions: providerSessionMemory });
         },
       },
     }),
@@ -117,12 +121,18 @@ app.whenReady().then(async () => {
   });
 });
 
-app.on("before-quit", (event) => {
+let isQuitting = false;
+
+app.on("before-quit", async (event) => {
+  if (isQuitting) return;
   if (BrowserWindow.getAllWindows().length > 0) {
     event.preventDefault();
-    setTimeout(() => {
-      app.quit();
-    }, 150);
+    isQuitting = true;
+    const lastSnapshot = getLastWorkspaceSnapshot();
+    if (lastSnapshot && workspaceStore) {
+      await workspaceStore.saveWorkspaceSnapshot(lastSnapshot);
+    }
+    app.quit();
   }
 });
 

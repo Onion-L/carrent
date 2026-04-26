@@ -8,11 +8,19 @@ interface IpcMainLike {
   ) => void;
 }
 
+let lastWorkspaceSnapshot: WorkspaceSnapshot | null = null;
+
+export function getLastWorkspaceSnapshot(): WorkspaceSnapshot | null {
+  return lastWorkspaceSnapshot;
+}
+
 export function registerWorkspaceIpc(ipcMainLike: IpcMainLike, store: WorkspaceStore) {
   ipcMainLike.handle("workspace:load", () => store.loadWorkspaceSnapshot());
-  ipcMainLike.handle("workspace:save", (_event, snapshot) =>
-    store.saveWorkspaceSnapshot(snapshot as WorkspaceSnapshot),
-  );
+  ipcMainLike.handle("workspace:save", (_event, snapshot) => {
+    const s = snapshot as WorkspaceSnapshot;
+    lastWorkspaceSnapshot = s;
+    return store.saveWorkspaceSnapshot(s);
+  });
   ipcMainLike.handle("provider-sessions:load", () => store.loadProviderSessions());
   ipcMainLike.handle("provider-sessions:save", (_event, snapshot) =>
     store.saveProviderSessions(snapshot as ProviderSessionSnapshot),

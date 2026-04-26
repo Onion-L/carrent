@@ -72,4 +72,26 @@ describe("createChatRunCoordinator", () => {
 
     expect(received).toEqual(["running:pwd"]);
   });
+
+  it("routes reasoning events to the active request callback", () => {
+    const coordinator = createChatRunCoordinator();
+    const received: string[] = [];
+
+    coordinator.beginRequest("request-1", {
+      onReasoning: (reasoning) => received.push(`${reasoning.status}:${reasoning.content}`),
+    });
+
+    coordinator.handleEvent({
+      type: "reasoning",
+      runId: "run-1",
+      requestKey: "request-1",
+      reasoning: {
+        id: "reasoning-1",
+        content: "Need to inspect files",
+        status: "running",
+      },
+    } satisfies ChatRunEvent);
+
+    expect(received).toEqual(["running:Need to inspect files"]);
+  });
 });

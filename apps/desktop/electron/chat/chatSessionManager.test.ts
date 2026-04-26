@@ -306,6 +306,94 @@ describe("createChatSessionManager", () => {
     expect(eventTypes.indexOf("delta")).toBeLessThan(eventTypes.indexOf("completed"));
   });
 
+  it("emits claude thinking deltas as reasoning events", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const child = createMockChildProcess();
+    const manager = createChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => child,
+    });
+
+    manager.start("run-claude-thinking", makeRequest({ runtimeId: "claude-code" }));
+
+    child.stdout?.emit(
+      "data",
+      Buffer.from(
+        [
+          '{"type":"system","subtype":"init","session_id":"sess-thinking"}',
+          '{"type":"stream_event","event":{"delta":{"type":"thinking_delta","thinking":"Need to inspect"}}}',
+          '{"type":"stream_event","event":{"delta":{"type":"thinking_delta","thinking":" files"}}}',
+          '{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Done"}}}',
+        ].join("\n") + "\n",
+      ),
+    );
+    child.emit("close", 0, null);
+
+    expect(emitted.filter((event) => event.type === "reasoning")).toEqual([
+      {
+        type: "reasoning",
+        runId: "run-claude-thinking",
+        reasoning: {
+          id: "claude-thinking",
+          content: "Need to inspect",
+          status: "running",
+        },
+      },
+      {
+        type: "reasoning",
+        runId: "run-claude-thinking",
+        reasoning: {
+          id: "claude-thinking",
+          content: "Need to inspect files",
+          status: "running",
+        },
+      },
+      {
+        type: "reasoning",
+        runId: "run-claude-thinking",
+        reasoning: {
+          id: "claude-thinking",
+          content: "Need to inspect files",
+          status: "completed",
+        },
+      },
+    ]);
+  });
+
+  it("emits codex reasoning items as reasoning events", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const child = createMockChildProcess();
+    const manager = createChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => child,
+    });
+
+    manager.start("run-codex-reasoning", makeRequest());
+
+    child.stdout?.emit(
+      "data",
+      Buffer.from(
+        [
+          '{"type":"item.completed","item":{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"Need to inspect files"}]}}',
+          '{"type":"item.completed","item":{"id":"msg_1","type":"agent_message","text":"Done"}}',
+        ].join("\n") + "\n",
+      ),
+    );
+    child.emit("close", 0, null);
+
+    expect(emitted.filter((event) => event.type === "reasoning")).toEqual([
+      {
+        type: "reasoning",
+        runId: "run-codex-reasoning",
+        reasoning: {
+          id: "rs_1",
+          content: "Need to inspect files",
+          status: "completed",
+        },
+      },
+    ]);
+  });
+
   it("emits codex command executions as shell events", async () => {
     const mockChild = createMockChildProcess();
     const emitted: ChatRunEvent[] = [];

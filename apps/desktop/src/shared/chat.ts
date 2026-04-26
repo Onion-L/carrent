@@ -38,6 +38,14 @@ export type ChatShellEventPayload = {
   exitCode?: number | null;
 };
 
+export type ChatReasoningStatus = "running" | "completed";
+
+export type ChatReasoningEventPayload = {
+  id: string;
+  content: string;
+  status: ChatReasoningStatus;
+};
+
 export type ChatRunEvent =
   | (ChatRunEventBase & {
       type: "thread-upserted";
@@ -55,6 +63,7 @@ export type ChatRunEvent =
       agentId: string;
     })
   | (ChatRunEventBase & { type: "delta"; text: string })
+  | (ChatRunEventBase & { type: "reasoning"; reasoning: ChatReasoningEventPayload })
   | (ChatRunEventBase & { type: "shell"; shell: ChatShellEventPayload })
   | (ChatRunEventBase & {
       type: "completed";

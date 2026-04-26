@@ -11,7 +11,7 @@ import { useAgents } from "../../context/AgentContext";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import type { Message } from "../../mock/uiShellData";
-import type { ChatShellEventPayload } from "../../../shared/chat";
+import type { ChatReasoningEventPayload, ChatShellEventPayload } from "../../../shared/chat";
 
 type ComposerProps =
   | {
@@ -194,6 +194,37 @@ export function Composer(props: ComposerProps) {
       });
     };
 
+    const updateLocalMessageReasoningPart = (
+      messageId: string,
+      reasoning: ChatReasoningEventPayload,
+    ) => {
+      if (props.mode === "thread") {
+        updateMessageParts(messageId, {
+          kind: "upsert-reasoning",
+          reasoning: {
+            type: "reasoning",
+            ...reasoning,
+          },
+        });
+        return;
+      }
+
+      updateDraftMessageParts(props.draftId, messageId, {
+        kind: "upsert-reasoning",
+        reasoning: {
+          type: "reasoning",
+          ...reasoning,
+        },
+      });
+      updateMessageParts(messageId, {
+        kind: "upsert-reasoning",
+        reasoning: {
+          type: "reasoning",
+          ...reasoning,
+        },
+      });
+    };
+
     const flushPendingTypewriterText = () => {
       const activeMessageId = activeAssistantMessageIdRef.current;
       if (!activeMessageId) {
@@ -286,6 +317,11 @@ export function Composer(props: ComposerProps) {
         onDelta: (text) => {
           receivedTextRef.current += text;
           startTypewriter(assistantMsg.id);
+        },
+        onReasoning: (reasoning) => {
+          stopTypewriter();
+          flushPendingTypewriterText();
+          updateLocalMessageReasoningPart(assistantMsg.id, reasoning);
         },
         onShell: (shell) => {
           stopTypewriter();

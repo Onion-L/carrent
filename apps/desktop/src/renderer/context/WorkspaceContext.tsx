@@ -67,6 +67,10 @@ export type WorkspaceContextValue = {
 export type MessagePartUpdate =
   | { kind: "append-text"; content: string }
   | {
+      kind: "upsert-reasoning";
+      reasoning: Extract<MessagePart, { type: "reasoning" }>;
+    }
+  | {
       kind: "upsert-shell";
       shell: Extract<MessagePart, { type: "shell" }>;
     };
@@ -185,6 +189,22 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
     return {
       ...message,
       content: message.content + update.content,
+      parts,
+    };
+  }
+
+  if (update.kind === "upsert-reasoning") {
+    const reasoningIndex = parts.findIndex(
+      (part) => part.type === "reasoning" && part.id === update.reasoning.id,
+    );
+    if (reasoningIndex >= 0) {
+      parts[reasoningIndex] = update.reasoning;
+    } else {
+      parts.push(update.reasoning);
+    }
+
+    return {
+      ...message,
       parts,
     };
   }

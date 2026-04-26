@@ -109,4 +109,44 @@ describe("applyMessagePartUpdate", () => {
       ],
     });
   });
+
+  it("upserts reasoning parts without mutating message content", () => {
+    const message = makeMessage({
+      role: "assistant",
+      content: "",
+      parts: [],
+    });
+
+    const withReasoning = applyMessagePartUpdate(message, {
+      kind: "upsert-reasoning",
+      reasoning: {
+        type: "reasoning",
+        id: "reasoning-1",
+        content: "Need to inspect",
+        status: "running",
+      },
+    });
+
+    expect(
+      applyMessagePartUpdate(withReasoning, {
+        kind: "upsert-reasoning",
+        reasoning: {
+          type: "reasoning",
+          id: "reasoning-1",
+          content: "Need to inspect files",
+          status: "completed",
+        },
+      }),
+    ).toMatchObject({
+      content: "",
+      parts: [
+        {
+          type: "reasoning",
+          id: "reasoning-1",
+          content: "Need to inspect files",
+          status: "completed",
+        },
+      ],
+    });
+  });
 });

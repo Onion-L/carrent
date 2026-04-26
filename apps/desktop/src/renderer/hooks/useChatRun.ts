@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 
-import type { ChatRunEvent, ChatShellEventPayload, ChatTurnRequest } from "../../shared/chat";
+import type {
+  ChatReasoningEventPayload,
+  ChatRunEvent,
+  ChatShellEventPayload,
+  ChatTurnRequest,
+} from "../../shared/chat";
 
 export type ChatRunCallbacks = {
   onDelta?: (text: string) => void;
+  onReasoning?: (reasoning: ChatReasoningEventPayload) => void;
   onShell?: (shell: ChatShellEventPayload) => void;
   onComplete?: (text: string) => void;
   onError?: (error: string) => void;
@@ -118,6 +124,11 @@ export function createChatRunCoordinator() {
 
       if (event.type === "delta") {
         pending.callbacks.onDelta?.(event.text);
+        return;
+      }
+
+      if (event.type === "reasoning") {
+        pending.callbacks.onReasoning?.(event.reasoning);
         return;
       }
 

@@ -1,5 +1,10 @@
 import type { ChildProcess } from "node:child_process";
-import type { ChatShellEventPayload, ChatTurnRequest, ChatRunEvent } from "../../src/shared/chat";
+import type {
+  ChatReasoningEventPayload,
+  ChatShellEventPayload,
+  ChatTurnRequest,
+  ChatRunEvent,
+} from "../../src/shared/chat";
 import { buildChatPrompt } from "./chatPrompt";
 import { getRuntimeCommand } from "./chatRunner";
 
@@ -32,6 +37,8 @@ type ClaudeStreamState = {
   buffer: string;
   text: string;
   finalText: string;
+  reasoningText: string;
+  reasoningStatus: "running" | "completed" | null;
   sessionId: string | null;
   shellCommands: Map<string, string>;
 };
@@ -48,6 +55,8 @@ function createClaudeStreamState(): ClaudeStreamState {
     buffer: "",
     text: "",
     finalText: "",
+    reasoningText: "",
+    reasoningStatus: null,
     sessionId: null,
     shellCommands: new Map(),
   };
@@ -126,6 +135,20 @@ function emitShellEvent(
   });
 }
 
+function emitReasoningEvent(
+  emit: (event: ChatRunEvent) => void,
+  runId: string,
+  requestKey: string | undefined,
+  reasoning: ChatReasoningEventPayload,
+) {
+  emit({
+    type: "reasoning",
+    runId,
+    ...(requestKey ? { requestKey } : {}),
+    reasoning,
+  });
+}
+
 function extractCodexShellEvent(payload: unknown): ChatShellEventPayload | null {
   const envelope = readObject(payload);
   const item = readObject(envelope?.item);
@@ -160,6 +183,66 @@ function extractCodexShellEvent(payload: unknown): ChatShellEventPayload | null 
       output,
       status: exitCode === 0 ? "completed" : "failed",
       exitCode,
+    };
+  }
+
+  return null;
+}
+
+function readReasoningText(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(readReasoningText).filter(Boolean).join("\n");
+  }
+
+  const item = readObject(value);
+  if (!item) {
+    return "";
+  }
+
+  return (
+    readString(item.text) ??
+    readString(item.summary) ??
+    readString(item.content) ??
+    readString(item.reasoning) ??
+    readString(item.thinking) ??
+    ""
+  );
+}
+
+function extractCodexReasoningEvent(payload: unknown): ChatReasoningEventPayload | null {
+  const envelope = readObject(payload);
+  const item = readObject(envelope?.item);
+  if (!envelope || !item) {
+    return null;
+  }
+
+  if (item.type !== "reasoning" && item.type !== "reasoning_summary") {
+    return null;
+  }
+
+  const id = readString(item.id) ?? "codex-reasoning";
+  const content =
+    readReasoningText(item.text) ||
+    readReasoningText(item.summary) ||
+    readReasoningText(item.content);
+
+  if (envelope.type === "item.started") {
+    return {
+      id,
+      content,
+      status: "running",
+    };
+  }
+
+  if (envelope.type === "item.completed" && content) {
+    return {
+      id,
+      content,
+      status: "completed",
     };
   }
 
@@ -281,11 +364,46 @@ function extractClaudeFinalText(payload: unknown): string | null {
   return text.length > 0 ? text : null;
 }
 
+function extractClaudeThinkingDelta(payload: unknown): string | null {
+  const envelope = readObject(payload);
+  const event = readObject(envelope?.event);
+  const delta = readObject(event?.delta);
+  if (!delta || delta.type !== "thinking_delta") {
+    return null;
+  }
+
+  return readString(delta.thinking) ?? readString(delta.text);
+}
+
+function extractClaudeThinkingBlock(payload: unknown): string | null {
+  const envelope = readObject(payload);
+  const message = readObject(envelope?.message);
+  const content = message?.content;
+  if (envelope?.type !== "assistant" || !Array.isArray(content)) {
+    return null;
+  }
+
+  const thinking = content
+    .map((item) => {
+      const block = readObject(item);
+      if (block?.type !== "thinking") {
+        return "";
+      }
+
+      return readString(block.thinking) ?? readString(block.text) ?? "";
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  return thinking || null;
+}
+
 function consumeClaudeStreamChunk(
   state: ClaudeStreamState,
   chunk: string,
   onDelta: (text: string) => void,
   onShell: (shell: ChatShellEventPayload) => void,
+  onReasoning: (reasoning: ChatReasoningEventPayload) => void,
 ) {
   state.buffer += chunk;
   const lines = state.buffer.split("\n");
@@ -304,6 +422,17 @@ function consumeClaudeStreamChunk(
         state.sessionId = sessionId;
       }
 
+      const thinkingBlock = extractClaudeThinkingBlock(payload);
+      if (thinkingBlock) {
+        state.reasoningText = thinkingBlock;
+        state.reasoningStatus = "completed";
+        onReasoning({
+          id: "claude-thinking",
+          content: state.reasoningText,
+          status: "completed",
+        });
+      }
+
       for (const shell of extractClaudeBashToolUse(state, payload)) {
         onShell(shell);
       }
@@ -315,6 +444,18 @@ function consumeClaudeStreamChunk(
       const finalText = extractClaudeFinalText(payload);
       if (finalText) {
         state.finalText = finalText;
+      }
+
+      const thinkingDelta = extractClaudeThinkingDelta(payload);
+      if (thinkingDelta) {
+        state.reasoningText += thinkingDelta;
+        state.reasoningStatus = "running";
+        onReasoning({
+          id: "claude-thinking",
+          content: state.reasoningText,
+          status: "running",
+        });
+        continue;
       }
 
       const delta = extractClaudeTextDelta(payload);
@@ -335,6 +476,7 @@ function consumeCodexStreamChunk(
   chunk: string,
   onDelta: (text: string) => void,
   onShell: (shell: ChatShellEventPayload) => void,
+  onReasoning: (reasoning: ChatReasoningEventPayload) => void,
 ) {
   state.buffer += chunk;
   const lines = state.buffer.split("\n");
@@ -351,6 +493,12 @@ function consumeCodexStreamChunk(
       const shell = extractCodexShellEvent(payload);
       if (shell) {
         onShell(shell);
+        continue;
+      }
+
+      const reasoning = extractCodexReasoningEvent(payload);
+      if (reasoning) {
+        onReasoning(reasoning);
         continue;
       }
 
@@ -521,6 +669,9 @@ export function createChatSessionManager(options: {
           (shell) => {
             emitShellEvent(options.emit, runId, request.requestKey, shell);
           },
+          (reasoning) => {
+            emitReasoningEvent(options.emit, runId, request.requestKey, reasoning);
+          },
         );
         return;
       }
@@ -539,6 +690,9 @@ export function createChatSessionManager(options: {
           },
           (shell) => {
             emitShellEvent(options.emit, runId, request.requestKey, shell);
+          },
+          (reasoning) => {
+            emitReasoningEvent(options.emit, runId, request.requestKey, reasoning);
           },
         );
         return;
@@ -576,6 +730,9 @@ export function createChatSessionManager(options: {
           (shell) => {
             emitShellEvent(options.emit, runId, request.requestKey, shell);
           },
+          (reasoning) => {
+            emitReasoningEvent(options.emit, runId, request.requestKey, reasoning);
+          },
         );
       }
 
@@ -594,7 +751,22 @@ export function createChatSessionManager(options: {
           (shell) => {
             emitShellEvent(options.emit, runId, request.requestKey, shell);
           },
+          (reasoning) => {
+            emitReasoningEvent(options.emit, runId, request.requestKey, reasoning);
+          },
         );
+      }
+
+      if (
+        claudeStreamState?.reasoningText &&
+        claudeStreamState.reasoningStatus === "running"
+      ) {
+        claudeStreamState.reasoningStatus = "completed";
+        emitReasoningEvent(options.emit, runId, request.requestKey, {
+          id: "claude-thinking",
+          content: claudeStreamState.reasoningText,
+          status: "completed",
+        });
       }
 
       if (session.stoppedByUser) {

@@ -111,6 +111,12 @@ type MessageBase = {
 export type MessagePart =
   | { type: "text"; content: string }
   | {
+      type: "reasoning";
+      id: string;
+      content: string;
+      status: "running" | "completed";
+    }
+  | {
       type: "shell";
       id: string;
       command: string;

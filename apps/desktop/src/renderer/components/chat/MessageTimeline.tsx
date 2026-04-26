@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAgents } from "../../context/AgentContext";
 import { type Message } from "../../mock/uiShellData";
 import { ChangedFilesCard } from "./ChangedFilesCard";
+import { ReasoningBlock } from "./ReasoningBlock";
 import { ShellBlock } from "./ShellBlock";
 
 function AgentLabel({ agentId }: { agentId: string }) {
@@ -70,6 +71,8 @@ function AssistantMessage({
                     {part.content}
                   </p>
                 ) : null
+              ) : part.type === "reasoning" ? (
+                <ReasoningBlock key={part.id} reasoning={part} />
               ) : (
                 <ShellBlock key={part.id} shell={part} />
               ),

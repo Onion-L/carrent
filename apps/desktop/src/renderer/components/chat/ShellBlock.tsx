@@ -51,9 +51,6 @@ export function ShellBlock({ shell }: { shell: ShellPart }) {
         aria-expanded={expanded}
       >
         <div className="flex min-w-0 items-center gap-2 text-[12px] font-medium text-[#d5d5d5]">
-          <ChevronDown
-            className={`h-3.5 w-3.5 shrink-0 text-[#777] transition ${expanded ? "" : "-rotate-90"}`}
-          />
           <Terminal className="h-3.5 w-3.5 shrink-0 text-[#888]" />
           <span className="shrink-0">Shell</span>
         </div>

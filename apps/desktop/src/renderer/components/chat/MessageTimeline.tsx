@@ -1,4 +1,4 @@
-import { ArrowDown, Bot } from "lucide-react";
+import { ArrowDown, Bot, Check, Copy, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useAgents } from "../../context/AgentContext";
 import { type Message } from "../../mock/uiShellData";
@@ -13,12 +13,53 @@ function AgentLabel({ agentId }: { agentId: string }) {
   return <span className="text-[12px] font-medium text-[#666]">{agent.name}</span>;
 }
 
-function UserMessage({ content }: { content: string }) {
+function UserMessage({ content, timestamp }: { content: string; timestamp: string }) {
+  const [hovered, setHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore
+    }
+  };
+
   return (
-    <div className="flex justify-end">
+    <div
+      className="relative flex justify-end"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-[#2a2a2a] px-4 py-3">
         <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#eee]">{content}</p>
       </div>
+      {hovered && (
+        <div className="absolute -bottom-6 right-0 flex items-center gap-3 px-1">
+          <span className="text-[12px] text-[#555]">{timestamp}</span>
+          <button
+            className="flex h-6 w-6 items-center justify-center rounded text-[#555] transition hover:text-[#888]"
+            title="Retry"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+          <button
+            className="flex h-6 w-6 items-center justify-center rounded text-[#555] transition hover:text-[#888]"
+            title="Edit"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+          <button
+            onClick={handleCopy}
+            className="flex h-6 w-6 items-center justify-center rounded text-[#555] transition hover:text-[#888]"
+            title="Copy"
+          >
+            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -146,7 +187,7 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
                     key={msg.id}
                     className="px-4 py-5"
                   >
-                    <UserMessage content={msg.content} />
+                    <UserMessage content={msg.content} timestamp={msg.timestamp} />
                   </div>
                 );
               }

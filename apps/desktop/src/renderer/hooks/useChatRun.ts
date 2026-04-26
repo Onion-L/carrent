@@ -20,6 +20,7 @@ type ChatRunSnapshot = {
   isSending: boolean;
   lastError: string | null;
   activeThreadId: string | null;
+  runningThreadIds: string[];
 };
 
 type ChatRunStoreListener = () => void;
@@ -36,25 +37,45 @@ export function createChatRunCoordinator() {
     isSending: false,
     lastError: null,
     activeThreadId: null,
+    runningThreadIds: [],
   };
-  let pending: PendingChatRun | null = null;
+  const pendingByRequestKey = new Map<string, PendingChatRun>();
+  const requestKeyByRunId = new Map<string, string>();
+  const requestKeyByThreadId = new Map<string, string>();
   const listeners = new Set<ChatRunStoreListener>();
+
+  const updateSnapshot = (lastError = snapshot.lastError) => {
+    const runningThreadIds = [...requestKeyByThreadId.keys()];
+    snapshot = {
+      isSending: runningThreadIds.length > 0,
+      lastError,
+      activeThreadId: runningThreadIds[0] ?? null,
+      runningThreadIds,
+    };
+  };
 
   const emit = () => {
     listeners.forEach((listener) => listener());
   };
 
-  const clearPending = () => {
-    pending = null;
+  const clearPending = (run: PendingChatRun) => {
+    pendingByRequestKey.delete(run.requestKey);
+    requestKeyByThreadId.delete(run.threadId);
+    if (run.runId) {
+      requestKeyByRunId.delete(run.runId);
+    }
   };
 
-  const finishPendingRun = () => {
-    clearPending();
-    snapshot = {
-      ...snapshot,
-      isSending: false,
-    };
+  const finishPendingRun = (run: PendingChatRun) => {
+    clearPending(run);
+    updateSnapshot();
     emit();
+  };
+
+  const getRunForEvent = (event: ChatRunEvent) => {
+    const requestKey =
+      typeof event.requestKey === "string" ? event.requestKey : requestKeyByRunId.get(event.runId);
+    return requestKey ? pendingByRequestKey.get(requestKey) ?? null : null;
   };
 
   return {
@@ -67,103 +88,102 @@ export function createChatRunCoordinator() {
     getSnapshot() {
       return snapshot;
     },
-    getPendingRunId() {
-      return pending?.runId ?? null;
+    getPendingRunId(threadId?: string) {
+      if (threadId) {
+        const requestKey = requestKeyByThreadId.get(threadId);
+        return requestKey ? (pendingByRequestKey.get(requestKey)?.runId ?? null) : null;
+      }
+
+      return [...pendingByRequestKey.values()].find((run) => run.runId)?.runId ?? null;
     },
     beginRequest(requestKey: string, threadId: string, callbacks: ChatRunCallbacks) {
-      pending = {
+      if (requestKeyByThreadId.has(threadId)) {
+        return false;
+      }
+
+      const run: PendingChatRun = {
         requestKey,
         runId: null,
         threadId,
         callbacks,
       };
-      snapshot = {
-        isSending: true,
-        lastError: null,
-        activeThreadId: threadId,
-      };
+      pendingByRequestKey.set(requestKey, run);
+      requestKeyByThreadId.set(threadId, requestKey);
+      updateSnapshot(null);
       emit();
+      return true;
     },
     attachRunId(requestKey: string, runId: string) {
-      if (!pending || pending.requestKey !== requestKey) {
+      const run = pendingByRequestKey.get(requestKey);
+      if (!run) {
         return;
       }
 
-      pending = {
-        ...pending,
+      const nextRun = {
+        ...run,
         runId,
       };
+      pendingByRequestKey.set(requestKey, nextRun);
+      requestKeyByRunId.set(runId, requestKey);
     },
     failRequest(requestKey: string, error: string) {
-      if (!pending || pending.requestKey !== requestKey) {
+      const run = pendingByRequestKey.get(requestKey);
+      if (!run) {
         return;
       }
 
-      snapshot = {
-        isSending: false,
-        lastError: error,
-        activeThreadId: null,
-      };
-      pending.callbacks.onError?.(error);
-      clearPending();
+      run.callbacks.onError?.(error);
+      clearPending(run);
+      updateSnapshot(error);
       emit();
     },
     handleEvent(event: ChatRunEvent) {
-      if (!pending) {
+      const run = getRunForEvent(event);
+      if (!run) {
         return;
       }
 
-      const matchesRequestKey =
-        typeof event.requestKey === "string" && event.requestKey === pending.requestKey;
-      const matchesRunId = typeof pending.runId === "string" && event.runId === pending.runId;
-
-      if (!matchesRequestKey && !matchesRunId) {
-        return;
-      }
-
-      if (!pending.runId) {
-        pending = {
-          ...pending,
+      if (!run.runId) {
+        const nextRun = {
+          ...run,
           runId: event.runId,
         };
+        pendingByRequestKey.set(run.requestKey, nextRun);
+        requestKeyByRunId.set(event.runId, run.requestKey);
       }
 
       if (event.type === "delta") {
-        pending.callbacks.onDelta?.(event.text);
+        run.callbacks.onDelta?.(event.text);
         return;
       }
 
       if (event.type === "reasoning") {
-        pending.callbacks.onReasoning?.(event.reasoning);
+        run.callbacks.onReasoning?.(event.reasoning);
         return;
       }
 
       if (event.type === "shell") {
-        pending.callbacks.onShell?.(event.shell);
+        run.callbacks.onShell?.(event.shell);
         return;
       }
 
       if (event.type === "completed") {
-        pending.callbacks.onComplete?.(event.text);
-        finishPendingRun();
+        run.callbacks.onComplete?.(event.text);
+        finishPendingRun(run);
         return;
       }
 
       if (event.type === "failed") {
-        snapshot = {
-          isSending: false,
-          lastError: event.error,
-          activeThreadId: null,
-        };
-        pending.callbacks.onError?.(event.error);
-        clearPending();
+        run.callbacks.onError?.(event.error);
+        clearPending(run);
+        updateSnapshot(event.error);
         emit();
         return;
       }
 
       if (event.type === "stopped") {
-        pending.callbacks.onStop?.();
-        finishPendingRun();
+        run.callbacks.onStop?.();
+        finishPendingRun(run);
       }
     },
   };
@@ -200,7 +220,9 @@ export function useChatRun() {
   const send = useCallback(async (request: ChatTurnRequest, callbacks: ChatRunCallbacks) => {
     ensureChatListener();
     const requestKey = createRequestKey();
-    chatRunCoordinator.beginRequest(requestKey, request.threadId, callbacks);
+    if (!chatRunCoordinator.beginRequest(requestKey, request.threadId, callbacks)) {
+      return;
+    }
 
     try {
       const { runId } = await window.carrent.chat.send({
@@ -214,8 +236,8 @@ export function useChatRun() {
     }
   }, []);
 
-  const stop = useCallback(async () => {
-    const runId = chatRunCoordinator.getPendingRunId();
+  const stop = useCallback(async (threadId?: string) => {
+    const runId = chatRunCoordinator.getPendingRunId(threadId);
     if (runId) {
       await window.carrent.chat.stop(runId);
     }
@@ -225,6 +247,7 @@ export function useChatRun() {
     isSending: snapshot.isSending,
     lastError: snapshot.lastError,
     activeThreadId: snapshot.activeThreadId,
+    runningThreadIds: snapshot.runningThreadIds,
     send,
     stop,
   };

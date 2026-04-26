@@ -79,7 +79,7 @@ export function shouldSubmitComposerOnKeyDown(event: ComposerKeyDownEvent) {
 export function Composer(props: ComposerProps) {
   const { projects, appendMessage, updateMessage, updateMessageParts } = useWorkspace();
   const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
-  const { isSending, activeThreadId, send, stop } = useChatRun();
+  const { runningThreadIds, send, stop } = useChatRun();
   const { agents, selectedAgentId, selectedAgent, setSelectedAgentId } = useAgents();
   const [input, setInput] = useState("");
   const [showAgentPicker, setShowAgentPicker] = useState(false);
@@ -92,6 +92,7 @@ export function Composer(props: ComposerProps) {
   const threadId = props.mode === "draft" ? props.preallocatedThreadId : props.threadId;
 
   const canSend = !!input.trim() && !!project && !!selectedAgent;
+  const isThreadSending = runningThreadIds.includes(threadId);
 
   const stopTypewriter = () => {
     if (typewriterTimerRef.current) {
@@ -366,7 +367,7 @@ export function Composer(props: ComposerProps) {
             onKeyDown={(e) => {
               if (shouldSubmitComposerOnKeyDown(e)) {
                 e.preventDefault();
-                if (canSend && !(isSending && activeThreadId === threadId)) {
+                if (canSend && !isThreadSending) {
                   handleSend();
                 }
               }
@@ -415,9 +416,9 @@ export function Composer(props: ComposerProps) {
                   </div>
                 )}
               </div>
-              {isSending && activeThreadId === threadId ? (
+              {isThreadSending ? (
                 <button
-                  onClick={stop}
+                  onClick={() => stop(threadId)}
                   className="flex h-7 w-7 items-center justify-center rounded-full bg-[#c44] text-white transition hover:bg-[#b33]"
                 >
                   <Square className="h-3.5 w-3.5" />
@@ -425,7 +426,7 @@ export function Composer(props: ComposerProps) {
               ) : (
                 <button
                   onClick={handleSend}
-                  disabled={!canSend}
+                  disabled={!canSend || isThreadSending}
                   className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-[#181818] transition hover:bg-zinc-200 disabled:opacity-30"
                 >
                   <ArrowUp className="h-3.5 w-3.5" />

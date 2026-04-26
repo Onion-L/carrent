@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import {
   GripVertical,
   RefreshCw,
@@ -9,6 +9,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { useRuntimes } from "../hooks/useRuntimes";
+import { useWorkspace } from "../context/WorkspaceContext";
 import { RuntimeIcon } from "../components/RuntimeIcon";
 
 const RUNTIME_ORDER_KEY = "carrent:runtimeOrder";
@@ -58,6 +59,11 @@ export function RuntimesPage() {
     stop,
     refreshVersion,
   } = useRuntimes();
+  const { setActiveThreadId } = useWorkspace();
+
+  useEffect(() => {
+    setActiveThreadId(null);
+  }, [setActiveThreadId]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [orderedIds, setOrderedIds] = useState<string[]>(() => {
     const stored = readStoredOrder();

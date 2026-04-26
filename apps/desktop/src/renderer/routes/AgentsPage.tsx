@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Input, Textarea } from "@carrent/ui";
 import { Bot, Plus, Trash2, ChevronUp, Loader2 } from "lucide-react";
 import { useAgents } from "../context/AgentContext";
+import { useWorkspace } from "../context/WorkspaceContext";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { RuntimeIcon } from "../components/RuntimeIcon";
 import type { AgentRecord } from "../mock/uiShellData";
@@ -96,6 +97,11 @@ export function AgentsPage() {
     updateAgent,
     deleteAgent,
   } = useAgents();
+  const { setActiveThreadId } = useWorkspace();
+
+  useEffect(() => {
+    setActiveThreadId(null);
+  }, [setActiveThreadId]);
 
   const [draft, setDraft] = useState<AgentRecord | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -264,7 +270,7 @@ export function AgentsPage() {
                   size="sm"
                   onClick={handleSave}
                   disabled={!hasChanges || isSaving}
-                  className="gap-1.5 border-0 bg-white text-black hover:bg-[#eee] disabled:bg-[#333] disabled:text-[#666] disabled:opacity-100"
+                  className="gap-1.5 border-0 bg-white !text-black hover:bg-[#f0f0f0] disabled:bg-[#333] disabled:!text-[#666] disabled:opacity-100"
                 >
                   {isSaving ? (
                     <>

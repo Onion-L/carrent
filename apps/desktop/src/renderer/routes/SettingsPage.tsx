@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Settings, Monitor, Palette, Activity, FolderOpen } from "lucide-react";
 import { useWorkspace } from "../context/WorkspaceContext";
 
@@ -35,7 +36,11 @@ function Divider() {
 }
 
 export function SettingsPage() {
-  const { currentProject } = useWorkspace();
+  const { currentProject, setActiveThreadId } = useWorkspace();
+
+  useEffect(() => {
+    setActiveThreadId(null);
+  }, [setActiveThreadId]);
 
   return (
     <div className="flex h-full w-full flex-col overflow-auto bg-[#181818]">

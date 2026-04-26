@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { ChatTurnRequest, ChatRunEvent } from "../src/shared/chat";
+import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../src/shared/workspacePersistence";
 
 const carrent = {
   platform: process.platform,
@@ -41,6 +42,17 @@ const carrent = {
   clipboard: {
     writeText: (text: string) =>
       ipcRenderer.invoke("clipboard:write-text", text),
+  },
+  workspace: {
+    load: () => ipcRenderer.invoke("workspace:load") as Promise<WorkspaceSnapshot | null>,
+    save: (snapshot: WorkspaceSnapshot) =>
+      ipcRenderer.invoke("workspace:save", snapshot),
+  },
+  providerSessions: {
+    load: () =>
+      ipcRenderer.invoke("provider-sessions:load") as Promise<ProviderSessionSnapshot>,
+    save: (snapshot: ProviderSessionSnapshot) =>
+      ipcRenderer.invoke("provider-sessions:save", snapshot),
   },
 };
 

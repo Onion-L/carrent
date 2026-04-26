@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { registerRuntimeIpc } from "./runtime/runtimeIpc";
 import { registerChatIpc } from "./chat/chatIpc";
 import { createChatSessionManager } from "./chat/chatSessionManager";
+import { createWorkspaceStore } from "./workspace/workspaceStore";
+import { registerWorkspaceIpc } from "./workspace/workspaceIpc";
 import { spawn } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -64,6 +66,9 @@ app.whenReady().then(() => {
   }
 
   registerRuntimeIpc(ipcMain);
+
+  const workspaceStore = createWorkspaceStore(app.getPath("userData"));
+  registerWorkspaceIpc(ipcMain, workspaceStore);
 
   ipcMain.handle("dialog:open-directory", async () => {
     const result = await dialog.showOpenDialog({

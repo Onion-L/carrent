@@ -2,6 +2,7 @@
 
 import type { RuntimeId, RuntimeRecord, RuntimeVerificationResult } from "../shared/runtimes";
 import type { ChatTurnRequest, ChatRunEvent } from "../shared/chat";
+import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../shared/workspacePersistence";
 
 declare global {
   interface Window {
@@ -33,6 +34,14 @@ declare global {
       };
       clipboard: {
         writeText: (text: string) => Promise<void>;
+      };
+      workspace: {
+        load: () => Promise<WorkspaceSnapshot | null>;
+        save: (snapshot: WorkspaceSnapshot) => Promise<void>;
+      };
+      providerSessions: {
+        load: () => Promise<ProviderSessionSnapshot>;
+        save: (snapshot: ProviderSessionSnapshot) => Promise<void>;
       };
     };
   }

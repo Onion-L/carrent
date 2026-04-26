@@ -8,7 +8,7 @@ describe("createChatRunCoordinator", () => {
     const received: string[] = [];
     const coordinator = createChatRunCoordinator();
 
-    coordinator.beginRequest("request-1", {
+    coordinator.beginRequest("request-1", "thread-1", {
       onDelta: (text) => received.push(`delta:${text}`),
       onComplete: (text) => received.push(`done:${text}`),
     });
@@ -35,7 +35,7 @@ describe("createChatRunCoordinator", () => {
     const received: string[] = [];
     const coordinator = createChatRunCoordinator();
 
-    coordinator.beginRequest("request-1", {
+    coordinator.beginRequest("request-1", "thread-1", {
       onDelta: (text) => received.push(text),
     });
 
@@ -54,7 +54,7 @@ describe("createChatRunCoordinator", () => {
     const received: string[] = [];
     const coordinator = createChatRunCoordinator();
 
-    coordinator.beginRequest("request-1", {
+    coordinator.beginRequest("request-1", "thread-1", {
       onShell: (shell) => received.push(`${shell.status}:${shell.command}`),
     });
 
@@ -77,7 +77,7 @@ describe("createChatRunCoordinator", () => {
     const coordinator = createChatRunCoordinator();
     const received: string[] = [];
 
-    coordinator.beginRequest("request-1", {
+    coordinator.beginRequest("request-1", "thread-1", {
       onReasoning: (reasoning) => received.push(`${reasoning.status}:${reasoning.content}`),
     });
 

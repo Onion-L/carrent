@@ -19,6 +19,7 @@ export type ChatRunCallbacks = {
 type ChatRunSnapshot = {
   isSending: boolean;
   lastError: string | null;
+  activeThreadId: string | null;
 };
 
 type ChatRunStoreListener = () => void;
@@ -26,6 +27,7 @@ type ChatRunStoreListener = () => void;
 type PendingChatRun = {
   requestKey: string;
   runId: string | null;
+  threadId: string;
   callbacks: ChatRunCallbacks;
 };
 
@@ -33,6 +35,7 @@ export function createChatRunCoordinator() {
   let snapshot: ChatRunSnapshot = {
     isSending: false,
     lastError: null,
+    activeThreadId: null,
   };
   let pending: PendingChatRun | null = null;
   const listeners = new Set<ChatRunStoreListener>();
@@ -67,15 +70,17 @@ export function createChatRunCoordinator() {
     getPendingRunId() {
       return pending?.runId ?? null;
     },
-    beginRequest(requestKey: string, callbacks: ChatRunCallbacks) {
+    beginRequest(requestKey: string, threadId: string, callbacks: ChatRunCallbacks) {
       pending = {
         requestKey,
         runId: null,
+        threadId,
         callbacks,
       };
       snapshot = {
         isSending: true,
         lastError: null,
+        activeThreadId: threadId,
       };
       emit();
     },
@@ -97,6 +102,7 @@ export function createChatRunCoordinator() {
       snapshot = {
         isSending: false,
         lastError: error,
+        activeThreadId: null,
       };
       pending.callbacks.onError?.(error);
       clearPending();
@@ -147,6 +153,7 @@ export function createChatRunCoordinator() {
         snapshot = {
           isSending: false,
           lastError: event.error,
+          activeThreadId: null,
         };
         pending.callbacks.onError?.(event.error);
         clearPending();
@@ -193,7 +200,7 @@ export function useChatRun() {
   const send = useCallback(async (request: ChatTurnRequest, callbacks: ChatRunCallbacks) => {
     ensureChatListener();
     const requestKey = createRequestKey();
-    chatRunCoordinator.beginRequest(requestKey, callbacks);
+    chatRunCoordinator.beginRequest(requestKey, request.threadId, callbacks);
 
     try {
       const { runId } = await window.carrent.chat.send({
@@ -217,6 +224,7 @@ export function useChatRun() {
   return {
     isSending: snapshot.isSending,
     lastError: snapshot.lastError,
+    activeThreadId: snapshot.activeThreadId,
     send,
     stop,
   };

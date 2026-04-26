@@ -79,7 +79,7 @@ export function shouldSubmitComposerOnKeyDown(event: ComposerKeyDownEvent) {
 export function Composer(props: ComposerProps) {
   const { projects, appendMessage, updateMessage, updateMessageParts } = useWorkspace();
   const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
-  const { isSending, send, stop } = useChatRun();
+  const { isSending, activeThreadId, send, stop } = useChatRun();
   const { agents, selectedAgentId, selectedAgent, setSelectedAgentId } = useAgents();
   const [input, setInput] = useState("");
   const [showAgentPicker, setShowAgentPicker] = useState(false);
@@ -366,7 +366,7 @@ export function Composer(props: ComposerProps) {
             onKeyDown={(e) => {
               if (shouldSubmitComposerOnKeyDown(e)) {
                 e.preventDefault();
-                if (canSend && !isSending) {
+                if (canSend && !(isSending && activeThreadId === threadId)) {
                   handleSend();
                 }
               }
@@ -415,7 +415,7 @@ export function Composer(props: ComposerProps) {
                   </div>
                 )}
               </div>
-              {isSending ? (
+              {isSending && activeThreadId === threadId ? (
                 <button
                   onClick={stop}
                   className="flex h-7 w-7 items-center justify-center rounded-full bg-[#c44] text-white transition hover:bg-[#b33]"

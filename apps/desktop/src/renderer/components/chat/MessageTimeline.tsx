@@ -2,37 +2,37 @@ import { ArrowDown, Bot } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { agents, type Message } from "../../mock/uiShellData";
 import { ChangedFilesCard } from "./ChangedFilesCard";
+import { ShellBlock } from "./ShellBlock";
 
 function AgentLabel({ agentId }: { agentId: string }) {
   const agent = agents.find((a) => a.id === agentId);
   if (!agent) return null;
-  return (
-    <span className="text-[12px] font-medium text-[#666]">{agent.name}</span>
-  );
+  return <span className="text-[12px] font-medium text-[#666]">{agent.name}</span>;
 }
 
 function UserMessage({ content }: { content: string }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-[#2a2a2a] px-4 py-3">
-        <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#eee]">
-          {content}
-        </p>
+        <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#eee]">{content}</p>
       </div>
     </div>
   );
 }
 
 function AssistantMessage({
-  content,
+  message,
   timestamp,
   agentId,
 }: {
-  content?: string;
+  message: Message;
   timestamp: string;
   agentId: string;
 }) {
-  const isStreaming = content === "";
+  const content = message.content ?? "";
+  const parts = message.type !== "changed_files" ? message.parts : undefined;
+  const hasParts = !!parts?.length;
+  const isStreaming = !hasParts && content === "";
 
   return (
     <div className="flex gap-3">
@@ -56,10 +56,25 @@ function AssistantMessage({
               </span>
             ))}
           </div>
+        ) : hasParts ? (
+          <div className="flex flex-col gap-3">
+            {parts?.map((part, index) =>
+              part.type === "text" ? (
+                part.content ? (
+                  <p
+                    key={`${index}-text`}
+                    className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#ccc]"
+                  >
+                    {part.content}
+                  </p>
+                ) : null
+              ) : (
+                <ShellBlock key={part.id} shell={part} />
+              ),
+            )}
+          </div>
         ) : (
-          <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#ccc]">
-            {content}
-          </p>
+          <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#ccc]">{content}</p>
         )}
       </div>
     </div>
@@ -146,9 +161,7 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
                       <div className="flex min-w-0 flex-1 flex-col gap-2">
                         <div className="flex items-center gap-2">
                           <AgentLabel agentId={msg.agentId} />
-                          <span className="text-[11px] text-[#444]">
-                            {msg.timestamp}
-                          </span>
+                          <span className="text-[11px] text-[#444]">{msg.timestamp}</span>
                         </div>
                         <ChangedFilesCard message={msg} />
                       </div>
@@ -162,11 +175,7 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
                   key={msg.id}
                   className={`px-4 py-5 ${!isLast ? "border-b border-[#222]" : ""}`}
                 >
-                  <AssistantMessage
-                    content={msg.content}
-                    timestamp={msg.timestamp}
-                    agentId={msg.agentId}
-                  />
+                  <AssistantMessage message={msg} timestamp={msg.timestamp} agentId={msg.agentId} />
                 </div>
               );
             })}

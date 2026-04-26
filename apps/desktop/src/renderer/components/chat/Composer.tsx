@@ -1,11 +1,4 @@
-import {
-  ArrowUp,
-  Bot,
-  ChevronDown,
-  Hand,
-  Plus,
-  Square,
-} from "lucide-react";
+import { ArrowUp, Bot, ChevronDown, Hand, Plus, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
@@ -18,6 +11,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import { agents } from "../../mock/uiShellData";
 import type { Message } from "../../mock/uiShellData";
+import type { ChatShellEventPayload } from "../../../shared/chat";
 
 type ComposerProps =
   | {
@@ -83,8 +77,8 @@ export function shouldSubmitComposerOnKeyDown(event: ComposerKeyDownEvent) {
 }
 
 export function Composer(props: ComposerProps) {
-  const { projects, appendMessage, updateMessage } = useWorkspace();
-  const { appendDraftMessage, updateDraftMessage } = useDraftThread();
+  const { projects, appendMessage, updateMessage, updateMessageParts } = useWorkspace();
+  const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
   const { isSending, send, stop } = useChatRun();
   const [input, setInput] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState(
@@ -97,8 +91,7 @@ export function Composer(props: ComposerProps) {
   const activeAssistantMessageIdRef = useRef<string | null>(null);
   const flushTypewriterRef = useRef<VoidFunction | null>(null);
   const project = projects.find((item) => item.id === props.projectId) ?? null;
-  const threadId =
-    props.mode === "draft" ? props.preallocatedThreadId : props.threadId;
+  const threadId = props.mode === "draft" ? props.preallocatedThreadId : props.threadId;
 
   const selectedAgent = agents.find((a) => a.id === selectedAgentId);
   const canSend = !!input.trim() && !!project && !!selectedAgent;
@@ -128,10 +121,7 @@ export function Composer(props: ComposerProps) {
     const agentId = selectedAgent.id;
     setInput("");
 
-    const appendLocalMessage = (
-      role: "user" | "assistant",
-      content: string,
-    ) => {
+    const appendLocalMessage = (role: "user" | "assistant", content: string) => {
       if (props.mode === "thread") {
         return appendMessage({
           threadId,
@@ -156,6 +146,71 @@ export function Composer(props: ComposerProps) {
       updateMessage(messageId, content);
     };
 
+    const updateLocalMessageTextPart = (messageId: string, content: string) => {
+      if (!content) {
+        return;
+      }
+
+      if (props.mode === "thread") {
+        updateMessageParts(messageId, {
+          kind: "append-text",
+          content,
+        });
+        return;
+      }
+
+      updateDraftMessageParts(props.draftId, messageId, {
+        kind: "append-text",
+        content,
+      });
+      updateMessageParts(messageId, {
+        kind: "append-text",
+        content,
+      });
+    };
+
+    const updateLocalMessageShellPart = (messageId: string, shell: ChatShellEventPayload) => {
+      if (props.mode === "thread") {
+        updateMessageParts(messageId, {
+          kind: "upsert-shell",
+          shell: {
+            type: "shell",
+            ...shell,
+          },
+        });
+        return;
+      }
+
+      updateDraftMessageParts(props.draftId, messageId, {
+        kind: "upsert-shell",
+        shell: {
+          type: "shell",
+          ...shell,
+        },
+      });
+      updateMessageParts(messageId, {
+        kind: "upsert-shell",
+        shell: {
+          type: "shell",
+          ...shell,
+        },
+      });
+    };
+
+    const flushPendingTypewriterText = () => {
+      const activeMessageId = activeAssistantMessageIdRef.current;
+      if (!activeMessageId) {
+        return;
+      }
+
+      if (visibleTextRef.current !== receivedTextRef.current) {
+        const nextText = receivedTextRef.current;
+        const delta = nextText.slice(visibleTextRef.current.length);
+        visibleTextRef.current = nextText;
+        updateLocalMessageTextPart(activeMessageId, delta);
+      }
+    };
+
     const startTypewriter = (messageId: string) => {
       activeAssistantMessageIdRef.current = messageId;
 
@@ -170,16 +225,12 @@ export function Composer(props: ComposerProps) {
         );
 
         if (nextVisibleText !== visibleTextRef.current) {
+          const delta = nextVisibleText.slice(visibleTextRef.current.length);
           visibleTextRef.current = nextVisibleText;
-          updateLocalMessage(messageId, nextVisibleText);
+          updateLocalMessageTextPart(messageId, delta);
         }
 
-        if (
-          !hasPendingTypewriterText(
-            visibleTextRef.current,
-            receivedTextRef.current,
-          )
-        ) {
+        if (!hasPendingTypewriterText(visibleTextRef.current, receivedTextRef.current)) {
           stopTypewriter();
         }
       }, TYPEWRITER_INTERVAL_MS);
@@ -198,10 +249,7 @@ export function Composer(props: ComposerProps) {
         return;
       }
 
-      if (visibleTextRef.current !== receivedTextRef.current) {
-        visibleTextRef.current = receivedTextRef.current;
-        updateLocalMessage(activeMessageId, receivedTextRef.current);
-      }
+      flushPendingTypewriterText();
 
       activeAssistantMessageIdRef.current = null;
       flushTypewriterRef.current = null;
@@ -242,8 +290,15 @@ export function Composer(props: ComposerProps) {
           receivedTextRef.current += text;
           startTypewriter(assistantMsg.id);
         },
+        onShell: (shell) => {
+          stopTypewriter();
+          flushPendingTypewriterText();
+          updateLocalMessageShellPart(assistantMsg.id, shell);
+        },
         onComplete: (text) => {
-          receivedTextRef.current = text;
+          if (!receivedTextRef.current || text.startsWith(receivedTextRef.current)) {
+            receivedTextRef.current = text;
+          }
           startTypewriter(assistantMsg.id);
         },
         onError: (error) => {
@@ -316,16 +371,12 @@ export function Composer(props: ComposerProps) {
                           setShowAgentPicker(false);
                         }}
                         className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-[#252525] ${
-                          agent.id === selectedAgentId
-                            ? "text-[#eee]"
-                            : "text-[#999]"
+                          agent.id === selectedAgentId ? "text-[#eee]" : "text-[#999]"
                         }`}
                       >
                         <Bot className="h-3 w-3" />
                         <span>{agent.name}</span>
-                        <span className="ml-auto text-[10px] text-[#666]">
-                          {agent.runtime}
-                        </span>
+                        <span className="ml-auto text-[10px] text-[#666]">{agent.runtime}</span>
                       </button>
                     ))}
                   </div>

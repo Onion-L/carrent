@@ -28,6 +28,16 @@ type ChatRunEventBase = {
   requestKey?: string;
 };
 
+export type ChatShellStatus = "running" | "completed" | "failed";
+
+export type ChatShellEventPayload = {
+  id: string;
+  command: string;
+  output: string;
+  status: ChatShellStatus;
+  exitCode?: number | null;
+};
+
 export type ChatRunEvent =
   | (ChatRunEventBase & {
       type: "thread-upserted";
@@ -45,6 +55,7 @@ export type ChatRunEvent =
       agentId: string;
     })
   | (ChatRunEventBase & { type: "delta"; text: string })
+  | (ChatRunEventBase & { type: "shell"; shell: ChatShellEventPayload })
   | (ChatRunEventBase & {
       type: "completed";
       text: string;

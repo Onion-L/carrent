@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
-import type { ChatRunEvent, ChatTurnRequest } from "../../shared/chat";
+import type { ChatRunEvent, ChatShellEventPayload, ChatTurnRequest } from "../../shared/chat";
 
 export type ChatRunCallbacks = {
   onDelta?: (text: string) => void;
+  onShell?: (shell: ChatShellEventPayload) => void;
   onComplete?: (text: string) => void;
   onError?: (error: string) => void;
   onStop?: () => void;
@@ -101,10 +102,8 @@ export function createChatRunCoordinator() {
       }
 
       const matchesRequestKey =
-        typeof event.requestKey === "string" &&
-        event.requestKey === pending.requestKey;
-      const matchesRunId =
-        typeof pending.runId === "string" && event.runId === pending.runId;
+        typeof event.requestKey === "string" && event.requestKey === pending.requestKey;
+      const matchesRunId = typeof pending.runId === "string" && event.runId === pending.runId;
 
       if (!matchesRequestKey && !matchesRunId) {
         return;
@@ -119,6 +118,11 @@ export function createChatRunCoordinator() {
 
       if (event.type === "delta") {
         pending.callbacks.onDelta?.(event.text);
+        return;
+      }
+
+      if (event.type === "shell") {
+        pending.callbacks.onShell?.(event.shell);
         return;
       }
 
@@ -165,9 +169,7 @@ function ensureChatListener() {
 }
 
 export function useChatRun() {
-  const [snapshot, setSnapshot] = useState(() =>
-    chatRunCoordinator.getSnapshot(),
-  );
+  const [snapshot, setSnapshot] = useState(() => chatRunCoordinator.getSnapshot());
 
   useEffect(() => {
     ensureChatListener();
@@ -177,25 +179,22 @@ export function useChatRun() {
     });
   }, []);
 
-  const send = useCallback(
-    async (request: ChatTurnRequest, callbacks: ChatRunCallbacks) => {
-      ensureChatListener();
-      const requestKey = createRequestKey();
-      chatRunCoordinator.beginRequest(requestKey, callbacks);
+  const send = useCallback(async (request: ChatTurnRequest, callbacks: ChatRunCallbacks) => {
+    ensureChatListener();
+    const requestKey = createRequestKey();
+    chatRunCoordinator.beginRequest(requestKey, callbacks);
 
-      try {
-        const { runId } = await window.carrent.chat.send({
-          ...request,
-          requestKey,
-        });
-        chatRunCoordinator.attachRunId(requestKey, runId);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        chatRunCoordinator.failRequest(requestKey, message);
-      }
-    },
-    [],
-  );
+    try {
+      const { runId } = await window.carrent.chat.send({
+        ...request,
+        requestKey,
+      });
+      chatRunCoordinator.attachRunId(requestKey, runId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      chatRunCoordinator.failRequest(requestKey, message);
+    }
+  }, []);
 
   const stop = useCallback(async () => {
     const runId = chatRunCoordinator.getPendingRunId();

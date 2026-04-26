@@ -51,12 +51,10 @@ export const projects: ProjectRecord[] = [
 ];
 
 export const initialActiveThreadId =
-  projects.flatMap((project) => project.threads).find((thread) => thread.active)
-    ?.id ?? null;
+  projects.flatMap((project) => project.threads).find((thread) => thread.active)?.id ?? null;
 
 // Seed-only fallback for screens that still read directly from mock data.
-export const currentProject =
-  projects.find((project) => project.active) ?? projects[0];
+export const currentProject = projects.find((project) => project.active) ?? projects[0];
 
 export type AgentRecord = {
   id: string;
@@ -108,9 +106,21 @@ type MessageBase = {
   threadId: string;
 };
 
+export type MessagePart =
+  | { type: "text"; content: string }
+  | {
+      type: "shell";
+      id: string;
+      command: string;
+      output: string;
+      status: "running" | "completed" | "failed";
+      exitCode?: number | null;
+    };
+
 type TextMessage = MessageBase & {
   type?: "text";
   content: string;
+  parts?: MessagePart[];
 };
 
 type ChangedFilesMessage = Omit<MessageBase, "role"> & {
@@ -138,7 +148,8 @@ export const messages: Message[] = [
     timestamp: "09:12",
     duration: "34s",
     threadId: "thread-timbre-design-review",
-    content: "The hero is clear, but the comparison section needs stronger grouping and less repeated copy.",
+    content:
+      "The hero is clear, but the comparison section needs stronger grouping and less repeated copy.",
   },
   {
     id: "message-carrent-1",
@@ -155,6 +166,7 @@ export const messages: Message[] = [
     timestamp: "11:05",
     duration: "1m 12s",
     threadId: "thread-1",
-    content: "Use one renderer workspace context for projects, messages, and activeThreadId. Keep mutations inside the provider.",
+    content:
+      "Use one renderer workspace context for projects, messages, and activeThreadId. Keep mutations inside the provider.",
   },
 ];

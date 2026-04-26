@@ -4,9 +4,7 @@ import type { ChildProcess } from "node:child_process";
 import type { ChatRunEvent, ChatTurnRequest } from "../../src/shared/chat";
 import { createChatSessionManager } from "./chatSessionManager";
 
-function makeRequest(
-  overrides: Partial<ChatTurnRequest> = {},
-): ChatTurnRequest {
+function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
     projectPath: "/Users/onion/workbench/timbre",
     threadId: "thread-1",
@@ -48,7 +46,7 @@ type MockChildProcess = ChildProcess & {
 };
 
 describe("createChatSessionManager", () => {
-  it("emits started, delta, and completed for a successful run", async () => {
+  it("emits started, delta, and completed for a successful codex run", async () => {
     const mockChild = createMockChildProcess();
     const emitted: ChatRunEvent[] = [];
 
@@ -59,9 +57,12 @@ describe("createChatSessionManager", () => {
 
     manager.start("run-1", makeRequest());
 
-    // Simulate stdout chunks
-    mockChild.stdout.emit("data", Buffer.from("Hello"));
-    mockChild.stdout.emit("data", Buffer.from(" world"));
+    mockChild.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Hello world"}}\n',
+      ),
+    );
 
     // Simulate process completion
     mockChild.emit("close", 0, null);
@@ -79,9 +80,12 @@ describe("createChatSessionManager", () => {
     });
 
     const deltas = emitted.filter((e) => e.type === "delta");
-    expect(deltas).toHaveLength(2);
-    expect(deltas[0]).toMatchObject({ type: "delta", runId: "run-1", text: "Hello" });
-    expect(deltas[1]).toMatchObject({ type: "delta", runId: "run-1", text: " world" });
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0]).toMatchObject({
+      type: "delta",
+      runId: "run-1",
+      text: "Hello world",
+    });
 
     const completed = emitted.find((e) => e.type === "completed");
     expect(completed).toBeDefined();
@@ -299,9 +303,110 @@ describe("createChatSessionManager", () => {
     const eventTypes = emitted.map((event) => event.type);
     expect(eventTypes.indexOf("delta")).toBeGreaterThan(-1);
     expect(eventTypes.indexOf("completed")).toBeGreaterThan(-1);
-    expect(eventTypes.indexOf("delta")).toBeLessThan(
-      eventTypes.indexOf("completed"),
+    expect(eventTypes.indexOf("delta")).toBeLessThan(eventTypes.indexOf("completed"));
+  });
+
+  it("emits codex command executions as shell events", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start("run-codex-shell", makeRequest());
+    mockChild.stdout.emit(
+      "data",
+      Buffer.from(
+        [
+          '{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc pwd","aggregated_output":"","exit_code":null,"status":"in_progress"}}',
+          '{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc pwd","aggregated_output":"/Users/onion/workbench/carrent\\n","exit_code":0,"status":"completed"}}',
+          '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Done"}}',
+        ].join("\n") + "\n",
+      ),
     );
+    mockChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(emitted.filter((event) => event.type === "delta")).toHaveLength(1);
+    expect(emitted.filter((event) => event.type === "shell")).toEqual([
+      {
+        type: "shell",
+        runId: "run-codex-shell",
+        shell: {
+          id: "item_0",
+          command: "/bin/zsh -lc pwd",
+          output: "",
+          status: "running",
+          exitCode: null,
+        },
+      },
+      {
+        type: "shell",
+        runId: "run-codex-shell",
+        shell: {
+          id: "item_0",
+          command: "/bin/zsh -lc pwd",
+          output: "/Users/onion/workbench/carrent\n",
+          status: "completed",
+          exitCode: 0,
+        },
+      },
+    ]);
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Done",
+    });
+  });
+
+  it("emits claude Bash tool use and result as shell events", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start("run-claude-shell", makeRequest({ runtimeId: "claude-code" }));
+    mockChild.stdout.emit(
+      "data",
+      Buffer.from(
+        [
+          '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"call_1","name":"Bash","input":{"command":"pwd"}}]},"session_id":"sess-shell"}',
+          '{"type":"user","message":{"content":[{"tool_use_id":"call_1","type":"tool_result","content":"/Users/onion/workbench/carrent","is_error":false}]},"tool_use_result":{"stdout":"/Users/onion/workbench/carrent","stderr":"","interrupted":false}}',
+          '{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Done"}}}',
+        ].join("\n") + "\n",
+      ),
+    );
+    mockChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(emitted.filter((event) => event.type === "shell")).toEqual([
+      {
+        type: "shell",
+        runId: "run-claude-shell",
+        shell: {
+          id: "call_1",
+          command: "pwd",
+          output: "",
+          status: "running",
+        },
+      },
+      {
+        type: "shell",
+        runId: "run-claude-shell",
+        shell: {
+          id: "call_1",
+          command: "pwd",
+          output: "/Users/onion/workbench/carrent",
+          status: "completed",
+        },
+      },
+    ]);
   });
 
   it("parses claude stream-json into text deltas and final text", async () => {
@@ -563,7 +668,9 @@ describe("createChatSessionManager", () => {
     );
     retryChild.stdout.emit(
       "data",
-      Buffer.from('{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Recovered"}}}\n'),
+      Buffer.from(
+        '{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Recovered"}}}\n',
+      ),
     );
     retryChild.emit("close", 0, null);
 

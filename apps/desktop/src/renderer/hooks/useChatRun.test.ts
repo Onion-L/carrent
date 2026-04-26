@@ -49,4 +49,27 @@ describe("createChatRunCoordinator", () => {
     expect(received).toEqual([]);
     expect(coordinator.getSnapshot().isSending).toBe(true);
   });
+
+  it("routes shell events to the active request callback", () => {
+    const received: string[] = [];
+    const coordinator = createChatRunCoordinator();
+
+    coordinator.beginRequest("request-1", {
+      onShell: (shell) => received.push(`${shell.status}:${shell.command}`),
+    });
+
+    coordinator.handleEvent({
+      type: "shell",
+      requestKey: "request-1",
+      runId: "run-1",
+      shell: {
+        id: "shell-1",
+        command: "pwd",
+        output: "",
+        status: "running",
+      },
+    } satisfies ChatRunEvent);
+
+    expect(received).toEqual(["running:pwd"]);
+  });
 });

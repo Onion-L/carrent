@@ -4,6 +4,7 @@ import {
   messages as initialMessages,
   projects as initialProjects,
   type Message,
+  type MessagePart,
   type ProjectRecord,
   type ThreadRecord,
 } from "../mock/uiShellData";
@@ -48,7 +49,15 @@ export type WorkspaceContextValue = {
     content: string;
   }) => Message;
   updateMessage: (id: string, content: string) => void;
+  updateMessageParts: (id: string, update: MessagePartUpdate) => void;
 };
+
+export type MessagePartUpdate =
+  | { kind: "append-text"; content: string }
+  | {
+      kind: "upsert-shell";
+      shell: Extract<MessagePart, { type: "shell" }>;
+    };
 
 const WorkspaceContext = createContext<WorkspaceContextValue>({
   projects: [],
@@ -66,8 +75,16 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   toggleThreadPin: () => {},
   archiveThread: () => {},
   upsertMessages: () => {},
-  appendMessage: () => ({ id: "", role: "user", agentId: "", threadId: "", content: "", timestamp: "" }),
+  appendMessage: () => ({
+    id: "",
+    role: "user",
+    agentId: "",
+    threadId: "",
+    content: "",
+    timestamp: "",
+  }),
   updateMessage: () => {},
+  updateMessageParts: () => {},
 });
 
 function formatTime(date: Date): string {
@@ -101,12 +118,8 @@ export function mergeMessagesIntoWorkspace(
   existingMessages: Message[],
   incomingMessages: Message[],
 ) {
-  const incomingById = new Map(
-    incomingMessages.map((message) => [message.id, message]),
-  );
-  const merged = existingMessages.map(
-    (message) => incomingById.get(message.id) ?? message,
-  );
+  const incomingById = new Map(incomingMessages.map((message) => [message.id, message]));
+  const merged = existingMessages.map((message) => incomingById.get(message.id) ?? message);
   const knownIds = new Set(existingMessages.map((message) => message.id));
 
   incomingMessages.forEach((message) => {
@@ -118,12 +131,66 @@ export function mergeMessagesIntoWorkspace(
   return merged;
 }
 
+function getTextMessageParts(message: Message) {
+  if (message.type === "changed_files") {
+    return [];
+  }
+
+  if (message.parts) {
+    return [...message.parts];
+  }
+
+  return message.content ? [{ type: "text" as const, content: message.content }] : [];
+}
+
+export function applyMessagePartUpdate(message: Message, update: MessagePartUpdate): Message {
+  if (message.type === "changed_files") {
+    return message;
+  }
+
+  const parts = getTextMessageParts(message);
+
+  if (update.kind === "append-text") {
+    if (!update.content) {
+      return message;
+    }
+
+    const lastPart = parts.at(-1);
+    if (lastPart?.type === "text") {
+      parts[parts.length - 1] = {
+        ...lastPart,
+        content: lastPart.content + update.content,
+      };
+    } else {
+      parts.push({ type: "text", content: update.content });
+    }
+
+    return {
+      ...message,
+      content: message.content + update.content,
+      parts,
+    };
+  }
+
+  const shellIndex = parts.findIndex(
+    (part) => part.type === "shell" && part.id === update.shell.id,
+  );
+  if (shellIndex >= 0) {
+    parts[shellIndex] = update.shell;
+  } else {
+    parts.push(update.shell);
+  }
+
+  return {
+    ...message,
+    parts,
+  };
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState(initialProjects);
   const [messages, setMessages] = useState(initialMessages);
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(
-    initialActiveThreadId,
-  );
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(initialActiveThreadId);
 
   const currentThread = findCurrentThread(projects, activeThreadId);
   const currentProject = findCurrentProject(projects, activeThreadId);
@@ -197,7 +264,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const updateMessage = (id: string, content: string) => {
     setMessages((prev) =>
-      prev.map((msg) => (msg.id === id ? { ...msg, content } : msg)),
+      prev.map((msg) =>
+        msg.id === id && msg.type !== "changed_files"
+          ? { ...msg, content, parts: undefined }
+          : msg,
+      ),
+    );
+  };
+
+  const updateMessageParts = (id: string, update: MessagePartUpdate) => {
+    setMessages((prev) =>
+      prev.map((msg) => (msg.id === id ? applyMessagePartUpdate(msg, update) : msg)),
     );
   };
 
@@ -221,6 +298,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         upsertMessages,
         appendMessage,
         updateMessage,
+        updateMessageParts,
       }}
     >
       {children}

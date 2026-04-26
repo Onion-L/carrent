@@ -1,11 +1,6 @@
-import {
-  createContext,
-  useContext,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useRef, useState, type ReactNode } from "react";
 
+import { applyMessagePartUpdate, type MessagePartUpdate } from "./WorkspaceContext";
 import {
   buildDraftThreadRecord,
   finalizePromotedDraftThreadByRef as finalizeDraftThreadPromotion,
@@ -43,6 +38,7 @@ export type DraftThreadContextValue = {
   createDraft: (projectId: string) => DraftThreadRecord | null;
   appendDraftMessage: (draftId: string, message: Message) => void;
   updateDraftMessage: (draftId: string, messageId: string, content: string) => void;
+  updateDraftMessageParts: (draftId: string, messageId: string, update: MessagePartUpdate) => void;
   markPromotedDraftThreadByRef: (draftId: string, realThreadId: string) => void;
   finalizePromotedDraftThreadByRef: (draftId: string) => void;
   getDraftById: (draftId: string) => DraftThreadRecord | null;
@@ -53,6 +49,7 @@ const DraftThreadContext = createContext<DraftThreadContextValue>({
   createDraft: () => null,
   appendDraftMessage: () => {},
   updateDraftMessage: () => {},
+  updateDraftMessageParts: () => {},
   markPromotedDraftThreadByRef: () => {},
   finalizePromotedDraftThreadByRef: () => {},
   getDraftById: () => null,
@@ -62,9 +59,7 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
   const [drafts, setDrafts] = useState<DraftThreadRecord[]>([]);
   const draftsRef = useRef<DraftThreadRecord[]>([]);
 
-  const updateDrafts = (
-    updater: (currentDrafts: DraftThreadRecord[]) => DraftThreadRecord[],
-  ) => {
+  const updateDrafts = (updater: (currentDrafts: DraftThreadRecord[]) => DraftThreadRecord[]) => {
     const nextDrafts = updater(draftsRef.current);
     draftsRef.current = nextDrafts;
     setDrafts(nextDrafts);
@@ -85,25 +80,21 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
   const appendDraftMessage = (draftId: string, message: Message) => {
     updateDrafts((prev) =>
       prev.map((draft) =>
-        draft.draftId === draftId
-          ? { ...draft, messages: [...draft.messages, message] }
-          : draft,
+        draft.draftId === draftId ? { ...draft, messages: [...draft.messages, message] } : draft,
       ),
     );
   };
 
-  const updateDraftMessage = (
-    draftId: string,
-    messageId: string,
-    content: string,
-  ) => {
+  const updateDraftMessage = (draftId: string, messageId: string, content: string) => {
     updateDrafts((prev) =>
       prev.map((draft) =>
         draft.draftId === draftId
           ? {
               ...draft,
               messages: draft.messages.map((message) =>
-                message.id === messageId ? { ...message, content } : message,
+                message.id === messageId && message.type !== "changed_files"
+                  ? { ...message, content, parts: undefined }
+                  : message,
               ),
             }
           : draft,
@@ -111,13 +102,27 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const markPromotedDraftThreadByRef = (
+  const updateDraftMessageParts = (
     draftId: string,
-    realThreadId: string,
+    messageId: string,
+    update: MessagePartUpdate,
   ) => {
     updateDrafts((prev) =>
-      markDraftThreadPromotion(prev, draftId, realThreadId),
+      prev.map((draft) =>
+        draft.draftId === draftId
+          ? {
+              ...draft,
+              messages: draft.messages.map((message) =>
+                message.id === messageId ? applyMessagePartUpdate(message, update) : message,
+              ),
+            }
+          : draft,
+      ),
     );
+  };
+
+  const markPromotedDraftThreadByRef = (draftId: string, realThreadId: string) => {
+    updateDrafts((prev) => markDraftThreadPromotion(prev, draftId, realThreadId));
   };
 
   const finalizePromotedDraftThreadByRef = (draftId: string) => {
@@ -135,6 +140,7 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
         createDraft,
         appendDraftMessage,
         updateDraftMessage,
+        updateDraftMessageParts,
         markPromotedDraftThreadByRef,
         finalizePromotedDraftThreadByRef,
         getDraftById,

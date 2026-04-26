@@ -1,5 +1,5 @@
 import type { ChildProcess } from "node:child_process";
-import type { ChatTurnRequest, ChatRunEvent } from "../../src/shared/chat";
+import type { ChatShellEventPayload, ChatTurnRequest, ChatRunEvent } from "../../src/shared/chat";
 import { buildChatPrompt } from "./chatPrompt";
 import { getRuntimeCommand } from "./chatRunner";
 
@@ -33,7 +33,15 @@ type ClaudeStreamState = {
   text: string;
   finalText: string;
   sessionId: string | null;
+  shellCommands: Map<string, string>;
 };
+
+type CodexStreamState = {
+  buffer: string;
+  text: string;
+};
+
+const MAX_SHELL_OUTPUT_LENGTH = 12_000;
 
 function createClaudeStreamState(): ClaudeStreamState {
   return {
@@ -41,7 +49,23 @@ function createClaudeStreamState(): ClaudeStreamState {
     text: "",
     finalText: "",
     sessionId: null,
+    shellCommands: new Map(),
   };
+}
+
+function createCodexStreamState(): CodexStreamState {
+  return {
+    buffer: "",
+    text: "",
+  };
+}
+
+function truncateShellOutput(output: string) {
+  if (output.length <= MAX_SHELL_OUTPUT_LENGTH) {
+    return output;
+  }
+
+  return `${output.slice(0, MAX_SHELL_OUTPUT_LENGTH)}\n\n[output truncated]`;
 }
 
 function extractClaudeSessionId(payload: unknown): string | null {
@@ -68,8 +92,159 @@ function extractClaudeTextDelta(payload: unknown): string | null {
     return null;
   }
 
+  const deltaType = (delta as { type?: unknown }).type;
+  if (deltaType !== "text_delta") {
+    return null;
+  }
+
   const text = (delta as { text?: unknown }).text;
   return typeof text === "string" && text.length > 0 ? text : null;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function emitShellEvent(
+  emit: (event: ChatRunEvent) => void,
+  runId: string,
+  requestKey: string | undefined,
+  shell: ChatShellEventPayload,
+) {
+  emit({
+    type: "shell",
+    runId,
+    ...(requestKey ? { requestKey } : {}),
+    shell: {
+      ...shell,
+      output: truncateShellOutput(shell.output),
+    },
+  });
+}
+
+function extractCodexShellEvent(payload: unknown): ChatShellEventPayload | null {
+  const envelope = readObject(payload);
+  const item = readObject(envelope?.item);
+  if (!envelope || !item || item.type !== "command_execution") {
+    return null;
+  }
+
+  const id = readString(item.id);
+  const command = readString(item.command);
+  if (!id || !command) {
+    return null;
+  }
+
+  const output = typeof item.aggregated_output === "string" ? item.aggregated_output : "";
+  const exitCode =
+    typeof item.exit_code === "number" || item.exit_code === null ? item.exit_code : null;
+
+  if (envelope.type === "item.started") {
+    return {
+      id,
+      command,
+      output,
+      status: "running",
+      exitCode,
+    };
+  }
+
+  if (envelope.type === "item.completed") {
+    return {
+      id,
+      command,
+      output,
+      status: exitCode === 0 ? "completed" : "failed",
+      exitCode,
+    };
+  }
+
+  return null;
+}
+
+function extractCodexAgentMessage(payload: unknown): string | null {
+  const envelope = readObject(payload);
+  const item = readObject(envelope?.item);
+  if (!envelope || !item || envelope.type !== "item.completed" || item.type !== "agent_message") {
+    return null;
+  }
+
+  return readString(item.text);
+}
+
+function extractClaudeBashToolUse(
+  state: ClaudeStreamState,
+  payload: unknown,
+): ChatShellEventPayload[] {
+  const envelope = readObject(payload);
+  const message = readObject(envelope?.message);
+  const content = message?.content;
+  if (envelope?.type !== "assistant" || !Array.isArray(content)) {
+    return [];
+  }
+
+  return content.flatMap((item): ChatShellEventPayload[] => {
+    const block = readObject(item);
+    const input = readObject(block?.input);
+    const id = readString(block?.id);
+    const command = readString(input?.command);
+    if (block?.type !== "tool_use" || block.name !== "Bash" || !id || !command) {
+      return [];
+    }
+
+    state.shellCommands.set(id, command);
+    return [
+      {
+        id,
+        command,
+        output: "",
+        status: "running",
+      },
+    ];
+  });
+}
+
+function extractClaudeToolResult(
+  state: ClaudeStreamState,
+  payload: unknown,
+): ChatShellEventPayload[] {
+  const envelope = readObject(payload);
+  const message = readObject(envelope?.message);
+  const content = message?.content;
+  if (envelope?.type !== "user" || !Array.isArray(content)) {
+    return [];
+  }
+
+  const toolUseResult = readObject(envelope.tool_use_result);
+  const stdout = typeof toolUseResult?.stdout === "string" ? toolUseResult.stdout : "";
+  const stderr = typeof toolUseResult?.stderr === "string" ? toolUseResult.stderr : "";
+
+  return content.flatMap((item): ChatShellEventPayload[] => {
+    const block = readObject(item);
+    const id = readString(block?.tool_use_id);
+    if (block?.type !== "tool_result" || !id || !state.shellCommands.has(id)) {
+      return [];
+    }
+
+    const fallbackContent = typeof block.content === "string" ? block.content : "";
+    const output =
+      stdout || stderr
+        ? [stdout, stderr ? `[stderr]\n${stderr}` : ""].filter(Boolean).join("\n")
+        : fallbackContent;
+
+    return [
+      {
+        id,
+        command: state.shellCommands.get(id) ?? "Bash",
+        output,
+        status: block.is_error === true ? "failed" : "completed",
+      },
+    ];
+  });
 }
 
 function extractClaudeFinalText(payload: unknown): string | null {
@@ -110,6 +285,7 @@ function consumeClaudeStreamChunk(
   state: ClaudeStreamState,
   chunk: string,
   onDelta: (text: string) => void,
+  onShell: (shell: ChatShellEventPayload) => void,
 ) {
   state.buffer += chunk;
   const lines = state.buffer.split("\n");
@@ -128,6 +304,14 @@ function consumeClaudeStreamChunk(
         state.sessionId = sessionId;
       }
 
+      for (const shell of extractClaudeBashToolUse(state, payload)) {
+        onShell(shell);
+      }
+
+      for (const shell of extractClaudeToolResult(state, payload)) {
+        onShell(shell);
+      }
+
       const finalText = extractClaudeFinalText(payload);
       if (finalText) {
         state.finalText = finalText;
@@ -140,6 +324,41 @@ function consumeClaudeStreamChunk(
 
       state.text += delta;
       onDelta(delta);
+    } catch {
+      continue;
+    }
+  }
+}
+
+function consumeCodexStreamChunk(
+  state: CodexStreamState,
+  chunk: string,
+  onDelta: (text: string) => void,
+  onShell: (shell: ChatShellEventPayload) => void,
+) {
+  state.buffer += chunk;
+  const lines = state.buffer.split("\n");
+  state.buffer = lines.pop() ?? "";
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    try {
+      const payload = JSON.parse(trimmed);
+      const shell = extractCodexShellEvent(payload);
+      if (shell) {
+        onShell(shell);
+        continue;
+      }
+
+      const text = extractCodexAgentMessage(payload);
+      if (text) {
+        state.text += text;
+        onDelta(text);
+      }
     } catch {
       continue;
     }
@@ -161,6 +380,13 @@ function getSessionRuntimeCommand(
   const prompt = buildChatPrompt(request, {
     includeTranscript: options?.includeTranscript,
   });
+
+  if (request.runtimeId === "codex") {
+    return {
+      command: "codex",
+      args: ["exec", "--json", "--skip-git-repo-check", "--ephemeral", prompt],
+    };
+  }
 
   if (request.runtimeId !== "claude-code") {
     return getRuntimeCommand(request.runtimeId, prompt);
@@ -207,9 +433,7 @@ export function createChatSessionManager(options: {
 
     const requestSessionKey = buildRequestSessionKey(request);
     const resumeSessionId =
-      request.runtimeId === "claude-code"
-        ? runtimeSessions.get(requestSessionKey) ?? null
-        : null;
+      request.runtimeId === "claude-code" ? (runtimeSessions.get(requestSessionKey) ?? null) : null;
 
     spawnAttempt({
       runId,
@@ -258,6 +482,7 @@ export function createChatSessionManager(options: {
     });
     const claudeStreamState =
       request.runtimeId === "claude-code" ? createClaudeStreamState() : null;
+    const codexStreamState = request.runtimeId === "codex" ? createCodexStreamState() : null;
 
     const session: ChatSession = {
       runId,
@@ -272,14 +497,40 @@ export function createChatSessionManager(options: {
     child.stdout?.on("data", (data: Buffer) => {
       const chunk = data.toString();
       if (claudeStreamState) {
-        consumeClaudeStreamChunk(claudeStreamState, chunk, (text) => {
-          options.emit({
-            type: "delta",
-            runId,
-            requestKey: request.requestKey,
-            text,
-          });
-        });
+        consumeClaudeStreamChunk(
+          claudeStreamState,
+          chunk,
+          (text) => {
+            options.emit({
+              type: "delta",
+              runId,
+              requestKey: request.requestKey,
+              text,
+            });
+          },
+          (shell) => {
+            emitShellEvent(options.emit, runId, request.requestKey, shell);
+          },
+        );
+        return;
+      }
+
+      if (codexStreamState) {
+        consumeCodexStreamChunk(
+          codexStreamState,
+          chunk,
+          (text) => {
+            options.emit({
+              type: "delta",
+              runId,
+              requestKey: request.requestKey,
+              text,
+            });
+          },
+          (shell) => {
+            emitShellEvent(options.emit, runId, request.requestKey, shell);
+          },
+        );
         return;
       }
 
@@ -301,14 +552,39 @@ export function createChatSessionManager(options: {
       sessions.delete(runId);
 
       if (claudeStreamState?.buffer.trim()) {
-        consumeClaudeStreamChunk(claudeStreamState, "\n", (text) => {
-          options.emit({
-            type: "delta",
-            runId,
-            requestKey: request.requestKey,
-            text,
-          });
-        });
+        consumeClaudeStreamChunk(
+          claudeStreamState,
+          "\n",
+          (text) => {
+            options.emit({
+              type: "delta",
+              runId,
+              requestKey: request.requestKey,
+              text,
+            });
+          },
+          (shell) => {
+            emitShellEvent(options.emit, runId, request.requestKey, shell);
+          },
+        );
+      }
+
+      if (codexStreamState?.buffer.trim()) {
+        consumeCodexStreamChunk(
+          codexStreamState,
+          "\n",
+          (text) => {
+            options.emit({
+              type: "delta",
+              runId,
+              requestKey: request.requestKey,
+              text,
+            });
+          },
+          (shell) => {
+            emitShellEvent(options.emit, runId, request.requestKey, shell);
+          },
+        );
       }
 
       if (session.stoppedByUser) {
@@ -351,7 +627,9 @@ export function createChatSessionManager(options: {
 
       const text = claudeStreamState
         ? (claudeStreamState.text || claudeStreamState.finalText).trim()
-        : session.stdout.trim();
+        : codexStreamState
+          ? codexStreamState.text.trim()
+          : session.stdout.trim();
       if (!text) {
         options.emit({
           type: "failed",
@@ -379,10 +657,9 @@ export function createChatSessionManager(options: {
       clearTimeout(session.timeoutHandle);
       sessions.delete(runId);
 
-      const normalized =
-        err.message.includes("ENOENT")
-          ? `Agent runtime not found. Make sure ${command} is installed and available in your PATH.`
-          : err.message;
+      const normalized = err.message.includes("ENOENT")
+        ? `Agent runtime not found. Make sure ${command} is installed and available in your PATH.`
+        : err.message;
 
       options.emit({
         type: "failed",

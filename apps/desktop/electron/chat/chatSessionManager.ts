@@ -652,11 +652,11 @@ export function createChatSessionManager(options: {
 
       if (claudeStreamState?.sessionId) {
         runtimeSessions.set(requestSessionKey, claudeStreamState.sessionId);
-        try {
-          options.providerSessions?.set(requestSessionKey, claudeStreamState.sessionId);
-        } catch {
+        Promise.resolve(
+          options.providerSessions?.set(requestSessionKey, claudeStreamState.sessionId),
+        ).catch(() => {
           // Best-effort persistence; do not block UI on save failure.
-        }
+        });
       }
 
       options.emit({

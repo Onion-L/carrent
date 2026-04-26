@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import type { DraftThreadRecord } from "../lib/draftThreads";
 import {
   initialActiveThreadId,
   messages as initialMessages,
@@ -28,6 +29,7 @@ export type WorkspaceContextValue = {
   messages: Message[];
   activeThreadId: string | null;
   hasHydrated: boolean;
+  drafts: DraftThreadRecord[];
   currentThread: ThreadRecord | null;
   currentProject: ProjectRecord | null;
   getThreadRouteData: (
@@ -39,6 +41,7 @@ export type WorkspaceContextValue = {
     messages: Message[];
   } | null;
   setActiveThreadId: (id: string | null) => void;
+  setDrafts: (drafts: DraftThreadRecord[]) => void;
   createProject: (folderPath: string) => ProjectRecord | null;
   removeProject: (projectId: string) => void;
   renameProject: (projectId: string, newName: string) => boolean;
@@ -68,10 +71,13 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   projects: [],
   messages: [],
   activeThreadId: null,
+  hasHydrated: false,
+  drafts: [],
   currentThread: null,
   currentProject: null,
   getThreadRouteData: () => null,
   setActiveThreadId: () => {},
+  setDrafts: () => {},
   createProject: () => null,
   removeProject: () => {},
   renameProject: () => false,
@@ -90,7 +96,6 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   }),
   updateMessage: () => {},
   updateMessageParts: () => {},
-  hasHydrated: false,
 });
 
 function formatTime(date: Date): string {
@@ -194,9 +199,10 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
 }
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const [projects, setProjects] = useState(initialProjects);
-  const [messages, setMessages] = useState(initialMessages);
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(initialActiveThreadId);
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<DraftThreadRecord[]>([]);
   const [hasHydrated, setHasHydrated] = useState(false);
 
   const currentThread = findCurrentThread(projects, activeThreadId);
@@ -210,13 +216,27 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     window.carrent.workspace
       .load()
       .then((snapshot) => {
-        if (cancelled || !snapshot) return;
-        setProjects(snapshot.projects);
-        setMessages(snapshot.messages);
-        setActiveThreadId(snapshot.activeThreadId);
+        if (cancelled) return;
+        if (snapshot) {
+          setProjects(snapshot.projects);
+          setMessages(snapshot.messages);
+          setActiveThreadId(snapshot.activeThreadId);
+          setDrafts(snapshot.drafts);
+        } else {
+          setProjects(initialProjects);
+          setMessages(initialMessages);
+          setActiveThreadId(initialActiveThreadId);
+          setDrafts([]);
+        }
       })
       .catch((error) => {
         console.error("[workspace] failed to load", error);
+        if (!cancelled) {
+          setProjects(initialProjects);
+          setMessages(initialMessages);
+          setActiveThreadId(initialActiveThreadId);
+          setDrafts([]);
+        }
       })
       .finally(() => {
         if (!cancelled) {
@@ -230,7 +250,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useDebouncedWorkspaceSave(
-    buildWorkspaceSnapshot({ projects, messages, activeThreadId, drafts: [] }),
+    buildWorkspaceSnapshot({ projects, messages, activeThreadId, drafts }),
     hasHydrated,
   );
 
@@ -322,10 +342,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         messages,
         activeThreadId,
         hasHydrated,
+        drafts,
         currentThread,
         currentProject,
         getThreadRouteData,
         setActiveThreadId,
+        setDrafts,
         createProject,
         removeProject,
         renameProject,

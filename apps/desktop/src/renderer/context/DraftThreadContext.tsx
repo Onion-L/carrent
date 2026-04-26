@@ -1,6 +1,6 @@
-import { createContext, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 
-import { applyMessagePartUpdate, type MessagePartUpdate } from "./WorkspaceContext";
+import { applyMessagePartUpdate, type MessagePartUpdate, useWorkspace } from "./WorkspaceContext";
 import {
   buildDraftThreadRecord,
   finalizePromotedDraftThreadByRef as finalizeDraftThreadPromotion,
@@ -56,12 +56,10 @@ const DraftThreadContext = createContext<DraftThreadContextValue>({
 });
 
 export function DraftThreadProvider({ children }: { children: ReactNode }) {
-  const [drafts, setDrafts] = useState<DraftThreadRecord[]>([]);
-  const draftsRef = useRef<DraftThreadRecord[]>([]);
+  const { drafts, setDrafts } = useWorkspace();
 
   const updateDrafts = (updater: (currentDrafts: DraftThreadRecord[]) => DraftThreadRecord[]) => {
-    const nextDrafts = updater(draftsRef.current);
-    draftsRef.current = nextDrafts;
+    const nextDrafts = updater(drafts);
     setDrafts(nextDrafts);
     return nextDrafts;
   };
@@ -130,8 +128,7 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
   };
 
   const getDraftById = (draftId: string) =>
-    draftsRef.current.find((draft) => draft.draftId === draftId) ??
-    getVerificationDraftById(draftId);
+    drafts.find((draft) => draft.draftId === draftId) ?? getVerificationDraftById(draftId);
 
   return (
     <DraftThreadContext.Provider

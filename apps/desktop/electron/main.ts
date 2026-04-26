@@ -117,6 +117,15 @@ app.whenReady().then(async () => {
   });
 });
 
+app.on("before-quit", (event) => {
+  if (BrowserWindow.getAllWindows().length > 0) {
+    event.preventDefault();
+    setTimeout(() => {
+      app.quit();
+    }, 150);
+  }
+});
+
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();

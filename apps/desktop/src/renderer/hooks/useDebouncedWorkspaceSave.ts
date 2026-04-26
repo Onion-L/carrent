@@ -59,6 +59,10 @@ export function useDebouncedWorkspaceSave(
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
+      // Flush immediately on unmount so the last change is not lost.
+      window.carrent.workspace.save(snapshot).catch((error) => {
+        console.error("[workspace] failed to flush on unmount", error);
+      });
     };
   }, [snapshot, enabled, delayMs]);
 }

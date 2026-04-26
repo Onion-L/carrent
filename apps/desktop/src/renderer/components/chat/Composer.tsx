@@ -390,7 +390,7 @@ export function Composer(props: ComposerProps) {
                 <button
                   onClick={handleSend}
                   disabled={!canSend}
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-[#4a6cf7] text-white transition hover:bg-[#3d5de4] disabled:opacity-30"
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-[#181818] transition hover:bg-zinc-200 disabled:opacity-30"
                 >
                   <ArrowUp className="h-3.5 w-3.5" />
                 </button>

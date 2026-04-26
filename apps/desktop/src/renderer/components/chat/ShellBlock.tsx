@@ -1,6 +1,5 @@
 import {
   CheckCircle2,
-  ChevronDown,
   CircleDashed,
   Terminal,
   XCircle,

@@ -1,13 +1,90 @@
-import { useEffect, useState } from "react";
-import { Button, Input, Textarea, Select } from "@carrent/ui";
-import { Bot, Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Button, Input, Textarea } from "@carrent/ui";
+import { Bot, Plus, Trash2, ChevronUp } from "lucide-react";
 import { useAgents } from "../context/AgentContext";
+import { useRuntimes } from "../hooks/useRuntimes";
+import { RuntimeIcon } from "../components/RuntimeIcon";
 import type { AgentRecord } from "../mock/uiShellData";
 
-const runtimeOptions = [
-  { id: "codex", name: "Codex" },
-  { id: "claude-code", name: "Claude Code" },
-] as const;
+function RuntimePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const { runtimes } = useRuntimes();
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener("mousedown", handleClick);
+      return () => document.removeEventListener("mousedown", handleClick);
+    }
+  }, [open]);
+
+  const selectedRuntime = runtimes.find((r) => r.id === value);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-3 rounded-lg bg-[#252525] px-3 py-2.5 text-left transition hover:bg-[#2a2a2a]"
+      >
+        {selectedRuntime ? (
+          <>
+            <RuntimeIcon name={selectedRuntime.name} size="sm" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13px] font-medium text-[#eee]">
+                {selectedRuntime.name}
+              </div>
+            </div>
+            <ChevronUp
+              className={`h-4 w-4 shrink-0 text-[#666] transition-transform ${open ? "" : "rotate-180"}`}
+            />
+          </>
+        ) : (
+          <span className="text-[13px] text-[#666]">Select runtime...</span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full left-0 right-0 mb-1.5 overflow-hidden rounded-lg border border-[#333] bg-[#1e1e1e] shadow-xl">
+          {runtimes.map((runtime) => {
+            const isSelected = runtime.id === value;
+            const isOnline = runtime.availability === "detected";
+            return (
+              <button
+                key={runtime.id}
+                type="button"
+                onClick={() => {
+                  onChange(runtime.id);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition ${
+                  isSelected ? "bg-[#2a2a2a]" : "hover:bg-[#2a2a2a]"
+                }`}
+              >
+                <RuntimeIcon name={runtime.name} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium text-[#eee]">
+                    {runtime.name}
+                  </div>
+                </div>
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-full ${
+                    isOnline ? "bg-[#4ade80]" : "bg-[#444]"
+                  }`}
+                />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function AgentsPage() {
   const {
@@ -53,6 +130,13 @@ export function AgentsPage() {
       setDraft({ ...selectedAgent });
     }
   };
+
+  const hasChanges =
+    draft && selectedAgent
+      ? draft.name !== selectedAgent.name ||
+        draft.responsibility !== selectedAgent.responsibility ||
+        draft.runtime !== selectedAgent.runtime
+      : false;
 
   return (
     <div className="flex h-full w-full">
@@ -159,27 +243,26 @@ export function AgentsPage() {
                 <label className="mb-1.5 block text-[13px] font-medium text-[#aaa]">
                   Default Runtime
                 </label>
-                <Select
-                  className="bg-[#1e1e1e]"
+                <RuntimePicker
                   value={draft.runtime}
-                  onChange={(e) =>
+                  onChange={(runtime) =>
                     setDraft((prev) =>
                       prev
-                        ? { ...prev, runtime: e.target.value as AgentRecord["runtime"] }
+                        ? { ...prev, runtime: runtime as AgentRecord["runtime"] }
                         : prev,
                     )
                   }
-                >
-                  {runtimeOptions.map((rt) => (
-                    <option key={rt.id} value={rt.id}>
-                      {rt.name}
-                    </option>
-                  ))}
-                </Select>
+                />
               </div>
 
               <div className="flex gap-3 pt-2">
-                <Button variant="primary" size="sm" onClick={handleSave}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSave}
+                  disabled={!hasChanges}
+                  className="border-0 bg-white text-black hover:bg-[#eee] disabled:bg-[#333] disabled:text-[#666] disabled:opacity-100"
+                >
                   Save Changes
                 </Button>
                 <Button variant="ghost" size="sm" onClick={handleCancel}>

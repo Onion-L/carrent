@@ -1,12 +1,14 @@
 import { ArrowDown, Bot } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { agents, type Message } from "../../mock/uiShellData";
+import { useAgents } from "../../context/AgentContext";
+import { type Message } from "../../mock/uiShellData";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 import { ShellBlock } from "./ShellBlock";
 
 function AgentLabel({ agentId }: { agentId: string }) {
+  const { agents } = useAgents();
   const agent = agents.find((a) => a.id === agentId);
-  if (!agent) return null;
+  if (!agent) return <span className="text-[12px] font-medium text-[#666]">Unknown agent</span>;
   return <span className="text-[12px] font-medium text-[#666]">{agent.name}</span>;
 }
 

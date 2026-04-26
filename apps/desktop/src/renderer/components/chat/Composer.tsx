@@ -7,9 +7,9 @@ import {
   getNextTypewriterText,
   hasPendingTypewriterText,
 } from "./typewriter";
+import { useAgents } from "../../context/AgentContext";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
-import { agents } from "../../mock/uiShellData";
 import type { Message } from "../../mock/uiShellData";
 import type { ChatShellEventPayload } from "../../../shared/chat";
 
@@ -80,10 +80,8 @@ export function Composer(props: ComposerProps) {
   const { projects, appendMessage, updateMessage, updateMessageParts } = useWorkspace();
   const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
   const { isSending, send, stop } = useChatRun();
+  const { agents, selectedAgentId, selectedAgent, setSelectedAgentId } = useAgents();
   const [input, setInput] = useState("");
-  const [selectedAgentId, setSelectedAgentId] = useState(
-    agents.find((a) => a.selected)?.id ?? agents[0]?.id,
-  );
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const receivedTextRef = useRef("");
   const visibleTextRef = useRef("");
@@ -93,7 +91,6 @@ export function Composer(props: ComposerProps) {
   const project = projects.find((item) => item.id === props.projectId) ?? null;
   const threadId = props.mode === "draft" ? props.preallocatedThreadId : props.threadId;
 
-  const selectedAgent = agents.find((a) => a.id === selectedAgentId);
   const canSend = !!input.trim() && !!project && !!selectedAgent;
 
   const stopTypewriter = () => {
@@ -115,7 +112,7 @@ export function Composer(props: ComposerProps) {
   }, []);
 
   const handleSend = async () => {
-    if (!canSend) return;
+    if (!canSend || !selectedAgent) return;
 
     const messageText = input.trim();
     const agentId = selectedAgent.id;
@@ -327,7 +324,7 @@ export function Composer(props: ComposerProps) {
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={`Message ${selectedAgent?.name ?? "Agent"}...`}
+            placeholder={selectedAgent ? `Message ${selectedAgent.name}...` : "Select an agent..."}
             className="w-full resize-none bg-transparent text-[14px] text-[#ddd] placeholder-[#555] outline-none"
             rows={2}
             onKeyDown={(e) => {

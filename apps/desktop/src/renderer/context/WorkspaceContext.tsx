@@ -52,7 +52,7 @@ export type WorkspaceContextValue = {
   createThread: (projectId: string, title: string) => ThreadRecord | null;
   upsertThread: (projectId: string, thread: ThreadRecord) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
-  archiveThread: (projectId: string, threadId: string) => void;
+  archiveThread: (projectId: string, threadId: string) => string | null;
   upsertMessages: (messages: Message[]) => void;
   appendMessage: (message: {
     threadId: string;
@@ -94,7 +94,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   createThread: () => null,
   upsertThread: () => {},
   toggleThreadPin: () => {},
-  archiveThread: () => {},
+  archiveThread: () => null,
   upsertMessages: () => {},
   appendMessage: () => ({
     id: "",
@@ -327,6 +327,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (activeThreadId === threadId) {
       setActiveThreadId(result.nextActiveThreadId);
     }
+    return result.nextActiveThreadId;
   };
 
   const upsertMessages = (incomingMessages: Message[]) => {

@@ -132,7 +132,14 @@ export function SidebarNav() {
     if (!window.confirm("Archive this thread?")) return;
 
     setOpenThreadMenuId(null);
-    archiveThread(projectId, threadId);
+    const nextActiveThreadId = archiveThread(projectId, threadId);
+    if (activeThreadId === threadId) {
+      if (nextActiveThreadId) {
+        navigate(`/thread/${projectId}/${nextActiveThreadId}`);
+      } else {
+        navigate("/");
+      }
+    }
   };
 
   return (

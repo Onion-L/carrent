@@ -2,6 +2,7 @@ import { Route, Routes } from "react-router-dom";
 
 import { DesktopShell } from "./components/DesktopShell";
 import { ToastProvider } from "./components/toast/ToastContext";
+import { AgentProvider } from "./context/AgentContext";
 import { DraftThreadProvider } from "./context/DraftThreadContext";
 import { useWorkspace } from "./context/WorkspaceContext";
 import { AgentsPage } from "./routes/AgentsPage";
@@ -24,6 +25,7 @@ function AppRoutes() {
   }
 
   return (
+    <AgentProvider>
     <DraftThreadProvider>
       <ToastProvider>
         <DesktopShell>
@@ -39,6 +41,7 @@ function AppRoutes() {
         </DesktopShell>
       </ToastProvider>
     </DraftThreadProvider>
+    </AgentProvider>
   );
 }
 

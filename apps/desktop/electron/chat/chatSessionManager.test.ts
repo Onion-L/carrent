@@ -272,6 +272,38 @@ describe("createChatSessionManager", () => {
     });
   });
 
+  it("emits claude text deltas before completed", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start("run-stream-order", makeRequest({ runtimeId: "claude-code" }));
+    mockChild.stdout.emit(
+      "data",
+      Buffer.from(
+        [
+          '{"type":"system","subtype":"init","session_id":"sess-stream-order"}',
+          '{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Hel"}}}',
+          '{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"lo"}}}',
+        ].join("\n") + "\n",
+      ),
+    );
+    mockChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const eventTypes = emitted.map((event) => event.type);
+    expect(eventTypes.indexOf("delta")).toBeGreaterThan(-1);
+    expect(eventTypes.indexOf("completed")).toBeGreaterThan(-1);
+    expect(eventTypes.indexOf("delta")).toBeLessThan(
+      eventTypes.indexOf("completed"),
+    );
+  });
+
   it("parses claude stream-json into text deltas and final text", async () => {
     const mockChild = createMockChildProcess();
     const emitted: ChatRunEvent[] = [];

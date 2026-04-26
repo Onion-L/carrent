@@ -1,18 +1,20 @@
 import { useEffect, useRef } from "react";
 import type { WorkspaceSnapshot } from "../../shared/workspacePersistence";
 import type { DraftThreadRecord } from "../lib/draftThreads";
-import type { Message, ProjectRecord } from "../mock/uiShellData";
+import type { AgentRecord, Message, ProjectRecord } from "../mock/uiShellData";
 
 export function buildWorkspaceSnapshot({
   projects,
   messages,
   activeThreadId,
   drafts,
+  agents,
 }: {
   projects: ProjectRecord[];
   messages: Message[];
   activeThreadId: string | null;
   drafts: DraftThreadRecord[];
+  agents?: AgentRecord[];
 }): WorkspaceSnapshot {
   return {
     version: 1,
@@ -20,6 +22,7 @@ export function buildWorkspaceSnapshot({
     messages,
     activeThreadId,
     drafts,
+    agents,
   };
 }
 

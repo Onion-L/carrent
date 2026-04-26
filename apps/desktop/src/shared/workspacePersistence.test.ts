@@ -17,6 +17,18 @@ describe("normalizeWorkspaceSnapshot", () => {
     expect(normalizeWorkspaceSnapshot(snapshot)).toEqual(snapshot);
   });
 
+  it("accepts older snapshots without agents", () => {
+    const snapshot = {
+      version: WORKSPACE_SNAPSHOT_VERSION,
+      projects: [{ id: "p1", name: "P1", path: "/tmp/p1", threads: [] }],
+      messages: [],
+      activeThreadId: null,
+      drafts: [],
+    };
+
+    expect(normalizeWorkspaceSnapshot(snapshot)).toEqual(snapshot);
+  });
+
   it("rejects malformed snapshots", () => {
     expect(normalizeWorkspaceSnapshot({ version: 999 })).toBe(null);
     expect(normalizeWorkspaceSnapshot(null)).toBe(null);

@@ -1,9 +1,11 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { DraftThreadRecord } from "../lib/draftThreads";
 import {
+  agents as initialAgents,
   initialActiveThreadId,
   messages as initialMessages,
   projects as initialProjects,
+  type AgentRecord,
   type Message,
   type MessagePart,
   type ProjectRecord,
@@ -30,6 +32,7 @@ export type WorkspaceContextValue = {
   activeThreadId: string | null;
   hasHydrated: boolean;
   drafts: DraftThreadRecord[];
+  agents: AgentRecord[];
   currentThread: ThreadRecord | null;
   currentProject: ProjectRecord | null;
   getThreadRouteData: (
@@ -42,6 +45,7 @@ export type WorkspaceContextValue = {
   } | null;
   setActiveThreadId: (id: string | null) => void;
   setDrafts: (drafts: DraftThreadRecord[] | ((prev: DraftThreadRecord[]) => DraftThreadRecord[])) => void;
+  setAgents: (agents: AgentRecord[] | ((prev: AgentRecord[]) => AgentRecord[])) => void;
   createProject: (folderPath: string) => ProjectRecord | null;
   removeProject: (projectId: string) => void;
   renameProject: (projectId: string, newName: string) => boolean;
@@ -73,11 +77,13 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   activeThreadId: null,
   hasHydrated: false,
   drafts: [],
+  agents: [],
   currentThread: null,
   currentProject: null,
   getThreadRouteData: () => null,
   setActiveThreadId: () => {},
   setDrafts: () => {},
+  setAgents: () => {},
   createProject: () => null,
   removeProject: () => {},
   renameProject: () => false,
@@ -203,6 +209,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<DraftThreadRecord[]>([]);
+  const [agents, setAgents] = useState<AgentRecord[]>([]);
   const [hasHydrated, setHasHydrated] = useState(false);
 
   const currentThread = findCurrentThread(projects, activeThreadId);
@@ -222,11 +229,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           setMessages(snapshot.messages);
           setActiveThreadId(snapshot.activeThreadId);
           setDrafts(snapshot.drafts);
+          setAgents(snapshot.agents?.length ? snapshot.agents : initialAgents);
         } else {
           setProjects(initialProjects);
           setMessages(initialMessages);
           setActiveThreadId(initialActiveThreadId);
           setDrafts([]);
+          setAgents(initialAgents);
         }
       })
       .catch((error) => {
@@ -236,6 +245,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           setMessages(initialMessages);
           setActiveThreadId(initialActiveThreadId);
           setDrafts([]);
+          setAgents(initialAgents);
         }
       })
       .finally(() => {
@@ -250,7 +260,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useDebouncedWorkspaceSave(
-    buildWorkspaceSnapshot({ projects, messages, activeThreadId, drafts }),
+    buildWorkspaceSnapshot({ projects, messages, activeThreadId, drafts, agents }),
     hasHydrated,
   );
 
@@ -343,11 +353,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         activeThreadId,
         hasHydrated,
         drafts,
+        agents,
         currentThread,
         currentProject,
         getThreadRouteData,
         setActiveThreadId,
         setDrafts,
+        setAgents,
         createProject,
         removeProject,
         renameProject,

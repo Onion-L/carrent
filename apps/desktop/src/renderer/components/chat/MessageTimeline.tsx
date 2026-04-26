@@ -1,4 +1,5 @@
-import { Bot } from "lucide-react";
+import { ArrowDown, Bot } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { agents, type Message } from "../../mock/uiShellData";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 
@@ -77,64 +78,108 @@ function EmptyState() {
 }
 
 export function MessageTimeline({ messages }: { messages: Message[] }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      const threshold = 80;
+      const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setShowScrollButton(distanceToBottom > threshold);
+    };
+
+    el.addEventListener("scroll", handleScroll);
+    handleScroll();
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const threshold = 80;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceToBottom < threshold) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  };
+
   return (
-    <div className="flex flex-1 flex-col overflow-auto">
-      {messages.length === 0 ? (
-        <EmptyState />
-      ) : (
-        <div className="mx-auto flex w-full max-w-3xl flex-col">
-          {messages.map((msg, idx) => {
-            const isLast = idx === messages.length - 1;
+    <div className="relative flex flex-1 flex-col">
+      <div ref={scrollRef} className="flex flex-1 flex-col overflow-auto">
+        {messages.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <div className="mx-auto flex w-full max-w-3xl flex-col">
+            {messages.map((msg, idx) => {
+              const isLast = idx === messages.length - 1;
 
-            if (msg.role === "user") {
-              return (
-                <div
-                  key={msg.id}
-                  className={`px-4 py-5 ${!isLast ? "border-b border-[#222]" : ""}`}
-                >
-                  <UserMessage content={msg.content} />
-                </div>
-              );
-            }
+              if (msg.role === "user") {
+                return (
+                  <div
+                    key={msg.id}
+                    className={`px-4 py-5 ${!isLast ? "border-b border-[#222]" : ""}`}
+                  >
+                    <UserMessage content={msg.content} />
+                  </div>
+                );
+              }
 
-            if (msg.type === "changed_files") {
-              return (
-                <div
-                  key={msg.id}
-                  className={`px-4 py-5 ${!isLast ? "border-b border-[#222]" : ""}`}
-                >
-                  <div className="flex gap-3">
-                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#252525] text-[#666]">
-                      <Bot className="h-3.5 w-3.5" />
-                    </div>
-                    <div className="flex min-w-0 flex-1 flex-col gap-2">
-                      <div className="flex items-center gap-2">
-                        <AgentLabel agentId={msg.agentId} />
-                        <span className="text-[11px] text-[#444]">
-                          {msg.timestamp}
-                        </span>
+              if (msg.type === "changed_files") {
+                return (
+                  <div
+                    key={msg.id}
+                    className={`px-4 py-5 ${!isLast ? "border-b border-[#222]" : ""}`}
+                  >
+                    <div className="flex gap-3">
+                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#252525] text-[#666]">
+                        <Bot className="h-3.5 w-3.5" />
                       </div>
-                      <ChangedFilesCard message={msg} />
+                      <div className="flex min-w-0 flex-1 flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                          <AgentLabel agentId={msg.agentId} />
+                          <span className="text-[11px] text-[#444]">
+                            {msg.timestamp}
+                          </span>
+                        </div>
+                        <ChangedFilesCard message={msg} />
+                      </div>
                     </div>
                   </div>
+                );
+              }
+
+              return (
+                <div
+                  key={msg.id}
+                  className={`px-4 py-5 ${!isLast ? "border-b border-[#222]" : ""}`}
+                >
+                  <AssistantMessage
+                    content={msg.content}
+                    timestamp={msg.timestamp}
+                    agentId={msg.agentId}
+                  />
                 </div>
               );
-            }
-
-            return (
-              <div
-                key={msg.id}
-                className={`px-4 py-5 ${!isLast ? "border-b border-[#222]" : ""}`}
-              >
-                <AssistantMessage
-                  content={msg.content}
-                  timestamp={msg.timestamp}
-                  agentId={msg.agentId}
-                />
-              </div>
-            );
-          })}
-        </div>
+            })}
+          </div>
+        )}
+      </div>
+      {showScrollButton && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-4 left-1/2 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-[#333] bg-[#252525] text-[#888] shadow-lg transition hover:border-[#444] hover:bg-[#2a2a2a] hover:text-[#ddd]"
+        >
+          <ArrowDown className="h-3.5 w-3.5" />
+        </button>
       )}
     </div>
   );

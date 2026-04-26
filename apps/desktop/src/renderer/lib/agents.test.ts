@@ -28,7 +28,7 @@ describe("buildNewAgent", () => {
     expect(agent.runtime).toBe("codex");
     expect(agent.createdAt).toBeString();
     expect(agent.updatedAt).toBeString();
-    expect(validateAgent(agent)).not.toBeNull();
+    expect(validateAgent(agent)).toBeString();
   });
 });
 
@@ -60,13 +60,13 @@ describe("validateAgent", () => {
 
   it("accepts a valid agent", () => {
     const agent = makeAgent();
-    expect(validateAgent(agent)).toBeNull();
+    expect(validateAgent(agent) === null).toBe(true);
   });
 });
 
 describe("getSelectableAgentId", () => {
   it("returns null when list is empty", () => {
-    expect(getSelectableAgentId([])).toBeNull();
+    expect(getSelectableAgentId([]) === null).toBe(true);
   });
 
   it("returns preferred id when it exists", () => {
@@ -113,7 +113,7 @@ describe("deleteAgentFromList", () => {
     const agents = [makeAgent({ id: "a1" })];
     const result = deleteAgentFromList(agents, "a1", "a1");
     expect(result.agents.length).toBe(0);
-    expect(result.nextSelectedId).toBeNull();
+    expect(result.nextSelectedId === null).toBe(true);
   });
 
   it("preserves current selected when it is not the deleted agent", () => {

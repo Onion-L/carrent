@@ -129,10 +129,15 @@ app.on("before-quit", async (event) => {
     event.preventDefault();
     isQuitting = true;
     const lastSnapshot = getLastWorkspaceSnapshot();
-    if (lastSnapshot && workspaceStore) {
-      await workspaceStore.saveWorkspaceSnapshot(lastSnapshot);
+    try {
+      if (lastSnapshot && workspaceStore) {
+        await workspaceStore.saveWorkspaceSnapshot(lastSnapshot);
+      }
+    } catch (error) {
+      console.error("[workspace] failed to save before quit", error);
+    } finally {
+      app.quit();
     }
-    app.quit();
   }
 });
 

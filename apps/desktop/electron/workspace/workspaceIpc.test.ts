@@ -1,15 +1,19 @@
 import { describe, expect, it } from "bun:test";
-import { registerWorkspaceIpc } from "./workspaceIpc";
+import { getLastWorkspaceSnapshot, registerWorkspaceIpc } from "./workspaceIpc";
 import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../../src/shared/workspacePersistence";
 
 describe("registerWorkspaceIpc", () => {
-  it("registers workspace:load, workspace:save, provider-sessions:load, provider-sessions:save", () => {
+  it("registers workspace and provider session channels", () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const listeners = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
 
     registerWorkspaceIpc(
       {
         handle(channel, listener) {
           handlers.set(channel, listener);
+        },
+        on(channel, listener) {
+          listeners.set(channel, listener);
         },
       },
       {
@@ -26,6 +30,7 @@ describe("registerWorkspaceIpc", () => {
       "workspace:load",
       "workspace:save",
     ]);
+    expect([...listeners.keys()]).toEqual(["workspace:remember"]);
   });
 
   it("workspace:load returns snapshot from store", async () => {
@@ -43,6 +48,7 @@ describe("registerWorkspaceIpc", () => {
         handle(channel, listener) {
           handlers.set(channel, listener);
         },
+        on() {},
       },
       {
         loadWorkspaceSnapshot: async () => snapshot,
@@ -72,6 +78,7 @@ describe("registerWorkspaceIpc", () => {
         handle(channel, listener) {
           handlers.set(channel, listener);
         },
+        on() {},
       },
       {
         loadWorkspaceSnapshot: async () => null,
@@ -86,6 +93,43 @@ describe("registerWorkspaceIpc", () => {
     await handlers.get("workspace:save")?.({}, snapshot);
     expect(saved).toHaveLength(1);
     expect(saved[0]).toEqual(snapshot);
+    expect(getLastWorkspaceSnapshot()).toEqual(snapshot);
+  });
+
+  it("workspace:remember updates the latest snapshot without writing to disk", () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const listeners = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const saved: WorkspaceSnapshot[] = [];
+    const snapshot: WorkspaceSnapshot = {
+      version: 1,
+      projects: [{ id: "p2", name: "P2", path: "/tmp/p2", threads: [] }],
+      messages: [],
+      activeThreadId: null,
+      drafts: [],
+    };
+
+    registerWorkspaceIpc(
+      {
+        handle(channel, listener) {
+          handlers.set(channel, listener);
+        },
+        on(channel, listener) {
+          listeners.set(channel, listener);
+        },
+      },
+      {
+        loadWorkspaceSnapshot: async () => null,
+        saveWorkspaceSnapshot: async (s) => {
+          saved.push(s);
+        },
+        loadProviderSessions: async () => ({ version: 1, sessions: {} }),
+        saveProviderSessions: async () => {},
+      },
+    );
+
+    listeners.get("workspace:remember")?.({}, snapshot);
+    expect(getLastWorkspaceSnapshot()).toEqual(snapshot);
+    expect(saved).toHaveLength(0);
   });
 
   it("provider-sessions:load returns sessions from store", async () => {
@@ -97,6 +141,7 @@ describe("registerWorkspaceIpc", () => {
         handle(channel, listener) {
           handlers.set(channel, listener);
         },
+        on() {},
       },
       {
         loadWorkspaceSnapshot: async () => null,

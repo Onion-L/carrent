@@ -18,7 +18,7 @@ describe("normalizeWorkspaceSnapshot", () => {
   });
 
   it("rejects malformed snapshots", () => {
-    expect(normalizeWorkspaceSnapshot({ version: 999 })).toBeNull();
-    expect(normalizeWorkspaceSnapshot(null)).toBeNull();
+    expect(normalizeWorkspaceSnapshot({ version: 999 })).toBe(null);
+    expect(normalizeWorkspaceSnapshot(null)).toBe(null);
   });
 });

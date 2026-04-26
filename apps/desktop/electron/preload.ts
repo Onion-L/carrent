@@ -45,6 +45,8 @@ const carrent = {
   },
   workspace: {
     load: () => ipcRenderer.invoke("workspace:load") as Promise<WorkspaceSnapshot | null>,
+    remember: (snapshot: WorkspaceSnapshot) =>
+      ipcRenderer.send("workspace:remember", snapshot),
     save: (snapshot: WorkspaceSnapshot) =>
       ipcRenderer.invoke("workspace:save", snapshot),
   },

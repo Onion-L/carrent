@@ -44,6 +44,8 @@ export function useDebouncedWorkspaceSave(
       return;
     }
 
+    window.carrent.workspace.remember(snapshot);
+
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }

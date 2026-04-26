@@ -37,6 +37,7 @@ declare global {
       };
       workspace: {
         load: () => Promise<WorkspaceSnapshot | null>;
+        remember: (snapshot: WorkspaceSnapshot) => void;
         save: (snapshot: WorkspaceSnapshot) => Promise<void>;
       };
       providerSessions: {

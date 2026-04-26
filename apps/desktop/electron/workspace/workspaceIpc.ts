@@ -6,6 +6,10 @@ interface IpcMainLike {
     channel: string,
     listener: (event: unknown, ...args: unknown[]) => Promise<unknown> | unknown,
   ) => void;
+  on: (
+    channel: string,
+    listener: (event: unknown, ...args: unknown[]) => void,
+  ) => void;
 }
 
 let lastWorkspaceSnapshot: WorkspaceSnapshot | null = null;
@@ -16,6 +20,9 @@ export function getLastWorkspaceSnapshot(): WorkspaceSnapshot | null {
 
 export function registerWorkspaceIpc(ipcMainLike: IpcMainLike, store: WorkspaceStore) {
   ipcMainLike.handle("workspace:load", () => store.loadWorkspaceSnapshot());
+  ipcMainLike.on("workspace:remember", (_event, snapshot) => {
+    lastWorkspaceSnapshot = snapshot as WorkspaceSnapshot;
+  });
   ipcMainLike.handle("workspace:save", (_event, snapshot) => {
     const s = snapshot as WorkspaceSnapshot;
     lastWorkspaceSnapshot = s;

@@ -22,6 +22,7 @@ interface ChatSession {
   stdout: string;
   stderr: string;
   stoppedByUser: boolean;
+  endedByPermissionFailure: boolean;
   timeoutHandle: ReturnType<typeof setTimeout>;
 }
 
@@ -415,6 +416,7 @@ function consumeClaudeStreamChunk(
   onReasoning: (reasoning: ChatReasoningEventPayload) => void,
   onPermissionDenied: (permissionId: string, error: string) => void,
 ) {
+  let permissionDenied = false;
   state.buffer += chunk;
   const lines = state.buffer.split("\n");
   state.buffer = lines.pop() ?? "";
@@ -439,6 +441,8 @@ function consumeClaudeStreamChunk(
           permissionRequest.id,
           "Interactive approvals are not supported for Claude in --print mode. Switch runtime mode to Auto-accept edits or Full access.",
         );
+        permissionDenied = true;
+        continue;
       }
 
       const thinkingBlock = extractClaudeThinkingBlock(payload);
@@ -488,6 +492,8 @@ function consumeClaudeStreamChunk(
       continue;
     }
   }
+
+  return permissionDenied;
 }
 
 function consumeCodexStreamChunk(
@@ -699,14 +705,19 @@ export function createChatSessionManager(options: {
       stdout: "",
       stderr: "",
       stoppedByUser: false,
+      endedByPermissionFailure: false,
       timeoutHandle,
     };
     sessions.set(runId, session);
 
     child.stdout?.on("data", (data: Buffer) => {
+      if (session.endedByPermissionFailure) {
+        return;
+      }
+
       const chunk = data.toString();
       if (claudeStreamState) {
-        consumeClaudeStreamChunk(
+        const permissionDenied = consumeClaudeStreamChunk(
           claudeStreamState,
           chunk,
           (text) => {
@@ -731,8 +742,15 @@ export function createChatSessionManager(options: {
               permissionId,
               error,
             });
+            session.endedByPermissionFailure = true;
+            clearTimeout(session.timeoutHandle);
+            sessions.delete(runId);
+            session.child.kill("SIGTERM");
           },
         );
+        if (permissionDenied) {
+          return;
+        }
         return;
       }
 
@@ -775,8 +793,12 @@ export function createChatSessionManager(options: {
       clearTimeout(session.timeoutHandle);
       sessions.delete(runId);
 
+      if (session.endedByPermissionFailure) {
+        return;
+      }
+
       if (claudeStreamState?.buffer.trim()) {
-        consumeClaudeStreamChunk(
+        const permissionDenied = consumeClaudeStreamChunk(
           claudeStreamState,
           "\n",
           (text) => {
@@ -801,8 +823,12 @@ export function createChatSessionManager(options: {
               permissionId,
               error,
             });
+            session.endedByPermissionFailure = true;
           },
         );
+        if (permissionDenied) {
+          return;
+        }
       }
 
       if (codexStreamState?.buffer.trim()) {

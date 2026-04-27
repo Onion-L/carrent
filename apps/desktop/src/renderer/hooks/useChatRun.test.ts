@@ -248,8 +248,11 @@ describe("createChatRunCoordinator", () => {
   });
 
   it("removes permission when permission-failed is received", () => {
+    const received: string[] = [];
     const coordinator = createChatRunCoordinator();
-    coordinator.beginRequest("req-1", "thread-1", {});
+    coordinator.beginRequest("req-1", "thread-1", {
+      onError: (error) => received.push(error),
+    });
     coordinator.attachRunId("req-1", "run-1");
 
     coordinator.handleEvent({
@@ -280,5 +283,7 @@ describe("createChatRunCoordinator", () => {
     const snapshot = coordinator.getSnapshot();
     expect(snapshot.pendingPermissions).toHaveLength(0);
     expect(snapshot.lastError).toContain("not supported");
+    expect(snapshot.isSending).toBe(false);
+    expect(received).toEqual(["Interactive approvals not supported"]);
   });
 });

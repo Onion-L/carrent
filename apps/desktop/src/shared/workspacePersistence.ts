@@ -5,6 +5,7 @@ import type {
   ProjectRecord,
   ThreadRecord,
 } from "../renderer/mock/uiShellData";
+import { normalizeRuntimeMode } from "./runtimeMode";
 
 export const WORKSPACE_SNAPSHOT_VERSION = 1;
 
@@ -43,9 +44,24 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
     return null;
   }
 
+  function normalizeThreadRecord<T extends { runtimeMode?: unknown }>(thread: T) {
+    return {
+      ...thread,
+      runtimeMode: normalizeRuntimeMode(thread.runtimeMode),
+    };
+  }
+
   return {
     ...snapshot,
-    chats,
+    projects: snapshot.projects.map((project) => ({
+      ...project,
+      threads: project.threads.map(normalizeThreadRecord),
+    })),
+    chats: chats.map(normalizeThreadRecord),
+    drafts: snapshot.drafts.map((draft) => ({
+      ...draft,
+      runtimeMode: normalizeRuntimeMode(draft.runtimeMode),
+    })),
   };
 }
 

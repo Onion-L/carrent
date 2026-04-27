@@ -67,6 +67,52 @@ describe("normalizeWorkspaceSnapshot", () => {
       drafts: [],
     };
 
-    expect(normalizeWorkspaceSnapshot(snapshot)).toEqual(snapshot);
+    expect(normalizeWorkspaceSnapshot(snapshot)).toEqual({
+      ...snapshot,
+      chats: [{ ...snapshot.chats[0], runtimeMode: "approval-required" }],
+    });
+  });
+
+  it("normalizes legacy project threads without runtime mode", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [
+        {
+          id: "p1",
+          name: "P1",
+          path: "/tmp/p1",
+          threads: [{ id: "t1", title: "Old", updatedAt: "now" }],
+        },
+      ],
+      chats: [],
+      messages: [],
+      activeThreadId: null,
+      drafts: [],
+    });
+
+    expect(snapshot?.projects[0].threads[0].runtimeMode).toBe("approval-required");
+  });
+
+  it("normalizes legacy chats and drafts without runtime mode", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [],
+      chats: [{ id: "c1", title: "Chat", updatedAt: "now" }],
+      messages: [],
+      activeThreadId: null,
+      drafts: [
+        {
+          draftId: "d1",
+          projectId: "p1",
+          title: "Draft",
+          preallocatedThreadId: "t1",
+          createdAt: "now",
+          messages: [],
+        },
+      ],
+    });
+
+    expect(snapshot?.chats[0].runtimeMode).toBe("approval-required");
+    expect(snapshot?.drafts[0].runtimeMode).toBe("approval-required");
   });
 });

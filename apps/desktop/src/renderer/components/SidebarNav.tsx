@@ -195,7 +195,7 @@ export function SidebarNav() {
   };
 
   return (
-    <aside className="flex h-full flex-col overflow-y-auto bg-[#1e1e1e]">
+    <aside className="flex h-full flex-col overflow-hidden bg-[#1e1e1e]">
       <div
         className="drag-region shrink-0"
         style={{ height: "env(titlebar-area-height, 38px)" }}
@@ -228,8 +228,10 @@ export function SidebarNav() {
         </nav>
       </div>
 
-      {/* Projects section */}
-      <div className="flex flex-col min-h-0">
+      {/* Projects + Chat scrollable area */}
+      <div className="flex-1 overflow-auto min-h-0">
+        {/* Projects section */}
+        <div className="flex flex-col">
         <div className="flex items-center justify-between px-4 py-1.5">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
             Projects
@@ -502,8 +504,8 @@ export function SidebarNav() {
         </div>
       </div>
 
-      {/* Chat section */}
-      <div className="flex shrink-0 flex-col">
+        {/* Chat section */}
+        <div className="flex flex-col">
         <div className="flex items-center justify-between px-4 py-1.5">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
             Chat
@@ -602,9 +604,10 @@ export function SidebarNav() {
             })}
         </div>
       </div>
+      </div>
 
       {/* Settings */}
-      <div className="px-2 pb-3">
+      <div className="shrink-0 px-2 pb-3">
         <NavLink
           to="/settings"
           className={({ isActive }) =>

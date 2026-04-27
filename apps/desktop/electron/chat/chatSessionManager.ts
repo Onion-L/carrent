@@ -515,17 +515,25 @@ function consumeCodexStreamChunk(
   }
 }
 
-const PROJECTLESS_CHAT_CWD = path.join(
-  process.env.APPDATA || process.env.HOME || "/tmp",
-  "carrent-chat",
-);
+function getProjectlessChatCwd() {
+  try {
+    const { app } = require("electron");
+    return path.join(app.getPath("userData"), "carrent-chat");
+  } catch {
+    return path.join(
+      process.env.APPDATA || process.env.HOME || "/tmp",
+      "carrent-chat",
+    );
+  }
+}
 
 function resolveRequestCwd(request: ChatTurnRequest) {
   if (request.workspace.kind === "project") {
     return request.workspace.projectPath;
   }
-  fs.mkdirSync(PROJECTLESS_CHAT_CWD, { recursive: true });
-  return PROJECTLESS_CHAT_CWD;
+  const cwd = getProjectlessChatCwd();
+  fs.mkdirSync(cwd, { recursive: true });
+  return cwd;
 }
 
 function buildRequestSessionKey(request: ChatTurnRequest) {

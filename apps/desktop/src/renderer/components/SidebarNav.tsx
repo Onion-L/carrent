@@ -216,10 +216,10 @@ export function SidebarNav() {
       </div>
 
       {/* Projects + Chat scrollable area */}
-      <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+      <div className="flex-1 overflow-auto min-h-0">
         {/* Projects section */}
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <div className="shrink-0 flex items-center justify-between px-4 py-1.5">
+        <div className="flex flex-col">
+          <div className="flex items-center justify-between px-4 py-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
               Projects
             </span>
@@ -247,7 +247,7 @@ export function SidebarNav() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto px-2 pb-2 mt-1">
+          <div className="px-2 pb-2 mt-1">
             {projects.map((project) => {
               const isExpanded = expandedProjectIds.includes(project.id);
               const { active } = splitProjectThreads(project.threads);
@@ -468,8 +468,8 @@ export function SidebarNav() {
         </div>
 
         {/* Chat section */}
-        <div className="shrink-0 flex flex-col max-h-[35%] min-h-0 overflow-hidden">
-          <div className="shrink-0 flex items-center justify-between px-4 py-1.5">
+        <div className="flex flex-col">
+          <div className="flex items-center justify-between px-4 py-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
               Chat
             </span>
@@ -481,7 +481,7 @@ export function SidebarNav() {
               <Plus className="h-3 w-3" />
             </button>
           </div>
-          <div className="flex-1 overflow-auto px-2 pb-2">
+          <div className="px-2 pb-2">
             {splitProjectThreads(chats).active.map((chat) => {
                 const isActive = chat.id === activeThreadId;
                 const showActions = isActive || hoveredChatId === chat.id;

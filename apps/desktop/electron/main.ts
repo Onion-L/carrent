@@ -146,3 +146,8 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
+
+ipcMain.handle("settings:check-for-updates", async () => {
+  // TODO: implement actual update check
+  return { hasUpdate: false };
+});

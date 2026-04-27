@@ -46,6 +46,9 @@ declare global {
         load: () => Promise<ProviderSessionSnapshot>;
         save: (snapshot: ProviderSessionSnapshot) => Promise<void>;
       };
+      settings: {
+        checkForUpdates: () => Promise<{ hasUpdate: boolean; latestVersion?: string }>;
+      };
     };
   }
 }

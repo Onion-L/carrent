@@ -5,6 +5,7 @@ import { ToastProvider } from "./components/toast/ToastContext";
 import { AgentProvider } from "./context/AgentContext";
 import { DraftThreadProvider } from "./context/DraftThreadContext";
 import { useWorkspace } from "./context/WorkspaceContext";
+import { SettingsProvider } from "./context/SettingsContext";
 import { AgentsPage } from "./routes/AgentsPage";
 import { DraftThreadPage } from "./routes/DraftThreadPage";
 import { HomePage } from "./routes/HomePage";
@@ -50,7 +51,9 @@ function AppRoutes() {
 export default function App() {
   return (
     <WorkspaceProvider>
-      <AppRoutes />
+      <SettingsProvider>
+        <AppRoutes />
+      </SettingsProvider>
     </WorkspaceProvider>
   );
 }

@@ -1,10 +1,8 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
-import { GripVertical, RefreshCw, Square, Play, Plug, Monitor, ChevronRight } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { RefreshCw, Square, Play, Plug, Monitor, ChevronRight } from "lucide-react";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { RuntimeIcon } from "../components/RuntimeIcon";
-
-const RUNTIME_ORDER_KEY = "carrent:runtimeOrder";
 
 function RuntimeListSkeleton() {
   return (
@@ -23,24 +21,6 @@ function RuntimeListSkeleton() {
   );
 }
 
-function readStoredOrder(): string[] | null {
-  try {
-    const raw = localStorage.getItem(RUNTIME_ORDER_KEY);
-    if (raw) return JSON.parse(raw) as string[];
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
-function writeStoredOrder(order: string[]) {
-  try {
-    localStorage.setItem(RUNTIME_ORDER_KEY, JSON.stringify(order));
-  } catch {
-    // ignore
-  }
-}
-
 export function RuntimesPage() {
   const { runtimes, loading, actionStateById, runModelPing, start, stop, refreshVersion } =
     useRuntimes();
@@ -50,22 +30,10 @@ export function RuntimesPage() {
     setActiveThreadId(null);
   }, [setActiveThreadId]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [orderedIds, setOrderedIds] = useState<string[]>(() => {
-    const stored = readStoredOrder();
-    if (stored) return stored;
-    return runtimes.map((r) => r.id);
-  });
-  const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const sortedRuntimes = useMemo(() => {
-    const orderMap = new Map(orderedIds.map((id, i) => [id, i]));
-    return [...runtimes].sort((a, b) => {
-      const ai = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-      const bi = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-      return ai - bi;
-    });
-  }, [runtimes, orderedIds]);
+    return [...runtimes].sort((a, b) => a.name.localeCompare(b.name));
+  }, [runtimes]);
 
   const selectedRuntime = sortedRuntimes.find((r) => r.id === selectedId);
 
@@ -74,49 +42,6 @@ export function RuntimesPage() {
   const isActionPending = (id: string) => {
     return getActionState(id) !== "idle";
   };
-
-  const handleDragStart = useCallback((id: string) => {
-    setDraggedId(id);
-  }, []);
-
-  const handleDragOver = useCallback(
-    (e: React.DragEvent, id: string) => {
-      e.preventDefault();
-      if (id !== draggedId) {
-        setDragOverId(id);
-      }
-    },
-    [draggedId],
-  );
-
-  const handleDrop = useCallback(
-    (targetId: string) => {
-      if (!draggedId || draggedId === targetId) {
-        setDraggedId(null);
-        setDragOverId(null);
-        return;
-      }
-      setOrderedIds((prev) => {
-        const next = prev.filter((id) => id !== draggedId);
-        const targetIndex = next.indexOf(targetId);
-        if (targetIndex >= 0) {
-          next.splice(targetIndex, 0, draggedId);
-        } else {
-          next.push(draggedId);
-        }
-        writeStoredOrder(next);
-        return next;
-      });
-      setDraggedId(null);
-      setDragOverId(null);
-    },
-    [draggedId],
-  );
-
-  const handleDragEnd = useCallback(() => {
-    setDraggedId(null);
-    setDragOverId(null);
-  }, []);
 
   const onlineCount = sortedRuntimes.filter((r) => r.availability === "detected").length;
 
@@ -149,27 +74,15 @@ export function RuntimesPage() {
               sortedRuntimes.map((runtime) => {
                 const isActive = runtime.id === selectedId;
                 const isOnline = runtime.availability === "detected";
-                const isDragging = draggedId === runtime.id;
-                const isDragOver = dragOverId === runtime.id;
                 const isRunning = runtime.status === "running";
 
                 return (
                   <div key={runtime.id}>
                     <div
-                      draggable
-                      onDragStart={() => handleDragStart(runtime.id)}
-                      onDragOver={(e) => handleDragOver(e, runtime.id)}
-                      onDrop={() => handleDrop(runtime.id)}
-                      onDragEnd={handleDragEnd}
-                      className={`group flex w-full cursor-move items-center gap-2 rounded-lg px-2.5 py-2.5 text-left transition ${
+                      className={`group flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left transition ${
                         isActive ? "bg-surface" : "hover:bg-surface/60"
-                      } ${isDragging ? "opacity-40" : "opacity-100"} ${
-                        isDragOver && draggedId !== runtime.id
-                          ? "ring-1 ring-inset ring-[#444]"
-                          : ""
                       }`}
                     >
-                      <GripVertical className="h-3.5 w-3.5 shrink-0 text-[#444] opacity-0 transition group-hover:opacity-100" />
                       <div
                         className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5"
                         onClick={() => setSelectedId(runtime.id)}

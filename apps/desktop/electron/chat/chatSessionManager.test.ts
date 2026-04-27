@@ -624,6 +624,34 @@ describe("createChatSessionManager", () => {
     ]);
   });
 
+  it("emits permission-failed when Claude emits permission denial tool_result", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start("run-perm-denial", makeRequest({ runtimeId: "claude-code" }));
+    mockChild.stdout.emit(
+      "data",
+      Buffer.from(
+        [
+          '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"call_1","name":"Edit","input":{"file_path":"/tmp/demo.txt"}}]},"session_id":"sess-perm"}',
+          '{"type":"user","message":{"content":[{"tool_use_id":"call_1","type":"tool_result","content":"Claude requested permissions to write to /tmp/demo.txt, but you haven\'t granted it yet.","is_error":true}]}}',
+        ].join("\n") + "\n",
+      ),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const permissionFailed = emitted.find((e) => e.type === "permission-failed");
+    expect(permissionFailed).toBeDefined();
+    expect(permissionFailed?.runId).toBe("run-perm-denial");
+    expect(permissionFailed?.error).toContain("not support");
+  });
+
   it("parses claude stream-json into text deltas and final text", async () => {
     const mockChild = createMockChildProcess();
     const emitted: ChatRunEvent[] = [];

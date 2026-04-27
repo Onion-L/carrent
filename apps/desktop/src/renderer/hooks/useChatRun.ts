@@ -145,12 +145,20 @@ export function createChatRunCoordinator() {
     handleEvent(event: ChatRunEvent) {
       const run = getRunForEvent(event);
 
-      // permission-failed events should update lastError even if run is not found
-      // (run may have already completed/stopped but user should still see the error)
+      // permission-failed for an active run is a terminal error: show to user and end run
+      // permission-failed when run is not found still shows error to user
       if (event.type === "permission-failed") {
         if (run) {
-          pendingPermissionById.delete(event.permissionId);
+          // Clear permissions for this run before ending
+          pendingPermissionById.forEach((perm, id) => {
+            if (perm.runId === event.runId) {
+              pendingPermissionById.delete(id);
+            }
+          });
+          run.callbacks.onError?.(event.error);
+          finishPendingRun(run);
         }
+        // Show error to user even if run is not found (may have already ended)
         if (event.error) {
           updateSnapshot(event.error);
         } else {

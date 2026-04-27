@@ -991,4 +991,103 @@ describe("createChatSessionManager", () => {
     expect(spawnCalls[1]).toContain("--resume");
     expect(spawnCalls[1]).toContain("sess-resume");
   });
+
+  it("passes read-only sandbox for approval-required codex runs", async () => {
+    const mockChild = createMockChildProcess();
+    let capturedArgs: string[] = [];
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (_command, args) => {
+        capturedArgs = args;
+        return mockChild;
+      },
+    });
+
+    manager.start("run-sandbox-ro", makeRequest({ runtimeId: "codex", runtimeMode: "approval-required" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(capturedArgs).toContain("--sandbox");
+    expect(capturedArgs).toContain("read-only");
+    expect(capturedArgs).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+  });
+
+  it("passes workspace-write sandbox for auto-accept codex runs", async () => {
+    const mockChild = createMockChildProcess();
+    let capturedArgs: string[] = [];
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (_command, args) => {
+        capturedArgs = args;
+        return mockChild;
+      },
+    });
+
+    manager.start("run-sandbox-ww", makeRequest({ runtimeId: "codex", runtimeMode: "auto-accept-edits" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(capturedArgs).toContain("--sandbox");
+    expect(capturedArgs).toContain("workspace-write");
+  });
+
+  it("passes dangerous bypass only for full-access codex runs", async () => {
+    const mockChild = createMockChildProcess();
+    let capturedArgs: string[] = [];
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (_command, args) => {
+        capturedArgs = args;
+        return mockChild;
+      },
+    });
+
+    manager.start("run-sandbox-full", makeRequest({ runtimeId: "codex", runtimeMode: "full-access" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(capturedArgs).toContain("--dangerously-bypass-approvals-and-sandbox");
+  });
+
+  it("passes claude permission mode for non-full-access runs", async () => {
+    const mockChild = createMockChildProcess();
+    let capturedArgs: string[] = [];
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (_command, args) => {
+        capturedArgs = args;
+        return mockChild;
+      },
+    });
+
+    manager.start("run-perm-auto", makeRequest({ runtimeId: "claude-code", runtimeMode: "auto-accept-edits" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(capturedArgs).toContain("--permission-mode");
+    expect(capturedArgs).toContain("acceptEdits");
+  });
+
+  it("passes claude dangerous skip only for full-access runs", async () => {
+    const mockChild = createMockChildProcess();
+    let capturedArgs: string[] = [];
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (_command, args) => {
+        capturedArgs = args;
+        return mockChild;
+      },
+    });
+
+    manager.start("run-perm-full", makeRequest({ runtimeId: "claude-code", runtimeMode: "full-access" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(capturedArgs).toContain("--dangerously-skip-permissions");
+  });
 });

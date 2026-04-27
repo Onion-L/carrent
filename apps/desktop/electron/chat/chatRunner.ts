@@ -3,6 +3,12 @@ import fs from "node:fs";
 import type { ProcessRunner } from "../runtime/processRunner";
 import type { ChatTurnRequest } from "../../src/shared/chat";
 import type { RuntimeId } from "../../src/shared/runtimes";
+import {
+  DEFAULT_RUNTIME_MODE,
+  getClaudeRuntimeModeArgs,
+  getCodexRuntimeModeArgs,
+  type RuntimeMode,
+} from "../../src/shared/runtimeMode";
 import { buildChatPrompt } from "./chatPrompt";
 
 export interface ChatRunnerResult {
@@ -41,7 +47,11 @@ export function createChatRunner(processRunner: ProcessRunner): ChatRunner {
     async run(request) {
       const prompt = buildChatPrompt(request);
 
-      const { command, args } = getRuntimeCommand(request.runtimeId, prompt);
+      const { command, args } = getRuntimeCommand(
+      request.runtimeId,
+      prompt,
+      request.runtimeMode,
+    );
 
       const result = await processRunner.run(command, args, {
         cwd: resolveRequestCwd(request),
@@ -70,17 +80,24 @@ export function createChatRunner(processRunner: ProcessRunner): ChatRunner {
 export function getRuntimeCommand(
   runtimeId: RuntimeId,
   prompt: string,
+  runtimeMode: RuntimeMode = DEFAULT_RUNTIME_MODE,
 ): { command: string; args: string[] } {
   switch (runtimeId) {
     case "codex":
       return {
         command: "codex",
-        args: ["exec", "--skip-git-repo-check", "--ephemeral", prompt],
+        args: [
+          "exec",
+          "--skip-git-repo-check",
+          "--ephemeral",
+          ...getCodexRuntimeModeArgs(runtimeMode),
+          prompt,
+        ],
       };
     case "claude-code":
       return {
         command: "claude",
-        args: ["--print", prompt],
+        args: ["--print", ...getClaudeRuntimeModeArgs(runtimeMode), prompt],
       };
     case "pi":
       return {

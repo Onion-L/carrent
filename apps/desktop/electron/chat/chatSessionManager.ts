@@ -9,6 +9,10 @@ import type {
 } from "../../src/shared/chat";
 import { buildChatPrompt } from "./chatPrompt";
 import { getRuntimeCommand } from "./chatRunner";
+import {
+  getClaudeRuntimeModeArgs,
+  getCodexRuntimeModeArgs,
+} from "../../src/shared/runtimeMode";
 
 interface ChatSession {
   runId: string;
@@ -558,7 +562,14 @@ function getSessionRuntimeCommand(
   if (request.runtimeId === "codex") {
     return {
       command: "codex",
-      args: ["exec", "--json", "--skip-git-repo-check", "--ephemeral", prompt],
+      args: [
+        "exec",
+        "--json",
+        "--skip-git-repo-check",
+        "--ephemeral",
+        ...getCodexRuntimeModeArgs(request.runtimeMode),
+        prompt,
+      ],
     };
   }
 
@@ -572,6 +583,7 @@ function getSessionRuntimeCommand(
     "stream-json",
     "--verbose",
     "--include-partial-messages",
+    ...getClaudeRuntimeModeArgs(request.runtimeMode),
   ];
 
   if (resumeSessionId) {

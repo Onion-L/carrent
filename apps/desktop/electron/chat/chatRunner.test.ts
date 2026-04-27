@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { createChatRunner } from "./chatRunner";
+import { createChatRunner, getRuntimeCommand } from "./chatRunner";
 import type { ProcessRunner, ProcessRunnerResult } from "../runtime/processRunner";
 import type { ChatTurnRequest } from "../../src/shared/chat";
 
@@ -121,5 +121,41 @@ describe("createChatRunner", () => {
     const result = await chatRunner.run(makeRequest());
     expect(result.ok).toBe(false);
     expect(result.error).toContain("Something went wrong");
+  });
+
+  describe("getRuntimeCommand", () => {
+    it("maps approval-required to codex read-only sandbox", () => {
+      const { args } = getRuntimeCommand("codex", "prompt", "approval-required");
+      expect(args).toContain("--sandbox");
+      expect(args).toContain("read-only");
+    });
+
+    it("maps auto-accept-edits to codex workspace-write sandbox", () => {
+      const { args } = getRuntimeCommand("codex", "prompt", "auto-accept-edits");
+      expect(args).toContain("--sandbox");
+      expect(args).toContain("workspace-write");
+    });
+
+    it("maps full-access to codex dangerous bypass", () => {
+      const { args } = getRuntimeCommand("codex", "prompt", "full-access");
+      expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
+    });
+
+    it("maps approval-required to claude default permission mode", () => {
+      const { args } = getRuntimeCommand("claude-code", "prompt", "approval-required");
+      expect(args).toContain("--permission-mode");
+      expect(args).toContain("default");
+    });
+
+    it("maps auto-accept-edits to claude acceptEdits permission mode", () => {
+      const { args } = getRuntimeCommand("claude-code", "prompt", "auto-accept-edits");
+      expect(args).toContain("--permission-mode");
+      expect(args).toContain("acceptEdits");
+    });
+
+    it("maps full-access to claude dangerous skip", () => {
+      const { args } = getRuntimeCommand("claude-code", "prompt", "full-access");
+      expect(args).toContain("--dangerously-skip-permissions");
+    });
   });
 });

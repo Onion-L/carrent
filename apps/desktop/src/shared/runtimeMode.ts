@@ -24,3 +24,25 @@ export function getRuntimeModeLabel(mode: RuntimeMode) {
       return "Full access";
   }
 }
+
+export function getCodexRuntimeModeArgs(mode: RuntimeMode): string[] {
+  switch (mode) {
+    case "approval-required":
+      return ["--sandbox", "read-only"];
+    case "auto-accept-edits":
+      return ["--sandbox", "workspace-write"];
+    case "full-access":
+      return ["--dangerously-bypass-approvals-and-sandbox"];
+  }
+}
+
+export function getClaudeRuntimeModeArgs(mode: RuntimeMode): string[] {
+  switch (mode) {
+    case "approval-required":
+      return ["--permission-mode", "default"];
+    case "auto-accept-edits":
+      return ["--permission-mode", "acceptEdits"];
+    case "full-access":
+      return ["--dangerously-skip-permissions"];
+  }
+}

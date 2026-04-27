@@ -6,6 +6,7 @@ export default {
     extend: {
       colors: {
         bg: "rgb(var(--color-bg) / <alpha-value>)",
+        sidebar: "rgb(var(--color-sidebar) / <alpha-value>)",
         surface: "rgb(var(--color-surface) / <alpha-value>)",
         "surface-raised": "rgb(var(--color-surface-raised) / <alpha-value>)",
         "surface-hover": "rgb(var(--color-surface-hover) / <alpha-value>)",

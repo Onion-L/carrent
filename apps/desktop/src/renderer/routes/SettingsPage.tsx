@@ -221,55 +221,61 @@ export function SettingsPage() {
   }, [setActiveThreadId]);
 
   return (
-    <div className="flex h-full w-full flex-col overflow-auto bg-bg">
-      <div className="mx-auto w-full max-w-2xl px-8 py-8">
-        {/* Header */}
-        <div className="drag-region mb-8 flex items-center gap-2">
-          <Settings className="h-5 w-5 text-subtle" />
-          <h1 className="text-[18px] font-medium text-fg">Settings</h1>
-        </div>
+    <div className="flex h-full w-full flex-col bg-bg">
+      <header
+        className="drag-region shrink-0"
+        style={{ height: "env(titlebar-area-height, 38px)" }}
+      />
 
-        <div className="space-y-8">
-          <Section title="Runtime">
-            <Toggle
-              label="Auto-detect runtimes"
-              description="Automatically detect installed runtimes on startup"
-              enabled={autoDetectRuntimes}
-              onChange={(value) => updateSetting("autoDetectRuntimes", value)}
-            />
-          </Section>
+      <div className="flex-1 overflow-auto">
+        <div className="mx-auto w-full max-w-2xl px-8 py-8">
+          <div className="mb-8 flex items-center gap-2">
+            <Settings className="h-5 w-5 text-subtle" />
+            <h1 className="text-[18px] font-medium text-fg">Settings</h1>
+          </div>
 
-          <Section title="Interface">
-            <Select
-              label="Theme"
-              value={theme}
-              onChange={(value) => updateSetting("theme", value as "dark" | "light" | "system")}
-              options={[
-                { value: "dark", label: "Dark" },
-                { value: "light", label: "Light" },
-                { value: "system", label: "System" },
-              ]}
-            />
-            <Select
-              label="Font size"
-              value={String(fontSize)}
-              onChange={(value) =>
-                updateSetting("fontSize", Number(value) as 12 | 13 | 14 | 15 | 16)
-              }
-              options={[
-                { value: "12", label: "12px" },
-                { value: "13", label: "13px" },
-                { value: "14", label: "14px" },
-                { value: "15", label: "15px" },
-                { value: "16", label: "16px" },
-              ]}
-            />
-          </Section>
+          <div className="space-y-8">
+            <Section title="Runtime">
+              <Toggle
+                label="Auto-detect runtimes"
+                description="Automatically detect installed runtimes on startup"
+                enabled={autoDetectRuntimes}
+                onChange={(value) => updateSetting("autoDetectRuntimes", value)}
+              />
+            </Section>
 
-          <Section title="About">
-            <Field label="Version" value="v0.1.0" />
-            <CheckForUpdatesRow />
-          </Section>
+            <Section title="Interface">
+              <Select
+                label="Theme"
+                value={theme}
+                onChange={(value) => updateSetting("theme", value as "dark" | "light" | "system")}
+                options={[
+                  { value: "dark", label: "Dark" },
+                  { value: "light", label: "Light" },
+                  { value: "system", label: "System" },
+                ]}
+              />
+              <Select
+                label="Font size"
+                value={String(fontSize)}
+                onChange={(value) =>
+                  updateSetting("fontSize", Number(value) as 12 | 13 | 14 | 15 | 16)
+                }
+                options={[
+                  { value: "12", label: "12px" },
+                  { value: "13", label: "13px" },
+                  { value: "14", label: "14px" },
+                  { value: "15", label: "15px" },
+                  { value: "16", label: "16px" },
+                ]}
+              />
+            </Section>
+
+            <Section title="About">
+              <Field label="Version" value="v0.1.0" />
+              <CheckForUpdatesRow />
+            </Section>
+          </div>
         </div>
       </div>
     </div>

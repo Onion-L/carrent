@@ -234,7 +234,7 @@ export function AgentsPage() {
   return (
     <div className="flex h-full w-full bg-bg">
       {/* ---- Sidebar ---- */}
-      <aside className="flex h-full w-[280px] shrink-0 flex-col border-r border-border bg-surface">
+      <aside className="flex h-full w-[280px] shrink-0 flex-col border-r border-border bg-sidebar">
         <div
           className="drag-region shrink-0"
           style={{ height: "env(titlebar-area-height, 38px)" }}

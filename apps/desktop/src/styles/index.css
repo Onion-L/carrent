@@ -5,6 +5,7 @@
 @layer base {
   :root {
     --color-bg: 17 17 17;
+    --color-sidebar: 20 20 20;
     --color-surface: 30 30 30;
     --color-surface-raised: 37 37 37;
     --color-surface-hover: 42 42 42;
@@ -31,6 +32,7 @@
 
   [data-theme="light"] {
     --color-bg: 247 247 244;
+    --color-sidebar: 250 250 247;
     --color-surface: 255 255 252;
     --color-surface-raised: 250 250 247;
     --color-surface-hover: 235 235 230;
@@ -51,6 +53,20 @@
 
   [data-theme="dark"] {
     color-scheme: dark;
+  }
+
+  .theme-transitioning,
+  .theme-transitioning * {
+    transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+    transition-duration: 220ms;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 260ms;
+    animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+    mix-blend-mode: normal;
   }
 
   body {

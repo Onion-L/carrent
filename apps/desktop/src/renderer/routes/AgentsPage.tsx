@@ -8,6 +8,7 @@ import {
   Loader2,
   BookOpenText,
   SlidersHorizontal,
+  X,
 } from "lucide-react";
 import { useAgents } from "../context/AgentContext";
 import { useWorkspace } from "../context/WorkspaceContext";
@@ -126,6 +127,13 @@ export function AgentsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [tab, setTab] = useState<"instruction" | "settings">("instruction");
 
+  /* Create agent modal */
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [newRuntime, setNewRuntime] = useState<AgentRecord["runtime"]>("codex");
+  const modalRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (selectedAgent) {
       setDraft({ ...selectedAgent });
@@ -136,9 +144,38 @@ export function AgentsPage() {
   }, [selectedAgent]);
 
   const handleCreate = () => {
-    const agent = createAgent();
+    setNewName("");
+    setNewDescription("");
+    setNewRuntime("codex");
+    setShowCreateModal(true);
+  };
+
+  const handleConfirmCreate = () => {
+    const trimmedName = newName.trim();
+    if (!trimmedName) return;
+    const agent = createAgent({
+      name: trimmedName,
+      description: newDescription.trim(),
+      runtime: newRuntime,
+    });
+    setShowCreateModal(false);
     setSelectedAgentId(agent.id);
   };
+
+  const handleCloseModal = () => {
+    setShowCreateModal(false);
+  };
+
+  useEffect(() => {
+    if (!showCreateModal) return;
+    function handleClick(e: MouseEvent) {
+      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
+        setShowCreateModal(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showCreateModal]);
 
   const handleDelete = () => {
     if (!selectedAgentId) return;
@@ -512,6 +549,88 @@ export function AgentsPage() {
           </div>
         )}
       </main>
+
+      {/* ---- Create Agent Modal ---- */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div
+            ref={modalRef}
+            className="w-full max-w-md rounded-2xl border border-white/[0.06] bg-[#1a1a1a] shadow-2xl shadow-black/50"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
+              <h2 className="text-[15px] font-semibold text-[#e4e4e4]">New Agent</h2>
+              <button
+                onClick={handleCloseModal}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-[#666] transition-all duration-200 hover:bg-white/[0.06] hover:text-[#ddd]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-5 px-6 py-5">
+              <div>
+                <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-[0.08em] text-[#555]">
+                  Name <span className="text-[#a44]">*</span>
+                </label>
+                <Input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="bg-[#151515] ring-1 ring-white/[0.05] transition-shadow duration-300 focus:ring-white/[0.10]"
+                  placeholder="e.g. Architect"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      handleConfirmCreate();
+                    }
+                  }}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-[0.08em] text-[#555]">
+                  Description
+                </label>
+                <Textarea
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                  className="min-h-[72px] bg-[#151515] ring-1 ring-white/[0.05] transition-shadow duration-300 focus:ring-white/[0.10]"
+                  placeholder="Brief summary of what this agent does"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-[0.08em] text-[#555]">
+                  Runtime <span className="text-[#a44]">*</span>
+                </label>
+                <RuntimePicker value={newRuntime} onChange={(v) => setNewRuntime(v as AgentRecord["runtime"])} />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 border-t border-white/[0.06] px-6 py-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCloseModal}
+                className="text-[#888] transition-all duration-200 hover:text-[#ccc]"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleConfirmCreate}
+                disabled={!newName.trim()}
+                className="bg-white text-[13px] font-medium text-black transition-all duration-200 hover:bg-[#eee] active:scale-[0.97] disabled:bg-[#2a2a2a] disabled:text-[#555] disabled:opacity-100"
+              >
+                Create Agent
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

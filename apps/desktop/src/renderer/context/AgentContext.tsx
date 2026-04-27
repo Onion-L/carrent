@@ -14,7 +14,7 @@ export type AgentContextValue = {
   selectedAgentId: string | null;
   selectedAgent: AgentRecord | null;
   setSelectedAgentId: (id: string | null) => void;
-  createAgent: () => AgentRecord;
+  createAgent: (overrides?: Partial<AgentRecord>) => AgentRecord;
   updateAgent: (agent: AgentRecord) => { ok: true } | { ok: false; error: string };
   deleteAgent: (agentId: string) => void;
 };
@@ -52,8 +52,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const createAgent = () => {
-    const agent = buildNewAgent();
+  const createAgent = (overrides?: Partial<AgentRecord>) => {
+    const agent = buildNewAgent(overrides);
     setAgents((prev) => [...prev, agent]);
     return agent;
   };

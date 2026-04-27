@@ -195,7 +195,7 @@ export function SidebarNav() {
   };
 
   return (
-    <aside className="flex h-full flex-col bg-[#1e1e1e]">
+    <aside className="flex h-full flex-col overflow-y-auto bg-[#1e1e1e]">
       <div
         className="drag-region shrink-0"
         style={{ height: "env(titlebar-area-height, 38px)" }}
@@ -229,7 +229,7 @@ export function SidebarNav() {
       </div>
 
       {/* Projects section */}
-      <div className="flex flex-1 flex-col min-h-0">
+      <div className="flex flex-col min-h-0">
         <div className="flex items-center justify-between px-4 py-1.5">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
             Projects
@@ -260,7 +260,7 @@ export function SidebarNav() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto px-2 pb-2 mt-1">
+        <div className="px-2 pb-2 mt-1">
           {projects.map((project) => {
             const isExpanded = expandedProjectIds.includes(project.id);
             const { active } = splitProjectThreads(project.threads);

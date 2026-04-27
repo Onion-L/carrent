@@ -7,6 +7,7 @@ import { MessageTimeline } from "../components/chat/MessageTimeline";
 import { useDraftThread } from "../context/DraftThreadContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useDraftThreadPromotion } from "../hooks/useDraftThreadPromotion";
+import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import type { DraftThreadRecord } from "../lib/draftThreads";
 
 export function resolvePromotedDraftRoute(draft: DraftThreadRecord | null | undefined) {
@@ -20,7 +21,7 @@ export function resolvePromotedDraftRoute(draft: DraftThreadRecord | null | unde
 export function DraftThreadPage() {
   const { draftId } = useParams();
   const navigate = useNavigate();
-  const { getDraftById } = useDraftThread();
+  const { getDraftById, setDraftRuntimeMode } = useDraftThread();
   const { setActiveThreadId } = useWorkspace();
   const draft = draftId ? getDraftById(draftId) : null;
   const promotedRoute = resolvePromotedDraftRoute(draft);
@@ -41,7 +42,13 @@ export function DraftThreadPage() {
 
   return (
     <div className="flex h-full w-full flex-col">
-      <ChatHeader title={draft?.title ?? "Draft not found"} />
+      <ChatHeader
+        title={draft?.title ?? "Draft not found"}
+        runtimeMode={draft?.runtimeMode ?? DEFAULT_RUNTIME_MODE}
+        onRuntimeModeChange={
+          draft ? (mode) => setDraftRuntimeMode(draft.draftId, mode) : undefined
+        }
+      />
       <MessageTimeline messages={draft?.messages ?? []} />
       {draft ? (
         <Composer

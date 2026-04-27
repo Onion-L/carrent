@@ -6,6 +6,7 @@ import { Composer } from "../components/chat/Composer";
 import { MessageTimeline } from "../components/chat/MessageTimeline";
 import { useDraftThread } from "../context/DraftThreadContext";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import type { DraftThreadRecord } from "../lib/draftThreads";
 
 export function resolveThreadRouteData(
@@ -38,7 +39,7 @@ export function findPromotedDraftToFinalize(
 
 export function ThreadPage() {
   const { projectId, threadId } = useParams();
-  const { getThreadRouteData, setActiveThreadId } = useWorkspace();
+  const { getThreadRouteData, setActiveThreadId, setThreadRuntimeMode } = useWorkspace();
   const { drafts, finalizePromotedDraftThreadByRef } = useDraftThread();
   const routeData = resolveThreadRouteData(getThreadRouteData, projectId, threadId);
   const promotedDraft = findPromotedDraftToFinalize(drafts, projectId, threadId);
@@ -57,7 +58,15 @@ export function ThreadPage() {
 
   return (
     <div className="flex h-full w-full flex-col">
-      <ChatHeader title={routeData?.thread.title ?? "Thread not found"} />
+      <ChatHeader
+        title={routeData?.thread.title ?? "Thread not found"}
+        runtimeMode={routeData?.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
+        onRuntimeModeChange={
+          routeData
+            ? (mode) => setThreadRuntimeMode(routeData.project.id, routeData.thread.id, mode)
+            : undefined
+        }
+      />
       <MessageTimeline messages={routeData?.messages ?? []} />
       {routeData ? (
         <Composer

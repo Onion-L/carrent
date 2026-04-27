@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { ChatRunEvent } from "../../shared/chat";
+import type { ChatPermissionRequest } from "../../shared/chatPermissions";
 import { createChatRunCoordinator } from "./useChatRun";
 
 describe("createChatRunCoordinator", () => {
@@ -183,5 +184,101 @@ describe("createChatRunCoordinator", () => {
     } satisfies ChatRunEvent);
 
     expect(received).toEqual(["running:Need to inspect files"]);
+  });
+
+  it("tracks pending permission requests by thread", () => {
+    const coordinator = createChatRunCoordinator();
+    coordinator.beginRequest("req-1", "thread-1", {});
+    coordinator.attachRunId("req-1", "run-1");
+
+    coordinator.handleEvent({
+      type: "permission-requested",
+      runId: "run-1",
+      requestKey: "req-1",
+      permission: {
+        id: "perm-1",
+        runId: "run-1",
+        requestKey: "req-1",
+        threadId: "thread-1",
+        provider: "claude-code",
+        action: "edit",
+        title: "Edit demo.txt",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2026-01-01T00:01:00.000Z",
+      } satisfies ChatPermissionRequest,
+    });
+
+    const snapshot = coordinator.getSnapshot();
+    expect(snapshot.pendingPermissions).toHaveLength(1);
+    expect(snapshot.pendingPermissions[0].id).toBe("perm-1");
+  });
+
+  it("removes permission requests when resolved", () => {
+    const coordinator = createChatRunCoordinator();
+    coordinator.beginRequest("req-1", "thread-1", {});
+    coordinator.attachRunId("req-1", "run-1");
+
+    coordinator.handleEvent({
+      type: "permission-requested",
+      runId: "run-1",
+      requestKey: "req-1",
+      permission: {
+        id: "perm-1",
+        runId: "run-1",
+        requestKey: "req-1",
+        threadId: "thread-1",
+        provider: "claude-code",
+        action: "edit",
+        title: "Edit demo.txt",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2026-01-01T00:01:00.000Z",
+      } satisfies ChatPermissionRequest,
+    });
+
+    coordinator.handleEvent({
+      type: "permission-resolved",
+      runId: "run-1",
+      requestKey: "req-1",
+      permissionId: "perm-1",
+      decision: "approved",
+    });
+
+    const snapshot = coordinator.getSnapshot();
+    expect(snapshot.pendingPermissions).toHaveLength(0);
+  });
+
+  it("removes permission when permission-failed is received", () => {
+    const coordinator = createChatRunCoordinator();
+    coordinator.beginRequest("req-1", "thread-1", {});
+    coordinator.attachRunId("req-1", "run-1");
+
+    coordinator.handleEvent({
+      type: "permission-requested",
+      runId: "run-1",
+      requestKey: "req-1",
+      permission: {
+        id: "perm-1",
+        runId: "run-1",
+        requestKey: "req-1",
+        threadId: "thread-1",
+        provider: "claude-code",
+        action: "edit",
+        title: "Edit demo.txt",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2026-01-01T00:01:00.000Z",
+      } satisfies ChatPermissionRequest,
+    });
+
+    coordinator.handleEvent({
+      type: "permission-failed",
+      runId: "run-1",
+      requestKey: "req-1",
+      permissionId: "perm-1",
+      error: "Interactive approvals not supported",
+    });
+
+    const snapshot = coordinator.getSnapshot();
+    expect(snapshot.pendingPermissions).toHaveLength(0);
+    expect(snapshot.lastError).toContain("not supported");
   });
 });

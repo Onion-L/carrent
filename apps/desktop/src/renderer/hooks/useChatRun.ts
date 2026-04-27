@@ -6,6 +6,7 @@ import type {
   ChatShellEventPayload,
   ChatTurnRequest,
 } from "../../shared/chat";
+import type { ChatPermissionRequest, ChatPermissionResponse } from "../../shared/chatPermissions";
 
 export type ChatRunCallbacks = {
   onDelta?: (text: string) => void;
@@ -21,6 +22,7 @@ type ChatRunSnapshot = {
   lastError: string | null;
   activeThreadId: string | null;
   runningThreadIds: string[];
+  pendingPermissions: ChatPermissionRequest[];
 };
 
 type ChatRunStoreListener = () => void;
@@ -38,11 +40,13 @@ export function createChatRunCoordinator() {
     lastError: null,
     activeThreadId: null,
     runningThreadIds: [],
+    pendingPermissions: [],
   };
   const pendingByRequestKey = new Map<string, PendingChatRun>();
   const requestKeyByRunId = new Map<string, string>();
   const requestKeyByThreadId = new Map<string, string>();
   const listeners = new Set<ChatRunStoreListener>();
+  const pendingPermissionById = new Map<string, ChatPermissionRequest>();
 
   const updateSnapshot = (lastError = snapshot.lastError) => {
     const runningThreadIds = [...requestKeyByThreadId.keys()];
@@ -51,6 +55,7 @@ export function createChatRunCoordinator() {
       lastError,
       activeThreadId: runningThreadIds[0] ?? null,
       runningThreadIds,
+      pendingPermissions: [...pendingPermissionById.values()],
     };
   };
 
@@ -168,12 +173,14 @@ export function createChatRunCoordinator() {
       }
 
       if (event.type === "completed") {
+        pendingPermissionById.clear();
         run.callbacks.onComplete?.(event.text);
         finishPendingRun(run);
         return;
       }
 
       if (event.type === "failed") {
+        pendingPermissionById.clear();
         run.callbacks.onError?.(event.error);
         clearPending(run);
         updateSnapshot(event.error);
@@ -182,8 +189,28 @@ export function createChatRunCoordinator() {
       }
 
       if (event.type === "stopped") {
+        pendingPermissionById.clear();
         run.callbacks.onStop?.();
         finishPendingRun(run);
+        return;
+      }
+
+      if (event.type === "permission-requested") {
+        pendingPermissionById.set(event.permission.id, event.permission);
+        updateSnapshot();
+        emit();
+        return;
+      }
+
+      if (event.type === "permission-resolved" || event.type === "permission-failed") {
+        pendingPermissionById.delete(event.permissionId);
+        if (event.type === "permission-failed") {
+          updateSnapshot(event.error);
+        } else {
+          updateSnapshot();
+        }
+        emit();
+        return;
       }
     },
   };
@@ -243,12 +270,21 @@ export function useChatRun() {
     }
   }, []);
 
+  const respondToPermission = useCallback(
+    async (response: ChatPermissionResponse) => {
+      await window.carrent.chat.respondToPermission(response);
+    },
+    [],
+  );
+
   return {
     isSending: snapshot.isSending,
     lastError: snapshot.lastError,
     activeThreadId: snapshot.activeThreadId,
     runningThreadIds: snapshot.runningThreadIds,
+    pendingPermissions: snapshot.pendingPermissions,
     send,
     stop,
+    respondToPermission,
   };
 }

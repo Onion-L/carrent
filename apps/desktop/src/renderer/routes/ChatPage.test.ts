@@ -26,7 +26,7 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
 
 describe("resolveChatRouteData", () => {
   it("returns null without a thread id", () => {
-    expect(resolveChatRouteData(() => null, undefined)).toBeNull();
+    expect(resolveChatRouteData(() => null, undefined)).toBe(null);
   });
 
   it("returns chat route data for a thread id", () => {
@@ -46,6 +46,6 @@ describe("resolveChatRouteData", () => {
 
   it("returns null for a missing thread", () => {
     const getChatRouteData = () => null;
-    expect(resolveChatRouteData(getChatRouteData, "missing")).toBeNull();
+    expect(resolveChatRouteData(getChatRouteData, "missing")).toBe(null);
   });
 });

@@ -38,6 +38,7 @@ describe("registerWorkspaceIpc", () => {
     const snapshot: WorkspaceSnapshot = {
       version: 1,
       projects: [],
+      chats: [],
       messages: [],
       activeThreadId: null,
       drafts: [],
@@ -68,6 +69,7 @@ describe("registerWorkspaceIpc", () => {
     const snapshot: WorkspaceSnapshot = {
       version: 1,
       projects: [{ id: "p1", name: "P1", path: "/tmp/p1", threads: [] }],
+      chats: [],
       messages: [],
       activeThreadId: null,
       drafts: [],
@@ -103,6 +105,7 @@ describe("registerWorkspaceIpc", () => {
     const snapshot: WorkspaceSnapshot = {
       version: 1,
       projects: [{ id: "p2", name: "P2", path: "/tmp/p2", threads: [] }],
+      chats: [],
       messages: [],
       activeThreadId: null,
       drafts: [],

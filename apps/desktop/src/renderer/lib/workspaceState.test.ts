@@ -202,7 +202,7 @@ describe("workspaceState", () => {
   });
 
   it("rejects empty chat thread titles", () => {
-    expect(createChatThread("   ")).toBeNull();
+    expect(createChatThread("   ")).toBe(null);
   });
 
   it("upserts a chat thread into existing chats", () => {
@@ -244,6 +244,6 @@ describe("workspaceState", () => {
 
   it("returns null for missing chat route data", () => {
     const routeData = resolveChatThreadRouteData([], [], "missing");
-    expect(routeData).toBeNull();
+    expect(routeData).toBe(null);
   });
 });

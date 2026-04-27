@@ -52,7 +52,7 @@ describe("normalizeWorkspaceSnapshot", () => {
         activeThreadId: null,
         drafts: [],
       }),
-    ).toBeNull();
+    ).toBe(null);
   });
 
   it("rejects malformed snapshots", () => {

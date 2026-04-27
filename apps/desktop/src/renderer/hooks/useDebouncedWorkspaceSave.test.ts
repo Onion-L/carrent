@@ -5,6 +5,7 @@ describe("buildWorkspaceSnapshot", () => {
   it("returns a valid snapshot with version 1", () => {
     const snapshot = buildWorkspaceSnapshot({
       projects: [],
+      chats: [],
       messages: [],
       activeThreadId: null,
       drafts: [],
@@ -20,6 +21,7 @@ describe("buildWorkspaceSnapshot", () => {
   it("includes projects, messages, activeThreadId and drafts", () => {
     const snapshot = buildWorkspaceSnapshot({
       projects: [{ id: "p1", name: "P1", path: "/tmp/p1", threads: [] }],
+      chats: [],
       messages: [{ id: "m1", role: "user", agentId: "a1", threadId: "t1", content: "hi", timestamp: "09:00" }],
       activeThreadId: "t1",
       drafts: [],

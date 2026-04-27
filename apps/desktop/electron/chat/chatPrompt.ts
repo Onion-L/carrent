@@ -36,9 +36,7 @@ export function buildChatPrompt(
   return parts.join("\n");
 }
 
-function trimTranscript(
-  transcript: ChatTurnRequest["transcript"],
-): ChatTurnRequest["transcript"] {
+function trimTranscript(transcript: ChatTurnRequest["transcript"]): ChatTurnRequest["transcript"] {
   // Keep only the most recent messages up to the limit
   const recent = transcript.slice(-MAX_TRANSCRIPT_MESSAGES);
 

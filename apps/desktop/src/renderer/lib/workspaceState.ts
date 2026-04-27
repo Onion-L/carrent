@@ -1,10 +1,7 @@
 import type { Message, ProjectRecord, ThreadRecord } from "../mock/uiShellData";
 import { splitProjectThreads } from "./projectThreads";
 
-export function createProjectInProjects(
-  projects: ProjectRecord[],
-  folderPath: string,
-) {
+export function createProjectInProjects(projects: ProjectRecord[], folderPath: string) {
   const name = folderPath.replace(/\\/g, "/").split("/").pop() || "";
   const project: ProjectRecord = {
     id: `project-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -28,17 +25,12 @@ export function renameProjectInProjects(
   if (!trimmed) return { projects, renamed: false as boolean };
 
   return {
-    projects: projects.map((p) =>
-      p.id === projectId ? { ...p, name: trimmed } : p,
-    ),
+    projects: projects.map((p) => (p.id === projectId ? { ...p, name: trimmed } : p)),
     renamed: true,
   };
 }
 
-export function findCurrentThread(
-  projects: ProjectRecord[],
-  activeThreadId: string | null,
-) {
+export function findCurrentThread(projects: ProjectRecord[], activeThreadId: string | null) {
   if (!activeThreadId) {
     return null;
   }
@@ -53,10 +45,7 @@ export function findCurrentThread(
   return null;
 }
 
-export function findCurrentChatThread(
-  chats: ThreadRecord[],
-  activeThreadId: string | null,
-) {
+export function findCurrentChatThread(chats: ThreadRecord[], activeThreadId: string | null) {
   if (!activeThreadId) {
     return null;
   }
@@ -64,18 +53,14 @@ export function findCurrentChatThread(
   return chats.find((chat) => chat.id === activeThreadId) ?? null;
 }
 
-export function findCurrentProject(
-  projects: ProjectRecord[],
-  activeThreadId: string | null,
-) {
+export function findCurrentProject(projects: ProjectRecord[], activeThreadId: string | null) {
   if (!activeThreadId) {
     return null;
   }
 
   return (
-    projects.find((project) =>
-      project.threads.some((thread) => thread.id === activeThreadId),
-    ) ?? null
+    projects.find((project) => project.threads.some((thread) => thread.id === activeThreadId)) ??
+    null
   );
 }
 
@@ -129,10 +114,7 @@ export function upsertThreadInProjects(
     const nextThreads =
       existingThread === undefined
         ? [nextThread, ...project.threads]
-        : [
-            nextThread,
-            ...project.threads.filter((item) => item.id !== thread.id),
-          ];
+        : [nextThread, ...project.threads.filter((item) => item.id !== thread.id)];
 
     return {
       ...project,
@@ -200,9 +182,7 @@ export function createChatThread(title: string): ThreadRecord | null {
 export function upsertChatThread(existingChats: ThreadRecord[], thread: ThreadRecord) {
   const existing = existingChats.find((item) => item.id === thread.id);
   if (existing) {
-    return existingChats.map((item) =>
-      item.id === thread.id ? { ...existing, ...thread } : item,
-    );
+    return existingChats.map((item) => (item.id === thread.id ? { ...existing, ...thread } : item));
   }
   return [thread, ...existingChats];
 }
@@ -235,10 +215,7 @@ export function resolveChatThreadRouteData(
   };
 }
 
-function findNextVisibleThreadId(
-  projects: ProjectRecord[],
-  preferredProjectId: string,
-) {
+function findNextVisibleThreadId(projects: ProjectRecord[], preferredProjectId: string) {
   const preferredProject = projects.find((project) => project.id === preferredProjectId);
   const preferredThreadId = splitProjectThreads(preferredProject?.threads ?? []).active[0]?.id;
   if (preferredThreadId) {

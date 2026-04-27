@@ -1,13 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
-import {
-  GripVertical,
-  RefreshCw,
-  Square,
-  Play,
-  Plug,
-  Monitor,
-  ChevronRight,
-} from "lucide-react";
+import { GripVertical, RefreshCw, Square, Play, Plug, Monitor, ChevronRight } from "lucide-react";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { RuntimeIcon } from "../components/RuntimeIcon";
@@ -50,15 +42,8 @@ function writeStoredOrder(order: string[]) {
 }
 
 export function RuntimesPage() {
-  const {
-    runtimes,
-    loading,
-    actionStateById,
-    runModelPing,
-    start,
-    stop,
-    refreshVersion,
-  } = useRuntimes();
+  const { runtimes, loading, actionStateById, runModelPing, start, stop, refreshVersion } =
+    useRuntimes();
   const { setActiveThreadId } = useWorkspace();
 
   useEffect(() => {
@@ -241,9 +226,7 @@ export function RuntimesPage() {
                   <div className="mt-1 flex items-center gap-3 text-xs text-muted">
                     <span
                       className={
-                        selectedRuntime.availability === "detected"
-                          ? "text-success"
-                          : "text-[#555]"
+                        selectedRuntime.availability === "detected" ? "text-success" : "text-[#555]"
                       }
                     >
                       {selectedRuntime.availability === "detected" ? "Online" : "Offline"}
@@ -359,7 +342,6 @@ export function RuntimesPage() {
 
               {/* Actions */}
               <div className="mt-10 border-t border-border pt-6">
-
                 {/* Verification result */}
                 {selectedRuntime.verification !== "never" && (
                   <div className="mt-4 text-xs">

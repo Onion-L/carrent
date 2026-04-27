@@ -12,10 +12,7 @@ export interface ChatIpcServices {
   sessionManager: ChatSessionManager;
 }
 
-export function registerChatIpc(
-  ipcMainLike: IpcMainLike,
-  services: ChatIpcServices,
-) {
+export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServices) {
   ipcMainLike.handle("chat:send", async (_event, request) => {
     const req = request as ChatTurnRequest;
     const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;

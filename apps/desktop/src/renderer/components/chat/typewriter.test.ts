@@ -8,9 +8,7 @@ import {
 
 describe("typewriter", () => {
   it("reveals only the next chunk of received text", () => {
-    expect(getNextTypewriterText("", "hello")).toBe(
-      "hello".slice(0, TYPEWRITER_CHARS_PER_TICK),
-    );
+    expect(getNextTypewriterText("", "hello")).toBe("hello".slice(0, TYPEWRITER_CHARS_PER_TICK));
   });
 
   it("keeps existing visible text and appends the next chunk", () => {

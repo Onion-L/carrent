@@ -90,9 +90,7 @@ export function SidebarNav() {
 
   const toggleProjectExpanded = (projectId: string) => {
     setExpandedProjectIds((prev) =>
-      prev.includes(projectId)
-        ? prev.filter((id) => id !== projectId)
-        : [...prev, projectId],
+      prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId],
     );
   };
 
@@ -102,9 +100,7 @@ export function SidebarNav() {
       return;
     }
 
-    setExpandedProjectIds((prev) =>
-      prev.includes(projectId) ? prev : [...prev, projectId],
-    );
+    setExpandedProjectIds((prev) => (prev.includes(projectId) ? prev : [...prev, projectId]));
     navigate(buildDraftPath(draft.draftId));
   };
 
@@ -115,9 +111,7 @@ export function SidebarNav() {
       const target = e.target as Node;
       const inside =
         target instanceof Element &&
-        target.closest(
-          '[data-thread-menu="true"], [data-thread-menu-trigger="true"]',
-        );
+        target.closest('[data-thread-menu="true"], [data-thread-menu-trigger="true"]');
       if (!inside) {
         setOpenThreadMenuId(null);
       }
@@ -134,9 +128,7 @@ export function SidebarNav() {
       const target = e.target as Node;
       const inside =
         target instanceof Element &&
-        target.closest(
-          '[data-project-menu="true"], [data-project-menu-trigger="true"]',
-        );
+        target.closest('[data-project-menu="true"], [data-project-menu-trigger="true"]');
       if (!inside) {
         setOpenProjectMenuId(null);
       }
@@ -153,9 +145,7 @@ export function SidebarNav() {
       const target = e.target as Node;
       const inside =
         target instanceof Element &&
-        target.closest(
-          '[data-chat-menu="true"], [data-chat-menu-trigger="true"]',
-        );
+        target.closest('[data-chat-menu="true"], [data-chat-menu-trigger="true"]');
       if (!inside) {
         setOpenChatMenuId(null);
       }
@@ -196,10 +186,7 @@ export function SidebarNav() {
 
   return (
     <aside className="flex h-full flex-col overflow-hidden bg-[#1e1e1e]">
-      <div
-        className="drag-region shrink-0"
-        style={{ height: "env(titlebar-area-height, 38px)" }}
-      />
+      <div className="drag-region shrink-0" style={{ height: "env(titlebar-area-height, 38px)" }} />
       {/* Workspace section */}
       <div className="flex flex-col shrink-0">
         <div className="flex items-center px-4 py-1.5">
@@ -232,93 +219,86 @@ export function SidebarNav() {
       <div className="flex-1 overflow-auto min-h-0">
         {/* Projects section */}
         <div className="flex flex-col">
-        <div className="flex items-center justify-between px-4 py-1.5">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
-            Projects
-          </span>
-          <div className="flex items-center gap-1">
-            <button className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]">
-              <ArrowUpDown className="h-3 w-3" />
-            </button>
-            <button
-              onClick={async () => {
-                const result = await window.carrent.dialog.openDirectory();
-                if (!result.canceled && result.filePaths.length > 0) {
-                  const newProject = createProject(result.filePaths[0]);
-                  if (newProject) {
-                    setExpandedProjectIds((prev) =>
-                      prev.includes(newProject.id)
-                        ? prev
-                        : [...prev, newProject.id],
-                    );
+          <div className="flex items-center justify-between px-4 py-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
+              Projects
+            </span>
+            <div className="flex items-center gap-1">
+              <button className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]">
+                <ArrowUpDown className="h-3 w-3" />
+              </button>
+              <button
+                onClick={async () => {
+                  const result = await window.carrent.dialog.openDirectory();
+                  if (!result.canceled && result.filePaths.length > 0) {
+                    const newProject = createProject(result.filePaths[0]);
+                    if (newProject) {
+                      setExpandedProjectIds((prev) =>
+                        prev.includes(newProject.id) ? prev : [...prev, newProject.id],
+                      );
+                    }
                   }
-                }
-              }}
-              className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]"
-              title="New project"
-            >
-              <SquarePen className="h-3 w-3" />
-            </button>
+                }}
+                className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]"
+                title="New project"
+              >
+                <SquarePen className="h-3 w-3" />
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div className="px-2 pb-2 mt-1">
-          {projects.map((project) => {
-            const isExpanded = expandedProjectIds.includes(project.id);
-            const { active } = splitProjectThreads(project.threads);
+          <div className="px-2 pb-2 mt-1">
+            {projects.map((project) => {
+              const isExpanded = expandedProjectIds.includes(project.id);
+              const { active } = splitProjectThreads(project.threads);
 
-            return (
-              <div key={project.id}>
-                <div
-                  className="relative flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition hover:bg-[#2a2a2a]"
-                  onMouseEnter={() => setHoveredProjectId(project.id)}
-                  onMouseLeave={() =>
-                    setHoveredProjectId((prev) =>
-                      prev === project.id ? null : prev,
-                    )
-                  }
-                >
-                  {editingProjectId === project.id ? (
-                    <input
-                      autoFocus
-                      value={editingProjectName}
-                      onChange={(e) => setEditingProjectName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
+              return (
+                <div key={project.id}>
+                  <div
+                    className="relative flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition hover:bg-[#2a2a2a]"
+                    onMouseEnter={() => setHoveredProjectId(project.id)}
+                    onMouseLeave={() =>
+                      setHoveredProjectId((prev) => (prev === project.id ? null : prev))
+                    }
+                  >
+                    {editingProjectId === project.id ? (
+                      <input
+                        autoFocus
+                        value={editingProjectName}
+                        onChange={(e) => setEditingProjectName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            renameProject(project.id, editingProjectName);
+                            setEditingProjectId(null);
+                            setEditingProjectName("");
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            setEditingProjectId(null);
+                            setEditingProjectName("");
+                          }
+                        }}
+                        onBlur={() => {
                           renameProject(project.id, editingProjectName);
                           setEditingProjectId(null);
                           setEditingProjectName("");
-                        } else if (e.key === "Escape") {
-                          e.preventDefault();
-                          setEditingProjectId(null);
-                          setEditingProjectName("");
-                        }
-                      }}
-                      onBlur={() => {
-                        renameProject(project.id, editingProjectName);
-                        setEditingProjectId(null);
-                        setEditingProjectName("");
-                      }}
-                      className="flex-1 bg-transparent text-[13px] text-[#ddd] outline-none"
-                    />
-                  ) : (
-                    <button
-                      onClick={() => toggleProjectExpanded(project.id)}
-                      className="flex flex-1 items-center gap-1.5 text-left"
-                    >
-                      {isExpanded ? (
-                        <FolderOpen className="h-4 w-4 text-[#888]" />
-                      ) : (
-                        <Folder className="h-4 w-4 text-[#888]" />
-                      )}
-                      <span className="text-[13px] font-medium text-[#ddd]">
-                        {project.name}
-                      </span>
-                    </button>
-                  )}
-                  {hoveredProjectId === project.id &&
-                    editingProjectId !== project.id && (
+                        }}
+                        className="flex-1 bg-transparent text-[13px] text-[#ddd] outline-none"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => toggleProjectExpanded(project.id)}
+                        className="flex flex-1 items-center gap-1.5 text-left"
+                      >
+                        {isExpanded ? (
+                          <FolderOpen className="h-4 w-4 text-[#888]" />
+                        ) : (
+                          <Folder className="h-4 w-4 text-[#888]" />
+                        )}
+                        <span className="text-[13px] font-medium text-[#ddd]">{project.name}</span>
+                      </button>
+                    )}
+                    {hoveredProjectId === project.id && editingProjectId !== project.id && (
                       <>
                         <button
                           onClick={(e) => {
@@ -335,9 +315,7 @@ export function SidebarNav() {
                           onClick={(e) => {
                             e.stopPropagation();
                             setOpenProjectMenuId(
-                              openProjectMenuId === project.id
-                                ? null
-                                : project.id,
+                              openProjectMenuId === project.id ? null : project.id,
                             );
                           }}
                           className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
@@ -347,263 +325,244 @@ export function SidebarNav() {
                       </>
                     )}
 
-                  {openProjectMenuId === project.id && (
-                    <div
-                      data-project-menu="true"
-                      className="absolute right-0 top-full z-10 mt-0.5 w-44 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg"
-                    >
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void window.carrent.shell.openPath(project.path);
-                          setOpenProjectMenuId(null);
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                    {openProjectMenuId === project.id && (
+                      <div
+                        data-project-menu="true"
+                        className="absolute right-0 top-full z-10 mt-0.5 w-44 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg"
                       >
-                        <ExternalLink className="h-3 w-3" />
-                        Open in Finder
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenProjectMenuId(null);
-                          setEditingProjectId(project.id);
-                          setEditingProjectName(project.name);
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
-                      >
-                        <Pencil className="h-3 w-3" />
-                        Rename project
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          window.carrent.clipboard.writeText(project.path);
-                          setOpenProjectMenuId(null);
-                          showToast("Path copied to clipboard", "success");
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
-                      >
-                        <Link className="h-3 w-3" />
-                        Copy location
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (
-                            window.confirm(
-                              `Delete "${project.name}"?`,
-                            )
-                          ) {
-                            removeProject(project.id);
-                          }
-                          setOpenProjectMenuId(null);
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 transition hover:bg-[#333]"
-                      >
-                        <Trash2 className="h-3 w-3 text-red-400" />
-                        Delete
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {isExpanded && (
-                  <div className="ml-5 mt-1">
-                    {active.map((thread) => {
-                      const isActive = thread.id === activeThreadId;
-                      const showActions =
-                        isActive || hoveredThreadId === thread.id;
-                      const menuOpen = openThreadMenuId === thread.id;
-
-                      return (
-                        <div
-                          key={thread.id}
-                          className={`relative mt-0.5 flex items-center justify-between rounded-md px-3 py-1.5 text-left transition ${
-                            isActive
-                              ? "bg-[#2a2a2a] text-[#eee]"
-                              : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
-                          }`}
-                          onMouseEnter={() => setHoveredThreadId(thread.id)}
-                          onMouseLeave={() =>
-                            setHoveredThreadId((prev) =>
-                              prev === thread.id ? null : prev,
-                            )
-                          }
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void window.carrent.shell.openPath(project.path);
+                            setOpenProjectMenuId(null);
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
                         >
-                          <button
-                            onClick={() => handleThreadClick(project.id, thread.id)}
-                            className="flex flex-1 items-center justify-between text-left"
-                          >
-                            <span className="flex items-center gap-1.5 truncate">
-                              {thread.pinned && (
-                                <Pin className="h-3 w-3 text-[#888]" />
-                              )}
-                              <span className="truncate text-[13px]">
-                                {thread.title}
-                              </span>
-                            </span>
-                            {!showActions && (
-                              <span className="shrink-0 text-[11px] text-[#555]">
-                                {formatRelativeTime(thread.updatedAt)}
-                              </span>
-                            )}
-                          </button>
-                          {showActions && (
-                            <button
-                              data-thread-menu-trigger="true"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenThreadMenuId(
-                                  menuOpen ? null : thread.id,
-                                );
-                              }}
-                              className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
-                            >
-                              <MoreHorizontal className="h-3 w-3" />
-                            </button>
-                          )}
-
-                          {menuOpen && (
-                            <div
-                              data-thread-menu="true"
-                              className="absolute right-0 top-full z-10 mt-0.5 w-32 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg"
-                            >
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  togglePin(project.id, thread.id);
-                                }}
-                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
-                              >
-                                <Pin className="h-3 w-3" />
-                                {thread.pinned ? "Unpin" : "Pin"}
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  archiveThreadAction(project.id, thread.id);
-                                }}
-                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 transition hover:bg-[#333]"
-                              >
-                                <Archive className="h-3 w-3 text-red-400" />
-                                Archive
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-
-
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-        {/* Chat section */}
-        <div className="flex flex-col">
-        <div className="flex items-center justify-between px-4 py-1.5">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
-            Chat
-          </span>
-          <button
-            onClick={handleNewChat}
-            className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]"
-            title="New chat"
-          >
-            <Plus className="h-3 w-3" />
-          </button>
-        </div>
-        <div className="px-2 pb-2">
-          {chats
-            .filter((chat) => !chat.archived)
-            .map((chat) => {
-              const isActive = chat.id === activeThreadId;
-              const showActions = isActive || hoveredChatId === chat.id;
-              const menuOpen = openChatMenuId === chat.id;
-
-              return (
-                <div
-                  key={chat.id}
-                  className={`relative mt-0.5 flex items-center justify-between rounded-md px-3 py-1.5 text-left transition ${
-                    isActive
-                      ? "bg-[#2a2a2a] text-[#eee]"
-                      : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
-                  }`}
-                  onMouseEnter={() => setHoveredChatId(chat.id)}
-                  onMouseLeave={() =>
-                    setHoveredChatId((prev) =>
-                      prev === chat.id ? null : prev,
-                    )
-                  }
-                >
-                  <button
-                    onClick={() => handleChatClick(chat.id)}
-                    className="flex flex-1 items-center justify-between text-left"
-                  >
-                    <span className="flex items-center gap-1.5 truncate">
-                      {chat.pinned && (
-                        <Pin className="h-3 w-3 text-[#888]" />
-                      )}
-                      <MessageSquare className="h-3 w-3 text-[#888]" />
-                      <span className="truncate text-[13px]">{chat.title}</span>
-                    </span>
-                    {!showActions && (
-                      <span className="shrink-0 text-[11px] text-[#555]">
-                        {formatRelativeTime(chat.updatedAt)}
-                      </span>
+                          <ExternalLink className="h-3 w-3" />
+                          Open in Finder
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenProjectMenuId(null);
+                            setEditingProjectId(project.id);
+                            setEditingProjectName(project.name);
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                        >
+                          <Pencil className="h-3 w-3" />
+                          Rename project
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.carrent.clipboard.writeText(project.path);
+                            setOpenProjectMenuId(null);
+                            showToast("Path copied to clipboard", "success");
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                        >
+                          <Link className="h-3 w-3" />
+                          Copy location
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm(`Delete "${project.name}"?`)) {
+                              removeProject(project.id);
+                            }
+                            setOpenProjectMenuId(null);
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 transition hover:bg-[#333]"
+                        >
+                          <Trash2 className="h-3 w-3 text-red-400" />
+                          Delete
+                        </button>
+                      </div>
                     )}
-                  </button>
-                  {showActions && (
-                    <button
-                      data-chat-menu-trigger="true"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenChatMenuId(menuOpen ? null : chat.id);
-                      }}
-                      className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
-                    >
-                      <MoreHorizontal className="h-3 w-3" />
-                    </button>
-                  )}
+                  </div>
 
-                  {menuOpen && (
-                    <div
-                      data-chat-menu="true"
-                      className="absolute right-0 top-full z-10 mt-0.5 w-32 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg"
-                    >
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleChatPin(chat.id);
-                          setOpenChatMenuId(null);
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
-                      >
-                        <Pin className="h-3 w-3" />
-                        {chat.pinned ? "Unpin" : "Pin"}
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          archiveChatAction(chat.id);
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 transition hover:bg-[#333]"
-                      >
-                        <Archive className="h-3 w-3 text-red-400" />
-                        Archive
-                      </button>
+                  {isExpanded && (
+                    <div className="ml-5 mt-1">
+                      {active.map((thread) => {
+                        const isActive = thread.id === activeThreadId;
+                        const showActions = isActive || hoveredThreadId === thread.id;
+                        const menuOpen = openThreadMenuId === thread.id;
+
+                        return (
+                          <div
+                            key={thread.id}
+                            className={`relative mt-0.5 flex items-center justify-between rounded-md px-3 py-1.5 text-left transition ${
+                              isActive
+                                ? "bg-[#2a2a2a] text-[#eee]"
+                                : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
+                            }`}
+                            onMouseEnter={() => setHoveredThreadId(thread.id)}
+                            onMouseLeave={() =>
+                              setHoveredThreadId((prev) => (prev === thread.id ? null : prev))
+                            }
+                          >
+                            <button
+                              onClick={() => handleThreadClick(project.id, thread.id)}
+                              className="flex flex-1 items-center justify-between text-left"
+                            >
+                              <span className="flex items-center gap-1.5 truncate">
+                                {thread.pinned && <Pin className="h-3 w-3 text-[#888]" />}
+                                <span className="truncate text-[13px]">{thread.title}</span>
+                              </span>
+                              {!showActions && (
+                                <span className="shrink-0 text-[11px] text-[#555]">
+                                  {formatRelativeTime(thread.updatedAt)}
+                                </span>
+                              )}
+                            </button>
+                            {showActions && (
+                              <button
+                                data-thread-menu-trigger="true"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenThreadMenuId(menuOpen ? null : thread.id);
+                                }}
+                                className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                              >
+                                <MoreHorizontal className="h-3 w-3" />
+                              </button>
+                            )}
+
+                            {menuOpen && (
+                              <div
+                                data-thread-menu="true"
+                                className="absolute right-0 top-full z-10 mt-0.5 w-32 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg"
+                              >
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    togglePin(project.id, thread.id);
+                                  }}
+                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                                >
+                                  <Pin className="h-3 w-3" />
+                                  {thread.pinned ? "Unpin" : "Pin"}
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    archiveThreadAction(project.id, thread.id);
+                                  }}
+                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 transition hover:bg-[#333]"
+                                >
+                                  <Archive className="h-3 w-3 text-red-400" />
+                                  Archive
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
               );
             })}
+          </div>
         </div>
-      </div>
+
+        {/* Chat section */}
+        <div className="flex flex-col">
+          <div className="flex items-center justify-between px-4 py-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
+              Chat
+            </span>
+            <button
+              onClick={handleNewChat}
+              className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]"
+              title="New chat"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
+          </div>
+          <div className="px-2 pb-2">
+            {chats
+              .filter((chat) => !chat.archived)
+              .map((chat) => {
+                const isActive = chat.id === activeThreadId;
+                const showActions = isActive || hoveredChatId === chat.id;
+                const menuOpen = openChatMenuId === chat.id;
+
+                return (
+                  <div
+                    key={chat.id}
+                    className={`relative mt-0.5 flex items-center justify-between rounded-md px-3 py-1.5 text-left transition ${
+                      isActive
+                        ? "bg-[#2a2a2a] text-[#eee]"
+                        : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
+                    }`}
+                    onMouseEnter={() => setHoveredChatId(chat.id)}
+                    onMouseLeave={() =>
+                      setHoveredChatId((prev) => (prev === chat.id ? null : prev))
+                    }
+                  >
+                    <button
+                      onClick={() => handleChatClick(chat.id)}
+                      className="flex flex-1 items-center justify-between text-left"
+                    >
+                      <span className="flex items-center gap-1.5 truncate">
+                        {chat.pinned && <Pin className="h-3 w-3 text-[#888]" />}
+                        <MessageSquare className="h-3 w-3 text-[#888]" />
+                        <span className="truncate text-[13px]">{chat.title}</span>
+                      </span>
+                      {!showActions && (
+                        <span className="shrink-0 text-[11px] text-[#555]">
+                          {formatRelativeTime(chat.updatedAt)}
+                        </span>
+                      )}
+                    </button>
+                    {showActions && (
+                      <button
+                        data-chat-menu-trigger="true"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenChatMenuId(menuOpen ? null : chat.id);
+                        }}
+                        className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                      >
+                        <MoreHorizontal className="h-3 w-3" />
+                      </button>
+                    )}
+
+                    {menuOpen && (
+                      <div
+                        data-chat-menu="true"
+                        className="absolute right-0 top-full z-10 mt-0.5 w-32 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg"
+                      >
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleChatPin(chat.id);
+                            setOpenChatMenuId(null);
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                        >
+                          <Pin className="h-3 w-3" />
+                          {chat.pinned ? "Unpin" : "Pin"}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            archiveChatAction(chat.id);
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 transition hover:bg-[#333]"
+                        >
+                          <Archive className="h-3 w-3 text-red-400" />
+                          Archive
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
+        </div>
       </div>
 
       {/* Settings */}

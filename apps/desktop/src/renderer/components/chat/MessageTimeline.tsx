@@ -183,10 +183,7 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
             {messages.map((msg) => {
               if (msg.role === "user") {
                 return (
-                  <div
-                    key={msg.id}
-                    className="px-4 py-5"
-                  >
+                  <div key={msg.id} className="px-4 py-5">
                     <UserMessage content={msg.content} timestamp={msg.timestamp} />
                   </div>
                 );
@@ -194,10 +191,7 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
 
               if (msg.type === "changed_files") {
                 return (
-                  <div
-                    key={msg.id}
-                    className="px-4 py-5"
-                  >
+                  <div key={msg.id} className="px-4 py-5">
                     <div className="flex gap-3">
                       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#252525] text-[#666]">
                         <Bot className="h-3.5 w-3.5" />
@@ -215,10 +209,7 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
               }
 
               return (
-                <div
-                  key={msg.id}
-                  className="px-4 py-5"
-                >
+                <div key={msg.id} className="px-4 py-5">
                   <AssistantMessage message={msg} timestamp={msg.timestamp} agentId={msg.agentId} />
                 </div>
               );

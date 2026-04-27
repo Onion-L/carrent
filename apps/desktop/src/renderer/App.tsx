@@ -27,22 +27,22 @@ function AppRoutes() {
 
   return (
     <AgentProvider>
-    <DraftThreadProvider>
-      <ToastProvider>
-        <DesktopShell>
-          <Routes>
-            <Route element={<HomePage />} path="/" />
-            <Route element={<DraftThreadPage />} path="/draft/:draftId" />
-            <Route element={<ThreadPage />} path="/thread/:projectId/:threadId" />
-            <Route element={<ChatPage />} path="/chat/:threadId" />
-            <Route element={<AgentsPage />} path="/agents" />
-            <Route element={<RuntimesPage />} path="/runtimes" />
-            <Route element={<SettingsPage />} path="/settings" />
-            <Route element={<HomePage />} path="*" />
-          </Routes>
-        </DesktopShell>
-      </ToastProvider>
-    </DraftThreadProvider>
+      <DraftThreadProvider>
+        <ToastProvider>
+          <DesktopShell>
+            <Routes>
+              <Route element={<HomePage />} path="/" />
+              <Route element={<DraftThreadPage />} path="/draft/:draftId" />
+              <Route element={<ThreadPage />} path="/thread/:projectId/:threadId" />
+              <Route element={<ChatPage />} path="/chat/:threadId" />
+              <Route element={<AgentsPage />} path="/agents" />
+              <Route element={<RuntimesPage />} path="/runtimes" />
+              <Route element={<SettingsPage />} path="/settings" />
+              <Route element={<HomePage />} path="*" />
+            </Routes>
+          </DesktopShell>
+        </ToastProvider>
+      </DraftThreadProvider>
     </AgentProvider>
   );
 }

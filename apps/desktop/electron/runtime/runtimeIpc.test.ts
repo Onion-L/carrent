@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
-import type { RuntimeId, RuntimeRecord, RuntimeVerificationResult } from "../../src/shared/runtimes";
+import type {
+  RuntimeId,
+  RuntimeRecord,
+  RuntimeVerificationResult,
+} from "../../src/shared/runtimes";
 import { registerRuntimeIpc } from "./runtimeIpc";
 
 describe("registerRuntimeIpc", () => {

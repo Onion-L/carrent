@@ -28,9 +28,7 @@ export function ReasoningBlock({ reasoning }: { reasoning: ReasoningPart }) {
             <CircleDashed className="h-3.5 w-3.5 animate-spin text-[#d7aa55]" />
           )}
           <span>{reasoning.status}</span>
-          <ChevronDown
-            className={`h-3.5 w-3.5 transition ${expanded ? "rotate-180" : ""}`}
-          />
+          <ChevronDown className={`h-3.5 w-3.5 transition ${expanded ? "rotate-180" : ""}`} />
         </div>
       </button>
       {expanded && (

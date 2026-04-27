@@ -515,7 +515,10 @@ function consumeCodexStreamChunk(
   }
 }
 
-const PROJECTLESS_CHAT_CWD = path.join(process.env.APPDATA || process.env.HOME || "/tmp", "carrent-chat");
+const PROJECTLESS_CHAT_CWD = path.join(
+  process.env.APPDATA || process.env.HOME || "/tmp",
+  "carrent-chat",
+);
 
 function resolveRequestCwd(request: ChatTurnRequest) {
   if (request.workspace.kind === "project") {
@@ -527,9 +530,7 @@ function resolveRequestCwd(request: ChatTurnRequest) {
 
 function buildRequestSessionKey(request: ChatTurnRequest) {
   const scope =
-    request.workspace.kind === "project"
-      ? `project:${request.workspace.projectPath}`
-      : "chat";
+    request.workspace.kind === "project" ? `project:${request.workspace.projectPath}` : "chat";
 
   return `${request.runtimeId}:${scope}:${request.threadId}:${request.agent.id}`;
 }
@@ -606,8 +607,8 @@ export function createChatSessionManager(options: {
     const resumeSessionId =
       request.runtimeId === "claude-code"
         ? (runtimeSessions.get(requestSessionKey) ??
-            options.providerSessions?.get(requestSessionKey) ??
-            null)
+          options.providerSessions?.get(requestSessionKey) ??
+          null)
         : null;
 
     spawnAttempt({
@@ -774,10 +775,7 @@ export function createChatSessionManager(options: {
         );
       }
 
-      if (
-        claudeStreamState?.reasoningText &&
-        claudeStreamState.reasoningStatus === "running"
-      ) {
+      if (claudeStreamState?.reasoningText && claudeStreamState.reasoningStatus === "running") {
         claudeStreamState.reasoningStatus = "completed";
         emitReasoningEvent(options.emit, runId, request.requestKey, {
           id: "claude-thinking",

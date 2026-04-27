@@ -4,9 +4,7 @@ export function ChatHeader({ title }: { title?: string }) {
       className="drag-region flex shrink-0 items-center px-4"
       style={{ height: "env(titlebar-area-height, 38px)" }}
     >
-      <h1 className="text-[14px] font-medium text-[#888]">
-        {title ?? "New Chat"}
-      </h1>
+      <h1 className="text-[14px] font-medium text-[#888]">{title ?? "New Chat"}</h1>
     </header>
   );
 }

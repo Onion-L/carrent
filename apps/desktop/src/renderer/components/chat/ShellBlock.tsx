@@ -1,9 +1,4 @@
-import {
-  CheckCircle2,
-  CircleDashed,
-  Terminal,
-  XCircle,
-} from "lucide-react";
+import { CheckCircle2, CircleDashed, Terminal, XCircle } from "lucide-react";
 import { useState } from "react";
 import type { MessagePart } from "../../mock/uiShellData";
 
@@ -53,9 +48,7 @@ export function ShellBlock({ shell }: { shell: ShellPart }) {
           <Terminal className="h-3.5 w-3.5 shrink-0 text-[#888]" />
           <span className="shrink-0">Shell</span>
         </div>
-        <div
-          className={`flex shrink-0 items-center gap-1.5 text-[11px] ${status.className}`}
-        >
+        <div className={`flex shrink-0 items-center gap-1.5 text-[11px] ${status.className}`}>
           <StatusIcon
             className={`h-3.5 w-3.5 ${shell.status === "running" ? "animate-spin" : ""}`}
           />
@@ -73,9 +66,7 @@ export function ShellBlock({ shell }: { shell: ShellPart }) {
               {shell.output}
             </pre>
           ) : (
-            shell.status === "running" && (
-              <div className="text-[12px] text-[#666]">Running...</div>
-            )
+            shell.status === "running" && <div className="text-[12px] text-[#666]">Running...</div>
           )}
         </div>
       )}

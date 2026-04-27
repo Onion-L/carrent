@@ -15,7 +15,10 @@ export interface ChatRunner {
   run: (request: ChatTurnRequest) => Promise<ChatRunnerResult>;
 }
 
-const PROJECTLESS_CHAT_CWD = path.join(process.env.APPDATA || process.env.HOME || "/tmp", "carrent-chat");
+const PROJECTLESS_CHAT_CWD = path.join(
+  process.env.APPDATA || process.env.HOME || "/tmp",
+  "carrent-chat",
+);
 
 function resolveRequestCwd(request: ChatTurnRequest) {
   if (request.workspace.kind === "project") {

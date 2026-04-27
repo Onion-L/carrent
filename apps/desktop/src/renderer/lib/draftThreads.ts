@@ -19,10 +19,7 @@ function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function buildDraftThreadRecord(
-  projectId: string,
-  title: string,
-): DraftThreadRecord | null {
+export function buildDraftThreadRecord(projectId: string, title: string): DraftThreadRecord | null {
   const nextTitle = title.trim();
   if (!nextTitle) {
     return null;
@@ -72,12 +69,8 @@ export function markPromotedDraftThreadByRef(
   );
 }
 
-export function finalizePromotedDraftThreadByRef(
-  drafts: DraftThreadRecord[],
-  draftId: string,
-) {
+export function finalizePromotedDraftThreadByRef(drafts: DraftThreadRecord[], draftId: string) {
   return drafts.filter(
-    (draft) =>
-      draft.draftId !== draftId || typeof draft.promotedToThreadId !== "string",
+    (draft) => draft.draftId !== draftId || typeof draft.promotedToThreadId !== "string",
   );
 }

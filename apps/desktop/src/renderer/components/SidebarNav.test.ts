@@ -19,8 +19,6 @@ describe("buildChatPath", () => {
 describe("buildDraftPath", () => {
   it("builds the draft route used by sidebar draft creation", () => {
     expect(buildDraftPath("draft-123")).toBe("/draft/draft-123");
-    expect(buildDraftPath("draft-123")).not.toBe(
-      "/thread/carrent/thread-draft-123",
-    );
+    expect(buildDraftPath("draft-123")).not.toBe("/thread/carrent/thread-draft-123");
   });
 });

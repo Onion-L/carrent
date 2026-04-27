@@ -9,9 +9,7 @@ import { useWorkspace } from "../context/WorkspaceContext";
 import { useDraftThreadPromotion } from "../hooks/useDraftThreadPromotion";
 import type { DraftThreadRecord } from "../lib/draftThreads";
 
-export function resolvePromotedDraftRoute(
-  draft: DraftThreadRecord | null | undefined,
-) {
+export function resolvePromotedDraftRoute(draft: DraftThreadRecord | null | undefined) {
   if (!draft?.promotedToThreadId) {
     return null;
   }

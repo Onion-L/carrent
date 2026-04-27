@@ -29,10 +29,7 @@ export function buildWorkspaceSnapshot({
   };
 }
 
-export function shouldPersistWorkspaceSnapshot(
-  hasHydrated: boolean,
-  enabled: boolean,
-): boolean {
+export function shouldPersistWorkspaceSnapshot(hasHydrated: boolean, enabled: boolean): boolean {
   return hasHydrated && enabled;
 }
 
@@ -57,11 +54,9 @@ export function useDebouncedWorkspaceSave(
     }
 
     timeoutRef.current = setTimeout(() => {
-      window.carrent.workspace
-        .save(snapshot)
-        .catch((error) => {
-          console.error("[workspace] failed to save", error);
-        });
+      window.carrent.workspace.save(snapshot).catch((error) => {
+        console.error("[workspace] failed to save", error);
+      });
     }, delayMs);
 
     return () => {

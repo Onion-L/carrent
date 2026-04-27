@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { ChatTurnRequest, ChatRunEvent } from "../src/shared/chat";
-import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../src/shared/workspacePersistence";
+import type {
+  WorkspaceSnapshot,
+  ProviderSessionSnapshot,
+} from "../src/shared/workspacePersistence";
 import type { RuntimeId } from "../src/shared/runtimes";
 
 const carrent = {
@@ -21,8 +24,7 @@ const carrent = {
   chat: {
     send: (request: ChatTurnRequest) =>
       ipcRenderer.invoke("chat:send", request) as Promise<{ runId: string }>,
-    stop: (runId: string) =>
-      ipcRenderer.invoke("chat:stop", runId) as Promise<void>,
+    stop: (runId: string) => ipcRenderer.invoke("chat:stop", runId) as Promise<void>,
     onEvent: (listener: (event: ChatRunEvent) => void) => {
       const wrapped = (_event: IpcRendererEvent, evt: ChatRunEvent) => listener(evt);
       ipcRenderer.on("chat:event", wrapped);
@@ -41,19 +43,15 @@ const carrent = {
       ipcRenderer.invoke("shell:open-path", filePath) as Promise<string>,
   },
   clipboard: {
-    writeText: (text: string) =>
-      ipcRenderer.invoke("clipboard:write-text", text),
+    writeText: (text: string) => ipcRenderer.invoke("clipboard:write-text", text),
   },
   workspace: {
     load: () => ipcRenderer.invoke("workspace:load") as Promise<WorkspaceSnapshot | null>,
-    remember: (snapshot: WorkspaceSnapshot) =>
-      ipcRenderer.send("workspace:remember", snapshot),
-    save: (snapshot: WorkspaceSnapshot) =>
-      ipcRenderer.invoke("workspace:save", snapshot),
+    remember: (snapshot: WorkspaceSnapshot) => ipcRenderer.send("workspace:remember", snapshot),
+    save: (snapshot: WorkspaceSnapshot) => ipcRenderer.invoke("workspace:save", snapshot),
   },
   providerSessions: {
-    load: () =>
-      ipcRenderer.invoke("provider-sessions:load") as Promise<ProviderSessionSnapshot>,
+    load: () => ipcRenderer.invoke("provider-sessions:load") as Promise<ProviderSessionSnapshot>,
     save: (snapshot: ProviderSessionSnapshot) =>
       ipcRenderer.invoke("provider-sessions:save", snapshot),
   },

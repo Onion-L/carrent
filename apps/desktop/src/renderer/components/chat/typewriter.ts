@@ -1,10 +1,7 @@
 export const TYPEWRITER_INTERVAL_MS = 24;
 export const TYPEWRITER_CHARS_PER_TICK = 3;
 
-export function getNextTypewriterText(
-  visibleText: string,
-  receivedText: string,
-): string {
+export function getNextTypewriterText(visibleText: string, receivedText: string): string {
   if (!receivedText.startsWith(visibleText)) {
     return receivedText;
   }
@@ -19,9 +16,6 @@ export function getNextTypewriterText(
   );
 }
 
-export function hasPendingTypewriterText(
-  visibleText: string,
-  receivedText: string,
-): boolean {
+export function hasPendingTypewriterText(visibleText: string, receivedText: string): boolean {
   return visibleText.length < receivedText.length;
 }

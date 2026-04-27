@@ -75,7 +75,7 @@ export function createChatRunCoordinator() {
   const getRunForEvent = (event: ChatRunEvent) => {
     const requestKey =
       typeof event.requestKey === "string" ? event.requestKey : requestKeyByRunId.get(event.runId);
-    return requestKey ? pendingByRequestKey.get(requestKey) ?? null : null;
+    return requestKey ? (pendingByRequestKey.get(requestKey) ?? null) : null;
   };
 
   return {

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { getLastWorkspaceSnapshot, registerWorkspaceIpc } from "./workspaceIpc";
-import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../../src/shared/workspacePersistence";
+import type {
+  WorkspaceSnapshot,
+  ProviderSessionSnapshot,
+} from "../../src/shared/workspacePersistence";
 
 describe("registerWorkspaceIpc", () => {
   it("registers workspace and provider session channels", () => {

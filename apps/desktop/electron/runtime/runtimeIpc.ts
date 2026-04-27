@@ -11,11 +11,11 @@ import { runtimeProcessManager, type RuntimeProcessManager } from "./runtimeProc
 interface IpcMainLike {
   handle: (
     channel: string,
-      listener: (
-        event: unknown,
-        runtimeId?: RuntimeId,
-      ) => Promise<RuntimeRecord[] | RuntimeRecord | RuntimeVerificationResult | void> | void,
-    ) => void;
+    listener: (
+      event: unknown,
+      runtimeId?: RuntimeId,
+    ) => Promise<RuntimeRecord[] | RuntimeRecord | RuntimeVerificationResult | void> | void,
+  ) => void;
 }
 
 interface RuntimeIpcServices {

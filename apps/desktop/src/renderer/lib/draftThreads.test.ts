@@ -7,9 +7,7 @@ import {
   markPromotedDraftThreadByRef,
 } from "./draftThreads";
 
-function makeDraft(
-  overrides: Partial<DraftThreadRecord> = {},
-): DraftThreadRecord {
+function makeDraft(overrides: Partial<DraftThreadRecord> = {}): DraftThreadRecord {
   return {
     draftId: "draft-1",
     projectId: "project-1",
@@ -82,11 +80,7 @@ describe("draftThreads", () => {
   it("marks a draft as promoted without removing it yet", () => {
     const drafts = [makeDraft()];
 
-    const nextDrafts = markPromotedDraftThreadByRef(
-      drafts,
-      "draft-1",
-      "thread-real",
-    );
+    const nextDrafts = markPromotedDraftThreadByRef(drafts, "draft-1", "thread-real");
 
     expect(nextDrafts).toHaveLength(1);
     expect(nextDrafts[0]?.promotedToThreadId).toBe("thread-real");

@@ -55,7 +55,9 @@ export type WorkspaceContextValue = {
     messages: Message[];
   } | null;
   setActiveThreadId: (id: string | null) => void;
-  setDrafts: (drafts: DraftThreadRecord[] | ((prev: DraftThreadRecord[]) => DraftThreadRecord[])) => void;
+  setDrafts: (
+    drafts: DraftThreadRecord[] | ((prev: DraftThreadRecord[]) => DraftThreadRecord[]),
+  ) => void;
   setAgents: (agents: AgentRecord[] | ((prev: AgentRecord[]) => AgentRecord[])) => void;
   createProject: (folderPath: string) => ProjectRecord | null;
   removeProject: (projectId: string) => void;
@@ -406,9 +408,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const updateMessage = (id: string, content: string) => {
     setMessages((prev) =>
       prev.map((msg) =>
-        msg.id === id && msg.type !== "changed_files"
-          ? { ...msg, content, parts: undefined }
-          : msg,
+        msg.id === id && msg.type !== "changed_files" ? { ...msg, content, parts: undefined } : msg,
       ),
     );
   };

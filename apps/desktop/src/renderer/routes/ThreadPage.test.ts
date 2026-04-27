@@ -2,7 +2,13 @@ import { describe, expect, it } from "bun:test";
 
 import { resolveWorkspaceThreadRouteData } from "../context/WorkspaceContext";
 import type { DraftThreadRecord } from "../lib/draftThreads";
-import { messages as seededMessages, projects as seededProjects, type Message, type ProjectRecord, type ThreadRecord } from "../mock/uiShellData";
+import {
+  messages as seededMessages,
+  projects as seededProjects,
+  type Message,
+  type ProjectRecord,
+  type ThreadRecord,
+} from "../mock/uiShellData";
 import { findPromotedDraftToFinalize, resolveThreadRouteData } from "./ThreadPage";
 
 type TextMessage = {
@@ -50,9 +56,7 @@ function makeMessage(overrides: Partial<TextMessage> = {}): TextMessage {
   };
 }
 
-function makeDraft(
-  overrides: Partial<DraftThreadRecord> = {},
-): DraftThreadRecord {
+function makeDraft(overrides: Partial<DraftThreadRecord> = {}): DraftThreadRecord {
   return {
     draftId: "draft-1",
     projectId: "project-1",
@@ -67,10 +71,10 @@ function makeDraft(
 describe("resolveThreadRouteData", () => {
   it("returns the matching project, thread, and messages", () => {
     const projects = [
-      makeProject(
-        { id: "project-1" },
-        [makeThread({ id: "thread-1" }), makeThread({ id: "thread-2" })],
-      ),
+      makeProject({ id: "project-1" }, [
+        makeThread({ id: "thread-1" }),
+        makeThread({ id: "thread-2" }),
+      ]),
     ];
     const messages: Message[] = [
       makeMessage({ id: "message-1", threadId: "thread-1" }),
@@ -97,8 +101,7 @@ describe("resolveThreadRouteData", () => {
 
     expect(
       resolveThreadRouteData(
-        (projectId, threadId) =>
-          resolveWorkspaceThreadRouteData(projects, [], projectId, threadId),
+        (projectId, threadId) => resolveWorkspaceThreadRouteData(projects, [], projectId, threadId),
         "project-1",
         "thread-2",
       ),
@@ -108,12 +111,7 @@ describe("resolveThreadRouteData", () => {
   it("reads the verification route directly from seeded workspace data", () => {
     const result = resolveThreadRouteData(
       (projectId, threadId) =>
-        resolveWorkspaceThreadRouteData(
-          seededProjects,
-          seededMessages,
-          projectId,
-          threadId,
-        ),
+        resolveWorkspaceThreadRouteData(seededProjects, seededMessages, projectId, threadId),
       "project-1",
       "thread-1",
     );

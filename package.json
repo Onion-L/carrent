@@ -13,7 +13,7 @@
     "build": "turbo build",
     "lint": "oxlint .",
     "typecheck": "turbo typecheck",
-    "format": "oxfmt . --write"
+    "fmt": "oxfmt . --write"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

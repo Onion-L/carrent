@@ -271,9 +271,7 @@ export function AgentsPage() {
                   >
                     <div
                       className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[14px] transition-colors duration-200 ${
-                        isActive
-                          ? "bg-white/[0.08]"
-                          : "bg-white/[0.03] group-hover:bg-white/[0.05]"
+                        isActive ? "bg-white/[0.08]" : "bg-white/[0.03] group-hover:bg-white/[0.05]"
                       }`}
                     >
                       {agent.avatar || <Bot className="h-3.5 w-3.5 opacity-60" />}
@@ -361,9 +359,7 @@ export function AgentsPage() {
                     key={t.id}
                     onClick={() => setTab(t.id)}
                     className={`group relative flex items-center gap-2 rounded-xl px-4 py-2 text-[13px] font-medium transition-all duration-300 ${
-                      active
-                        ? "text-[#e8e8e8]"
-                        : "text-[#555] hover:text-[#999]"
+                      active ? "text-[#e8e8e8]" : "text-[#555] hover:text-[#999]"
                     }`}
                   >
                     {active && (
@@ -428,9 +424,7 @@ export function AgentsPage() {
                         </div>
                         <button
                           onClick={() =>
-                            setDraft((prev) =>
-                              prev ? { ...prev, avatar: "" } : prev,
-                            )
+                            setDraft((prev) => (prev ? { ...prev, avatar: "" } : prev))
                           }
                           className="text-[11px] text-[#555] transition-colors duration-200 hover:text-[#888]"
                         >
@@ -461,9 +455,7 @@ export function AgentsPage() {
                           <Input
                             value={draft.name}
                             onChange={(e) =>
-                              setDraft((prev) =>
-                                prev ? { ...prev, name: e.target.value } : prev,
-                              )
+                              setDraft((prev) => (prev ? { ...prev, name: e.target.value } : prev))
                             }
                             className="bg-[#151515] ring-1 ring-white/[0.05] transition-shadow duration-300 focus:ring-white/[0.10]"
                             placeholder="e.g. Architect"
@@ -498,9 +490,7 @@ export function AgentsPage() {
                         value={draft.runtime}
                         onChange={(runtime) =>
                           setDraft((prev) =>
-                            prev
-                              ? { ...prev, runtime: runtime as AgentRecord["runtime"] }
-                              : prev,
+                            prev ? { ...prev, runtime: runtime as AgentRecord["runtime"] } : prev,
                           )
                         }
                       />
@@ -605,7 +595,10 @@ export function AgentsPage() {
                 <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-[0.08em] text-[#555]">
                   Runtime <span className="text-[#a44]">*</span>
                 </label>
-                <RuntimePicker value={newRuntime} onChange={(v) => setNewRuntime(v as AgentRecord["runtime"])} />
+                <RuntimePicker
+                  value={newRuntime}
+                  onChange={(v) => setNewRuntime(v as AgentRecord["runtime"])}
+                />
               </div>
             </div>
 

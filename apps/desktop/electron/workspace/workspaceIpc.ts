@@ -1,4 +1,7 @@
-import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../../src/shared/workspacePersistence";
+import type {
+  WorkspaceSnapshot,
+  ProviderSessionSnapshot,
+} from "../../src/shared/workspacePersistence";
 import type { WorkspaceStore } from "./workspaceStore";
 
 interface IpcMainLike {
@@ -6,10 +9,7 @@ interface IpcMainLike {
     channel: string,
     listener: (event: unknown, ...args: unknown[]) => Promise<unknown> | unknown,
   ) => void;
-  on: (
-    channel: string,
-    listener: (event: unknown, ...args: unknown[]) => void,
-  ) => void;
+  on: (channel: string, listener: (event: unknown, ...args: unknown[]) => void) => void;
 }
 
 let lastWorkspaceSnapshot: WorkspaceSnapshot | null = null;

@@ -34,10 +34,7 @@ describe("createProcessRunner", () => {
 
     const result = await runner.run(
       process.execPath,
-      [
-        "-e",
-        "process.stdin.resume(); process.stdin.on('end', () => console.log('stdin closed'));",
-      ],
+      ["-e", "process.stdin.resume(); process.stdin.on('end', () => console.log('stdin closed'));"],
       { timeoutMs: 1000 },
     );
 

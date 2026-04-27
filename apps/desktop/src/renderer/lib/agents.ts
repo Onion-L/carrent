@@ -11,10 +11,7 @@ function formatISO(date: Date): string {
   return date.toISOString();
 }
 
-export function buildNewAgent(
-  overrides: Partial<AgentRecord> = {},
-  now = new Date(),
-): AgentRecord {
+export function buildNewAgent(overrides: Partial<AgentRecord> = {}, now = new Date()): AgentRecord {
   return {
     id: newAgentId(),
     name: "",

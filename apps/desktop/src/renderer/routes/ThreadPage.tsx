@@ -31,8 +31,7 @@ export function findPromotedDraftToFinalize(
 
   return (
     drafts.find(
-      (draft) =>
-        draft.projectId === projectId && draft.promotedToThreadId === threadId,
+      (draft) => draft.projectId === projectId && draft.promotedToThreadId === threadId,
     ) ?? null
   );
 }

@@ -2,9 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { buildChatPrompt } from "./chatPrompt";
 import type { ChatTurnRequest } from "../../src/shared/chat";
 
-function makeRequest(
-  overrides: Partial<ChatTurnRequest> = {},
-): ChatTurnRequest {
+function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
     workspace: {
       kind: "project",

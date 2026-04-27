@@ -95,7 +95,7 @@ export function Composer(props: ComposerProps) {
   const activeAssistantMessageIdRef = useRef<string | null>(null);
   const flushTypewriterRef = useRef<VoidFunction | null>(null);
   const projectId = props.mode === "chat" ? null : props.projectId;
-  const project = projectId ? projects.find((item) => item.id === projectId) ?? null : null;
+  const project = projectId ? (projects.find((item) => item.id === projectId) ?? null) : null;
   const threadId = props.mode === "draft" ? props.preallocatedThreadId : props.threadId;
 
   const canSend =

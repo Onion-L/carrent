@@ -3,9 +3,7 @@ import { createChatRunner } from "./chatRunner";
 import type { ProcessRunner, ProcessRunnerResult } from "../runtime/processRunner";
 import type { ChatTurnRequest } from "../../src/shared/chat";
 
-function makeRequest(
-  overrides: Partial<ChatTurnRequest> = {},
-): ChatTurnRequest {
+function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
     workspace: {
       kind: "project",

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { buildWorkspaceSnapshot, shouldPersistWorkspaceSnapshot } from "./useDebouncedWorkspaceSave";
+import {
+  buildWorkspaceSnapshot,
+  shouldPersistWorkspaceSnapshot,
+} from "./useDebouncedWorkspaceSave";
 
 describe("buildWorkspaceSnapshot", () => {
   it("returns a valid snapshot with version 1", () => {
@@ -22,7 +25,16 @@ describe("buildWorkspaceSnapshot", () => {
     const snapshot = buildWorkspaceSnapshot({
       projects: [{ id: "p1", name: "P1", path: "/tmp/p1", threads: [] }],
       chats: [],
-      messages: [{ id: "m1", role: "user", agentId: "a1", threadId: "t1", content: "hi", timestamp: "09:00" }],
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          agentId: "a1",
+          threadId: "t1",
+          content: "hi",
+          timestamp: "09:00",
+        },
+      ],
       activeThreadId: "t1",
       drafts: [],
     });

@@ -4,9 +4,7 @@ import { getVerificationDraftById } from "../context/DraftThreadContext";
 import type { DraftThreadRecord } from "../lib/draftThreads";
 import { resolvePromotedDraftRoute } from "./DraftThreadPage";
 
-function makeDraft(
-  overrides: Partial<DraftThreadRecord> = {},
-): DraftThreadRecord {
+function makeDraft(overrides: Partial<DraftThreadRecord> = {}): DraftThreadRecord {
   return {
     draftId: "draft-1",
     projectId: "project-1",

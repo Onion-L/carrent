@@ -1,8 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  WORKSPACE_SNAPSHOT_VERSION,
-  normalizeWorkspaceSnapshot,
-} from "./workspacePersistence";
+import { WORKSPACE_SNAPSHOT_VERSION, normalizeWorkspaceSnapshot } from "./workspacePersistence";
 
 describe("normalizeWorkspaceSnapshot", () => {
   it("accepts a valid current snapshot", () => {

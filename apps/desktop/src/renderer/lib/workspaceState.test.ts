@@ -39,14 +39,8 @@ function makeProject(
 describe("workspaceState", () => {
   it("finds the current thread and project from activeThreadId", () => {
     const projects = [
-      makeProject(
-        { id: "project-a", name: "Alpha" },
-        [makeThread({ id: "thread-a" })],
-      ),
-      makeProject(
-        { id: "project-b", name: "Beta" },
-        [makeThread({ id: "thread-b" })],
-      ),
+      makeProject({ id: "project-a", name: "Alpha" }, [makeThread({ id: "thread-a" })]),
+      makeProject({ id: "project-b", name: "Beta" }, [makeThread({ id: "thread-b" })]),
     ];
 
     expect(findCurrentThread(projects, "thread-b")?.id).toBe("thread-b");
@@ -55,13 +49,10 @@ describe("workspaceState", () => {
 
   it("creates a new thread at the top of the target project", () => {
     const projects = [
-      makeProject(
-        { id: "project-a" },
-        [
-          makeThread({ id: "thread-a", title: "Existing A" }),
-          makeThread({ id: "thread-b", title: "Existing B" }),
-        ],
-      ),
+      makeProject({ id: "project-a" }, [
+        makeThread({ id: "thread-a", title: "Existing A" }),
+        makeThread({ id: "thread-b", title: "Existing B" }),
+      ]),
     ];
 
     const result = createThreadInProjects(projects, "project-a", "New thread");
@@ -74,25 +65,20 @@ describe("workspaceState", () => {
 
   it("archives the active thread and returns the next visible thread id", () => {
     const projects = [
-      makeProject(
-        { id: "project-a" },
-        [
-          makeThread({ id: "thread-a", title: "Pinned thread", pinned: true }),
-          makeThread({ id: "thread-b", title: "Active thread" }),
-        ],
-      ),
-      makeProject(
-        { id: "project-b" },
-        [makeThread({ id: "thread-c", title: "Other project thread" })],
-      ),
+      makeProject({ id: "project-a" }, [
+        makeThread({ id: "thread-a", title: "Pinned thread", pinned: true }),
+        makeThread({ id: "thread-b", title: "Active thread" }),
+      ]),
+      makeProject({ id: "project-b" }, [
+        makeThread({ id: "thread-c", title: "Other project thread" }),
+      ]),
     ];
 
     const result = archiveThreadInProjects(projects, "project-a", "thread-b");
 
-    expect(
-      result.projects[0]?.threads.find((thread) => thread.id === "thread-b")
-        ?.archived,
-    ).toBe(true);
+    expect(result.projects[0]?.threads.find((thread) => thread.id === "thread-b")?.archived).toBe(
+      true,
+    );
     expect(result.nextActiveThreadId).toBe("thread-a");
   });
 
@@ -118,14 +104,8 @@ describe("workspaceState", () => {
       updatedAt: "now",
     });
     const projects = [
-      makeProject(
-        { id: "project-a" },
-        [makeThread({ id: "thread-a", title: "Existing A" })],
-      ),
-      makeProject(
-        { id: "project-b" },
-        [makeThread({ id: "thread-b", title: "Existing B" })],
-      ),
+      makeProject({ id: "project-a" }, [makeThread({ id: "thread-a", title: "Existing A" })]),
+      makeProject({ id: "project-b" }, [makeThread({ id: "thread-b", title: "Existing B" })]),
     ];
 
     const result = upsertThreadInProjects(projects, "project-b", promotedThread);
@@ -151,13 +131,10 @@ describe("workspaceState", () => {
       updatedAt: "now",
     });
     const projects = [
-      makeProject(
-        { id: "project-a" },
-        [
-          originalThread,
-          makeThread({ id: "thread-a", title: "Existing A" }),
-        ],
-      ),
+      makeProject({ id: "project-a" }, [
+        originalThread,
+        makeThread({ id: "thread-a", title: "Existing A" }),
+      ]),
     ];
 
     const result = upsertThreadInProjects(projects, "project-a", promotedThread);
@@ -167,21 +144,13 @@ describe("workspaceState", () => {
       ...originalThread,
       ...promotedThread,
     });
-    expect(
-      result[0]?.threads.filter((thread) => thread.id === "thread-real"),
-    ).toHaveLength(1);
+    expect(result[0]?.threads.filter((thread) => thread.id === "thread-real")).toHaveLength(1);
   });
 
   it("leaves projects unchanged when the target project does not exist", () => {
     const projects = [
-      makeProject(
-        { id: "project-a" },
-        [makeThread({ id: "thread-a", pinned: true })],
-      ),
-      makeProject(
-        { id: "project-b" },
-        [makeThread({ id: "thread-b", archived: true })],
-      ),
+      makeProject({ id: "project-a" }, [makeThread({ id: "thread-a", pinned: true })]),
+      makeProject({ id: "project-b" }, [makeThread({ id: "thread-b", archived: true })]),
     ];
     const promotedThread = makeThread({
       id: "thread-real",
@@ -233,8 +202,24 @@ describe("workspaceState", () => {
   it("resolves chat route data for a thread id", () => {
     const chats = [makeThread({ id: "chat-1", title: "Chat One" })];
     const messages = [
-      { id: "m1", threadId: "chat-1", role: "user" as const, content: "hi", agentId: "a1", timestamp: "09:00", type: "text" as const },
-      { id: "m2", threadId: "chat-2", role: "user" as const, content: "bye", agentId: "a1", timestamp: "09:01", type: "text" as const },
+      {
+        id: "m1",
+        threadId: "chat-1",
+        role: "user" as const,
+        content: "hi",
+        agentId: "a1",
+        timestamp: "09:00",
+        type: "text" as const,
+      },
+      {
+        id: "m2",
+        threadId: "chat-2",
+        role: "user" as const,
+        content: "bye",
+        agentId: "a1",
+        timestamp: "09:01",
+        type: "text" as const,
+      },
     ];
     const routeData = resolveChatThreadRouteData(chats, messages, "chat-1");
     expect(routeData?.thread.id).toBe("chat-1");

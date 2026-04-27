@@ -42,7 +42,9 @@ export function ThreadHistoryPane() {
                 }`}
               >
                 <span className="text-[13px] font-medium">{thread.title}</span>
-                <span className="text-[11px] text-[#666]">{formatRelativeTime(thread.updatedAt)}</span>
+                <span className="text-[11px] text-[#666]">
+                  {formatRelativeTime(thread.updatedAt)}
+                </span>
               </button>
             );
           })

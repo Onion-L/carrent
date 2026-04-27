@@ -3,7 +3,10 @@ import { mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createWorkspaceStore } from "./workspaceStore";
-import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../../src/shared/workspacePersistence";
+import type {
+  WorkspaceSnapshot,
+  ProviderSessionSnapshot,
+} from "../../src/shared/workspacePersistence";
 
 async function makeTempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "carrent-workspace-store-"));

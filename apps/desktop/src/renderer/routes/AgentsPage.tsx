@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Button, Input, Textarea } from "@carrent/ui";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { Input, Textarea } from "@carrent/ui";
 import {
   Bot,
   Plus,
@@ -9,6 +9,7 @@ import {
   BookOpenText,
   SlidersHorizontal,
   X,
+  Upload,
 } from "lucide-react";
 import { useAgents } from "../context/AgentContext";
 import { useWorkspace } from "../context/WorkspaceContext";
@@ -42,16 +43,16 @@ function RuntimePicker({ value, onChange }: { value: string; onChange: (value: s
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-3 rounded-xl bg-[#1c1c1c] px-4 py-3 text-left ring-1 ring-white/[0.06] transition-all duration-300 hover:bg-[#222] hover:ring-white/[0.10]"
+        className="flex w-full items-center gap-2 rounded-md border border-white/[0.06] bg-[#1a1a1a] px-3 py-2 text-left transition-colors hover:border-white/[0.10]"
       >
         {selectedRuntime ? (
           <>
             <RuntimeIcon name={selectedRuntime.name} size="sm" />
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#e0e0e0]">
+            <span className="min-w-0 flex-1 truncate text-[13px] text-[#d0d0d0]">
               {selectedRuntime.name}
             </span>
             <ChevronUp
-              className={`h-4 w-4 shrink-0 text-[#555] transition-transform duration-300 ${open ? "" : "rotate-180"}`}
+              className={`h-3.5 w-3.5 shrink-0 text-[#555] transition-transform ${open ? "" : "rotate-180"}`}
             />
           </>
         ) : (
@@ -60,7 +61,7 @@ function RuntimePicker({ value, onChange }: { value: string; onChange: (value: s
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 right-0 z-10 mb-2 overflow-hidden rounded-xl border border-white/[0.06] bg-[#171717] shadow-2xl shadow-black/40">
+        <div className="absolute bottom-full left-0 right-0 z-10 mb-1 overflow-hidden rounded-md border border-white/[0.06] bg-[#1a1a1a] shadow-lg shadow-black/30">
           {runtimes.map((runtime) => {
             const isSelected = runtime.id === value;
             const isOnline = runtime.availability === "detected";
@@ -72,17 +73,17 @@ function RuntimePicker({ value, onChange }: { value: string; onChange: (value: s
                   onChange(runtime.id);
                   setOpen(false);
                 }}
-                className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-200 ${
-                  isSelected ? "bg-white/[0.06]" : "hover:bg-white/[0.04]"
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors ${
+                  isSelected ? "bg-white/[0.05]" : "hover:bg-white/[0.03]"
                 }`}
               >
                 <RuntimeIcon name={runtime.name} size="sm" />
-                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#e0e0e0]">
+                <span className="min-w-0 flex-1 truncate text-[13px] text-[#d0d0d0]">
                   {runtime.name}
                 </span>
                 <span
-                  className={`h-2 w-2 shrink-0 rounded-full transition-colors duration-500 ${
-                    isOnline ? "bg-emerald-400 shadow-[0_0_6px_rgba(74,222,128,0.4)]" : "bg-[#333]"
+                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                    isOnline ? "bg-emerald-400" : "bg-[#333]"
                   }`}
                 />
               </button>
@@ -193,6 +194,19 @@ export function AgentsPage() {
     if (selectedAgent) setDraft({ ...selectedAgent });
   };
 
+  const handleAvatarChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setDraft((prev) => (prev ? { ...prev, avatar: reader.result as string } : prev));
+      };
+      reader.readAsDataURL(file);
+    },
+    [],
+  );
+
   const hasChanges =
     draft && selectedAgent
       ? draft.name !== selectedAgent.name ||
@@ -224,33 +238,31 @@ export function AgentsPage() {
   return (
     <div className="flex h-full w-full bg-[#111]">
       {/* ---- Sidebar ---- */}
-      <aside className="flex h-full w-[232px] shrink-0 flex-col border-r border-white/[0.04] bg-[#141414]">
+      <aside className="flex h-full w-[280px] shrink-0 flex-col border-r border-white/[0.04] bg-[#141414]">
         <div
           className="drag-region shrink-0"
           style={{ height: "env(titlebar-area-height, 38px)" }}
         />
-        <div className="flex items-center justify-between px-4 py-3">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#555]">
-            Agents
-          </span>
+        <div className="flex items-center justify-between px-4 py-2.5">
+          <span className="text-[13px] font-medium text-[#666]">Agents</span>
           <button
             onClick={handleCreate}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-[#666] transition-all duration-200 hover:bg-white/[0.06] hover:text-[#ddd] active:scale-95"
+            className="flex h-6 w-6 items-center justify-center rounded text-[#555] transition-colors hover:bg-white/[0.06] hover:text-[#ccc]"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto px-3 pb-3">
+        <div className="flex-1 overflow-auto px-2 pb-3">
           {agents.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-10 text-center">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.03]">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.03]">
                 <Bot className="h-5 w-5 text-[#444]" />
               </div>
-              <p className="text-[13px] text-[#555]">No agents</p>
+              <p className="text-[14px] text-[#555]">No agents</p>
               <button
                 onClick={handleCreate}
-                className="mt-1 text-[12px] text-[#777] transition-colors duration-200 hover:text-[#bbb]"
+                className="text-[13px] text-[#666] transition-colors hover:text-[#aaa]"
               >
                 Create your first agent
               </button>
@@ -263,30 +275,31 @@ export function AgentsPage() {
                   <button
                     key={agent.id}
                     onClick={() => setSelectedAgentId(agent.id)}
-                    className={`group flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-all duration-200 ${
+                    className={`group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
                       isActive
-                        ? "bg-white/[0.06] text-[#e8e8e8] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
-                        : "text-[#888] hover:bg-white/[0.04] hover:text-[#ccc]"
+                        ? "bg-[#222] text-[#e8e8e8]"
+                        : "text-[#888] hover:bg-white/[0.03] hover:text-[#ccc]"
                     }`}
                   >
                     <div
-                      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[14px] transition-colors duration-200 ${
-                        isActive ? "bg-white/[0.08]" : "bg-white/[0.03] group-hover:bg-white/[0.05]"
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded ${
+                        isActive ? "bg-white/[0.06]" : "bg-white/[0.03]"
                       }`}
                     >
-                      {agent.avatar || <Bot className="h-3.5 w-3.5 opacity-60" />}
+                      {agent.avatar ? (
+                        <img src={agent.avatar} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <Bot className="h-4 w-4 opacity-50" />
+                      )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-medium leading-snug">
+                      <div className="truncate text-[14px] leading-tight">
                         {agent.name || "Untitled"}
                       </div>
-                      <div className="truncate text-[11px] text-[#555] leading-snug">
+                      <div className="truncate text-[12px] text-[#555] leading-tight">
                         {agent.runtime}
                       </div>
                     </div>
-                    {isActive && (
-                      <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#4a6cf7] shadow-[0_0_8px_rgba(74,108,247,0.5)]" />
-                    )}
                   </button>
                 );
               })}
@@ -304,13 +317,13 @@ export function AgentsPage() {
 
         {!draft ? (
           /* Empty state */
-          <div className="flex flex-1 flex-col items-center justify-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/[0.03] ring-1 ring-white/[0.04]">
-              <Bot className="h-7 w-7 text-[#444]" />
+          <div className="flex flex-1 flex-col items-center justify-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/[0.03]">
+              <Bot className="h-5 w-5 text-[#444]" />
             </div>
             <div className="text-center">
-              <p className="text-[15px] font-medium text-[#666]">Select an agent</p>
-              <p className="mt-1 text-[13px] text-[#444]">
+              <p className="text-[14px] text-[#555]">Select an agent</p>
+              <p className="mt-0.5 text-[13px] text-[#444]">
                 Choose from the sidebar or create a new one
               </p>
             </div>
@@ -318,222 +331,206 @@ export function AgentsPage() {
         ) : (
           <div className="flex flex-1 flex-col overflow-hidden">
             {/* ---- Header ---- */}
-            <div className="mx-auto flex w-full max-w-3xl shrink-0 items-center justify-between px-8 py-5">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.04] text-[20px] ring-1 ring-white/[0.05]">
-                  {draft.avatar || <Bot className="h-5 w-5 text-[#666]" />}
+            <div className="flex w-full shrink-0 items-center justify-between border-b border-white/[0.04] px-8 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-md bg-white/[0.04]">
+                  {draft.avatar ? (
+                    <img src={draft.avatar} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <Bot className="h-4 w-4 text-[#555]" />
+                  )}
                 </div>
                 <div>
-                  <h1 className="text-[17px] font-semibold tracking-tight text-[#e4e4e4]">
+                  <h1 className="text-[15px] font-medium text-[#e0e0e0]">
                     {draft.name || "Untitled"}
                   </h1>
-                  <p className="text-[12px] text-[#555]">{draft.runtime}</p>
+                  <p className="text-[11px] text-[#555]">{draft.runtime}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 {hasChanges && (
-                  <span className="flex items-center gap-1.5 text-[11px] text-[#b0852c]">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#b0852c]" />
-                    Unsaved
-                  </span>
+                  <span className="text-[11px] text-[#888]">Unsaved changes</span>
                 )}
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="gap-1.5 border-white/[0.06] bg-transparent text-[#a44] ring-1 ring-white/[0.06] transition-all duration-200 hover:bg-white/[0.04] hover:text-[#d44] active:scale-[0.97]"
+                <button
                   onClick={handleDelete}
+                  className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-[#888] transition-colors hover:bg-white/[0.04] hover:text-[#c44]"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-3.5 w-3.5" />
                   Delete
-                </Button>
+                </button>
               </div>
             </div>
 
-            {/* ---- Tab bar ---- */}
-            <div className="mx-auto flex w-full max-w-3xl shrink-0 gap-1 px-8">
-              {tabs.map((t) => {
-                const Icon = t.icon;
-                const active = tab === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setTab(t.id)}
-                    className={`group relative flex items-center gap-2 rounded-xl px-4 py-2 text-[13px] font-medium transition-all duration-300 ${
-                      active ? "text-[#e8e8e8]" : "text-[#555] hover:text-[#999]"
-                    }`}
-                  >
-                    {active && (
-                      <div
-                        className="absolute inset-0 rounded-xl bg-white/[0.06] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-                        style={{
-                          transition: "all 300ms cubic-bezier(0.16, 1, 0.3, 1)",
-                        }}
-                      />
-                    )}
-                    <Icon className="relative h-3.5 w-3.5" />
-                    <span className="relative">{t.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
             {/* ---- Content ---- */}
-            <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-hidden px-8 py-6">
-              {tab === "instruction" ? (
-                /* Instruction */
-                <div className="flex flex-1 flex-col">
-                  <div className="mb-3 flex items-center justify-between">
-                    <label className="text-[12px] font-medium uppercase tracking-[0.08em] text-[#555]">
-                      System Prompt
-                    </label>
-                    <span className="font-mono text-[11px] tabular-nums text-[#444]">
-                      {draft.responsibility.length}&thinsp;/&thinsp;no limit
-                    </span>
-                  </div>
-                  <div className="relative flex-1 overflow-hidden rounded-2xl bg-[#151515] ring-1 ring-white/[0.05] transition-shadow duration-300 focus-within:ring-white/[0.10] focus-within:shadow-[0_0_0_4px_rgba(74,108,247,0.06)]">
-                    {/* Line numbers gutter */}
-                    <div className="absolute left-0 top-0 h-full w-[48px] select-none border-r border-white/[0.04] bg-[#181818] py-4 pl-5 pr-2 text-right font-mono text-[11px] leading-[1.75] text-[#333]">
-                      {draft.responsibility.split("\n").map((_, i) => (
-                        <div key={i}>{i + 1}</div>
-                      ))}
-                    </div>
-                    <textarea
-                      value={draft.responsibility}
-                      onChange={(e) =>
-                        setDraft((prev) =>
-                          prev ? { ...prev, responsibility: e.target.value } : prev,
-                        )
-                      }
-                      className="h-full w-full resize-none bg-transparent py-4 pl-[60px] pr-5 font-mono text-[13px] leading-[1.75] text-[#ccc] placeholder-[#333] outline-none"
-                      placeholder={
-                        "// Define how this agent should behave...\n//\n// Example:\n// You are a senior engineer focused on system\n// architecture and clean API design. Prefer\n// composition over inheritance."
-                      }
-                      spellCheck={false}
-                    />
-                  </div>
-                </div>
-              ) : (
-                /* Settings */
-                <div className="flex-1 overflow-auto">
-                  <div className="flex max-w-xl flex-col gap-8">
-                    {/* Avatar + Name row */}
-                    <div className="flex items-start gap-6">
-                      <div className="flex shrink-0 flex-col items-center gap-3">
-                        <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-white/[0.03] text-[28px] ring-1 ring-white/[0.05]">
-                          {draft.avatar || <Bot className="h-8 w-8 text-[#444]" />}
-                        </div>
-                        <button
-                          onClick={() =>
-                            setDraft((prev) => (prev ? { ...prev, avatar: "" } : prev))
-                          }
-                          className="text-[11px] text-[#555] transition-colors duration-200 hover:text-[#888]"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                      <div className="flex min-w-0 flex-1 flex-col gap-5">
-                        <div>
-                          <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-[0.08em] text-[#555]">
-                            Avatar
-                          </label>
-                          <Input
-                            value={draft.avatar ?? ""}
-                            onChange={(e) =>
-                              setDraft((prev) =>
-                                prev ? { ...prev, avatar: e.target.value } : prev,
-                              )
-                            }
-                            className="bg-[#151515] ring-1 ring-white/[0.05] transition-shadow duration-300 focus:ring-white/[0.10]"
-                            placeholder="A single character or short symbol"
-                            maxLength={4}
-                          />
-                        </div>
-                        <div>
-                          <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-[0.08em] text-[#555]">
-                            Name
-                          </label>
-                          <Input
-                            value={draft.name}
-                            onChange={(e) =>
-                              setDraft((prev) => (prev ? { ...prev, name: e.target.value } : prev))
-                            }
-                            className="bg-[#151515] ring-1 ring-white/[0.05] transition-shadow duration-300 focus:ring-white/[0.10]"
-                            placeholder="e.g. Architect"
-                          />
-                        </div>
-                      </div>
-                    </div>
+            <div className="flex w-full flex-1 flex-col overflow-hidden">
+              {/* Tab bar */}
+              <div className="flex shrink-0 gap-6 border-b border-white/[0.04] px-8">
+                {tabs.map((t) => {
+                  const Icon = t.icon;
+                  const active = tab === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => setTab(t.id)}
+                      className={`relative flex items-center gap-2 py-3 text-[13px] transition-colors ${
+                        active
+                          ? "text-[#e0e0e0]"
+                          : "text-[#555] hover:text-[#888]"
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      <span>{t.label}</span>
+                      {active && (
+                        <span className="absolute bottom-0 left-0 right-0 h-[1.5px] bg-[#e0e0e0]" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
 
-                    {/* Description */}
-                    <div>
-                      <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-[0.08em] text-[#555]">
-                        Description
-                      </label>
+              {/* Scrollable area */}
+              <div className="flex-1 overflow-auto">
+                <div className="mx-auto w-full max-w-2xl px-8 py-8">
+                  {tab === "instruction" ? (
+                    /* Instruction */
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[12px] text-[#666]">System prompt</label>
+                        <span className="text-[11px] tabular-nums text-[#444]">
+                          {draft.responsibility.length} chars
+                        </span>
+                      </div>
                       <Textarea
-                        className="min-h-[72px] bg-[#151515] ring-1 ring-white/[0.05] transition-shadow duration-300 focus:ring-white/[0.10]"
-                        value={draft.description ?? ""}
+                        value={draft.responsibility}
                         onChange={(e) =>
                           setDraft((prev) =>
-                            prev ? { ...prev, description: e.target.value } : prev,
+                            prev ? { ...prev, responsibility: e.target.value } : prev,
                           )
                         }
-                        placeholder="Brief summary of what this agent does"
+                        className="min-h-[360px] resize-y border-white/[0.06] bg-[#161616] text-[13px] leading-relaxed text-[#ccc] placeholder:text-[#444] focus:border-white/[0.12] focus:ring-0"
+                        placeholder="Define how this agent should behave..."
+                        spellCheck={false}
                       />
                     </div>
-
-                    {/* Runtime */}
-                    <div>
-                      <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-[0.08em] text-[#555]">
-                        Runtime
-                      </label>
-                      <RuntimePicker
-                        value={draft.runtime}
-                        onChange={(runtime) =>
-                          setDraft((prev) =>
-                            prev ? { ...prev, runtime: runtime as AgentRecord["runtime"] } : prev,
-                          )
-                        }
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* ---- Footer ---- */}
-            <div className="mx-auto flex w-full max-w-3xl shrink-0 items-center justify-between border-t border-white/[0.04] px-8 py-4">
-              <span className="text-[11px] text-[#444]">
-                <kbd className="rounded-md bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-[#555] ring-1 ring-white/[0.04]">
-                  {navigator.platform.includes("Mac") ? "⌘" : "Ctrl+"}S
-                </kbd>
-                <span className="ml-1.5">to save</span>
-              </span>
-              <div className="flex items-center gap-2.5">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCancel}
-                  disabled={!hasChanges || isSaving}
-                  className="text-[#888] transition-all duration-200 hover:text-[#ccc] disabled:opacity-30"
-                >
-                  Discard
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={!hasChanges || isSaving}
-                  className="gap-1.5 bg-white text-[13px] font-medium text-black transition-all duration-200 hover:bg-[#eee] active:scale-[0.97] disabled:bg-[#2a2a2a] disabled:text-[#555] disabled:opacity-100"
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Saving
-                    </>
                   ) : (
-                    "Save Changes"
+                    /* Settings */
+                    <div className="flex flex-col gap-8">
+                      {/* Avatar + Name */}
+                      <div className="flex items-start gap-5">
+                        <div className="flex shrink-0 flex-col items-center gap-2">
+                          <label className="relative flex h-16 w-16 cursor-pointer items-center justify-center overflow-hidden rounded-md bg-white/[0.03] transition-colors hover:bg-white/[0.05]">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="sr-only"
+                              onChange={handleAvatarChange}
+                            />
+                            {draft.avatar ? (
+                              <img
+                                src={draft.avatar}
+                                alt="Avatar"
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <Bot className="h-6 w-6 text-[#444]" />
+                            )}
+                            <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity hover:opacity-100">
+                              <Upload className="h-4 w-4 text-white" />
+                            </span>
+                          </label>
+                          {draft.avatar && (
+                            <button
+                              onClick={() =>
+                                setDraft((prev) => (prev ? { ...prev, avatar: "" } : prev))
+                              }
+                              className="text-[11px] text-[#555] transition-colors hover:text-[#888]"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex min-w-0 flex-1 flex-col gap-5">
+                          <div>
+                            <label className="mb-1.5 block text-[12px] text-[#666]">Name</label>
+                            <Input
+                              value={draft.name}
+                              onChange={(e) =>
+                                setDraft((prev) =>
+                                  prev ? { ...prev, name: e.target.value } : prev,
+                                )
+                              }
+                              className="border-white/[0.06] bg-[#161616] text-[13px] text-[#ccc] placeholder:text-[#444] focus:border-white/[0.12] focus:ring-0"
+                              placeholder="e.g. Architect"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Description */}
+                      <div>
+                        <label className="mb-1.5 block text-[12px] text-[#666]">
+                          Description
+                        </label>
+                        <Textarea
+                          className="min-h-[80px] resize-y border-white/[0.06] bg-[#161616] text-[13px] text-[#ccc] placeholder:text-[#444] focus:border-white/[0.12] focus:ring-0"
+                          value={draft.description ?? ""}
+                          onChange={(e) =>
+                            setDraft((prev) =>
+                              prev ? { ...prev, description: e.target.value } : prev,
+                            )
+                          }
+                          placeholder="Brief summary of what this agent does"
+                        />
+                      </div>
+
+                      {/* Runtime */}
+                      <div>
+                        <label className="mb-1.5 block text-[12px] text-[#666]">Runtime</label>
+                        <RuntimePicker
+                          value={draft.runtime}
+                          onChange={(runtime) =>
+                            setDraft((prev) =>
+                              prev ? { ...prev, runtime: runtime as AgentRecord["runtime"] } : prev,
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
                   )}
-                </Button>
+                </div>
+              </div>
+
+              {/* ---- Footer ---- */}
+              <div className="flex w-full shrink-0 items-center justify-between border-t border-white/[0.04] px-8 py-3">
+                <span className="text-[11px] text-[#444]">
+                  <kbd className="rounded border border-white/[0.06] bg-white/[0.03] px-1 py-0.5 font-mono text-[10px] text-[#555]">
+                    {navigator.platform.includes("Mac") ? "⌘" : "Ctrl+"}S
+                  </kbd>
+                  <span className="ml-1.5">to save</span>
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCancel}
+                    disabled={!hasChanges}
+                    className="rounded-md px-3 py-1.5 text-[12px] text-[#888] transition-colors hover:bg-white/[0.04] hover:text-[#ccc] disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#888]"
+                  >
+                    Discard
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={!hasChanges || isSaving}
+                    className="flex items-center gap-1.5 rounded-md bg-[#e0e0e0] px-3 py-1.5 text-[12px] font-medium text-[#111] transition-colors hover:bg-white disabled:bg-[#333] disabled:text-[#666] disabled:opacity-100"
+                  >
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Saving
+                      </>
+                    ) : (
+                      "Save changes"
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -542,32 +539,32 @@ export function AgentsPage() {
 
       {/* ---- Create Agent Modal ---- */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div
             ref={modalRef}
-            className="w-full max-w-md rounded-2xl border border-white/[0.06] bg-[#1a1a1a] shadow-2xl shadow-black/50"
+            className="w-full max-w-md rounded-lg border border-white/[0.06] bg-[#1a1a1a] shadow-xl"
             role="dialog"
             aria-modal="true"
           >
-            <div className="flex items-center justify-between border-b border-white/[0.06] px-6 py-4">
-              <h2 className="text-[15px] font-semibold text-[#e4e4e4]">New Agent</h2>
+            <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5">
+              <h2 className="text-[14px] font-medium text-[#e0e0e0]">New agent</h2>
               <button
                 onClick={handleCloseModal}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-[#666] transition-all duration-200 hover:bg-white/[0.06] hover:text-[#ddd]"
+                className="flex h-6 w-6 items-center justify-center rounded text-[#555] transition-colors hover:bg-white/[0.06] hover:text-[#ccc]"
               >
-                <X className="h-4 w-4" />
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
 
-            <div className="flex flex-col gap-5 px-6 py-5">
+            <div className="flex flex-col gap-4 px-5 py-4">
               <div>
-                <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-[0.08em] text-[#555]">
+                <label className="mb-1.5 block text-[12px] text-[#666]">
                   Name <span className="text-[#a44]">*</span>
                 </label>
                 <Input
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  className="bg-[#151515] ring-1 ring-white/[0.05] transition-shadow duration-300 focus:ring-white/[0.10]"
+                  className="border-white/[0.06] bg-[#161616] text-[13px] text-[#ccc] placeholder:text-[#444] focus:border-white/[0.12] focus:ring-0"
                   placeholder="e.g. Architect"
                   autoFocus
                   onKeyDown={(e) => {
@@ -580,19 +577,17 @@ export function AgentsPage() {
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-[0.08em] text-[#555]">
-                  Description
-                </label>
+                <label className="mb-1.5 block text-[12px] text-[#666]">Description</label>
                 <Textarea
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
-                  className="min-h-[72px] bg-[#151515] ring-1 ring-white/[0.05] transition-shadow duration-300 focus:ring-white/[0.10]"
+                  className="min-h-[72px] resize-y border-white/[0.06] bg-[#161616] text-[13px] text-[#ccc] placeholder:text-[#444] focus:border-white/[0.12] focus:ring-0"
                   placeholder="Brief summary of what this agent does"
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[12px] font-medium uppercase tracking-[0.08em] text-[#555]">
+                <label className="mb-1.5 block text-[12px] text-[#666]">
                   Runtime <span className="text-[#a44]">*</span>
                 </label>
                 <RuntimePicker
@@ -602,24 +597,20 @@ export function AgentsPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 border-t border-white/[0.06] px-6 py-4">
-              <Button
-                variant="ghost"
-                size="sm"
+            <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-3.5">
+              <button
                 onClick={handleCloseModal}
-                className="text-[#888] transition-all duration-200 hover:text-[#ccc]"
+                className="rounded-md px-3 py-1.5 text-[12px] text-[#888] transition-colors hover:bg-white/[0.04] hover:text-[#ccc]"
               >
                 Cancel
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
+              </button>
+              <button
                 onClick={handleConfirmCreate}
                 disabled={!newName.trim()}
-                className="bg-white text-[13px] font-medium text-black transition-all duration-200 hover:bg-[#eee] active:scale-[0.97] disabled:bg-[#2a2a2a] disabled:text-[#555] disabled:opacity-100"
+                className="rounded-md bg-[#e0e0e0] px-3 py-1.5 text-[12px] font-medium text-[#111] transition-colors hover:bg-white disabled:opacity-40"
               >
-                Create Agent
-              </Button>
+                Create agent
+              </button>
             </div>
           </div>
         </div>

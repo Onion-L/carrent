@@ -150,3 +150,45 @@ Since neither provider supports interactive stdin-based approval in their curren
 1. Implement only the safe fallback path (no approve/deny UI for permission requests)
 2. Continue with Tasks 2-5 (shared types, IPC, provider protocol adapters for detection)
 3. UI work (Task 8) should focus on showing the "unsupported" error state when a permission request is detected in approval-required mode
+
+---
+
+## Implementation Verification (2026-04-27)
+
+### Outcome
+
+**Neither Codex nor Claude Code supports interactive stdin-based approval in their CLI exec/print modes.**
+
+### What Was Built
+
+The implementation creates the infrastructure for interactive approval (types, IPC, permission tracking) but routes all permission responses through a safe fallback that emits `permission-failed` with a clear message:
+
+```
+"Interactive approvals are not supported for the current provider and CLI mode. Switch runtime mode to Auto-accept edits or Full access."
+```
+
+### Manual QA Steps (Not Required - No Approval UI Exists)
+
+Since no provider supports approval in CLI mode:
+
+1. **No permission card appears** - providers do not emit permission request events in CLI mode
+2. **No approve/deny buttons exist** - correct, as fake buttons would be lying to users
+3. **Stop has nothing to clean up** - no pending permission prompts exist
+4. **Thread switching works normally** - no permission state to leak between threads
+
+### Files Changed
+
+- `apps/desktop/src/shared/chatPermissions.ts` - permission types
+- `apps/desktop/src/shared/chat.ts` - permission event variants
+- `apps/desktop/electron/chat/chatIpc.ts` - IPC response handler
+- `apps/desktop/electron/chat/chatSessionManager.ts` - permission response handling
+- `apps/desktop/electron/chat/providerPermissionProtocol.ts` - capability detection
+- `apps/desktop/electron/preload.ts` - `respondToPermission` API
+- `apps/desktop/src/renderer/env.d.ts` - type declarations
+- `apps/desktop/src/renderer/hooks/useChatRun.ts` - permission tracking in coordinator
+
+### Future Investigation
+
+- Claude Code interactive TUI mode might support a different protocol via stdio
+- Codex interactive mode might have a different approval protocol
+- Provider SDK-based approval channels could be added in the future

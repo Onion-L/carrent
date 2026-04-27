@@ -1,4 +1,4 @@
-import { ArrowUp, Bot, ChevronDown, Square } from "lucide-react";
+import { ArrowUp, Bot, ChevronDown, Shield, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
@@ -100,6 +100,7 @@ export function Composer(props: ComposerProps) {
   const { agents, selectedAgentId, selectedAgent, setSelectedAgentId } = useAgents();
   const [input, setInput] = useState("");
   const [showAgentPicker, setShowAgentPicker] = useState(false);
+  const [showModePicker, setShowModePicker] = useState(false);
   const receivedTextRef = useRef("");
   const visibleTextRef = useRef("");
   const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -442,21 +443,48 @@ export function Composer(props: ComposerProps) {
                 )}
               </div>
               {props.onRuntimeModeChange ? (
-                <select
-                  value={props.runtimeMode ?? DEFAULT_RUNTIME_MODE}
-                  onChange={(event) => props.onRuntimeModeChange!(event.target.value as RuntimeMode)}
-                  disabled={isThreadSending}
-                  className="rounded-md border border-[#333] bg-[#202020] px-2 py-1 text-[11px] text-[#aaa] outline-none disabled:opacity-40"
-                  title={isThreadSending ? "Locked while agent is running" : "Runtime permissions"}
-                >
-                  <option value="approval-required">
-                    {getRuntimeModeLabel("approval-required")}
-                  </option>
-                  <option value="auto-accept-edits">
-                    {getRuntimeModeLabel("auto-accept-edits")}
-                  </option>
-                  <option value="full-access">{getRuntimeModeLabel("full-access")} (danger)</option>
-                </select>
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      if (!isThreadSending) {
+                        setShowModePicker((v) => !v);
+                      }
+                    }}
+                    disabled={isThreadSending}
+                    className="flex items-center gap-1.5 rounded-full border border-[#333] bg-[#252525] px-2.5 py-1 text-[11px] text-[#aaa] transition hover:bg-[#2a2a2a] disabled:opacity-40"
+                    title={isThreadSending ? "Locked while agent is running" : "Runtime permissions"}
+                  >
+                    <Shield className="h-3 w-3" />
+                    <span>{getRuntimeModeLabel(props.runtimeMode ?? DEFAULT_RUNTIME_MODE)}</span>
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                  {showModePicker && (
+                    <div className="absolute bottom-full left-0 mb-1.5 w-44 rounded-lg border border-[#333] bg-[#1e1e1e] py-1 shadow-xl">
+                      {([
+                        "approval-required",
+                        "auto-accept-edits",
+                        "full-access",
+                      ] as RuntimeMode[]).map((mode) => (
+                        <button
+                          key={mode}
+                          onClick={() => {
+                            props.onRuntimeModeChange!(mode);
+                            setShowModePicker(false);
+                          }}
+                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-[#252525] ${
+                            mode === props.runtimeMode ? "text-[#eee]" : "text-[#999]"
+                          }`}
+                        >
+                          <Shield className="h-3 w-3" />
+                          <span>
+                            {getRuntimeModeLabel(mode)}
+                            {mode === "full-access" ? " (danger)" : ""}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               ) : null}
             </div>
 

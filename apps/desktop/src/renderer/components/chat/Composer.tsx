@@ -1,4 +1,4 @@
-import { ArrowUp, Bot, ChevronDown, Hand, Plus, Square } from "lucide-react";
+import { ArrowUp, Bot, ChevronDown, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
@@ -12,7 +12,11 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import type { Message } from "../../mock/uiShellData";
 import type { ChatReasoningEventPayload, ChatShellEventPayload } from "../../../shared/chat";
-import type { RuntimeMode } from "../../../shared/runtimeMode";
+import {
+  DEFAULT_RUNTIME_MODE,
+  getRuntimeModeLabel,
+  type RuntimeMode,
+} from "../../../shared/runtimeMode";
 
 type ComposerProps =
   | {
@@ -23,6 +27,7 @@ type ComposerProps =
       preallocatedThreadId: string;
       messages: Message[];
       runtimeMode: RuntimeMode;
+      onRuntimeModeChange?: (mode: RuntimeMode) => void;
     }
   | {
       mode: "thread";
@@ -30,12 +35,14 @@ type ComposerProps =
       threadId: string;
       messages: Message[];
       runtimeMode: RuntimeMode;
+      onRuntimeModeChange?: (mode: RuntimeMode) => void;
     }
   | {
       mode: "chat";
       threadId: string;
       messages: Message[];
       runtimeMode: RuntimeMode;
+      onRuntimeModeChange?: (mode: RuntimeMode) => void;
     };
 
 function formatTime(date: Date) {
@@ -404,17 +411,6 @@ export function Composer(props: ComposerProps) {
           />
           <div className="mt-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <button className="flex h-6 w-6 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]">
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-              <button className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]">
-                <Hand className="h-3 w-3" />
-                <span>Default</span>
-                <ChevronDown className="h-3 w-3" />
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2">
               <div className="relative">
                 <button
                   onClick={() => setShowAgentPicker((v) => !v)}
@@ -425,7 +421,7 @@ export function Composer(props: ComposerProps) {
                   <ChevronDown className="h-3 w-3" />
                 </button>
                 {showAgentPicker && (
-                  <div className="absolute bottom-full right-0 mb-1.5 w-40 rounded-lg border border-[#333] bg-[#1e1e1e] py-1 shadow-xl">
+                  <div className="absolute bottom-full left-0 mb-1.5 w-40 rounded-lg border border-[#333] bg-[#1e1e1e] py-1 shadow-xl">
                     {agents.map((agent) => (
                       <button
                         key={agent.id}
@@ -445,6 +441,26 @@ export function Composer(props: ComposerProps) {
                   </div>
                 )}
               </div>
+              {props.onRuntimeModeChange ? (
+                <select
+                  value={props.runtimeMode ?? DEFAULT_RUNTIME_MODE}
+                  onChange={(event) => props.onRuntimeModeChange!(event.target.value as RuntimeMode)}
+                  disabled={isThreadSending}
+                  className="rounded-md border border-[#333] bg-[#202020] px-2 py-1 text-[11px] text-[#aaa] outline-none disabled:opacity-40"
+                  title={isThreadSending ? "Locked while agent is running" : "Runtime permissions"}
+                >
+                  <option value="approval-required">
+                    {getRuntimeModeLabel("approval-required")}
+                  </option>
+                  <option value="auto-accept-edits">
+                    {getRuntimeModeLabel("auto-accept-edits")}
+                  </option>
+                  <option value="full-access">{getRuntimeModeLabel("full-access")} (danger)</option>
+                </select>
+              ) : null}
+            </div>
+
+            <div className="flex items-center gap-2">
               {isThreadSending ? (
                 <button
                   onClick={() => stop(threadId)}

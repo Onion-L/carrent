@@ -14,6 +14,7 @@ import {
   getClaudeRuntimeModeArgs,
   getCodexRuntimeModeArgs,
 } from "../../src/shared/runtimeMode";
+import { extractClaudePermissionRequest } from "./providerPermissionProtocol";
 
 interface ChatSession {
   runId: string;
@@ -412,6 +413,7 @@ function consumeClaudeStreamChunk(
   onDelta: (text: string) => void,
   onShell: (shell: ChatShellEventPayload) => void,
   onReasoning: (reasoning: ChatReasoningEventPayload) => void,
+  onPermissionDenied: (permissionId: string, error: string) => void,
 ) {
   state.buffer += chunk;
   const lines = state.buffer.split("\n");
@@ -428,6 +430,15 @@ function consumeClaudeStreamChunk(
       const sessionId = extractClaudeSessionId(payload);
       if (sessionId) {
         state.sessionId = sessionId;
+      }
+
+      // Check for permission denial and emit permission-failed
+      const permissionRequest = extractClaudePermissionRequest(payload);
+      if (permissionRequest) {
+        onPermissionDenied(
+          permissionRequest.id,
+          "Interactive approvals are not supported for Claude in --print mode. Switch runtime mode to Auto-accept edits or Full access.",
+        );
       }
 
       const thinkingBlock = extractClaudeThinkingBlock(payload);
@@ -712,6 +723,15 @@ export function createChatSessionManager(options: {
           (reasoning) => {
             emitReasoningEvent(options.emit, runId, request.requestKey, reasoning);
           },
+          (permissionId, error) => {
+            options.emit({
+              type: "permission-failed",
+              runId,
+              requestKey: request.requestKey,
+              permissionId,
+              error,
+            });
+          },
         );
         return;
       }
@@ -772,6 +792,15 @@ export function createChatSessionManager(options: {
           },
           (reasoning) => {
             emitReasoningEvent(options.emit, runId, request.requestKey, reasoning);
+          },
+          (permissionId, error) => {
+            options.emit({
+              type: "permission-failed",
+              runId,
+              requestKey: request.requestKey,
+              permissionId,
+              error,
+            });
           },
         );
       }

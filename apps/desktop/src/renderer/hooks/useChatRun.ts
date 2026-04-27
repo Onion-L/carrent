@@ -144,6 +144,22 @@ export function createChatRunCoordinator() {
     },
     handleEvent(event: ChatRunEvent) {
       const run = getRunForEvent(event);
+
+      // permission-failed events should update lastError even if run is not found
+      // (run may have already completed/stopped but user should still see the error)
+      if (event.type === "permission-failed") {
+        if (run) {
+          pendingPermissionById.delete(event.permissionId);
+        }
+        if (event.error) {
+          updateSnapshot(event.error);
+        } else {
+          updateSnapshot();
+        }
+        emit();
+        return;
+      }
+
       if (!run) {
         return;
       }
@@ -173,14 +189,24 @@ export function createChatRunCoordinator() {
       }
 
       if (event.type === "completed") {
-        pendingPermissionById.clear();
+        // Only clear permissions for this specific run
+        pendingPermissionById.forEach((perm, id) => {
+          if (perm.runId === event.runId) {
+            pendingPermissionById.delete(id);
+          }
+        });
         run.callbacks.onComplete?.(event.text);
         finishPendingRun(run);
         return;
       }
 
       if (event.type === "failed") {
-        pendingPermissionById.clear();
+        // Only clear permissions for this specific run
+        pendingPermissionById.forEach((perm, id) => {
+          if (perm.runId === event.runId) {
+            pendingPermissionById.delete(id);
+          }
+        });
         run.callbacks.onError?.(event.error);
         clearPending(run);
         updateSnapshot(event.error);
@@ -189,7 +215,12 @@ export function createChatRunCoordinator() {
       }
 
       if (event.type === "stopped") {
-        pendingPermissionById.clear();
+        // Only clear permissions for this specific run
+        pendingPermissionById.forEach((perm, id) => {
+          if (perm.runId === event.runId) {
+            pendingPermissionById.delete(id);
+          }
+        });
         run.callbacks.onStop?.();
         finishPendingRun(run);
         return;
@@ -202,13 +233,9 @@ export function createChatRunCoordinator() {
         return;
       }
 
-      if (event.type === "permission-resolved" || event.type === "permission-failed") {
+      if (event.type === "permission-resolved") {
         pendingPermissionById.delete(event.permissionId);
-        if (event.type === "permission-failed") {
-          updateSnapshot(event.error);
-        } else {
-          updateSnapshot();
-        }
+        updateSnapshot();
         emit();
         return;
       }

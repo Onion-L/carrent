@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Settings, RefreshCw, Download, ChevronDown } from "lucide-react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useSettings } from "../context/SettingsContext";
@@ -44,7 +44,7 @@ function Toggle({
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Select                                                                    */
+/*  Select (custom dropdown)                                                  */
 /* -------------------------------------------------------------------------- */
 
 function Select({
@@ -60,6 +60,22 @@ function Select({
   label: string;
   description?: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener("mousedown", handleClick);
+      return () => document.removeEventListener("mousedown", handleClick);
+    }
+  }, [open]);
+
   return (
     <div className="flex items-center justify-between gap-6 py-3.5">
       <div className="min-w-0">
@@ -68,19 +84,46 @@ function Select({
           <div className="mt-0.5 text-[12px] text-[#555]">{description}</div>
         )}
       </div>
-      <div className="relative shrink-0">
-        <select
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="appearance-none rounded-md border border-white/[0.06] bg-[#1a1a1a] py-1.5 pr-7 pl-3 text-[13px] text-[#ccc] outline-none transition-colors hover:border-white/[0.10] focus:border-white/[0.14]"
+      <div ref={ref} className="relative shrink-0">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex w-[140px] items-center justify-between rounded-md border border-white/[0.06] bg-[#1a1a1a] px-3 py-1.5 text-left transition-colors hover:border-white/[0.10]"
         >
-          {options.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <ChevronDown className="pointer-events-none absolute top-1/2 right-2 h-3 w-3 -translate-y-1/2 text-[#555]" />
+          <span className="text-[13px] text-[#ccc]">
+            {selected?.label ?? value}
+          </span>
+          <ChevronDown
+            className={`h-3 w-3 shrink-0 text-[#555] transition-transform ${
+              open ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+
+        {open && (
+          <div className="absolute right-0 top-full z-10 mt-1 w-[140px] overflow-hidden rounded-md border border-white/[0.06] bg-[#1a1a1a] shadow-lg shadow-black/30">
+            {options.map((opt) => {
+              const isActive = opt.value === value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full px-3 py-2 text-left text-[13px] transition-colors ${
+                    isActive
+                      ? "bg-white/[0.05] text-[#e0e0e0]"
+                      : "text-[#ccc] hover:bg-white/[0.03]"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -149,7 +192,7 @@ function CheckForUpdatesRow() {
       <button
         onClick={handleCheck}
         disabled={checking}
-        className="flex shrink-0 items-center gap-1.5 rounded-md border border-white/[0.06] bg-[#1a1a1a] px-3 py-1.5 text-[12px] text-[#888] transition-colors hover:border-white/[0.10] hover:text-[#ccc] disabled:opacity-40"
+        className="flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] text-[#888] transition-colors hover:bg-white/[0.04] hover:text-[#ccc] disabled:opacity-30"
       >
         {checking ? (
           <RefreshCw className="h-3 w-3 animate-spin" />
@@ -232,18 +275,17 @@ export function SettingsPage() {
                 updateSetting("fontSize", Number(value) as 12 | 13 | 14 | 15 | 16)
               }
               options={[
-                { value: "12", label: "Small" },
+                { value: "12", label: "12px" },
                 { value: "13", label: "13px" },
-                { value: "14", label: "Default" },
+                { value: "14", label: "14px" },
                 { value: "15", label: "15px" },
-                { value: "16", label: "Large" },
+                { value: "16", label: "16px" },
               ]}
             />
           </Section>
 
           <Section title="About">
             <Field label="Version" value="v0.1.0" />
-            <Field label="Electron" value={window.carrent.electronVersion} />
             <CheckForUpdatesRow />
           </Section>
         </div>

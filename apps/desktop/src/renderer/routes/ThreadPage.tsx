@@ -74,6 +74,7 @@ export function ThreadPage() {
           projectId={routeData.project.id}
           threadId={routeData.thread.id}
           messages={routeData.messages}
+          runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
         />
       ) : null}
     </div>

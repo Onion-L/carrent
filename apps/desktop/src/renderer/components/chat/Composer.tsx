@@ -12,6 +12,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import type { Message } from "../../mock/uiShellData";
 import type { ChatReasoningEventPayload, ChatShellEventPayload } from "../../../shared/chat";
+import type { RuntimeMode } from "../../../shared/runtimeMode";
 
 type ComposerProps =
   | {
@@ -21,17 +22,20 @@ type ComposerProps =
       title: string;
       preallocatedThreadId: string;
       messages: Message[];
+      runtimeMode: RuntimeMode;
     }
   | {
       mode: "thread";
       projectId: string;
       threadId: string;
       messages: Message[];
+      runtimeMode: RuntimeMode;
     }
   | {
       mode: "chat";
       threadId: string;
       messages: Message[];
+      runtimeMode: RuntimeMode;
     };
 
 function formatTime(date: Date) {
@@ -330,7 +334,7 @@ export function Composer(props: ComposerProps) {
               }
             : undefined,
         runtimeId: selectedAgent.runtime,
-        runtimeMode: "approval-required",
+        runtimeMode: props.runtimeMode,
         agent: {
           id: agentId,
           name: selectedAgent.name,

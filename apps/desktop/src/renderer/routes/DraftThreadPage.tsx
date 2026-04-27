@@ -58,6 +58,7 @@ export function DraftThreadPage() {
           title={draft.title}
           preallocatedThreadId={draft.preallocatedThreadId}
           messages={draft.messages}
+          runtimeMode={draft.runtimeMode ?? DEFAULT_RUNTIME_MODE}
         />
       ) : null}
     </div>

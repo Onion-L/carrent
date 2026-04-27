@@ -38,7 +38,12 @@ export function ChatPage() {
       />
       <MessageTimeline messages={routeData?.messages ?? []} />
       {routeData ? (
-        <Composer mode="chat" threadId={routeData.thread.id} messages={routeData.messages} />
+        <Composer
+          mode="chat"
+          threadId={routeData.thread.id}
+          messages={routeData.messages}
+          runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
+        />
       ) : null}
     </div>
   );

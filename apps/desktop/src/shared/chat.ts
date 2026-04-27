@@ -1,8 +1,12 @@
 import type { RuntimeId } from "./runtimes";
 
+export type ChatWorkspaceScope =
+  | { kind: "project"; projectPath: string; projectId: string }
+  | { kind: "chat" };
+
 export interface ChatTurnRequest {
   requestKey?: string;
-  projectPath: string;
+  workspace: ChatWorkspaceScope;
   threadId: string;
   draftRef?: {
     draftId: string;

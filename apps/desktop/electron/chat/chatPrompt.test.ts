@@ -6,7 +6,11 @@ function makeRequest(
   overrides: Partial<ChatTurnRequest> = {},
 ): ChatTurnRequest {
   return {
-    projectPath: "/Users/onion/workbench/timbre",
+    workspace: {
+      kind: "project",
+      projectId: "timbre",
+      projectPath: "/Users/onion/workbench/timbre",
+    },
     threadId: "thread-1",
     runtimeId: "codex",
     agent: {
@@ -47,9 +51,40 @@ describe("buildChatPrompt", () => {
 
   it("includes project path context", () => {
     const prompt = buildChatPrompt(
-      makeRequest({ projectPath: "/Users/onion/workbench/carrent" }),
+      makeRequest({
+        workspace: {
+          kind: "project",
+          projectId: "carrent",
+          projectPath: "/Users/onion/workbench/carrent",
+        },
+      }),
     );
     expect(prompt).toContain("/Users/onion/workbench/carrent");
+  });
+
+  it("includes project context for project chats", () => {
+    const prompt = buildChatPrompt(
+      makeRequest({
+        workspace: {
+          kind: "project",
+          projectId: "carrent",
+          projectPath: "/Users/onion/workbench/carrent",
+        },
+      }),
+    );
+
+    expect(prompt).toContain("Project: /Users/onion/workbench/carrent");
+  });
+
+  it("includes no-project context for chat-only threads", () => {
+    const prompt = buildChatPrompt(
+      makeRequest({
+        workspace: { kind: "chat" },
+      }),
+    );
+
+    expect(prompt).toContain("Context: General chat. No project folder is selected.");
+    expect(prompt).not.toContain("Project:");
   });
 
   it("formats transcript as role: content pairs", () => {

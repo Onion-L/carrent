@@ -27,6 +27,11 @@ type ComposerProps =
       projectId: string;
       threadId: string;
       messages: Message[];
+    }
+  | {
+      mode: "chat";
+      threadId: string;
+      messages: Message[];
     };
 
 function formatTime(date: Date) {
@@ -77,7 +82,8 @@ export function shouldSubmitComposerOnKeyDown(event: ComposerKeyDownEvent) {
 }
 
 export function Composer(props: ComposerProps) {
-  const { projects, appendMessage, updateMessage, updateMessageParts } = useWorkspace();
+  const { projects, chats, appendMessage, updateMessage, updateMessageParts, upsertChat } =
+    useWorkspace();
   const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
   const { runningThreadIds, send, stop } = useChatRun();
   const { agents, selectedAgentId, selectedAgent, setSelectedAgentId } = useAgents();
@@ -88,10 +94,14 @@ export function Composer(props: ComposerProps) {
   const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeAssistantMessageIdRef = useRef<string | null>(null);
   const flushTypewriterRef = useRef<VoidFunction | null>(null);
-  const project = projects.find((item) => item.id === props.projectId) ?? null;
+  const projectId = props.mode === "chat" ? null : props.projectId;
+  const project = projectId ? projects.find((item) => item.id === projectId) ?? null : null;
   const threadId = props.mode === "draft" ? props.preallocatedThreadId : props.threadId;
 
-  const canSend = !!input.trim() && !!project && !!selectedAgent;
+  const canSend =
+    props.mode === "chat"
+      ? !!input.trim() && !!selectedAgent
+      : !!input.trim() && !!project && !!selectedAgent;
   const isThreadSending = runningThreadIds.includes(threadId);
 
   const stopTypewriter = () => {
@@ -120,7 +130,7 @@ export function Composer(props: ComposerProps) {
     setInput("");
 
     const appendLocalMessage = (role: "user" | "assistant", content: string) => {
-      if (props.mode === "thread") {
+      if (props.mode === "thread" || props.mode === "chat") {
         return appendMessage({
           threadId,
           role,
@@ -135,7 +145,7 @@ export function Composer(props: ComposerProps) {
     };
 
     const updateLocalMessage = (messageId: string, content: string) => {
-      if (props.mode === "thread") {
+      if (props.mode === "thread" || props.mode === "chat") {
         updateMessage(messageId, content);
         return;
       }
@@ -149,7 +159,7 @@ export function Composer(props: ComposerProps) {
         return;
       }
 
-      if (props.mode === "thread") {
+      if (props.mode === "thread" || props.mode === "chat") {
         updateMessageParts(messageId, {
           kind: "append-text",
           content,
@@ -168,7 +178,7 @@ export function Composer(props: ComposerProps) {
     };
 
     const updateLocalMessageShellPart = (messageId: string, shell: ChatShellEventPayload) => {
-      if (props.mode === "thread") {
+      if (props.mode === "thread" || props.mode === "chat") {
         updateMessageParts(messageId, {
           kind: "upsert-shell",
           shell: {
@@ -199,7 +209,7 @@ export function Composer(props: ComposerProps) {
       messageId: string,
       reasoning: ChatReasoningEventPayload,
     ) => {
-      if (props.mode === "thread") {
+      if (props.mode === "thread" || props.mode === "chat") {
         updateMessageParts(messageId, {
           kind: "upsert-reasoning",
           reasoning: {
@@ -293,9 +303,23 @@ export function Composer(props: ComposerProps) {
         agentId: m.agentId,
       }));
 
+    if (props.mode === "chat") {
+      const chatThread = chats.find((c) => c.id === threadId);
+      if (chatThread && chatThread.title === "New chat") {
+        upsertChat({ ...chatThread, title: messageText.slice(0, 60) });
+      }
+    }
+
     await send(
       {
-        projectPath: project.path,
+        workspace:
+          props.mode === "chat"
+            ? { kind: "chat" }
+            : {
+                kind: "project",
+                projectId: props.projectId,
+                projectPath: project!.path,
+              },
         threadId,
         draftRef:
           props.mode === "draft"

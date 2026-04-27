@@ -7,7 +7,11 @@ function makeRequest(
   overrides: Partial<ChatTurnRequest> = {},
 ): ChatTurnRequest {
   return {
-    projectPath: "/Users/onion/workbench/timbre",
+    workspace: {
+      kind: "project",
+      projectId: "timbre",
+      projectPath: "/Users/onion/workbench/timbre",
+    },
     threadId: "thread-1",
     runtimeId: "codex",
     agent: {

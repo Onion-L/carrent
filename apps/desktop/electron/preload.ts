@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { ChatTurnRequest, ChatRunEvent } from "../src/shared/chat";
+import type { ChatPermissionResponse } from "../src/shared/chatPermissions";
 import type {
   WorkspaceSnapshot,
   ProviderSessionSnapshot,
@@ -25,6 +26,8 @@ const carrent = {
     send: (request: ChatTurnRequest) =>
       ipcRenderer.invoke("chat:send", request) as Promise<{ runId: string }>,
     stop: (runId: string) => ipcRenderer.invoke("chat:stop", runId) as Promise<void>,
+    respondToPermission: (response: ChatPermissionResponse) =>
+      ipcRenderer.invoke("chat:permission-response", response) as Promise<void>,
     onEvent: (listener: (event: ChatRunEvent) => void) => {
       const wrapped = (_event: IpcRendererEvent, evt: ChatRunEvent) => listener(evt);
       ipcRenderer.on("chat:event", wrapped);

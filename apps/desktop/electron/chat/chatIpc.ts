@@ -1,4 +1,5 @@
 import type { ChatTurnRequest } from "../../src/shared/chat";
+import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import type { ChatSessionManager } from "./chatSessionManager";
 
 interface IpcMainLike {
@@ -24,6 +25,11 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
 
   ipcMainLike.handle("chat:stop", async (_event, runId) => {
     services.sessionManager.stop(runId as string);
+    return undefined;
+  });
+
+  ipcMainLike.handle("chat:permission-response", async (_event, response) => {
+    services.sessionManager.respondToPermission(response as ChatPermissionResponse);
     return undefined;
   });
 }

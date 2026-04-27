@@ -7,6 +7,7 @@ import type {
   ChatTurnRequest,
   ChatRunEvent,
 } from "../../src/shared/chat";
+import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import { buildChatPrompt } from "./chatPrompt";
 import { getRuntimeCommand } from "./chatRunner";
 import {
@@ -37,6 +38,7 @@ export type SpawnFn = (
 export interface ChatSessionManager {
   start: (runId: string, request: ChatTurnRequest) => void;
   stop: (runId: string) => void;
+  respondToPermission: (response: ChatPermissionResponse) => void;
 }
 
 type ClaudeStreamState = {
@@ -928,5 +930,10 @@ export function createChatSessionManager(options: {
     }
   }
 
-  return { start, stop };
+  // Stub - actual implementation in Task 5 (pending approval state)
+  function respondToPermission(_response: ChatPermissionResponse) {
+    // No-op until Task 5 implements pending permission tracking
+  }
+
+  return { start, stop, respondToPermission };
 }

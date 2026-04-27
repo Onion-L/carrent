@@ -37,11 +37,12 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          respondToPermission: () => {},
         },
       },
     );
 
-    expect([...handlers.keys()].sort()).toEqual(["chat:send", "chat:stop"]);
+    expect([...handlers.keys()].sort()).toEqual(["chat:permission-response", "chat:send", "chat:stop"]);
   });
 
   it("chat:send returns a runId and starts the session", async () => {
@@ -60,6 +61,7 @@ describe("registerChatIpc", () => {
             started.push({ runId, request });
           },
           stop: () => {},
+          respondToPermission: () => {},
         },
       },
     );
@@ -88,11 +90,45 @@ describe("registerChatIpc", () => {
           stop: (runId) => {
             stopped.push(runId);
           },
+          respondToPermission: () => {},
         },
       },
     );
 
     await handlers.get("chat:stop")?.({}, "run-123");
     expect(stopped).toEqual(["run-123"]);
+  });
+
+  it("chat:permission-response forwards decisions to the session manager", async () => {
+    const handlers = new Map<string, Function>();
+
+    registerChatIpc(
+      {
+        handle: (channel, listener) => handlers.set(channel, listener),
+      },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          respondToPermission: (response) => responses.push(response),
+        },
+      },
+    );
+
+    const responses: unknown[] = [];
+
+    await handlers.get("chat:permission-response")?.({}, {
+      runId: "run-1",
+      permissionId: "perm-1",
+      decision: "approved",
+    });
+
+    expect(responses).toEqual([
+      {
+        runId: "run-1",
+        permissionId: "perm-1",
+        decision: "approved",
+      },
+    ]);
   });
 });

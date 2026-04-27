@@ -2,6 +2,7 @@
 
 import type { RuntimeId, RuntimeRecord, RuntimeVerificationResult } from "../shared/runtimes";
 import type { ChatTurnRequest, ChatRunEvent } from "../shared/chat";
+import type { ChatPermissionResponse } from "../shared/chatPermissions";
 import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../shared/workspacePersistence";
 
 declare global {
@@ -24,6 +25,7 @@ declare global {
       chat: {
         send: (request: ChatTurnRequest) => Promise<{ runId: string }>;
         stop: (runId: string) => Promise<void>;
+        respondToPermission: (response: ChatPermissionResponse) => Promise<void>;
         onEvent: (listener: (event: ChatRunEvent) => void) => VoidFunction;
       };
       dialog: {

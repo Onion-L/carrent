@@ -1,4 +1,5 @@
 import type { RuntimeId } from "./runtimes";
+import type { RuntimeMode } from "./runtimeMode";
 
 export type ChatWorkspaceScope =
   | { kind: "project"; projectPath: string; projectId: string }
@@ -14,6 +15,7 @@ export interface ChatTurnRequest {
     title: string;
   };
   runtimeId: RuntimeId;
+  runtimeMode: RuntimeMode;
   agent: {
     id: string;
     name: string;

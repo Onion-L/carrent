@@ -26,7 +26,7 @@ export function ChatHeader({ title, runtimeMode, onRuntimeModeChange, isRunning 
             disabled={isRunning}
             className="no-drag rounded-md border border-[#333] bg-[#202020] px-2 py-1 text-[12px] text-[#aaa] outline-none disabled:opacity-40"
             style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-            title="Runtime permissions"
+            title={isRunning ? "Locked while agent is running" : "Runtime permissions"}
           >
             <option value="approval-required">
               {getRuntimeModeLabel("approval-required")}
@@ -36,9 +36,6 @@ export function ChatHeader({ title, runtimeMode, onRuntimeModeChange, isRunning 
             </option>
             <option value="full-access">{getRuntimeModeLabel("full-access")} (danger)</option>
           </select>
-          {isRunning ? (
-            <span className="text-[10px] text-[#666]">Applies next turn</span>
-          ) : null}
         </div>
       ) : null}
     </header>

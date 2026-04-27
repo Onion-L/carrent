@@ -1,4 +1,4 @@
-import type { ProjectRecord, ThreadRecord } from "../mock/uiShellData";
+import type { Message, ProjectRecord, ThreadRecord } from "../mock/uiShellData";
 import { splitProjectThreads } from "./projectThreads";
 
 export function createProjectInProjects(
@@ -51,6 +51,17 @@ export function findCurrentThread(
   }
 
   return null;
+}
+
+export function findCurrentChatThread(
+  chats: ThreadRecord[],
+  activeThreadId: string | null,
+) {
+  if (!activeThreadId) {
+    return null;
+  }
+
+  return chats.find((chat) => chat.id === activeThreadId) ?? null;
 }
 
 export function findCurrentProject(
@@ -170,6 +181,57 @@ export function archiveThreadInProjects(
   return {
     projects: nextProjects,
     nextActiveThreadId: findNextVisibleThreadId(nextProjects, projectId),
+  };
+}
+
+export function createChatThread(title: string): ThreadRecord | null {
+  const nextTitle = title.trim();
+  if (!nextTitle) {
+    return null;
+  }
+
+  return {
+    id: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title: nextTitle,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function upsertChatThread(existingChats: ThreadRecord[], thread: ThreadRecord) {
+  const existing = existingChats.find((item) => item.id === thread.id);
+  if (existing) {
+    return existingChats.map((item) =>
+      item.id === thread.id ? { ...existing, ...thread } : item,
+    );
+  }
+  return [thread, ...existingChats];
+}
+
+export function toggleChatThreadPin(existingChats: ThreadRecord[], threadId: string) {
+  return existingChats.map((thread) =>
+    thread.id === threadId ? { ...thread, pinned: !thread.pinned } : thread,
+  );
+}
+
+export function archiveChatThread(existingChats: ThreadRecord[], threadId: string) {
+  return existingChats.map((thread) =>
+    thread.id === threadId ? { ...thread, archived: true } : thread,
+  );
+}
+
+export function resolveChatThreadRouteData(
+  chats: ThreadRecord[],
+  messages: Message[],
+  threadId: string,
+) {
+  const thread = chats.find((item) => item.id === threadId);
+  if (!thread) {
+    return null;
+  }
+
+  return {
+    thread,
+    messages: messages.filter((message) => message.threadId === threadId),
   };
 }
 

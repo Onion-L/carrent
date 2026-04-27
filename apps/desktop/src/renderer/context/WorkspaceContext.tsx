@@ -12,13 +12,19 @@ import {
   type ThreadRecord,
 } from "../mock/uiShellData";
 import {
+  archiveChatThread,
   archiveThreadInProjects,
+  createChatThread,
   createProjectInProjects,
   createThreadInProjects,
+  findCurrentChatThread,
   findCurrentProject,
   findCurrentThread,
   renameProjectInProjects,
+  resolveChatThreadRouteData,
+  toggleChatThreadPin,
   toggleThreadPinInProjects,
+  upsertChatThread,
   upsertThreadInProjects,
 } from "../lib/workspaceState";
 import {
@@ -28,6 +34,7 @@ import {
 
 export type WorkspaceContextValue = {
   projects: ProjectRecord[];
+  chats: ThreadRecord[];
   messages: Message[];
   activeThreadId: string | null;
   hasHydrated: boolean;
@@ -43,6 +50,10 @@ export type WorkspaceContextValue = {
     thread: ThreadRecord;
     messages: Message[];
   } | null;
+  getChatRouteData: (threadId: string) => {
+    thread: ThreadRecord;
+    messages: Message[];
+  } | null;
   setActiveThreadId: (id: string | null) => void;
   setDrafts: (drafts: DraftThreadRecord[] | ((prev: DraftThreadRecord[]) => DraftThreadRecord[])) => void;
   setAgents: (agents: AgentRecord[] | ((prev: AgentRecord[]) => AgentRecord[])) => void;
@@ -53,6 +64,10 @@ export type WorkspaceContextValue = {
   upsertThread: (projectId: string, thread: ThreadRecord) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
   archiveThread: (projectId: string, threadId: string) => string | null;
+  createChat: (title: string) => ThreadRecord | null;
+  upsertChat: (thread: ThreadRecord) => void;
+  toggleChatPin: (threadId: string) => void;
+  archiveChat: (threadId: string) => void;
   upsertMessages: (messages: Message[]) => void;
   appendMessage: (message: {
     threadId: string;
@@ -77,6 +92,7 @@ export type MessagePartUpdate =
 
 const WorkspaceContext = createContext<WorkspaceContextValue>({
   projects: [],
+  chats: [],
   messages: [],
   activeThreadId: null,
   hasHydrated: false,
@@ -85,6 +101,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   currentThread: null,
   currentProject: null,
   getThreadRouteData: () => null,
+  getChatRouteData: () => null,
   setActiveThreadId: () => {},
   setDrafts: () => {},
   setAgents: () => {},
@@ -95,6 +112,10 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   upsertThread: () => {},
   toggleThreadPin: () => {},
   archiveThread: () => null,
+  createChat: () => null,
+  upsertChat: () => {},
+  toggleChatPin: () => {},
+  archiveChat: () => {},
   upsertMessages: () => {},
   appendMessage: () => ({
     id: "",
@@ -226,16 +247,20 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [chats, setChats] = useState<ThreadRecord[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<DraftThreadRecord[]>([]);
   const [agents, setAgents] = useState<AgentRecord[]>([]);
   const [hasHydrated, setHasHydrated] = useState(false);
 
-  const currentThread = findCurrentThread(projects, activeThreadId);
+  const currentThread =
+    findCurrentThread(projects, activeThreadId) ?? findCurrentChatThread(chats, activeThreadId);
   const currentProject = findCurrentProject(projects, activeThreadId);
   const getThreadRouteData = (projectId: string, threadId: string) =>
     resolveWorkspaceThreadRouteData(projects, messages, projectId, threadId);
+  const getChatRouteData = (threadId: string) =>
+    resolveChatThreadRouteData(chats, messages, threadId);
 
   useEffect(() => {
     let cancelled = false;
@@ -246,12 +271,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         if (snapshot) {
           setProjects(snapshot.projects);
+          setChats(snapshot.chats ?? []);
           setMessages(snapshot.messages);
           setActiveThreadId(snapshot.activeThreadId);
           setDrafts(snapshot.drafts);
           setAgents(snapshot.agents?.length ? snapshot.agents : initialAgents);
         } else {
           setProjects(initialProjects);
+          setChats([]);
           setMessages(initialMessages);
           setActiveThreadId(initialActiveThreadId);
           setDrafts([]);
@@ -262,6 +289,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         console.error("[workspace] failed to load", error);
         if (!cancelled) {
           setProjects(initialProjects);
+          setChats([]);
           setMessages(initialMessages);
           setActiveThreadId(initialActiveThreadId);
           setDrafts([]);
@@ -280,7 +308,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useDebouncedWorkspaceSave(
-    buildWorkspaceSnapshot({ projects, messages, activeThreadId, drafts, agents }),
+    buildWorkspaceSnapshot({ projects, chats, messages, activeThreadId, drafts, agents }),
     hasHydrated,
   );
 
@@ -319,6 +347,31 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const toggleThreadPin = (projectId: string, threadId: string) => {
     setProjects(toggleThreadPinInProjects(projects, projectId, threadId));
+  };
+
+  const createChat = (title: string) => {
+    const thread = createChatThread(title);
+    if (!thread) {
+      return null;
+    }
+    setChats((prev) => [thread, ...prev]);
+    setActiveThreadId(thread.id);
+    return thread;
+  };
+
+  const upsertChat = (thread: ThreadRecord) => {
+    setChats((prev) => upsertChatThread(prev, thread));
+  };
+
+  const toggleChatPin = (threadId: string) => {
+    setChats((prev) => toggleChatThreadPin(prev, threadId));
+  };
+
+  const archiveChat = (threadId: string) => {
+    setChats((prev) => archiveChatThread(prev, threadId));
+    if (activeThreadId === threadId) {
+      setActiveThreadId(null);
+    }
   };
 
   const archiveThread = (projectId: string, threadId: string) => {
@@ -370,6 +423,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     <WorkspaceContext.Provider
       value={{
         projects,
+        chats,
         messages,
         activeThreadId,
         hasHydrated,
@@ -378,6 +432,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         currentThread,
         currentProject,
         getThreadRouteData,
+        getChatRouteData,
         setActiveThreadId,
         setDrafts,
         setAgents,
@@ -388,6 +443,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         upsertThread,
         toggleThreadPin,
         archiveThread,
+        createChat,
+        upsertChat,
+        toggleChatPin,
+        archiveChat,
         upsertMessages,
         appendMessage,
         updateMessage,

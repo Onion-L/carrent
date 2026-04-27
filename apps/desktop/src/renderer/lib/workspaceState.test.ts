@@ -1,11 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import type { ProjectRecord, ThreadRecord } from "../mock/uiShellData";
 import {
+  archiveChatThread,
   archiveThreadInProjects,
+  createChatThread,
   createProjectInProjects,
   createThreadInProjects,
   findCurrentProject,
   findCurrentThread,
+  resolveChatThreadRouteData,
+  toggleChatThreadPin,
+  upsertChatThread,
   upsertThreadInProjects,
 } from "./workspaceState";
 
@@ -189,5 +194,56 @@ describe("workspaceState", () => {
     expect(result).toEqual(projects);
     expect(result[0]).toBe(projects[0]);
     expect(result[1]).toBe(projects[1]);
+  });
+
+  it("creates a chat thread with trimmed title", () => {
+    const thread = createChatThread("  Product vision  ");
+    expect(thread?.title).toBe("Product vision");
+  });
+
+  it("rejects empty chat thread titles", () => {
+    expect(createChatThread("   ")).toBeNull();
+  });
+
+  it("upserts a chat thread into existing chats", () => {
+    const chats = [makeThread({ id: "chat-1", title: "First" })];
+    const updated = upsertChatThread(chats, makeThread({ id: "chat-1", title: "Updated" }));
+    expect(updated[0]?.title).toBe("Updated");
+  });
+
+  it("adds a new chat thread at the top when upserting", () => {
+    const chats = [makeThread({ id: "chat-1", title: "First" })];
+    const updated = upsertChatThread(chats, makeThread({ id: "chat-2", title: "Second" }));
+    expect(updated).toHaveLength(2);
+    expect(updated[0]?.id).toBe("chat-2");
+  });
+
+  it("toggles chat thread pin", () => {
+    const chats = [makeThread({ id: "chat-1", pinned: false })];
+    const updated = toggleChatThreadPin(chats, "chat-1");
+    expect(updated[0]?.pinned).toBe(true);
+  });
+
+  it("archives a chat thread", () => {
+    const chats = [makeThread({ id: "chat-1" })];
+    const updated = archiveChatThread(chats, "chat-1");
+    expect(updated[0]?.archived).toBe(true);
+  });
+
+  it("resolves chat route data for a thread id", () => {
+    const chats = [makeThread({ id: "chat-1", title: "Chat One" })];
+    const messages = [
+      { id: "m1", threadId: "chat-1", role: "user" as const, content: "hi", agentId: "a1", timestamp: "09:00", type: "text" as const },
+      { id: "m2", threadId: "chat-2", role: "user" as const, content: "bye", agentId: "a1", timestamp: "09:01", type: "text" as const },
+    ];
+    const routeData = resolveChatThreadRouteData(chats, messages, "chat-1");
+    expect(routeData?.thread.id).toBe("chat-1");
+    expect(routeData?.messages).toHaveLength(1);
+    expect(routeData?.messages[0]?.threadId).toBe("chat-1");
+  });
+
+  it("returns null for missing chat route data", () => {
+    const routeData = resolveChatThreadRouteData([], [], "missing");
+    expect(routeData).toBeNull();
   });
 });

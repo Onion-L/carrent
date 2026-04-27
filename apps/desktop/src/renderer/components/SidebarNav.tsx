@@ -14,6 +14,7 @@ import {
   Link,
   Trash2,
   Pencil,
+  MessageSquare,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
@@ -36,10 +37,15 @@ export function buildDraftPath(draftId: string) {
   return `/draft/${draftId}`;
 }
 
+export function buildChatPath(threadId: string) {
+  return `/chat/${threadId}`;
+}
+
 export function SidebarNav() {
   const navigate = useNavigate();
   const {
     projects,
+    chats,
     activeThreadId,
     setActiveThreadId,
     createProject,
@@ -47,6 +53,9 @@ export function SidebarNav() {
     renameProject,
     toggleThreadPin,
     archiveThread,
+    createChat,
+    toggleChatPin,
+    archiveChat,
   } = useWorkspace();
   const { createDraft } = useDraftThread();
   const { showToast } = useToast();
@@ -55,7 +64,9 @@ export function SidebarNav() {
   );
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [openThreadMenuId, setOpenThreadMenuId] = useState<string | null>(null);
+  const [openChatMenuId, setOpenChatMenuId] = useState<string | null>(null);
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
+  const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingProjectName, setEditingProjectName] = useState("");
@@ -63,6 +74,18 @@ export function SidebarNav() {
   const handleThreadClick = (projectId: string, threadId: string) => {
     setActiveThreadId(threadId);
     navigate(buildThreadPath(projectId, threadId));
+  };
+
+  const handleChatClick = (threadId: string) => {
+    setActiveThreadId(threadId);
+    navigate(buildChatPath(threadId));
+  };
+
+  const handleNewChat = () => {
+    const thread = createChat("New chat");
+    if (thread) {
+      navigate(buildChatPath(thread.id));
+    }
   };
 
   const toggleProjectExpanded = (projectId: string) => {
@@ -123,6 +146,25 @@ export function SidebarNav() {
     return () => document.removeEventListener("mousedown", handleMouseDown);
   }, [openProjectMenuId]);
 
+  useEffect(() => {
+    if (!openChatMenuId) return;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      const inside =
+        target instanceof Element &&
+        target.closest(
+          '[data-chat-menu="true"], [data-chat-menu-trigger="true"]',
+        );
+      if (!inside) {
+        setOpenChatMenuId(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [openChatMenuId]);
+
   const togglePin = (projectId: string, threadId: string) => {
     toggleThreadPin(projectId, threadId);
     setOpenThreadMenuId(null);
@@ -139,6 +181,16 @@ export function SidebarNav() {
       } else {
         navigate("/");
       }
+    }
+  };
+
+  const archiveChatAction = (threadId: string) => {
+    if (!window.confirm("Archive this chat?")) return;
+
+    setOpenChatMenuId(null);
+    archiveChat(threadId);
+    if (activeThreadId === threadId) {
+      navigate("/");
     }
   };
 
@@ -447,6 +499,107 @@ export function SidebarNav() {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Chat section */}
+      <div className="flex shrink-0 flex-col">
+        <div className="flex items-center justify-between px-4 py-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
+            Chat
+          </span>
+          <button
+            onClick={handleNewChat}
+            className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]"
+            title="New chat"
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+        </div>
+        <div className="px-2 pb-2">
+          {chats
+            .filter((chat) => !chat.archived)
+            .map((chat) => {
+              const isActive = chat.id === activeThreadId;
+              const showActions = isActive || hoveredChatId === chat.id;
+              const menuOpen = openChatMenuId === chat.id;
+
+              return (
+                <div
+                  key={chat.id}
+                  className={`relative mt-0.5 flex items-center justify-between rounded-md px-3 py-1.5 text-left transition ${
+                    isActive
+                      ? "bg-[#2a2a2a] text-[#eee]"
+                      : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
+                  }`}
+                  onMouseEnter={() => setHoveredChatId(chat.id)}
+                  onMouseLeave={() =>
+                    setHoveredChatId((prev) =>
+                      prev === chat.id ? null : prev,
+                    )
+                  }
+                >
+                  <button
+                    onClick={() => handleChatClick(chat.id)}
+                    className="flex flex-1 items-center justify-between text-left"
+                  >
+                    <span className="flex items-center gap-1.5 truncate">
+                      {chat.pinned && (
+                        <Pin className="h-3 w-3 text-[#888]" />
+                      )}
+                      <MessageSquare className="h-3 w-3 text-[#888]" />
+                      <span className="truncate text-[13px]">{chat.title}</span>
+                    </span>
+                    {!showActions && (
+                      <span className="shrink-0 text-[11px] text-[#555]">
+                        {formatRelativeTime(chat.updatedAt)}
+                      </span>
+                    )}
+                  </button>
+                  {showActions && (
+                    <button
+                      data-chat-menu-trigger="true"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenChatMenuId(menuOpen ? null : chat.id);
+                      }}
+                      className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                    >
+                      <MoreHorizontal className="h-3 w-3" />
+                    </button>
+                  )}
+
+                  {menuOpen && (
+                    <div
+                      data-chat-menu="true"
+                      className="absolute right-0 top-full z-10 mt-0.5 w-32 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg"
+                    >
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleChatPin(chat.id);
+                          setOpenChatMenuId(null);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                      >
+                        <Pin className="h-3 w-3" />
+                        {chat.pinned ? "Unpin" : "Pin"}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          archiveChatAction(chat.id);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 transition hover:bg-[#333]"
+                      >
+                        <Archive className="h-3 w-3 text-red-400" />
+                        Archive
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
         </div>
       </div>
 

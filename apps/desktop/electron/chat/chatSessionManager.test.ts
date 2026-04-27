@@ -6,7 +6,11 @@ import { createChatSessionManager } from "./chatSessionManager";
 
 function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
-    projectPath: "/Users/onion/workbench/timbre",
+    workspace: {
+      kind: "project",
+      projectId: "timbre",
+      projectPath: "/Users/onion/workbench/timbre",
+    },
     threadId: "thread-1",
     runtimeId: "codex",
     agent: {
@@ -183,13 +187,108 @@ describe("createChatSessionManager", () => {
       spawn: () => mockChild,
     });
 
-    manager.start("run-5", makeRequest({ projectPath: "" }));
+    manager.start(
+      "run-5",
+      makeRequest({
+        workspace: { kind: "project", projectId: "timbre", projectPath: "" },
+      }),
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     const failed = emitted.find((e) => e.type === "failed");
     expect(failed).toBeDefined();
     expect(failed?.error).toContain("Project path is missing");
+  });
+
+  it("accepts projectless chat requests", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+    const spawnCalls: Array<{
+      command: string;
+      args: string[];
+      options: { cwd: string };
+    }> = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: (command, args, options) => {
+        spawnCalls.push({ command, args, options: options as { cwd: string } });
+        return mockChild;
+      },
+    });
+
+    manager.start("run-chat", makeRequest({ workspace: { kind: "chat" } }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(emitted.some((event) => event.type === "failed")).toBe(false);
+    expect(spawnCalls[0]?.options.cwd).toContain("carrent-chat");
+  });
+
+  it("separates provider session keys for project and chat scopes", async () => {
+    const project = makeRequest({
+      workspace: {
+        kind: "project",
+        projectId: "carrent",
+        projectPath: "/Users/onion/workbench/carrent",
+      },
+    });
+    const chat = makeRequest({ workspace: { kind: "chat" } });
+
+    const emitted: ChatRunEvent[] = [];
+    const firstChild = createMockChildProcess();
+    const secondChild = createMockChildProcess();
+    const children = [firstChild, secondChild];
+    const sessionSets: Array<{ key: string; sessionId: string }> = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => {
+        const child = children.shift();
+        if (!child) {
+          throw new Error("missing mock child");
+        }
+        return child;
+      },
+      providerSessions: {
+        get: () => undefined,
+        set: (key, sessionId) => {
+          sessionSets.push({ key, sessionId });
+        },
+      },
+    });
+
+    manager.start("run-proj", { ...project, runtimeId: "claude-code" });
+    firstChild.stdout.emit(
+      "data",
+      Buffer.from(
+        [
+          '{"type":"system","subtype":"init","session_id":"sess-proj"}',
+          '{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Hi"}}}',
+        ].join("\n") + "\n",
+      ),
+    );
+    firstChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    manager.start("run-chat2", { ...chat, runtimeId: "claude-code" });
+    secondChild.stdout.emit(
+      "data",
+      Buffer.from(
+        [
+          '{"type":"system","subtype":"init","session_id":"sess-chat"}',
+          '{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Hello"}}}',
+        ].join("\n") + "\n",
+      ),
+    );
+    secondChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(sessionSets).toHaveLength(2);
+    expect(sessionSets[0].key).not.toBe(sessionSets[1].key);
   });
 
   it("normalizes non-zero exit with stderr", async () => {
@@ -839,7 +938,7 @@ describe("createChatSessionManager", () => {
 
     expect(sessionSets).toHaveLength(1);
     expect(sessionSets[0]).toEqual({
-      key: "claude-code:/Users/onion/workbench/timbre:thread-1:architect",
+      key: "claude-code:project:/Users/onion/workbench/timbre:thread-1:architect",
       sessionId: "sess-persist-1",
     });
   });

@@ -1,4 +1,6 @@
 import type { ChildProcess } from "node:child_process";
+import path from "node:path";
+import fs from "node:fs";
 import type {
   ChatReasoningEventPayload,
   ChatShellEventPayload,
@@ -513,8 +515,23 @@ function consumeCodexStreamChunk(
   }
 }
 
+const PROJECTLESS_CHAT_CWD = path.join(process.env.APPDATA || process.env.HOME || "/tmp", "carrent-chat");
+
+function resolveRequestCwd(request: ChatTurnRequest) {
+  if (request.workspace.kind === "project") {
+    return request.workspace.projectPath;
+  }
+  fs.mkdirSync(PROJECTLESS_CHAT_CWD, { recursive: true });
+  return PROJECTLESS_CHAT_CWD;
+}
+
 function buildRequestSessionKey(request: ChatTurnRequest) {
-  return `${request.runtimeId}:${request.projectPath}:${request.threadId}:${request.agent.id}`;
+  const scope =
+    request.workspace.kind === "project"
+      ? `project:${request.workspace.projectPath}`
+      : "chat";
+
+  return `${request.runtimeId}:${scope}:${request.threadId}:${request.agent.id}`;
 }
 
 function getSessionRuntimeCommand(
@@ -575,7 +592,7 @@ export function createChatSessionManager(options: {
   const TIMEOUT_MS = 120_000;
 
   function start(runId: string, request: ChatTurnRequest) {
-    if (!request.projectPath) {
+    if (request.workspace.kind === "project" && !request.workspace.projectPath) {
       options.emit({
         type: "failed",
         runId,
@@ -634,7 +651,7 @@ export function createChatSessionManager(options: {
     }, TIMEOUT_MS);
 
     const child = options.spawn(command, args, {
-      cwd: request.projectPath,
+      cwd: resolveRequestCwd(request),
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });

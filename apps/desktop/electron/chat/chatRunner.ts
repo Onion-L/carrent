@@ -1,3 +1,5 @@
+import path from "node:path";
+import fs from "node:fs";
 import type { ProcessRunner } from "../runtime/processRunner";
 import type { ChatTurnRequest } from "../../src/shared/chat";
 import type { RuntimeId } from "../../src/shared/runtimes";
@@ -13,6 +15,16 @@ export interface ChatRunner {
   run: (request: ChatTurnRequest) => Promise<ChatRunnerResult>;
 }
 
+const PROJECTLESS_CHAT_CWD = path.join(process.env.APPDATA || process.env.HOME || "/tmp", "carrent-chat");
+
+function resolveRequestCwd(request: ChatTurnRequest) {
+  if (request.workspace.kind === "project") {
+    return request.workspace.projectPath;
+  }
+  fs.mkdirSync(PROJECTLESS_CHAT_CWD, { recursive: true });
+  return PROJECTLESS_CHAT_CWD;
+}
+
 export function createChatRunner(processRunner: ProcessRunner): ChatRunner {
   return {
     async run(request) {
@@ -21,7 +33,7 @@ export function createChatRunner(processRunner: ProcessRunner): ChatRunner {
       const { command, args } = getRuntimeCommand(request.runtimeId, prompt);
 
       const result = await processRunner.run(command, args, {
-        cwd: request.projectPath,
+        cwd: resolveRequestCwd(request),
         timeoutMs: 120_000,
       });
 

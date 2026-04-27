@@ -1117,4 +1117,43 @@ describe("createChatSessionManager", () => {
 
     expect(capturedArgs).toContain("--dangerously-skip-permissions");
   });
+
+  it("does not run codex without an explicit sandbox mode", async () => {
+    const mockChild = createMockChildProcess();
+    let capturedArgs: string[] = [];
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (_command, args) => {
+        capturedArgs = args;
+        return mockChild;
+      },
+    });
+
+    manager.start("run-safety-default", makeRequest({ runtimeId: "codex" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(capturedArgs).toContain("--sandbox");
+  });
+
+  it("does not run claude without an explicit permission mode unless full access is selected", async () => {
+    const mockChild = createMockChildProcess();
+    let capturedArgs: string[] = [];
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (_command, args) => {
+        capturedArgs = args;
+        return mockChild;
+      },
+    });
+
+    manager.start("run-safety-claude", makeRequest({ runtimeId: "claude-code" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(capturedArgs).toContain("--permission-mode");
+    expect(capturedArgs).not.toContain("--dangerously-skip-permissions");
+  });
 });

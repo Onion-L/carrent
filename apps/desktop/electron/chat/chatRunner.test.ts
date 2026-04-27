@@ -157,5 +157,17 @@ describe("createChatRunner", () => {
       const { args } = getRuntimeCommand("claude-code", "prompt", "full-access");
       expect(args).toContain("--dangerously-skip-permissions");
     });
+
+    it("defaults codex to sandbox mode", () => {
+      const { args } = getRuntimeCommand("codex", "prompt");
+      expect(args).toContain("--sandbox");
+      expect(args).toContain("read-only");
+    });
+
+    it("defaults claude to permission mode", () => {
+      const { args } = getRuntimeCommand("claude-code", "prompt");
+      expect(args).toContain("--permission-mode");
+      expect(args).toContain("default");
+    });
   });
 });

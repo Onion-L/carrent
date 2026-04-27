@@ -1,4 +1,12 @@
-import { ArrowUp, Bot, ChevronDown, Shield, Square } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUp,
+  Bot,
+  ChevronDown,
+  Lock,
+  Pencil,
+  Square,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
@@ -17,6 +25,17 @@ import {
   getRuntimeModeLabel,
   type RuntimeMode,
 } from "../../../shared/runtimeMode";
+
+function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: string }) {
+  switch (mode) {
+    case "approval-required":
+      return <Lock className={className} />;
+    case "auto-accept-edits":
+      return <Pencil className={className} />;
+    case "full-access":
+      return <AlertTriangle className={className} />;
+  }
+}
 
 type ComposerProps =
   | {
@@ -454,7 +473,10 @@ export function Composer(props: ComposerProps) {
                     className="flex items-center gap-1.5 rounded-full border border-[#333] bg-[#252525] px-2.5 py-1 text-[11px] text-[#aaa] transition hover:bg-[#2a2a2a] disabled:opacity-40"
                     title={isThreadSending ? "Locked while agent is running" : "Runtime permissions"}
                   >
-                    <Shield className="h-3 w-3" />
+                    <RuntimeModeIcon
+                      mode={props.runtimeMode ?? DEFAULT_RUNTIME_MODE}
+                      className="h-3 w-3"
+                    />
                     <span>{getRuntimeModeLabel(props.runtimeMode ?? DEFAULT_RUNTIME_MODE)}</span>
                     <ChevronDown className="h-3 w-3" />
                   </button>
@@ -475,7 +497,7 @@ export function Composer(props: ComposerProps) {
                             mode === props.runtimeMode ? "text-[#eee]" : "text-[#999]"
                           }`}
                         >
-                          <Shield className="h-3 w-3" />
+                          <RuntimeModeIcon mode={mode} className="h-3 w-3" />
                           <span>
                             {getRuntimeModeLabel(mode)}
                             {mode === "full-access" ? " (danger)" : ""}

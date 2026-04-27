@@ -28,9 +28,9 @@ export function getRuntimeModeLabel(mode: RuntimeMode) {
 export function getCodexRuntimeModeArgs(mode: RuntimeMode): string[] {
   switch (mode) {
     case "approval-required":
-      return ["--sandbox", "read-only"];
+      return ["--sandbox", "read-only", "-c", 'approval_policy="on-request"'];
     case "auto-accept-edits":
-      return ["--sandbox", "workspace-write"];
+      return ["--sandbox", "workspace-write", "-c", 'approval_policy="on-request"'];
     case "full-access":
       return ["--dangerously-bypass-approvals-and-sandbox"];
   }

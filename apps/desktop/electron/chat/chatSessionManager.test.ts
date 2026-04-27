@@ -1037,6 +1037,8 @@ describe("createChatSessionManager", () => {
 
     expect(capturedArgs).toContain("--sandbox");
     expect(capturedArgs).toContain("read-only");
+    expect(capturedArgs).toContain("-c");
+    expect(capturedArgs).toContain('approval_policy="on-request"');
     expect(capturedArgs).not.toContain("--dangerously-bypass-approvals-and-sandbox");
   });
 
@@ -1058,6 +1060,8 @@ describe("createChatSessionManager", () => {
 
     expect(capturedArgs).toContain("--sandbox");
     expect(capturedArgs).toContain("workspace-write");
+    expect(capturedArgs).toContain("-c");
+    expect(capturedArgs).toContain('approval_policy="on-request"');
   });
 
   it("passes dangerous bypass only for full-access codex runs", async () => {
@@ -1135,6 +1139,8 @@ describe("createChatSessionManager", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(capturedArgs).toContain("--sandbox");
+    expect(capturedArgs).toContain("-c");
+    expect(capturedArgs).toContain('approval_policy="on-request"');
   });
 
   it("does not run claude without an explicit permission mode unless full access is selected", async () => {

@@ -128,12 +128,16 @@ describe("createChatRunner", () => {
       const { args } = getRuntimeCommand("codex", "prompt", "approval-required");
       expect(args).toContain("--sandbox");
       expect(args).toContain("read-only");
+      expect(args).toContain("-c");
+      expect(args).toContain('approval_policy="on-request"');
     });
 
     it("maps auto-accept-edits to codex workspace-write sandbox", () => {
       const { args } = getRuntimeCommand("codex", "prompt", "auto-accept-edits");
       expect(args).toContain("--sandbox");
       expect(args).toContain("workspace-write");
+      expect(args).toContain("-c");
+      expect(args).toContain('approval_policy="on-request"');
     });
 
     it("maps full-access to codex dangerous bypass", () => {
@@ -162,6 +166,8 @@ describe("createChatRunner", () => {
       const { args } = getRuntimeCommand("codex", "prompt");
       expect(args).toContain("--sandbox");
       expect(args).toContain("read-only");
+      expect(args).toContain("-c");
+      expect(args).toContain('approval_policy="on-request"');
     });
 
     it("defaults claude to permission mode", () => {

@@ -7,6 +7,7 @@ import { MessageTimeline } from "../components/chat/MessageTimeline";
 import { useDraftThread } from "../context/DraftThreadContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useDraftThreadPromotion } from "../hooks/useDraftThreadPromotion";
+import { useChatRun } from "../hooks/useChatRun";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import type { DraftThreadRecord } from "../lib/draftThreads";
 
@@ -23,8 +24,10 @@ export function DraftThreadPage() {
   const navigate = useNavigate();
   const { getDraftById, setDraftRuntimeMode } = useDraftThread();
   const { setActiveThreadId } = useWorkspace();
+  const { runningThreadIds } = useChatRun();
   const draft = draftId ? getDraftById(draftId) : null;
   const promotedRoute = resolvePromotedDraftRoute(draft);
+  const isRunning = draft ? runningThreadIds.includes(draft.preallocatedThreadId) : false;
 
   useDraftThreadPromotion();
 
@@ -48,6 +51,7 @@ export function DraftThreadPage() {
         onRuntimeModeChange={
           draft ? (mode) => setDraftRuntimeMode(draft.draftId, mode) : undefined
         }
+        isRunning={isRunning}
       />
       <MessageTimeline messages={draft?.messages ?? []} />
       {draft ? (

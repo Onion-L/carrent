@@ -6,6 +6,7 @@ import { Composer } from "../components/chat/Composer";
 import { MessageTimeline } from "../components/chat/MessageTimeline";
 import { useDraftThread } from "../context/DraftThreadContext";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { useChatRun } from "../hooks/useChatRun";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import type { DraftThreadRecord } from "../lib/draftThreads";
 
@@ -41,7 +42,9 @@ export function ThreadPage() {
   const { projectId, threadId } = useParams();
   const { getThreadRouteData, setActiveThreadId, setThreadRuntimeMode } = useWorkspace();
   const { drafts, finalizePromotedDraftThreadByRef } = useDraftThread();
+  const { runningThreadIds } = useChatRun();
   const routeData = resolveThreadRouteData(getThreadRouteData, projectId, threadId);
+  const isRunning = routeData ? runningThreadIds.includes(routeData.thread.id) : false;
   const promotedDraft = findPromotedDraftToFinalize(drafts, projectId, threadId);
 
   useEffect(() => {
@@ -66,6 +69,7 @@ export function ThreadPage() {
             ? (mode) => setThreadRuntimeMode(routeData.project.id, routeData.thread.id, mode)
             : undefined
         }
+        isRunning={isRunning}
       />
       <MessageTimeline messages={routeData?.messages ?? []} />
       {routeData ? (

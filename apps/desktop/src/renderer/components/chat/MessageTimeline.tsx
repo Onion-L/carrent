@@ -9,8 +9,8 @@ import { ShellBlock } from "./ShellBlock";
 function AgentLabel({ agentId }: { agentId: string }) {
   const { agents } = useAgents();
   const agent = agents.find((a) => a.id === agentId);
-  if (!agent) return <span className="text-[12px] font-medium text-[#666]">Unknown agent</span>;
-  return <span className="text-[12px] font-medium text-[#666]">{agent.name}</span>;
+  if (!agent) return <span className="text-[12px] font-medium text-subtle">Unknown agent</span>;
+  return <span className="text-[12px] font-medium text-subtle">{agent.name}</span>;
 }
 
 function UserMessage({ content, timestamp }: { content: string; timestamp: string }) {
@@ -33,27 +33,29 @@ function UserMessage({ content, timestamp }: { content: string; timestamp: strin
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-[#2a2a2a] px-4 py-3">
-        <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#eee]">{content}</p>
+      <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
+        <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-user-bubble-fg">
+          {content}
+        </p>
       </div>
       {hovered && (
         <div className="absolute -bottom-6 right-0 flex items-center gap-3 px-1">
-          <span className="text-[12px] text-[#555]">{timestamp}</span>
+          <span className="text-[12px] text-subtle">{timestamp}</span>
           <button
-            className="flex h-6 w-6 items-center justify-center rounded text-[#555] transition hover:text-[#888]"
+            className="flex h-6 w-6 items-center justify-center rounded text-subtle transition hover:text-muted"
             title="Retry"
           >
             <RefreshCw className="h-4 w-4" />
           </button>
           <button
-            className="flex h-6 w-6 items-center justify-center rounded text-[#555] transition hover:text-[#888]"
+            className="flex h-6 w-6 items-center justify-center rounded text-subtle transition hover:text-muted"
             title="Edit"
           >
             <Pencil className="h-4 w-4" />
           </button>
           <button
             onClick={handleCopy}
-            className="flex h-6 w-6 items-center justify-center rounded text-[#555] transition hover:text-[#888]"
+            className="flex h-6 w-6 items-center justify-center rounded text-subtle transition hover:text-muted"
             title="Copy"
           >
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -80,20 +82,20 @@ function AssistantMessage({
 
   return (
     <div className="flex gap-3">
-      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#252525] text-[#666]">
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-surface-raised text-subtle">
         <Bot className="h-3.5 w-3.5" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <div className="flex items-center gap-2">
           <AgentLabel agentId={agentId} />
-          <span className="text-[11px] text-[#444]">{timestamp}</span>
+          <span className="text-[11px] text-subtle">{timestamp}</span>
         </div>
         {isStreaming ? (
           <div className="flex items-center py-1">
             {"Thinking".split("").map((char, i) => (
               <span
                 key={i}
-                className="inline-block animate-pulse text-[13px] text-[#666]"
+                className="inline-block animate-pulse text-[13px] text-subtle"
                 style={{ animationDelay: `${i * 120}ms` }}
               >
                 {char}
@@ -107,7 +109,7 @@ function AssistantMessage({
                 part.content ? (
                   <p
                     key={`${index}-text`}
-                    className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#ccc]"
+                    className="whitespace-pre-wrap text-[14px] leading-relaxed text-fg"
                   >
                     {part.content}
                   </p>
@@ -120,7 +122,7 @@ function AssistantMessage({
             )}
           </div>
         ) : (
-          <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[#ccc]">{content}</p>
+          <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-fg">{content}</p>
         )}
       </div>
     </div>
@@ -130,10 +132,10 @@ function AssistantMessage({
 function EmptyState() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#252525]">
-        <Bot className="h-5 w-5 text-[#555]" />
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-surface-raised">
+        <Bot className="h-5 w-5 text-subtle" />
       </div>
-      <p className="text-[15px] text-[#555]">What should we build?</p>
+      <p className="text-[15px] text-subtle">What should we build?</p>
     </div>
   );
 }
@@ -193,13 +195,13 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
                 return (
                   <div key={msg.id} className="px-4 py-5">
                     <div className="flex gap-3">
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#252525] text-[#666]">
+                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-surface-raised text-subtle">
                         <Bot className="h-3.5 w-3.5" />
                       </div>
                       <div className="flex min-w-0 flex-1 flex-col gap-2">
                         <div className="flex items-center gap-2">
                           <AgentLabel agentId={msg.agentId} />
-                          <span className="text-[11px] text-[#444]">{msg.timestamp}</span>
+                          <span className="text-[11px] text-subtle">{msg.timestamp}</span>
                         </div>
                         <ChangedFilesCard message={msg} />
                       </div>
@@ -220,7 +222,7 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
       {showScrollButton && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-[#333] bg-[#252525] text-[#888] shadow-lg transition hover:border-[#444] hover:bg-[#2a2a2a] hover:text-[#ddd]"
+          className="absolute bottom-4 left-1/2 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-border-strong bg-surface-raised text-muted shadow-lg transition hover:border-border-strong hover:bg-surface-hover hover:text-fg"
         >
           <ArrowDown className="h-3.5 w-3.5" />
         </button>

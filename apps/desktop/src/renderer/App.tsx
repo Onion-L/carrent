@@ -20,8 +20,8 @@ function AppRoutes() {
 
   if (!hasHydrated) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-[#181818]">
-        <span className="text-[14px] text-[#555]">Loading workspace...</span>
+      <div className="flex h-full w-full items-center justify-center bg-bg">
+        <span className="text-[14px] text-subtle">Loading workspace...</span>
       </div>
     );
   }

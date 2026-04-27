@@ -4,12 +4,19 @@
 
 @layer base {
   :root {
-    --color-bg: 24 24 24;
+    --color-bg: 17 17 17;
     --color-surface: 30 30 30;
+    --color-surface-raised: 37 37 37;
+    --color-surface-hover: 42 42 42;
     --color-fg: 224 224 224;
     --color-muted: 130 130 130;
+    --color-subtle: 85 85 85;
     --color-border: 45 45 45;
+    --color-border-strong: 60 60 60;
     --color-brand: 180 180 180;
+    --color-user-bubble: 42 42 42;
+    --color-user-bubble-fg: 238 238 238;
+    --color-code-bg: 16 16 16;
     --color-success: 70 170 110;
     --color-warning: 232 125 90;
     --color-danger: 200 80 80;
@@ -23,12 +30,19 @@
   }
 
   [data-theme="light"] {
-    --color-bg: 245 245 245;
-    --color-surface: 255 255 255;
+    --color-bg: 247 247 244;
+    --color-surface: 255 255 252;
+    --color-surface-raised: 250 250 247;
+    --color-surface-hover: 235 235 230;
     --color-fg: 30 30 30;
-    --color-muted: 120 120 120;
-    --color-border: 220 220 220;
+    --color-muted: 105 105 100;
+    --color-subtle: 145 145 138;
+    --color-border: 224 224 216;
+    --color-border-strong: 203 203 194;
     --color-brand: 80 80 80;
+    --color-user-bubble: 34 34 32;
+    --color-user-bubble-fg: 255 255 252;
+    --color-code-bg: 241 241 236;
     --color-success: 50 150 90;
     --color-warning: 210 110 70;
     --color-danger: 180 60 60;

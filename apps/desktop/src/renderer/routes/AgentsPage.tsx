@@ -38,32 +38,31 @@ function RuntimePicker({ value, onChange }: { value: string; onChange: (value: s
   }, [open]);
 
   const selectedRuntime = runtimes.find((r) => r.id === value);
-  const displayName = selectedRuntime?.name ?? runtimeNameMap[value as keyof typeof runtimeNameMap] ?? value;
+  const displayName =
+    selectedRuntime?.name ?? runtimeNameMap[value as keyof typeof runtimeNameMap] ?? value;
 
   return (
     <div ref={ref} className="relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 rounded-md border border-white/[0.06] bg-[#1a1a1a] px-3 py-2 text-left transition-colors hover:border-white/[0.10]"
+        className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-left transition-colors hover:border-border-strong"
       >
         {displayName ? (
           <>
             <RuntimeIcon name={displayName} size="sm" />
-            <span className="min-w-0 flex-1 truncate text-[13px] text-[#d0d0d0]">
-              {displayName}
-            </span>
+            <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{displayName}</span>
             <ChevronUp
-              className={`h-3.5 w-3.5 shrink-0 text-[#555] transition-transform ${open ? "" : "rotate-180"}`}
+              className={`h-3.5 w-3.5 shrink-0 text-subtle transition-transform ${open ? "" : "rotate-180"}`}
             />
           </>
         ) : (
-          <span className="text-[13px] text-[#555]">Choose a runtime</span>
+          <span className="text-[13px] text-subtle">Choose a runtime</span>
         )}
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 right-0 z-10 mb-1 overflow-hidden rounded-md border border-white/[0.06] bg-[#1a1a1a] shadow-lg shadow-black/30">
+        <div className="absolute bottom-full left-0 right-0 z-10 mb-1 overflow-hidden rounded-md border border-border bg-surface shadow-lg shadow-black/10">
           {runtimes.map((runtime) => {
             const isSelected = runtime.id === value;
             const isOnline = runtime.availability === "detected";
@@ -76,16 +75,14 @@ function RuntimePicker({ value, onChange }: { value: string; onChange: (value: s
                   setOpen(false);
                 }}
                 className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors ${
-                  isSelected ? "bg-white/[0.05]" : "hover:bg-white/[0.03]"
+                  isSelected ? "bg-surface-hover" : "hover:bg-surface-raised"
                 }`}
               >
                 <RuntimeIcon name={runtime.name} size="sm" />
-                <span className="min-w-0 flex-1 truncate text-[13px] text-[#d0d0d0]">
-                  {runtime.name}
-                </span>
+                <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{runtime.name}</span>
                 <span
                   className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                    isOnline ? "bg-emerald-400" : "bg-[#333]"
+                    isOnline ? "bg-success" : "bg-subtle"
                   }`}
                 />
               </button>
@@ -196,18 +193,15 @@ export function AgentsPage() {
     if (selectedAgent) setDraft({ ...selectedAgent });
   };
 
-  const handleAvatarChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setDraft((prev) => (prev ? { ...prev, avatar: reader.result as string } : prev));
-      };
-      reader.readAsDataURL(file);
-    },
-    [],
-  );
+  const handleAvatarChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setDraft((prev) => (prev ? { ...prev, avatar: reader.result as string } : prev));
+    };
+    reader.readAsDataURL(file);
+  }, []);
 
   const hasChanges =
     draft && selectedAgent
@@ -238,18 +232,18 @@ export function AgentsPage() {
   }, []);
 
   return (
-    <div className="flex h-full w-full bg-[#111]">
+    <div className="flex h-full w-full bg-bg">
       {/* ---- Sidebar ---- */}
-      <aside className="flex h-full w-[280px] shrink-0 flex-col border-r border-white/[0.04] bg-[#141414]">
+      <aside className="flex h-full w-[280px] shrink-0 flex-col border-r border-border bg-surface">
         <div
           className="drag-region shrink-0"
           style={{ height: "env(titlebar-area-height, 38px)" }}
         />
         <div className="flex items-center justify-between px-4 py-2.5">
-          <span className="text-[13px] font-medium text-[#666]">Agents</span>
+          <span className="text-[13px] font-medium text-subtle">Agents</span>
           <button
             onClick={handleCreate}
-            className="flex h-6 w-6 items-center justify-center rounded text-[#555] transition-colors hover:bg-white/[0.06] hover:text-[#ccc]"
+            className="flex h-6 w-6 items-center justify-center rounded text-subtle transition-colors hover:bg-surface-hover hover:text-fg"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -258,13 +252,13 @@ export function AgentsPage() {
         <div className="flex-1 overflow-auto px-2 pb-3">
           {agents.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-10 text-center">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.03]">
-                <Bot className="h-5 w-5 text-[#444]" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-raised">
+                <Bot className="h-5 w-5 text-subtle" />
               </div>
-              <p className="text-[14px] text-[#555]">No agents</p>
+              <p className="text-[14px] text-subtle">No agents</p>
               <button
                 onClick={handleCreate}
-                className="text-[13px] text-[#666] transition-colors hover:text-[#aaa]"
+                className="text-[13px] text-subtle transition-colors hover:text-muted"
               >
                 Create your first agent
               </button>
@@ -279,13 +273,13 @@ export function AgentsPage() {
                     onClick={() => setSelectedAgentId(agent.id)}
                     className={`group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
                       isActive
-                        ? "bg-[#222] text-[#e8e8e8]"
-                        : "text-[#888] hover:bg-white/[0.03] hover:text-[#ccc]"
+                        ? "bg-surface-hover text-fg"
+                        : "text-muted hover:bg-surface-raised hover:text-fg"
                     }`}
                   >
                     <div
                       className={`flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded ${
-                        isActive ? "bg-white/[0.06]" : "bg-white/[0.03]"
+                        isActive ? "bg-surface-raised" : "bg-surface-raised/70"
                       }`}
                     >
                       {agent.avatar ? (
@@ -298,7 +292,7 @@ export function AgentsPage() {
                       <div className="truncate text-[14px] leading-tight">
                         {agent.name || "Untitled"}
                       </div>
-                      <div className="truncate text-[12px] text-[#555] leading-tight">
+                      <div className="truncate text-[12px] text-subtle leading-tight">
                         {runtimeNameMap[agent.runtime] ?? agent.runtime}
                       </div>
                     </div>
@@ -311,7 +305,7 @@ export function AgentsPage() {
       </aside>
 
       {/* ---- Main ---- */}
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[#111]">
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg">
         <div
           className="drag-region shrink-0"
           style={{ height: "env(titlebar-area-height, 38px)" }}
@@ -320,12 +314,12 @@ export function AgentsPage() {
         {!draft ? (
           /* Empty state */
           <div className="flex flex-1 flex-col items-center justify-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/[0.03]">
-              <Bot className="h-5 w-5 text-[#444]" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-surface-raised">
+              <Bot className="h-5 w-5 text-subtle" />
             </div>
             <div className="text-center">
-              <p className="text-[14px] text-[#555]">Select an agent</p>
-              <p className="mt-0.5 text-[13px] text-[#444]">
+              <p className="text-[14px] text-subtle">Select an agent</p>
+              <p className="mt-0.5 text-[13px] text-subtle">
                 Choose from the sidebar or create a new one
               </p>
             </div>
@@ -333,29 +327,25 @@ export function AgentsPage() {
         ) : (
           <div className="flex flex-1 flex-col overflow-hidden">
             {/* ---- Header ---- */}
-            <div className="flex w-full shrink-0 items-center justify-between border-b border-white/[0.04] px-8 py-4">
+            <div className="flex w-full shrink-0 items-center justify-between border-b border-border px-8 py-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-md bg-white/[0.04]">
+                <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-md bg-surface-raised">
                   {draft.avatar ? (
                     <img src={draft.avatar} alt="" className="h-full w-full object-cover" />
                   ) : (
-                    <Bot className="h-4 w-4 text-[#555]" />
+                    <Bot className="h-4 w-4 text-subtle" />
                   )}
                 </div>
                 <div>
-                  <h1 className="text-[15px] font-medium text-[#e0e0e0]">
-                    {draft.name || "Untitled"}
-                  </h1>
-                  <p className="text-[11px] text-[#555]">{draft.runtime}</p>
+                  <h1 className="text-[15px] font-medium text-fg">{draft.name || "Untitled"}</h1>
+                  <p className="text-[11px] text-subtle">{draft.runtime}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                {hasChanges && (
-                  <span className="text-[11px] text-[#888]">Unsaved changes</span>
-                )}
+                {hasChanges && <span className="text-[11px] text-muted">Unsaved changes</span>}
                 <button
                   onClick={handleDelete}
-                  className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-[#888] transition-colors hover:bg-white/[0.04] hover:text-[#c44]"
+                  className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] text-muted transition-colors hover:bg-surface-hover hover:text-danger"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   Delete
@@ -366,7 +356,7 @@ export function AgentsPage() {
             {/* ---- Content ---- */}
             <div className="flex w-full flex-1 flex-col overflow-hidden">
               {/* Tab bar */}
-              <div className="flex shrink-0 gap-6 border-b border-white/[0.04] px-8">
+              <div className="flex shrink-0 gap-6 border-b border-border px-8">
                 {tabs.map((t) => {
                   const Icon = t.icon;
                   const active = tab === t.id;
@@ -375,15 +365,13 @@ export function AgentsPage() {
                       key={t.id}
                       onClick={() => setTab(t.id)}
                       className={`relative flex items-center gap-2 py-3 text-[13px] transition-colors ${
-                        active
-                          ? "text-[#e0e0e0]"
-                          : "text-[#555] hover:text-[#888]"
+                        active ? "text-fg" : "text-subtle hover:text-muted"
                       }`}
                     >
                       <Icon className="h-3.5 w-3.5" />
                       <span>{t.label}</span>
                       {active && (
-                        <span className="absolute bottom-0 left-0 right-0 h-[1.5px] bg-[#e0e0e0]" />
+                        <span className="absolute bottom-0 left-0 right-0 h-[1.5px] bg-fg" />
                       )}
                     </button>
                   );
@@ -397,8 +385,8 @@ export function AgentsPage() {
                     /* Instruction */
                     <div className="flex flex-col gap-2">
                       <div className="flex items-center justify-between">
-                        <label className="text-[12px] text-[#666]">System prompt</label>
-                        <span className="text-[11px] tabular-nums text-[#444]">
+                        <label className="text-[12px] text-subtle">System prompt</label>
+                        <span className="text-[11px] tabular-nums text-subtle">
                           {draft.responsibility.length} chars
                         </span>
                       </div>
@@ -409,7 +397,7 @@ export function AgentsPage() {
                             prev ? { ...prev, responsibility: e.target.value } : prev,
                           )
                         }
-                        className="min-h-[360px] resize-y border-white/[0.06] bg-[#161616] text-[13px] leading-relaxed text-[#ccc] placeholder:text-[#444] focus:border-white/[0.12] focus:ring-0"
+                        className="min-h-[360px] resize-y border-border bg-surface text-[13px] leading-relaxed text-fg placeholder:text-subtle focus:border-border-strong focus:ring-0"
                         placeholder="Define how this agent should behave..."
                         spellCheck={false}
                       />
@@ -420,7 +408,7 @@ export function AgentsPage() {
                       {/* Avatar + Name */}
                       <div className="flex items-start gap-5">
                         <div className="flex shrink-0 flex-col items-center gap-2">
-                          <label className="relative flex h-16 w-16 cursor-pointer items-center justify-center overflow-hidden rounded-md bg-white/[0.03] transition-colors hover:bg-white/[0.05]">
+                          <label className="relative flex h-16 w-16 cursor-pointer items-center justify-center overflow-hidden rounded-md bg-surface-raised transition-colors hover:bg-surface-hover">
                             <input
                               type="file"
                               accept="image/*"
@@ -434,7 +422,7 @@ export function AgentsPage() {
                                 className="h-full w-full object-cover"
                               />
                             ) : (
-                              <Bot className="h-6 w-6 text-[#444]" />
+                              <Bot className="h-6 w-6 text-subtle" />
                             )}
                             <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity hover:opacity-100">
                               <Upload className="h-4 w-4 text-white" />
@@ -445,7 +433,7 @@ export function AgentsPage() {
                               onClick={() =>
                                 setDraft((prev) => (prev ? { ...prev, avatar: "" } : prev))
                               }
-                              className="text-[11px] text-[#555] transition-colors hover:text-[#888]"
+                              className="text-[11px] text-subtle transition-colors hover:text-muted"
                             >
                               Clear
                             </button>
@@ -453,7 +441,7 @@ export function AgentsPage() {
                         </div>
                         <div className="flex min-w-0 flex-1 flex-col gap-5">
                           <div>
-                            <label className="mb-1.5 block text-[12px] text-[#666]">Name</label>
+                            <label className="mb-1.5 block text-[12px] text-subtle">Name</label>
                             <Input
                               value={draft.name}
                               onChange={(e) =>
@@ -461,7 +449,7 @@ export function AgentsPage() {
                                   prev ? { ...prev, name: e.target.value } : prev,
                                 )
                               }
-                              className="border-white/[0.06] bg-[#161616] text-[13px] text-[#ccc] placeholder:text-[#444] focus:border-white/[0.12] focus:ring-0"
+                              className="border-border bg-surface text-[13px] text-fg placeholder:text-subtle focus:border-border-strong focus:ring-0"
                               placeholder="e.g. Architect"
                             />
                           </div>
@@ -470,11 +458,9 @@ export function AgentsPage() {
 
                       {/* Description */}
                       <div>
-                        <label className="mb-1.5 block text-[12px] text-[#666]">
-                          Description
-                        </label>
+                        <label className="mb-1.5 block text-[12px] text-subtle">Description</label>
                         <Textarea
-                          className="min-h-[80px] resize-y border-white/[0.06] bg-[#161616] text-[13px] text-[#ccc] placeholder:text-[#444] focus:border-white/[0.12] focus:ring-0"
+                          className="min-h-[80px] resize-y border-border bg-surface text-[13px] text-fg placeholder:text-subtle focus:border-border-strong focus:ring-0"
                           value={draft.description ?? ""}
                           onChange={(e) =>
                             setDraft((prev) =>
@@ -487,7 +473,7 @@ export function AgentsPage() {
 
                       {/* Runtime */}
                       <div>
-                        <label className="mb-1.5 block text-[12px] text-[#666]">Runtime</label>
+                        <label className="mb-1.5 block text-[12px] text-subtle">Runtime</label>
                         <RuntimePicker
                           value={draft.runtime}
                           onChange={(runtime) =>
@@ -503,9 +489,9 @@ export function AgentsPage() {
               </div>
 
               {/* ---- Footer ---- */}
-              <div className="flex w-full shrink-0 items-center justify-between border-t border-white/[0.04] px-8 py-3">
-                <span className="text-[11px] text-[#444]">
-                  <kbd className="rounded border border-white/[0.06] bg-white/[0.03] px-1 py-0.5 font-mono text-[10px] text-[#555]">
+              <div className="flex w-full shrink-0 items-center justify-between border-t border-border px-8 py-3">
+                <span className="text-[11px] text-subtle">
+                  <kbd className="rounded border border-border bg-surface-raised px-1 py-0.5 font-mono text-[10px] text-subtle">
                     {navigator.platform.includes("Mac") ? "⌘" : "Ctrl+"}S
                   </kbd>
                   <span className="ml-1.5">to save</span>
@@ -514,14 +500,14 @@ export function AgentsPage() {
                   <button
                     onClick={handleCancel}
                     disabled={!hasChanges}
-                    className="rounded-md px-3 py-1.5 text-[12px] text-[#888] transition-colors hover:bg-white/[0.04] hover:text-[#ccc] disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#888]"
+                    className="rounded-md px-3 py-1.5 text-[12px] text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted"
                   >
                     Discard
                   </button>
                   <button
                     onClick={handleSave}
                     disabled={!hasChanges || isSaving}
-                    className="flex items-center gap-1.5 rounded-md bg-[#e0e0e0] px-3 py-1.5 text-[12px] font-medium text-[#111] transition-colors hover:bg-white disabled:bg-[#333] disabled:text-[#666] disabled:opacity-100"
+                    className="flex items-center gap-1.5 rounded-md bg-fg px-3 py-1.5 text-[12px] font-medium text-bg transition-colors hover:opacity-90 disabled:bg-surface-hover disabled:text-subtle disabled:opacity-100"
                   >
                     {isSaving ? (
                       <>
@@ -544,15 +530,15 @@ export function AgentsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div
             ref={modalRef}
-            className="w-full max-w-md rounded-lg border border-white/[0.06] bg-[#1a1a1a] shadow-xl"
+            className="w-full max-w-md rounded-lg border border-border bg-surface shadow-xl"
             role="dialog"
             aria-modal="true"
           >
-            <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-3.5">
-              <h2 className="text-[14px] font-medium text-[#e0e0e0]">New agent</h2>
+            <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
+              <h2 className="text-[14px] font-medium text-fg">New agent</h2>
               <button
                 onClick={handleCloseModal}
-                className="flex h-6 w-6 items-center justify-center rounded text-[#555] transition-colors hover:bg-white/[0.06] hover:text-[#ccc]"
+                className="flex h-6 w-6 items-center justify-center rounded text-subtle transition-colors hover:bg-surface-hover hover:text-fg"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -560,13 +546,13 @@ export function AgentsPage() {
 
             <div className="flex flex-col gap-4 px-5 py-4">
               <div>
-                <label className="mb-1.5 block text-[12px] text-[#666]">
-                  Name <span className="text-[#a44]">*</span>
+                <label className="mb-1.5 block text-[12px] text-subtle">
+                  Name <span className="text-danger">*</span>
                 </label>
                 <Input
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  className="border-white/[0.06] bg-[#161616] text-[13px] text-[#ccc] placeholder:text-[#444] focus:border-white/[0.12] focus:ring-0"
+                  className="border-border bg-surface text-[13px] text-fg placeholder:text-subtle focus:border-border-strong focus:ring-0"
                   placeholder="e.g. Architect"
                   autoFocus
                   onKeyDown={(e) => {
@@ -579,18 +565,18 @@ export function AgentsPage() {
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[12px] text-[#666]">Description</label>
+                <label className="mb-1.5 block text-[12px] text-subtle">Description</label>
                 <Textarea
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
-                  className="min-h-[72px] resize-y border-white/[0.06] bg-[#161616] text-[13px] text-[#ccc] placeholder:text-[#444] focus:border-white/[0.12] focus:ring-0"
+                  className="min-h-[72px] resize-y border-border bg-surface text-[13px] text-fg placeholder:text-subtle focus:border-border-strong focus:ring-0"
                   placeholder="Brief summary of what this agent does"
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[12px] text-[#666]">
-                  Runtime <span className="text-[#a44]">*</span>
+                <label className="mb-1.5 block text-[12px] text-subtle">
+                  Runtime <span className="text-danger">*</span>
                 </label>
                 <RuntimePicker
                   value={newRuntime}
@@ -599,17 +585,17 @@ export function AgentsPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-3.5">
+            <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3.5">
               <button
                 onClick={handleCloseModal}
-                className="rounded-md px-3 py-1.5 text-[12px] text-[#888] transition-colors hover:bg-white/[0.04] hover:text-[#ccc]"
+                className="rounded-md px-3 py-1.5 text-[12px] text-muted transition-colors hover:bg-surface-hover hover:text-fg"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmCreate}
                 disabled={!newName.trim()}
-                className="rounded-md bg-[#e0e0e0] px-3 py-1.5 text-[12px] font-medium text-[#111] transition-colors hover:bg-white disabled:opacity-40"
+                className="rounded-md bg-fg px-3 py-1.5 text-[12px] font-medium text-bg transition-colors hover:opacity-90 disabled:opacity-40"
               >
                 Create agent
               </button>

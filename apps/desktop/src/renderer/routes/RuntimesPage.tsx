@@ -9,11 +9,11 @@ function RuntimeListSkeleton() {
     <div className="space-y-1 px-3 py-2">
       {Array.from({ length: 3 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3 rounded-lg px-3 py-3">
-          <div className="h-4 w-4 shrink-0 rounded bg-[#252525]" />
-          <div className="h-8 w-8 shrink-0 rounded-lg bg-[#252525]" />
+          <div className="h-4 w-4 shrink-0 rounded bg-surface-raised" />
+          <div className="h-8 w-8 shrink-0 rounded-lg bg-surface-raised" />
           <div className="min-w-0 flex-1 space-y-2">
-            <div className="h-3.5 w-24 rounded bg-[#252525]" />
-            <div className="h-2.5 w-16 rounded bg-[#252525]" />
+            <div className="h-3.5 w-24 rounded bg-surface-raised" />
+            <div className="h-2.5 w-16 rounded bg-surface-raised" />
           </div>
         </div>
       ))}
@@ -53,8 +53,8 @@ export function RuntimesPage() {
         <span className="text-xs text-muted">
           {onlineCount > 0 ? `${onlineCount} online` : "All offline"}
         </span>
-        <span className="text-xs text-[#555]">/</span>
-        <span className="text-xs text-[#555]">{sortedRuntimes.length} runtimes</span>
+        <span className="text-xs text-subtle">/</span>
+        <span className="text-xs text-subtle">{sortedRuntimes.length} runtimes</span>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -62,7 +62,7 @@ export function RuntimesPage() {
         <div className="flex h-full w-[260px] shrink-0 flex-col border-r border-border bg-bg">
           <div className="flex items-center justify-between px-4 pb-2 pt-3">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">Runtimes</h2>
-            <span className="text-[11px] text-[#555]">
+            <span className="text-[11px] text-subtle">
               {onlineCount}/{sortedRuntimes.length}
             </span>
           </div>
@@ -91,7 +91,7 @@ export function RuntimesPage() {
                           <RuntimeIcon name={runtime.name} size="sm" />
                           <span
                             className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-bg ${
-                              isOnline ? "bg-success" : "bg-[#444]"
+                              isOnline ? "bg-success" : "bg-subtle"
                             }`}
                           />
                         </div>
@@ -102,7 +102,7 @@ export function RuntimesPage() {
                           <div className="mt-0.5 flex items-center gap-1.5">
                             <span
                               className={`inline-block h-1 w-1 rounded-full ${
-                                isRunning ? "bg-success" : "bg-[#555]"
+                                isRunning ? "bg-success" : "bg-subtle"
                               }`}
                             />
                             <span className="text-[11px] text-muted">
@@ -114,7 +114,7 @@ export function RuntimesPage() {
 
                       <ChevronRight
                         className={`h-3.5 w-3.5 shrink-0 transition ${
-                          isActive ? "text-fg" : "text-[#444]"
+                          isActive ? "text-fg" : "text-subtle"
                         }`}
                       />
                     </div>
@@ -139,20 +139,20 @@ export function RuntimesPage() {
                   <div className="mt-1 flex items-center gap-3 text-xs text-muted">
                     <span
                       className={
-                        selectedRuntime.availability === "detected" ? "text-success" : "text-[#555]"
+                        selectedRuntime.availability === "detected" ? "text-success" : "text-subtle"
                       }
                     >
                       {selectedRuntime.availability === "detected" ? "Online" : "Offline"}
                     </span>
-                    <span className="text-[#333]">·</span>
+                    <span className="text-subtle">·</span>
                     <span
                       className={
-                        selectedRuntime.status === "running" ? "text-success" : "text-[#555]"
+                        selectedRuntime.status === "running" ? "text-success" : "text-subtle"
                       }
                     >
                       {selectedRuntime.status === "running" ? "Running" : "Stopped"}
                     </span>
-                    <span className="text-[#333]">·</span>
+                    <span className="text-subtle">·</span>
                     <span>
                       {selectedRuntime.id === "claude-code"
                         ? "Anthropic"
@@ -220,7 +220,7 @@ export function RuntimesPage() {
                     <button
                       onClick={() => refreshVersion(selectedRuntime.id)}
                       disabled={isActionPending(selectedRuntime.id)}
-                      className="text-[#444] transition hover:text-muted disabled:opacity-50"
+                      className="text-subtle transition hover:text-muted disabled:opacity-50"
                       title="Refresh version"
                     >
                       <RefreshCw
@@ -292,7 +292,7 @@ export function RuntimesPage() {
               )}
             </div>
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-[#444]">
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-subtle">
               <Monitor className="h-5 w-5" />
               <p className="text-sm">Select a runtime to view details</p>
             </div>

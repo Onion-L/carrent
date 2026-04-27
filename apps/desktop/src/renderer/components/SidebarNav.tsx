@@ -185,12 +185,12 @@ export function SidebarNav() {
   };
 
   return (
-    <aside className="flex h-full flex-col overflow-hidden bg-[#1e1e1e]">
+    <aside className="flex h-full flex-col overflow-hidden bg-surface">
       <div className="drag-region shrink-0" style={{ height: "env(titlebar-area-height, 38px)" }} />
       {/* Workspace section */}
       <div className="flex flex-col shrink-0">
         <div className="flex items-center px-4 py-1.5">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-subtle">
             Workspace
           </span>
         </div>
@@ -203,8 +203,8 @@ export function SidebarNav() {
               className={({ isActive }) =>
                 `flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition ${
                   isActive
-                    ? "bg-[#2a2a2a] font-medium text-[#eee]"
-                    : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
+                    ? "bg-surface-hover font-medium text-fg"
+                    : "text-muted hover:bg-surface-raised hover:text-fg"
                 }`
               }
             >
@@ -220,11 +220,11 @@ export function SidebarNav() {
         {/* Projects section */}
         <div className="flex flex-col">
           <div className="flex items-center justify-between px-4 py-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-subtle">
               Projects
             </span>
             <div className="flex items-center gap-1">
-              <button className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]">
+              <button className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:bg-surface-hover hover:text-muted">
                 <ArrowUpDown className="h-3 w-3" />
               </button>
               <button
@@ -239,7 +239,7 @@ export function SidebarNav() {
                     }
                   }
                 }}
-                className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]"
+                className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:bg-surface-hover hover:text-muted"
                 title="New project"
               >
                 <SquarePen className="h-3 w-3" />
@@ -255,7 +255,7 @@ export function SidebarNav() {
               return (
                 <div key={project.id}>
                   <div
-                    className="relative flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition hover:bg-[#2a2a2a]"
+                    className="relative flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition hover:bg-surface-hover"
                     onMouseEnter={() => setHoveredProjectId(project.id)}
                     onMouseLeave={() =>
                       setHoveredProjectId((prev) => (prev === project.id ? null : prev))
@@ -283,7 +283,7 @@ export function SidebarNav() {
                           setEditingProjectId(null);
                           setEditingProjectName("");
                         }}
-                        className="flex-1 bg-transparent text-[13px] text-[#ddd] outline-none"
+                        className="flex-1 bg-transparent text-[13px] text-fg outline-none"
                       />
                     ) : (
                       <button
@@ -291,11 +291,11 @@ export function SidebarNav() {
                         className="flex flex-1 items-center gap-1.5 text-left"
                       >
                         {isExpanded ? (
-                          <FolderOpen className="h-4 w-4 text-[#888]" />
+                          <FolderOpen className="h-4 w-4 text-muted" />
                         ) : (
-                          <Folder className="h-4 w-4 text-[#888]" />
+                          <Folder className="h-4 w-4 text-muted" />
                         )}
-                        <span className="text-[13px] font-medium text-[#ddd]">{project.name}</span>
+                        <span className="text-[13px] font-medium text-fg">{project.name}</span>
                       </button>
                     )}
                     {hoveredProjectId === project.id && editingProjectId !== project.id && (
@@ -305,7 +305,7 @@ export function SidebarNav() {
                             e.stopPropagation();
                             openDraft(project.id);
                           }}
-                          className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                          className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:bg-surface-hover hover:text-muted"
                           title="New thread"
                         >
                           <Plus className="h-3 w-3" />
@@ -318,7 +318,7 @@ export function SidebarNav() {
                               openProjectMenuId === project.id ? null : project.id,
                             );
                           }}
-                          className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                          className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:bg-surface-hover hover:text-muted"
                         >
                           <MoreHorizontal className="h-3 w-3" />
                         </button>
@@ -328,7 +328,7 @@ export function SidebarNav() {
                     {openProjectMenuId === project.id && (
                       <div
                         data-project-menu="true"
-                        className="absolute right-0 top-full z-10 mt-0.5 w-44 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg"
+                        className="absolute right-0 top-full z-10 mt-0.5 w-44 rounded-md border border-border-strong bg-surface-raised py-1 shadow-lg"
                       >
                         <button
                           onClick={(e) => {
@@ -336,7 +336,7 @@ export function SidebarNav() {
                             void window.carrent.shell.openPath(project.path);
                             setOpenProjectMenuId(null);
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-fg transition hover:bg-surface-hover"
                         >
                           <ExternalLink className="h-3 w-3" />
                           Open in Finder
@@ -348,7 +348,7 @@ export function SidebarNav() {
                             setEditingProjectId(project.id);
                             setEditingProjectName(project.name);
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-fg transition hover:bg-surface-hover"
                         >
                           <Pencil className="h-3 w-3" />
                           Rename project
@@ -360,7 +360,7 @@ export function SidebarNav() {
                             setOpenProjectMenuId(null);
                             showToast("Path copied to clipboard", "success");
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-fg transition hover:bg-surface-hover"
                         >
                           <Link className="h-3 w-3" />
                           Copy location
@@ -373,9 +373,9 @@ export function SidebarNav() {
                             }
                             setOpenProjectMenuId(null);
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 transition hover:bg-[#333]"
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-danger transition hover:bg-surface-hover"
                         >
-                          <Trash2 className="h-3 w-3 text-red-400" />
+                          <Trash2 className="h-3 w-3 text-danger" />
                           Delete
                         </button>
                       </div>
@@ -394,8 +394,8 @@ export function SidebarNav() {
                             key={thread.id}
                             className={`relative mt-0.5 flex items-center justify-between rounded-md px-3 py-1.5 text-left transition ${
                               isActive
-                                ? "bg-[#2a2a2a] text-[#eee]"
-                                : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
+                                ? "bg-surface-hover text-fg"
+                                : "text-muted hover:bg-surface-raised hover:text-fg"
                             }`}
                             onMouseEnter={() => setHoveredThreadId(thread.id)}
                             onMouseLeave={() =>
@@ -407,11 +407,11 @@ export function SidebarNav() {
                               className="flex flex-1 items-center justify-between text-left"
                             >
                               <span className="flex items-center gap-1.5 truncate">
-                                {thread.pinned && <Pin className="h-3 w-3 text-[#888]" />}
+                                {thread.pinned && <Pin className="h-3 w-3 text-muted" />}
                                 <span className="truncate text-[13px]">{thread.title}</span>
                               </span>
                               {!showActions && (
-                                <span className="shrink-0 text-[11px] text-[#555]">
+                                <span className="shrink-0 text-[11px] text-subtle">
                                   {formatRelativeTime(thread.updatedAt)}
                                 </span>
                               )}
@@ -423,7 +423,7 @@ export function SidebarNav() {
                                   e.stopPropagation();
                                   setOpenThreadMenuId(menuOpen ? null : thread.id);
                                 }}
-                                className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                                className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:bg-surface-hover hover:text-muted"
                               >
                                 <MoreHorizontal className="h-3 w-3" />
                               </button>
@@ -432,14 +432,14 @@ export function SidebarNav() {
                             {menuOpen && (
                               <div
                                 data-thread-menu="true"
-                                className="absolute right-0 top-full z-10 mt-0.5 w-32 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg"
+                                className="absolute right-0 top-full z-10 mt-0.5 w-32 rounded-md border border-border-strong bg-surface-raised py-1 shadow-lg"
                               >
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     togglePin(project.id, thread.id);
                                   }}
-                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
+                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-fg transition hover:bg-surface-hover"
                                 >
                                   <Pin className="h-3 w-3" />
                                   {thread.pinned ? "Unpin" : "Pin"}
@@ -449,9 +449,9 @@ export function SidebarNav() {
                                     e.stopPropagation();
                                     archiveThreadAction(project.id, thread.id);
                                   }}
-                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 transition hover:bg-[#333]"
+                                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-danger transition hover:bg-surface-hover"
                                 >
-                                  <Archive className="h-3 w-3 text-red-400" />
+                                  <Archive className="h-3 w-3 text-danger" />
                                   Archive
                                 </button>
                               </div>
@@ -470,12 +470,12 @@ export function SidebarNav() {
         {/* Chat section */}
         <div className="flex flex-col">
           <div className="flex items-center justify-between px-4 py-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#666]">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-subtle">
               Chat
             </span>
             <button
               onClick={handleNewChat}
-              className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]"
+              className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:bg-surface-hover hover:text-muted"
               title="New chat"
             >
               <SquarePen className="h-3 w-3" />
@@ -483,82 +483,80 @@ export function SidebarNav() {
           </div>
           <div className="px-2 pb-2">
             {splitProjectThreads(chats).active.map((chat) => {
-                const isActive = chat.id === activeThreadId;
-                const showActions = isActive || hoveredChatId === chat.id;
-                const menuOpen = openChatMenuId === chat.id;
+              const isActive = chat.id === activeThreadId;
+              const showActions = isActive || hoveredChatId === chat.id;
+              const menuOpen = openChatMenuId === chat.id;
 
-                return (
-                  <div
-                    key={chat.id}
-                    className={`relative mt-0.5 flex items-center justify-between rounded-md px-3 py-1.5 text-left transition ${
-                      isActive
-                        ? "bg-[#2a2a2a] text-[#eee]"
-                        : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
-                    }`}
-                    onMouseEnter={() => setHoveredChatId(chat.id)}
-                    onMouseLeave={() =>
-                      setHoveredChatId((prev) => (prev === chat.id ? null : prev))
-                    }
+              return (
+                <div
+                  key={chat.id}
+                  className={`relative mt-0.5 flex items-center justify-between rounded-md px-3 py-1.5 text-left transition ${
+                    isActive
+                      ? "bg-surface-hover text-fg"
+                      : "text-muted hover:bg-surface-raised hover:text-fg"
+                  }`}
+                  onMouseEnter={() => setHoveredChatId(chat.id)}
+                  onMouseLeave={() => setHoveredChatId((prev) => (prev === chat.id ? null : prev))}
+                >
+                  <button
+                    onClick={() => handleChatClick(chat.id)}
+                    className="flex flex-1 items-center justify-between text-left"
                   >
-                    <button
-                      onClick={() => handleChatClick(chat.id)}
-                      className="flex flex-1 items-center justify-between text-left"
-                    >
-                      <span className="flex items-center gap-1.5 truncate">
-                        {chat.pinned && <Pin className="h-3 w-3 text-[#888]" />}
-                        <MessageSquare className="h-3 w-3 text-[#888]" />
-                        <span className="truncate text-[13px]">{chat.title}</span>
+                    <span className="flex items-center gap-1.5 truncate">
+                      {chat.pinned && <Pin className="h-3 w-3 text-muted" />}
+                      <MessageSquare className="h-3 w-3 text-muted" />
+                      <span className="truncate text-[13px]">{chat.title}</span>
+                    </span>
+                    {!showActions && (
+                      <span className="shrink-0 text-[11px] text-subtle">
+                        {formatRelativeTime(chat.updatedAt)}
                       </span>
-                      {!showActions && (
-                        <span className="shrink-0 text-[11px] text-[#555]">
-                          {formatRelativeTime(chat.updatedAt)}
-                        </span>
-                      )}
+                    )}
+                  </button>
+                  {showActions && (
+                    <button
+                      data-chat-menu-trigger="true"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenChatMenuId(menuOpen ? null : chat.id);
+                      }}
+                      className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:bg-surface-hover hover:text-muted"
+                    >
+                      <MoreHorizontal className="h-3 w-3" />
                     </button>
-                    {showActions && (
+                  )}
+
+                  {menuOpen && (
+                    <div
+                      data-chat-menu="true"
+                      className="absolute right-0 top-full z-10 mt-0.5 w-32 rounded-md border border-border-strong bg-surface-raised py-1 shadow-lg"
+                    >
                       <button
-                        data-chat-menu-trigger="true"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setOpenChatMenuId(menuOpen ? null : chat.id);
+                          toggleChatPin(chat.id);
+                          setOpenChatMenuId(null);
                         }}
-                        className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#333] hover:text-[#999]"
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-fg transition hover:bg-surface-hover"
                       >
-                        <MoreHorizontal className="h-3 w-3" />
+                        <Pin className="h-3 w-3" />
+                        {chat.pinned ? "Unpin" : "Pin"}
                       </button>
-                    )}
-
-                    {menuOpen && (
-                      <div
-                        data-chat-menu="true"
-                        className="absolute right-0 top-full z-10 mt-0.5 w-32 rounded-md border border-[#333] bg-[#252525] py-1 shadow-lg"
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          archiveChatAction(chat.id);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-danger transition hover:bg-surface-hover"
                       >
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleChatPin(chat.id);
-                            setOpenChatMenuId(null);
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#ccc] transition hover:bg-[#333]"
-                        >
-                          <Pin className="h-3 w-3" />
-                          {chat.pinned ? "Unpin" : "Pin"}
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            archiveChatAction(chat.id);
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-red-400 transition hover:bg-[#333]"
-                        >
-                          <Archive className="h-3 w-3 text-red-400" />
-                          Archive
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                        <Archive className="h-3 w-3 text-danger" />
+                        Archive
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -570,8 +568,8 @@ export function SidebarNav() {
           className={({ isActive }) =>
             `flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition ${
               isActive
-                ? "bg-[#2a2a2a] font-medium text-[#eee]"
-                : "text-[#999] hover:bg-[#252525] hover:text-[#ccc]"
+                ? "bg-surface-hover font-medium text-fg"
+                : "text-muted hover:bg-surface-raised hover:text-fg"
             }`
           }
         >

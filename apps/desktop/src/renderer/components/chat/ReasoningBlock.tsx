@@ -12,20 +12,20 @@ export function ReasoningBlock({ reasoning }: { reasoning: ReasoningPart }) {
   const [expanded, setExpanded] = useState(getInitialReasoningBlockExpanded);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-[#303030] bg-[#151515]">
+    <div className="overflow-hidden rounded-xl border border-border bg-surface">
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center justify-between gap-3 bg-[#1c1c1c] px-3 py-2 text-left transition hover:bg-[#222]"
+        className="flex w-full items-center justify-between gap-3 bg-surface-raised px-3 py-2 text-left transition hover:bg-surface-hover"
         aria-expanded={expanded}
       >
-        <div className="flex min-w-0 items-center gap-2 text-[12px] font-medium text-[#d5d5d5]">
-          <Brain className="h-3.5 w-3.5 shrink-0 text-[#888]" />
+        <div className="flex min-w-0 items-center gap-2 text-[12px] font-medium text-fg">
+          <Brain className="h-3.5 w-3.5 shrink-0 text-muted" />
           <span className="shrink-0">Thinking</span>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-[#777]">
+        <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted">
           {reasoning.status === "running" && (
-            <CircleDashed className="h-3.5 w-3.5 animate-spin text-[#d7aa55]" />
+            <CircleDashed className="h-3.5 w-3.5 animate-spin text-warning" />
           )}
           <span>{reasoning.status}</span>
           <ChevronDown className={`h-3.5 w-3.5 transition ${expanded ? "rotate-180" : ""}`} />
@@ -34,11 +34,11 @@ export function ReasoningBlock({ reasoning }: { reasoning: ReasoningPart }) {
       {expanded && (
         <div className="px-3 py-3">
           {reasoning.content ? (
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[#a9a9a9]">
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-[12px] leading-relaxed text-muted">
               {reasoning.content}
             </pre>
           ) : (
-            <div className="text-[12px] text-[#666]">Thinking...</div>
+            <div className="text-[12px] text-subtle">Thinking...</div>
           )}
         </div>
       )}

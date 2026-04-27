@@ -1,12 +1,4 @@
-import {
-  AlertTriangle,
-  ArrowUp,
-  Bot,
-  ChevronDown,
-  Lock,
-  Pencil,
-  Square,
-} from "lucide-react";
+import { AlertTriangle, ArrowUp, Bot, ChevronDown, Lock, Pencil, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
@@ -413,12 +405,12 @@ export function Composer(props: ComposerProps) {
   return (
     <div className="px-4 pb-4 pt-2">
       <div className="mx-auto max-w-3xl">
-        <div className="rounded-2xl border border-[#2a2a2a] bg-[#1e1e1e] p-3">
+        <div className="rounded-2xl border border-border bg-surface p-3">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={selectedAgent ? `Message ${selectedAgent.name}...` : "Select an agent..."}
-            className="w-full resize-none bg-transparent text-[14px] text-[#ddd] placeholder-[#555] outline-none"
+            className="w-full resize-none bg-transparent text-[14px] text-fg placeholder:text-subtle outline-none"
             rows={2}
             onKeyDown={(e) => {
               if (shouldSubmitComposerOnKeyDown(e)) {
@@ -434,14 +426,14 @@ export function Composer(props: ComposerProps) {
               <div className="relative">
                 <button
                   onClick={() => setShowAgentPicker((v) => !v)}
-                  className="flex items-center gap-1.5 rounded-full border border-[#444] bg-white px-2.5 py-1 text-[11px] text-[#181818] transition hover:bg-zinc-200"
+                  className="flex items-center gap-1.5 rounded-full border border-border-strong bg-fg px-2.5 py-1 text-[11px] text-bg transition hover:opacity-90"
                 >
                   <Bot className="h-3 w-3" />
                   <span>{selectedAgent?.name ?? "Agent"}</span>
                   <ChevronDown className="h-3 w-3" />
                 </button>
                 {showAgentPicker && (
-                  <div className="absolute bottom-full left-0 mb-1.5 w-40 rounded-lg border border-[#333] bg-[#1e1e1e] py-1 shadow-xl">
+                  <div className="absolute bottom-full left-0 mb-1.5 w-40 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
                     {agents.map((agent) => (
                       <button
                         key={agent.id}
@@ -449,13 +441,13 @@ export function Composer(props: ComposerProps) {
                           setSelectedAgentId(agent.id);
                           setShowAgentPicker(false);
                         }}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-[#252525] ${
-                          agent.id === selectedAgentId ? "text-[#eee]" : "text-[#999]"
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                          agent.id === selectedAgentId ? "text-fg" : "text-muted"
                         }`}
                       >
                         <Bot className="h-3 w-3" />
                         <span>{agent.name}</span>
-                        <span className="ml-auto text-[10px] text-white/40">{agent.runtime}</span>
+                        <span className="ml-auto text-[10px] text-subtle">{agent.runtime}</span>
                       </button>
                     ))}
                   </div>
@@ -470,8 +462,10 @@ export function Composer(props: ComposerProps) {
                       }
                     }}
                     disabled={isThreadSending}
-                    className="flex items-center gap-1.5 rounded-full border border-[#333] bg-[#252525] px-2.5 py-1 text-[11px] text-[#aaa] transition hover:bg-[#2a2a2a] disabled:opacity-40"
-                    title={isThreadSending ? "Locked while agent is running" : "Runtime permissions"}
+                    className="flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-raised px-2.5 py-1 text-[11px] text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
+                    title={
+                      isThreadSending ? "Locked while agent is running" : "Runtime permissions"
+                    }
                   >
                     <RuntimeModeIcon
                       mode={props.runtimeMode ?? DEFAULT_RUNTIME_MODE}
@@ -481,20 +475,18 @@ export function Composer(props: ComposerProps) {
                     <ChevronDown className="h-3 w-3" />
                   </button>
                   {showModePicker && (
-                    <div className="absolute bottom-full left-0 mb-1.5 w-44 rounded-lg border border-[#333] bg-[#1e1e1e] py-1 shadow-xl">
-                      {([
-                        "approval-required",
-                        "auto-accept-edits",
-                        "full-access",
-                      ] as RuntimeMode[]).map((mode) => (
+                    <div className="absolute bottom-full left-0 mb-1.5 w-44 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
+                      {(
+                        ["approval-required", "auto-accept-edits", "full-access"] as RuntimeMode[]
+                      ).map((mode) => (
                         <button
                           key={mode}
                           onClick={() => {
                             props.onRuntimeModeChange!(mode);
                             setShowModePicker(false);
                           }}
-                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-[#252525] ${
-                            mode === props.runtimeMode ? "text-[#eee]" : "text-[#999]"
+                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                            mode === props.runtimeMode ? "text-fg" : "text-muted"
                           }`}
                         >
                           <RuntimeModeIcon mode={mode} className="h-3 w-3" />
@@ -514,7 +506,7 @@ export function Composer(props: ComposerProps) {
               {isThreadSending ? (
                 <button
                   onClick={() => stop(threadId)}
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-[#c44] text-white transition hover:bg-[#b33]"
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-danger text-white transition hover:opacity-90"
                 >
                   <Square className="h-3.5 w-3.5" />
                 </button>
@@ -522,7 +514,7 @@ export function Composer(props: ComposerProps) {
                 <button
                   onClick={handleSend}
                   disabled={!canSend || isThreadSending}
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-[#181818] transition hover:bg-zinc-200 disabled:opacity-30"
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 disabled:opacity-30"
                 >
                   <ArrowUp className="h-3.5 w-3.5" />
                 </button>

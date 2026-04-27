@@ -18,7 +18,7 @@ export function RuntimeIcon({ name, size = "md" }: { name: string; size?: "sm" |
   if (key.includes("codex") || key.includes("openai")) {
     return (
       <div
-        className={`flex shrink-0 items-center justify-center bg-[#252525] text-white ${sizeClasses[size]}`}
+        className={`flex shrink-0 items-center justify-center bg-surface-raised text-fg ${sizeClasses[size]}`}
       >
         <OpenAIIcon className={iconSizes[size]} />
       </div>
@@ -27,7 +27,7 @@ export function RuntimeIcon({ name, size = "md" }: { name: string; size?: "sm" |
   if (key.includes("claude")) {
     return (
       <div
-        className={`flex shrink-0 items-center justify-center bg-[#252525] ${sizeClasses[size]}`}
+        className={`flex shrink-0 items-center justify-center bg-surface-raised ${sizeClasses[size]}`}
       >
         <ClaudeIcon className={iconSizes[size]} />
       </div>
@@ -36,7 +36,7 @@ export function RuntimeIcon({ name, size = "md" }: { name: string; size?: "sm" |
   if (key.includes("pi")) {
     return (
       <div
-        className={`flex shrink-0 items-center justify-center bg-[#252525] text-white ${sizeClasses[size]}`}
+        className={`flex shrink-0 items-center justify-center bg-surface-raised text-fg ${sizeClasses[size]}`}
       >
         <PiIcon className={iconSizes[size]} />
       </div>
@@ -44,7 +44,7 @@ export function RuntimeIcon({ name, size = "md" }: { name: string; size?: "sm" |
   }
   return (
     <div
-      className={`flex shrink-0 items-center justify-center bg-[#252525] text-[15px] font-bold text-[#ddd] ${sizeClasses[size]}`}
+      className={`flex shrink-0 items-center justify-center bg-surface-raised text-[15px] font-bold text-fg ${sizeClasses[size]}`}
     >
       {name.charAt(0).toUpperCase()}
     </div>

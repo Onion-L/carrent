@@ -10,6 +10,8 @@ export type Settings = {
 };
 
 const STORAGE_KEY = "carrent:settings";
+const THEMES: Theme[] = ["dark", "light", "system"];
+const FONT_SIZES: FontSize[] = [12, 13, 14, 15, 16];
 
 const defaultSettings: Settings = {
   autoDetectRuntimes: true,
@@ -22,10 +24,14 @@ function loadSettings(): Settings {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultSettings;
     const parsed = JSON.parse(raw);
+    const theme = THEMES.includes(parsed.theme) ? parsed.theme : defaultSettings.theme;
+    const fontSize = FONT_SIZES.includes(parsed.fontSize)
+      ? parsed.fontSize
+      : defaultSettings.fontSize;
     return {
       autoDetectRuntimes: parsed.autoDetectRuntimes ?? defaultSettings.autoDetectRuntimes,
-      theme: parsed.theme ?? defaultSettings.theme,
-      fontSize: parsed.fontSize ?? defaultSettings.fontSize,
+      theme,
+      fontSize,
     };
   } catch {
     return defaultSettings;
@@ -51,9 +57,7 @@ const SettingsContext = createContext<SettingsContextValue>({
 
 function resolveTheme(theme: Theme): "dark" | "light" {
   if (theme === "system") {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
   return theme;
 }

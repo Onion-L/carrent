@@ -61,7 +61,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   }, [handleMouseMove, handleMouseUp, isCollapsed, sidebarWidth]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#181818]">
+    <div className="flex h-screen w-screen overflow-hidden bg-bg">
       {/* Sidebar */}
       <div
         ref={sidebarRef}
@@ -76,7 +76,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
             <SidebarNav />
             <div
               onMouseDown={handleStartResize}
-              className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize bg-transparent transition hover:bg-[#444]"
+              className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize bg-transparent transition hover:bg-border-strong"
             />
           </>
         )}

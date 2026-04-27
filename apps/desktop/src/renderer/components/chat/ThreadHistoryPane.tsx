@@ -10,13 +10,13 @@ export function ThreadHistoryPane() {
   );
 
   return (
-    <div className="flex h-full w-[220px] flex-col border-r border-[#252525] bg-[#181818]">
+    <div className="flex h-full w-[220px] flex-col border-r border-border bg-bg">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-3">
-        <span className="text-[12px] font-medium uppercase tracking-wider text-[#666]">
+        <span className="text-[12px] font-medium uppercase tracking-wider text-subtle">
           {currentProject.name}
         </span>
-        <button className="flex h-7 w-7 items-center justify-center rounded-md text-[#888] transition hover:bg-[#252525] hover:text-[#ccc]">
+        <button className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-raised hover:text-fg">
           <Plus className="h-4 w-4" />
         </button>
       </div>
@@ -25,8 +25,8 @@ export function ThreadHistoryPane() {
       <div className="flex-1 overflow-auto px-2">
         {projectThreads.length === 0 ? (
           <div className="px-2 py-6 text-center">
-            <p className="text-[13px] text-[#555]">No threads yet</p>
-            <p className="mt-1 text-[12px] text-[#444]">Start a new thread to begin</p>
+            <p className="text-[13px] text-subtle">No threads yet</p>
+            <p className="mt-1 text-[12px] text-subtle">Start a new thread to begin</p>
           </div>
         ) : (
           projectThreads.map((thread) => {
@@ -37,12 +37,12 @@ export function ThreadHistoryPane() {
                 onClick={() => setActiveThreadId(thread.id)}
                 className={`mb-1 flex w-full flex-col gap-0.5 rounded-lg px-3 py-2 text-left transition ${
                   isActive
-                    ? "bg-[#2a2a2a] text-[#eee]"
-                    : "text-[#999] hover:bg-[#222] hover:text-[#ccc]"
+                    ? "bg-surface-hover text-fg"
+                    : "text-muted hover:bg-surface-raised hover:text-fg"
                 }`}
               >
                 <span className="text-[13px] font-medium">{thread.title}</span>
-                <span className="text-[11px] text-[#666]">
+                <span className="text-[11px] text-subtle">
                   {formatRelativeTime(thread.updatedAt)}
                 </span>
               </button>

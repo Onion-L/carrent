@@ -1,4 +1,8 @@
 import type { Message, ProjectRecord, ThreadRecord } from "../mock/uiShellData";
+import {
+  DEFAULT_RUNTIME_MODE,
+  type RuntimeMode,
+} from "../../shared/runtimeMode";
 import { splitProjectThreads } from "./projectThreads";
 
 export function createProjectInProjects(projects: ProjectRecord[], folderPath: string) {
@@ -78,6 +82,7 @@ export function createThreadInProjects(
     id: `thread-${Date.now()}`,
     title: nextTitle,
     updatedAt: new Date().toISOString(),
+    runtimeMode: DEFAULT_RUNTIME_MODE,
   };
 
   let foundProject = false;
@@ -176,6 +181,7 @@ export function createChatThread(title: string): ThreadRecord | null {
     id: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     title: nextTitle,
     updatedAt: new Date().toISOString(),
+    runtimeMode: DEFAULT_RUNTIME_MODE,
   };
 }
 
@@ -213,6 +219,34 @@ export function resolveChatThreadRouteData(
     thread,
     messages: messages.filter((message) => message.threadId === threadId),
   };
+}
+
+export function setThreadRuntimeModeInProjects(
+  projects: ProjectRecord[],
+  projectId: string,
+  threadId: string,
+  runtimeMode: RuntimeMode,
+) {
+  return projects.map((project) =>
+    project.id === projectId
+      ? {
+          ...project,
+          threads: project.threads.map((thread) =>
+            thread.id === threadId ? { ...thread, runtimeMode } : thread,
+          ),
+        }
+      : project,
+  );
+}
+
+export function setChatThreadRuntimeMode(
+  chats: ThreadRecord[],
+  threadId: string,
+  runtimeMode: RuntimeMode,
+) {
+  return chats.map((thread) =>
+    thread.id === threadId ? { ...thread, runtimeMode } : thread,
+  );
 }
 
 function findNextVisibleThreadId(projects: ProjectRecord[], preferredProjectId: string) {

@@ -5,6 +5,7 @@ import {
   createDraftThread,
   finalizePromotedDraftThreadByRef,
   markPromotedDraftThreadByRef,
+  setDraftThreadRuntimeMode,
 } from "./draftThreads";
 
 function makeDraft(overrides: Partial<DraftThreadRecord> = {}): DraftThreadRecord {
@@ -106,5 +107,16 @@ describe("draftThreads", () => {
 
     expect(nextDrafts).toHaveLength(1);
     expect(nextDrafts[0]?.draftId).toBe("draft-1");
+  });
+
+  it("builds drafts with the safe runtime mode", () => {
+    const draft = buildDraftThreadRecord("project-1", "New thread");
+    expect(draft?.runtimeMode).toBe("approval-required");
+  });
+
+  it("updates a draft runtime mode", () => {
+    const draft = makeDraft({ draftId: "d1" });
+    const updated = setDraftThreadRuntimeMode([draft], "d1", "auto-accept-edits");
+    expect(updated[0].runtimeMode).toBe("auto-accept-edits");
   });
 });

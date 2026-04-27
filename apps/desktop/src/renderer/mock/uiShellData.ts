@@ -1,7 +1,10 @@
+import type { RuntimeMode } from "../../shared/runtimeMode";
+
 export type ThreadRecord = {
   id: string;
   title: string;
   updatedAt: string;
+  runtimeMode?: RuntimeMode;
   pinned?: boolean;
   archived?: boolean;
   active?: boolean;

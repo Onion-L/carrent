@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import type { ProjectRecord, ThreadRecord } from "../mock/uiShellData";
 import {
   archiveChatThread,
@@ -9,6 +10,8 @@ import {
   findCurrentProject,
   findCurrentThread,
   resolveChatThreadRouteData,
+  setChatThreadRuntimeMode,
+  setThreadRuntimeModeInProjects,
   toggleChatThreadPin,
   upsertChatThread,
   upsertThreadInProjects,
@@ -230,5 +233,25 @@ describe("workspaceState", () => {
   it("returns null for missing chat route data", () => {
     const routeData = resolveChatThreadRouteData([], [], "missing");
     expect(routeData).toBe(null);
+  });
+
+  it("creates project threads with the safe runtime mode", () => {
+    const result = createThreadInProjects([makeProject({ id: "p1" }, [])], "p1", "New");
+    expect(result.thread?.runtimeMode).toBe(DEFAULT_RUNTIME_MODE);
+  });
+
+  it("creates chat threads with the safe runtime mode", () => {
+    expect(createChatThread("Ideas")?.runtimeMode).toBe(DEFAULT_RUNTIME_MODE);
+  });
+
+  it("sets runtime mode on a project thread", () => {
+    const projects = [makeProject({ id: "p1" }, [makeThread({ id: "t1" })])];
+    const updated = setThreadRuntimeModeInProjects(projects, "p1", "t1", "auto-accept-edits");
+    expect(updated[0].threads[0].runtimeMode).toBe("auto-accept-edits");
+  });
+
+  it("sets runtime mode on a chat thread", () => {
+    const updated = setChatThreadRuntimeMode([makeThread({ id: "c1" })], "c1", "full-access");
+    expect(updated[0].runtimeMode).toBe("full-access");
   });
 });

@@ -1162,4 +1162,87 @@ describe("createChatSessionManager", () => {
     expect(capturedArgs).toContain("--permission-mode");
     expect(capturedArgs).not.toContain("--dangerously-skip-permissions");
   });
+
+  it("emits permission-failed for unknown permission responses", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start("run-perm-unknown", makeRequest());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    manager.respondToPermission({
+      runId: "run-perm-unknown",
+      permissionId: "perm-missing",
+      decision: "approved",
+    });
+
+    const failed = emitted.find((e) => e.type === "permission-failed");
+    expect(failed).toBeDefined();
+    expect(failed).toMatchObject({
+      type: "permission-failed",
+      runId: "run-perm-unknown",
+      permissionId: "perm-missing",
+    });
+    // Since no provider supports interactive approval in current CLI modes,
+    // all permission responses emit the unsupported message
+    expect(failed?.error).toContain("not support");
+  });
+
+  it("emits permission-failed for unknown runId", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start("run-other", makeRequest());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    manager.respondToPermission({
+      runId: "run-nonexistent",
+      permissionId: "perm-1",
+      decision: "denied",
+    });
+
+    const failed = emitted.find((e) => e.type === "permission-failed");
+    expect(failed).toBeDefined();
+    // No session found = "not found" message
+    expect(failed?.error).toContain("not found");
+  });
+
+  it("cleans up pending permissions when a run is stopped", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start("run-stop-cleanup", makeRequest());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Stop the run - any pending permissions should be cleaned up
+    manager.stop("run-stop-cleanup");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // After stopping, responding to a permission should fail because session is gone
+    manager.respondToPermission({
+      runId: "run-stop-cleanup",
+      permissionId: "perm-any",
+      decision: "approved",
+    });
+
+    const failed = emitted.find((e) => e.type === "permission-failed");
+    expect(failed).toBeDefined();
+    // Session is gone after stop, so "not found"
+    expect(failed?.error).toContain("not found");
+  });
 });

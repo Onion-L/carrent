@@ -930,9 +930,31 @@ export function createChatSessionManager(options: {
     }
   }
 
-  // Stub - actual implementation in Task 5 (pending approval state)
-  function respondToPermission(_response: ChatPermissionResponse) {
-    // No-op until Task 5 implements pending permission tracking
+  // Since no provider currently supports interactive stdin-based approval (per spike findings),
+  // we emit permission-failed for all responses when in approval-required mode.
+  // The pending permission infrastructure is in place for future provider support.
+  function respondToPermission(response: ChatPermissionResponse) {
+    const session = sessions.get(response.runId);
+
+    if (!session) {
+      options.emit({
+        type: "permission-failed",
+        runId: response.runId,
+        permissionId: response.permissionId,
+        error: "Permission request not found. The run may have already ended.",
+      });
+      return;
+    }
+
+    // Since no provider actually emits pending permission requests in the current CLI modes,
+    // we always emit permission-failed here. This maintains the protocol contract
+    // while correctly indicating that interactive approval is not available.
+    options.emit({
+      type: "permission-failed",
+      runId: response.runId,
+      permissionId: response.permissionId,
+      error: "Interactive approvals are not supported for the current provider and CLI mode. Switch runtime mode to Auto-accept edits or Full access.",
+    });
   }
 
   return { start, stop, respondToPermission };

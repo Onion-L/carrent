@@ -22,6 +22,23 @@
     color-scheme: dark;
   }
 
+  [data-theme="light"] {
+    --color-bg: 245 245 245;
+    --color-surface: 255 255 255;
+    --color-fg: 30 30 30;
+    --color-muted: 120 120 120;
+    --color-border: 220 220 220;
+    --color-brand: 80 80 80;
+    --color-success: 50 150 90;
+    --color-warning: 210 110 70;
+    --color-danger: 180 60 60;
+    color-scheme: light;
+  }
+
+  [data-theme="dark"] {
+    color-scheme: dark;
+  }
+
   body {
     background: rgb(var(--color-bg));
     color: rgb(var(--color-fg));

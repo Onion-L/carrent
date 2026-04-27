@@ -1,5 +1,10 @@
 import type { RuntimeId } from "./runtimes";
 import type { RuntimeMode } from "./runtimeMode";
+import type {
+  ChatPermissionAction,
+  ChatPermissionDecision,
+  ChatPermissionRequest,
+} from "./chatPermissions";
 
 export type ChatWorkspaceScope =
   | { kind: "project"; projectPath: string; projectId: string }
@@ -78,4 +83,18 @@ export type ChatRunEvent =
       finishedAt: string;
     })
   | (ChatRunEventBase & { type: "failed"; error: string })
-  | (ChatRunEventBase & { type: "stopped" });
+  | (ChatRunEventBase & { type: "stopped" })
+  | (ChatRunEventBase & {
+      type: "permission-requested";
+      permission: ChatPermissionRequest;
+    })
+  | (ChatRunEventBase & {
+      type: "permission-resolved";
+      permissionId: string;
+      decision: ChatPermissionDecision;
+    })
+  | (ChatRunEventBase & {
+      type: "permission-failed";
+      permissionId: string;
+      error: string;
+    });

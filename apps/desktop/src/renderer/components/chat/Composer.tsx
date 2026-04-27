@@ -330,6 +330,7 @@ export function Composer(props: ComposerProps) {
               }
             : undefined,
         runtimeId: selectedAgent.runtime,
+        runtimeMode: "approval-required",
         agent: {
           id: agentId,
           name: selectedAgent.name,

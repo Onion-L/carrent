@@ -22,6 +22,8 @@ import {
   findCurrentThread,
   renameProjectInProjects,
   resolveChatThreadRouteData,
+  setChatThreadRuntimeMode,
+  setThreadRuntimeModeInProjects,
   toggleChatThreadPin,
   toggleThreadPinInProjects,
   upsertChatThread,
@@ -79,6 +81,12 @@ export type WorkspaceContextValue = {
   }) => Message;
   updateMessage: (id: string, content: string) => void;
   updateMessageParts: (id: string, update: MessagePartUpdate) => void;
+  setThreadRuntimeMode: (
+    projectId: string,
+    threadId: string,
+    runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
+  ) => void;
+  setChatRuntimeMode: (threadId: string, runtimeMode: import("../../shared/runtimeMode").RuntimeMode) => void;
 };
 
 export type MessagePartUpdate =
@@ -129,6 +137,8 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   }),
   updateMessage: () => {},
   updateMessageParts: () => {},
+  setThreadRuntimeMode: () => {},
+  setChatRuntimeMode: () => {},
 });
 
 function formatTime(date: Date): string {
@@ -385,6 +395,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return result.nextActiveThreadId;
   };
 
+  const setThreadRuntimeMode = (
+    projectId: string,
+    threadId: string,
+    runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
+  ) => {
+    setProjects((prev) =>
+      setThreadRuntimeModeInProjects(prev, projectId, threadId, runtimeMode),
+    );
+  };
+
+  const setChatRuntimeMode = (threadId: string, runtimeMode: import("../../shared/runtimeMode").RuntimeMode) => {
+    setChats((prev) => setChatThreadRuntimeMode(prev, threadId, runtimeMode));
+  };
+
   const upsertMessages = (incomingMessages: Message[]) => {
     setMessages((prev) => mergeMessagesIntoWorkspace(prev, incomingMessages));
   };
@@ -451,6 +475,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         appendMessage,
         updateMessage,
         updateMessageParts,
+        setThreadRuntimeMode,
+        setChatRuntimeMode,
       }}
     >
       {children}

@@ -5,6 +5,7 @@ import {
   buildDraftThreadRecord,
   finalizePromotedDraftThreadByRef as finalizeDraftThreadPromotion,
   markPromotedDraftThreadByRef as markDraftThreadPromotion,
+  setDraftThreadRuntimeMode,
   type DraftThreadRecord,
 } from "../lib/draftThreads";
 import type { Message } from "../mock/uiShellData";
@@ -42,6 +43,7 @@ export type DraftThreadContextValue = {
   markPromotedDraftThreadByRef: (draftId: string, realThreadId: string) => void;
   finalizePromotedDraftThreadByRef: (draftId: string) => void;
   getDraftById: (draftId: string) => DraftThreadRecord | null;
+  setDraftRuntimeMode: (draftId: string, runtimeMode: import("../../shared/runtimeMode").RuntimeMode) => void;
 };
 
 const DraftThreadContext = createContext<DraftThreadContextValue>({
@@ -53,6 +55,7 @@ const DraftThreadContext = createContext<DraftThreadContextValue>({
   markPromotedDraftThreadByRef: () => {},
   finalizePromotedDraftThreadByRef: () => {},
   getDraftById: () => null,
+  setDraftRuntimeMode: () => {},
 });
 
 export function DraftThreadProvider({ children }: { children: ReactNode }) {
@@ -125,6 +128,12 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
     updateDrafts((prev) => finalizeDraftThreadPromotion(prev, draftId));
   };
 
+  const setDraftRuntimeMode = (draftId: string, runtimeMode: import("../../shared/runtimeMode").RuntimeMode) => {
+    updateDrafts((current) =>
+      setDraftThreadRuntimeMode(current, draftId, runtimeMode),
+    );
+  };
+
   const getDraftById = (draftId: string) =>
     drafts.find((draft) => draft.draftId === draftId) ?? getVerificationDraftById(draftId);
 
@@ -139,6 +148,7 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
         markPromotedDraftThreadByRef,
         finalizePromotedDraftThreadByRef,
         getDraftById,
+        setDraftRuntimeMode,
       }}
     >
       {children}

@@ -18,6 +18,7 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
       name: "Architect",
       responsibility: "You are an architect.",
     },
+    runtimeMode: "approval-required",
     transcript: [],
     message: "Hello",
     ...overrides,

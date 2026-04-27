@@ -478,7 +478,7 @@ export function SidebarNav() {
               className="flex h-5 w-5 items-center justify-center rounded text-[#666] transition hover:bg-[#2a2a2a] hover:text-[#999]"
               title="New chat"
             >
-              <Plus className="h-3 w-3" />
+              <SquarePen className="h-3 w-3" />
             </button>
           </div>
           <div className="px-2 pb-2">

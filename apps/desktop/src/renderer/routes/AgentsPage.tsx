@@ -16,6 +16,7 @@ import { useWorkspace } from "../context/WorkspaceContext";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { RuntimeIcon } from "../components/RuntimeIcon";
 import type { AgentRecord } from "../mock/uiShellData";
+import { runtimeNameMap } from "../../shared/runtimes";
 
 /* -------------------------------------------------------------------------- */
 /*  Runtime Picker                                                            */
@@ -37,6 +38,7 @@ function RuntimePicker({ value, onChange }: { value: string; onChange: (value: s
   }, [open]);
 
   const selectedRuntime = runtimes.find((r) => r.id === value);
+  const displayName = selectedRuntime?.name ?? runtimeNameMap[value as keyof typeof runtimeNameMap] ?? value;
 
   return (
     <div ref={ref} className="relative">
@@ -45,11 +47,11 @@ function RuntimePicker({ value, onChange }: { value: string; onChange: (value: s
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 rounded-md border border-white/[0.06] bg-[#1a1a1a] px-3 py-2 text-left transition-colors hover:border-white/[0.10]"
       >
-        {selectedRuntime ? (
+        {displayName ? (
           <>
-            <RuntimeIcon name={selectedRuntime.name} size="sm" />
+            <RuntimeIcon name={displayName} size="sm" />
             <span className="min-w-0 flex-1 truncate text-[13px] text-[#d0d0d0]">
-              {selectedRuntime.name}
+              {displayName}
             </span>
             <ChevronUp
               className={`h-3.5 w-3.5 shrink-0 text-[#555] transition-transform ${open ? "" : "rotate-180"}`}
@@ -297,7 +299,7 @@ export function AgentsPage() {
                         {agent.name || "Untitled"}
                       </div>
                       <div className="truncate text-[12px] text-[#555] leading-tight">
-                        {agent.runtime}
+                        {runtimeNameMap[agent.runtime] ?? agent.runtime}
                       </div>
                     </div>
                   </button>

@@ -67,3 +67,9 @@ export interface RuntimeDescriptorWithoutModelPing extends RuntimeDescriptorBase
 }
 
 export type RuntimeDescriptor = RuntimeDescriptorWithModelPing | RuntimeDescriptorWithoutModelPing;
+
+export const runtimeNameMap: Record<RuntimeId, string> = {
+  codex: "Codex",
+  "claude-code": "Claude Code",
+  pi: "pi",
+};

@@ -61,6 +61,7 @@ export type ChatRunEvent =
         id: string;
         title: string;
         updatedAt: string;
+        runtimeMode?: RuntimeMode;
       };
     })
   | (ChatRunEventBase & {

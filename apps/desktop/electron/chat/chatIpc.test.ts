@@ -42,7 +42,11 @@ describe("registerChatIpc", () => {
       },
     );
 
-    expect([...handlers.keys()].sort()).toEqual(["chat:permission-response", "chat:send", "chat:stop"]);
+    expect([...handlers.keys()].sort()).toEqual([
+      "chat:permission-response",
+      "chat:send",
+      "chat:stop",
+    ]);
   });
 
   it("chat:send returns a runId and starts the session", async () => {
@@ -117,11 +121,14 @@ describe("registerChatIpc", () => {
 
     const responses: unknown[] = [];
 
-    await handlers.get("chat:permission-response")?.({}, {
-      runId: "run-1",
-      permissionId: "perm-1",
-      decision: "approved",
-    });
+    await handlers.get("chat:permission-response")?.(
+      {},
+      {
+        runId: "run-1",
+        permissionId: "perm-1",
+        decision: "approved",
+      },
+    );
 
     expect(responses).toEqual([
       {

@@ -14,9 +14,7 @@ export type ProviderApprovalCapability =
  * Both providers currently require interactive TUI mode for approval flows,
  * which is not available in our headless chat execution context.
  */
-export function getProviderApprovalCapability(
-  _runtimeId: RuntimeId,
-): ProviderApprovalCapability {
+export function getProviderApprovalCapability(_runtimeId: RuntimeId): ProviderApprovalCapability {
   switch (_runtimeId) {
     case "codex":
       return {
@@ -160,8 +158,7 @@ export function extractClaudePermissionRequest(
       continue;
     }
 
-    const contentText =
-      typeof block.content === "string" ? block.content : null;
+    const contentText = typeof block.content === "string" ? block.content : null;
     if (!contentText) {
       continue;
     }
@@ -170,9 +167,7 @@ export function extractClaudePermissionRequest(
     const writeMatch = contentText.match(
       /Claude requested permissions? to (write|edit|read|execute|network)/i,
     );
-    const toolMatch = contentText.match(
-      /Claude requested permissions? to use ([\w]+)/i,
-    );
+    const toolMatch = contentText.match(/Claude requested permissions? to use ([\w]+)/i);
 
     if (writeMatch || toolMatch) {
       const actionStr = writeMatch ? writeMatch[1].toLowerCase() : "unknown";

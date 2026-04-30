@@ -59,10 +59,11 @@ const carrent = {
       ipcRenderer.invoke("provider-sessions:save", snapshot),
   },
   settings: {
-    checkForUpdates: () => ipcRenderer.invoke("settings:check-for-updates") as Promise<{
-      hasUpdate: boolean;
-      latestVersion?: string;
-    }>,
+    checkForUpdates: () =>
+      ipcRenderer.invoke("settings:check-for-updates") as Promise<{
+        hasUpdate: boolean;
+        latestVersion?: string;
+      }>,
   },
 };
 

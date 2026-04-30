@@ -10,10 +10,7 @@ import type {
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import { buildChatPrompt } from "./chatPrompt";
 import { getRuntimeCommand } from "./chatRunner";
-import {
-  getClaudeRuntimeModeArgs,
-  getCodexRuntimeModeArgs,
-} from "../../src/shared/runtimeMode";
+import { getClaudeRuntimeModeArgs, getCodexRuntimeModeArgs } from "../../src/shared/runtimeMode";
 import { extractClaudePermissionRequest } from "./providerPermissionProtocol";
 
 interface ChatSession {
@@ -543,10 +540,7 @@ function getProjectlessChatCwd() {
     const { app } = require("electron");
     return path.join(app.getPath("userData"), "carrent-chat");
   } catch {
-    return path.join(
-      process.env.APPDATA || process.env.HOME || "/tmp",
-      "carrent-chat",
-    );
+    return path.join(process.env.APPDATA || process.env.HOME || "/tmp", "carrent-chat");
   }
 }
 
@@ -1008,7 +1002,8 @@ export function createChatSessionManager(options: {
       type: "permission-failed",
       runId: response.runId,
       permissionId: response.permissionId,
-      error: "Interactive approvals are not supported for the current provider and CLI mode. Switch runtime mode to Auto-accept edits or Full access.",
+      error:
+        "Interactive approvals are not supported for the current provider and CLI mode. Switch runtime mode to Auto-accept edits or Full access.",
     });
   }
 

@@ -1,8 +1,5 @@
 import type { Message } from "../mock/uiShellData";
-import {
-  DEFAULT_RUNTIME_MODE,
-  type RuntimeMode,
-} from "../../shared/runtimeMode";
+import { DEFAULT_RUNTIME_MODE, type RuntimeMode } from "../../shared/runtimeMode";
 
 export type DraftThreadRecord = {
   draftId: string;
@@ -86,7 +83,5 @@ export function setDraftThreadRuntimeMode(
   draftId: string,
   runtimeMode: RuntimeMode,
 ) {
-  return drafts.map((draft) =>
-    draft.draftId === draftId ? { ...draft, runtimeMode } : draft,
-  );
+  return drafts.map((draft) => (draft.draftId === draftId ? { ...draft, runtimeMode } : draft));
 }

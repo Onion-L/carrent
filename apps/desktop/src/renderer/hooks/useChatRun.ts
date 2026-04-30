@@ -305,12 +305,9 @@ export function useChatRun() {
     }
   }, []);
 
-  const respondToPermission = useCallback(
-    async (response: ChatPermissionResponse) => {
-      await window.carrent.chat.respondToPermission(response);
-    },
-    [],
-  );
+  const respondToPermission = useCallback(async (response: ChatPermissionResponse) => {
+    await window.carrent.chat.respondToPermission(response);
+  }, []);
 
   return {
     isSending: snapshot.isSending,

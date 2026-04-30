@@ -3,11 +3,7 @@ export type RuntimeMode = "approval-required" | "auto-accept-edits" | "full-acce
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "approval-required";
 
 export function isRuntimeMode(value: unknown): value is RuntimeMode {
-  return (
-    value === "approval-required" ||
-    value === "auto-accept-edits" ||
-    value === "full-access"
-  );
+  return value === "approval-required" || value === "auto-accept-edits" || value === "full-access";
 }
 
 export function normalizeRuntimeMode(value: unknown): RuntimeMode {

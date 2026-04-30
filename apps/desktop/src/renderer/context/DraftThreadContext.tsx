@@ -43,7 +43,10 @@ export type DraftThreadContextValue = {
   markPromotedDraftThreadByRef: (draftId: string, realThreadId: string) => void;
   finalizePromotedDraftThreadByRef: (draftId: string) => void;
   getDraftById: (draftId: string) => DraftThreadRecord | null;
-  setDraftRuntimeMode: (draftId: string, runtimeMode: import("../../shared/runtimeMode").RuntimeMode) => void;
+  setDraftRuntimeMode: (
+    draftId: string,
+    runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
+  ) => void;
 };
 
 const DraftThreadContext = createContext<DraftThreadContextValue>({
@@ -128,10 +131,11 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
     updateDrafts((prev) => finalizeDraftThreadPromotion(prev, draftId));
   };
 
-  const setDraftRuntimeMode = (draftId: string, runtimeMode: import("../../shared/runtimeMode").RuntimeMode) => {
-    updateDrafts((current) =>
-      setDraftThreadRuntimeMode(current, draftId, runtimeMode),
-    );
+  const setDraftRuntimeMode = (
+    draftId: string,
+    runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
+  ) => {
+    updateDrafts((current) => setDraftThreadRuntimeMode(current, draftId, runtimeMode));
   };
 
   const getDraftById = (draftId: string) =>

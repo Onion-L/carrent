@@ -26,10 +26,7 @@ function getProjectlessChatCwd() {
     const { app } = require("electron");
     return path.join(app.getPath("userData"), "carrent-chat");
   } catch {
-    return path.join(
-      process.env.APPDATA || process.env.HOME || "/tmp",
-      "carrent-chat",
-    );
+    return path.join(process.env.APPDATA || process.env.HOME || "/tmp", "carrent-chat");
   }
 }
 
@@ -47,11 +44,7 @@ export function createChatRunner(processRunner: ProcessRunner): ChatRunner {
     async run(request) {
       const prompt = buildChatPrompt(request);
 
-      const { command, args } = getRuntimeCommand(
-      request.runtimeId,
-      prompt,
-      request.runtimeMode,
-    );
+      const { command, args } = getRuntimeCommand(request.runtimeId, prompt, request.runtimeMode);
 
       const result = await processRunner.run(command, args, {
         cwd: resolveRequestCwd(request),

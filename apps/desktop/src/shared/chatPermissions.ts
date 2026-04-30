@@ -1,10 +1,4 @@
-export type ChatPermissionAction =
-  | "edit"
-  | "write"
-  | "shell"
-  | "read"
-  | "network"
-  | "unknown";
+export type ChatPermissionAction = "edit" | "write" | "shell" | "read" | "network" | "unknown";
 
 export type ChatPermissionDecision = "approved" | "denied";
 
@@ -32,15 +26,10 @@ export type ChatPermissionResponse = {
 
 export const CHAT_PERMISSION_TIMEOUT_MS = 60_000;
 
-export function isChatPermissionDecision(
-  value: unknown,
-): value is ChatPermissionDecision {
+export function isChatPermissionDecision(value: unknown): value is ChatPermissionDecision {
   return value === "approved" || value === "denied";
 }
 
-export function buildPermissionExpiry(
-  createdAt: string,
-  timeoutMs = CHAT_PERMISSION_TIMEOUT_MS,
-) {
+export function buildPermissionExpiry(createdAt: string, timeoutMs = CHAT_PERMISSION_TIMEOUT_MS) {
   return new Date(new Date(createdAt).getTime() + timeoutMs).toISOString();
 }

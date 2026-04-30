@@ -1,8 +1,5 @@
 import type { Message, ProjectRecord, ThreadRecord } from "../mock/uiShellData";
-import {
-  DEFAULT_RUNTIME_MODE,
-  type RuntimeMode,
-} from "../../shared/runtimeMode";
+import { DEFAULT_RUNTIME_MODE, type RuntimeMode } from "../../shared/runtimeMode";
 import { splitProjectThreads } from "./projectThreads";
 
 export function createProjectInProjects(projects: ProjectRecord[], folderPath: string) {
@@ -244,9 +241,7 @@ export function setChatThreadRuntimeMode(
   threadId: string,
   runtimeMode: RuntimeMode,
 ) {
-  return chats.map((thread) =>
-    thread.id === threadId ? { ...thread, runtimeMode } : thread,
-  );
+  return chats.map((thread) => (thread.id === threadId ? { ...thread, runtimeMode } : thread));
 }
 
 function findNextVisibleThreadId(projects: ProjectRecord[], preferredProjectId: string) {

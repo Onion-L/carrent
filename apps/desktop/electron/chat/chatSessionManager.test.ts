@@ -1083,7 +1083,10 @@ describe("createChatSessionManager", () => {
       },
     });
 
-    manager.start("run-sandbox-ro", makeRequest({ runtimeId: "codex", runtimeMode: "approval-required" }));
+    manager.start(
+      "run-sandbox-ro",
+      makeRequest({ runtimeId: "codex", runtimeMode: "approval-required" }),
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -1106,7 +1109,10 @@ describe("createChatSessionManager", () => {
       },
     });
 
-    manager.start("run-sandbox-ww", makeRequest({ runtimeId: "codex", runtimeMode: "auto-accept-edits" }));
+    manager.start(
+      "run-sandbox-ww",
+      makeRequest({ runtimeId: "codex", runtimeMode: "auto-accept-edits" }),
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -1128,7 +1134,10 @@ describe("createChatSessionManager", () => {
       },
     });
 
-    manager.start("run-sandbox-full", makeRequest({ runtimeId: "codex", runtimeMode: "full-access" }));
+    manager.start(
+      "run-sandbox-full",
+      makeRequest({ runtimeId: "codex", runtimeMode: "full-access" }),
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -1147,7 +1156,10 @@ describe("createChatSessionManager", () => {
       },
     });
 
-    manager.start("run-perm-auto", makeRequest({ runtimeId: "claude-code", runtimeMode: "auto-accept-edits" }));
+    manager.start(
+      "run-perm-auto",
+      makeRequest({ runtimeId: "claude-code", runtimeMode: "auto-accept-edits" }),
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -1167,7 +1179,10 @@ describe("createChatSessionManager", () => {
       },
     });
 
-    manager.start("run-perm-full", makeRequest({ runtimeId: "claude-code", runtimeMode: "full-access" }));
+    manager.start(
+      "run-perm-full",
+      makeRequest({ runtimeId: "claude-code", runtimeMode: "full-access" }),
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 

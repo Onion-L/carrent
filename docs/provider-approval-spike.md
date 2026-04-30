@@ -12,11 +12,13 @@ Determine if Codex and Claude Code CLI tools support interactive stdin-based app
 ## Codex Findings
 
 ### Version
+
 ```
 codex-cli 0.125.0
 ```
 
 ### Command Examined
+
 ```bash
 codex exec --json --sandbox workspace-write --skip-git-repo-check -c 'approval_policy="on-request"' '<prompt>'
 ```
@@ -32,7 +34,7 @@ codex exec --json --sandbox workspace-write --skip-git-repo-check -c 'approval_p
 
 2. **`approval_policy="on-request"` does NOT pause for stdin approval**
    - In `workspace-write` sandbox mode, commands execute immediately without waiting for approval
-   - The config flag controls whether the model *asks* for approval, not whether the CLI *waits* for it
+   - The config flag controls whether the model _asks_ for approval, not whether the CLI _waits_ for it
    - There is no stdin response channel in `codex exec` mode
 
 3. **stdin is not available**
@@ -50,11 +52,13 @@ codex exec --json --sandbox workspace-write --skip-git-repo-check -c 'approval_p
 ## Claude Findings
 
 ### Version
+
 ```
 2.1.77 (Claude Code)
 ```
 
 ### Command Examined
+
 ```bash
 claude --print --input-format stream-json --output-format stream-json --verbose --permission-mode default '<prompt>'
 ```
@@ -64,39 +68,48 @@ claude --print --input-format stream-json --output-format stream-json --verbose 
 1. **`--input-format stream-json --output-format stream-json`** enables bidirectional JSON streaming.
 
 2. **Permission requests are emitted as `tool_result` events:**
+
    ```json
    {
      "type": "user",
      "message": {
        "role": "user",
-       "content": [{
-         "type": "tool_result",
-         "is_error": true,
-         "tool_use_id": "call_8ab2766d77504df3a31e5a1d",
-         "content": "Claude requested permissions to write to /tmp/demo.txt, but you haven't granted it yet."
-       }]
+       "content": [
+         {
+           "type": "tool_result",
+           "is_error": true,
+           "tool_use_id": "call_8ab2766d77504df3a31e5a1d",
+           "content": "Claude requested permissions to write to /tmp/demo.txt, but you haven't granted it yet."
+         }
+       ]
      }
    }
    ```
 
 3. **When permission is needed, Claude uses `AskUserQuestion` tool:**
+
    ```json
    {
      "type": "assistant",
      "message": {
-       "content": [{
-         "type": "tool_use",
-         "name": "AskUserQuestion",
-         "input": {
-           "questions": [{
-             "question": "Allow writing to demo.txt?",
-             "options": [{"label": "Allow"}, {"label": "Deny"}]
-           }]
+       "content": [
+         {
+           "type": "tool_use",
+           "name": "AskUserQuestion",
+           "input": {
+             "questions": [
+               {
+                 "question": "Allow writing to demo.txt?",
+                 "options": [{ "label": "Allow" }, { "label": "Deny" }]
+               }
+             ]
+           }
          }
-       }]
+       ]
      }
    }
    ```
+
    This tool only works in interactive TUI mode - it fails in `--print` mode.
 
 4. **Final result includes `permission_denials` array** listing all denied tool calls.
@@ -119,10 +132,10 @@ claude --print --input-format stream-json --output-format stream-json --verbose 
 
 ## Summary Table
 
-| Provider | Support Level | Channel | Notes |
-|----------|-------------|---------|-------|
-| Codex | Not supported | N/A | exec mode has no interactive approval protocol |
-| Claude | Not supported | N/A | --print mode does not accept permission responses via stdin |
+| Provider | Support Level | Channel | Notes                                                       |
+| -------- | ------------- | ------- | ----------------------------------------------------------- |
+| Codex    | Not supported | N/A     | exec mode has no interactive approval protocol              |
+| Claude   | Not supported | N/A     | --print mode does not accept permission responses via stdin |
 
 ---
 

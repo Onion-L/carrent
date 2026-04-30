@@ -86,7 +86,10 @@ export type WorkspaceContextValue = {
     threadId: string,
     runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
   ) => void;
-  setChatRuntimeMode: (threadId: string, runtimeMode: import("../../shared/runtimeMode").RuntimeMode) => void;
+  setChatRuntimeMode: (
+    threadId: string,
+    runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
+  ) => void;
 };
 
 export type MessagePartUpdate =
@@ -400,12 +403,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     threadId: string,
     runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
   ) => {
-    setProjects((prev) =>
-      setThreadRuntimeModeInProjects(prev, projectId, threadId, runtimeMode),
-    );
+    setProjects((prev) => setThreadRuntimeModeInProjects(prev, projectId, threadId, runtimeMode));
   };
 
-  const setChatRuntimeMode = (threadId: string, runtimeMode: import("../../shared/runtimeMode").RuntimeMode) => {
+  const setChatRuntimeMode = (
+    threadId: string,
+    runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
+  ) => {
     setChats((prev) => setChatThreadRuntimeMode(prev, threadId, runtimeMode));
   };
 

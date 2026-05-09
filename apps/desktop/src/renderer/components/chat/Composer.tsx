@@ -125,6 +125,8 @@ export function Composer(props: ComposerProps) {
   const [showRuntimePicker, setShowRuntimePicker] = useState(false);
   const [cascadingRuntimeId, setCascadingRuntimeId] = useState<RuntimeId | null>(null);
   const [showModePicker, setShowModePicker] = useState(false);
+  const runtimePickerRef = useRef<HTMLDivElement>(null);
+  const modePickerRef = useRef<HTMLDivElement>(null);
   const receivedTextRef = useRef("");
   const visibleTextRef = useRef("");
   const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -175,6 +177,32 @@ export function Composer(props: ComposerProps) {
       flushActiveTypewriter();
     };
   }, []);
+
+  useEffect(() => {
+    if (!showRuntimePicker && !showModePicker) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        showRuntimePicker &&
+        runtimePickerRef.current &&
+        !runtimePickerRef.current.contains(target)
+      ) {
+        setShowRuntimePicker(false);
+        setCascadingRuntimeId(null);
+      }
+      if (
+        showModePicker &&
+        modePickerRef.current &&
+        !modePickerRef.current.contains(target)
+      ) {
+        setShowModePicker(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showRuntimePicker, showModePicker]);
 
   useEffect(() => {
     if (
@@ -468,7 +496,7 @@ export function Composer(props: ComposerProps) {
           <div className="mt-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
               {props.onRuntimeIdChange ? (
-                <div className="relative">
+                <div ref={runtimePickerRef} className="relative">
                   <button
                     onClick={() => {
                       if (!isThreadSending) {
@@ -581,7 +609,7 @@ export function Composer(props: ComposerProps) {
                 </div>
               ) : null}
               {props.onRuntimeModeChange ? (
-                <div className="relative">
+                <div ref={modePickerRef} className="relative">
                   <button
                     onClick={() => {
                       if (!isThreadSending) {

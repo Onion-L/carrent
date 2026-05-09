@@ -23,7 +23,11 @@ function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function buildDraftThreadRecord(projectId: string, title: string): DraftThreadRecord | null {
+export function buildDraftThreadRecord(
+  projectId: string,
+  title: string,
+  runtimeId: RuntimeId = DEFAULT_RUNTIME_ID,
+): DraftThreadRecord | null {
   const nextTitle = title.trim();
   if (!nextTitle) {
     return null;
@@ -35,7 +39,7 @@ export function buildDraftThreadRecord(projectId: string, title: string): DraftT
     title: nextTitle,
     preallocatedThreadId: createId("thread"),
     createdAt: new Date().toISOString(),
-    runtimeId: DEFAULT_RUNTIME_ID,
+    runtimeId,
     runtimeMode: DEFAULT_RUNTIME_MODE,
     messages: [],
   };
@@ -45,8 +49,9 @@ export function createDraftThread(
   drafts: DraftThreadRecord[],
   projectId: string,
   title: string,
+  runtimeId: RuntimeId = DEFAULT_RUNTIME_ID,
 ): CreateDraftThreadResult {
-  const draft = buildDraftThreadRecord(projectId, title);
+  const draft = buildDraftThreadRecord(projectId, title, runtimeId);
   if (!draft) {
     return {
       drafts,

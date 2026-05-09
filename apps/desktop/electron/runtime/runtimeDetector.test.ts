@@ -28,15 +28,6 @@ function createRuntimeDescriptor(): RuntimeDescriptor {
   };
 }
 
-function stoppedPgrepResult() {
-  return {
-    ok: false,
-    exitCode: 1,
-    stdout: "",
-    stderr: "",
-  };
-}
-
 describe("detectRuntime", () => {
   it("returns detected runtime with version and configured state", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "runtime-detector-"));
@@ -54,7 +45,6 @@ describe("detectRuntime", () => {
         stdout: "codex 0.1.0\n",
         stderr: "",
       },
-      stoppedPgrepResult(),
     ];
     const calls: Array<{ command: string; args: string[]; cwd?: string }> = [];
     const runtime = {
@@ -73,6 +63,7 @@ describe("detectRuntime", () => {
       });
 
       expect(result.availability).toBe("detected");
+      expect(result.enabled).toBe(true);
       expect(result.status).toBe("stopped");
       expect(result.configuration).toBe("configured");
       expect(result.path).toBe("/usr/local/bin/codex");
@@ -87,11 +78,6 @@ describe("detectRuntime", () => {
         {
           command: "codex",
           args: ["--version"],
-          cwd: os.homedir(),
-        },
-        {
-          command: "pgrep",
-          args: ["-x", "codex"],
           cwd: os.homedir(),
         },
       ]);
@@ -115,12 +101,6 @@ describe("detectRuntime", () => {
         stdout: "codex 0.1.0\r\n",
         stderr: "",
       },
-      {
-        ok: false,
-        exitCode: 1,
-        stdout: "",
-        stderr: "",
-      },
     ];
 
     await detectRuntime(createRuntimeDescriptor(), {
@@ -137,11 +117,7 @@ describe("detectRuntime", () => {
       args: ["codex"],
       cwd: os.homedir(),
     });
-    expect(calls[2]).toEqual({
-      command: "tasklist",
-      args: ["/FI", "IMAGENAME eq codex.exe", "/NH"],
-      cwd: os.homedir(),
-    });
+    expect(calls).toHaveLength(2);
   });
 
   it("returns unavailable when the command is missing", async () => {
@@ -155,6 +131,7 @@ describe("detectRuntime", () => {
     });
 
     expect(result.availability).toBe("unavailable");
+    expect(result.enabled).toBe(false);
     expect(result.status).toBe("stopped");
     expect(result.configuration).toBe("unknown");
     expect(result.path).toBeUndefined();
@@ -175,7 +152,6 @@ describe("detectRuntime", () => {
         stdout: "codex 0.1.0\n",
         stderr: "",
       },
-      stoppedPgrepResult(),
     ];
 
     const result = await detectRuntime(createRuntimeDescriptor(), {
@@ -208,7 +184,6 @@ describe("detectRuntime", () => {
         stdout: "codex 0.1.0\n",
         stderr: "",
       },
-      stoppedPgrepResult(),
     ];
 
     await detectRuntime(runtime, {
@@ -237,7 +212,6 @@ describe("detectRuntime", () => {
         stderr:
           "version probe timed out with a very long stderr payload that should be trimmed for UI display",
       },
-      stoppedPgrepResult(),
     ];
 
     const result = await detectRuntime(createRuntimeDescriptor(), {
@@ -254,7 +228,7 @@ describe("detectRuntime", () => {
     );
   });
 
-  it("detects running status when pgrep finds the process", async () => {
+  it("does not inspect host process state during CLI detection", async () => {
     const commands = [
       {
         ok: true,
@@ -268,21 +242,20 @@ describe("detectRuntime", () => {
         stdout: "codex 0.1.0\n",
         stderr: "",
       },
-      {
-        ok: true,
-        exitCode: 0,
-        stdout: "12345\n",
-        stderr: "",
-      },
     ];
+    const calls: string[] = [];
 
     const result = await detectRuntime(createRuntimeDescriptor(), {
-      run: async () => commands.shift()!,
+      run: async (command) => {
+        calls.push(command);
+        return commands.shift()!;
+      },
       pathExists: async () => true,
     });
 
     expect(result.availability).toBe("detected");
-    expect(result.status).toBe("running");
-    expect(result.pid).toBe(12345);
+    expect(result.status).toBe("stopped");
+    expect(result.pid).toBeUndefined();
+    expect(calls).toEqual(["which", "codex"]);
   });
 });

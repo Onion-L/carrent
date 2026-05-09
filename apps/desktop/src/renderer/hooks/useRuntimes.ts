@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { RuntimeId, RuntimeRecord, RuntimeVerificationResult } from "../../shared/runtimes";
+import { useSettings } from "../context/SettingsContext";
+import { resolveRuntimeEnabled } from "../lib/runtimeSelection";
 
 type RuntimeActionState =
   | "idle"
@@ -19,11 +21,21 @@ type UseRuntimesState = {
 };
 
 export function useRuntimes() {
+  const { runtimeEnabledById, updateSetting } = useSettings();
   const [state, setState] = useState<UseRuntimesState>({
     runtimes: [],
     loading: true,
     actionStateById: {},
   });
+
+  const runtimes = useMemo(
+    () =>
+      state.runtimes.map((runtime) => ({
+        ...runtime,
+        enabled: resolveRuntimeEnabled(runtime, runtimeEnabledById),
+      })),
+    [runtimeEnabledById, state.runtimes],
+  );
 
   useEffect(() => {
     void refresh();
@@ -83,6 +95,13 @@ export function useRuntimes() {
 
   async function restart(id: RuntimeId) {
     await runLifecycleAction(id, "restarting", window.carrent.runtimes.restart);
+  }
+
+  function setRuntimeEnabled(id: RuntimeId, enabled: boolean) {
+    updateSetting("runtimeEnabledById", {
+      ...runtimeEnabledById,
+      [id]: enabled,
+    });
   }
 
   async function refreshVersion(id: RuntimeId) {
@@ -252,9 +271,11 @@ export function useRuntimes() {
 
   return {
     ...state,
+    runtimes,
     refresh,
     runLocalCheck,
     runModelPing,
+    setRuntimeEnabled,
     start,
     stop,
     restart,

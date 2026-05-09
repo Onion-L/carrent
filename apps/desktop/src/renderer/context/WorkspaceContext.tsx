@@ -63,11 +63,11 @@ export type WorkspaceContextValue = {
   createProject: (folderPath: string) => ProjectRecord | null;
   removeProject: (projectId: string) => void;
   renameProject: (projectId: string, newName: string) => boolean;
-  createThread: (projectId: string, title: string) => ThreadRecord | null;
+  createThread: (projectId: string, title: string, runtimeId?: RuntimeId) => ThreadRecord | null;
   upsertThread: (projectId: string, thread: ThreadRecord) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
   archiveThread: (projectId: string, threadId: string) => string | null;
-  createChat: (title: string) => ThreadRecord | null;
+  createChat: (title: string, runtimeId?: RuntimeId) => ThreadRecord | null;
   upsertChat: (thread: ThreadRecord) => void;
   toggleChatPin: (threadId: string) => void;
   archiveChat: (threadId: string) => void;
@@ -340,8 +340,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return result.renamed;
   };
 
-  const createThread = (projectId: string, title: string) => {
-    const result = createThreadInProjects(projects, projectId, title);
+  const createThread = (projectId: string, title: string, runtimeId?: RuntimeId) => {
+    const result = createThreadInProjects(projects, projectId, title, runtimeId);
     if (!result.thread) {
       return null;
     }
@@ -359,8 +359,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setProjects(toggleThreadPinInProjects(projects, projectId, threadId));
   };
 
-  const createChat = (title: string) => {
-    const thread = createChatThread(title);
+  const createChat = (title: string, runtimeId?: RuntimeId) => {
+    const thread = createChatThread(title, runtimeId);
     if (!thread) {
       return null;
     }

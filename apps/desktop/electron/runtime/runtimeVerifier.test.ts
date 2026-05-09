@@ -51,6 +51,28 @@ function createClaudeRuntimeDescriptor(): RuntimeDescriptor {
   };
 }
 
+function createPiRuntimeDescriptor(): RuntimeDescriptor {
+  return {
+    id: "pi",
+    name: "pi",
+    command: "pi",
+    versionArgs: ["--version"],
+    configMarkers: ["~/.pi"],
+    supportsModelPing: true,
+    detection: {
+      localCheck: {
+        mayUseTokens: false,
+      },
+    },
+    verification: {
+      modelPing: {
+        prompt: "Reply with exactly OK.",
+        mayUseTokens: true,
+      },
+    },
+  };
+}
+
 function createSuccessResult(stdout: string) {
   return {
     ok: true,
@@ -307,6 +329,47 @@ describe("runModelPing", () => {
       {
         command: "claude",
         args: ["--print", "Reply with only OK"],
+        cwd: tempWorkspacePath,
+        timeoutMs: 60000,
+      },
+    ]);
+  });
+
+  it("runs pi model ping through the pi prompt flag", async () => {
+    const tempWorkspacePath = path.join(os.tmpdir(), "runtime-verifier-pi-ping");
+    const calls: Array<{
+      command: string;
+      args: string[];
+      cwd?: string;
+      timeoutMs?: number;
+    }> = [];
+
+    const result = await runModelPing(createPiRuntimeDescriptor(), {
+      createTempWorkspace: async () => tempWorkspacePath,
+      cleanupTempWorkspace: async () => {},
+      now: () => new Date("2026-04-23T00:00:00.000Z"),
+      readFile: async () => {
+        throw new Error("should not read from file for pi");
+      },
+      run: async (command, args, options) => {
+        calls.push({
+          command,
+          args,
+          cwd: options?.cwd,
+          timeoutMs: options?.timeoutMs,
+        });
+        return createSuccessResult("OK\n");
+      },
+    });
+
+    expect(result).toEqual({
+      verification: "passed",
+      lastVerifiedAt: "2026-04-23T00:00:00.000Z",
+    });
+    expect(calls).toEqual([
+      {
+        command: "pi",
+        args: ["-p", "Reply with only OK"],
         cwd: tempWorkspacePath,
         timeoutMs: 60000,
       },

@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowUp, ChevronDown, Lock, Pencil, Square } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
 import {
@@ -10,17 +10,16 @@ import {
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import type { Message } from "../../mock/uiShellData";
-import {
-  type ChatReasoningEventPayload,
-  type ChatShellEventPayload,
-} from "../../../shared/chat";
+import { type ChatReasoningEventPayload, type ChatShellEventPayload } from "../../../shared/chat";
 import {
   DEFAULT_RUNTIME_MODE,
   getRuntimeModeLabel,
   type RuntimeMode,
 } from "../../../shared/runtimeMode";
-import { runtimeIds, runtimeNameMap, type RuntimeId } from "../../../shared/runtimes";
+import { runtimeNameMap, type RuntimeId } from "../../../shared/runtimes";
 import { RuntimeIcon } from "../RuntimeIcon";
+import { useRuntimes } from "../../hooks/useRuntimes";
+import { getChatRuntimeOptions, isChatRuntimeAvailable } from "../../lib/runtimeSelection";
 
 function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: string }) {
   switch (mode) {
@@ -78,11 +77,7 @@ function createMessageId() {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function buildTextMessage(
-  threadId: string,
-  role: "user" | "assistant",
-  content: string,
-): Message {
+function buildTextMessage(threadId: string, role: "user" | "assistant", content: string): Message {
   return {
     id: createMessageId(),
     role,
@@ -116,6 +111,7 @@ export function Composer(props: ComposerProps) {
     useWorkspace();
   const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
   const { runningThreadIds, send, stop } = useChatRun();
+  const { runtimes, loading: runtimesLoading } = useRuntimes();
   const [input, setInput] = useState("");
   const [showRuntimePicker, setShowRuntimePicker] = useState(false);
   const [showModePicker, setShowModePicker] = useState(false);
@@ -127,8 +123,21 @@ export function Composer(props: ComposerProps) {
   const projectId = props.mode === "chat" ? null : props.projectId;
   const project = projectId ? (projects.find((item) => item.id === projectId) ?? null) : null;
   const threadId = props.mode === "draft" ? props.preallocatedThreadId : props.threadId;
+  const messagesLength = props.messages.length;
+  const onRuntimeIdChange = props.onRuntimeIdChange;
+  const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
+  const isSelectedRuntimeAvailable = isChatRuntimeAvailable(props.runtimeId, runtimes);
+  const runtimeHint = runtimesLoading
+    ? "Checking runtimes..."
+    : runtimeOptions.length === 0
+      ? "No enabled runtime"
+      : isSelectedRuntimeAvailable
+        ? null
+        : "Select an available runtime";
 
-  const canSend = props.mode === "chat" ? !!input.trim() : !!input.trim() && !!project;
+  const canSend =
+    (props.mode === "chat" ? !!input.trim() : !!input.trim() && !!project) &&
+    isSelectedRuntimeAvailable;
   const isThreadSending = runningThreadIds.includes(threadId);
 
   const stopTypewriter = () => {
@@ -148,6 +157,26 @@ export function Composer(props: ComposerProps) {
       flushActiveTypewriter();
     };
   }, []);
+
+  useEffect(() => {
+    if (
+      runtimesLoading ||
+      messagesLength > 0 ||
+      isSelectedRuntimeAvailable ||
+      runtimeOptions.length === 0 ||
+      !onRuntimeIdChange
+    ) {
+      return;
+    }
+
+    onRuntimeIdChange(runtimeOptions[0].id);
+  }, [
+    isSelectedRuntimeAvailable,
+    messagesLength,
+    onRuntimeIdChange,
+    runtimeOptions,
+    runtimesLoading,
+  ]);
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -431,31 +460,41 @@ export function Composer(props: ComposerProps) {
                     className="flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-raised px-2.5 py-1 text-[11px] text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
                     title={isThreadSending ? "Locked while runtime is running" : "Runtime"}
                   >
-                    <RuntimeIcon name={runtimeNameMap[props.runtimeId]} size="xs" />
-                    <span>{runtimeNameMap[props.runtimeId]}</span>
+                    <RuntimeIcon
+                      name={
+                        isSelectedRuntimeAvailable ? runtimeNameMap[props.runtimeId] : "Runtime"
+                      }
+                      size="xs"
+                    />
+                    <span>
+                      {isSelectedRuntimeAvailable
+                        ? runtimeNameMap[props.runtimeId]
+                        : "Select runtime"}
+                    </span>
                     <ChevronDown className="h-3 w-3" />
                   </button>
                   {showRuntimePicker && (
                     <div className="absolute bottom-full left-0 mb-1.5 w-44 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
-                      {runtimeIds.map((runtimeId) => (
+                      {runtimeOptions.map((runtime) => (
                         <button
-                          key={runtimeId}
+                          key={runtime.id}
                           onClick={() => {
-                            props.onRuntimeIdChange!(runtimeId);
+                            props.onRuntimeIdChange!(runtime.id);
                             setShowRuntimePicker(false);
                           }}
                           className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
-                            runtimeId === props.runtimeId ? "text-fg" : "text-muted"
+                            runtime.id === props.runtimeId ? "text-fg" : "text-muted"
                           }`}
                         >
-                          <RuntimeIcon name={runtimeNameMap[runtimeId]} size="xs" />
-                          <span>{runtimeNameMap[runtimeId]}</span>
+                          <RuntimeIcon name={runtime.name} size="xs" />
+                          <span>{runtime.name}</span>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
               ) : null}
+              {runtimeHint ? <span className="text-[11px] text-warning">{runtimeHint}</span> : null}
               {props.onRuntimeModeChange ? (
                 <div className="relative">
                   <button

@@ -1,8 +1,9 @@
 import { useState, useMemo, useEffect } from "react";
-import { RefreshCw, Square, Play, Plug, Monitor, ChevronRight } from "lucide-react";
+import { RefreshCw, Power, PowerOff, Plug, Monitor, ChevronRight } from "lucide-react";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { RuntimeIcon } from "../components/RuntimeIcon";
+import { getDetectedRuntimes } from "../lib/runtimeSelection";
 
 function RuntimeListSkeleton() {
   return (
@@ -22,7 +23,7 @@ function RuntimeListSkeleton() {
 }
 
 export function RuntimesPage() {
-  const { runtimes, loading, actionStateById, runModelPing, start, stop, refreshVersion } =
+  const { runtimes, loading, actionStateById, runModelPing, setRuntimeEnabled, refreshVersion } =
     useRuntimes();
   const { setActiveThreadId } = useWorkspace();
 
@@ -32,8 +33,16 @@ export function RuntimesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const sortedRuntimes = useMemo(() => {
-    return [...runtimes].sort((a, b) => a.name.localeCompare(b.name));
+    return getDetectedRuntimes(runtimes).sort((a, b) => a.name.localeCompare(b.name));
   }, [runtimes]);
+
+  useEffect(() => {
+    if (selectedId && sortedRuntimes.some((runtime) => runtime.id === selectedId)) {
+      return;
+    }
+
+    setSelectedId(sortedRuntimes[0]?.id ?? null);
+  }, [selectedId, sortedRuntimes]);
 
   const selectedRuntime = sortedRuntimes.find((r) => r.id === selectedId);
 
@@ -43,18 +52,18 @@ export function RuntimesPage() {
     return getActionState(id) !== "idle";
   };
 
-  const onlineCount = sortedRuntimes.filter((r) => r.availability === "detected").length;
+  const enabledCount = sortedRuntimes.filter((r) => r.enabled).length;
 
   return (
     <div className="flex h-full w-full flex-col bg-bg">
       {/* Top status bar */}
       <div className="drag-region flex items-center gap-3 border-b border-border px-5 py-2.5">
-        <div className={`h-2 w-2 rounded-full ${onlineCount > 0 ? "bg-success" : "bg-muted"}`} />
+        <div className={`h-2 w-2 rounded-full ${enabledCount > 0 ? "bg-success" : "bg-muted"}`} />
         <span className="text-xs text-muted">
-          {onlineCount > 0 ? `${onlineCount} online` : "All offline"}
+          {enabledCount > 0 ? `${enabledCount} enabled` : "No enabled runtimes"}
         </span>
         <span className="text-xs text-subtle">/</span>
-        <span className="text-xs text-subtle">{sortedRuntimes.length} runtimes</span>
+        <span className="text-xs text-subtle">{sortedRuntimes.length} detected</span>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -63,18 +72,16 @@ export function RuntimesPage() {
           <div className="flex items-center justify-between px-4 pb-2 pt-3">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">Runtimes</h2>
             <span className="text-[11px] text-subtle">
-              {onlineCount}/{sortedRuntimes.length}
+              {enabledCount}/{sortedRuntimes.length}
             </span>
           </div>
 
           <div className="flex-1 overflow-auto px-2 pb-2">
             {loading && sortedRuntimes.length === 0 ? (
               <RuntimeListSkeleton />
-            ) : (
+            ) : sortedRuntimes.length > 0 ? (
               sortedRuntimes.map((runtime) => {
                 const isActive = runtime.id === selectedId;
-                const isOnline = runtime.availability === "detected";
-                const isRunning = runtime.status === "running";
 
                 return (
                   <div key={runtime.id}>
@@ -91,7 +98,7 @@ export function RuntimesPage() {
                           <RuntimeIcon name={runtime.name} size="sm" />
                           <span
                             className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-bg ${
-                              isOnline ? "bg-success" : "bg-subtle"
+                              runtime.enabled ? "bg-success" : "bg-subtle"
                             }`}
                           />
                         </div>
@@ -101,7 +108,7 @@ export function RuntimesPage() {
                           </div>
                           <div className="mt-0.5">
                             <span className="text-[11px] text-muted">
-                              {isRunning ? "Running" : "Stopped"}
+                              {runtime.enabled ? "Ready" : "Disabled"}
                             </span>
                           </div>
                         </div>
@@ -116,6 +123,10 @@ export function RuntimesPage() {
                   </div>
                 );
               })
+            ) : (
+              <div className="px-4 py-8 text-center text-xs text-subtle">
+                No supported CLI detected
+              </div>
             )}
           </div>
         </div>
@@ -132,20 +143,10 @@ export function RuntimesPage() {
                     {selectedRuntime.name}
                   </h3>
                   <div className="mt-1 flex items-center gap-3 text-xs text-muted">
-                    <span
-                      className={
-                        selectedRuntime.availability === "detected" ? "text-success" : "text-subtle"
-                      }
-                    >
-                      {selectedRuntime.availability === "detected" ? "Online" : "Offline"}
-                    </span>
+                    <span className="text-success">Detected</span>
                     <span className="text-subtle">·</span>
-                    <span
-                      className={
-                        selectedRuntime.status === "running" ? "text-success" : "text-subtle"
-                      }
-                    >
-                      {selectedRuntime.status === "running" ? "Running" : "Stopped"}
+                    <span className={selectedRuntime.enabled ? "text-success" : "text-subtle"}>
+                      {selectedRuntime.enabled ? "Ready" : "Disabled"}
                     </span>
                     <span className="text-subtle">·</span>
                     <span>
@@ -158,23 +159,23 @@ export function RuntimesPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  {selectedRuntime.status === "running" ? (
+                  {selectedRuntime.enabled ? (
                     <button
-                      onClick={() => stop(selectedRuntime.id)}
+                      onClick={() => setRuntimeEnabled(selectedRuntime.id, false)}
                       disabled={isActionPending(selectedRuntime.id)}
                       className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted transition hover:bg-surface hover:text-fg disabled:opacity-50"
                     >
-                      <Square className="h-3.5 w-3.5" />
-                      Stop
+                      <PowerOff className="h-3.5 w-3.5" />
+                      Disable
                     </button>
                   ) : (
                     <button
-                      onClick={() => start(selectedRuntime.id)}
+                      onClick={() => setRuntimeEnabled(selectedRuntime.id, true)}
                       disabled={isActionPending(selectedRuntime.id)}
                       className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted transition hover:bg-surface hover:text-fg disabled:opacity-50"
                     >
-                      <Play className="h-3.5 w-3.5" />
-                      Start
+                      <Power className="h-3.5 w-3.5" />
+                      Enable
                     </button>
                   )}
                   <button
@@ -234,15 +235,6 @@ export function RuntimesPage() {
                   <span className="text-sm text-fg">
                     {selectedRuntime.lastCheckedAt
                       ? new Date(selectedRuntime.lastCheckedAt).toLocaleString()
-                      : "Never"}
-                  </span>
-                </div>
-
-                <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-xs text-muted">Last restarted</span>
-                  <span className="text-sm text-fg">
-                    {selectedRuntime.lastRestartedAt
-                      ? new Date(selectedRuntime.lastRestartedAt).toLocaleString()
                       : "Never"}
                   </span>
                 </div>

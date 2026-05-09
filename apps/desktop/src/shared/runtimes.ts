@@ -19,6 +19,7 @@ export interface RuntimeRecord {
   path?: string;
   version?: string;
   availability: RuntimeAvailability;
+  enabled: boolean;
   status: RuntimeStatus;
   configuration: RuntimeConfigState;
   verification: RuntimeVerificationState;

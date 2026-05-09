@@ -22,6 +22,8 @@ import { useDraftThread } from "../context/DraftThreadContext";
 import { useToast } from "../components/toast/ToastContext";
 import { formatRelativeTime } from "../lib/formatRelativeTime";
 import { splitProjectThreads } from "../lib/projectThreads";
+import { useRuntimes } from "../hooks/useRuntimes";
+import { getChatRuntimeOptions } from "../lib/runtimeSelection";
 
 export function getWorkspaceNavItems() {
   return [{ to: "/runtimes", label: "Runtimes", icon: Monitor }];
@@ -56,6 +58,8 @@ export function SidebarNav() {
     archiveChat,
   } = useWorkspace();
   const { createDraft } = useDraftThread();
+  const { runtimes } = useRuntimes();
+  const defaultRuntimeId = getChatRuntimeOptions(runtimes)[0]?.id;
   const { showToast } = useToast();
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(
     projects.filter((p) => p.active).map((p) => p.id),
@@ -80,7 +84,7 @@ export function SidebarNav() {
   };
 
   const handleNewChat = () => {
-    const thread = createChat("New chat");
+    const thread = createChat("New chat", defaultRuntimeId);
     if (thread) {
       navigate(buildChatPath(thread.id));
     }
@@ -93,7 +97,7 @@ export function SidebarNav() {
   };
 
   const openDraft = (projectId: string) => {
-    const draft = createDraft(projectId);
+    const draft = createDraft(projectId, defaultRuntimeId);
     if (!draft) {
       return;
     }

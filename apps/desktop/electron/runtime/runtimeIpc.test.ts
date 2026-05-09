@@ -23,6 +23,7 @@ describe("registerRuntimeIpc", () => {
         name: "Codex",
         command: "codex",
         availability: "detected",
+        enabled: true,
         status: "stopped",
         configuration: "configured",
         verification: "never",

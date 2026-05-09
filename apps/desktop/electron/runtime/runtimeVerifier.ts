@@ -129,6 +129,11 @@ function getModelPingArgs(
         args: ["--print", FIXED_MODEL_PING_PROMPT],
         responseSource: "stdout",
       });
+    case "pi":
+      return () => ({
+        args: ["-p", FIXED_MODEL_PING_PROMPT],
+        responseSource: "stdout",
+      });
     default:
       return null;
   }

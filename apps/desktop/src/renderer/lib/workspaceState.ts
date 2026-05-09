@@ -70,6 +70,7 @@ export function createThreadInProjects(
   projects: ProjectRecord[],
   projectId: string,
   title: string,
+  runtimeId: RuntimeId = DEFAULT_RUNTIME_ID,
 ) {
   const nextTitle = title.trim();
   if (!nextTitle) {
@@ -80,7 +81,7 @@ export function createThreadInProjects(
     id: `thread-${Date.now()}`,
     title: nextTitle,
     updatedAt: new Date().toISOString(),
-    runtimeId: DEFAULT_RUNTIME_ID,
+    runtimeId,
     runtimeMode: DEFAULT_RUNTIME_MODE,
   };
 
@@ -170,7 +171,10 @@ export function archiveThreadInProjects(
   };
 }
 
-export function createChatThread(title: string): ThreadRecord | null {
+export function createChatThread(
+  title: string,
+  runtimeId: RuntimeId = DEFAULT_RUNTIME_ID,
+): ThreadRecord | null {
   const nextTitle = title.trim();
   if (!nextTitle) {
     return null;
@@ -180,7 +184,7 @@ export function createChatThread(title: string): ThreadRecord | null {
     id: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     title: nextTitle,
     updatedAt: new Date().toISOString(),
-    runtimeId: DEFAULT_RUNTIME_ID,
+    runtimeId,
     runtimeMode: DEFAULT_RUNTIME_MODE,
   };
 }

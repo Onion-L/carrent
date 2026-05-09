@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { runtimeIds, type RuntimeId } from "../../shared/runtimes";
 
 export type Theme = "dark" | "light" | "system";
 export type FontSize = 12 | 13 | 14 | 15 | 16;
@@ -7,6 +8,7 @@ export type Settings = {
   autoDetectRuntimes: boolean;
   theme: Theme;
   fontSize: FontSize;
+  runtimeEnabledById: Partial<Record<RuntimeId, boolean>>;
 };
 
 const STORAGE_KEY = "carrent:settings";
@@ -19,7 +21,24 @@ const defaultSettings: Settings = {
   autoDetectRuntimes: true,
   theme: "dark",
   fontSize: 14,
+  runtimeEnabledById: {},
 };
+
+function normalizeRuntimeEnabledById(value: unknown): Partial<Record<RuntimeId, boolean>> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+
+  const normalized: Partial<Record<RuntimeId, boolean>> = {};
+  for (const runtimeId of runtimeIds) {
+    const enabled = (value as Partial<Record<RuntimeId, unknown>>)[runtimeId];
+    if (typeof enabled === "boolean") {
+      normalized[runtimeId] = enabled;
+    }
+  }
+
+  return normalized;
+}
 
 function loadSettings(): Settings {
   try {
@@ -34,6 +53,7 @@ function loadSettings(): Settings {
       autoDetectRuntimes: parsed.autoDetectRuntimes ?? defaultSettings.autoDetectRuntimes,
       theme,
       fontSize,
+      runtimeEnabledById: normalizeRuntimeEnabledById(parsed.runtimeEnabledById),
     };
   } catch {
     return defaultSettings;

@@ -120,6 +120,11 @@ describe("draftThreads", () => {
     expect(draft?.runtimeId).toBe("codex");
   });
 
+  it("builds drafts with a provided runtime", () => {
+    const draft = buildDraftThreadRecord("project-1", "New thread", "claude-code");
+    expect(draft?.runtimeId).toBe("claude-code");
+  });
+
   it("updates a draft runtime mode", () => {
     const draft = makeDraft({ draftId: "d1" });
     const updated = setDraftThreadRuntimeMode([draft], "d1", "auto-accept-edits");

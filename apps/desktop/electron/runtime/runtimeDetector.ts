@@ -36,6 +36,7 @@ export async function detectRuntime(
       name: runtime.name,
       command: runtime.command,
       availability: "unavailable",
+      enabled: false,
       status: "stopped",
       configuration: "unknown",
       verification: "never",
@@ -50,7 +51,6 @@ export async function detectRuntime(
     timeoutMs: DEFAULT_TIMEOUT_MS,
   });
   const configuration = await detectConfiguration(runtime, pathExists);
-  const processStatus = await detectProcessStatus(runtime.command, platform, run);
 
   return {
     id: runtime.id,
@@ -63,7 +63,8 @@ export async function detectRuntime(
         undefined
       : undefined,
     availability: "detected",
-    status: processStatus.status,
+    enabled: true,
+    status: "stopped",
     configuration,
     verification: "never",
     lastCheckedAt: checkedAt,
@@ -71,36 +72,7 @@ export async function detectRuntime(
       ? undefined
       : summarizeError(versionResult.stderr, versionResult.stdout),
     supportsModelPing: runtime.supportsModelPing,
-    pid: processStatus.pid,
   };
-}
-
-async function detectProcessStatus(
-  command: string,
-  platform: NodeJS.Platform,
-  run: ProcessRunner["run"],
-): Promise<{ status: "running" | "stopped"; pid?: number }> {
-  if (platform === "win32") {
-    const result = await run("tasklist", ["/FI", `IMAGENAME eq ${command}.exe`, "/NH"], {
-      cwd: DETECTION_CWD,
-    });
-    if (result.ok && result.stdout.toLowerCase().includes(command.toLowerCase())) {
-      const match = result.stdout.match(/(\d+)/);
-      return { status: "running", pid: match ? Number(match[1]) : undefined };
-    }
-    return { status: "stopped" };
-  }
-
-  const result = await run("pgrep", ["-x", command], {
-    cwd: DETECTION_CWD,
-  });
-  if (result.ok) {
-    const pid = Number(firstNonEmptyLine(result.stdout));
-    if (Number.isFinite(pid) && pid > 0) {
-      return { status: "running", pid };
-    }
-  }
-  return { status: "stopped" };
 }
 
 async function detectConfiguration(

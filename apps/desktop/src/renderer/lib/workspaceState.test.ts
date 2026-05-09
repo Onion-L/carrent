@@ -246,12 +246,26 @@ describe("workspaceState", () => {
     expect(result.thread?.runtimeId).toBe(DEFAULT_RUNTIME_ID);
   });
 
+  it("creates project threads with a provided runtime", () => {
+    const result = createThreadInProjects(
+      [makeProject({ id: "p1" }, [])],
+      "p1",
+      "New",
+      "claude-code",
+    );
+    expect(result.thread?.runtimeId).toBe("claude-code");
+  });
+
   it("creates chat threads with the safe runtime mode", () => {
     expect(createChatThread("Ideas")?.runtimeMode).toBe(DEFAULT_RUNTIME_MODE);
   });
 
   it("creates chat threads with the default runtime", () => {
     expect(createChatThread("Ideas")?.runtimeId).toBe(DEFAULT_RUNTIME_ID);
+  });
+
+  it("creates chat threads with a provided runtime", () => {
+    expect(createChatThread("Ideas", "pi")?.runtimeId).toBe("pi");
   });
 
   it("sets runtime mode on a project thread", () => {

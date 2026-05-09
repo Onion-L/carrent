@@ -170,5 +170,21 @@ describe("createChatRunner", () => {
       expect(args).toContain("--permission-mode");
       expect(args).toContain("default");
     });
+
+    it("passes selected pi model to pi", () => {
+      expect(
+        getRuntimeCommand("pi", "Hello", "approval-required", "deepseek/deepseek-v4-flash"),
+      ).toEqual({
+        command: "pi",
+        args: ["--model", "deepseek/deepseek-v4-flash", "-p", "Hello"],
+      });
+    });
+
+    it("omits pi model flag when no model is selected", () => {
+      expect(getRuntimeCommand("pi", "Hello", "approval-required")).toEqual({
+        command: "pi",
+        args: ["-p", "Hello"],
+      });
+    });
   });
 });

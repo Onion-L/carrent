@@ -69,12 +69,27 @@ function AssistantMessage({
   const parts = message.type !== "changed_files" ? message.parts : undefined;
   const hasParts = !!parts?.length;
   const isStreaming = !hasParts && content === "";
+  const [copied, setCopied] = useState(false);
+
+  const copyText = hasParts
+    ? parts
+        ?.filter((p) => p.type === "text")
+        .map((p) => p.content)
+        .join("\n") ?? content
+    : content;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(copyText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore
+    }
+  };
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] text-subtle">{timestamp}</span>
-      </div>
       {isStreaming ? (
           <div className="flex items-center py-1">
             {"Thinking".split("").map((char, i) => (
@@ -109,6 +124,16 @@ function AssistantMessage({
         ) : (
           <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-fg">{content}</p>
         )}
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-subtle">{timestamp}</span>
+        <button
+          onClick={handleCopy}
+          className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:text-muted"
+          title="Copy"
+        >
+          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+        </button>
+      </div>
     </div>
   );
 }
@@ -173,13 +198,32 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
               }
 
               if (msg.type === "changed_files") {
+                const [cfCopied, setCfCopied] = useState(false);
+                const cfContent = msg.content ?? "";
+                const handleCfCopy = async () => {
+                  try {
+                    await navigator.clipboard.writeText(cfContent);
+                    setCfCopied(true);
+                    setTimeout(() => setCfCopied(false), 1500);
+                  } catch {
+                    // ignore
+                  }
+                };
+
                 return (
                   <div key={msg.id} className="px-4 py-5">
                     <div className="flex flex-col gap-2">
+                      <ChangedFilesCard message={msg} />
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] text-subtle">{msg.timestamp}</span>
+                        <button
+                          onClick={handleCfCopy}
+                          className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:text-muted"
+                          title="Copy"
+                        >
+                          {cfCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                        </button>
                       </div>
-                      <ChangedFilesCard message={msg} />
                     </div>
                   </div>
                 );

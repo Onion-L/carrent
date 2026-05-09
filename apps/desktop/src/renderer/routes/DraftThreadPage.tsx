@@ -22,7 +22,8 @@ export function resolvePromotedDraftRoute(draft: DraftThreadRecord | null | unde
 export function DraftThreadPage() {
   const { draftId } = useParams();
   const navigate = useNavigate();
-  const { getDraftById, setDraftRuntimeMode, setDraftRuntimeId } = useDraftThread();
+  const { getDraftById, setDraftRuntimeMode, setDraftRuntimeId, setDraftRuntimeModelId } =
+    useDraftThread();
   const { setActiveThreadId } = useWorkspace();
   const draft = draftId ? getDraftById(draftId) : null;
   const promotedRoute = resolvePromotedDraftRoute(draft);
@@ -54,8 +55,10 @@ export function DraftThreadPage() {
           preallocatedThreadId={draft.preallocatedThreadId}
           messages={draft.messages}
           runtimeId={draft.runtimeId ?? DEFAULT_RUNTIME_ID}
+          runtimeModelId={draft.runtimeModelId}
           runtimeMode={draft.runtimeMode ?? DEFAULT_RUNTIME_MODE}
           onRuntimeIdChange={(runtimeId) => setDraftRuntimeId(draft.draftId, runtimeId)}
+          onRuntimeModelIdChange={(modelId) => setDraftRuntimeModelId(draft.draftId, modelId)}
           onRuntimeModeChange={(mode) => setDraftRuntimeMode(draft.draftId, mode)}
         />
       ) : null}

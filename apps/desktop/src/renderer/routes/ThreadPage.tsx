@@ -40,8 +40,13 @@ export function findPromotedDraftToFinalize(
 
 export function ThreadPage() {
   const { projectId, threadId } = useParams();
-  const { getThreadRouteData, setActiveThreadId, setThreadRuntimeMode, setThreadRuntimeId } =
-    useWorkspace();
+  const {
+    getThreadRouteData,
+    setActiveThreadId,
+    setThreadRuntimeMode,
+    setThreadRuntimeId,
+    setThreadRuntimeModelId,
+  } = useWorkspace();
   const { drafts, finalizePromotedDraftThreadByRef } = useDraftThread();
   const routeData = resolveThreadRouteData(getThreadRouteData, projectId, threadId);
   const promotedDraft = findPromotedDraftToFinalize(drafts, projectId, threadId);
@@ -69,9 +74,13 @@ export function ThreadPage() {
           threadId={routeData.thread.id}
           messages={routeData.messages}
           runtimeId={routeData.thread.runtimeId ?? DEFAULT_RUNTIME_ID}
+          runtimeModelId={routeData.thread.runtimeModelId}
           runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
           onRuntimeIdChange={(runtimeId) =>
             setThreadRuntimeId(routeData.project.id, routeData.thread.id, runtimeId)
+          }
+          onRuntimeModelIdChange={(modelId) =>
+            setThreadRuntimeModelId(routeData.project.id, routeData.thread.id, modelId)
           }
           onRuntimeModeChange={(mode) =>
             setThreadRuntimeMode(routeData.project.id, routeData.thread.id, mode)

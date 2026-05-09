@@ -2,6 +2,7 @@ import { AlertTriangle, ArrowUp, ChevronDown, Lock, Pencil, Square } from "lucid
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
+import { useSettings } from "../../context/SettingsContext";
 import {
   TYPEWRITER_INTERVAL_MS,
   getNextTypewriterText,
@@ -18,6 +19,7 @@ import {
 } from "../../../shared/runtimeMode";
 import { runtimeNameMap, type RuntimeId } from "../../../shared/runtimes";
 import { RuntimeIcon } from "../RuntimeIcon";
+import { useRuntimeModels } from "../../hooks/useRuntimeModels";
 import { useRuntimes } from "../../hooks/useRuntimes";
 import { getChatRuntimeOptions, isChatRuntimeAvailable } from "../../lib/runtimeSelection";
 
@@ -41,8 +43,10 @@ type ComposerProps =
       preallocatedThreadId: string;
       messages: Message[];
       runtimeId: RuntimeId;
+      runtimeModelId?: string;
       runtimeMode: RuntimeMode;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
+      onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
     }
   | {
@@ -51,8 +55,10 @@ type ComposerProps =
       threadId: string;
       messages: Message[];
       runtimeId: RuntimeId;
+      runtimeModelId?: string;
       runtimeMode: RuntimeMode;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
+      onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
     }
   | {
@@ -60,8 +66,10 @@ type ComposerProps =
       threadId: string;
       messages: Message[];
       runtimeId: RuntimeId;
+      runtimeModelId?: string;
       runtimeMode: RuntimeMode;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
+      onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
     };
 
@@ -110,10 +118,12 @@ export function Composer(props: ComposerProps) {
   const { projects, chats, appendMessage, updateMessage, updateMessageParts, upsertChat } =
     useWorkspace();
   const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
+  const { runtimeDefaultModelById } = useSettings();
   const { runningThreadIds, send, stop } = useChatRun();
   const { runtimes, loading: runtimesLoading } = useRuntimes();
   const [input, setInput] = useState("");
   const [showRuntimePicker, setShowRuntimePicker] = useState(false);
+  const [showModelPicker, setShowModelPicker] = useState(false);
   const [showModePicker, setShowModePicker] = useState(false);
   const receivedTextRef = useRef("");
   const visibleTextRef = useRef("");
@@ -126,6 +136,15 @@ export function Composer(props: ComposerProps) {
   const messagesLength = props.messages.length;
   const onRuntimeIdChange = props.onRuntimeIdChange;
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
+  const modelRuntimeId = props.runtimeId === "pi" ? props.runtimeId : null;
+  const { models, loading: modelsLoading } = useRuntimeModels(modelRuntimeId);
+  const effectiveRuntimeModelId =
+    props.runtimeModelId ?? (props.runtimeId === "pi" ? runtimeDefaultModelById.pi : undefined);
+  const selectedRuntimeModel = models.find((model) => model.id === effectiveRuntimeModelId);
+  const modelButtonLabel =
+    selectedRuntimeModel?.name ??
+    effectiveRuntimeModelId ??
+    (modelsLoading ? "Loading models" : "Default model");
   const isSelectedRuntimeAvailable = isChatRuntimeAvailable(props.runtimeId, runtimes);
   const runtimeButtonLabel = runtimesLoading
     ? "Checking runtimes"
@@ -383,6 +402,7 @@ export function Composer(props: ComposerProps) {
               }
             : undefined,
         runtimeId: props.runtimeId,
+        runtimeModelId: props.runtimeId === "pi" ? effectiveRuntimeModelId : undefined,
         runtimeMode: props.runtimeMode,
         transcript,
         message: messageText,
@@ -492,6 +512,57 @@ export function Composer(props: ComposerProps) {
                           No runtime available
                         </div>
                       )}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+              {props.runtimeId === "pi" && props.onRuntimeModelIdChange ? (
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      if (!isThreadSending) {
+                        setShowModelPicker((value) => !value);
+                      }
+                    }}
+                    disabled={isThreadSending}
+                    className="flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-raised px-2.5 py-1 text-[11px] text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
+                    title={isThreadSending ? "Locked while runtime is running" : "Model"}
+                  >
+                    <span>{modelButtonLabel}</span>
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                  {showModelPicker && (
+                    <div className="absolute bottom-full left-0 mb-1.5 w-56 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
+                      <button
+                        onClick={() => {
+                          props.onRuntimeModelIdChange!(undefined);
+                          setShowModelPicker(false);
+                        }}
+                        className={`flex w-full px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                          props.runtimeModelId == null ? "text-fg" : "text-muted"
+                        }`}
+                      >
+                        Default model
+                      </button>
+                      {effectiveRuntimeModelId && !selectedRuntimeModel ? (
+                        <div className="px-3 py-1.5 text-[12px] text-fg">
+                          {effectiveRuntimeModelId}
+                        </div>
+                      ) : null}
+                      {models.map((model) => (
+                        <button
+                          key={model.id}
+                          onClick={() => {
+                            props.onRuntimeModelIdChange!(model.id);
+                            setShowModelPicker(false);
+                          }}
+                          className={`flex w-full px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                            model.id === effectiveRuntimeModelId ? "text-fg" : "text-muted"
+                          }`}
+                        >
+                          {model.provider ? `${model.provider} / ${model.name}` : model.name}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>

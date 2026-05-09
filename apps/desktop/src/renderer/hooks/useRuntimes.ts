@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 
 import type { RuntimeId, RuntimeRecord, RuntimeVerificationResult } from "../../shared/runtimes";
-import { useSettings } from "../context/SettingsContext";
 
 type RuntimeActionState =
   | "idle"
@@ -20,18 +19,14 @@ type UseRuntimesState = {
 };
 
 export function useRuntimes() {
-  const { autoDetectRuntimes } = useSettings();
-
   const [state, setState] = useState<UseRuntimesState>({
     runtimes: [],
-    loading: autoDetectRuntimes,
+    loading: true,
     actionStateById: {},
   });
 
   useEffect(() => {
-    if (autoDetectRuntimes) {
-      void refresh();
-    }
+    void refresh();
   }, []);
 
   async function refresh() {

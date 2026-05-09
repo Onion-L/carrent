@@ -99,12 +99,7 @@ export function RuntimesPage() {
                           <div className="truncate text-[13px] font-medium text-fg">
                             {runtime.name}
                           </div>
-                          <div className="mt-0.5 flex items-center gap-1.5">
-                            <span
-                              className={`inline-block h-1 w-1 rounded-full ${
-                                isRunning ? "bg-success" : "bg-subtle"
-                              }`}
-                            />
+                          <div className="mt-0.5">
                             <span className="text-[11px] text-muted">
                               {isRunning ? "Running" : "Stopped"}
                             </span>

@@ -130,6 +130,23 @@ minimax-cn  MiniMax-M2.7-highspeed
 });
 
 describe("listRuntimeModels", () => {
+  it("returns unsupported for non-pi without invoking the CLI", async () => {
+    let runCalls = 0;
+
+    const result = await listRuntimeModels(createCodexRuntimeDescriptor(), {
+      run: async () => {
+        runCalls += 1;
+        return createSuccessResult("");
+      },
+    });
+
+    expect(result).toEqual({
+      state: "unsupported",
+      models: [],
+    });
+    expect(runCalls).toBe(0);
+  });
+
   it("runs pi --list-models and returns listed with lastListedAt", async () => {
     const calls: Array<{
       command: string;
@@ -180,23 +197,6 @@ describe("listRuntimeModels", () => {
       models: parsePiModelList(SAMPLE_MODEL_TABLE),
       lastListedAt: "2026-04-23T00:00:00.000Z",
     });
-  });
-
-  it("returns unsupported for non-pi without invoking the CLI", async () => {
-    let runCalls = 0;
-
-    const result = await listRuntimeModels(createCodexRuntimeDescriptor(), {
-      run: async () => {
-        runCalls += 1;
-        return createSuccessResult("");
-      },
-    });
-
-    expect(result).toEqual({
-      state: "unsupported",
-      models: [],
-    });
-    expect(runCalls).toBe(0);
   });
 
   it("returns failed with lastError when the CLI fails", async () => {

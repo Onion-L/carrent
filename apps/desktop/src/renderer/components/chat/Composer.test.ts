@@ -1,6 +1,26 @@
 import { describe, expect, it } from "bun:test";
 
-import { getCascadingPanelPosition, shouldSubmitComposerOnKeyDown } from "./Composer";
+import {
+  getCascadingPanelPosition,
+  getDisplayRuntimeModel,
+  getRuntimeModelIdForSend,
+  shouldSubmitComposerOnKeyDown,
+} from "./Composer";
+
+const piModels = [
+  {
+    id: "deepseek/deepseek-v4-flash",
+    name: "deepseek-v4-flash",
+    provider: "deepseek",
+    source: "cli" as const,
+  },
+  {
+    id: "minimax-cn/MiniMax-M2.7",
+    name: "MiniMax-M2.7",
+    provider: "minimax-cn",
+    source: "cli" as const,
+  },
+];
 
 describe("shouldSubmitComposerOnKeyDown", () => {
   it("submits on plain Enter", () => {
@@ -121,5 +141,47 @@ describe("getCascadingPanelPosition", () => {
         panelSize,
       ).top,
     ).toBe(8);
+  });
+});
+
+describe("getDisplayRuntimeModel", () => {
+  it("uses the explicit model when one is selected", () => {
+    expect(
+      getDisplayRuntimeModel({
+        models: piModels,
+        runtimeModelId: "minimax-cn/MiniMax-M2.7",
+        defaultModelId: "deepseek/deepseek-v4-flash",
+      }),
+    ).toEqual(piModels[1]);
+  });
+
+  it("does not display the local CLI default model when no explicit model is selected", () => {
+    expect(
+      getDisplayRuntimeModel({
+        models: piModels,
+        runtimeModelId: undefined,
+        defaultModelId: "deepseek/deepseek-v4-flash",
+      }),
+    ).toBeUndefined();
+  });
+});
+
+describe("getRuntimeModelIdForSend", () => {
+  it("does not send the local CLI default as an explicit model override", () => {
+    expect(
+      getRuntimeModelIdForSend({
+        runtimeModelId: undefined,
+        defaultModelId: "deepseek/deepseek-v4-flash",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("sends an explicitly selected model", () => {
+    expect(
+      getRuntimeModelIdForSend({
+        runtimeModelId: "minimax-cn/MiniMax-M2.7",
+        defaultModelId: "deepseek/deepseek-v4-flash",
+      }),
+    ).toBe("minimax-cn/MiniMax-M2.7");
   });
 });

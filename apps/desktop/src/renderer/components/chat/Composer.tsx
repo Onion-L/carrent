@@ -18,7 +18,11 @@ import {
   getRuntimeModeLabel,
   type RuntimeMode,
 } from "../../../shared/runtimeMode";
-import { runtimeNameMap, type RuntimeId } from "../../../shared/runtimes";
+import {
+  runtimeNameMap,
+  type RuntimeId,
+  type RuntimeModelRecord,
+} from "../../../shared/runtimes";
 import { RuntimeIcon } from "../RuntimeIcon";
 import { useRuntimeModels } from "../../hooks/useRuntimeModels";
 import { useRuntimes } from "../../hooks/useRuntimes";
@@ -190,6 +194,26 @@ export function getCascadingPanelPosition(
   };
 }
 
+export function getDisplayRuntimeModel({
+  models,
+  runtimeModelId,
+}: {
+  models: RuntimeModelRecord[];
+  runtimeModelId?: string;
+  defaultModelId?: string;
+}) {
+  return models.find((model) => model.id === runtimeModelId);
+}
+
+export function getRuntimeModelIdForSend({
+  runtimeModelId,
+}: {
+  runtimeModelId?: string;
+  defaultModelId?: string;
+}) {
+  return runtimeModelId;
+}
+
 export function Composer(props: ComposerProps) {
   const { projects, chats, appendMessage, updateMessage, updateMessageParts, upsertChat } =
     useWorkspace();
@@ -221,12 +245,15 @@ export function Composer(props: ComposerProps) {
   const onRuntimeIdChange = props.onRuntimeIdChange;
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
   const modelRuntimeId = props.runtimeId;
-  const { models, defaultModelId } = useRuntimeModels(modelRuntimeId);
-  const { models: cascadingModels, loading: cascadingLoading } = useRuntimeModels(
-    cascadingRuntimeId,
-  );
-  const effectiveRuntimeModelId = props.runtimeModelId ?? defaultModelId;
-  const selectedRuntimeModel = models.find((model) => model.id === effectiveRuntimeModelId);
+  const { models } = useRuntimeModels(modelRuntimeId);
+  const {
+    models: cascadingModels,
+    loading: cascadingLoading,
+  } = useRuntimeModels(cascadingRuntimeId);
+  const selectedRuntimeModel = getDisplayRuntimeModel({
+    models,
+    runtimeModelId: props.runtimeModelId,
+  });
   const isSelectedRuntimeAvailable = isChatRuntimeAvailable(props.runtimeId, runtimes);
   const runtimeButtonLabel = runtimesLoading
     ? "Checking runtimes"
@@ -396,7 +423,7 @@ export function Composer(props: ComposerProps) {
     cascadingRuntimeId,
     cascadingLoading,
     cascadingModels.length,
-    effectiveRuntimeModelId,
+    props.runtimeModelId,
     showRuntimePicker,
     updateCascadingPanelPosition,
   ]);
@@ -656,7 +683,9 @@ export function Composer(props: ComposerProps) {
               }
             : undefined,
         runtimeId: props.runtimeId,
-        runtimeModelId: effectiveRuntimeModelId,
+        runtimeModelId: getRuntimeModelIdForSend({
+          runtimeModelId: props.runtimeModelId,
+        }),
         runtimeMode: props.runtimeMode,
         transcript,
         message: messageText,
@@ -871,7 +900,9 @@ export function Composer(props: ComposerProps) {
                             }}
                             className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] text-fg transition hover:bg-surface-raised"
                           >
-                            <span className="min-w-0 truncate">{props.runtimeModelId}</span>
+                            <span className="min-w-0 whitespace-normal break-words">
+                              {props.runtimeModelId}
+                            </span>
                             <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
                           </button>
                         ) : null}
@@ -899,7 +930,9 @@ export function Composer(props: ComposerProps) {
                                   isSelected ? "text-fg" : "text-muted"
                                 }`}
                               >
-                                <span className="min-w-0 truncate">{label}</span>
+                                <span className="min-w-0 whitespace-normal break-words">
+                                  {label}
+                                </span>
                                 {isSelected ? (
                                   <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
                                 ) : null}

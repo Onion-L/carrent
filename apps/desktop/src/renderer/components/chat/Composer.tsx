@@ -1,5 +1,6 @@
 import { AlertTriangle, ArrowUp, ChevronDown, Lock, Pencil, Square } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
 import { useSettings } from "../../context/SettingsContext";
@@ -105,6 +106,27 @@ type ComposerKeyDownEvent = {
   };
 };
 
+type ViewportSize = {
+  width: number;
+  height: number;
+};
+
+type RectLike = Pick<DOMRect, "left" | "top" | "right" | "bottom" | "width" | "height">;
+
+type CascadingPanelSide = "right" | "left" | "center";
+
+export type CascadingPanelPosition = {
+  left: number;
+  top: number;
+  width: number;
+  side: CascadingPanelSide;
+};
+
+const CASCADING_PANEL_GAP = 8;
+const CASCADING_PANEL_PADDING = 8;
+const CASCADING_PANEL_MIN_WIDTH = 180;
+const CASCADING_PANEL_DEFAULT_WIDTH = 288;
+
 export function shouldSubmitComposerOnKeyDown(event: ComposerKeyDownEvent) {
   return (
     event.key === "Enter" &&
@@ -112,6 +134,60 @@ export function shouldSubmitComposerOnKeyDown(event: ComposerKeyDownEvent) {
     !event.nativeEvent.isComposing &&
     event.keyCode !== 229
   );
+}
+
+export function getCascadingPanelPosition(
+  anchorRect: RectLike,
+  viewport: ViewportSize,
+  panelSize: { width: number; height: number },
+  gap = CASCADING_PANEL_GAP,
+  padding = CASCADING_PANEL_PADDING,
+): CascadingPanelPosition {
+  const maxViewportWidth = Math.max(0, viewport.width - padding * 2);
+  const desiredWidth = Math.min(
+    Math.max(panelSize.width || CASCADING_PANEL_DEFAULT_WIDTH, CASCADING_PANEL_MIN_WIDTH),
+    maxViewportWidth,
+  );
+  const rightSpace = viewport.width - padding - (anchorRect.right + gap);
+  const leftSpace = anchorRect.left - gap - padding;
+  const maxViewportHeight = Math.max(0, viewport.height - padding * 2);
+  const desiredHeight = Math.min(panelSize.height || 0, maxViewportHeight || panelSize.height || 0);
+
+  const useCenterFallback = Math.max(rightSpace, leftSpace) < CASCADING_PANEL_MIN_WIDTH;
+
+  let side: CascadingPanelSide;
+  let width: number;
+  let left: number;
+
+  if (!useCenterFallback && (rightSpace >= desiredWidth || rightSpace >= leftSpace)) {
+    side = "right";
+    width = Math.min(desiredWidth, Math.max(0, rightSpace));
+    left = anchorRect.right + gap;
+  } else if (!useCenterFallback) {
+    side = "left";
+    width = Math.min(desiredWidth, Math.max(0, leftSpace));
+    left = anchorRect.left - gap - width;
+  } else {
+    side = "center";
+    width = desiredWidth;
+    left = (viewport.width - width) / 2;
+  }
+
+  const safeLeft = Math.min(
+    Math.max(left, padding),
+    Math.max(padding, viewport.width - padding - width),
+  );
+  const safeTop = Math.min(
+    Math.max(anchorRect.top, padding),
+    Math.max(padding, viewport.height - padding - desiredHeight),
+  );
+
+  return {
+    left: safeLeft,
+    top: safeTop,
+    width,
+    side,
+  };
 }
 
 export function Composer(props: ComposerProps) {
@@ -124,9 +200,16 @@ export function Composer(props: ComposerProps) {
   const [input, setInput] = useState("");
   const [showRuntimePicker, setShowRuntimePicker] = useState(false);
   const [cascadingRuntimeId, setCascadingRuntimeId] = useState<RuntimeId | null>(null);
+  const [isPointerOverRuntimeMenu, setIsPointerOverRuntimeMenu] = useState(false);
+  const [isPointerOverCascadingPanel, setIsPointerOverCascadingPanel] = useState(false);
+  const [cascadingAnchorRect, setCascadingAnchorRect] = useState<RectLike | null>(null);
+  const [cascadingPanelPosition, setCascadingPanelPosition] =
+    useState<CascadingPanelPosition | null>(null);
   const [showModePicker, setShowModePicker] = useState(false);
   const runtimePickerRef = useRef<HTMLDivElement>(null);
+  const cascadingPanelRef = useRef<HTMLDivElement>(null);
   const modePickerRef = useRef<HTMLDivElement>(null);
+  const runtimeCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const receivedTextRef = useRef("");
   const visibleTextRef = useRef("");
   const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -139,11 +222,10 @@ export function Composer(props: ComposerProps) {
   const onRuntimeIdChange = props.onRuntimeIdChange;
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
   const modelRuntimeId = props.runtimeId;
-  const { models, loading: modelsLoading } = useRuntimeModels(modelRuntimeId);
-  const { models: cascadingModels, loading: cascadingLoading } = useRuntimeModels(cascadingRuntimeId);
-  const isCascadingCurrent = cascadingRuntimeId === props.runtimeId;
-  const displayCascadingModels = isCascadingCurrent ? models : cascadingModels;
-  const displayCascadingLoading = isCascadingCurrent ? modelsLoading : cascadingLoading;
+  const { models } = useRuntimeModels(modelRuntimeId);
+  const { models: cascadingModels, loading: cascadingLoading } = useRuntimeModels(
+    cascadingRuntimeId,
+  );
   const effectiveRuntimeModelId =
     props.runtimeModelId ?? runtimeDefaultModelById[props.runtimeId];
   const selectedRuntimeModel = models.find((model) => model.id === effectiveRuntimeModelId);
@@ -162,6 +244,11 @@ export function Composer(props: ComposerProps) {
     (props.mode === "chat" ? !!input.trim() : !!input.trim() && !!project) &&
     isSelectedRuntimeAvailable;
   const isThreadSending = runningThreadIds.includes(threadId);
+  const showCascadingPanel =
+    showRuntimePicker && cascadingRuntimeId === "pi" && !!props.onRuntimeModelIdChange;
+  const cascadingPanelTransitionClass = !cascadingPanelPosition
+    ? "pointer-events-none opacity-0 translate-y-1 scale-95"
+    : "opacity-100 translate-x-0 translate-y-0 scale-100";
 
   const stopTypewriter = () => {
     if (typewriterTimerRef.current) {
@@ -175,9 +262,36 @@ export function Composer(props: ComposerProps) {
     flushTypewriterRef.current?.();
   };
 
+  const closeRuntimePicker = () => {
+    if (runtimeCloseTimerRef.current) {
+      clearTimeout(runtimeCloseTimerRef.current);
+      runtimeCloseTimerRef.current = null;
+    }
+    setShowRuntimePicker(false);
+    setCascadingRuntimeId(null);
+    setCascadingAnchorRect(null);
+    setCascadingPanelPosition(null);
+    setIsPointerOverRuntimeMenu(false);
+    setIsPointerOverCascadingPanel(false);
+  };
+
+  const scheduleRuntimePickerClose = () => {
+    if (runtimeCloseTimerRef.current) {
+      clearTimeout(runtimeCloseTimerRef.current);
+    }
+
+    runtimeCloseTimerRef.current = setTimeout(() => {
+      runtimeCloseTimerRef.current = null;
+      closeRuntimePicker();
+    }, 120);
+  };
+
   useEffect(() => {
     return () => {
       flushActiveTypewriter();
+      if (runtimeCloseTimerRef.current) {
+        clearTimeout(runtimeCloseTimerRef.current);
+      }
     };
   }, []);
 
@@ -189,10 +303,10 @@ export function Composer(props: ComposerProps) {
       if (
         showRuntimePicker &&
         runtimePickerRef.current &&
-        !runtimePickerRef.current.contains(target)
+        !runtimePickerRef.current.contains(target) &&
+        !(cascadingPanelRef.current && cascadingPanelRef.current.contains(target))
       ) {
-        setShowRuntimePicker(false);
-        setCascadingRuntimeId(null);
+        closeRuntimePicker();
       }
       if (
         showModePicker &&
@@ -206,8 +320,7 @@ export function Composer(props: ComposerProps) {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         if (showRuntimePicker) {
-          setShowRuntimePicker(false);
-          setCascadingRuntimeId(null);
+          closeRuntimePicker();
         }
         if (showModePicker) {
           setShowModePicker(false);
@@ -222,6 +335,103 @@ export function Composer(props: ComposerProps) {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [showRuntimePicker, showModePicker]);
+
+  useEffect(() => {
+    if (!showRuntimePicker || !cascadingRuntimeId) {
+      return;
+    }
+
+    if (isPointerOverRuntimeMenu || isPointerOverCascadingPanel) {
+      if (runtimeCloseTimerRef.current) {
+        clearTimeout(runtimeCloseTimerRef.current);
+        runtimeCloseTimerRef.current = null;
+      }
+      return;
+    }
+
+    scheduleRuntimePickerClose();
+  }, [
+    cascadingRuntimeId,
+    isPointerOverCascadingPanel,
+    isPointerOverRuntimeMenu,
+    showRuntimePicker,
+  ]);
+
+  const updateCascadingPanelPosition = useCallback(() => {
+    if (!showRuntimePicker || !cascadingRuntimeId || !cascadingAnchorRect) {
+      return;
+    }
+
+    const panelElement = cascadingPanelRef.current;
+    if (!panelElement) {
+      return;
+    }
+
+    const panelRect = panelElement.getBoundingClientRect();
+    if (panelRect.width <= 0 || panelRect.height <= 0) {
+      return;
+    }
+
+    setCascadingPanelPosition(
+      getCascadingPanelPosition(
+        cascadingAnchorRect,
+        {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        },
+        {
+          width: panelRect.width,
+          height: panelRect.height,
+        },
+      ),
+    );
+  }, [cascadingAnchorRect, cascadingRuntimeId, showRuntimePicker]);
+
+  useLayoutEffect(() => {
+    if (!showRuntimePicker || !cascadingRuntimeId || !cascadingAnchorRect) {
+      return;
+    }
+
+    updateCascadingPanelPosition();
+  }, [
+    cascadingAnchorRect,
+    cascadingRuntimeId,
+    cascadingLoading,
+    cascadingModels.length,
+    effectiveRuntimeModelId,
+    showRuntimePicker,
+    updateCascadingPanelPosition,
+  ]);
+
+  useEffect(() => {
+    if (!showRuntimePicker || !cascadingRuntimeId || !cascadingAnchorRect) {
+      return;
+    }
+
+    const handleWindowUpdate = () => {
+      updateCascadingPanelPosition();
+    };
+
+    window.addEventListener("resize", handleWindowUpdate);
+    window.addEventListener("scroll", handleWindowUpdate, true);
+
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            handleWindowUpdate();
+          });
+
+    if (observer && cascadingPanelRef.current) {
+      observer.observe(cascadingPanelRef.current);
+    }
+
+    return () => {
+      window.removeEventListener("resize", handleWindowUpdate);
+      window.removeEventListener("scroll", handleWindowUpdate, true);
+      observer?.disconnect();
+    };
+  }, [cascadingAnchorRect, cascadingRuntimeId, showRuntimePicker, updateCascadingPanelPosition]);
 
   useEffect(() => {
     if (
@@ -448,7 +658,7 @@ export function Composer(props: ComposerProps) {
               }
             : undefined,
         runtimeId: props.runtimeId,
-        runtimeModelId: models.length > 0 ? effectiveRuntimeModelId : undefined,
+        runtimeModelId: props.runtimeId === "pi" ? effectiveRuntimeModelId : undefined,
         runtimeMode: props.runtimeMode,
         transcript,
         message: messageText,
@@ -520,7 +730,11 @@ export function Composer(props: ComposerProps) {
                     onClick={() => {
                       if (!isThreadSending) {
                         setShowRuntimePicker((v) => {
-                          if (v) setCascadingRuntimeId(null);
+                          if (v) {
+                            closeRuntimePicker();
+                          } else {
+                            setIsPointerOverRuntimeMenu(true);
+                          }
                           return !v;
                         });
                       }
@@ -543,83 +757,66 @@ export function Composer(props: ComposerProps) {
                     <ChevronDown className="h-3 w-3" />
                   </button>
                   {showRuntimePicker && (
-                    <div className="absolute bottom-full left-0 mb-1.5 max-h-80 w-64 overflow-y-auto rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
+                    <div
+                      className="absolute bottom-full left-0 mb-1.5 max-h-80 w-64 overflow-y-auto rounded-lg border border-border-strong bg-surface py-1 shadow-xl"
+                      onMouseEnter={() => setIsPointerOverRuntimeMenu(true)}
+                      onMouseLeave={() => {
+                        setIsPointerOverRuntimeMenu(false);
+                      }}
+                    >
                       {runtimeOptions.length > 0 ? (
                         runtimeOptions.map((runtime) => {
-                          const isCascading = cascadingRuntimeId === runtime.id;
-                          const showCascading =
-                            isCascading &&
-                            (displayCascadingLoading || displayCascadingModels.length > 0);
+                          const supportsModelCascade =
+                            runtime.id === "pi" && props.onRuntimeModelIdChange;
+
                           return (
-                            <div
+                            <button
                               key={runtime.id}
-                              onMouseEnter={() => setCascadingRuntimeId(runtime.id)}
-                            >
-                              <button
-                                onClick={() => {
-                                  props.onRuntimeIdChange!(runtime.id);
-                                  setShowRuntimePicker(false);
+                              onMouseEnter={(event) => {
+                                if (!supportsModelCascade) {
                                   setCascadingRuntimeId(null);
-                                }}
-                                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
-                                  runtime.id === props.runtimeId ? "text-fg" : "text-muted"
-                                }`}
-                              >
-                                <RuntimeIcon name={runtime.name} size="xs" />
-                                <span>{runtime.name}</span>
-                                {showCascading && (
-                                  <ChevronDown className="ml-auto h-3 w-3" />
-                                )}
-                              </button>
-                              {showCascading && props.onRuntimeModelIdChange && (
-                                <div className="border-t border-border bg-surface-raised/30 py-1">
-                                  {displayCascadingLoading ? (
-                                    <div className="px-3 py-2 text-[12px] text-subtle">
-                                      Loading models...
-                                    </div>
-                                  ) : (
-                                    <>
-                                      <button
-                                        onClick={() => {
-                                          props.onRuntimeModelIdChange!(undefined);
-                                          setShowRuntimePicker(false);
-                                          setCascadingRuntimeId(null);
-                                        }}
-                                        className={`flex w-full px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
-                                          props.runtimeModelId == null ? "text-fg" : "text-muted"
-                                        }`}
-                                      >
-                                        Default model
-                                      </button>
-                                      {effectiveRuntimeModelId && !selectedRuntimeModel ? (
-                                        <div className="px-3 py-1.5 text-[12px] text-fg">
-                                          {effectiveRuntimeModelId}
-                                        </div>
-                                      ) : null}
-                                      {displayCascadingModels.map((model) => (
-                                        <button
-                                          key={model.id}
-                                          onClick={() => {
-                                            props.onRuntimeModelIdChange!(model.id);
-                                            setShowRuntimePicker(false);
-                                            setCascadingRuntimeId(null);
-                                          }}
-                                          className={`flex w-full px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
-                                            model.id === effectiveRuntimeModelId
-                                              ? "text-fg"
-                                              : "text-muted"
-                                          }`}
-                                        >
-                                          {model.provider
-                                            ? `${model.provider} / ${model.name}`
-                                            : model.name}
-                                        </button>
-                                      ))}
-                                    </>
-                                  )}
-                                </div>
-                              )}
-                            </div>
+                                  setCascadingAnchorRect(null);
+                                  setCascadingPanelPosition(null);
+                                  return;
+                                }
+
+                                const rect = event.currentTarget.getBoundingClientRect();
+                                setCascadingRuntimeId(runtime.id);
+                                setCascadingAnchorRect({
+                                  left: rect.left,
+                                  top: rect.top,
+                                  right: rect.right,
+                                  bottom: rect.bottom,
+                                  width: rect.width,
+                                  height: rect.height,
+                                });
+                                setIsPointerOverCascadingPanel(false);
+                              }}
+                              onClick={() => {
+                                props.onRuntimeIdChange!(runtime.id);
+                                if (runtime.id !== "pi" || !props.onRuntimeModelIdChange) {
+                                  props.onRuntimeModelIdChange?.(undefined);
+                                  closeRuntimePicker();
+                                  return;
+                                }
+
+                                if (cascadingRuntimeId !== "pi") {
+                                  closeRuntimePicker();
+                                  return;
+                                }
+
+                                closeRuntimePicker();
+                              }}
+                              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                                runtime.id === props.runtimeId ? "text-fg" : "text-muted"
+                              }`}
+                            >
+                              <RuntimeIcon name={runtime.name} size="xs" />
+                              <span className="min-w-0 flex-1">{runtime.name}</span>
+                              {supportsModelCascade ? (
+                                <ChevronDown className="ml-auto h-3 w-3 shrink-0" />
+                              ) : null}
+                            </button>
                           );
                         })
                       ) : (
@@ -631,6 +828,114 @@ export function Composer(props: ComposerProps) {
                   )}
                 </div>
               ) : null}
+              {showCascadingPanel && typeof document !== "undefined"
+                ? createPortal(
+                    <div
+                      ref={cascadingPanelRef}
+                      onMouseEnter={() => {
+                        setIsPointerOverCascadingPanel(true);
+                        if (runtimeCloseTimerRef.current) {
+                          clearTimeout(runtimeCloseTimerRef.current);
+                          runtimeCloseTimerRef.current = null;
+                        }
+                      }}
+                      onMouseLeave={() => {
+                        setIsPointerOverCascadingPanel(false);
+                      }}
+                      className={`fixed z-50 rounded-lg border border-border-strong bg-surface py-1 shadow-xl transition-[opacity,transform] duration-150 ease-out ${cascadingPanelTransitionClass}`}
+                      style={{
+                        left: `${cascadingPanelPosition?.left ?? 0}px`,
+                        top: `${cascadingPanelPosition?.top ?? 0}px`,
+                        width: `${cascadingPanelPosition?.width ?? CASCADING_PANEL_DEFAULT_WIDTH}px`,
+                        maxHeight: `calc(100vh - ${CASCADING_PANEL_PADDING * 2}px)`,
+                        visibility: cascadingPanelPosition ? "visible" : "hidden",
+                        transformOrigin:
+                          cascadingPanelPosition?.side === "left"
+                            ? "top right"
+                            : cascadingPanelPosition?.side === "right"
+                              ? "top left"
+                              : "top center",
+                      }}
+                    >
+                      <div className="px-3 pb-1.5 pt-1.5">
+                        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+                          pi models
+                        </div>
+                      </div>
+                      <div className="max-h-[calc(100vh-24px)] overflow-y-auto px-1 pb-1">
+                        <button
+                          onClick={() => {
+                            props.onRuntimeIdChange?.("pi");
+                            props.onRuntimeModelIdChange?.(undefined);
+                            closeRuntimePicker();
+                          }}
+                          className={`flex w-full items-start justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] leading-5 transition hover:bg-surface-raised ${
+                            props.runtimeModelId == null ? "text-fg" : "text-muted"
+                          }`}
+                        >
+                          <span className="whitespace-normal break-words">Default model</span>
+                          {props.runtimeModelId == null ? (
+                            <span className="text-[11px] text-muted">Current</span>
+                          ) : null}
+                        </button>
+
+                        {props.runtimeModelId &&
+                        !cascadingModels.some((model) => model.id === props.runtimeModelId) ? (
+                          <button
+                            onClick={() => {
+                              props.onRuntimeIdChange?.("pi");
+                              props.onRuntimeModelIdChange?.(props.runtimeModelId);
+                              closeRuntimePicker();
+                            }}
+                            className="flex w-full items-start justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] leading-5 text-fg transition hover:bg-surface-raised"
+                          >
+                            <span className="whitespace-normal break-words">
+                              {props.runtimeModelId}
+                            </span>
+                            <span className="text-[11px] text-muted">Current</span>
+                          </button>
+                        ) : null}
+
+                        {cascadingLoading ? (
+                          <div className="px-3 py-2 text-[12px] leading-5 text-subtle">
+                            Loading models...
+                          </div>
+                        ) : cascadingModels.length > 0 ? (
+                          cascadingModels.map((model) => {
+                            const label = model.provider
+                              ? `${model.provider} / ${model.name}`
+                              : model.name;
+                            const isSelected = model.id === effectiveRuntimeModelId;
+
+                            return (
+                              <button
+                                key={model.id}
+                                onClick={() => {
+                                  props.onRuntimeIdChange?.("pi");
+                                  props.onRuntimeModelIdChange?.(model.id);
+                                  closeRuntimePicker();
+                                }}
+                                className={`flex w-full items-start justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] leading-5 transition hover:bg-surface-raised ${
+                                  isSelected ? "text-fg" : "text-muted"
+                                }`}
+                              >
+                                <span className="whitespace-normal break-words">{label}</span>
+                                {isSelected ? (
+                                  <span className="text-[11px] text-muted">Selected</span>
+                                ) : null}
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="px-3 py-2 text-[12px] leading-5 text-subtle">
+                            No models found.
+                          </div>
+                        )}
+                      </div>
+                    </div>,
+                    document.body,
+                  )
+                : null}
               {props.onRuntimeModeChange ? (
                 <div ref={modePickerRef} className="relative">
                   <button

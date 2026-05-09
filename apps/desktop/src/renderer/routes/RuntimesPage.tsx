@@ -4,6 +4,8 @@ import { useRuntimes } from "../hooks/useRuntimes";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { RuntimeIcon } from "../components/RuntimeIcon";
 import { getDetectedRuntimes } from "../lib/runtimeSelection";
+import { useSettings } from "../context/SettingsContext";
+import { useRuntimeModels } from "../hooks/useRuntimeModels";
 
 function RuntimeListSkeleton() {
   return (
@@ -33,6 +35,7 @@ export function RuntimesPage() {
     refreshVersion,
   } = useRuntimes();
   const { setActiveThreadId } = useWorkspace();
+  const { runtimeDefaultModelById, updateSetting } = useSettings();
 
   useEffect(() => {
     setActiveThreadId(null);
@@ -52,11 +55,34 @@ export function RuntimesPage() {
   }, [selectedId, sortedRuntimes]);
 
   const selectedRuntime = sortedRuntimes.find((r) => r.id === selectedId);
+  const selectedRuntimeModelId =
+    selectedRuntime?.id === "pi" ? runtimeDefaultModelById.pi ?? "" : "";
+  const {
+    models: runtimeModels,
+    loading: runtimeModelsLoading,
+    error: runtimeModelsError,
+    refresh: refreshRuntimeModels,
+  } = useRuntimeModels(selectedRuntime?.id === "pi" ? selectedRuntime.id : null);
 
   const getActionState = (id: string) => actionStateById[id] ?? "idle";
 
   const isActionPending = (id: string) => {
     return getActionState(id) !== "idle";
+  };
+
+  const updateDefaultModel = (modelId: string) => {
+    if (!selectedRuntime || selectedRuntime.id !== "pi") {
+      return;
+    }
+
+    const nextRuntimeDefaultModelById = { ...runtimeDefaultModelById };
+    if (modelId.length > 0) {
+      nextRuntimeDefaultModelById.pi = modelId;
+    } else {
+      delete nextRuntimeDefaultModelById.pi;
+    }
+
+    updateSetting("runtimeDefaultModelById", nextRuntimeDefaultModelById);
   };
 
   const enabledCount = sortedRuntimes.filter((r) => r.enabled).length;
@@ -269,6 +295,59 @@ export function RuntimesPage() {
                   </span>
                 </div>
               </div>
+
+              {selectedRuntime.id === "pi" && (
+                <div className="mt-10 border-t border-border pt-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Models
+                      </h4>
+                      <p className="mt-1 text-xs text-subtle">Default model for pi</p>
+                    </div>
+                    <button
+                      onClick={() => refreshRuntimeModels(selectedRuntime.id)}
+                      disabled={runtimeModelsLoading}
+                      className="text-subtle transition hover:text-muted disabled:opacity-50"
+                      title="Refresh models"
+                    >
+                      <RefreshCw
+                        className={`h-3.5 w-3.5 ${runtimeModelsLoading ? "animate-spin" : ""}`}
+                      />
+                    </button>
+                  </div>
+
+                  <select
+                    value={selectedRuntimeModelId}
+                    onChange={(event) => updateDefaultModel(event.target.value)}
+                    disabled={runtimeModelsLoading && runtimeModels.length === 0}
+                    className="mt-4 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-fg outline-none transition focus:border-border-strong disabled:opacity-50"
+                  >
+                    <option value="">Use pi default</option>
+                    {selectedRuntimeModelId &&
+                      runtimeModels.every((model) => model.id !== selectedRuntimeModelId) && (
+                        <option value={selectedRuntimeModelId}>{selectedRuntimeModelId}</option>
+                      )}
+                    {runtimeModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.provider ? `${model.provider} / ${model.name}` : model.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  {runtimeModelsError ? (
+                    <p className="mt-2 text-xs text-danger">{runtimeModelsError}</p>
+                  ) : runtimeModelsLoading ? (
+                    <p className="mt-2 text-xs text-subtle">Loading models...</p>
+                  ) : runtimeModels.length === 0 ? (
+                    <p className="mt-2 text-xs text-subtle">No models found.</p>
+                  ) : (
+                    <p className="mt-2 text-xs text-subtle">
+                      {runtimeModels.length} models available
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Actions */}
               <div className="mt-10 border-t border-border pt-6">

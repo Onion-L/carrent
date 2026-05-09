@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUp, ChevronDown, Lock, Pencil, Square } from "lucide-react";
+import { AlertTriangle, ArrowUp, ChevronDown, ChevronRight, Lock, Pencil, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
@@ -123,7 +123,7 @@ export function Composer(props: ComposerProps) {
   const { runtimes, loading: runtimesLoading } = useRuntimes();
   const [input, setInput] = useState("");
   const [showRuntimePicker, setShowRuntimePicker] = useState(false);
-  const [showModelPicker, setShowModelPicker] = useState(false);
+  const [cascadingRuntimeId, setCascadingRuntimeId] = useState<RuntimeId | null>(null);
   const [showModePicker, setShowModePicker] = useState(false);
   const receivedTextRef = useRef("");
   const visibleTextRef = useRef("");
@@ -136,22 +136,21 @@ export function Composer(props: ComposerProps) {
   const messagesLength = props.messages.length;
   const onRuntimeIdChange = props.onRuntimeIdChange;
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
-  const modelRuntimeId = props.runtimeId === "pi" ? props.runtimeId : null;
-  const { models, loading: modelsLoading } = useRuntimeModels(modelRuntimeId);
+  const modelRuntimeId = props.runtimeId;
+  const { models } = useRuntimeModels(modelRuntimeId);
+  const { models: cascadingModels, loading: cascadingLoading } = useRuntimeModels(cascadingRuntimeId);
   const effectiveRuntimeModelId =
-    props.runtimeModelId ?? (props.runtimeId === "pi" ? runtimeDefaultModelById.pi : undefined);
+    props.runtimeModelId ?? runtimeDefaultModelById[props.runtimeId];
   const selectedRuntimeModel = models.find((model) => model.id === effectiveRuntimeModelId);
-  const modelButtonLabel =
-    selectedRuntimeModel?.name ??
-    effectiveRuntimeModelId ??
-    (modelsLoading ? "Loading models" : "Default model");
   const isSelectedRuntimeAvailable = isChatRuntimeAvailable(props.runtimeId, runtimes);
   const runtimeButtonLabel = runtimesLoading
     ? "Checking runtimes"
     : runtimeOptions.length === 0
       ? "No runtime available"
       : isSelectedRuntimeAvailable
-        ? runtimeNameMap[props.runtimeId]
+        ? selectedRuntimeModel
+          ? `${runtimeNameMap[props.runtimeId]} · ${selectedRuntimeModel.name}`
+          : runtimeNameMap[props.runtimeId]
         : "Select runtime";
 
   const canSend =
@@ -402,7 +401,7 @@ export function Composer(props: ComposerProps) {
               }
             : undefined,
         runtimeId: props.runtimeId,
-        runtimeModelId: props.runtimeId === "pi" ? effectiveRuntimeModelId : undefined,
+        runtimeModelId: models.length > 0 ? effectiveRuntimeModelId : undefined,
         runtimeMode: props.runtimeMode,
         transcript,
         message: messageText,
@@ -473,7 +472,10 @@ export function Composer(props: ComposerProps) {
                   <button
                     onClick={() => {
                       if (!isThreadSending) {
-                        setShowRuntimePicker((v) => !v);
+                        setShowRuntimePicker((v) => {
+                          if (v) setCascadingRuntimeId(null);
+                          return !v;
+                        });
                       }
                     }}
                     disabled={isThreadSending}
@@ -492,77 +494,88 @@ export function Composer(props: ComposerProps) {
                   {showRuntimePicker && (
                     <div className="absolute bottom-full left-0 mb-1.5 w-44 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
                       {runtimeOptions.length > 0 ? (
-                        runtimeOptions.map((runtime) => (
-                          <button
-                            key={runtime.id}
-                            onClick={() => {
-                              props.onRuntimeIdChange!(runtime.id);
-                              setShowRuntimePicker(false);
-                            }}
-                            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
-                              runtime.id === props.runtimeId ? "text-fg" : "text-muted"
-                            }`}
-                          >
-                            <RuntimeIcon name={runtime.name} size="xs" />
-                            <span>{runtime.name}</span>
-                          </button>
-                        ))
+                        runtimeOptions.map((runtime) => {
+                          const isCascading = cascadingRuntimeId === runtime.id;
+                          const showCascading =
+                            isCascading && (cascadingLoading || cascadingModels.length > 0);
+                          return (
+                            <div
+                              key={runtime.id}
+                              className="relative"
+                              onMouseEnter={() => setCascadingRuntimeId(runtime.id)}
+                            >
+                              <button
+                                onClick={() => {
+                                  props.onRuntimeIdChange!(runtime.id);
+                                  setShowRuntimePicker(false);
+                                  setCascadingRuntimeId(null);
+                                }}
+                                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                                  runtime.id === props.runtimeId ? "text-fg" : "text-muted"
+                                }`}
+                              >
+                                <RuntimeIcon name={runtime.name} size="xs" />
+                                <span>{runtime.name}</span>
+                                {showCascading && (
+                                  <ChevronRight className="ml-auto h-3 w-3" />
+                                )}
+                              </button>
+                              {showCascading && props.onRuntimeModelIdChange && (
+                                <div className="absolute left-full top-0 pl-1">
+                                  <div className="w-56 max-h-64 overflow-y-auto rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
+                                    {cascadingLoading ? (
+                                      <div className="px-3 py-2 text-[12px] text-subtle">
+                                        Loading models...
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <button
+                                          onClick={() => {
+                                            props.onRuntimeModelIdChange!(undefined);
+                                            setShowRuntimePicker(false);
+                                            setCascadingRuntimeId(null);
+                                          }}
+                                          className={`flex w-full px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                                            props.runtimeModelId == null ? "text-fg" : "text-muted"
+                                          }`}
+                                        >
+                                          Default model
+                                        </button>
+                                        {effectiveRuntimeModelId && !selectedRuntimeModel ? (
+                                          <div className="px-3 py-1.5 text-[12px] text-fg">
+                                            {effectiveRuntimeModelId}
+                                          </div>
+                                        ) : null}
+                                        {cascadingModels.map((model) => (
+                                          <button
+                                            key={model.id}
+                                            onClick={() => {
+                                              props.onRuntimeModelIdChange!(model.id);
+                                              setShowRuntimePicker(false);
+                                              setCascadingRuntimeId(null);
+                                            }}
+                                            className={`flex w-full px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                                              model.id === effectiveRuntimeModelId ? "text-fg" : "text-muted"
+                                            }`}
+                                          >
+                                            {model.provider
+                                              ? `${model.provider} / ${model.name}`
+                                              : model.name}
+                                          </button>
+                                        ))}
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
                       ) : (
                         <div className="px-3 py-2 text-[12px] leading-5 text-subtle">
                           No runtime available
                         </div>
                       )}
-                    </div>
-                  )}
-                </div>
-              ) : null}
-              {props.runtimeId === "pi" && props.onRuntimeModelIdChange ? (
-                <div className="relative">
-                  <button
-                    onClick={() => {
-                      if (!isThreadSending) {
-                        setShowModelPicker((value) => !value);
-                      }
-                    }}
-                    disabled={isThreadSending}
-                    className="flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-raised px-2.5 py-1 text-[11px] text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
-                    title={isThreadSending ? "Locked while runtime is running" : "Model"}
-                  >
-                    <span>{modelButtonLabel}</span>
-                    <ChevronDown className="h-3 w-3" />
-                  </button>
-                  {showModelPicker && (
-                    <div className="absolute bottom-full left-0 mb-1.5 w-56 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
-                      <button
-                        onClick={() => {
-                          props.onRuntimeModelIdChange!(undefined);
-                          setShowModelPicker(false);
-                        }}
-                        className={`flex w-full px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
-                          props.runtimeModelId == null ? "text-fg" : "text-muted"
-                        }`}
-                      >
-                        Default model
-                      </button>
-                      {effectiveRuntimeModelId && !selectedRuntimeModel ? (
-                        <div className="px-3 py-1.5 text-[12px] text-fg">
-                          {effectiveRuntimeModelId}
-                        </div>
-                      ) : null}
-                      {models.map((model) => (
-                        <button
-                          key={model.id}
-                          onClick={() => {
-                            props.onRuntimeModelIdChange!(model.id);
-                            setShowModelPicker(false);
-                          }}
-                          className={`flex w-full px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
-                            model.id === effectiveRuntimeModelId ? "text-fg" : "text-muted"
-                          }`}
-                        >
-                          {model.provider ? `${model.provider} / ${model.name}` : model.name}
-                        </button>
-                      ))}
                     </div>
                   )}
                 </div>

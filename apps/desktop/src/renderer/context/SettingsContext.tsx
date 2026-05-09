@@ -9,6 +9,7 @@ export type Settings = {
   theme: Theme;
   fontSize: FontSize;
   runtimeEnabledById: Partial<Record<RuntimeId, boolean>>;
+  runtimeDefaultModelById: Partial<Record<RuntimeId, string>>;
 };
 
 const STORAGE_KEY = "carrent:settings";
@@ -22,6 +23,7 @@ const defaultSettings: Settings = {
   theme: "dark",
   fontSize: 14,
   runtimeEnabledById: {},
+  runtimeDefaultModelById: {},
 };
 
 function normalizeRuntimeEnabledById(value: unknown): Partial<Record<RuntimeId, boolean>> {
@@ -34,6 +36,25 @@ function normalizeRuntimeEnabledById(value: unknown): Partial<Record<RuntimeId, 
     const enabled = (value as Partial<Record<RuntimeId, unknown>>)[runtimeId];
     if (typeof enabled === "boolean") {
       normalized[runtimeId] = enabled;
+    }
+  }
+
+  return normalized;
+}
+
+function normalizeRuntimeDefaultModelById(value: unknown): Partial<Record<RuntimeId, string>> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+
+  const normalized: Partial<Record<RuntimeId, string>> = {};
+  for (const runtimeId of runtimeIds) {
+    const modelId = (value as Partial<Record<RuntimeId, unknown>>)[runtimeId];
+    if (typeof modelId === "string") {
+      const trimmedModelId = modelId.trim();
+      if (trimmedModelId.length > 0) {
+        normalized[runtimeId] = trimmedModelId;
+      }
     }
   }
 
@@ -54,6 +75,7 @@ function loadSettings(): Settings {
       theme,
       fontSize,
       runtimeEnabledById: normalizeRuntimeEnabledById(parsed.runtimeEnabledById),
+      runtimeDefaultModelById: normalizeRuntimeDefaultModelById(parsed.runtimeDefaultModelById),
     };
   } catch {
     return defaultSettings;

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from "react-dom";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
-import { useSettings } from "../../context/SettingsContext";
+
 import {
   TYPEWRITER_INTERVAL_MS,
   getNextTypewriterText,
@@ -194,7 +194,6 @@ export function Composer(props: ComposerProps) {
   const { projects, chats, appendMessage, updateMessage, updateMessageParts, upsertChat } =
     useWorkspace();
   const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
-  const { runtimeDefaultModelById } = useSettings();
   const { runningThreadIds, send, stop } = useChatRun();
   const { runtimes, loading: runtimesLoading } = useRuntimes();
   const [input, setInput] = useState("");
@@ -226,8 +225,7 @@ export function Composer(props: ComposerProps) {
   const { models: cascadingModels, loading: cascadingLoading } = useRuntimeModels(
     cascadingRuntimeId,
   );
-  const effectiveRuntimeModelId =
-    props.runtimeModelId ?? runtimeDefaultModelById[props.runtimeId];
+  const effectiveRuntimeModelId = props.runtimeModelId;
   const selectedRuntimeModel = models.find((model) => model.id === effectiveRuntimeModelId);
   const isSelectedRuntimeAvailable = isChatRuntimeAvailable(props.runtimeId, runtimes);
   const runtimeButtonLabel = runtimesLoading
@@ -658,7 +656,7 @@ export function Composer(props: ComposerProps) {
               }
             : undefined,
         runtimeId: props.runtimeId,
-        runtimeModelId: props.runtimeId === "pi" ? effectiveRuntimeModelId : undefined,
+        runtimeModelId: props.runtimeModelId,
         runtimeMode: props.runtimeMode,
         transcript,
         message: messageText,
@@ -863,22 +861,6 @@ export function Composer(props: ComposerProps) {
                         </div>
                       </div>
                       <div className="max-h-[calc(100vh-24px)] overflow-y-auto px-1 pb-1">
-                        <button
-                          onClick={() => {
-                            props.onRuntimeIdChange?.("pi");
-                            props.onRuntimeModelIdChange?.(undefined);
-                            closeRuntimePicker();
-                          }}
-                          className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] transition hover:bg-surface-raised ${
-                            props.runtimeModelId == null ? "text-fg" : "text-muted"
-                          }`}
-                        >
-                          <span className="min-w-0 truncate">Default model</span>
-                          {props.runtimeModelId == null ? (
-                            <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
-                          ) : null}
-                        </button>
-
                         {props.runtimeModelId &&
                         !cascadingModels.some((model) => model.id === props.runtimeModelId) ? (
                           <button
@@ -903,7 +885,7 @@ export function Composer(props: ComposerProps) {
                             const label = model.provider
                               ? `${model.provider} / ${model.name}`
                               : model.name;
-                            const isSelected = model.id === effectiveRuntimeModelId;
+                            const isSelected = model.id === props.runtimeModelId;
 
                             return (
                               <button

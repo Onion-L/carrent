@@ -139,8 +139,11 @@ export function Composer(props: ComposerProps) {
   const onRuntimeIdChange = props.onRuntimeIdChange;
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
   const modelRuntimeId = props.runtimeId;
-  const { models } = useRuntimeModels(modelRuntimeId);
+  const { models, loading: modelsLoading } = useRuntimeModels(modelRuntimeId);
   const { models: cascadingModels, loading: cascadingLoading } = useRuntimeModels(cascadingRuntimeId);
+  const isCascadingCurrent = cascadingRuntimeId === props.runtimeId;
+  const displayCascadingModels = isCascadingCurrent ? models : cascadingModels;
+  const displayCascadingLoading = isCascadingCurrent ? modelsLoading : cascadingLoading;
   const effectiveRuntimeModelId =
     props.runtimeModelId ?? runtimeDefaultModelById[props.runtimeId];
   const selectedRuntimeModel = models.find((model) => model.id === effectiveRuntimeModelId);
@@ -545,7 +548,8 @@ export function Composer(props: ComposerProps) {
                         runtimeOptions.map((runtime) => {
                           const isCascading = cascadingRuntimeId === runtime.id;
                           const showCascading =
-                            isCascading && (cascadingLoading || cascadingModels.length > 0);
+                            isCascading &&
+                            (displayCascadingLoading || displayCascadingModels.length > 0);
                           return (
                             <div
                               key={runtime.id}
@@ -571,7 +575,7 @@ export function Composer(props: ComposerProps) {
                               {showCascading && props.onRuntimeModelIdChange && (
                                 <div className="absolute left-full top-0 pl-1">
                                   <div className="w-56 max-h-64 overflow-y-auto rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
-                                    {cascadingLoading ? (
+                                    {displayCascadingLoading ? (
                                       <div className="px-3 py-2 text-[12px] text-subtle">
                                         Loading models...
                                       </div>
@@ -594,7 +598,7 @@ export function Composer(props: ComposerProps) {
                                             {effectiveRuntimeModelId}
                                           </div>
                                         ) : null}
-                                        {cascadingModels.map((model) => (
+                                        {displayCascadingModels.map((model) => (
                                           <button
                                             key={model.id}
                                             onClick={() => {

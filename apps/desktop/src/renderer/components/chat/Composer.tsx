@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUp, ChevronDown, Lock, Pencil, Square } from "lucide-react";
+import { AlertTriangle, ArrowUp, Check, ChevronDown, Lock, Pencil, Square } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -869,13 +869,13 @@ export function Composer(props: ComposerProps) {
                             props.onRuntimeModelIdChange?.(undefined);
                             closeRuntimePicker();
                           }}
-                          className={`flex w-full items-start justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] leading-5 transition hover:bg-surface-raised ${
+                          className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] transition hover:bg-surface-raised ${
                             props.runtimeModelId == null ? "text-fg" : "text-muted"
                           }`}
                         >
-                          <span className="whitespace-normal break-words">Default model</span>
+                          <span className="min-w-0 truncate">Default model</span>
                           {props.runtimeModelId == null ? (
-                            <span className="text-[11px] text-muted">Current</span>
+                            <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
                           ) : null}
                         </button>
 
@@ -887,12 +887,10 @@ export function Composer(props: ComposerProps) {
                               props.onRuntimeModelIdChange?.(props.runtimeModelId);
                               closeRuntimePicker();
                             }}
-                            className="flex w-full items-start justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] leading-5 text-fg transition hover:bg-surface-raised"
+                            className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] text-fg transition hover:bg-surface-raised"
                           >
-                            <span className="whitespace-normal break-words">
-                              {props.runtimeModelId}
-                            </span>
-                            <span className="text-[11px] text-muted">Current</span>
+                            <span className="min-w-0 truncate">{props.runtimeModelId}</span>
+                            <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
                           </button>
                         ) : null}
 
@@ -915,13 +913,13 @@ export function Composer(props: ComposerProps) {
                                   props.onRuntimeModelIdChange?.(model.id);
                                   closeRuntimePicker();
                                 }}
-                                className={`flex w-full items-start justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] leading-5 transition hover:bg-surface-raised ${
+                                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] transition hover:bg-surface-raised ${
                                   isSelected ? "text-fg" : "text-muted"
                                 }`}
                               >
-                                <span className="whitespace-normal break-words">{label}</span>
+                                <span className="min-w-0 truncate">{label}</span>
                                 {isSelected ? (
-                                  <span className="text-[11px] text-muted">Selected</span>
+                                  <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
                                 ) : null}
                               </button>
                             );

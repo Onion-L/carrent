@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUp, Bot, ChevronDown, Lock, Pencil, Square } from "lucide-react";
+import { AlertTriangle, ArrowUp, ChevronDown, Lock, Pencil, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
@@ -7,17 +7,19 @@ import {
   getNextTypewriterText,
   hasPendingTypewriterText,
 } from "./typewriter";
-import { useAgents } from "../../context/AgentContext";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import type { Message } from "../../mock/uiShellData";
-import type { ChatReasoningEventPayload, ChatShellEventPayload } from "../../../shared/chat";
+import {
+  DEFAULT_CHAT_RUNTIME_ID,
+  type ChatReasoningEventPayload,
+  type ChatShellEventPayload,
+} from "../../../shared/chat";
 import {
   DEFAULT_RUNTIME_MODE,
   getRuntimeModeLabel,
   type RuntimeMode,
 } from "../../../shared/runtimeMode";
-import { isAgentUiEnabled } from "../../../shared/v1Scope";
 
 function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: string }) {
   switch (mode) {
@@ -72,13 +74,11 @@ function createMessageId() {
 function buildTextMessage(
   threadId: string,
   role: "user" | "assistant",
-  agentId: string,
   content: string,
 ): Message {
   return {
     id: createMessageId(),
     role,
-    agentId,
     threadId,
     content,
     timestamp: formatTime(new Date()),
@@ -109,11 +109,7 @@ export function Composer(props: ComposerProps) {
     useWorkspace();
   const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
   const { runningThreadIds, send, stop } = useChatRun();
-  const { agents, selectedAgentId, selectedAgent, setSelectedAgentId } = useAgents();
-  const agentForRun = selectedAgent ?? agents[0] ?? null;
-  const showAgentUi = isAgentUiEnabled();
   const [input, setInput] = useState("");
-  const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [showModePicker, setShowModePicker] = useState(false);
   const receivedTextRef = useRef("");
   const visibleTextRef = useRef("");
@@ -124,10 +120,7 @@ export function Composer(props: ComposerProps) {
   const project = projectId ? (projects.find((item) => item.id === projectId) ?? null) : null;
   const threadId = props.mode === "draft" ? props.preallocatedThreadId : props.threadId;
 
-  const canSend =
-    props.mode === "chat"
-      ? !!input.trim() && !!agentForRun
-      : !!input.trim() && !!project && !!agentForRun;
+  const canSend = props.mode === "chat" ? !!input.trim() : !!input.trim() && !!project;
   const isThreadSending = runningThreadIds.includes(threadId);
 
   const stopTypewriter = () => {
@@ -149,10 +142,9 @@ export function Composer(props: ComposerProps) {
   }, []);
 
   const handleSend = async () => {
-    if (!canSend || !agentForRun) return;
+    if (!canSend) return;
 
     const messageText = input.trim();
-    const agentId = agentForRun.id;
     setInput("");
 
     const appendLocalMessage = (role: "user" | "assistant", content: string) => {
@@ -160,12 +152,11 @@ export function Composer(props: ComposerProps) {
         return appendMessage({
           threadId,
           role,
-          agentId,
           content,
         });
       }
 
-      const draftMessage = buildTextMessage(threadId, role, agentId, content);
+      const draftMessage = buildTextMessage(threadId, role, content);
       appendDraftMessage(props.draftId, draftMessage);
       return draftMessage;
     };
@@ -326,7 +317,6 @@ export function Composer(props: ComposerProps) {
       .map((m) => ({
         role: m.role,
         content: m.content ?? "",
-        agentId: m.agentId,
       }));
 
     if (props.mode === "chat") {
@@ -355,13 +345,8 @@ export function Composer(props: ComposerProps) {
                 title: props.title,
               }
             : undefined,
-        runtimeId: agentForRun.runtime,
+        runtimeId: DEFAULT_CHAT_RUNTIME_ID,
         runtimeMode: props.runtimeMode,
-        agent: {
-          id: agentId,
-          name: agentForRun.name,
-          responsibility: agentForRun.responsibility,
-        },
         transcript,
         message: messageText,
       },
@@ -412,13 +397,7 @@ export function Composer(props: ComposerProps) {
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={
-              showAgentUi
-                ? selectedAgent
-                  ? `Message ${selectedAgent.name}...`
-                  : "Select an agent..."
-                : "Message..."
-            }
+            placeholder="Message..."
             className="w-full resize-none bg-transparent text-[14px] text-fg placeholder:text-subtle outline-none"
             rows={2}
             onKeyDown={(e) => {
@@ -432,38 +411,6 @@ export function Composer(props: ComposerProps) {
           />
           <div className="mt-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              {showAgentUi ? (
-                <div className="relative">
-                  <button
-                    onClick={() => setShowAgentPicker((v) => !v)}
-                    className="flex items-center gap-1.5 rounded-full border border-border-strong bg-fg px-2.5 py-1 text-[11px] text-bg transition hover:opacity-90"
-                  >
-                    <Bot className="h-3 w-3" />
-                    <span>{selectedAgent?.name ?? "Agent"}</span>
-                    <ChevronDown className="h-3 w-3" />
-                  </button>
-                  {showAgentPicker && (
-                    <div className="absolute bottom-full left-0 mb-1.5 w-40 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
-                      {agents.map((agent) => (
-                        <button
-                          key={agent.id}
-                          onClick={() => {
-                            setSelectedAgentId(agent.id);
-                            setShowAgentPicker(false);
-                          }}
-                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
-                            agent.id === selectedAgentId ? "text-fg" : "text-muted"
-                          }`}
-                        >
-                          <Bot className="h-3 w-3" />
-                          <span>{agent.name}</span>
-                          <span className="ml-auto text-[10px] text-subtle">{agent.runtime}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : null}
               {props.onRuntimeModeChange ? (
                 <div className="relative">
                   <button
@@ -475,7 +422,7 @@ export function Composer(props: ComposerProps) {
                     disabled={isThreadSending}
                     className="flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-raised px-2.5 py-1 text-[11px] text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
                     title={
-                      isThreadSending ? "Locked while agent is running" : "Runtime permissions"
+                      isThreadSending ? "Locked while runtime is running" : "Runtime permissions"
                     }
                   >
                     <RuntimeModeIcon

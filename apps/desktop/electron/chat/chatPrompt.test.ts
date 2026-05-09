@@ -11,11 +11,6 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
     },
     threadId: "thread-1",
     runtimeId: "codex",
-    agent: {
-      id: "architect",
-      name: "Architect",
-      responsibility: "You are a senior software architect.",
-    },
     runtimeMode: "approval-required",
     transcript: [],
     message: "Hello",
@@ -24,17 +19,16 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
 }
 
 describe("buildChatPrompt", () => {
-  it("includes agent responsibility and user message", () => {
+  it("includes context and user message without agent instructions", () => {
     const prompt = buildChatPrompt(makeRequest());
-    expect(prompt).toContain("You are a senior software architect.");
     expect(prompt).toContain("Hello");
+    expect(prompt).not.toContain("You are Architect.");
   });
 
   it("keeps only the most recent transcript slice", () => {
     const transcript = Array.from({ length: 20 }, (_, i) => ({
       role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
       content: `Message ${i}`,
-      agentId: "frontend",
     }));
 
     const prompt = buildChatPrompt(makeRequest({ transcript, message: "Latest" }));

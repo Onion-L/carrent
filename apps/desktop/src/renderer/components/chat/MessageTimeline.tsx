@@ -1,17 +1,9 @@
 import { ArrowDown, Bot, Check, Copy, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useAgents } from "../../context/AgentContext";
 import { type Message } from "../../mock/uiShellData";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 import { ReasoningBlock } from "./ReasoningBlock";
 import { ShellBlock } from "./ShellBlock";
-
-function AgentLabel({ agentId }: { agentId: string }) {
-  const { agents } = useAgents();
-  const agent = agents.find((a) => a.id === agentId);
-  if (!agent) return <span className="text-[12px] font-medium text-subtle">Unknown agent</span>;
-  return <span className="text-[12px] font-medium text-subtle">{agent.name}</span>;
-}
 
 function UserMessage({ content, timestamp }: { content: string; timestamp: string }) {
   const [hovered, setHovered] = useState(false);
@@ -69,11 +61,9 @@ function UserMessage({ content, timestamp }: { content: string; timestamp: strin
 function AssistantMessage({
   message,
   timestamp,
-  agentId,
 }: {
   message: Message;
   timestamp: string;
-  agentId: string;
 }) {
   const content = message.content ?? "";
   const parts = message.type !== "changed_files" ? message.parts : undefined;
@@ -87,7 +77,7 @@ function AssistantMessage({
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <div className="flex items-center gap-2">
-          <AgentLabel agentId={agentId} />
+          <span className="text-[12px] font-medium text-subtle">Assistant</span>
           <span className="text-[11px] text-subtle">{timestamp}</span>
         </div>
         {isStreaming ? (
@@ -200,7 +190,7 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
                       </div>
                       <div className="flex min-w-0 flex-1 flex-col gap-2">
                         <div className="flex items-center gap-2">
-                          <AgentLabel agentId={msg.agentId} />
+                          <span className="text-[12px] font-medium text-subtle">Assistant</span>
                           <span className="text-[11px] text-subtle">{msg.timestamp}</span>
                         </div>
                         <ChangedFilesCard message={msg} />
@@ -212,7 +202,7 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
 
               return (
                 <div key={msg.id} className="px-4 py-5">
-                  <AssistantMessage message={msg} timestamp={msg.timestamp} agentId={msg.agentId} />
+                  <AssistantMessage message={msg} timestamp={msg.timestamp} />
                 </div>
               );
             })}

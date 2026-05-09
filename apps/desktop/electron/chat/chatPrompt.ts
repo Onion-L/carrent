@@ -18,9 +18,6 @@ export function buildChatPrompt(
   const parts: string[] = [
     contextLine,
     ``,
-    `You are ${request.agent.name}.`,
-    `${request.agent.responsibility}`,
-    ``,
   ];
 
   if (recentTranscript.length > 0) {

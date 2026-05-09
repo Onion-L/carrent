@@ -25,7 +25,6 @@ export function getVerificationDraftById(draftId: string) {
       {
         id: "draft-foo-message-1",
         role: "user",
-        agentId: "architect",
         timestamp: "09:00",
         threadId: "draft-foo-thread",
         content: "Sketch the draft-first thread flow before promotion.",

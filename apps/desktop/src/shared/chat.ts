@@ -2,6 +2,8 @@ import type { RuntimeId } from "./runtimes";
 import type { RuntimeMode } from "./runtimeMode";
 import type { ChatPermissionDecision, ChatPermissionRequest } from "./chatPermissions";
 
+export const DEFAULT_CHAT_RUNTIME_ID: RuntimeId = "codex";
+
 export type ChatWorkspaceScope =
   | { kind: "project"; projectPath: string; projectId: string }
   | { kind: "chat" };
@@ -17,15 +19,9 @@ export interface ChatTurnRequest {
   };
   runtimeId: RuntimeId;
   runtimeMode: RuntimeMode;
-  agent: {
-    id: string;
-    name: string;
-    responsibility: string;
-  };
   transcript: Array<{
     role: "user" | "assistant";
     content: string;
-    agentId?: string;
   }>;
   message: string;
 }
@@ -68,7 +64,6 @@ export type ChatRunEvent =
   | (ChatRunEventBase & {
       type: "started";
       threadId: string;
-      agentId: string;
     })
   | (ChatRunEventBase & { type: "delta"; text: string })
   | (ChatRunEventBase & { type: "reasoning"; reasoning: ChatReasoningEventPayload })

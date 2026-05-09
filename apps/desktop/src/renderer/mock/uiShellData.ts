@@ -59,43 +59,6 @@ export const initialActiveThreadId =
 // Seed-only fallback for screens that still read directly from mock data.
 export const currentProject = projects.find((project) => project.active) ?? projects[0];
 
-export type AgentRecord = {
-  id: string;
-  name: string;
-  runtime: "codex" | "claude-code" | "pi";
-  responsibility: string;
-  description?: string;
-  avatar?: string;
-  selected?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export const agents: AgentRecord[] = [
-  {
-    id: "architect",
-    name: "Architect",
-    runtime: "codex",
-    selected: true,
-    responsibility:
-      "You are a senior software architect. Focus on system design, API contracts, data models, and technical decisions. Provide high-level architecture recommendations and identify trade-offs.",
-  },
-  {
-    id: "frontend",
-    name: "Frontend",
-    runtime: "codex",
-    responsibility:
-      "You are a senior frontend engineer. Focus on React components, CSS, accessibility, performance, and user experience. Write clean, maintainable UI code with modern best practices.",
-  },
-  {
-    id: "reviewer",
-    name: "Reviewer",
-    runtime: "claude-code",
-    responsibility:
-      "You are a meticulous code reviewer. Analyze code for bugs, security issues, performance bottlenecks, and style violations. Suggest concrete improvements with explanations.",
-  },
-];
-
 type ChangedFile = {
   path: string;
   additions: number;
@@ -107,7 +70,7 @@ type ChangedFile = {
 type MessageBase = {
   id: string;
   role: "user" | "assistant";
-  agentId: string;
+  agentId?: string;
   timestamp: string;
   duration?: string;
   threadId: string;
@@ -149,7 +112,6 @@ export const messages: Message[] = [
   {
     id: "message-timbre-1",
     role: "user",
-    agentId: "architect",
     timestamp: "09:10",
     threadId: "thread-timbre-design-review",
     content: "Audit the landing page hierarchy before we ship this week's update.",
@@ -157,7 +119,6 @@ export const messages: Message[] = [
   {
     id: "message-timbre-2",
     role: "assistant",
-    agentId: "reviewer",
     timestamp: "09:12",
     duration: "34s",
     threadId: "thread-timbre-design-review",
@@ -167,7 +128,6 @@ export const messages: Message[] = [
   {
     id: "message-carrent-1",
     role: "user",
-    agentId: "architect",
     timestamp: "11:02",
     threadId: "thread-1",
     content: "Make sidebar thread state drive the main chat area instead of static mock data.",
@@ -175,7 +135,6 @@ export const messages: Message[] = [
   {
     id: "message-carrent-2",
     role: "assistant",
-    agentId: "frontend",
     timestamp: "11:05",
     duration: "1m 12s",
     threadId: "thread-1",

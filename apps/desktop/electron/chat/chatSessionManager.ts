@@ -557,7 +557,7 @@ function buildRequestSessionKey(request: ChatTurnRequest) {
   const scope =
     request.workspace.kind === "project" ? `project:${request.workspace.projectPath}` : "chat";
 
-  return `${request.runtimeId}:${scope}:${request.threadId}:${request.agent.id}`;
+  return `${request.runtimeId}:${scope}:${request.threadId}`;
 }
 
 function getSessionRuntimeCommand(
@@ -887,8 +887,8 @@ export function createChatSessionManager(options: {
 
         const stderr = session.stderr.trim();
         const error = stderr
-          ? `Agent returned an error: ${stderr}`
-          : `Agent exited with code ${code}`;
+          ? `Runtime returned an error: ${stderr}`
+          : `Runtime exited with code ${code}`;
         options.emit({ type: "failed", runId, requestKey: request.requestKey, error });
         return;
       }
@@ -903,7 +903,7 @@ export function createChatSessionManager(options: {
           type: "failed",
           runId,
           requestKey: request.requestKey,
-          error: "Received empty response from agent.",
+          error: "Received empty response from runtime.",
         });
         return;
       }
@@ -931,7 +931,7 @@ export function createChatSessionManager(options: {
       sessions.delete(runId);
 
       const normalized = err.message.includes("ENOENT")
-        ? `Agent runtime not found. Make sure ${command} is installed and available in your PATH.`
+        ? `Runtime not found. Make sure ${command} is installed and available in your PATH.`
         : err.message;
 
       options.emit({
@@ -967,7 +967,6 @@ export function createChatSessionManager(options: {
       runId,
       requestKey: request.requestKey,
       threadId: request.threadId,
-      agentId: request.agent.id,
     });
   }
 

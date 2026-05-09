@@ -12,11 +12,6 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
     },
     threadId: "thread-1",
     runtimeId: "codex",
-    agent: {
-      id: "architect",
-      name: "Architect",
-      responsibility: "You are an architect.",
-    },
     runtimeMode: "approval-required",
     transcript: [],
     message: "Hello",

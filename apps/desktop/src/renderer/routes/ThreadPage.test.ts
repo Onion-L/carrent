@@ -14,7 +14,6 @@ import { findPromotedDraftToFinalize, resolveThreadRouteData } from "./ThreadPag
 type TextMessage = {
   id: string;
   role: "user";
-  agentId: string;
   timestamp: string;
   threadId: string;
   content: string;
@@ -48,7 +47,6 @@ function makeMessage(overrides: Partial<TextMessage> = {}): TextMessage {
   return {
     id: "message-1",
     role: "user",
-    agentId: "architect",
     timestamp: "09:00",
     threadId: "thread-1",
     content: "hello",

@@ -13,11 +13,6 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
     },
     threadId: "thread-1",
     runtimeId: "codex",
-    agent: {
-      id: "architect",
-      name: "Architect",
-      responsibility: "You are an architect.",
-    },
     runtimeMode: "approval-required",
     transcript: [],
     message: "Hello",
@@ -81,7 +76,6 @@ describe("createChatSessionManager", () => {
       type: "started",
       runId: "run-1",
       threadId: "thread-1",
-      agentId: "architect",
     });
 
     const deltas = emitted.filter((e) => e.type === "delta");
@@ -309,7 +303,7 @@ describe("createChatSessionManager", () => {
 
     const failed = emitted.find((e) => e.type === "failed");
     expect(failed).toBeDefined();
-    expect(failed?.error).toContain("Agent returned an error");
+    expect(failed?.error).toContain("Runtime returned an error");
     expect(failed?.error).toContain("Out of credits");
   });
 
@@ -350,7 +344,6 @@ describe("createChatSessionManager", () => {
       type: "started",
       runId: "run-7",
       threadId: "thread-promoted",
-      agentId: "architect",
     });
   });
 
@@ -399,7 +392,6 @@ describe("createChatSessionManager", () => {
       type: "started",
       runId: "run-8",
       threadId: "thread-1",
-      agentId: "architect",
     });
   });
 
@@ -796,7 +788,7 @@ describe("createChatSessionManager", () => {
     expect(emitted.some((event) => event.type === "failed")).toBe(false);
   });
 
-  it("does not reuse a claude session after switching agents", async () => {
+  it("reuses a claude session for the same runtime, scope, and thread", async () => {
     const firstChild = createMockChildProcess();
     const secondChild = createMockChildProcess();
     const spawnCalls: string[][] = [];
@@ -827,23 +819,13 @@ describe("createChatSessionManager", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    manager.start(
-      "run-13",
-      makeRequest({
-        runtimeId: "claude-code",
-        agent: {
-          id: "reviewer",
-          name: "Reviewer",
-          responsibility: "You are a reviewer.",
-        },
-      }),
-    );
+    manager.start("run-13", makeRequest({ runtimeId: "claude-code" }));
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(spawnCalls).toHaveLength(2);
-    expect(spawnCalls[1]).not.toContain("--resume");
-    expect(spawnCalls[1]).not.toContain("sess-architect");
+    expect(spawnCalls[1]).toContain("--resume");
+    expect(spawnCalls[1]).toContain("sess-architect");
   });
 
   it("does not remember a claude session from a failed run", async () => {
@@ -1018,7 +1000,7 @@ describe("createChatSessionManager", () => {
 
     expect(sessionSets).toHaveLength(1);
     expect(sessionSets[0]).toEqual({
-      key: "claude-code:project:/Users/onion/workbench/timbre:thread-1:architect",
+      key: "claude-code:project:/Users/onion/workbench/timbre:thread-1",
       sessionId: "sess-persist-1",
     });
   });

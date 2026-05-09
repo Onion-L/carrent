@@ -62,7 +62,7 @@ export function createChatRunner(processRunner: ProcessRunner): ChatRunner {
 
       const text = result.stdout.trim();
       if (!text) {
-        return { ok: false, error: "Received empty response from agent." };
+        return { ok: false, error: "Received empty response from runtime." };
       }
 
       return { ok: true, text };

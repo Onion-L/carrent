@@ -1,5 +1,4 @@
 import {
-  Bot,
   Monitor,
   Settings,
   ArrowUpDown,
@@ -23,13 +22,9 @@ import { useDraftThread } from "../context/DraftThreadContext";
 import { useToast } from "../components/toast/ToastContext";
 import { formatRelativeTime } from "../lib/formatRelativeTime";
 import { splitProjectThreads } from "../lib/projectThreads";
-import { isAgentUiEnabled } from "../../shared/v1Scope";
 
 export function getWorkspaceNavItems() {
-  return [
-    ...(isAgentUiEnabled() ? [{ to: "/agents", label: "Agents", icon: Bot }] : []),
-    { to: "/runtimes", label: "Runtimes", icon: Monitor },
-  ];
+  return [{ to: "/runtimes", label: "Runtimes", icon: Monitor }];
 }
 
 export function buildThreadPath(projectId: string, threadId: string) {

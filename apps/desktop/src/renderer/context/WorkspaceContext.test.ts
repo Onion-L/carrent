@@ -9,7 +9,6 @@ function makeMessage(overrides: Partial<TextMessage> = {}): TextMessage {
   return {
     id: "message-1",
     role: "user",
-    agentId: "architect",
     timestamp: "09:00",
     threadId: "thread-1",
     content: "hello",

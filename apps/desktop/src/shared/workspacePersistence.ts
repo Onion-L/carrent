@@ -1,10 +1,5 @@
 import type { DraftThreadRecord } from "../renderer/lib/draftThreads";
-import type {
-  AgentRecord,
-  Message,
-  ProjectRecord,
-  ThreadRecord,
-} from "../renderer/mock/uiShellData";
+import type { Message, ProjectRecord, ThreadRecord } from "../renderer/mock/uiShellData";
 import { normalizeRuntimeMode } from "./runtimeMode";
 
 export const WORKSPACE_SNAPSHOT_VERSION = 1;
@@ -16,7 +11,6 @@ export type WorkspaceSnapshot = {
   messages: Message[];
   activeThreadId: string | null;
   drafts: DraftThreadRecord[];
-  agents?: AgentRecord[];
 };
 
 export type ProviderSessionSnapshot = {
@@ -40,10 +34,6 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
   if (!Array.isArray(chats)) return null;
 
   const snapshot = value as WorkspaceSnapshot;
-  if (snapshot.agents !== undefined && !Array.isArray(snapshot.agents)) {
-    return null;
-  }
-
   function normalizeThreadRecord<T extends { runtimeMode?: unknown }>(thread: T) {
     return {
       ...thread,

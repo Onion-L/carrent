@@ -17,7 +17,6 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     threadId: "chat-1",
     role: "user",
     content: "hello",
-    agentId: "a1",
     timestamp: "09:00",
     type: "text",
     ...overrides,

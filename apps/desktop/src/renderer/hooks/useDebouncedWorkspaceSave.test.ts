@@ -29,7 +29,6 @@ describe("buildWorkspaceSnapshot", () => {
         {
           id: "m1",
           role: "user",
-          agentId: "a1",
           threadId: "t1",
           content: "hi",
           timestamp: "09:00",

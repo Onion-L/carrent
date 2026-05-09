@@ -69,7 +69,7 @@ describe("normalizeWorkspaceSnapshot", () => {
 
     expect(normalizeWorkspaceSnapshot(snapshot)).toEqual({
       ...snapshot,
-      chats: [{ ...snapshot.chats[0], runtimeMode: "approval-required" }],
+      chats: [{ ...snapshot.chats[0], runtimeId: "codex", runtimeMode: "approval-required" }],
     });
   });
 
@@ -90,10 +90,11 @@ describe("normalizeWorkspaceSnapshot", () => {
       drafts: [],
     });
 
+    expect(snapshot?.projects[0].threads[0].runtimeId).toBe("codex");
     expect(snapshot?.projects[0].threads[0].runtimeMode).toBe("approval-required");
   });
 
-  it("normalizes legacy chats and drafts without runtime mode", () => {
+  it("normalizes legacy chats and drafts without runtime fields", () => {
     const snapshot = normalizeWorkspaceSnapshot({
       version: 1,
       projects: [],
@@ -112,7 +113,41 @@ describe("normalizeWorkspaceSnapshot", () => {
       ],
     });
 
+    expect(snapshot?.chats[0].runtimeId).toBe("codex");
     expect(snapshot?.chats[0].runtimeMode).toBe("approval-required");
+    expect(snapshot?.drafts[0].runtimeId).toBe("codex");
     expect(snapshot?.drafts[0].runtimeMode).toBe("approval-required");
+  });
+
+  it("normalizes invalid runtime ids to codex", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [
+        {
+          id: "p1",
+          name: "P1",
+          path: "/tmp/p1",
+          threads: [{ id: "t1", title: "Old", updatedAt: "now", runtimeId: "bad" }],
+        },
+      ],
+      chats: [{ id: "c1", title: "Chat", updatedAt: "now", runtimeId: "bad" }],
+      messages: [],
+      activeThreadId: null,
+      drafts: [
+        {
+          draftId: "d1",
+          projectId: "p1",
+          title: "Draft",
+          preallocatedThreadId: "t1",
+          createdAt: "now",
+          runtimeId: "bad",
+          messages: [],
+        },
+      ],
+    });
+
+    expect(snapshot?.projects[0].threads[0].runtimeId).toBe("codex");
+    expect(snapshot?.chats[0].runtimeId).toBe("codex");
+    expect(snapshot?.drafts[0].runtimeId).toBe("codex");
   });
 });

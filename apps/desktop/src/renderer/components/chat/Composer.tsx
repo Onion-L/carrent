@@ -11,7 +11,6 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import type { Message } from "../../mock/uiShellData";
 import {
-  DEFAULT_CHAT_RUNTIME_ID,
   type ChatReasoningEventPayload,
   type ChatShellEventPayload,
 } from "../../../shared/chat";
@@ -20,6 +19,8 @@ import {
   getRuntimeModeLabel,
   type RuntimeMode,
 } from "../../../shared/runtimeMode";
+import { runtimeIds, runtimeNameMap, type RuntimeId } from "../../../shared/runtimes";
+import { RuntimeIcon } from "../RuntimeIcon";
 
 function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: string }) {
   switch (mode) {
@@ -40,7 +41,9 @@ type ComposerProps =
       title: string;
       preallocatedThreadId: string;
       messages: Message[];
+      runtimeId: RuntimeId;
       runtimeMode: RuntimeMode;
+      onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
     }
   | {
@@ -48,14 +51,18 @@ type ComposerProps =
       projectId: string;
       threadId: string;
       messages: Message[];
+      runtimeId: RuntimeId;
       runtimeMode: RuntimeMode;
+      onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
     }
   | {
       mode: "chat";
       threadId: string;
       messages: Message[];
+      runtimeId: RuntimeId;
       runtimeMode: RuntimeMode;
+      onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
     };
 
@@ -110,6 +117,7 @@ export function Composer(props: ComposerProps) {
   const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
   const { runningThreadIds, send, stop } = useChatRun();
   const [input, setInput] = useState("");
+  const [showRuntimePicker, setShowRuntimePicker] = useState(false);
   const [showModePicker, setShowModePicker] = useState(false);
   const receivedTextRef = useRef("");
   const visibleTextRef = useRef("");
@@ -345,7 +353,7 @@ export function Composer(props: ComposerProps) {
                 title: props.title,
               }
             : undefined,
-        runtimeId: DEFAULT_CHAT_RUNTIME_ID,
+        runtimeId: props.runtimeId,
         runtimeMode: props.runtimeMode,
         transcript,
         message: messageText,
@@ -411,6 +419,43 @@ export function Composer(props: ComposerProps) {
           />
           <div className="mt-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
+              {props.onRuntimeIdChange ? (
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      if (!isThreadSending) {
+                        setShowRuntimePicker((v) => !v);
+                      }
+                    }}
+                    disabled={isThreadSending}
+                    className="flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-raised px-2.5 py-1 text-[11px] text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
+                    title={isThreadSending ? "Locked while runtime is running" : "Runtime"}
+                  >
+                    <RuntimeIcon name={runtimeNameMap[props.runtimeId]} size="xs" />
+                    <span>{runtimeNameMap[props.runtimeId]}</span>
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                  {showRuntimePicker && (
+                    <div className="absolute bottom-full left-0 mb-1.5 w-44 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
+                      {runtimeIds.map((runtimeId) => (
+                        <button
+                          key={runtimeId}
+                          onClick={() => {
+                            props.onRuntimeIdChange!(runtimeId);
+                            setShowRuntimePicker(false);
+                          }}
+                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                            runtimeId === props.runtimeId ? "text-fg" : "text-muted"
+                          }`}
+                        >
+                          <RuntimeIcon name={runtimeNameMap[runtimeId]} size="xs" />
+                          <span>{runtimeNameMap[runtimeId]}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
               {props.onRuntimeModeChange ? (
                 <div className="relative">
                   <button

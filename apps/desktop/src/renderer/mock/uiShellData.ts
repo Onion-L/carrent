@@ -1,9 +1,11 @@
 import type { RuntimeMode } from "../../shared/runtimeMode";
+import type { RuntimeId } from "../../shared/runtimes";
 
 export type ThreadRecord = {
   id: string;
   title: string;
   updatedAt: string;
+  runtimeId?: RuntimeId;
   runtimeMode?: RuntimeMode;
   pinned?: boolean;
   archived?: boolean;

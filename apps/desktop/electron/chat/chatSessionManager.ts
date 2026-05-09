@@ -957,6 +957,7 @@ export function createChatSessionManager(options: {
           id: request.threadId,
           title: request.draftRef.title,
           updatedAt: new Date().toISOString(),
+          runtimeId: request.runtimeId,
           runtimeMode: request.runtimeMode,
         },
       });

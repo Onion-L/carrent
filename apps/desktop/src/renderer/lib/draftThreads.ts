@@ -1,5 +1,6 @@
 import type { Message } from "../mock/uiShellData";
 import { DEFAULT_RUNTIME_MODE, type RuntimeMode } from "../../shared/runtimeMode";
+import { DEFAULT_RUNTIME_ID, type RuntimeId } from "../../shared/runtimes";
 
 export type DraftThreadRecord = {
   draftId: string;
@@ -7,6 +8,7 @@ export type DraftThreadRecord = {
   title: string;
   preallocatedThreadId: string;
   createdAt: string;
+  runtimeId?: RuntimeId;
   runtimeMode?: RuntimeMode;
   promotedToThreadId?: string;
   messages: Message[];
@@ -33,6 +35,7 @@ export function buildDraftThreadRecord(projectId: string, title: string): DraftT
     title: nextTitle,
     preallocatedThreadId: createId("thread"),
     createdAt: new Date().toISOString(),
+    runtimeId: DEFAULT_RUNTIME_ID,
     runtimeMode: DEFAULT_RUNTIME_MODE,
     messages: [],
   };
@@ -84,4 +87,12 @@ export function setDraftThreadRuntimeMode(
   runtimeMode: RuntimeMode,
 ) {
   return drafts.map((draft) => (draft.draftId === draftId ? { ...draft, runtimeMode } : draft));
+}
+
+export function setDraftThreadRuntimeId(
+  drafts: DraftThreadRecord[],
+  draftId: string,
+  runtimeId: RuntimeId,
+) {
+  return drafts.map((draft) => (draft.draftId === draftId ? { ...draft, runtimeId } : draft));
 }

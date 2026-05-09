@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import type { ProjectRecord, ThreadRecord } from "../mock/uiShellData";
 import {
@@ -10,7 +11,9 @@ import {
   findCurrentProject,
   findCurrentThread,
   resolveChatThreadRouteData,
+  setChatThreadRuntimeId,
   setChatThreadRuntimeMode,
+  setThreadRuntimeIdInProjects,
   setThreadRuntimeModeInProjects,
   toggleChatThreadPin,
   upsertChatThread,
@@ -238,8 +241,17 @@ describe("workspaceState", () => {
     expect(result.thread?.runtimeMode).toBe(DEFAULT_RUNTIME_MODE);
   });
 
+  it("creates project threads with the default runtime", () => {
+    const result = createThreadInProjects([makeProject({ id: "p1" }, [])], "p1", "New");
+    expect(result.thread?.runtimeId).toBe(DEFAULT_RUNTIME_ID);
+  });
+
   it("creates chat threads with the safe runtime mode", () => {
     expect(createChatThread("Ideas")?.runtimeMode).toBe(DEFAULT_RUNTIME_MODE);
+  });
+
+  it("creates chat threads with the default runtime", () => {
+    expect(createChatThread("Ideas")?.runtimeId).toBe(DEFAULT_RUNTIME_ID);
   });
 
   it("sets runtime mode on a project thread", () => {
@@ -248,8 +260,19 @@ describe("workspaceState", () => {
     expect(updated[0].threads[0].runtimeMode).toBe("auto-accept-edits");
   });
 
+  it("sets runtime on a project thread", () => {
+    const projects = [makeProject({ id: "p1" }, [makeThread({ id: "t1" })])];
+    const updated = setThreadRuntimeIdInProjects(projects, "p1", "t1", "claude-code");
+    expect(updated[0].threads[0].runtimeId).toBe("claude-code");
+  });
+
   it("sets runtime mode on a chat thread", () => {
     const updated = setChatThreadRuntimeMode([makeThread({ id: "c1" })], "c1", "full-access");
     expect(updated[0].runtimeMode).toBe("full-access");
+  });
+
+  it("sets runtime on a chat thread", () => {
+    const updated = setChatThreadRuntimeId([makeThread({ id: "c1" })], "c1", "claude-code");
+    expect(updated[0].runtimeId).toBe("claude-code");
   });
 });

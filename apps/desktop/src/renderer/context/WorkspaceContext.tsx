@@ -21,6 +21,8 @@ import {
   renameProjectInProjects,
   resolveChatThreadRouteData,
   setChatThreadRuntimeMode,
+  setChatThreadRuntimeId,
+  setThreadRuntimeIdInProjects,
   setThreadRuntimeModeInProjects,
   toggleChatThreadPin,
   toggleThreadPinInProjects,
@@ -31,6 +33,7 @@ import {
   buildWorkspaceSnapshot,
   useDebouncedWorkspaceSave,
 } from "../hooks/useDebouncedWorkspaceSave";
+import type { RuntimeId } from "../../shared/runtimes";
 
 export type WorkspaceContextValue = {
   projects: ProjectRecord[];
@@ -81,10 +84,12 @@ export type WorkspaceContextValue = {
     threadId: string,
     runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
   ) => void;
+  setThreadRuntimeId: (projectId: string, threadId: string, runtimeId: RuntimeId) => void;
   setChatRuntimeMode: (
     threadId: string,
     runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
   ) => void;
+  setChatRuntimeId: (threadId: string, runtimeId: RuntimeId) => void;
 };
 
 export type MessagePartUpdate =
@@ -133,7 +138,9 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   updateMessage: () => {},
   updateMessageParts: () => {},
   setThreadRuntimeMode: () => {},
+  setThreadRuntimeId: () => {},
   setChatRuntimeMode: () => {},
+  setChatRuntimeId: () => {},
 });
 
 function formatTime(date: Date): string {
@@ -394,11 +401,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setProjects((prev) => setThreadRuntimeModeInProjects(prev, projectId, threadId, runtimeMode));
   };
 
+  const setThreadRuntimeId = (projectId: string, threadId: string, runtimeId: RuntimeId) => {
+    setProjects((prev) => setThreadRuntimeIdInProjects(prev, projectId, threadId, runtimeId));
+  };
+
   const setChatRuntimeMode = (
     threadId: string,
     runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
   ) => {
     setChats((prev) => setChatThreadRuntimeMode(prev, threadId, runtimeMode));
+  };
+
+  const setChatRuntimeId = (threadId: string, runtimeId: RuntimeId) => {
+    setChats((prev) => setChatThreadRuntimeId(prev, threadId, runtimeId));
   };
 
   const upsertMessages = (incomingMessages: Message[]) => {
@@ -465,7 +480,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         updateMessage,
         updateMessageParts,
         setThreadRuntimeMode,
+        setThreadRuntimeId,
         setChatRuntimeMode,
+        setChatRuntimeId,
       }}
     >
       {children}

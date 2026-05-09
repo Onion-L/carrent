@@ -5,6 +5,7 @@ import {
   createDraftThread,
   finalizePromotedDraftThreadByRef,
   markPromotedDraftThreadByRef,
+  setDraftThreadRuntimeId,
   setDraftThreadRuntimeMode,
 } from "./draftThreads";
 
@@ -114,9 +115,20 @@ describe("draftThreads", () => {
     expect(draft?.runtimeMode).toBe("approval-required");
   });
 
+  it("builds drafts with the default runtime", () => {
+    const draft = buildDraftThreadRecord("project-1", "New thread");
+    expect(draft?.runtimeId).toBe("codex");
+  });
+
   it("updates a draft runtime mode", () => {
     const draft = makeDraft({ draftId: "d1" });
     const updated = setDraftThreadRuntimeMode([draft], "d1", "auto-accept-edits");
     expect(updated[0].runtimeMode).toBe("auto-accept-edits");
+  });
+
+  it("updates a draft runtime", () => {
+    const draft = makeDraft({ draftId: "d1" });
+    const updated = setDraftThreadRuntimeId([draft], "d1", "claude-code");
+    expect(updated[0].runtimeId).toBe("claude-code");
   });
 });

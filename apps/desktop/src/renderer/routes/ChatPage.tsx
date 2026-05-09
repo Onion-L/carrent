@@ -6,6 +6,7 @@ import { Composer } from "../components/chat/Composer";
 import { MessageTimeline } from "../components/chat/MessageTimeline";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
+import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
 
 export function resolveChatRouteData(
   getChatRouteData: ReturnType<typeof useWorkspace>["getChatRouteData"],
@@ -20,7 +21,8 @@ export function resolveChatRouteData(
 
 export function ChatPage() {
   const { threadId } = useParams();
-  const { getChatRouteData, setActiveThreadId, setChatRuntimeMode } = useWorkspace();
+  const { getChatRouteData, setActiveThreadId, setChatRuntimeMode, setChatRuntimeId } =
+    useWorkspace();
   const routeData = resolveChatRouteData(getChatRouteData, threadId);
 
   useEffect(() => {
@@ -36,7 +38,9 @@ export function ChatPage() {
           mode="chat"
           threadId={routeData.thread.id}
           messages={routeData.messages}
+          runtimeId={routeData.thread.runtimeId ?? DEFAULT_RUNTIME_ID}
           runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
+          onRuntimeIdChange={(runtimeId) => setChatRuntimeId(routeData.thread.id, runtimeId)}
           onRuntimeModeChange={(mode) => setChatRuntimeMode(routeData.thread.id, mode)}
         />
       ) : null}

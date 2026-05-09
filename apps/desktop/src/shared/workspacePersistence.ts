@@ -1,6 +1,7 @@
 import type { DraftThreadRecord } from "../renderer/lib/draftThreads";
 import type { Message, ProjectRecord, ThreadRecord } from "../renderer/mock/uiShellData";
 import { normalizeRuntimeMode } from "./runtimeMode";
+import { normalizeRuntimeId } from "./runtimes";
 
 export const WORKSPACE_SNAPSHOT_VERSION = 1;
 
@@ -34,9 +35,12 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
   if (!Array.isArray(chats)) return null;
 
   const snapshot = value as WorkspaceSnapshot;
-  function normalizeThreadRecord<T extends { runtimeMode?: unknown }>(thread: T) {
+  function normalizeThreadRecord<T extends { runtimeId?: unknown; runtimeMode?: unknown }>(
+    thread: T,
+  ) {
     return {
       ...thread,
+      runtimeId: normalizeRuntimeId(thread.runtimeId),
       runtimeMode: normalizeRuntimeMode(thread.runtimeMode),
     };
   }
@@ -50,6 +54,7 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
     chats: chats.map(normalizeThreadRecord),
     drafts: snapshot.drafts.map((draft) => ({
       ...draft,
+      runtimeId: normalizeRuntimeId(draft.runtimeId),
       runtimeMode: normalizeRuntimeMode(draft.runtimeMode),
     })),
   };

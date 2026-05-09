@@ -8,6 +8,7 @@ import { useDraftThread } from "../context/DraftThreadContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useDraftThreadPromotion } from "../hooks/useDraftThreadPromotion";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
+import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
 import type { DraftThreadRecord } from "../lib/draftThreads";
 
 export function resolvePromotedDraftRoute(draft: DraftThreadRecord | null | undefined) {
@@ -21,7 +22,7 @@ export function resolvePromotedDraftRoute(draft: DraftThreadRecord | null | unde
 export function DraftThreadPage() {
   const { draftId } = useParams();
   const navigate = useNavigate();
-  const { getDraftById, setDraftRuntimeMode } = useDraftThread();
+  const { getDraftById, setDraftRuntimeMode, setDraftRuntimeId } = useDraftThread();
   const { setActiveThreadId } = useWorkspace();
   const draft = draftId ? getDraftById(draftId) : null;
   const promotedRoute = resolvePromotedDraftRoute(draft);
@@ -52,7 +53,9 @@ export function DraftThreadPage() {
           title={draft.title}
           preallocatedThreadId={draft.preallocatedThreadId}
           messages={draft.messages}
+          runtimeId={draft.runtimeId ?? DEFAULT_RUNTIME_ID}
           runtimeMode={draft.runtimeMode ?? DEFAULT_RUNTIME_MODE}
+          onRuntimeIdChange={(runtimeId) => setDraftRuntimeId(draft.draftId, runtimeId)}
           onRuntimeModeChange={(mode) => setDraftRuntimeMode(draft.draftId, mode)}
         />
       ) : null}

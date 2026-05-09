@@ -7,6 +7,7 @@ import { MessageTimeline } from "../components/chat/MessageTimeline";
 import { useDraftThread } from "../context/DraftThreadContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
+import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
 import type { DraftThreadRecord } from "../lib/draftThreads";
 
 export function resolveThreadRouteData(
@@ -39,7 +40,8 @@ export function findPromotedDraftToFinalize(
 
 export function ThreadPage() {
   const { projectId, threadId } = useParams();
-  const { getThreadRouteData, setActiveThreadId, setThreadRuntimeMode } = useWorkspace();
+  const { getThreadRouteData, setActiveThreadId, setThreadRuntimeMode, setThreadRuntimeId } =
+    useWorkspace();
   const { drafts, finalizePromotedDraftThreadByRef } = useDraftThread();
   const routeData = resolveThreadRouteData(getThreadRouteData, projectId, threadId);
   const promotedDraft = findPromotedDraftToFinalize(drafts, projectId, threadId);
@@ -66,7 +68,11 @@ export function ThreadPage() {
           projectId={routeData.project.id}
           threadId={routeData.thread.id}
           messages={routeData.messages}
+          runtimeId={routeData.thread.runtimeId ?? DEFAULT_RUNTIME_ID}
           runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
+          onRuntimeIdChange={(runtimeId) =>
+            setThreadRuntimeId(routeData.project.id, routeData.thread.id, runtimeId)
+          }
           onRuntimeModeChange={(mode) =>
             setThreadRuntimeMode(routeData.project.id, routeData.thread.id, mode)
           }

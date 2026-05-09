@@ -374,6 +374,33 @@ describe("createChatSessionManager", () => {
     expect(upserted?.thread.runtimeMode).toBe("auto-accept-edits");
   });
 
+  it("emits promoted draft threads with the request runtime", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start(
+      "run-draft-runtime",
+      makeRequest({
+        runtimeId: "claude-code",
+        draftRef: {
+          draftId: "draft-1",
+          projectId: "p1",
+          title: "Draft title",
+        },
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const upserted = emitted.find((event) => event.type === "thread-upserted");
+    expect(upserted?.thread.runtimeId).toBe("claude-code");
+  });
+
   it("does not emit thread-upserted for a normal real-thread message", async () => {
     const mockChild = createMockChildProcess();
     const emitted: ChatRunEvent[] = [];

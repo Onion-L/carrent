@@ -8,6 +8,10 @@ export type RuntimeVerificationState = "never" | "passed" | "failed" | "unsuppor
 
 export type RuntimeId = "codex" | "claude-code" | "pi";
 
+export const DEFAULT_RUNTIME_ID: RuntimeId = "codex";
+
+export const runtimeIds: RuntimeId[] = ["codex", "claude-code", "pi"];
+
 export interface RuntimeRecord {
   id: RuntimeId;
   name: string;
@@ -73,3 +77,7 @@ export const runtimeNameMap: Record<RuntimeId, string> = {
   "claude-code": "Claude Code",
   pi: "pi",
 };
+
+export function normalizeRuntimeId(value: unknown): RuntimeId {
+  return runtimeIds.includes(value as RuntimeId) ? (value as RuntimeId) : DEFAULT_RUNTIME_ID;
+}

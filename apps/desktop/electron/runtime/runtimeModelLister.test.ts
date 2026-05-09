@@ -166,6 +166,22 @@ describe("listRuntimeModels", () => {
     ]);
   });
 
+  it("parses model rows from stderr when pi writes the table there", async () => {
+    const result = await listRuntimeModels(createPiRuntimeDescriptor(), {
+      now: () => new Date("2026-04-23T00:00:00.000Z"),
+      run: async () => ({
+        ...createSuccessResult(""),
+        stderr: SAMPLE_MODEL_TABLE,
+      }),
+    });
+
+    expect(result).toEqual({
+      state: "listed",
+      models: parsePiModelList(SAMPLE_MODEL_TABLE),
+      lastListedAt: "2026-04-23T00:00:00.000Z",
+    });
+  });
+
   it("returns unsupported for non-pi without invoking the CLI", async () => {
     let runCalls = 0;
 

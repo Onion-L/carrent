@@ -1,5 +1,14 @@
 import { useState, useMemo, useEffect } from "react";
-import { RefreshCw, Square, Play, Plug, Monitor, ChevronRight } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Monitor,
+  Play,
+  Plug,
+  RefreshCw,
+  Square,
+} from "lucide-react";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { RuntimeIcon } from "../components/RuntimeIcon";
@@ -41,6 +50,7 @@ export function RuntimesPage() {
     setActiveThreadId(null);
   }, [setActiveThreadId]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showModelPicker, setShowModelPicker] = useState(false);
 
   const sortedRuntimes = useMemo(() => {
     return getDetectedRuntimes(runtimes).sort((a, b) => a.name.localeCompare(b.name));
@@ -63,6 +73,13 @@ export function RuntimesPage() {
     error: runtimeModelsError,
     refresh: refreshRuntimeModels,
   } = useRuntimeModels(selectedRuntime?.id === "pi" ? selectedRuntime.id : null);
+  const selectedRuntimeModel = runtimeModels.find((model) => model.id === selectedRuntimeModelId);
+  const selectedRuntimeModelLabel =
+    selectedRuntimeModel == null
+      ? selectedRuntimeModelId || "Use pi default"
+      : selectedRuntimeModel.provider
+        ? `${selectedRuntimeModel.provider} / ${selectedRuntimeModel.name}`
+        : selectedRuntimeModel.name;
 
   const getActionState = (id: string) => actionStateById[id] ?? "idle";
 
@@ -83,6 +100,7 @@ export function RuntimesPage() {
     }
 
     updateSetting("runtimeDefaultModelById", nextRuntimeDefaultModelById);
+    setShowModelPicker(false);
   };
 
   const enabledCount = sortedRuntimes.filter((r) => r.enabled).length;
@@ -317,23 +335,61 @@ export function RuntimesPage() {
                     </button>
                   </div>
 
-                  <select
-                    value={selectedRuntimeModelId}
-                    onChange={(event) => updateDefaultModel(event.target.value)}
-                    disabled={runtimeModelsLoading && runtimeModels.length === 0}
-                    className="mt-4 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-fg outline-none transition focus:border-border-strong disabled:opacity-50"
-                  >
-                    <option value="">Use pi default</option>
-                    {selectedRuntimeModelId &&
-                      runtimeModels.every((model) => model.id !== selectedRuntimeModelId) && (
-                        <option value={selectedRuntimeModelId}>{selectedRuntimeModelId}</option>
-                      )}
-                    {runtimeModels.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.provider ? `${model.provider} / ${model.name}` : model.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative mt-4">
+                    <button
+                      onClick={() => setShowModelPicker((value) => !value)}
+                      disabled={runtimeModelsLoading && runtimeModels.length === 0}
+                      className="flex w-full items-center justify-between gap-3 rounded-md border border-border bg-surface px-3 py-2 text-left text-sm text-fg outline-none transition hover:border-border-strong disabled:opacity-50"
+                    >
+                      <span className="truncate">{selectedRuntimeModelLabel}</span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-subtle" />
+                    </button>
+
+                    {showModelPicker && (
+                      <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
+                        <button
+                          onClick={() => updateDefaultModel("")}
+                          className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition hover:bg-surface-raised ${
+                            selectedRuntimeModelId ? "text-muted" : "text-fg"
+                          }`}
+                        >
+                          <span>Use pi default</span>
+                          {!selectedRuntimeModelId && <Check className="h-3.5 w-3.5" />}
+                        </button>
+
+                        {selectedRuntimeModelId &&
+                          runtimeModels.every((model) => model.id !== selectedRuntimeModelId) && (
+                            <button
+                              onClick={() => updateDefaultModel(selectedRuntimeModelId)}
+                              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-fg transition hover:bg-surface-raised"
+                            >
+                              <span className="truncate">{selectedRuntimeModelId}</span>
+                              <Check className="h-3.5 w-3.5 shrink-0" />
+                            </button>
+                          )}
+
+                        {runtimeModels.map((model) => {
+                          const label = model.provider
+                            ? `${model.provider} / ${model.name}`
+                            : model.name;
+                          const isSelected = model.id === selectedRuntimeModelId;
+
+                          return (
+                            <button
+                              key={model.id}
+                              onClick={() => updateDefaultModel(model.id)}
+                              className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition hover:bg-surface-raised ${
+                                isSelected ? "text-fg" : "text-muted"
+                              }`}
+                            >
+                              <span className="truncate">{label}</span>
+                              {isSelected && <Check className="h-3.5 w-3.5 shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
 
                   {runtimeModelsError ? (
                     <p className="mt-2 text-xs text-danger">{runtimeModelsError}</p>

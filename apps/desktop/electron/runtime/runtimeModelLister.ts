@@ -46,7 +46,7 @@ export async function listRuntimeModels(
 
   return {
     state: "listed",
-    models: parsePiModelList(result.stdout),
+    models: parsePiModelList(`${result.stdout}\n${result.stderr}`),
     lastListedAt,
   };
 }

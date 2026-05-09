@@ -1,85 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import type { RuntimeId, RuntimeModelListResult } from "../../shared/runtimes";
-
-type RuntimeModelsState = {
-  resultById: Partial<Record<RuntimeId, RuntimeModelListResult>>;
-  loadingById: Partial<Record<RuntimeId, boolean>>;
-  errorById: Partial<Record<RuntimeId, string>>;
-};
+import type { RuntimeId } from "../../shared/runtimes";
+import { useRuntimeModelsStore } from "../context/RuntimeModelsContext";
 
 export function useRuntimeModels(runtimeId: RuntimeId | null) {
-  const inFlightRef = useRef(new Set<RuntimeId>());
-  const [state, setState] = useState<RuntimeModelsState>({
-    resultById: {},
-    loadingById: {},
-    errorById: {},
-  });
-
-  const refresh = useCallback(async (id: RuntimeId) => {
-    if (inFlightRef.current.has(id)) {
-      return;
-    }
-
-    inFlightRef.current.add(id);
-    setState((current) => ({
-      ...current,
-      loadingById: {
-        ...current.loadingById,
-        [id]: true,
-      },
-      errorById: {
-        ...current.errorById,
-        [id]: undefined,
-      },
-    }));
-
-    try {
-      const result = await window.carrent.runtimes.listModels(id);
-      setState((current) => ({
-        ...current,
-        resultById: {
-          ...current.resultById,
-          [id]: result,
-        },
-        loadingById: {
-          ...current.loadingById,
-          [id]: false,
-        },
-        errorById: {
-          ...current.errorById,
-          [id]:
-            result.state === "failed" ? (result.lastError ?? "Failed to list runtime models.") : undefined,
-        },
-      }));
-    } catch (error) {
-      setState((current) => ({
-        ...current,
-        loadingById: {
-          ...current.loadingById,
-          [id]: false,
-        },
-        errorById: {
-          ...current.errorById,
-          [id]: getErrorMessage(error, "Failed to list runtime models."),
-        },
-      }));
-    } finally {
-      inFlightRef.current.delete(id);
-    }
-  }, []);
+  const store = useRuntimeModelsStore();
+  const state = useSyncExternalStore(store.subscribe, store.getState, store.getState);
+  const refresh = useCallback((id: RuntimeId) => store.refresh(id), [store]);
 
   useEffect(() => {
     if (!runtimeId) {
       return;
     }
 
-    if (state.resultById[runtimeId] || state.loadingById[runtimeId] || inFlightRef.current.has(runtimeId)) {
-      return;
-    }
-
-    void refresh(runtimeId);
-  }, [refresh, runtimeId, state.loadingById, state.resultById]);
+    void store.ensureFresh(runtimeId);
+  }, [runtimeId, store]);
 
   const result = runtimeId ? (state.resultById[runtimeId] ?? null) : null;
   const loading = runtimeId ? (state.loadingById[runtimeId] ?? false) : false;
@@ -95,12 +30,4 @@ export function useRuntimeModels(runtimeId: RuntimeId | null) {
     error,
     refresh,
   };
-}
-
-function getErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.length > 0) {
-    return error.message;
-  }
-
-  return fallback;
 }

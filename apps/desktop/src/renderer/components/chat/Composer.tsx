@@ -244,7 +244,7 @@ export function Composer(props: ComposerProps) {
   const messagesLength = props.messages.length;
   const onRuntimeIdChange = props.onRuntimeIdChange;
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
-  const modelRuntimeId = props.runtimeId;
+  const modelRuntimeId = props.runtimeId === "pi" ? props.runtimeId : null;
   const { models } = useRuntimeModels(modelRuntimeId);
   const {
     models: cascadingModels,
@@ -900,9 +900,7 @@ export function Composer(props: ComposerProps) {
                             }}
                             className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] text-fg transition hover:bg-surface-raised"
                           >
-                            <span className="min-w-0 whitespace-normal break-words">
-                              {props.runtimeModelId}
-                            </span>
+                            <span className="min-w-0 truncate">{props.runtimeModelId}</span>
                             <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
                           </button>
                         ) : null}
@@ -930,9 +928,7 @@ export function Composer(props: ComposerProps) {
                                   isSelected ? "text-fg" : "text-muted"
                                 }`}
                               >
-                                <span className="min-w-0 whitespace-normal break-words">
-                                  {label}
-                                </span>
+                                <span className="min-w-0 truncate">{label}</span>
                                 {isSelected ? (
                                   <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
                                 ) : null}

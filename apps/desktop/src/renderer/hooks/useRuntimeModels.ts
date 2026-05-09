@@ -85,10 +85,12 @@ export function useRuntimeModels(runtimeId: RuntimeId | null) {
   const loading = runtimeId ? (state.loadingById[runtimeId] ?? false) : false;
   const error = runtimeId ? state.errorById[runtimeId] : undefined;
   const models = useMemo(() => result?.models ?? [], [result]);
+  const defaultModelId = useMemo(() => result?.defaultModelId, [result]);
 
   return {
     result,
     models,
+    defaultModelId,
     loading,
     error,
     refresh,

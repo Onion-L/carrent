@@ -64,6 +64,7 @@ export type RuntimeModelListState = "listed" | "unsupported" | "failed";
 export interface RuntimeModelListResult {
   state: RuntimeModelListState;
   models: RuntimeModelRecord[];
+  defaultModelId?: string;
   lastListedAt?: string;
   lastError?: string;
 }

@@ -221,11 +221,11 @@ export function Composer(props: ComposerProps) {
   const onRuntimeIdChange = props.onRuntimeIdChange;
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
   const modelRuntimeId = props.runtimeId;
-  const { models } = useRuntimeModels(modelRuntimeId);
+  const { models, defaultModelId } = useRuntimeModels(modelRuntimeId);
   const { models: cascadingModels, loading: cascadingLoading } = useRuntimeModels(
     cascadingRuntimeId,
   );
-  const effectiveRuntimeModelId = props.runtimeModelId;
+  const effectiveRuntimeModelId = props.runtimeModelId ?? defaultModelId;
   const selectedRuntimeModel = models.find((model) => model.id === effectiveRuntimeModelId);
   const isSelectedRuntimeAvailable = isChatRuntimeAvailable(props.runtimeId, runtimes);
   const runtimeButtonLabel = runtimesLoading
@@ -656,7 +656,7 @@ export function Composer(props: ComposerProps) {
               }
             : undefined,
         runtimeId: props.runtimeId,
-        runtimeModelId: props.runtimeModelId,
+        runtimeModelId: effectiveRuntimeModelId,
         runtimeMode: props.runtimeMode,
         transcript,
         message: messageText,

@@ -16,6 +16,40 @@ interface RuntimeModelListerDeps {
   now?: () => Date;
 }
 
+async function getDefaultModelId(
+  runtime: RuntimeDescriptor,
+  run: ProcessRunner["run"],
+  models: RuntimeModelRecord[],
+): Promise<string | undefined> {
+  const result = await run(runtime.command, ["--default-model"], {
+    cwd: LIST_MODELS_CWD,
+    timeoutMs: 5000,
+  });
+
+  if (!result.ok) {
+    return models[0]?.id;
+  }
+
+  const output = `${result.stdout}\n${result.stderr}`.trim();
+  if (!output) {
+    return models[0]?.id;
+  }
+
+  const matched = models.find((m) => m.id === output);
+  if (matched) {
+    return matched.id;
+  }
+
+  const matchedByName = models.find(
+    (m) => m.name === output || m.id.endsWith(`/${output}`),
+  );
+  if (matchedByName) {
+    return matchedByName.id;
+  }
+
+  return models[0]?.id;
+}
+
 export async function listRuntimeModels(
   runtime: RuntimeDescriptor,
   deps: RuntimeModelListerDeps = {},
@@ -44,9 +78,13 @@ export async function listRuntimeModels(
     };
   }
 
+  const models = parsePiModelList(`${result.stdout}\n${result.stderr}`);
+  const defaultModelId = await getDefaultModelId(runtime, run, models);
+
   return {
     state: "listed",
-    models: parsePiModelList(`${result.stdout}\n${result.stderr}`),
+    models,
+    defaultModelId,
     lastListedAt,
   };
 }

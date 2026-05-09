@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUp, ChevronDown, ChevronRight, Lock, Pencil, Square } from "lucide-react";
+import { AlertTriangle, ArrowUp, ChevronDown, ChevronLeft, Lock, Pencil, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
@@ -569,11 +569,11 @@ export function Composer(props: ComposerProps) {
                                 <RuntimeIcon name={runtime.name} size="xs" />
                                 <span>{runtime.name}</span>
                                 {showCascading && (
-                                  <ChevronRight className="ml-auto h-3 w-3" />
+                                  <ChevronLeft className="ml-auto h-3 w-3" />
                                 )}
                               </button>
                               {showCascading && props.onRuntimeModelIdChange && (
-                                <div className="absolute left-full top-0 pl-1">
+                                <div className="absolute right-full top-0 pr-1">
                                   <div className="w-56 max-h-64 overflow-y-auto rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
                                     {displayCascadingLoading ? (
                                       <div className="px-3 py-2 text-[12px] text-subtle">

@@ -13,8 +13,10 @@ import {
   resolveChatThreadRouteData,
   setChatThreadRuntimeId,
   setChatThreadRuntimeMode,
+  setChatThreadRuntimeModelId,
   setThreadRuntimeIdInProjects,
   setThreadRuntimeModeInProjects,
+  setThreadRuntimeModelIdInProjects,
   toggleChatThreadPin,
   upsertChatThread,
   upsertThreadInProjects,
@@ -67,6 +69,18 @@ describe("workspaceState", () => {
     expect(result.projects[0]?.threads[0]?.id).toBe(result.thread?.id);
     expect(result.projects[0]?.threads[0]?.title).toBe("New thread");
     expect(result.projects[0]?.threads).toHaveLength(3);
+  });
+
+  it("creates a new thread with a runtime model id", () => {
+    const result = createThreadInProjects(
+      [makeProject({ id: "project-a" }, [])],
+      "project-a",
+      "New thread",
+      "codex",
+      "gpt-5",
+    );
+
+    expect(result.thread?.runtimeModelId).toBe("gpt-5");
   });
 
   it("archives the active thread and returns the next visible thread id", () => {
@@ -176,6 +190,10 @@ describe("workspaceState", () => {
     expect(thread?.title).toBe("Product vision");
   });
 
+  it("creates a chat thread with a runtime model id", () => {
+    expect(createChatThread("Ideas", "pi", "gpt-5")?.runtimeModelId).toBe("gpt-5");
+  });
+
   it("rejects empty chat thread titles", () => {
     expect(createChatThread("   ")).toBe(null);
   });
@@ -280,6 +298,12 @@ describe("workspaceState", () => {
     expect(updated[0].threads[0].runtimeId).toBe("claude-code");
   });
 
+  it("sets runtime model id on a project thread", () => {
+    const projects = [makeProject({ id: "p1" }, [makeThread({ id: "t1" })])];
+    const updated = setThreadRuntimeModelIdInProjects(projects, "p1", "t1", "gpt-5");
+    expect(updated[0].threads[0].runtimeModelId).toBe("gpt-5");
+  });
+
   it("sets runtime mode on a chat thread", () => {
     const updated = setChatThreadRuntimeMode([makeThread({ id: "c1" })], "c1", "full-access");
     expect(updated[0].runtimeMode).toBe("full-access");
@@ -288,5 +312,10 @@ describe("workspaceState", () => {
   it("sets runtime on a chat thread", () => {
     const updated = setChatThreadRuntimeId([makeThread({ id: "c1" })], "c1", "claude-code");
     expect(updated[0].runtimeId).toBe("claude-code");
+  });
+
+  it("sets runtime model id on a chat thread", () => {
+    const updated = setChatThreadRuntimeModelId([makeThread({ id: "c1" })], "c1", "gpt-5");
+    expect(updated[0].runtimeModelId).toBe("gpt-5");
   });
 });

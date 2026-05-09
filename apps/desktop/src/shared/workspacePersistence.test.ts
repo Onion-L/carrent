@@ -150,4 +150,70 @@ describe("normalizeWorkspaceSnapshot", () => {
     expect(snapshot?.chats[0].runtimeId).toBe("codex");
     expect(snapshot?.drafts[0].runtimeId).toBe("codex");
   });
+
+  it("preserves valid runtime model ids for threads, chats, and drafts", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [
+        {
+          id: "p1",
+          name: "P1",
+          path: "/tmp/p1",
+          threads: [
+            { id: "t1", title: "Thread", updatedAt: "now", runtimeModelId: " gpt-5 " },
+          ],
+        },
+      ],
+      chats: [{ id: "c1", title: "Chat", updatedAt: "now", runtimeModelId: "gpt-5" }],
+      messages: [],
+      activeThreadId: null,
+      drafts: [
+        {
+          draftId: "d1",
+          projectId: "p1",
+          title: "Draft",
+          preallocatedThreadId: "t1",
+          createdAt: "now",
+          runtimeModelId: "gpt-5",
+          messages: [],
+        },
+      ],
+    });
+
+    expect(snapshot?.projects[0].threads[0].runtimeModelId).toBe("gpt-5");
+    expect(snapshot?.chats[0].runtimeModelId).toBe("gpt-5");
+    expect(snapshot?.drafts[0].runtimeModelId).toBe("gpt-5");
+  });
+
+  it("drops invalid runtime model ids for threads, chats, and drafts", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [
+        {
+          id: "p1",
+          name: "P1",
+          path: "/tmp/p1",
+          threads: [{ id: "t1", title: "Thread", updatedAt: "now", runtimeModelId: "   " }],
+        },
+      ],
+      chats: [{ id: "c1", title: "Chat", updatedAt: "now", runtimeModelId: "" }],
+      messages: [],
+      activeThreadId: null,
+      drafts: [
+        {
+          draftId: "d1",
+          projectId: "p1",
+          title: "Draft",
+          preallocatedThreadId: "t1",
+          createdAt: "now",
+          runtimeModelId: "   ",
+          messages: [],
+        },
+      ],
+    });
+
+    expect(snapshot?.projects[0].threads[0].runtimeModelId).toBeUndefined();
+    expect(snapshot?.chats[0].runtimeModelId).toBeUndefined();
+    expect(snapshot?.drafts[0].runtimeModelId).toBeUndefined();
+  });
 });

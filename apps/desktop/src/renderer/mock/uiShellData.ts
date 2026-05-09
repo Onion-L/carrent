@@ -6,6 +6,7 @@ export type ThreadRecord = {
   title: string;
   updatedAt: string;
   runtimeId?: RuntimeId;
+  runtimeModelId?: string;
   runtimeMode?: RuntimeMode;
   pinned?: boolean;
   archived?: boolean;

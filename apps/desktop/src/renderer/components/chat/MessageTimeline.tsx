@@ -1,4 +1,4 @@
-import { ArrowDown, Bot, Check, Copy, Pencil, RefreshCw } from "lucide-react";
+import { ArrowDown, Check, Copy, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { type Message } from "../../mock/uiShellData";
 import { ChangedFilesCard } from "./ChangedFilesCard";
@@ -71,16 +71,11 @@ function AssistantMessage({
   const isStreaming = !hasParts && content === "";
 
   return (
-    <div className="flex gap-3">
-      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-surface-raised text-subtle">
-        <Bot className="h-3.5 w-3.5" />
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-subtle">{timestamp}</span>
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[12px] font-medium text-subtle">Assistant</span>
-          <span className="text-[11px] text-subtle">{timestamp}</span>
-        </div>
-        {isStreaming ? (
+      {isStreaming ? (
           <div className="flex items-center py-1">
             {"Thinking".split("").map((char, i) => (
               <span
@@ -114,7 +109,6 @@ function AssistantMessage({
         ) : (
           <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-fg">{content}</p>
         )}
-      </div>
     </div>
   );
 }
@@ -122,9 +116,6 @@ function AssistantMessage({
 function EmptyState() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-surface-raised">
-        <Bot className="h-5 w-5 text-subtle" />
-      </div>
       <p className="text-[15px] text-subtle">What should we build?</p>
     </div>
   );
@@ -184,17 +175,11 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
               if (msg.type === "changed_files") {
                 return (
                   <div key={msg.id} className="px-4 py-5">
-                    <div className="flex gap-3">
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-surface-raised text-subtle">
-                        <Bot className="h-3.5 w-3.5" />
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-subtle">{msg.timestamp}</span>
                       </div>
-                      <div className="flex min-w-0 flex-1 flex-col gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[12px] font-medium text-subtle">Assistant</span>
-                          <span className="text-[11px] text-subtle">{msg.timestamp}</span>
-                        </div>
-                        <ChangedFilesCard message={msg} />
-                      </div>
+                      <ChangedFilesCard message={msg} />
                     </div>
                   </div>
                 );

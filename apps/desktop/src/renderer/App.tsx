@@ -14,6 +14,7 @@ import { SettingsPage } from "./routes/SettingsPage";
 import { ThreadPage } from "./routes/ThreadPage";
 import { ChatPage } from "./routes/ChatPage";
 import { WorkspaceProvider } from "./context/WorkspaceContext";
+import { isAgentUiEnabled } from "../shared/v1Scope";
 
 function AppRoutes() {
   const { hasHydrated } = useWorkspace();
@@ -36,7 +37,7 @@ function AppRoutes() {
               <Route element={<DraftThreadPage />} path="/draft/:draftId" />
               <Route element={<ThreadPage />} path="/thread/:projectId/:threadId" />
               <Route element={<ChatPage />} path="/chat/:threadId" />
-              <Route element={<AgentsPage />} path="/agents" />
+              <Route element={isAgentUiEnabled() ? <AgentsPage /> : <HomePage />} path="/agents" />
               <Route element={<RuntimesPage />} path="/runtimes" />
               <Route element={<SettingsPage />} path="/settings" />
               <Route element={<HomePage />} path="*" />

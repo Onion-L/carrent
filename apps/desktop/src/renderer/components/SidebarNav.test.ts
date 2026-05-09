@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { buildChatPath, buildDraftPath, buildThreadPath } from "./SidebarNav";
+import { buildChatPath, buildDraftPath, buildThreadPath, getWorkspaceNavItems } from "./SidebarNav";
 
 describe("buildThreadPath", () => {
   it("builds the real thread route used by sidebar thread clicks", () => {
@@ -20,5 +20,11 @@ describe("buildDraftPath", () => {
   it("builds the draft route used by sidebar draft creation", () => {
     expect(buildDraftPath("draft-123")).toBe("/draft/draft-123");
     expect(buildDraftPath("draft-123")).not.toBe("/thread/carrent/thread-draft-123");
+  });
+});
+
+describe("getWorkspaceNavItems", () => {
+  it("hides the Agents entry for V1", () => {
+    expect(getWorkspaceNavItems().map((item) => item.label)).toEqual(["Runtimes"]);
   });
 });

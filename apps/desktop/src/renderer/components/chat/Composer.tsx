@@ -17,6 +17,7 @@ import {
   getRuntimeModeLabel,
   type RuntimeMode,
 } from "../../../shared/runtimeMode";
+import { isAgentUiEnabled } from "../../../shared/v1Scope";
 
 function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: string }) {
   switch (mode) {
@@ -109,6 +110,8 @@ export function Composer(props: ComposerProps) {
   const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
   const { runningThreadIds, send, stop } = useChatRun();
   const { agents, selectedAgentId, selectedAgent, setSelectedAgentId } = useAgents();
+  const agentForRun = selectedAgent ?? agents[0] ?? null;
+  const showAgentUi = isAgentUiEnabled();
   const [input, setInput] = useState("");
   const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [showModePicker, setShowModePicker] = useState(false);
@@ -123,8 +126,8 @@ export function Composer(props: ComposerProps) {
 
   const canSend =
     props.mode === "chat"
-      ? !!input.trim() && !!selectedAgent
-      : !!input.trim() && !!project && !!selectedAgent;
+      ? !!input.trim() && !!agentForRun
+      : !!input.trim() && !!project && !!agentForRun;
   const isThreadSending = runningThreadIds.includes(threadId);
 
   const stopTypewriter = () => {
@@ -146,10 +149,10 @@ export function Composer(props: ComposerProps) {
   }, []);
 
   const handleSend = async () => {
-    if (!canSend || !selectedAgent) return;
+    if (!canSend || !agentForRun) return;
 
     const messageText = input.trim();
-    const agentId = selectedAgent.id;
+    const agentId = agentForRun.id;
     setInput("");
 
     const appendLocalMessage = (role: "user" | "assistant", content: string) => {
@@ -352,12 +355,12 @@ export function Composer(props: ComposerProps) {
                 title: props.title,
               }
             : undefined,
-        runtimeId: selectedAgent.runtime,
+        runtimeId: agentForRun.runtime,
         runtimeMode: props.runtimeMode,
         agent: {
           id: agentId,
-          name: selectedAgent.name,
-          responsibility: selectedAgent.responsibility,
+          name: agentForRun.name,
+          responsibility: agentForRun.responsibility,
         },
         transcript,
         message: messageText,
@@ -409,7 +412,13 @@ export function Composer(props: ComposerProps) {
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={selectedAgent ? `Message ${selectedAgent.name}...` : "Select an agent..."}
+            placeholder={
+              showAgentUi
+                ? selectedAgent
+                  ? `Message ${selectedAgent.name}...`
+                  : "Select an agent..."
+                : "Message..."
+            }
             className="w-full resize-none bg-transparent text-[14px] text-fg placeholder:text-subtle outline-none"
             rows={2}
             onKeyDown={(e) => {
@@ -423,36 +432,38 @@ export function Composer(props: ComposerProps) {
           />
           <div className="mt-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="relative">
-                <button
-                  onClick={() => setShowAgentPicker((v) => !v)}
-                  className="flex items-center gap-1.5 rounded-full border border-border-strong bg-fg px-2.5 py-1 text-[11px] text-bg transition hover:opacity-90"
-                >
-                  <Bot className="h-3 w-3" />
-                  <span>{selectedAgent?.name ?? "Agent"}</span>
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-                {showAgentPicker && (
-                  <div className="absolute bottom-full left-0 mb-1.5 w-40 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
-                    {agents.map((agent) => (
-                      <button
-                        key={agent.id}
-                        onClick={() => {
-                          setSelectedAgentId(agent.id);
-                          setShowAgentPicker(false);
-                        }}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
-                          agent.id === selectedAgentId ? "text-fg" : "text-muted"
-                        }`}
-                      >
-                        <Bot className="h-3 w-3" />
-                        <span>{agent.name}</span>
-                        <span className="ml-auto text-[10px] text-subtle">{agent.runtime}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {showAgentUi ? (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowAgentPicker((v) => !v)}
+                    className="flex items-center gap-1.5 rounded-full border border-border-strong bg-fg px-2.5 py-1 text-[11px] text-bg transition hover:opacity-90"
+                  >
+                    <Bot className="h-3 w-3" />
+                    <span>{selectedAgent?.name ?? "Agent"}</span>
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                  {showAgentPicker && (
+                    <div className="absolute bottom-full left-0 mb-1.5 w-40 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
+                      {agents.map((agent) => (
+                        <button
+                          key={agent.id}
+                          onClick={() => {
+                            setSelectedAgentId(agent.id);
+                            setShowAgentPicker(false);
+                          }}
+                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                            agent.id === selectedAgentId ? "text-fg" : "text-muted"
+                          }`}
+                        >
+                          <Bot className="h-3 w-3" />
+                          <span>{agent.name}</span>
+                          <span className="ml-auto text-[10px] text-subtle">{agent.runtime}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
               {props.onRuntimeModeChange ? (
                 <div className="relative">
                   <button

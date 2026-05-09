@@ -23,11 +23,14 @@ import { useDraftThread } from "../context/DraftThreadContext";
 import { useToast } from "../components/toast/ToastContext";
 import { formatRelativeTime } from "../lib/formatRelativeTime";
 import { splitProjectThreads } from "../lib/projectThreads";
+import { isAgentUiEnabled } from "../../shared/v1Scope";
 
-const workspaceNavItems = [
-  { to: "/agents", label: "Agents", icon: Bot },
-  { to: "/runtimes", label: "Runtimes", icon: Monitor },
-];
+export function getWorkspaceNavItems() {
+  return [
+    ...(isAgentUiEnabled() ? [{ to: "/agents", label: "Agents", icon: Bot }] : []),
+    { to: "/runtimes", label: "Runtimes", icon: Monitor },
+  ];
+}
 
 export function buildThreadPath(projectId: string, threadId: string) {
   return `/thread/${projectId}/${threadId}`;
@@ -195,7 +198,7 @@ export function SidebarNav() {
           </span>
         </div>
         <nav className="px-2 pt-1 pb-2">
-          {workspaceNavItems.map((item) => (
+          {getWorkspaceNavItems().map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

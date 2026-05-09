@@ -1,9 +1,20 @@
 import { useState, useMemo, useEffect } from "react";
-import { RefreshCw, Square, Play, Plug, Monitor, ChevronRight } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Monitor,
+  Play,
+  Plug,
+  RefreshCw,
+  Square,
+} from "lucide-react";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { RuntimeIcon } from "../components/RuntimeIcon";
 import { getDetectedRuntimes } from "../lib/runtimeSelection";
+import { useSettings } from "../context/SettingsContext";
+import { useRuntimeModels } from "../hooks/useRuntimeModels";
 
 function RuntimeListSkeleton() {
   return (
@@ -33,11 +44,13 @@ export function RuntimesPage() {
     refreshVersion,
   } = useRuntimes();
   const { setActiveThreadId } = useWorkspace();
+  const { runtimeDefaultModelById, updateSetting } = useSettings();
 
   useEffect(() => {
     setActiveThreadId(null);
   }, [setActiveThreadId]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showModelPicker, setShowModelPicker] = useState(false);
 
   const sortedRuntimes = useMemo(() => {
     return getDetectedRuntimes(runtimes).sort((a, b) => a.name.localeCompare(b.name));
@@ -52,11 +65,42 @@ export function RuntimesPage() {
   }, [selectedId, sortedRuntimes]);
 
   const selectedRuntime = sortedRuntimes.find((r) => r.id === selectedId);
+  const selectedRuntimeModelId =
+    selectedRuntime?.id === "pi" ? runtimeDefaultModelById.pi ?? "" : "";
+  const {
+    models: runtimeModels,
+    loading: runtimeModelsLoading,
+    error: runtimeModelsError,
+    refresh: refreshRuntimeModels,
+  } = useRuntimeModels(selectedRuntime?.id === "pi" ? selectedRuntime.id : null);
+  const selectedRuntimeModel = runtimeModels.find((model) => model.id === selectedRuntimeModelId);
+  const selectedRuntimeModelLabel =
+    selectedRuntimeModel == null
+      ? selectedRuntimeModelId || "Use pi default"
+      : selectedRuntimeModel.provider
+        ? `${selectedRuntimeModel.provider} / ${selectedRuntimeModel.name}`
+        : selectedRuntimeModel.name;
 
   const getActionState = (id: string) => actionStateById[id] ?? "idle";
 
   const isActionPending = (id: string) => {
     return getActionState(id) !== "idle";
+  };
+
+  const updateDefaultModel = (modelId: string) => {
+    if (!selectedRuntime || selectedRuntime.id !== "pi") {
+      return;
+    }
+
+    const nextRuntimeDefaultModelById = { ...runtimeDefaultModelById };
+    if (modelId.length > 0) {
+      nextRuntimeDefaultModelById.pi = modelId;
+    } else {
+      delete nextRuntimeDefaultModelById.pi;
+    }
+
+    updateSetting("runtimeDefaultModelById", nextRuntimeDefaultModelById);
+    setShowModelPicker(false);
   };
 
   const enabledCount = sortedRuntimes.filter((r) => r.enabled).length;
@@ -269,6 +313,97 @@ export function RuntimesPage() {
                   </span>
                 </div>
               </div>
+
+              {selectedRuntime.id === "pi" && (
+                <div className="mt-10 border-t border-border pt-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Models
+                      </h4>
+                      <p className="mt-1 text-xs text-subtle">Default model for pi</p>
+                    </div>
+                    <button
+                      onClick={() => refreshRuntimeModels(selectedRuntime.id)}
+                      disabled={runtimeModelsLoading}
+                      className="text-subtle transition hover:text-muted disabled:opacity-50"
+                      title="Refresh models"
+                    >
+                      <RefreshCw
+                        className={`h-3.5 w-3.5 ${runtimeModelsLoading ? "animate-spin" : ""}`}
+                      />
+                    </button>
+                  </div>
+
+                  <div className="relative mt-4">
+                    <button
+                      onClick={() => setShowModelPicker((value) => !value)}
+                      disabled={runtimeModelsLoading && runtimeModels.length === 0}
+                      className="flex w-full items-center justify-between gap-3 rounded-md border border-border bg-surface px-3 py-2 text-left text-sm text-fg outline-none transition hover:border-border-strong disabled:opacity-50"
+                    >
+                      <span className="truncate">{selectedRuntimeModelLabel}</span>
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-subtle" />
+                    </button>
+
+                    {showModelPicker && (
+                      <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
+                        <button
+                          onClick={() => updateDefaultModel("")}
+                          className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition hover:bg-surface-raised ${
+                            selectedRuntimeModelId ? "text-muted" : "text-fg"
+                          }`}
+                        >
+                          <span>Use pi default</span>
+                          {!selectedRuntimeModelId && <Check className="h-3.5 w-3.5" />}
+                        </button>
+
+                        {selectedRuntimeModelId &&
+                          runtimeModels.every((model) => model.id !== selectedRuntimeModelId) && (
+                            <button
+                              onClick={() => updateDefaultModel(selectedRuntimeModelId)}
+                              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-fg transition hover:bg-surface-raised"
+                            >
+                              <span className="truncate">{selectedRuntimeModelId}</span>
+                              <Check className="h-3.5 w-3.5 shrink-0" />
+                            </button>
+                          )}
+
+                        {runtimeModels.map((model) => {
+                          const label = model.provider
+                            ? `${model.provider} / ${model.name}`
+                            : model.name;
+                          const isSelected = model.id === selectedRuntimeModelId;
+
+                          return (
+                            <button
+                              key={model.id}
+                              onClick={() => updateDefaultModel(model.id)}
+                              className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition hover:bg-surface-raised ${
+                                isSelected ? "text-fg" : "text-muted"
+                              }`}
+                            >
+                              <span className="truncate">{label}</span>
+                              {isSelected && <Check className="h-3.5 w-3.5 shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {runtimeModelsError ? (
+                    <p className="mt-2 text-xs text-danger">{runtimeModelsError}</p>
+                  ) : runtimeModelsLoading ? (
+                    <p className="mt-2 text-xs text-subtle">Loading models...</p>
+                  ) : runtimeModels.length === 0 ? (
+                    <p className="mt-2 text-xs text-subtle">No models found.</p>
+                  ) : (
+                    <p className="mt-2 text-xs text-subtle">
+                      {runtimeModels.length} models available
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Actions */}
               <div className="mt-10 border-t border-border pt-6">

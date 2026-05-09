@@ -44,7 +44,12 @@ export function createChatRunner(processRunner: ProcessRunner): ChatRunner {
     async run(request) {
       const prompt = buildChatPrompt(request);
 
-      const { command, args } = getRuntimeCommand(request.runtimeId, prompt, request.runtimeMode);
+      const { command, args } = getRuntimeCommand(
+        request.runtimeId,
+        prompt,
+        request.runtimeMode,
+        request.runtimeModelId,
+      );
 
       const result = await processRunner.run(command, args, {
         cwd: resolveRequestCwd(request),
@@ -74,6 +79,7 @@ export function getRuntimeCommand(
   runtimeId: RuntimeId,
   prompt: string,
   runtimeMode: RuntimeMode = DEFAULT_RUNTIME_MODE,
+  runtimeModelId?: string,
 ): { command: string; args: string[] } {
   switch (runtimeId) {
     case "codex":
@@ -95,7 +101,7 @@ export function getRuntimeCommand(
     case "pi":
       return {
         command: "pi",
-        args: ["-p", prompt],
+        args: [...(runtimeModelId ? ["--model", runtimeModelId] : []), "-p", prompt],
       };
     default:
       throw new Error(`Unknown runtime: ${runtimeId}`);

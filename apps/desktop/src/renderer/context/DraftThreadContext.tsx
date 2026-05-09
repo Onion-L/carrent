@@ -6,6 +6,7 @@ import {
   finalizePromotedDraftThreadByRef as finalizeDraftThreadPromotion,
   markPromotedDraftThreadByRef as markDraftThreadPromotion,
   setDraftThreadRuntimeId,
+  setDraftThreadRuntimeModelId,
   setDraftThreadRuntimeMode,
   type DraftThreadRecord,
 } from "../lib/draftThreads";
@@ -37,7 +38,11 @@ export function getVerificationDraftById(draftId: string) {
 
 export type DraftThreadContextValue = {
   drafts: DraftThreadRecord[];
-  createDraft: (projectId: string, runtimeId?: RuntimeId) => DraftThreadRecord | null;
+  createDraft: (
+    projectId: string,
+    runtimeId?: RuntimeId,
+    runtimeModelId?: string,
+  ) => DraftThreadRecord | null;
   appendDraftMessage: (draftId: string, message: Message) => void;
   updateDraftMessage: (draftId: string, messageId: string, content: string) => void;
   updateDraftMessageParts: (draftId: string, messageId: string, update: MessagePartUpdate) => void;
@@ -49,6 +54,7 @@ export type DraftThreadContextValue = {
     runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
   ) => void;
   setDraftRuntimeId: (draftId: string, runtimeId: RuntimeId) => void;
+  setDraftRuntimeModelId: (draftId: string, runtimeModelId: string | undefined) => void;
 };
 
 const DraftThreadContext = createContext<DraftThreadContextValue>({
@@ -62,6 +68,7 @@ const DraftThreadContext = createContext<DraftThreadContextValue>({
   getDraftById: () => null,
   setDraftRuntimeMode: () => {},
   setDraftRuntimeId: () => {},
+  setDraftRuntimeModelId: () => {},
 });
 
 export function DraftThreadProvider({ children }: { children: ReactNode }) {
@@ -71,8 +78,12 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
     setDrafts(updater);
   };
 
-  const createDraft = (projectId: string, runtimeId?: RuntimeId) => {
-    const draft = buildDraftThreadRecord(projectId, "New thread", runtimeId);
+  const createDraft = (
+    projectId: string,
+    runtimeId?: RuntimeId,
+    runtimeModelId?: string,
+  ) => {
+    const draft = buildDraftThreadRecord(projectId, "New thread", runtimeId, runtimeModelId);
     if (!draft) {
       return null;
     }
@@ -145,6 +156,10 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
     updateDrafts((current) => setDraftThreadRuntimeId(current, draftId, runtimeId));
   };
 
+  const setDraftRuntimeModelId = (draftId: string, runtimeModelId: string | undefined) => {
+    updateDrafts((current) => setDraftThreadRuntimeModelId(current, draftId, runtimeModelId));
+  };
+
   const getDraftById = (draftId: string) =>
     drafts.find((draft) => draft.draftId === draftId) ?? getVerificationDraftById(draftId);
 
@@ -161,6 +176,7 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
         getDraftById,
         setDraftRuntimeMode,
         setDraftRuntimeId,
+        setDraftRuntimeModelId,
       }}
     >
       {children}

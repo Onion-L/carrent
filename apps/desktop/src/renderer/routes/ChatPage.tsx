@@ -21,8 +21,13 @@ export function resolveChatRouteData(
 
 export function ChatPage() {
   const { threadId } = useParams();
-  const { getChatRouteData, setActiveThreadId, setChatRuntimeMode, setChatRuntimeId } =
-    useWorkspace();
+  const {
+    getChatRouteData,
+    setActiveThreadId,
+    setChatRuntimeMode,
+    setChatRuntimeId,
+    setChatRuntimeModelId,
+  } = useWorkspace();
   const routeData = resolveChatRouteData(getChatRouteData, threadId);
 
   useEffect(() => {
@@ -39,8 +44,12 @@ export function ChatPage() {
           threadId={routeData.thread.id}
           messages={routeData.messages}
           runtimeId={routeData.thread.runtimeId ?? DEFAULT_RUNTIME_ID}
+          runtimeModelId={routeData.thread.runtimeModelId}
           runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
           onRuntimeIdChange={(runtimeId) => setChatRuntimeId(routeData.thread.id, runtimeId)}
+          onRuntimeModelIdChange={(modelId) =>
+            setChatRuntimeModelId(routeData.thread.id, modelId)
+          }
           onRuntimeModeChange={(mode) => setChatRuntimeMode(routeData.thread.id, mode)}
         />
       ) : null}

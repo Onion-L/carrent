@@ -19,6 +19,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useDraftThread } from "../context/DraftThreadContext";
+import { useSettings } from "../context/SettingsContext";
 import { useToast } from "../components/toast/ToastContext";
 import { formatRelativeTime } from "../lib/formatRelativeTime";
 import { splitProjectThreads } from "../lib/projectThreads";
@@ -59,7 +60,11 @@ export function SidebarNav() {
   } = useWorkspace();
   const { createDraft } = useDraftThread();
   const { runtimes } = useRuntimes();
+  const { runtimeDefaultModelById } = useSettings();
   const defaultRuntimeId = getChatRuntimeOptions(runtimes)[0]?.id;
+  const defaultRuntimeModelId = defaultRuntimeId
+    ? runtimeDefaultModelById[defaultRuntimeId]
+    : undefined;
   const { showToast } = useToast();
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(
     projects.filter((p) => p.active).map((p) => p.id),
@@ -84,7 +89,7 @@ export function SidebarNav() {
   };
 
   const handleNewChat = () => {
-    const thread = createChat("New chat", defaultRuntimeId);
+    const thread = createChat("New chat", defaultRuntimeId, defaultRuntimeModelId);
     if (thread) {
       navigate(buildChatPath(thread.id));
     }
@@ -97,7 +102,7 @@ export function SidebarNav() {
   };
 
   const openDraft = (projectId: string) => {
-    const draft = createDraft(projectId, defaultRuntimeId);
+    const draft = createDraft(projectId, defaultRuntimeId, defaultRuntimeModelId);
     if (!draft) {
       return;
     }

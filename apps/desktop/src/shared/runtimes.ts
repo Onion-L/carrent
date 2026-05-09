@@ -46,6 +46,28 @@ export interface RuntimeVerificationResult {
   lastError?: string;
 }
 
+export type RuntimeModelSource = "cli";
+
+export interface RuntimeModelRecord {
+  id: string;
+  name: string;
+  provider?: string;
+  source: RuntimeModelSource;
+  contextWindow?: string;
+  maxOutput?: string;
+  supportsThinking?: boolean;
+  supportsImages?: boolean;
+}
+
+export type RuntimeModelListState = "listed" | "unsupported" | "failed";
+
+export interface RuntimeModelListResult {
+  state: RuntimeModelListState;
+  models: RuntimeModelRecord[];
+  lastListedAt?: string;
+  lastError?: string;
+}
+
 interface RuntimeDescriptorBase {
   id: RuntimeId;
   name: string;

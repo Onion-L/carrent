@@ -71,6 +71,7 @@ export function createThreadInProjects(
   projectId: string,
   title: string,
   runtimeId: RuntimeId = DEFAULT_RUNTIME_ID,
+  runtimeModelId?: string,
 ) {
   const nextTitle = title.trim();
   if (!nextTitle) {
@@ -82,6 +83,7 @@ export function createThreadInProjects(
     title: nextTitle,
     updatedAt: new Date().toISOString(),
     runtimeId,
+    runtimeModelId,
     runtimeMode: DEFAULT_RUNTIME_MODE,
   };
 
@@ -174,6 +176,7 @@ export function archiveThreadInProjects(
 export function createChatThread(
   title: string,
   runtimeId: RuntimeId = DEFAULT_RUNTIME_ID,
+  runtimeModelId?: string,
 ): ThreadRecord | null {
   const nextTitle = title.trim();
   if (!nextTitle) {
@@ -185,6 +188,7 @@ export function createChatThread(
     title: nextTitle,
     updatedAt: new Date().toISOString(),
     runtimeId,
+    runtimeModelId,
     runtimeMode: DEFAULT_RUNTIME_MODE,
   };
 }
@@ -261,6 +265,24 @@ export function setThreadRuntimeIdInProjects(
   );
 }
 
+export function setThreadRuntimeModelIdInProjects(
+  projects: ProjectRecord[],
+  projectId: string,
+  threadId: string,
+  runtimeModelId: string | undefined,
+) {
+  return projects.map((project) =>
+    project.id === projectId
+      ? {
+          ...project,
+          threads: project.threads.map((thread) =>
+            thread.id === threadId ? { ...thread, runtimeModelId } : thread,
+          ),
+        }
+      : project,
+  );
+}
+
 export function setChatThreadRuntimeMode(
   chats: ThreadRecord[],
   threadId: string,
@@ -275,6 +297,16 @@ export function setChatThreadRuntimeId(
   runtimeId: RuntimeId,
 ) {
   return chats.map((thread) => (thread.id === threadId ? { ...thread, runtimeId } : thread));
+}
+
+export function setChatThreadRuntimeModelId(
+  chats: ThreadRecord[],
+  threadId: string,
+  runtimeModelId: string | undefined,
+) {
+  return chats.map((thread) =>
+    thread.id === threadId ? { ...thread, runtimeModelId } : thread,
+  );
 }
 
 function findNextVisibleThreadId(projects: ProjectRecord[], preferredProjectId: string) {

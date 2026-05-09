@@ -587,7 +587,12 @@ function getSessionRuntimeCommand(
   }
 
   if (request.runtimeId !== "claude-code") {
-    return getRuntimeCommand(request.runtimeId, prompt);
+    return getRuntimeCommand(
+      request.runtimeId,
+      prompt,
+      request.runtimeMode,
+      request.runtimeModelId,
+    );
   }
 
   const args = [
@@ -958,6 +963,7 @@ export function createChatSessionManager(options: {
           title: request.draftRef.title,
           updatedAt: new Date().toISOString(),
           runtimeId: request.runtimeId,
+          runtimeModelId: request.runtimeModelId,
           runtimeMode: request.runtimeMode,
         },
       });

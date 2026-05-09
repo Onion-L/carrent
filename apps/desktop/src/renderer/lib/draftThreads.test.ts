@@ -6,6 +6,7 @@ import {
   finalizePromotedDraftThreadByRef,
   markPromotedDraftThreadByRef,
   setDraftThreadRuntimeId,
+  setDraftThreadRuntimeModelId,
   setDraftThreadRuntimeMode,
 } from "./draftThreads";
 
@@ -49,6 +50,11 @@ describe("draftThreads", () => {
     expect(draft?.title).toBe("New thread");
   });
 
+  it("builds a draft record with a runtime model id", () => {
+    const draft = buildDraftThreadRecord("project-1", "New thread", "codex", "gpt-5");
+    expect(draft?.runtimeModelId).toBe("gpt-5");
+  });
+
   it("creates a draft with draftId and preallocated threadId", () => {
     const result = createDraftThread([], "project-1", " New thread ");
     const draft = result.draft;
@@ -67,6 +73,11 @@ describe("draftThreads", () => {
     expect(draft.messages).toEqual([]);
     expect(result.drafts).toHaveLength(1);
     expect(result.drafts[0]).toEqual(draft);
+  });
+
+  it("creates a draft with a runtime model id", () => {
+    const result = createDraftThread([], "project-1", "New thread", "codex", "gpt-5");
+    expect(result.draft?.runtimeModelId).toBe("gpt-5");
   });
 
   it("returns no draft for a blank title and leaves drafts unchanged", () => {
@@ -135,5 +146,11 @@ describe("draftThreads", () => {
     const draft = makeDraft({ draftId: "d1" });
     const updated = setDraftThreadRuntimeId([draft], "d1", "claude-code");
     expect(updated[0].runtimeId).toBe("claude-code");
+  });
+
+  it("updates a draft runtime model id", () => {
+    const draft = makeDraft({ draftId: "d1" });
+    const updated = setDraftThreadRuntimeModelId([draft], "d1", "gpt-5");
+    expect(updated[0].runtimeModelId).toBe("gpt-5");
   });
 });

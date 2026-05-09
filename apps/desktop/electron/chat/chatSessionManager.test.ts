@@ -401,6 +401,34 @@ describe("createChatSessionManager", () => {
     expect(upserted?.thread.runtimeId).toBe("claude-code");
   });
 
+  it("emits promoted draft threads with the request runtime model", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start(
+      "run-draft-model",
+      makeRequest({
+        runtimeId: "pi",
+        runtimeModelId: "deepseek/deepseek-v4-flash",
+        draftRef: {
+          draftId: "draft-1",
+          projectId: "p1",
+          title: "Draft title",
+        },
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const upserted = emitted.find((event) => event.type === "thread-upserted");
+    expect(upserted?.thread.runtimeModelId).toBe("deepseek/deepseek-v4-flash");
+  });
+
   it("does not emit thread-upserted for a normal real-thread message", async () => {
     const mockChild = createMockChildProcess();
     const emitted: ChatRunEvent[] = [];
@@ -1237,6 +1265,38 @@ describe("createChatSessionManager", () => {
 
     expect(capturedArgs).toContain("--permission-mode");
     expect(capturedArgs).not.toContain("--dangerously-skip-permissions");
+  });
+
+  it("passes selected pi model to spawned pi sessions", async () => {
+    const mockChild = createMockChildProcess();
+    let capturedCommand = "";
+    let capturedArgs: string[] = [];
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (command, args) => {
+        capturedCommand = command;
+        capturedArgs = args;
+        return mockChild;
+      },
+    });
+
+    manager.start(
+      "run-pi-model",
+      makeRequest({
+        runtimeId: "pi",
+        runtimeModelId: "deepseek/deepseek-v4-flash",
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(capturedCommand).toBe("pi");
+    expect(capturedArgs.slice(0, 3)).toEqual([
+      "--model",
+      "deepseek/deepseek-v4-flash",
+      "-p",
+    ]);
   });
 
   it("emits permission-failed for unknown permission responses", async () => {

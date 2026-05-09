@@ -14,6 +14,7 @@ const carrent = {
     list: () => ipcRenderer.invoke("runtimes:list"),
     localCheck: (id: RuntimeId) => ipcRenderer.invoke("runtimes:local-check", id),
     modelPing: (id: RuntimeId) => ipcRenderer.invoke("runtimes:model-ping", id),
+    listModels: (id: RuntimeId) => ipcRenderer.invoke("runtimes:list-models", id),
     start: (id: RuntimeId) => ipcRenderer.invoke("runtimes:start", id),
     stop: (id: RuntimeId) => ipcRenderer.invoke("runtimes:stop", id),
     restart: (id: RuntimeId) => ipcRenderer.invoke("runtimes:restart", id),

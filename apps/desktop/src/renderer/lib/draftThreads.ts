@@ -9,6 +9,7 @@ export type DraftThreadRecord = {
   preallocatedThreadId: string;
   createdAt: string;
   runtimeId?: RuntimeId;
+  runtimeModelId?: string;
   runtimeMode?: RuntimeMode;
   promotedToThreadId?: string;
   messages: Message[];
@@ -27,6 +28,7 @@ export function buildDraftThreadRecord(
   projectId: string,
   title: string,
   runtimeId: RuntimeId = DEFAULT_RUNTIME_ID,
+  runtimeModelId?: string,
 ): DraftThreadRecord | null {
   const nextTitle = title.trim();
   if (!nextTitle) {
@@ -40,6 +42,7 @@ export function buildDraftThreadRecord(
     preallocatedThreadId: createId("thread"),
     createdAt: new Date().toISOString(),
     runtimeId,
+    runtimeModelId,
     runtimeMode: DEFAULT_RUNTIME_MODE,
     messages: [],
   };
@@ -50,8 +53,9 @@ export function createDraftThread(
   projectId: string,
   title: string,
   runtimeId: RuntimeId = DEFAULT_RUNTIME_ID,
+  runtimeModelId?: string,
 ): CreateDraftThreadResult {
-  const draft = buildDraftThreadRecord(projectId, title, runtimeId);
+  const draft = buildDraftThreadRecord(projectId, title, runtimeId, runtimeModelId);
   if (!draft) {
     return {
       drafts,
@@ -100,4 +104,14 @@ export function setDraftThreadRuntimeId(
   runtimeId: RuntimeId,
 ) {
   return drafts.map((draft) => (draft.draftId === draftId ? { ...draft, runtimeId } : draft));
+}
+
+export function setDraftThreadRuntimeModelId(
+  drafts: DraftThreadRecord[],
+  draftId: string,
+  runtimeModelId: string | undefined,
+) {
+  return drafts.map((draft) =>
+    draft.draftId === draftId ? { ...draft, runtimeModelId } : draft,
+  );
 }

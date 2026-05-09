@@ -23,6 +23,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function normalizeOptionalString(value: unknown) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | null {
   if (!isRecord(value)) return null;
   if (value.version !== WORKSPACE_SNAPSHOT_VERSION) return null;
@@ -35,13 +44,17 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
   if (!Array.isArray(chats)) return null;
 
   const snapshot = value as WorkspaceSnapshot;
-  function normalizeThreadRecord<T extends { runtimeId?: unknown; runtimeMode?: unknown }>(
-    thread: T,
-  ) {
+  function normalizeThreadRecord(
+    thread: ThreadRecord & { runtimeId?: unknown; runtimeMode?: unknown; runtimeModelId?: unknown },
+  ): ThreadRecord {
+    const runtimeModelId = normalizeOptionalString(thread.runtimeModelId);
+    const { runtimeModelId: _runtimeModelId, ...rest } = thread;
+
     return {
-      ...thread,
+      ...(rest as Omit<ThreadRecord, "runtimeId" | "runtimeMode" | "runtimeModelId">),
       runtimeId: normalizeRuntimeId(thread.runtimeId),
       runtimeMode: normalizeRuntimeMode(thread.runtimeMode),
+      ...(runtimeModelId ? { runtimeModelId } : {}),
     };
   }
 
@@ -52,11 +65,17 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
       threads: project.threads.map(normalizeThreadRecord),
     })),
     chats: chats.map(normalizeThreadRecord),
-    drafts: snapshot.drafts.map((draft) => ({
-      ...draft,
-      runtimeId: normalizeRuntimeId(draft.runtimeId),
-      runtimeMode: normalizeRuntimeMode(draft.runtimeMode),
-    })),
+    drafts: snapshot.drafts.map((draft) => {
+      const runtimeModelId = normalizeOptionalString(draft.runtimeModelId);
+      const { runtimeModelId: _runtimeModelId, ...rest } = draft;
+
+      return {
+        ...(rest as Omit<DraftThreadRecord, "runtimeId" | "runtimeMode" | "runtimeModelId">),
+        runtimeId: normalizeRuntimeId(draft.runtimeId),
+        runtimeMode: normalizeRuntimeMode(draft.runtimeMode),
+        ...(runtimeModelId ? { runtimeModelId } : {}),
+      } satisfies DraftThreadRecord;
+    }),
   };
 }
 

@@ -18,6 +18,7 @@ export interface ChatTurnRequest {
     title: string;
   };
   runtimeId: RuntimeId;
+  runtimeModelId?: string;
   runtimeMode: RuntimeMode;
   transcript: Array<{
     role: "user" | "assistant";
@@ -59,6 +60,7 @@ export type ChatRunEvent =
         title: string;
         updatedAt: string;
         runtimeId?: RuntimeId;
+        runtimeModelId?: string;
         runtimeMode?: RuntimeMode;
       };
     })

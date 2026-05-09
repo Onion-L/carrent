@@ -104,6 +104,13 @@ export function useRuntimes() {
     });
   }
 
+  function setRuntimesEnabled(ids: RuntimeId[], enabled: boolean) {
+    updateSetting("runtimeEnabledById", {
+      ...runtimeEnabledById,
+      ...Object.fromEntries(ids.map((id) => [id, enabled])),
+    });
+  }
+
   async function refreshVersion(id: RuntimeId) {
     setState((current) => ({
       ...current,
@@ -276,6 +283,7 @@ export function useRuntimes() {
     runLocalCheck,
     runModelPing,
     setRuntimeEnabled,
+    setRuntimesEnabled,
     start,
     stop,
     restart,

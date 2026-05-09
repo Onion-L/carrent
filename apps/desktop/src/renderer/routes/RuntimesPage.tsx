@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { RefreshCw, Power, PowerOff, Plug, Monitor, ChevronRight } from "lucide-react";
+import { RefreshCw, Square, Play, Plug, Monitor, ChevronRight } from "lucide-react";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { RuntimeIcon } from "../components/RuntimeIcon";
@@ -23,8 +23,15 @@ function RuntimeListSkeleton() {
 }
 
 export function RuntimesPage() {
-  const { runtimes, loading, actionStateById, runModelPing, setRuntimeEnabled, refreshVersion } =
-    useRuntimes();
+  const {
+    runtimes,
+    loading,
+    actionStateById,
+    runModelPing,
+    setRuntimeEnabled,
+    setRuntimesEnabled,
+    refreshVersion,
+  } = useRuntimes();
   const { setActiveThreadId } = useWorkspace();
 
   useEffect(() => {
@@ -53,17 +60,40 @@ export function RuntimesPage() {
   };
 
   const enabledCount = sortedRuntimes.filter((r) => r.enabled).length;
+  const allRuntimesStarted = sortedRuntimes.length > 0 && enabledCount === sortedRuntimes.length;
 
   return (
     <div className="flex h-full w-full flex-col bg-bg">
       {/* Top status bar */}
-      <div className="drag-region flex items-center gap-3 border-b border-border px-5 py-2.5">
+      <div className="drag-region flex h-16 items-center gap-3 border-b border-border px-5">
         <div className={`h-2 w-2 rounded-full ${enabledCount > 0 ? "bg-success" : "bg-muted"}`} />
         <span className="text-xs text-muted">
           {enabledCount > 0 ? `${enabledCount} enabled` : "No enabled runtimes"}
         </span>
         <span className="text-xs text-subtle">/</span>
         <span className="text-xs text-subtle">{sortedRuntimes.length} detected</span>
+        <button
+          onClick={() =>
+            setRuntimesEnabled(
+              sortedRuntimes.map((runtime) => runtime.id),
+              !allRuntimesStarted,
+            )
+          }
+          disabled={sortedRuntimes.length === 0}
+          className="ml-auto flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted transition hover:bg-surface hover:text-fg disabled:opacity-50"
+        >
+          {allRuntimesStarted ? (
+            <>
+              <Square className="h-3.5 w-3.5" />
+              Stop all
+            </>
+          ) : (
+            <>
+              <Play className="h-3.5 w-3.5" />
+              Start all
+            </>
+          )}
+        </button>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -165,8 +195,8 @@ export function RuntimesPage() {
                       disabled={isActionPending(selectedRuntime.id)}
                       className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted transition hover:bg-surface hover:text-fg disabled:opacity-50"
                     >
-                      <PowerOff className="h-3.5 w-3.5" />
-                      Disable
+                      <Square className="h-3.5 w-3.5" />
+                      Stop
                     </button>
                   ) : (
                     <button
@@ -174,8 +204,8 @@ export function RuntimesPage() {
                       disabled={isActionPending(selectedRuntime.id)}
                       className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted transition hover:bg-surface hover:text-fg disabled:opacity-50"
                     >
-                      <Power className="h-3.5 w-3.5" />
-                      Enable
+                      <Play className="h-3.5 w-3.5" />
+                      Start
                     </button>
                   )}
                   <button

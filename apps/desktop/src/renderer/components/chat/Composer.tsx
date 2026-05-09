@@ -127,13 +127,13 @@ export function Composer(props: ComposerProps) {
   const onRuntimeIdChange = props.onRuntimeIdChange;
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
   const isSelectedRuntimeAvailable = isChatRuntimeAvailable(props.runtimeId, runtimes);
-  const runtimeHint = runtimesLoading
-    ? "Checking runtimes..."
+  const runtimeButtonLabel = runtimesLoading
+    ? "Checking runtimes"
     : runtimeOptions.length === 0
-      ? "No enabled runtime"
+      ? "No runtime available"
       : isSelectedRuntimeAvailable
-        ? null
-        : "Select an available runtime";
+        ? runtimeNameMap[props.runtimeId]
+        : "Select runtime";
 
   const canSend =
     (props.mode === "chat" ? !!input.trim() : !!input.trim() && !!project) &&
@@ -466,35 +466,36 @@ export function Composer(props: ComposerProps) {
                       }
                       size="xs"
                     />
-                    <span>
-                      {isSelectedRuntimeAvailable
-                        ? runtimeNameMap[props.runtimeId]
-                        : "Select runtime"}
-                    </span>
+                    <span>{runtimeButtonLabel}</span>
                     <ChevronDown className="h-3 w-3" />
                   </button>
                   {showRuntimePicker && (
                     <div className="absolute bottom-full left-0 mb-1.5 w-44 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
-                      {runtimeOptions.map((runtime) => (
-                        <button
-                          key={runtime.id}
-                          onClick={() => {
-                            props.onRuntimeIdChange!(runtime.id);
-                            setShowRuntimePicker(false);
-                          }}
-                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
-                            runtime.id === props.runtimeId ? "text-fg" : "text-muted"
-                          }`}
-                        >
-                          <RuntimeIcon name={runtime.name} size="xs" />
-                          <span>{runtime.name}</span>
-                        </button>
-                      ))}
+                      {runtimeOptions.length > 0 ? (
+                        runtimeOptions.map((runtime) => (
+                          <button
+                            key={runtime.id}
+                            onClick={() => {
+                              props.onRuntimeIdChange!(runtime.id);
+                              setShowRuntimePicker(false);
+                            }}
+                            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                              runtime.id === props.runtimeId ? "text-fg" : "text-muted"
+                            }`}
+                          >
+                            <RuntimeIcon name={runtime.name} size="xs" />
+                            <span>{runtime.name}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-3 py-2 text-[12px] leading-5 text-subtle">
+                          No runtime available
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               ) : null}
-              {runtimeHint ? <span className="text-[11px] text-warning">{runtimeHint}</span> : null}
               {props.onRuntimeModeChange ? (
                 <div className="relative">
                   <button

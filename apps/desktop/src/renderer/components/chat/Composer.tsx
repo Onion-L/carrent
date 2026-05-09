@@ -200,8 +200,24 @@ export function Composer(props: ComposerProps) {
       }
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (showRuntimePicker) {
+          setShowRuntimePicker(false);
+          setCascadingRuntimeId(null);
+        }
+        if (showModePicker) {
+          setShowModePicker(false);
+        }
+      }
+    };
+
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [showRuntimePicker, showModePicker]);
 
   useEffect(() => {
@@ -507,7 +523,11 @@ export function Composer(props: ComposerProps) {
                       }
                     }}
                     disabled={isThreadSending}
-                    className="flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-raised px-2.5 py-1 text-[11px] text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
+                    className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition disabled:opacity-40 ${
+                      showRuntimePicker
+                        ? "border-fg/20 bg-surface-hover text-fg"
+                        : "border-border-strong bg-surface-raised text-muted hover:bg-surface-hover hover:text-fg"
+                    }`}
                     title={isThreadSending ? "Locked while runtime is running" : "Runtime"}
                   >
                     <RuntimeIcon
@@ -617,7 +637,11 @@ export function Composer(props: ComposerProps) {
                       }
                     }}
                     disabled={isThreadSending}
-                    className="flex items-center gap-1.5 rounded-full border border-border-strong bg-surface-raised px-2.5 py-1 text-[11px] text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
+                    className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition disabled:opacity-40 ${
+                      showModePicker
+                        ? "border-fg/20 bg-surface-hover text-fg"
+                        : "border-border-strong bg-surface-raised text-muted hover:bg-surface-hover hover:text-fg"
+                    }`}
                     title={
                       isThreadSending ? "Locked while runtime is running" : "Runtime permissions"
                     }

@@ -1,10 +1,12 @@
 import type {
   RuntimeId,
+  RuntimeModelListResult,
   RuntimeRecord,
   RuntimeVerificationResult,
 } from "../../src/shared/runtimes";
 import { runtimeCatalog } from "./runtimeCatalog";
 import { detectRuntime } from "./runtimeDetector";
+import { listRuntimeModels } from "./runtimeModelLister";
 import { runLocalCheck, runModelPing } from "./runtimeVerifier";
 import { runtimeProcessManager, type RuntimeProcessManager } from "./runtimeProcessManager";
 
@@ -14,7 +16,9 @@ interface IpcMainLike {
     listener: (
       event: unknown,
       runtimeId?: RuntimeId,
-    ) => Promise<RuntimeRecord[] | RuntimeRecord | RuntimeVerificationResult | void> | void,
+    ) =>
+      | Promise<RuntimeRecord[] | RuntimeRecord | RuntimeVerificationResult | RuntimeModelListResult | void>
+      | void,
   ) => void;
 }
 
@@ -22,6 +26,7 @@ interface RuntimeIpcServices {
   list: () => Promise<RuntimeRecord[]>;
   localCheck: (runtimeId: RuntimeId) => Promise<RuntimeVerificationResult>;
   modelPing: (runtimeId: RuntimeId) => Promise<RuntimeVerificationResult>;
+  listModels: (runtimeId: RuntimeId) => Promise<RuntimeModelListResult>;
   start: (runtimeId: RuntimeId) => Promise<void>;
   stop: (runtimeId: RuntimeId) => Promise<void>;
   restart: (runtimeId: RuntimeId) => Promise<void>;
@@ -41,6 +46,9 @@ export function registerRuntimeIpc(
   );
   ipcMainLike.handle("runtimes:model-ping", async (_event, runtimeId) =>
     services.modelPing(assertRuntimeId(runtimeId)),
+  );
+  ipcMainLike.handle("runtimes:list-models", async (_event, runtimeId) =>
+    services.listModels(assertRuntimeId(runtimeId)),
   );
   ipcMainLike.handle("runtimes:start", (_event, runtimeId) =>
     services.start(assertRuntimeId(runtimeId)),
@@ -71,6 +79,9 @@ export function createRuntimeIpcServices(
     },
     async modelPing(runtimeId) {
       return runModelPing(getRuntimeDescriptor(runtimeId));
+    },
+    async listModels(runtimeId) {
+      return listRuntimeModels(getRuntimeDescriptor(runtimeId));
     },
     async start(runtimeId) {
       processManager.start(runtimeId);

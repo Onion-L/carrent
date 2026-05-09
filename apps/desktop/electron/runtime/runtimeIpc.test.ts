@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import type {
   RuntimeId,
+  RuntimeModelListResult,
   RuntimeRecord,
   RuntimeVerificationResult,
 } from "../../src/shared/runtimes";
@@ -14,7 +15,11 @@ describe("registerRuntimeIpc", () => {
       (
         event: unknown,
         runtimeId?: RuntimeId,
-      ) => Promise<RuntimeRecord[] | RuntimeRecord | RuntimeVerificationResult | void> | void
+      ) =>
+        | Promise<
+            RuntimeRecord[] | RuntimeRecord | RuntimeVerificationResult | RuntimeModelListResult | void
+          >
+        | void
     >();
     const calls: string[] = [];
     const listResult: RuntimeRecord[] = [
@@ -37,6 +42,18 @@ describe("registerRuntimeIpc", () => {
     const modelPingResult: RuntimeVerificationResult = {
       verification: "unsupported",
     };
+    const modelListResult: RuntimeModelListResult = {
+      state: "listed",
+      models: [
+        {
+          id: "openai/gpt-5",
+          name: "gpt-5",
+          provider: "openai",
+          source: "cli",
+        },
+      ],
+      lastListedAt: "2026-04-23T00:00:00.000Z",
+    };
 
     registerRuntimeIpc(
       {
@@ -56,6 +73,10 @@ describe("registerRuntimeIpc", () => {
         modelPing: async (runtimeId) => {
           calls.push(`model-ping:${runtimeId}`);
           return modelPingResult;
+        },
+        listModels: async (runtimeId) => {
+          calls.push(`list-models:${runtimeId}`);
+          return modelListResult;
         },
         start: async (runtimeId) => {
           calls.push(`start:${runtimeId}`);
@@ -84,6 +105,7 @@ describe("registerRuntimeIpc", () => {
 
     expect([...handlers.keys()].sort()).toEqual([
       "runtimes:list",
+      "runtimes:list-models",
       "runtimes:local-check",
       "runtimes:model-ping",
       "runtimes:refresh-version",
@@ -98,6 +120,7 @@ describe("registerRuntimeIpc", () => {
     expect(await handlers.get("runtimes:list")?.({})).toEqual(listResult);
     expect(await handlers.get("runtimes:local-check")?.({}, "codex")).toEqual(localCheckResult);
     expect(await handlers.get("runtimes:model-ping")?.({}, "claude-code")).toEqual(modelPingResult);
+    expect(await handlers.get("runtimes:list-models")?.({}, "pi")).toEqual(modelListResult);
     expect(await handlers.get("runtimes:refresh-version")?.({}, "codex")).toEqual(listResult[0]);
     await handlers.get("runtimes:start")?.({}, "codex");
     await handlers.get("runtimes:stop")?.({}, "claude-code");
@@ -109,6 +132,7 @@ describe("registerRuntimeIpc", () => {
       "list",
       "local-check:codex",
       "model-ping:claude-code",
+      "list-models:pi",
       "refresh-version:codex",
       "start:codex",
       "stop:claude-code",

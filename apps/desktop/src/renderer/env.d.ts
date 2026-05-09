@@ -1,6 +1,11 @@
 /// <reference types="vite/client" />
 
-import type { RuntimeId, RuntimeRecord, RuntimeVerificationResult } from "../shared/runtimes";
+import type {
+  RuntimeId,
+  RuntimeModelListResult,
+  RuntimeRecord,
+  RuntimeVerificationResult,
+} from "../shared/runtimes";
 import type { ChatTurnRequest, ChatRunEvent } from "../shared/chat";
 import type { ChatPermissionResponse } from "../shared/chatPermissions";
 import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../shared/workspacePersistence";
@@ -14,6 +19,7 @@ declare global {
         list: () => Promise<RuntimeRecord[]>;
         localCheck: (id: RuntimeId) => Promise<RuntimeVerificationResult>;
         modelPing: (id: RuntimeId) => Promise<RuntimeVerificationResult>;
+        listModels: (id: RuntimeId) => Promise<RuntimeModelListResult>;
         start: (id: RuntimeId) => Promise<void>;
         stop: (id: RuntimeId) => Promise<void>;
         restart: (id: RuntimeId) => Promise<void>;

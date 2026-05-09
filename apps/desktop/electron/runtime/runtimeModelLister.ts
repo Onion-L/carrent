@@ -1,3 +1,5 @@
+import os from "node:os";
+
 import type {
   RuntimeDescriptor,
   RuntimeModelListResult,
@@ -7,6 +9,7 @@ import { createProcessRunner, type ProcessRunner, type ProcessRunnerResult } fro
 
 const PI_LIST_MODELS_TIMEOUT_MS = 10000;
 const MAX_SUMMARY_CHARS = 240;
+const LIST_MODELS_CWD = os.homedir();
 
 interface RuntimeModelListerDeps {
   run?: ProcessRunner["run"];
@@ -27,6 +30,7 @@ export async function listRuntimeModels(
   const run = deps.run ?? createProcessRunner().run;
   const now = deps.now ?? (() => new Date());
   const result = await run(runtime.command, ["--list-models"], {
+    cwd: LIST_MODELS_CWD,
     timeoutMs: PI_LIST_MODELS_TIMEOUT_MS,
   });
   const lastListedAt = now().toISOString();
@@ -53,16 +57,20 @@ export function parsePiModelList(stdout: string): RuntimeModelRecord[] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .flatMap((line) => {
-      const [provider, model, contextWindow, maxOutput, thinking, images] = line.split(/\s+/u);
+      const columns = line.split(/\s+/u);
+      const [provider, model, contextWindow, maxOutput, thinking, images] = columns;
 
       if (
+        columns.length !== 6 ||
         provider == null ||
         model == null ||
         contextWindow == null ||
         maxOutput == null ||
         thinking == null ||
         images == null ||
-        (provider === "provider" && model === "model")
+        (provider.toLowerCase() === "provider" && model.toLowerCase() === "model") ||
+        !isYesNo(thinking) ||
+        !isYesNo(images)
       ) {
         return [];
       }
@@ -80,6 +88,10 @@ export function parsePiModelList(stdout: string): RuntimeModelRecord[] {
         },
       ];
     });
+}
+
+function isYesNo(value: string): value is "yes" | "no" {
+  return value === "yes" || value === "no";
 }
 
 function summarizeFailure(result: ProcessRunnerResult, fallbackMessage: string): string {

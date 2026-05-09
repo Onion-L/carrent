@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import os from "node:os";
 
 import type { RuntimeDescriptor } from "../../src/shared/runtimes";
 import { listRuntimeModels, parsePiModelList } from "./runtimeModelLister";
@@ -106,6 +107,10 @@ describe("parsePiModelList", () => {
 
 provider    model                   context  max-out  thinking  images
 malformed
+this        is                      not      a        model     row
+UPPER       HEADER                  context  max-out  thinking  images
+deepseek    bad-flags               1M       384K     maybe     no
+deepseek    extra-column            1M       384K     yes       no      ignored
 deepseek    deepseek-v4-flash       1M       384K     yes       no
 minimax-cn  MiniMax-M2.7-highspeed
 `),
@@ -129,6 +134,7 @@ describe("listRuntimeModels", () => {
     const calls: Array<{
       command: string;
       args: string[];
+      cwd?: string;
       timeoutMs?: number;
     }> = [];
 
@@ -138,6 +144,7 @@ describe("listRuntimeModels", () => {
         calls.push({
           command,
           args,
+          cwd: options?.cwd,
           timeoutMs: options?.timeoutMs,
         });
         return createSuccessResult(SAMPLE_MODEL_TABLE);
@@ -153,6 +160,7 @@ describe("listRuntimeModels", () => {
       {
         command: "pi",
         args: ["--list-models"],
+        cwd: os.homedir(),
         timeoutMs: 10000,
       },
     ]);

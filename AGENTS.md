@@ -51,3 +51,17 @@ Recent history favors short imperative commits, usually Conventional Commit styl
 ## Configuration Notes
 
 Do not commit secrets, local paths, or generated release artifacts. Runtime-related code calls local CLIs; keep defaults generic and document new environment assumptions in `docs/`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked as local markdown files under `.scratch/`; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The default five triage labels are used unchanged. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Domain documentation uses a multi-context layout. See `docs/agents/domain.md`.

@@ -95,4 +95,27 @@
   .drag-region select {
     -webkit-app-region: no-drag;
   }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--color-subtle)) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: rgb(var(--color-subtle));
+    border-radius: 4px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--color-muted));
+  }
 }

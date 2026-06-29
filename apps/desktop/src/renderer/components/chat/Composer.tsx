@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUp, Check, ChevronDown, Lock, Pencil, Square } from "lucide-react";
+import { AlertTriangle, ArrowUp, Check, ChevronDown, Lock, Pencil } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -1002,9 +1002,9 @@ export function Composer(props: ComposerProps) {
               {isThreadSending ? (
                 <button
                   onClick={() => stop(threadId)}
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-danger text-white transition hover:opacity-90"
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-black transition hover:opacity-90"
                 >
-                  <Square className="h-3.5 w-3.5" />
+                  <div className="h-3 w-3 rounded-[2px] bg-current" />
                 </button>
               ) : (
                 <button

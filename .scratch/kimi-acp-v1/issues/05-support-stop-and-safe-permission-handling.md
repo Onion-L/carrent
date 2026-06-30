@@ -1,6 +1,6 @@
 # Support Stop And Safe Permission Handling
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -12,12 +12,12 @@ Add stop behavior and honest permission handling for Kimi ACP runs. A user shoul
 
 ## Acceptance criteria
 
-- [ ] Stopping an in-flight Kimi ACP run cancels or terminates it according to the verified protocol behavior.
-- [ ] A stopped run emits a stopped state visible to the existing chat flow.
-- [ ] Permission request events are surfaced if ACP provides a supported request/response path.
-- [ ] Unsupported permission flows produce a clear failure or safe fallback message.
-- [ ] Carrent does not show approve/deny UI unless the underlying ACP response path works.
-- [ ] Tests cover stop, supported permission handling if available, and unsupported permission fallback.
+- [x] Stopping an in-flight Kimi ACP run cancels or terminates it according to the verified protocol behavior.
+- [x] A stopped run emits a stopped state visible to the existing chat flow.
+- [x] Permission request events are surfaced if ACP provides a supported request/response path.
+- [x] Unsupported permission flows produce a clear failure or safe fallback message.
+- [x] Carrent does not show approve/deny UI unless the underlying ACP response path works.
+- [x] Tests cover stop, supported permission handling if available, and unsupported permission fallback.
 
 ## Blocked by
 

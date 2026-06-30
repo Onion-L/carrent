@@ -1,6 +1,6 @@
 # Pass Model Profile Configuration Through Kimi Runtime
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -14,12 +14,12 @@ This slice should stay narrow: support the minimum model/profile pass-through ne
 
 ## Acceptance criteria
 
-- [ ] Carrent can pass a selected Kimi-supported model into a Kimi run if the verified ACP/runtime path supports it.
-- [ ] Carrent does not call provider APIs directly for this feature.
-- [ ] Secret API keys are not stored in Carrent workspace data.
-- [ ] Unsupported model/profile configuration produces a clear error or disabled state.
-- [ ] Existing thread runtime model persistence continues to work for the Kimi path.
-- [ ] Tests cover supported model pass-through and unsupported configuration handling.
+- [x] Carrent can pass a selected Kimi-supported model into a Kimi run if the verified ACP/runtime path supports it.
+- [x] Carrent does not call provider APIs directly for this feature.
+- [x] Secret API keys are not stored in Carrent workspace data.
+- [x] Unsupported model/profile configuration produces a clear error or disabled state.
+- [x] Existing thread runtime model persistence continues to work for the Kimi path.
+- [x] Tests cover supported model pass-through and unsupported configuration handling.
 
 ## Blocked by
 

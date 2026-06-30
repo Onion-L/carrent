@@ -1,6 +1,6 @@
 # Preserve Kimi Session Continuity Per Thread
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -12,12 +12,12 @@ Preserve Kimi Code session continuity per Carrent thread once the ACP spike conf
 
 ## Acceptance criteria
 
-- [ ] The implementation follows the session semantics verified in the ACP spike.
-- [ ] A Kimi session is associated with the correct Carrent thread and workspace.
-- [ ] A second message in the same thread continues the intended Kimi context.
-- [ ] A different thread does not accidentally reuse the wrong Kimi context.
-- [ ] Failed runs do not persist a session in a way that corrupts later turns.
-- [ ] Tests cover same-thread continuation, different-thread isolation, and failed-run behavior.
+- [x] The implementation follows the session semantics verified in the ACP spike.
+- [x] A Kimi session is associated with the correct Carrent thread and workspace.
+- [x] A second message in the same thread continues the intended Kimi context.
+- [x] A different thread does not accidentally reuse the wrong Kimi context.
+- [x] Failed runs do not persist a session in a way that corrupts later turns.
+- [x] Tests cover same-thread continuation, different-thread isolation, and failed-run behavior.
 
 ## Blocked by
 

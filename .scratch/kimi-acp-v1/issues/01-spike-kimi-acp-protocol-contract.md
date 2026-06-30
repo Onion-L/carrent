@@ -1,6 +1,6 @@
 # Spike Kimi ACP Protocol Contract
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -14,15 +14,18 @@ This slice should not integrate the result into the main app yet. Its output is 
 
 ## Acceptance criteria
 
-- [ ] A local spike can start `kimi acp` and perform the minimum initialization required by the protocol.
-- [ ] The spike submits one prompt against a real project workspace and records the event sequence returned by Kimi Code.
-- [ ] The spike verifies what ACP exposes for session creation/loading, prompt streaming, completion, cancellation, permission requests, file I/O, and workspace/cwd semantics.
-- [ ] The spike records clear notes about unsupported, ambiguous, or version-specific protocol behavior.
-- [ ] The note states which ACP events should map to Carrent chat events in later issues.
-- [ ] The spike does not require changing the production chat flow.
+- [x] A local spike can start `kimi acp` and perform the minimum initialization required by the protocol.
+- [x] The spike submits one prompt against a real project workspace and records the event sequence returned by Kimi Code.
+- [x] The spike verifies what ACP exposes for session creation/loading, prompt streaming, completion, cancellation, permission requests, file I/O, and workspace/cwd semantics.
+- [x] The spike records clear notes about unsupported, ambiguous, or version-specific protocol behavior.
+- [x] The note states which ACP events should map to Carrent chat events in later issues.
+- [x] The spike does not require changing the production chat flow.
 
 ## Blocked by
 
 None - can start immediately
 
 ## Comments
+
+- Observed protocol note: `.scratch/kimi-acp-v1/observed-kimi-acp-protocol.md`
+- Repro script: `.scratch/kimi-acp-v1/spike/kimi-acp-spike.mjs`

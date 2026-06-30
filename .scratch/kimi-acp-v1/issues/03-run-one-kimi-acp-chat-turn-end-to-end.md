@@ -1,6 +1,6 @@
 # Run One Kimi ACP Chat Turn End To End
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 
@@ -14,13 +14,13 @@ This should be a narrow tracer bullet: one successful prompt path, one failure p
 
 ## Acceptance criteria
 
-- [ ] A project-scoped chat turn can run through Kimi ACP and emit Carrent chat events.
-- [ ] The renderer continues to consume Carrent chat events rather than ACP-specific event shapes.
-- [ ] A successful Kimi ACP run emits started, streamed text/progress, and completed behavior visible to the chat flow.
-- [ ] ACP startup or prompt failure emits a useful failed event.
-- [ ] The project workspace is passed through according to the protocol behavior verified by the spike.
-- [ ] Tests use a fake ACP transport and do not require a real Kimi process.
-- [ ] Existing Codex/Claude/pi chat tests are not broken by the Kimi path.
+- [x] A project-scoped chat turn can run through Kimi ACP and emit Carrent chat events.
+- [x] The renderer continues to consume Carrent chat events rather than ACP-specific event shapes.
+- [x] A successful Kimi ACP run emits started, streamed text/progress, and completed behavior visible to the chat flow.
+- [x] ACP startup or prompt failure emits a useful failed event.
+- [x] The project workspace is passed through according to the protocol behavior verified by the spike.
+- [x] Tests use a fake ACP transport and do not require a real Kimi process.
+- [x] Existing Codex/Claude/pi chat tests are not broken by the Kimi path.
 
 ## Blocked by
 
@@ -28,3 +28,17 @@ This should be a narrow tracer bullet: one successful prompt path, one failure p
 - .scratch/kimi-acp-v1/issues/02-make-kimi-code-the-primary-runtime.md
 
 ## Comments
+
+Validation:
+
+- `bun test apps/desktop/electron/chat`
+- `bun test apps/desktop/electron/chat apps/desktop/electron/runtime apps/desktop/src/shared apps/desktop/src/renderer/lib apps/desktop/src/renderer/components/chat`
+- `bun run typecheck`
+- `bun run lint`
+- `bun run build`
+- `git diff --check`
+
+Review:
+
+- Subagent review completed.
+- Addressed review findings by converting Kimi ACP transport construction failures into `failed` events and adding prompt-failure/request-key coverage.

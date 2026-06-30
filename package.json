@@ -11,6 +11,7 @@
     "dev:desktop": "cd apps/desktop && bun run dev",
     "dev:web": "cd apps/landing && bun run dev",
     "build": "turbo build",
+    "test": "bun test",
     "lint": "oxlint .",
     "typecheck": "turbo typecheck",
     "fmt": "oxfmt . --write"

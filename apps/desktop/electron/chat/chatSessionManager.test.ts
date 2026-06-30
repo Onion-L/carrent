@@ -923,6 +923,8 @@ describe("createChatSessionManager", () => {
 
   it("answers Kimi ACP fs/read_text_file requests from the project workspace", async () => {
     const emitted: ChatRunEvent[] = [];
+    const workspacePath = process.cwd();
+    const packagePath = path.join(workspacePath, "package.json");
     const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
       if (message.method === "initialize") {
         respondAcp(transport, message, { protocolVersion: 1 });
@@ -942,7 +944,7 @@ describe("createChatSessionManager", () => {
             method: "fs/read_text_file",
             params: {
               sessionId: "session-1",
-              path: "/Users/onion/workbench/carrent/package.json",
+              path: packagePath,
             },
           });
           emitAcpUpdate(transport, {
@@ -969,7 +971,7 @@ describe("createChatSessionManager", () => {
         workspace: {
           kind: "project",
           projectId: "carrent",
-          projectPath: "/Users/onion/workbench/carrent",
+          projectPath: workspacePath,
         },
       }),
     );
@@ -981,7 +983,7 @@ describe("createChatSessionManager", () => {
     expect(emitted.find((event) => event.type === "reasoning")).toMatchObject({
       type: "reasoning",
       reasoning: {
-        id: "kimi-fs-read-/Users/onion/workbench/carrent/package.json",
+        id: `kimi-fs-read-${packagePath}`,
         content: "Read package.json",
         status: "completed",
       },

@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUp, Check, ChevronDown, Lock, Pencil } from "lucide-react";
+import { AlertTriangle, ArrowUp, Check, ChevronDown, Lock, Pencil, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -13,6 +13,10 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import type { Message } from "../../mock/uiShellData";
 import { type ChatReasoningEventPayload, type ChatShellEventPayload } from "../../../shared/chat";
+import type {
+  ChatPermissionDecision,
+  ChatPermissionRequest,
+} from "../../../shared/chatPermissions";
 import {
   DEFAULT_RUNTIME_MODE,
   getRuntimeModeLabel,
@@ -214,11 +218,33 @@ export function getRuntimeModelIdForSend({
   return runtimeModelId;
 }
 
+export function getActionablePermissionsForThread({
+  pendingPermissions,
+  threadId,
+}: {
+  pendingPermissions: ChatPermissionRequest[];
+  threadId: string;
+}) {
+  return pendingPermissions.filter(
+    (permission) => permission.threadId === threadId && permission.provider === "kimi",
+  );
+}
+
+export function getPermissionDetail(permission: ChatPermissionRequest) {
+  return (
+    permission.command ??
+    permission.filePath ??
+    permission.description ??
+    permission.toolName ??
+    permission.action
+  );
+}
+
 export function Composer(props: ComposerProps) {
   const { projects, chats, appendMessage, updateMessage, updateMessageParts, upsertChat } =
     useWorkspace();
   const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
-  const { runningThreadIds, send, stop } = useChatRun();
+  const { runningThreadIds, pendingPermissions, respondToPermission, send, stop } = useChatRun();
   const { runtimes, loading: runtimesLoading } = useRuntimes();
   const [input, setInput] = useState("");
   const [showRuntimePicker, setShowRuntimePicker] = useState(false);
@@ -241,8 +267,6 @@ export function Composer(props: ComposerProps) {
   const projectId = props.mode === "chat" ? null : props.projectId;
   const project = projectId ? (projects.find((item) => item.id === projectId) ?? null) : null;
   const threadId = props.mode === "draft" ? props.preallocatedThreadId : props.threadId;
-  const messagesLength = props.messages.length;
-  const onRuntimeIdChange = props.onRuntimeIdChange;
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
   const modelRuntimeId = props.runtimeId === "pi" ? props.runtimeId : null;
   const { models } = useRuntimeModels(modelRuntimeId);
@@ -269,6 +293,10 @@ export function Composer(props: ComposerProps) {
     (props.mode === "chat" ? !!input.trim() : !!input.trim() && !!project) &&
     isSelectedRuntimeAvailable;
   const isThreadSending = runningThreadIds.includes(threadId);
+  const threadPermissions = useMemo(
+    () => getActionablePermissionsForThread({ pendingPermissions, threadId }),
+    [pendingPermissions, threadId],
+  );
   const showCascadingPanel =
     showRuntimePicker && cascadingRuntimeId === "pi" && !!props.onRuntimeModelIdChange;
   const cascadingPanelTransitionClass = !cascadingPanelPosition
@@ -457,26 +485,6 @@ export function Composer(props: ComposerProps) {
       observer?.disconnect();
     };
   }, [cascadingAnchorRect, cascadingRuntimeId, showRuntimePicker, updateCascadingPanelPosition]);
-
-  useEffect(() => {
-    if (
-      runtimesLoading ||
-      messagesLength > 0 ||
-      isSelectedRuntimeAvailable ||
-      runtimeOptions.length === 0 ||
-      !onRuntimeIdChange
-    ) {
-      return;
-    }
-
-    onRuntimeIdChange(runtimeOptions[0].id);
-  }, [
-    isSelectedRuntimeAvailable,
-    messagesLength,
-    onRuntimeIdChange,
-    runtimeOptions,
-    runtimesLoading,
-  ]);
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -730,10 +738,58 @@ export function Composer(props: ComposerProps) {
     );
   };
 
+  const handlePermissionResponse = (
+    permission: ChatPermissionRequest,
+    decision: ChatPermissionDecision,
+  ) => {
+    void respondToPermission({
+      runId: permission.runId,
+      permissionId: permission.id,
+      decision,
+    });
+  };
+
   return (
     <div className="px-4 pb-4 pt-2">
       <div className="mx-auto max-w-3xl">
         <div className="rounded-2xl border border-border bg-surface p-3">
+          {threadPermissions.length > 0 ? (
+            <div className="mb-2 space-y-2">
+              {threadPermissions.map((permission) => (
+                <div
+                  key={permission.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-border-strong bg-surface-raised px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-[12px] font-medium text-fg">
+                      {permission.title}
+                    </div>
+                    <div className="truncate text-[11px] text-subtle">
+                      {getPermissionDetail(permission)}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handlePermissionResponse(permission, "denied")}
+                      className="flex h-7 w-7 items-center justify-center rounded-full border border-border-strong text-muted transition hover:bg-surface-hover hover:text-fg"
+                      title="Deny"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handlePermissionResponse(permission, "approved")}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90"
+                      title="Approve"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}

@@ -6,11 +6,11 @@ export type RuntimeConfigState = "configured" | "missing" | "unknown";
 
 export type RuntimeVerificationState = "never" | "passed" | "failed" | "unsupported";
 
-export type RuntimeId = "codex" | "claude-code" | "pi";
+export type RuntimeId = "kimi" | "codex" | "claude-code" | "pi";
 
-export const DEFAULT_RUNTIME_ID: RuntimeId = "codex";
+export const DEFAULT_RUNTIME_ID: RuntimeId = "kimi";
 
-export const runtimeIds: RuntimeId[] = ["codex", "claude-code", "pi"];
+export const runtimeIds: RuntimeId[] = ["kimi", "codex", "claude-code", "pi"];
 
 export interface RuntimeRecord {
   id: RuntimeId;
@@ -97,6 +97,7 @@ export interface RuntimeDescriptorWithoutModelPing extends RuntimeDescriptorBase
 export type RuntimeDescriptor = RuntimeDescriptorWithModelPing | RuntimeDescriptorWithoutModelPing;
 
 export const runtimeNameMap: Record<RuntimeId, string> = {
+  kimi: "Kimi Code",
   codex: "Codex",
   "claude-code": "Claude Code",
   pi: "pi",

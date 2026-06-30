@@ -1,8 +1,17 @@
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
+import { mkdtemp, symlink, writeFile } from "node:fs/promises";
 import type { ChildProcess } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
 import type { ChatRunEvent, ChatTurnRequest } from "../../src/shared/chat";
-import { createChatSessionManager } from "./chatSessionManager";
+import {
+  createChatSessionManager as createProductionChatSessionManager,
+  type ChatSessionManager,
+} from "./chatSessionManager";
+import type { KimiAcpTransport, KimiAcpTransportFactory } from "./kimiAcpChat";
+
+type JsonMessage = Record<string, unknown>;
 
 function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
@@ -18,6 +27,90 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
     message: "Hello",
     ...overrides,
   };
+}
+
+class FakeKimiAcpTransport implements KimiAcpTransport {
+  readonly sent: JsonMessage[] = [];
+  readonly messageListeners: Array<(message: JsonMessage) => void> = [];
+  readonly errorListeners: Array<(error: Error) => void> = [];
+  readonly closeListeners: Array<
+    (details: { code: number | null; signal: NodeJS.Signals | null; stderr: string }) => void
+  > = [];
+  closed = false;
+
+  constructor(
+    readonly cwd: string,
+    private readonly onSend: (transport: FakeKimiAcpTransport, message: JsonMessage) => void,
+  ) {}
+
+  send(message: JsonMessage) {
+    this.sent.push(message);
+    this.onSend(this, message);
+  }
+
+  close() {
+    this.closed = true;
+  }
+
+  onMessage(listener: (message: JsonMessage) => void) {
+    this.messageListeners.push(listener);
+  }
+
+  onError(listener: (error: Error) => void) {
+    this.errorListeners.push(listener);
+  }
+
+  onClose(listener: (details: { code: number | null; signal: NodeJS.Signals | null; stderr: string }) => void) {
+    this.closeListeners.push(listener);
+  }
+
+  emitMessage(message: JsonMessage) {
+    this.messageListeners.forEach((listener) => listener(message));
+  }
+
+  emitClose(details: { code: number | null; signal: NodeJS.Signals | null; stderr: string }) {
+    this.closeListeners.forEach((listener) => listener(details));
+  }
+}
+
+function createFakeKimiAcpTransportFactory(
+  onSend: (transport: FakeKimiAcpTransport, message: JsonMessage) => void,
+) {
+  const transports: FakeKimiAcpTransport[] = [];
+  const factory: KimiAcpTransportFactory = ({ cwd }) => {
+    const transport = new FakeKimiAcpTransport(cwd, onSend);
+    transports.push(transport);
+    return transport;
+  };
+
+  return { factory, transports };
+}
+
+function respondAcp(transport: FakeKimiAcpTransport, request: JsonMessage, result: unknown) {
+  transport.emitMessage({ jsonrpc: "2.0", id: request.id, result });
+}
+
+function failAcp(transport: FakeKimiAcpTransport, request: JsonMessage, message: string) {
+  transport.emitMessage({
+    jsonrpc: "2.0",
+    id: request.id,
+    error: { code: -32000, message },
+  });
+}
+
+function emitAcpUpdate(transport: FakeKimiAcpTransport, update: JsonMessage) {
+  transport.emitMessage({
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId: "session-1",
+      update,
+    },
+  });
+}
+
+function waitForAsyncEvents() {
+  return new Promise((resolve) => setTimeout(resolve, 20));
 }
 
 function createMockChildProcess(): MockChildProcess {
@@ -44,6 +137,15 @@ type MockChildProcess = ChildProcess & {
   kill: (signal?: NodeJS.Signals | number) => boolean;
   killed: boolean;
 };
+
+function createChatSessionManager(
+  options: Parameters<typeof createProductionChatSessionManager>[0],
+): ChatSessionManager {
+  return createProductionChatSessionManager({
+    allowLegacyRuntimeCommands: true,
+    ...options,
+  });
+}
 
 describe("createChatSessionManager", () => {
   it("emits started, delta, and completed for a successful codex run", async () => {
@@ -194,6 +296,1871 @@ describe("createChatSessionManager", () => {
     const failed = emitted.find((e) => e.type === "failed");
     expect(failed).toBeDefined();
     expect(failed?.error).toContain("Project path is missing");
+  });
+
+  it("starts Kimi ACP with stdio pipes by default", async () => {
+    const mockChild = createMockChildProcess();
+    const spawnCalls: Array<{ command: string; args: string[]; options: { stdio?: unknown } }> = [];
+
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: (command, args, options) => {
+        spawnCalls.push({ command, args, options });
+        return mockChild;
+      },
+    });
+
+    manager.start("run-kimi", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]).toMatchObject({
+      command: "kimi",
+      args: ["acp"],
+      options: {
+        cwd: "/Users/onion/workbench/timbre",
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    });
+  });
+
+  it("runs a successful Kimi ACP chat turn through Carrent events", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "Thinking" },
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Hello" },
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: " from Kimi" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-success", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    const transport = transports[0];
+    expect(transport?.cwd).toBe("/Users/onion/workbench/timbre");
+    expect(
+      transport?.sent
+        .filter((message) => typeof message.method === "string")
+        .map((message) => message.method),
+    ).toEqual(["initialize", "session/new", "session/prompt"]);
+    expect(transport).toBeDefined();
+    expect((transport!.sent[1].params as { cwd?: string }).cwd).toBe(
+      "/Users/onion/workbench/timbre",
+    );
+
+    expect(emitted.map((event) => event.type)).toEqual([
+      "started",
+      "reasoning",
+      "delta",
+      "delta",
+      "reasoning",
+      "completed",
+    ]);
+    expect(emitted.filter((event) => event.type === "delta").map((event) => event.text)).toEqual([
+      "Hello",
+      " from Kimi",
+    ]);
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      requestKey: undefined,
+      text: "Hello from Kimi",
+    });
+  });
+
+  it("includes requestKey on Kimi ACP run events", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Done" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start(
+      "run-kimi-request-key",
+      makeRequest({ runtimeId: "kimi", requestKey: "request-kimi-1" }),
+    );
+    await waitForAsyncEvents();
+
+    expect(emitted.map((event) => event.requestKey)).toEqual([
+      "request-kimi-1",
+      "request-kimi-1",
+      "request-kimi-1",
+    ]);
+  });
+
+  it("passes a selected Kimi model through ACP before prompting", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, {
+          sessionId: "session-1",
+          configOptions: [
+            {
+              type: "select",
+              id: "model",
+              category: "model",
+              currentValue: "kimi-code/kimi-for-coding",
+              options: [
+                { value: "kimi-code/kimi-for-coding", name: "K2.7 Code High Speed" },
+                { value: "kimi-code/kimi-for-coding-deep", name: "K2.7 Code Deep" },
+              ],
+            },
+          ],
+        });
+        return;
+      }
+
+      if (message.method === "session/set_config_option") {
+        respondAcp(transport, message, {
+          configOptions: [
+            {
+              id: "model",
+              currentValue: "kimi-code/kimi-for-coding-deep",
+              options: [
+                { value: "kimi-code/kimi-for-coding", name: "K2.7 Code High Speed" },
+                { value: "kimi-code/kimi-for-coding-deep", name: "K2.7 Code Deep" },
+              ],
+            },
+          ],
+        });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Model configured" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start(
+      "run-kimi-model",
+      makeRequest({
+        runtimeId: "kimi",
+        runtimeModelId: "kimi-code/kimi-for-coding-deep",
+      }),
+    );
+    await waitForAsyncEvents();
+
+    expect(
+      transports[0]?.sent
+        .filter((message) => typeof message.method === "string")
+        .map((message) => message.method),
+    ).toEqual(["initialize", "session/new", "session/set_config_option", "session/prompt"]);
+    expect(transports[0]?.sent[2]).toMatchObject({
+      method: "session/set_config_option",
+      params: {
+        sessionId: "session-1",
+        configId: "model",
+        value: "kimi-code/kimi-for-coding-deep",
+      },
+    });
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Model configured",
+    });
+  });
+
+  it("passes selected Kimi model and auto mode through ACP before prompting", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, {
+          sessionId: "session-1",
+          configOptions: [
+            {
+              type: "select",
+              id: "model",
+              category: "model",
+              currentValue: "kimi-code/kimi-for-coding",
+              options: [
+                { value: "kimi-code/kimi-for-coding", name: "K2.7 Code High Speed" },
+                { value: "kimi-code/kimi-for-coding-deep", name: "K2.7 Code Deep" },
+              ],
+            },
+            {
+              type: "select",
+              id: "mode",
+              category: "mode",
+              currentValue: "default",
+              options: [
+                { value: "default", name: "Default" },
+                { value: "auto", name: "Auto" },
+                { value: "yolo", name: "YOLO" },
+              ],
+            },
+          ],
+        });
+        return;
+      }
+
+      if (message.method === "session/set_config_option") {
+        respondAcp(transport, message, { configOptions: [] });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Configured" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start(
+      "run-kimi-model-auto",
+      makeRequest({
+        runtimeId: "kimi",
+        runtimeModelId: "kimi-code/kimi-for-coding-deep",
+        runtimeMode: "auto-accept-edits",
+      }),
+    );
+    await waitForAsyncEvents();
+
+    expect(
+      transports[0]?.sent
+        .filter((message) => typeof message.method === "string")
+        .map((message) => message.method),
+    ).toEqual([
+      "initialize",
+      "session/new",
+      "session/set_config_option",
+      "session/set_config_option",
+      "session/prompt",
+    ]);
+    expect(transports[0]?.sent[2]).toMatchObject({
+      method: "session/set_config_option",
+      params: {
+        sessionId: "session-1",
+        configId: "model",
+        value: "kimi-code/kimi-for-coding-deep",
+      },
+    });
+    expect(transports[0]?.sent[3]).toMatchObject({
+      method: "session/set_config_option",
+      params: {
+        sessionId: "session-1",
+        configId: "mode",
+        value: "auto",
+      },
+    });
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Configured",
+    });
+  });
+
+  it("fails clearly when a selected Kimi model is not supported by ACP options", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, {
+          sessionId: "session-1",
+          configOptions: [
+            {
+              type: "select",
+              id: "model",
+              category: "model",
+              currentValue: "kimi-code/kimi-for-coding",
+              options: [{ value: "kimi-code/kimi-for-coding", name: "K2.7 Code High Speed" }],
+            },
+          ],
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start(
+      "run-kimi-unsupported-model",
+      makeRequest({
+        runtimeId: "kimi",
+        runtimeModelId: "not-a-kimi-model",
+      }),
+    );
+    await waitForAsyncEvents();
+
+    expect(
+      transports[0]?.sent
+        .filter((message) => typeof message.method === "string")
+        .map((message) => message.method),
+    ).toEqual(["initialize", "session/new"]);
+    expect(emitted.find((event) => event.type === "failed")).toMatchObject({
+      type: "failed",
+      runId: "run-kimi-unsupported-model",
+      error: "Kimi Code does not list selected model \"not-a-kimi-model\". Clear it or choose a Kimi-supported model.",
+    });
+  });
+
+  it("maps full-access runtime mode to Kimi ACP yolo mode before prompting", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, {
+          sessionId: "session-1",
+          configOptions: [
+            {
+              type: "select",
+              id: "mode",
+              category: "mode",
+              currentValue: "default",
+              options: [
+                { value: "default", name: "Default" },
+                { value: "auto", name: "Auto" },
+                { value: "yolo", name: "YOLO" },
+              ],
+            },
+          ],
+        });
+        return;
+      }
+
+      if (message.method === "session/set_config_option") {
+        respondAcp(transport, message, {
+          configOptions: [
+            {
+              id: "mode",
+              currentValue: "yolo",
+              options: [
+                { value: "default", name: "Default" },
+                { value: "auto", name: "Auto" },
+                { value: "yolo", name: "YOLO" },
+              ],
+            },
+          ],
+        });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Mode configured" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start(
+      "run-kimi-mode",
+      makeRequest({
+        runtimeId: "kimi",
+        runtimeMode: "full-access",
+      }),
+    );
+    await waitForAsyncEvents();
+
+    expect(
+      transports[0]?.sent
+        .filter((message) => typeof message.method === "string")
+        .map((message) => message.method),
+    ).toEqual(["initialize", "session/new", "session/set_config_option", "session/prompt"]);
+    expect(transports[0]?.sent[2]).toMatchObject({
+      method: "session/set_config_option",
+      params: {
+        sessionId: "session-1",
+        configId: "mode",
+        value: "yolo",
+      },
+    });
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Mode configured",
+    });
+  });
+
+  it("fails clearly when Kimi ACP cannot configure a non-default runtime mode", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1", configOptions: [] });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start(
+      "run-kimi-mode-unsupported",
+      makeRequest({
+        runtimeId: "kimi",
+        runtimeMode: "auto-accept-edits",
+      }),
+    );
+    await waitForAsyncEvents();
+
+    expect(
+      transports[0]?.sent
+        .filter((message) => typeof message.method === "string")
+        .map((message) => message.method),
+    ).toEqual(["initialize", "session/new"]);
+    expect(emitted.find((event) => event.type === "failed")).toMatchObject({
+      type: "failed",
+      runId: "run-kimi-mode-unsupported",
+      error:
+        "Kimi Code did not expose a mode configuration option. Use Approval required or update Kimi Code.",
+    });
+  });
+
+  it("returns a useful failed event when Kimi ACP startup fails", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        failAcp(transport, message, "login required");
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-fail", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    expect(emitted).toEqual([
+      {
+        type: "failed",
+        runId: "run-kimi-fail",
+        error: "login required",
+      },
+    ]);
+  });
+
+  it("returns a useful failed event when Kimi ACP transport creation fails", async () => {
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("spawn failed");
+      },
+      kimiAcpTransportFactory: () => {
+        throw new Error("transport unavailable");
+      },
+    });
+
+    manager.start("run-kimi-transport-fail", makeRequest({ runtimeId: "kimi" }));
+
+    expect(emitted).toEqual([
+      {
+        type: "failed",
+        runId: "run-kimi-transport-fail",
+        error: "transport unavailable",
+      },
+    ]);
+  });
+
+  it("returns a useful failed event when Kimi ACP prompt fails", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        failAcp(transport, message, "prompt failed");
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-prompt-fail", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    expect(emitted).toEqual([
+      {
+        type: "started",
+        runId: "run-kimi-prompt-fail",
+        threadId: "thread-1",
+      },
+      {
+        type: "failed",
+        runId: "run-kimi-prompt-fail",
+        error: "prompt failed",
+      },
+    ]);
+  });
+
+  it("answers Kimi ACP fs/read_text_file requests from the project workspace", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          transport.emitMessage({
+            jsonrpc: "2.0",
+            id: "agent-read-1",
+            method: "fs/read_text_file",
+            params: {
+              sessionId: "session-1",
+              path: "/Users/onion/workbench/carrent/package.json",
+            },
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Read complete" },
+          });
+          setTimeout(() => respondAcp(transport, message, { stopReason: "end_turn" }), 5);
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start(
+      "run-kimi-read",
+      makeRequest({
+        runtimeId: "kimi",
+        workspace: {
+          kind: "project",
+          projectId: "carrent",
+          projectPath: "/Users/onion/workbench/carrent",
+        },
+      }),
+    );
+    await waitForAsyncEvents();
+
+    const readResponse = transports[0]?.sent.find((message) => message.id === "agent-read-1");
+    expect(readResponse).toBeDefined();
+    expect((readResponse!.result as { content?: string }).content).toContain('"name": "carrent"');
+    expect(emitted.find((event) => event.type === "reasoning")).toMatchObject({
+      type: "reasoning",
+      reasoning: {
+        id: "kimi-fs-read-/Users/onion/workbench/carrent/package.json",
+        content: "Read package.json",
+        status: "completed",
+      },
+    });
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Read complete",
+    });
+  });
+
+  it("refuses Kimi ACP fs/read_text_file requests that escape through workspace symlinks", async () => {
+    const workspacePath = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-workspace-"));
+    const outsidePath = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-outside-"));
+    await writeFile(path.join(outsidePath, "secret.txt"), "secret", "utf8");
+    await symlink(path.join(outsidePath, "secret.txt"), path.join(workspacePath, "linked-secret.txt"));
+
+    const emitted: ChatRunEvent[] = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          transport.emitMessage({
+            jsonrpc: "2.0",
+            id: "agent-read-symlink",
+            method: "fs/read_text_file",
+            params: {
+              sessionId: "session-1",
+              path: path.join(workspacePath, "linked-secret.txt"),
+            },
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Still safe" },
+          });
+          setTimeout(() => respondAcp(transport, message, { stopReason: "end_turn" }), 5);
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start(
+      "run-kimi-read-symlink",
+      makeRequest({
+        runtimeId: "kimi",
+        workspace: {
+          kind: "project",
+          projectId: "tmp",
+          projectPath: workspacePath,
+        },
+      }),
+    );
+    await waitForAsyncEvents();
+
+    const readResponse = transports[0]?.sent.find(
+      (message) => message.id === "agent-read-symlink",
+    );
+    const readError = readResponse?.error as { code?: number; message?: string } | undefined;
+    expect(readError?.code).toBe(-32000);
+    expect(readError?.message).toContain("Refusing to read outside workspace");
+    expect((readResponse?.result as { content?: string } | undefined)?.content).toBeUndefined();
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Still safe",
+    });
+  });
+
+  it("normalizes Kimi ACP shell activity into shell events with bounded output", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const longOutput = "x".repeat(13_000);
+    const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "tool_call",
+            toolCallId: "tool-shell-1",
+            title: "Bash",
+            kind: "execute",
+            status: "pending",
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tool-shell-1",
+            title: "Running: pwd",
+            kind: "execute",
+            status: "in_progress",
+            rawInput: { command: "pwd", cwd: "/Users/onion/workbench/carrent" },
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tool-shell-1",
+            status: "completed",
+            rawOutput: longOutput,
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Done" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-shell", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    const shellEvents = emitted.filter((event) => event.type === "shell");
+    expect(shellEvents).toHaveLength(3);
+    expect(shellEvents[0].shell).toMatchObject({
+      id: "tool-shell-1",
+      command: "Bash",
+      output: "",
+      status: "running",
+    });
+    expect(shellEvents[1].shell).toMatchObject({
+      command: "pwd",
+      status: "running",
+    });
+    expect(shellEvents[2].shell.command).toBe("pwd");
+    expect(shellEvents[2].shell.status).toBe("completed");
+    expect(shellEvents[2].shell.output.length).toBeLessThan(longOutput.length);
+    expect(shellEvents[2].shell.output).toContain("[output truncated]");
+  });
+
+  it("normalizes Kimi ACP file activity into reasoning events", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "tool_call",
+            toolCallId: "tool-read-1",
+            title: "Read",
+            kind: "read",
+            status: "pending",
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tool-read-1",
+            title: "Reading package.json",
+            kind: "read",
+            status: "completed",
+            rawInput: { path: "package.json" },
+            rawOutput: "file contents",
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Done" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-file", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    const fileReasoningEvents = emitted.filter(
+      (
+        event,
+      ): event is Extract<ChatRunEvent, { type: "reasoning" }> =>
+        event.type === "reasoning" && event.reasoning.id === "kimi-tool-tool-read-1",
+    );
+    expect(fileReasoningEvents.map((event) => event.reasoning)).toEqual([
+      {
+        id: "kimi-tool-tool-read-1",
+        content: "Read",
+        status: "running",
+      },
+      {
+        id: "kimi-tool-tool-read-1",
+        content: "Read package.json",
+        status: "completed",
+      },
+    ]);
+  });
+
+  it("handles unknown Kimi ACP activity without crashing the run", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "unknown_update",
+            unexpected: true,
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "tool_call",
+            toolCallId: "tool-unknown-1",
+            title: "Mystery",
+            kind: "telemetry",
+            status: "in_progress",
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Still fine" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-unknown", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Still fine",
+    });
+    expect(emitted.find((event) => event.type === "reasoning")).toMatchObject({
+      type: "reasoning",
+      reasoning: {
+        id: "kimi-tool-tool-unknown-1",
+        content: "Mystery",
+        status: "running",
+      },
+    });
+  });
+
+  it("settles failed Kimi ACP file activity instead of leaving it running", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tool-read-failed",
+            title: "Reading missing.txt",
+            kind: "read",
+            status: "failed",
+            rawInput: { path: "missing.txt" },
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Done" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-file-failed", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "reasoning")).toMatchObject({
+      type: "reasoning",
+      reasoning: {
+        id: "kimi-tool-tool-read-failed",
+        content: "Read missing.txt",
+        status: "completed",
+      },
+    });
+  });
+
+  it("cancels an in-flight Kimi ACP run and emits stopped", async () => {
+    const emitted: ChatRunEvent[] = [];
+    let promptRequest: JsonMessage | null = null;
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        return;
+      }
+
+      if (message.method === "session/cancel") {
+        queueMicrotask(() => {
+          if (promptRequest) {
+            respondAcp(transport, promptRequest, { stopReason: "cancelled" });
+          }
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-stop", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+    manager.stop("run-kimi-stop");
+    await waitForAsyncEvents();
+
+    expect(
+      transports[0]?.sent
+        .filter((message) => typeof message.method === "string")
+        .map((message) => message.method),
+    ).toEqual(["initialize", "session/new", "session/prompt", "session/cancel"]);
+    expect(emitted.find((event) => event.type === "stopped")).toMatchObject({
+      type: "stopped",
+      runId: "run-kimi-stop",
+    });
+    expect(transports[0]?.closed).toBe(true);
+  });
+
+  it("treats Kimi ACP process close after stop as stopped", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-stop-close", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+    manager.stop("run-kimi-stop-close");
+    transports[0]?.emitClose({ code: null, signal: "SIGTERM", stderr: "" });
+    await waitForAsyncEvents();
+
+    expect(emitted.some((event) => event.type === "failed")).toBe(false);
+    expect(emitted.find((event) => event.type === "stopped")).toMatchObject({
+      type: "stopped",
+      runId: "run-kimi-stop-close",
+    });
+  });
+
+  it("surfaces Kimi ACP permission requests and sends the selected approval option", async () => {
+    const emitted: ChatRunEvent[] = [];
+    let promptRequest: JsonMessage | null = null;
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        queueMicrotask(() => {
+          transport.emitMessage({
+            jsonrpc: "2.0",
+            id: "agent-permission-1",
+            method: "session/request_permission",
+            params: {
+              sessionId: "session-1",
+              options: [
+                { optionId: "approve_always", name: "Approve for this session", kind: "allow_always" },
+                { optionId: "approve_once", name: "Approve once", kind: "allow_once" },
+                { optionId: "reject", name: "Reject", kind: "reject_once" },
+              ],
+              toolCall: {
+                toolCallId: "tool-shell-1",
+                title: "Bash",
+                content: [
+                  {
+                    type: "content",
+                    content: {
+                      type: "text",
+                      text: "Requesting approval to Running: pwd",
+                    },
+                  },
+                ],
+              },
+            },
+          });
+        });
+        return;
+      }
+
+      if (message.id === "agent-permission-1" && "result" in message) {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Allowed" },
+          });
+          if (promptRequest) {
+            respondAcp(transport, promptRequest, { stopReason: "end_turn" });
+          }
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-permission", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    const permissionRequested = emitted.find(
+      (
+        event,
+      ): event is Extract<ChatRunEvent, { type: "permission-requested" }> =>
+        event.type === "permission-requested",
+    );
+    expect(permissionRequested).toMatchObject({
+      type: "permission-requested",
+      runId: "run-kimi-permission",
+      permission: {
+        provider: "kimi",
+        action: "shell",
+        command: "pwd",
+        threadId: "thread-1",
+      },
+    });
+
+    manager.respondToPermission({
+      runId: "run-kimi-permission",
+      permissionId: permissionRequested!.permission.id,
+      decision: "approved",
+    });
+    await waitForAsyncEvents();
+
+    const permissionResponse = transports[0]?.sent.find(
+      (message) => message.id === "agent-permission-1" && "result" in message,
+    );
+    expect(permissionResponse?.result).toEqual({
+      outcome: {
+        outcome: "selected",
+        optionId: "approve_once",
+      },
+    });
+    expect(emitted.find((event) => event.type === "permission-resolved")).toMatchObject({
+      type: "permission-resolved",
+      runId: "run-kimi-permission",
+      permissionId: permissionRequested!.permission.id,
+      decision: "approved",
+    });
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Allowed",
+    });
+  });
+
+  it("keeps Kimi ACP permission ids unique across concurrent runs", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const promptByTransport = new Map<FakeKimiAcpTransport, JsonMessage>();
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        const turn = transports.indexOf(transport) + 1;
+        respondAcp(transport, message, { sessionId: `session-${turn}` });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        promptByTransport.set(transport, message);
+        queueMicrotask(() => {
+          transport.emitMessage({
+            jsonrpc: "2.0",
+            id: "agent-permission-1",
+            method: "session/request_permission",
+            params: {
+              sessionId: "session-1",
+              options: [
+                { optionId: "approve_once", name: "Approve once", kind: "allow_once" },
+                { optionId: "reject", name: "Reject", kind: "reject_once" },
+              ],
+              toolCall: {
+                toolCallId: "tool-shell-1",
+                title: "Bash",
+                content: [
+                  {
+                    type: "content",
+                    content: {
+                      type: "text",
+                      text: "Requesting approval to Running: pwd",
+                    },
+                  },
+                ],
+              },
+            },
+          });
+        });
+        return;
+      }
+
+      if (message.id === "agent-permission-1" && "result" in message) {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Allowed" },
+          });
+          const promptRequest = promptByTransport.get(transport);
+          if (promptRequest) {
+            respondAcp(transport, promptRequest, { stopReason: "end_turn" });
+          }
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start(
+      "run-kimi-permission-a",
+      makeRequest({ runtimeId: "kimi", threadId: "thread-a" }),
+    );
+    manager.start(
+      "run-kimi-permission-b",
+      makeRequest({ runtimeId: "kimi", threadId: "thread-b" }),
+    );
+    await waitForAsyncEvents();
+
+    const permissions = emitted.filter(
+      (
+        event,
+      ): event is Extract<ChatRunEvent, { type: "permission-requested" }> =>
+        event.type === "permission-requested",
+    );
+    expect(permissions).toHaveLength(2);
+    expect(new Set(permissions.map((event) => event.permission.id)).size).toBe(2);
+    expect(permissions.map((event) => event.permission.id)).toEqual([
+      "kimi-permission-run-kimi-permission-a-agent-permission-1",
+      "kimi-permission-run-kimi-permission-b-agent-permission-1",
+    ]);
+
+    for (const event of permissions) {
+      manager.respondToPermission({
+        runId: event.runId,
+        permissionId: event.permission.id,
+        decision: "approved",
+      });
+    }
+    await waitForAsyncEvents();
+
+    expect(emitted.filter((event) => event.type === "completed")).toHaveLength(2);
+  });
+
+  it("fails safely instead of surfacing unsupported Kimi ACP permission options", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          transport.emitMessage({
+            jsonrpc: "2.0",
+            id: "agent-permission-unsupported",
+            method: "session/request_permission",
+            params: {
+              sessionId: "session-1",
+              options: [{ optionId: "inspect", name: "Inspect", kind: "inspect" }],
+              toolCall: {
+                toolCallId: "tool-shell-unsupported",
+                title: "Bash",
+                content: [
+                  {
+                    type: "content",
+                    content: {
+                      type: "text",
+                      text: "Requesting approval to Running: pwd",
+                    },
+                  },
+                ],
+              },
+            },
+          });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-unsupported-permission", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    expect(emitted.some((event) => event.type === "permission-requested")).toBe(false);
+    expect(
+      transports[0]?.sent.find((message) => message.id === "agent-permission-unsupported")
+        ?.result,
+    ).toEqual({ outcome: { outcome: "cancelled" } });
+    const failed = emitted.find((event) => event.type === "failed");
+    expect(failed).toMatchObject({
+      type: "failed",
+      runId: "run-kimi-unsupported-permission",
+    });
+    expect(failed?.error).toContain("approve/deny");
+    expect(transports[0]?.closed).toBe(true);
+  });
+
+  it("does not treat session-wide Kimi ACP approval as a one-time approval", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          transport.emitMessage({
+            jsonrpc: "2.0",
+            id: "agent-permission-wide",
+            method: "session/request_permission",
+            params: {
+              sessionId: "session-1",
+              options: [
+                { optionId: "approve_always", name: "Approve for this session", kind: "allow_always" },
+                { optionId: "reject", name: "Reject", kind: "reject_once" },
+              ],
+              toolCall: {
+                toolCallId: "tool-shell-wide",
+                title: "Bash",
+                content: [
+                  {
+                    type: "content",
+                    content: {
+                      type: "text",
+                      text: "Requesting approval to Running: pwd",
+                    },
+                  },
+                ],
+              },
+            },
+          });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-wide-permission", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    expect(emitted.some((event) => event.type === "permission-requested")).toBe(false);
+    expect(
+      transports[0]?.sent.find((message) => message.id === "agent-permission-wide")?.result,
+    ).toEqual({ outcome: { outcome: "cancelled" } });
+    expect(emitted.find((event) => event.type === "failed")).toMatchObject({
+      type: "failed",
+      runId: "run-kimi-wide-permission",
+    });
+  });
+
+  it("resumes the previous Kimi ACP session for the same thread", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "kimi-session-1" });
+        return;
+      }
+
+      if (message.method === "session/resume") {
+        respondAcp(transport, message, { configOptions: [] });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        const turn = transports.indexOf(transport) + 1;
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `Turn ${turn}` },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-session-1", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+    manager.start("run-kimi-session-2", makeRequest({ runtimeId: "kimi", message: "Follow up" }));
+    await waitForAsyncEvents();
+
+    const secondTransport = transports[1];
+    expect(secondTransport).toBeDefined();
+    expect(
+      transports[0]?.sent
+        .filter((message) => typeof message.method === "string")
+        .map((message) => message.method),
+    ).toEqual(["initialize", "session/new", "session/prompt"]);
+    expect(
+      transports[1]?.sent
+        .filter((message) => typeof message.method === "string")
+        .map((message) => message.method),
+    ).toEqual(["initialize", "session/resume", "session/prompt"]);
+    const resumeRequest = secondTransport!.sent[1];
+    const resumedPrompt = secondTransport!.sent[2];
+    expect(resumeRequest).toBeDefined();
+    expect(resumedPrompt).toBeDefined();
+    expect((resumeRequest!.params as { sessionId?: string }).sessionId).toBe("kimi-session-1");
+    expect((resumedPrompt!.params as { sessionId?: string }).sessionId).toBe("kimi-session-1");
+    expect(emitted.filter((event) => event.type === "failed")).toHaveLength(0);
+  });
+
+  it("falls back to a new Kimi ACP session when persisted resume fails", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const sessionKey = "kimi:project:/Users/onion/workbench/timbre:thread-1";
+    const persistedSessions = new Map([[sessionKey, "stale-session"]]);
+    const deletedSessions: Array<{ key: string; sessionId?: string }> = [];
+    const sessionSets: Array<{ key: string; sessionId: string }> = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/resume") {
+        failAcp(transport, message, "Session not found");
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "fresh-session" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Recovered" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: {
+        get: (key) => persistedSessions.get(key),
+        set: (key, sessionId) => {
+          sessionSets.push({ key, sessionId });
+          persistedSessions.set(key, sessionId);
+        },
+        delete: (key, sessionId) => {
+          deletedSessions.push({ key, sessionId });
+          if (!sessionId || persistedSessions.get(key) === sessionId) {
+            persistedSessions.delete(key);
+          }
+        },
+      },
+    });
+
+    manager.start("run-kimi-stale-resume", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    expect(
+      transports[0]?.sent
+        .filter((message) => typeof message.method === "string")
+        .map((message) => message.method),
+    ).toEqual(["initialize", "session/resume", "session/new", "session/prompt"]);
+    expect(transports[0]?.sent[1]).toMatchObject({
+      method: "session/resume",
+      params: { sessionId: "stale-session" },
+    });
+    expect(transports[0]?.sent[3]).toMatchObject({
+      method: "session/prompt",
+      params: { sessionId: "fresh-session" },
+    });
+    expect(deletedSessions).toEqual([{ key: sessionKey, sessionId: "stale-session" }]);
+    expect(sessionSets).toEqual([{ key: sessionKey, sessionId: "fresh-session" }]);
+    expect(persistedSessions.get(sessionKey)).toBe("fresh-session");
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Recovered",
+    });
+  });
+
+  it("does not reuse a Kimi ACP session across different threads", async () => {
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        const turn = transports.indexOf(transport) + 1;
+        respondAcp(transport, message, { sessionId: `kimi-session-${turn}` });
+        return;
+      }
+
+      if (message.method === "session/resume") {
+        respondAcp(transport, message, { configOptions: [] });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        const turn = transports.indexOf(transport) + 1;
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `Turn ${turn}` },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-thread-a-1", makeRequest({ runtimeId: "kimi", threadId: "thread-a" }));
+    await waitForAsyncEvents();
+    manager.start("run-kimi-thread-b", makeRequest({ runtimeId: "kimi", threadId: "thread-b" }));
+    await waitForAsyncEvents();
+    manager.start("run-kimi-thread-a-2", makeRequest({ runtimeId: "kimi", threadId: "thread-a" }));
+    await waitForAsyncEvents();
+
+    const resumedTransport = transports[2];
+    expect(resumedTransport).toBeDefined();
+    expect(transports[0]?.sent[1]?.method).toBe("session/new");
+    expect(transports[1]?.sent[1]?.method).toBe("session/new");
+    expect(resumedTransport!.sent[1]?.method).toBe("session/resume");
+    const resumedSessionRequest = resumedTransport!.sent[1];
+    expect(resumedSessionRequest).toBeDefined();
+    expect((resumedSessionRequest!.params as { sessionId?: string }).sessionId).toBe(
+      "kimi-session-1",
+    );
+  });
+
+  it("does not persist a Kimi ACP session from a failed run", async () => {
+    const sessionSets: Array<{ key: string; sessionId: string }> = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        const turn = transports.indexOf(transport) + 1;
+        respondAcp(transport, message, { sessionId: `kimi-session-${turn}` });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        const turn = transports.indexOf(transport) + 1;
+        if (turn === 1) {
+          failAcp(transport, message, "prompt failed");
+          return;
+        }
+
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Recovered" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: {
+        get: () => undefined,
+        set: (key, sessionId) => {
+          sessionSets.push({ key, sessionId });
+        },
+      },
+    });
+
+    manager.start("run-kimi-failed-session", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+    manager.start("run-kimi-after-failed-session", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    expect(transports[0]?.sent[1]?.method).toBe("session/new");
+    expect(transports[1]?.sent[1]?.method).toBe("session/new");
+    expect(sessionSets).toEqual([
+      {
+        key: "kimi:project:/Users/onion/workbench/timbre:thread-1",
+        sessionId: "kimi-session-2",
+      },
+    ]);
+  });
+
+  it("does not fail or cache a Kimi ACP run when session persistence throws", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        const turn = transports.indexOf(transport) + 1;
+        respondAcp(transport, message, { sessionId: `kimi-session-${turn}` });
+        return;
+      }
+
+      if (message.method === "session/resume") {
+        respondAcp(transport, message, { configOptions: [] });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        const turn = transports.indexOf(transport) + 1;
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `Turn ${turn}` },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: {
+        get: () => undefined,
+        set: () => {
+          throw new Error("store unavailable");
+        },
+      },
+    });
+
+    manager.start("run-kimi-persist-throws-1", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+    manager.start("run-kimi-persist-throws-2", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    expect(emitted.filter((event) => event.type === "failed")).toHaveLength(0);
+    expect(emitted.filter((event) => event.type === "completed")).toHaveLength(2);
+    expect(transports[0]?.sent[1]?.method).toBe("session/new");
+    expect(transports[1]?.sent[1]?.method).toBe("session/new");
+  });
+
+  it("emits Kimi ACP completion after async session persistence settles", async () => {
+    const emitted: ChatRunEvent[] = [];
+    let resolvePersistence!: () => void;
+    const persistenceSettled = new Promise<void>((resolve) => {
+      resolvePersistence = resolve;
+    });
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-async" });
+        return;
+      }
+
+      if (message.method === "session/resume") {
+        respondAcp(transport, message, { configOptions: [] });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        const turn = transports.indexOf(transport) + 1;
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `Turn ${turn}` },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: {
+        get: () => undefined,
+        set: async () => {
+          await persistenceSettled;
+        },
+      },
+    });
+
+    manager.start("run-kimi-async-persist-1", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+    expect(emitted.some((event) => event.type === "completed")).toBe(false);
+
+    resolvePersistence();
+    await waitForAsyncEvents();
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Turn 1",
+    });
+
+    manager.start("run-kimi-async-persist-2", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+    const resumeRequest = transports[1]?.sent[1];
+    expect(resumeRequest?.method).toBe("session/resume");
+    expect((resumeRequest!.params as { sessionId?: string }).sessionId).toBe("session-async");
+  });
+
+  it("emits a clear failure for legacy runtimes without spawning", async () => {
+    let spawnCalled = false;
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createProductionChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => {
+        spawnCalled = true;
+        return createMockChildProcess();
+      },
+    });
+
+    manager.start("run-legacy", makeRequest({ runtimeId: "codex" }));
+
+    const failed = emitted.find((e) => e.type === "failed");
+    expect(failed).toBeDefined();
+    expect(failed?.error).toContain("unavailable in Carrent V1");
+    expect(spawnCalled).toBe(false);
   });
 
   it("accepts projectless chat requests", async () => {

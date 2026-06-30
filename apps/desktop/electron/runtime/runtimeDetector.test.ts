@@ -28,6 +28,23 @@ function createRuntimeDescriptor(): RuntimeDescriptor {
   };
 }
 
+function createKimiRuntimeDescriptor(): RuntimeDescriptor {
+  return {
+    id: "kimi",
+    name: "Kimi Code",
+    command: "kimi",
+    versionArgs: ["--version"],
+    configMarkers: ["~/.kimi-code", "~/.config/kimi-code"],
+    supportsModelPing: false,
+    detection: {
+      localCheck: {
+        mayUseTokens: false,
+      },
+    },
+    verification: {},
+  };
+}
+
 describe("detectRuntime", () => {
   it("returns detected runtime with version and configured state", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "runtime-detector-"));
@@ -136,6 +153,88 @@ describe("detectRuntime", () => {
     expect(result.configuration).toBe("unknown");
     expect(result.path).toBeUndefined();
     expect(result.version).toBeUndefined();
+    expect(result.lastError).toBe(
+      'Runtime command not found: codex. Install Codex and make "codex" available in PATH.',
+    );
+  });
+
+  it("detects Kimi Code with version and configured state", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "kimi-runtime-detector-"));
+    const configMarker = path.join(tempRoot, "kimi-code");
+    const commands = [
+      {
+        ok: true,
+        exitCode: 0,
+        stdout: "/Users/onion/.kimi-code/bin/kimi\n",
+        stderr: "",
+      },
+      {
+        ok: true,
+        exitCode: 0,
+        stdout: "0.19.2\n",
+        stderr: "",
+      },
+    ];
+    const calls: Array<{ command: string; args: string[]; cwd?: string }> = [];
+    const runtime = {
+      ...createKimiRuntimeDescriptor(),
+      configMarkers: [configMarker],
+    };
+
+    await mkdir(configMarker, { recursive: true });
+
+    try {
+      const result = await detectRuntime(runtime, {
+        run: async (command, args, options) => {
+          calls.push({ command, args, cwd: options?.cwd });
+          return commands.shift()!;
+        },
+      });
+
+      expect(result.id).toBe("kimi");
+      expect(result.name).toBe("Kimi Code");
+      expect(result.command).toBe("kimi");
+      expect(result.availability).toBe("detected");
+      expect(result.enabled).toBe(true);
+      expect(result.configuration).toBe("configured");
+      expect(result.path).toBe("/Users/onion/.kimi-code/bin/kimi");
+      expect(result.version).toBe("0.19.2");
+      expect(result.supportsModelPing).toBe(false);
+      expect(calls).toEqual([
+        {
+          command: "which",
+          args: ["kimi"],
+          cwd: os.homedir(),
+        },
+        {
+          command: "kimi",
+          args: ["--version"],
+          cwd: os.homedir(),
+        },
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("returns actionable unavailable state when Kimi Code is missing", async () => {
+    const result = await detectRuntime(createKimiRuntimeDescriptor(), {
+      run: async () => ({
+        ok: false,
+        exitCode: 1,
+        stdout: "",
+        stderr: "",
+      }),
+    });
+
+    expect(result).toMatchObject({
+      id: "kimi",
+      availability: "unavailable",
+      enabled: false,
+      configuration: "unknown",
+      lastError:
+        'Runtime command not found: kimi. Install Kimi Code and make "kimi" available in PATH.',
+    });
   });
 
   it("returns missing configuration when no config marker exists", async () => {

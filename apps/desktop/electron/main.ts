@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { registerRuntimeIpc } from "./runtime/runtimeIpc";
 import { registerChatIpc } from "./chat/chatIpc";
 import { createChatSessionManager } from "./chat/chatSessionManager";
+import { createPersistentProviderSessionStore } from "./chat/providerSessionStore";
 import { createWorkspaceStore } from "./workspace/workspaceStore";
 import { getLastWorkspaceSnapshot, registerWorkspaceIpc } from "./workspace/workspaceIpc";
 import type { WorkspaceStore } from "./workspace/workspaceStore";
@@ -97,19 +98,12 @@ app.whenReady().then(async () => {
   };
 
   const providerSessionsSnapshot = await store.loadProviderSessions();
-  const providerSessionMemory = { ...providerSessionsSnapshot.sessions };
 
   registerChatIpc(ipcMain, {
     sessionManager: createChatSessionManager({
       emit: emitChatEvent as (event: { type: string }) => void,
       spawn,
-      providerSessions: {
-        get: (key) => providerSessionMemory[key],
-        set: (key, sessionId) => {
-          providerSessionMemory[key] = sessionId;
-          store.saveProviderSessions({ version: 1, sessions: providerSessionMemory });
-        },
-      },
+      providerSessions: createPersistentProviderSessionStore(store, providerSessionsSnapshot),
     }),
   });
   createWindow(icon);

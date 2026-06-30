@@ -1,61 +1,18 @@
 import type { RuntimeDescriptor } from "../../src/shared/runtimes";
 
-export const runtimeCatalog = [
+export const runtimeCatalog: RuntimeDescriptor[] = [
   {
-    id: "codex",
-    name: "Codex",
-    command: "codex",
+    id: "kimi",
+    name: "Kimi Code",
+    command: "kimi",
     versionArgs: ["--version"],
-    configMarkers: ["~/.codex", "~/.config/codex"],
-    supportsModelPing: true,
+    configMarkers: ["~/.kimi-code", "~/.config/kimi-code"],
+    supportsModelPing: false,
     detection: {
       localCheck: {
         mayUseTokens: false,
       },
     },
-    verification: {
-      modelPing: {
-        prompt: "Reply with exactly OK.",
-        mayUseTokens: true,
-      },
-    },
+    verification: {},
   },
-  {
-    id: "claude-code",
-    name: "Claude Code",
-    command: "claude",
-    versionArgs: ["--version"],
-    configMarkers: ["~/.claude"],
-    supportsModelPing: true,
-    detection: {
-      localCheck: {
-        mayUseTokens: false,
-      },
-    },
-    verification: {
-      modelPing: {
-        prompt: "Reply with exactly OK.",
-        mayUseTokens: true,
-      },
-    },
-  },
-  {
-    id: "pi",
-    name: "pi",
-    command: "pi",
-    versionArgs: ["--version"],
-    configMarkers: ["~/.pi"],
-    supportsModelPing: true,
-    detection: {
-      localCheck: {
-        mayUseTokens: false,
-      },
-    },
-    verification: {
-      modelPing: {
-        prompt: "Reply with exactly OK.",
-        mayUseTokens: true,
-      },
-    },
-  },
-] satisfies RuntimeDescriptor[];
+];

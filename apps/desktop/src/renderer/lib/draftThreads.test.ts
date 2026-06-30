@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
 import type { DraftThreadRecord } from "./draftThreads";
 import {
   buildDraftThreadRecord,
@@ -128,7 +129,7 @@ describe("draftThreads", () => {
 
   it("builds drafts with the default runtime", () => {
     const draft = buildDraftThreadRecord("project-1", "New thread");
-    expect(draft?.runtimeId).toBe("codex");
+    expect(draft?.runtimeId).toBe(DEFAULT_RUNTIME_ID);
   });
 
   it("builds drafts with a provided runtime", () => {

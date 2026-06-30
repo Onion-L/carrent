@@ -9,7 +9,16 @@ import type {
 } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import { buildChatPrompt } from "./chatPrompt";
-import { getRuntimeCommand } from "./chatRunner";
+import {
+  getRuntimeCommand,
+  getRuntimeCommandUnavailableMessage,
+} from "./chatRunner";
+import {
+  createKimiAcpProcessTransportFactory,
+  startKimiAcpChatRun,
+  type KimiAcpTransportFactory,
+  type KimiAcpRunHandle,
+} from "./kimiAcpChat";
 import { getClaudeRuntimeModeArgs, getCodexRuntimeModeArgs } from "../../src/shared/runtimeMode";
 import { extractClaudePermissionRequest } from "./providerPermissionProtocol";
 
@@ -30,7 +39,7 @@ export type SpawnFn = (
     cwd: string;
     timeout?: number;
     windowsHide?: boolean;
-    stdio?: ["ignore", "pipe", "pipe"];
+    stdio?: ["ignore" | "pipe", "pipe", "pipe"];
   },
 ) => ChildProcess;
 
@@ -565,6 +574,7 @@ function getSessionRuntimeCommand(
   options?: {
     includeTranscript?: boolean;
     resumeSessionId?: string | null;
+    allowLegacyRuntimeCommands?: boolean;
   },
 ) {
   const resumeSessionId = options?.resumeSessionId ?? null;
@@ -592,6 +602,7 @@ function getSessionRuntimeCommand(
       prompt,
       request.runtimeMode,
       request.runtimeModelId,
+      { allowLegacyRuntimeCommands: options?.allowLegacyRuntimeCommands },
     );
   }
 
@@ -619,14 +630,18 @@ function getSessionRuntimeCommand(
 export type ProviderSessionStore = {
   get: (key: string) => string | undefined;
   set: (key: string, sessionId: string) => void | Promise<void>;
+  delete?: (key: string, sessionId?: string) => void | Promise<void>;
 };
 
 export function createChatSessionManager(options: {
   emit: (event: ChatRunEvent) => void;
   spawn: SpawnFn;
   providerSessions?: ProviderSessionStore;
+  allowLegacyRuntimeCommands?: boolean;
+  kimiAcpTransportFactory?: KimiAcpTransportFactory;
 }): ChatSessionManager {
   const sessions = new Map<string, ChatSession>();
+  const kimiSessions = new Map<string, KimiAcpRunHandle>();
   const runtimeSessions = new Map<string, string>();
   const TIMEOUT_MS = 120_000;
 
@@ -637,6 +652,60 @@ export function createChatSessionManager(options: {
         runId,
         requestKey: request.requestKey,
         error: "Project path is missing. Select a project to chat.",
+      });
+      return;
+    }
+
+    if (request.runtimeId === "kimi") {
+      const requestSessionKey = buildRequestSessionKey(request);
+      const resumeSessionId =
+        runtimeSessions.get(requestSessionKey) ?? options.providerSessions?.get(requestSessionKey) ?? null;
+
+      try {
+        const transportFactory =
+          options.kimiAcpTransportFactory ?? createKimiAcpProcessTransportFactory(options.spawn);
+        const handle = startKimiAcpChatRun({
+          runId,
+          request,
+          cwd: resolveRequestCwd(request),
+          emit: options.emit,
+          transportFactory,
+          resumeSessionId,
+          onInvalidSession: async (sessionId) => {
+            if (runtimeSessions.get(requestSessionKey) === sessionId) {
+              runtimeSessions.delete(requestSessionKey);
+            }
+            await options.providerSessions?.delete?.(requestSessionKey, sessionId);
+          },
+          onCompletedSession: async (sessionId) => {
+            await options.providerSessions?.set(requestSessionKey, sessionId);
+            runtimeSessions.set(requestSessionKey, sessionId);
+          },
+          onDone: () => {
+            kimiSessions.delete(runId);
+          },
+        });
+        kimiSessions.set(runId, handle);
+      } catch (error) {
+        options.emit({
+          type: "failed",
+          runId,
+          requestKey: request.requestKey,
+          error: error instanceof Error ? error.message : "Failed to start Kimi ACP.",
+        });
+      }
+      return;
+    }
+
+    const unavailableMessage = getRuntimeCommandUnavailableMessage(request.runtimeId, {
+      allowLegacyRuntimeCommands: options.allowLegacyRuntimeCommands,
+    });
+    if (unavailableMessage) {
+      options.emit({
+        type: "failed",
+        runId,
+        requestKey: request.requestKey,
+        error: unavailableMessage,
       });
       return;
     }
@@ -677,10 +746,23 @@ export function createChatSessionManager(options: {
     allowResumeFallback: boolean;
     emitLifecycleEvents: boolean;
   }) {
-    const { command, args } = getSessionRuntimeCommand(request, {
-      includeTranscript,
-      resumeSessionId,
-    });
+    let command: string;
+    let args: string[];
+    try {
+      ({ command, args } = getSessionRuntimeCommand(request, {
+        includeTranscript,
+        resumeSessionId,
+        allowLegacyRuntimeCommands: options.allowLegacyRuntimeCommands,
+      }));
+    } catch (error) {
+      options.emit({
+        type: "failed",
+        runId,
+        requestKey: request.requestKey,
+        error: error instanceof Error ? error.message : "Runtime is unavailable.",
+      });
+      return;
+    }
 
     const timeoutHandle = setTimeout(() => {
       const session = sessions.get(runId);
@@ -978,6 +1060,13 @@ export function createChatSessionManager(options: {
   }
 
   function stop(runId: string) {
+    const kimiSession = kimiSessions.get(runId);
+    if (kimiSession) {
+      kimiSession.stop();
+      kimiSessions.delete(runId);
+      return;
+    }
+
     const session = sessions.get(runId);
     if (session) {
       session.stoppedByUser = true;
@@ -989,6 +1078,12 @@ export function createChatSessionManager(options: {
   // we emit permission-failed for all responses when in approval-required mode.
   // The pending permission infrastructure is in place for future provider support.
   function respondToPermission(response: ChatPermissionResponse) {
+    const kimiSession = kimiSessions.get(response.runId);
+    if (kimiSession) {
+      kimiSession.respondToPermission(response);
+      return;
+    }
+
     const session = sessions.get(response.runId);
 
     if (!session) {

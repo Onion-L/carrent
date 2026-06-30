@@ -1,5 +1,6 @@
 import type { ChatTurnRequest } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
+import { runtimeNameMap, type RuntimeId } from "../../src/shared/runtimes";
 import type { ChatSessionManager } from "./chatSessionManager";
 
 interface IpcMainLike {
@@ -16,6 +17,11 @@ export interface ChatIpcServices {
 export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServices) {
   ipcMainLike.handle("chat:send", async (_event, request) => {
     const req = request as ChatTurnRequest;
+    const unavailableMessage = getV1UnavailableRuntimeMessage(req.runtimeId);
+    if (unavailableMessage) {
+      throw new Error(unavailableMessage);
+    }
+
     const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
     services.sessionManager.start(runId, req);
@@ -32,4 +38,12 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
     services.sessionManager.respondToPermission(response as ChatPermissionResponse);
     return undefined;
   });
+}
+
+function getV1UnavailableRuntimeMessage(runtimeId: RuntimeId) {
+  if (runtimeId === "kimi") {
+    return null;
+  }
+
+  return `${runtimeNameMap[runtimeId]} is unavailable in Carrent V1. Use Kimi Code.`;
 }

@@ -10,12 +10,18 @@ export type ProviderApprovalCapability =
  * Based on the provider-approval-spike.md findings (2026-04-27):
  * - Codex exec mode has no stdin-based interactive approval protocol
  * - Claude --print mode uses AskUserQuestion which only works in interactive TUI
+ * - Kimi ACP has a JSON-RPC permission response path over stdio
  *
- * Both providers currently require interactive TUI mode for approval flows,
+ * Legacy providers still require interactive TUI mode for approval flows,
  * which is not available in our headless chat execution context.
  */
 export function getProviderApprovalCapability(_runtimeId: RuntimeId): ProviderApprovalCapability {
   switch (_runtimeId) {
+    case "kimi":
+      return {
+        supported: true,
+        responseChannel: "stdin",
+      };
     case "codex":
       return {
         supported: false,
@@ -46,7 +52,7 @@ export function getProviderApprovalCapability(_runtimeId: RuntimeId): ProviderAp
  */
 export type ProviderPermissionCandidate = {
   id: string;
-  provider: "codex" | "claude-code" | "pi";
+  provider: "kimi" | "codex" | "claude-code" | "pi";
   action: "edit" | "write" | "shell" | "read" | "network" | "unknown";
   title: string;
   description?: string;

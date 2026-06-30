@@ -7,7 +7,7 @@ export type ChatPermissionRequest = {
   runId: string;
   requestKey?: string;
   threadId: string;
-  provider: "codex" | "claude-code" | "pi";
+  provider: "kimi" | "codex" | "claude-code" | "pi";
   action: ChatPermissionAction;
   title: string;
   description?: string;

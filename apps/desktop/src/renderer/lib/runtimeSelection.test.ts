@@ -38,6 +38,14 @@ describe("runtimeSelection", () => {
     expect(resolveRuntimeEnabled(makeRuntime({ id: "codex" }), { codex: false })).toBe(false);
   });
 
+  it("does not enable unavailable runtimes from persisted settings", () => {
+    expect(
+      resolveRuntimeEnabled(makeRuntime({ id: "kimi", availability: "unavailable" }), {
+        kimi: true,
+      }),
+    ).toBe(false);
+  });
+
   it("lists only detected runtimes for the Runtime page", () => {
     const runtimes = [
       makeRuntime({ id: "codex", name: "Codex" }),

@@ -7,6 +7,14 @@ import {
 
 describe("providerPermissionProtocol", () => {
   describe("getProviderApprovalCapability", () => {
+    it("kimi supports ACP approval responses over stdio", () => {
+      const result = getProviderApprovalCapability("kimi");
+      expect(result).toEqual({
+        supported: true,
+        responseChannel: "stdin",
+      });
+    });
+
     it("codex has no stdin-based approval channel in exec mode", () => {
       const result = getProviderApprovalCapability("codex");
       expect(result.supported).toBe(false);

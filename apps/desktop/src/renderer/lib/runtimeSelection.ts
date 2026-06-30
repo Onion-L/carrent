@@ -4,6 +4,10 @@ export function resolveRuntimeEnabled(
   runtime: Pick<RuntimeRecord, "id" | "availability">,
   runtimeEnabledById: Partial<Record<RuntimeId, boolean>>,
 ) {
+  if (runtime.availability !== "detected") {
+    return false;
+  }
+
   return runtimeEnabledById[runtime.id] ?? runtime.availability === "detected";
 }
 

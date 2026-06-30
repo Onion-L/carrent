@@ -10,7 +10,6 @@ import {
 import { useRuntimes } from "../hooks/useRuntimes";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { RuntimeIcon } from "../components/RuntimeIcon";
-import { getDetectedRuntimes } from "../lib/runtimeSelection";
 import { useRuntimeModels } from "../hooks/useRuntimeModels";
 
 function RuntimeListSkeleton() {
@@ -48,7 +47,7 @@ export function RuntimesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const sortedRuntimes = useMemo(() => {
-    return getDetectedRuntimes(runtimes).sort((a, b) => a.name.localeCompare(b.name));
+    return [...runtimes].sort((a, b) => a.name.localeCompare(b.name));
   }, [runtimes]);
 
   useEffect(() => {
@@ -73,6 +72,7 @@ export function RuntimesPage() {
     return getActionState(id) !== "idle";
   };
 
+  const detectedCount = sortedRuntimes.filter((r) => r.availability === "detected").length;
   const enabledCount = sortedRuntimes.filter((r) => r.enabled).length;
   const allRuntimesStarted = sortedRuntimes.length > 0 && enabledCount === sortedRuntimes.length;
 
@@ -85,15 +85,17 @@ export function RuntimesPage() {
           {enabledCount > 0 ? `${enabledCount} enabled` : "No enabled runtimes"}
         </span>
         <span className="text-xs text-subtle">/</span>
-        <span className="text-xs text-subtle">{sortedRuntimes.length} detected</span>
+        <span className="text-xs text-subtle">{detectedCount} detected</span>
         <button
           onClick={() =>
             setRuntimesEnabled(
-              sortedRuntimes.map((runtime) => runtime.id),
+              sortedRuntimes
+                .filter((runtime) => runtime.availability === "detected")
+                .map((runtime) => runtime.id),
               !allRuntimesStarted,
             )
           }
-          disabled={sortedRuntimes.length === 0}
+          disabled={detectedCount === 0}
           className="ml-auto flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted transition hover:bg-surface hover:text-fg disabled:opacity-50"
         >
           {allRuntimesStarted ? (
@@ -142,7 +144,9 @@ export function RuntimesPage() {
                           <RuntimeIcon name={runtime.name} size="sm" />
                           <span
                             className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-bg ${
-                              runtime.enabled ? "bg-success" : "bg-subtle"
+                              runtime.availability === "detected" && runtime.enabled
+                                ? "bg-success"
+                                : "bg-subtle"
                             }`}
                           />
                         </div>
@@ -152,7 +156,11 @@ export function RuntimesPage() {
                           </div>
                           <div className="mt-0.5">
                             <span className="text-[11px] text-muted">
-                              {runtime.enabled ? "Ready" : "Disabled"}
+                              {runtime.availability === "detected"
+                                ? runtime.enabled
+                                  ? "Ready"
+                                  : "Disabled"
+                                : "Unavailable"}
                             </span>
                           </div>
                         </div>
@@ -187,14 +195,22 @@ export function RuntimesPage() {
                     {selectedRuntime.name}
                   </h3>
                   <div className="mt-1 flex items-center gap-3 text-xs text-muted">
-                    <span className="text-success">Detected</span>
+                    <span
+                      className={
+                        selectedRuntime.availability === "detected" ? "text-success" : "text-danger"
+                      }
+                    >
+                      {selectedRuntime.availability === "detected" ? "Detected" : "Unavailable"}
+                    </span>
                     <span className="text-subtle">·</span>
                     <span className={selectedRuntime.enabled ? "text-success" : "text-subtle"}>
                       {selectedRuntime.enabled ? "Ready" : "Disabled"}
                     </span>
                     <span className="text-subtle">·</span>
                     <span>
-                      {selectedRuntime.id === "claude-code"
+                      {selectedRuntime.id === "kimi"
+                        ? "Moonshot AI"
+                        : selectedRuntime.id === "claude-code"
                         ? "Anthropic"
                         : selectedRuntime.id === "codex"
                           ? "OpenAI"
@@ -206,7 +222,10 @@ export function RuntimesPage() {
                   {selectedRuntime.enabled ? (
                     <button
                       onClick={() => setRuntimeEnabled(selectedRuntime.id, false)}
-                      disabled={isActionPending(selectedRuntime.id)}
+                      disabled={
+                        isActionPending(selectedRuntime.id) ||
+                        selectedRuntime.availability !== "detected"
+                      }
                       className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted transition hover:bg-surface hover:text-fg disabled:opacity-50"
                     >
                       <Square className="h-3.5 w-3.5" />
@@ -215,7 +234,10 @@ export function RuntimesPage() {
                   ) : (
                     <button
                       onClick={() => setRuntimeEnabled(selectedRuntime.id, true)}
-                      disabled={isActionPending(selectedRuntime.id)}
+                      disabled={
+                        isActionPending(selectedRuntime.id) ||
+                        selectedRuntime.availability !== "detected"
+                      }
                       className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted transition hover:bg-surface hover:text-fg disabled:opacity-50"
                     >
                       <Play className="h-3.5 w-3.5" />
@@ -224,7 +246,11 @@ export function RuntimesPage() {
                   )}
                   <button
                     onClick={() => runModelPing(selectedRuntime.id)}
-                    disabled={isActionPending(selectedRuntime.id)}
+                    disabled={
+                      isActionPending(selectedRuntime.id) ||
+                      selectedRuntime.availability !== "detected" ||
+                      !selectedRuntime.supportsModelPing
+                    }
                     className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted transition hover:bg-surface hover:text-fg disabled:opacity-50"
                   >
                     {getActionState(selectedRuntime.id) === "model-ping" ? (

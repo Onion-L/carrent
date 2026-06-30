@@ -1,7 +1,12 @@
 import { describe, it, expect } from "bun:test";
-import { createChatRunner, getRuntimeCommand } from "./chatRunner";
+import {
+  createChatRunner as createProductionChatRunner,
+  getRuntimeCommand as getProductionRuntimeCommand,
+} from "./chatRunner";
 import type { ProcessRunner, ProcessRunnerResult } from "../runtime/processRunner";
 import type { ChatTurnRequest } from "../../src/shared/chat";
+import type { RuntimeId } from "../../src/shared/runtimes";
+import type { RuntimeMode } from "../../src/shared/runtimeMode";
 
 function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
@@ -23,6 +28,21 @@ function mockRunner(result: ProcessRunnerResult): ProcessRunner {
   return {
     run: () => Promise.resolve(result),
   };
+}
+
+function createChatRunner(processRunner: ProcessRunner) {
+  return createProductionChatRunner(processRunner, { allowLegacyRuntimeCommands: true });
+}
+
+function getRuntimeCommand(
+  runtimeId: RuntimeId,
+  prompt: string,
+  runtimeMode?: RuntimeMode,
+  runtimeModelId?: string,
+): ReturnType<typeof getProductionRuntimeCommand> {
+  return getProductionRuntimeCommand(runtimeId, prompt, runtimeMode, runtimeModelId, {
+    allowLegacyRuntimeCommands: true,
+  });
 }
 
 describe("createChatRunner", () => {
@@ -68,6 +88,40 @@ describe("createChatRunner", () => {
     const chatRunner = createChatRunner(customRunner);
     await chatRunner.run(makeRequest({ runtimeId: "claude-code" }));
     expect(capturedCwd).toBe("/Users/onion/workbench/timbre");
+  });
+
+  it("returns a clear error when Kimi is sent to the legacy command runner", async () => {
+    let called = false;
+    const runner: ProcessRunner = {
+      run: () => {
+        called = true;
+        throw new Error("should not run");
+      },
+    };
+
+    const chatRunner = createChatRunner(runner);
+    const result = await chatRunner.run(makeRequest({ runtimeId: "kimi" }));
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("ACP");
+    expect(called).toBe(false);
+  });
+
+  it("rejects legacy runtimes by default before invoking the process runner", async () => {
+    let called = false;
+    const runner: ProcessRunner = {
+      run: () => {
+        called = true;
+        throw new Error("should not run");
+      },
+    };
+
+    const chatRunner = createProductionChatRunner(runner);
+    const result = await chatRunner.run(makeRequest({ runtimeId: "codex" }));
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("unavailable in Carrent V1");
+    expect(called).toBe(false);
   });
 
   it("timeout becomes a readable error", async () => {
@@ -185,6 +239,28 @@ describe("createChatRunner", () => {
         command: "pi",
         args: ["-p", "Hello"],
       });
+    });
+
+    it("does not map Kimi to the legacy command runner", () => {
+      let error = "";
+      try {
+        getProductionRuntimeCommand("kimi", "Hello", "approval-required");
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+      }
+
+      expect(error).toContain("ACP");
+    });
+
+    it("does not map legacy runtimes by default", () => {
+      let error = "";
+      try {
+        getProductionRuntimeCommand("codex", "Hello", "approval-required");
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+      }
+
+      expect(error).toContain("unavailable in Carrent V1");
     });
   });
 });

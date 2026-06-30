@@ -2,10 +2,13 @@ import { describe, expect, it } from "bun:test";
 
 import {
   getCascadingPanelPosition,
+  getActionablePermissionsForThread,
   getDisplayRuntimeModel,
+  getPermissionDetail,
   getRuntimeModelIdForSend,
   shouldSubmitComposerOnKeyDown,
 } from "./Composer";
+import type { ChatPermissionRequest } from "../../../shared/chatPermissions";
 
 const piModels = [
   {
@@ -183,5 +186,59 @@ describe("getRuntimeModelIdForSend", () => {
         defaultModelId: "deepseek/deepseek-v4-flash",
       }),
     ).toBe("minimax-cn/MiniMax-M2.7");
+  });
+});
+
+describe("getActionablePermissionsForThread", () => {
+  const kimiPermission: ChatPermissionRequest = {
+    id: "perm-kimi",
+    runId: "run-1",
+    threadId: "thread-1",
+    provider: "kimi",
+    action: "shell",
+    title: "Run command: pwd",
+    command: "pwd",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    expiresAt: "2026-01-01T00:01:00.000Z",
+  };
+
+  it("returns only Kimi permissions for the current thread", () => {
+    expect(
+      getActionablePermissionsForThread({
+        threadId: "thread-1",
+        pendingPermissions: [
+          kimiPermission,
+          {
+            ...kimiPermission,
+            id: "perm-other-thread",
+            threadId: "thread-2",
+          },
+          {
+            ...kimiPermission,
+            id: "perm-legacy",
+            provider: "claude-code",
+          },
+        ],
+      }),
+    ).toEqual([kimiPermission]);
+  });
+});
+
+describe("getPermissionDetail", () => {
+  it("prefers command details", () => {
+    expect(
+      getPermissionDetail({
+        id: "perm-kimi",
+        runId: "run-1",
+        threadId: "thread-1",
+        provider: "kimi",
+        action: "shell",
+        title: "Run command",
+        command: "pwd",
+        description: "fallback",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2026-01-01T00:01:00.000Z",
+      }),
+    ).toBe("pwd");
   });
 });

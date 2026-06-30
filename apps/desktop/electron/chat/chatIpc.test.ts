@@ -10,7 +10,7 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
       projectPath: "/Users/onion/workbench/timbre",
     },
     threadId: "thread-1",
-    runtimeId: "codex",
+    runtimeId: "kimi",
     runtimeMode: "approval-required",
     transcript: [],
     message: "Hello",
@@ -71,6 +71,38 @@ describe("registerChatIpc", () => {
     expect(result.runId).toBeString();
     expect(started).toHaveLength(1);
     expect(started[0].request.message).toBe("Hello");
+  });
+
+  it("rejects legacy runtimes before starting the session", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const started: { runId: string; request: ChatTurnRequest }[] = [];
+
+    registerChatIpc(
+      {
+        handle(channel, listener) {
+          handlers.set(channel, listener);
+        },
+      },
+      {
+        sessionManager: {
+          start: (runId, request) => {
+            started.push({ runId, request });
+          },
+          stop: () => {},
+          respondToPermission: () => {},
+        },
+      },
+    );
+
+    let error = "";
+    try {
+      await handlers.get("chat:send")?.({}, makeRequest({ runtimeId: "codex" }));
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+
+    expect(error).toContain("unavailable in Carrent V1");
+    expect(started).toHaveLength(0);
   });
 
   it("chat:stop calls session manager stop", async () => {

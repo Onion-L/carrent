@@ -69,7 +69,7 @@ describe("normalizeWorkspaceSnapshot", () => {
 
     expect(normalizeWorkspaceSnapshot(snapshot)).toEqual({
       ...snapshot,
-      chats: [{ ...snapshot.chats[0], runtimeId: "codex", runtimeMode: "approval-required" }],
+      chats: [{ ...snapshot.chats[0], runtimeId: "kimi", runtimeMode: "approval-required" }],
     });
   });
 
@@ -90,7 +90,7 @@ describe("normalizeWorkspaceSnapshot", () => {
       drafts: [],
     });
 
-    expect(snapshot?.projects[0].threads[0].runtimeId).toBe("codex");
+    expect(snapshot?.projects[0].threads[0].runtimeId).toBe("kimi");
     expect(snapshot?.projects[0].threads[0].runtimeMode).toBe("approval-required");
   });
 
@@ -113,13 +113,45 @@ describe("normalizeWorkspaceSnapshot", () => {
       ],
     });
 
-    expect(snapshot?.chats[0].runtimeId).toBe("codex");
+    expect(snapshot?.chats[0].runtimeId).toBe("kimi");
     expect(snapshot?.chats[0].runtimeMode).toBe("approval-required");
-    expect(snapshot?.drafts[0].runtimeId).toBe("codex");
+    expect(snapshot?.drafts[0].runtimeId).toBe("kimi");
     expect(snapshot?.drafts[0].runtimeMode).toBe("approval-required");
   });
 
-  it("normalizes invalid runtime ids to codex", () => {
+  it("preserves legacy runtime ids during normalization", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [
+        {
+          id: "p1",
+          name: "P1",
+          path: "/tmp/p1",
+          threads: [{ id: "t1", title: "Old", updatedAt: "now", runtimeId: "codex" }],
+        },
+      ],
+      chats: [{ id: "c1", title: "Chat", updatedAt: "now", runtimeId: "claude-code" }],
+      messages: [],
+      activeThreadId: null,
+      drafts: [
+        {
+          draftId: "d1",
+          projectId: "p1",
+          title: "Draft",
+          preallocatedThreadId: "t1",
+          createdAt: "now",
+          runtimeId: "pi",
+          messages: [],
+        },
+      ],
+    });
+
+    expect(snapshot?.projects[0].threads[0].runtimeId).toBe("codex");
+    expect(snapshot?.chats[0].runtimeId).toBe("claude-code");
+    expect(snapshot?.drafts[0].runtimeId).toBe("pi");
+  });
+
+  it("normalizes invalid runtime ids to Kimi Code", () => {
     const snapshot = normalizeWorkspaceSnapshot({
       version: 1,
       projects: [
@@ -146,9 +178,9 @@ describe("normalizeWorkspaceSnapshot", () => {
       ],
     });
 
-    expect(snapshot?.projects[0].threads[0].runtimeId).toBe("codex");
-    expect(snapshot?.chats[0].runtimeId).toBe("codex");
-    expect(snapshot?.drafts[0].runtimeId).toBe("codex");
+    expect(snapshot?.projects[0].threads[0].runtimeId).toBe("kimi");
+    expect(snapshot?.chats[0].runtimeId).toBe("kimi");
+    expect(snapshot?.drafts[0].runtimeId).toBe("kimi");
   });
 
   it("preserves valid runtime model ids for threads, chats, and drafts", () => {

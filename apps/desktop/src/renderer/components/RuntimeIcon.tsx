@@ -1,5 +1,6 @@
 import { OpenAIIcon } from "./icons/OpenAIIcon";
 import { ClaudeIcon } from "./icons/ClaudeIcon";
+import { KimiIcon } from "./icons/KimiIcon";
 import { PiIcon } from "./icons/PiIcon";
 
 export function RuntimeIcon({
@@ -29,6 +30,15 @@ export function RuntimeIcon({
         className={`flex shrink-0 items-center justify-center bg-surface-raised text-fg ${sizeClasses[size]}`}
       >
         <OpenAIIcon className={iconSizes[size]} />
+      </div>
+    );
+  }
+  if (key.includes("kimi")) {
+    return (
+      <div
+        className={`flex shrink-0 items-center justify-center bg-surface-raised ${sizeClasses[size]}`}
+      >
+        <KimiIcon className={iconSizes[size]} />
       </div>
     );
   }

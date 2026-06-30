@@ -6,8 +6,8 @@ describe("runtimeCatalog", () => {
   it("supports only the V1 runtimes", () => {
     const runtimeIds = new Set(runtimeCatalog.map((runtime) => runtime.id));
 
-    expect(runtimeIds).toEqual(new Set(["codex", "claude-code", "pi"]));
-    expect(runtimeCatalog).toHaveLength(3);
+    expect(runtimeIds).toEqual(new Set(["kimi"]));
+    expect(runtimeCatalog).toHaveLength(1);
   });
 
   it("defines zero-token local checks for every runtime", () => {
@@ -34,25 +34,14 @@ describe("runtimeCatalog", () => {
     }
   });
 
-  it("defines the confirmed codex model ping", () => {
-    const codex = runtimeCatalog.find((runtime) => runtime.id === "codex");
+  it("defines Kimi Code as an ACP runtime without token-spending model ping", () => {
+    const kimi = runtimeCatalog.find((runtime) => runtime.id === "kimi");
 
-    expect(codex).toBeDefined();
-    expect(codex?.supportsModelPing).toBe(true);
-    expect(codex?.verification.modelPing).toEqual({
-      prompt: "Reply with exactly OK.",
-      mayUseTokens: true,
-    });
-  });
-
-  it("defines the confirmed claude-code model ping", () => {
-    const claudeCode = runtimeCatalog.find((runtime) => runtime.id === "claude-code");
-
-    expect(claudeCode).toBeDefined();
-    expect(claudeCode?.supportsModelPing).toBe(true);
-    expect(claudeCode?.verification.modelPing).toEqual({
-      prompt: "Reply with exactly OK.",
-      mayUseTokens: true,
-    });
+    expect(kimi).toBeDefined();
+    expect(kimi?.name).toBe("Kimi Code");
+    expect(kimi?.command).toBe("kimi");
+    expect(kimi?.configMarkers).toContain("~/.kimi-code");
+    expect(kimi?.supportsModelPing).toBe(false);
+    expect(kimi?.verification.modelPing).toBeUndefined();
   });
 });

@@ -41,6 +41,7 @@ export async function detectRuntime(
       configuration: "unknown",
       verification: "never",
       lastCheckedAt: checkedAt,
+      lastError: `Runtime command not found: ${runtime.command}. Install ${runtime.name} and make "${runtime.command}" available in PATH.`,
       supportsModelPing: runtime.supportsModelPing,
     };
   }

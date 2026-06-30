@@ -2,7 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import type { ProcessRunner } from "../runtime/processRunner";
 import type { ChatTurnRequest } from "../../src/shared/chat";
-import type { RuntimeId } from "../../src/shared/runtimes";
+import { runtimeNameMap, type RuntimeId } from "../../src/shared/runtimes";
 import {
   DEFAULT_RUNTIME_MODE,
   getClaudeRuntimeModeArgs,
@@ -20,6 +20,10 @@ export interface ChatRunnerResult {
 export interface ChatRunner {
   run: (request: ChatTurnRequest) => Promise<ChatRunnerResult>;
 }
+
+export type RuntimeCommandOptions = {
+  allowLegacyRuntimeCommands?: boolean;
+};
 
 function getProjectlessChatCwd() {
   try {
@@ -39,17 +43,30 @@ function resolveRequestCwd(request: ChatTurnRequest) {
   return cwd;
 }
 
-export function createChatRunner(processRunner: ProcessRunner): ChatRunner {
+export function createChatRunner(
+  processRunner: ProcessRunner,
+  options: RuntimeCommandOptions = {},
+): ChatRunner {
   return {
     async run(request) {
       const prompt = buildChatPrompt(request);
 
-      const { command, args } = getRuntimeCommand(
-        request.runtimeId,
-        prompt,
-        request.runtimeMode,
-        request.runtimeModelId,
-      );
+      let command: string;
+      let args: string[];
+      try {
+        ({ command, args } = getRuntimeCommand(
+          request.runtimeId,
+          prompt,
+          request.runtimeMode,
+          request.runtimeModelId,
+          options,
+        ));
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "Runtime is unavailable.",
+        };
+      }
 
       const result = await processRunner.run(command, args, {
         cwd: resolveRequestCwd(request),
@@ -80,8 +97,16 @@ export function getRuntimeCommand(
   prompt: string,
   runtimeMode: RuntimeMode = DEFAULT_RUNTIME_MODE,
   runtimeModelId?: string,
+  options: RuntimeCommandOptions = {},
 ): { command: string; args: string[] } {
+  const unavailableMessage = getRuntimeCommandUnavailableMessage(runtimeId, options);
+  if (unavailableMessage) {
+    throw new Error(unavailableMessage);
+  }
+
   switch (runtimeId) {
+    case "kimi":
+      throw new Error(getKimiAcpUnavailableMessage());
     case "codex":
       return {
         command: "codex",
@@ -106,4 +131,23 @@ export function getRuntimeCommand(
     default:
       throw new Error(`Unknown runtime: ${runtimeId}`);
   }
+}
+
+export function getRuntimeCommandUnavailableMessage(
+  runtimeId: RuntimeId,
+  options: RuntimeCommandOptions = {},
+) {
+  if (runtimeId === "kimi") {
+    return getKimiAcpUnavailableMessage();
+  }
+
+  if (!options.allowLegacyRuntimeCommands) {
+    return `${runtimeNameMap[runtimeId]} is unavailable in Carrent V1. Use Kimi Code.`;
+  }
+
+  return null;
+}
+
+function getKimiAcpUnavailableMessage() {
+  return "Kimi Code chat runs through ACP and is not supported by the legacy command runner.";
 }

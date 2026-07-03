@@ -1,4 +1,14 @@
-import { AlertTriangle, ArrowUp, Check, ChevronDown, Image, Lock, Pencil, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUp,
+  Box,
+  Check,
+  ChevronDown,
+  Image,
+  Lock,
+  Pencil,
+  X,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -30,6 +40,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import type { Message } from "../../mock/uiShellData";
 import { type ChatReasoningEventPayload, type ChatShellEventPayload } from "../../../shared/chat";
+import type { SkillRecord } from "../../../shared/skills";
 import type {
   ChatPermissionDecision,
   ChatPermissionRequest,
@@ -43,6 +54,7 @@ import { runtimeNameMap, type RuntimeId, type RuntimeModelRecord } from "../../.
 import { RuntimeIcon } from "../RuntimeIcon";
 import { useRuntimeModels } from "../../hooks/useRuntimeModels";
 import { useRuntimes } from "../../hooks/useRuntimes";
+import { useSkills } from "../../hooks/useSkills";
 import { getChatRuntimeOptions, isChatRuntimeAvailable } from "../../lib/runtimeSelection";
 
 function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: string }) {
@@ -175,6 +187,12 @@ type RectLike = Pick<DOMRect, "left" | "top" | "right" | "bottom" | "width" | "h
 
 type CascadingPanelSide = "right" | "left" | "center";
 
+export type SkillSlashTrigger = {
+  start: number;
+  end: number;
+  query: string;
+};
+
 export type CascadingPanelPosition = {
   left: number;
   top: number;
@@ -292,13 +310,117 @@ export function getPermissionDetail(permission: ChatPermissionRequest) {
   );
 }
 
+export function getSkillSlashTrigger(
+  input: string,
+  cursorPosition = input.length,
+): SkillSlashTrigger | null {
+  const cursor = Math.min(Math.max(cursorPosition, 0), input.length);
+  const left = input.slice(0, cursor);
+  const tokenStart =
+    Math.max(left.lastIndexOf(" "), left.lastIndexOf("\n"), left.lastIndexOf("\t")) + 1;
+  const token = left.slice(tokenStart);
+
+  if (!token.startsWith("/")) {
+    return null;
+  }
+
+  const query = token.slice(1);
+  if (query.includes("/")) {
+    return null;
+  }
+
+  const right = input.slice(cursor);
+  const nextWhitespace = /\s/u.exec(right);
+
+  return {
+    start: tokenStart,
+    end: nextWhitespace ? cursor + nextWhitespace.index : input.length,
+    query,
+  };
+}
+
+function normalizeSkillQuery(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/gu, "-");
+}
+
+export function filterSkillsForQuery(skills: SkillRecord[], query: string) {
+  const normalizedQuery = normalizeSkillQuery(query);
+
+  return skills
+    .map((skill) => {
+      const name = normalizeSkillQuery(skill.name);
+      const label = normalizeSkillQuery(formatSkillLabel(skill.name));
+      const description = skill.description.toLowerCase();
+      const score =
+        normalizedQuery.length === 0
+        ? 0
+        : name.startsWith(normalizedQuery)
+          ? 0
+          : label.startsWith(normalizedQuery)
+            ? 1
+            : name.includes(normalizedQuery)
+              ? 2
+              : label.includes(normalizedQuery)
+                ? 3
+                : description.includes(normalizedQuery)
+                  ? 4
+                  : null;
+
+      return score === null ? null : { skill, score };
+    })
+    .filter((entry): entry is { skill: SkillRecord; score: number } => entry !== null)
+    .sort((a, b) => a.score - b.score || a.skill.name.localeCompare(b.skill.name))
+    .map((entry) => entry.skill);
+}
+
+export function buildSkillReference(skill: SkillRecord) {
+  return `[$${skill.name}](${skill.path})`;
+}
+
+export function replaceSkillSlashTrigger(
+  input: string,
+  trigger: SkillSlashTrigger,
+  skill: SkillRecord,
+) {
+  const reference = buildSkillReference(skill);
+  const trailingSpace = input[trigger.end] === " " ? "" : " ";
+  return `${input.slice(0, trigger.start)}${reference}${trailingSpace}${input.slice(trigger.end)}`;
+}
+
+export function formatSkillLabel(name: string) {
+  const [namespace, ...rest] = name.split(":");
+  if (rest.length === 0) {
+    return titleCaseSkillName(namespace);
+  }
+
+  return `${titleCaseSkillName(namespace)}: ${titleCaseSkillName(rest.join(":"))}`;
+}
+
+function titleCaseSkillName(name: string) {
+  return name
+    .split(/[-_\s]+/u)
+    .filter(Boolean)
+    .map((part) => {
+      if (part.toLowerCase() === "ui") return "UI";
+      if (part.toLowerCase() === "ux") return "UX";
+      if (part.toLowerCase() === "pdf") return "PDF";
+      return `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`;
+    })
+    .join(" ");
+}
+
 export function Composer(props: ComposerProps) {
   const { projects, chats, appendMessage, updateMessage, updateMessageParts, upsertChat } =
     useWorkspace();
   const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
   const { runningThreadIds, pendingPermissions, respondToPermission, send, stop } = useChatRun();
   const { runtimes, loading: runtimesLoading } = useRuntimes();
+  const { skills, loading: skillsLoading, error: skillsError } = useSkills();
   const [input, setInput] = useState("");
+  const [textareaCursor, setTextareaCursor] = useState(0);
+  const [isTextareaFocused, setIsTextareaFocused] = useState(false);
+  const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
+  const [dismissedSkillInput, setDismissedSkillInput] = useState<string | null>(null);
   const [showRuntimePicker, setShowRuntimePicker] = useState(false);
   const [cascadingRuntimeId, setCascadingRuntimeId] = useState<RuntimeId | null>(null);
   const [isPointerOverRuntimeMenu, setIsPointerOverRuntimeMenu] = useState(false);
@@ -310,10 +432,12 @@ export function Composer(props: ComposerProps) {
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [lightboxAttachmentIndex, setLightboxAttachmentIndex] = useState<number | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const runtimePickerRef = useRef<HTMLDivElement>(null);
   const cascadingPanelRef = useRef<HTMLDivElement>(null);
   const modePickerRef = useRef<HTMLDivElement>(null);
+  const skillItemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const runtimeCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const receivedTextRef = useRef("");
   const visibleTextRef = useRef("");
@@ -339,9 +463,21 @@ export function Composer(props: ComposerProps) {
       ? "No runtime available"
       : isSelectedRuntimeAvailable
         ? selectedRuntimeModel
-          ? `${runtimeNameMap[props.runtimeId]} · ${selectedRuntimeModel.name}`
-          : runtimeNameMap[props.runtimeId]
+        ? `${runtimeNameMap[props.runtimeId]} · ${selectedRuntimeModel.name}`
+        : runtimeNameMap[props.runtimeId]
         : "Select runtime";
+  const skillTrigger = useMemo(
+    () => (isTextareaFocused ? getSkillSlashTrigger(input, textareaCursor) : null),
+    [input, isTextareaFocused, textareaCursor],
+  );
+  const filteredSkills = useMemo(
+    () => (skillTrigger ? filterSkillsForQuery(skills, skillTrigger.query) : []),
+    [skillTrigger, skills],
+  );
+  const showSkillMenu =
+    !!skillTrigger &&
+    dismissedSkillInput !== input &&
+    (skillsLoading || !!skillsError || filteredSkills.length > 0 || skillTrigger.query.length > 0);
 
   const hasSendableContent = !!input.trim() || pendingAttachments.length > 0;
   const canSend =
@@ -424,10 +560,10 @@ export function Composer(props: ComposerProps) {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         if (showRuntimePicker) {
-          closeRuntimePicker();
+        closeRuntimePicker();
         }
         if (showModePicker) {
-          setShowModePicker(false);
+        setShowModePicker(false);
         }
       }
     };
@@ -439,6 +575,21 @@ export function Composer(props: ComposerProps) {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [showRuntimePicker, showModePicker]);
+
+  useEffect(() => {
+    setSelectedSkillIndex(0);
+  }, [skillTrigger?.query, filteredSkills.length]);
+
+  useEffect(() => {
+    if (!showSkillMenu) {
+      return;
+    }
+
+    const selectedButton = skillItemRefs.current.get(selectedSkillIndex);
+    if (selectedButton) {
+      selectedButton.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [selectedSkillIndex, showSkillMenu]);
 
   useEffect(() => {
     if (!showRuntimePicker || !cascadingRuntimeId) {
@@ -480,12 +631,12 @@ export function Composer(props: ComposerProps) {
       getCascadingPanelPosition(
         cascadingAnchorRect,
         {
-          width: window.innerWidth,
-          height: window.innerHeight,
+        width: window.innerWidth,
+        height: window.innerHeight,
         },
         {
-          width: panelRect.width,
-          height: panelRect.height,
+        width: panelRect.width,
+        height: panelRect.height,
         },
       ),
     );
@@ -523,8 +674,8 @@ export function Composer(props: ComposerProps) {
       typeof ResizeObserver === "undefined"
         ? null
         : new ResizeObserver(() => {
-            handleWindowUpdate();
-          });
+          handleWindowUpdate();
+        });
 
     if (observer && cascadingPanelRef.current) {
       observer.observe(cascadingPanelRef.current);
@@ -558,13 +709,13 @@ export function Composer(props: ComposerProps) {
 
       for (const file of fileArray) {
         try {
-          const metadata = await storeImageAttachmentFile(file, window.carrent?.attachments);
-          const pendingAttachment = pendingAttachmentFromFile(file, metadata);
-          setPendingAttachments((prev) => [...prev, pendingAttachment]);
+        const metadata = await storeImageAttachmentFile(file, window.carrent?.attachments);
+        const pendingAttachment = pendingAttachmentFromFile(file, metadata);
+        setPendingAttachments((prev) => [...prev, pendingAttachment]);
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          setAttachmentError(`Failed to attach ${file.name}: ${message}`);
-          return;
+        const message = error instanceof Error ? error.message : String(error);
+        setAttachmentError(`Failed to attach ${file.name}: ${message}`);
+        return;
         }
       }
     },
@@ -629,10 +780,10 @@ export function Composer(props: ComposerProps) {
     ) => {
       if (props.mode === "thread" || props.mode === "chat") {
         return appendMessage({
-          threadId,
-          role,
-          content,
-          attachments,
+        threadId,
+        role,
+        content,
+        attachments,
         });
       }
 
@@ -658,8 +809,8 @@ export function Composer(props: ComposerProps) {
 
       if (props.mode === "thread" || props.mode === "chat") {
         updateMessageParts(messageId, {
-          kind: "append-text",
-          content,
+        kind: "append-text",
+        content,
         });
         return;
       }
@@ -677,11 +828,11 @@ export function Composer(props: ComposerProps) {
     const updateLocalMessageShellPart = (messageId: string, shell: ChatShellEventPayload) => {
       if (props.mode === "thread" || props.mode === "chat") {
         updateMessageParts(messageId, {
-          kind: "upsert-shell",
-          shell: {
-            type: "shell",
-            ...shell,
-          },
+        kind: "upsert-shell",
+        shell: {
+          type: "shell",
+          ...shell,
+        },
         });
         return;
       }
@@ -689,15 +840,15 @@ export function Composer(props: ComposerProps) {
       updateDraftMessageParts(props.draftId, messageId, {
         kind: "upsert-shell",
         shell: {
-          type: "shell",
-          ...shell,
+        type: "shell",
+        ...shell,
         },
       });
       updateMessageParts(messageId, {
         kind: "upsert-shell",
         shell: {
-          type: "shell",
-          ...shell,
+        type: "shell",
+        ...shell,
         },
       });
     };
@@ -708,11 +859,11 @@ export function Composer(props: ComposerProps) {
     ) => {
       if (props.mode === "thread" || props.mode === "chat") {
         updateMessageParts(messageId, {
-          kind: "upsert-reasoning",
-          reasoning: {
-            type: "reasoning",
-            ...reasoning,
-          },
+        kind: "upsert-reasoning",
+        reasoning: {
+          type: "reasoning",
+          ...reasoning,
+        },
         });
         return;
       }
@@ -720,15 +871,15 @@ export function Composer(props: ComposerProps) {
       updateDraftMessageParts(props.draftId, messageId, {
         kind: "upsert-reasoning",
         reasoning: {
-          type: "reasoning",
-          ...reasoning,
+        type: "reasoning",
+        ...reasoning,
         },
       });
       updateMessageParts(messageId, {
         kind: "upsert-reasoning",
         reasoning: {
-          type: "reasoning",
-          ...reasoning,
+        type: "reasoning",
+        ...reasoning,
         },
       });
     };
@@ -756,18 +907,18 @@ export function Composer(props: ComposerProps) {
 
       typewriterTimerRef.current = setInterval(() => {
         const nextVisibleText = getNextTypewriterText(
-          visibleTextRef.current,
-          receivedTextRef.current,
+        visibleTextRef.current,
+        receivedTextRef.current,
         );
 
         if (nextVisibleText !== visibleTextRef.current) {
-          const delta = nextVisibleText.slice(visibleTextRef.current.length);
-          visibleTextRef.current = nextVisibleText;
-          updateLocalMessageTextPart(messageId, delta);
+        const delta = nextVisibleText.slice(visibleTextRef.current.length);
+        visibleTextRef.current = nextVisibleText;
+        updateLocalMessageTextPart(messageId, delta);
         }
 
         if (!hasPendingTypewriterText(visibleTextRef.current, receivedTextRef.current)) {
-          stopTypewriter();
+        stopTypewriter();
         }
       }, TYPEWRITER_INTERVAL_MS);
     };
@@ -802,25 +953,25 @@ export function Composer(props: ComposerProps) {
     const sendStarted = await send(
       {
         workspace:
-          props.mode === "chat"
-            ? { kind: "chat" }
-            : {
-                kind: "project",
-                projectId: props.projectId,
-                projectPath: project!.path,
-              },
+        props.mode === "chat"
+          ? { kind: "chat" }
+          : {
+              kind: "project",
+              projectId: props.projectId,
+              projectPath: project!.path,
+            },
         threadId,
         draftRef:
-          props.mode === "draft"
-            ? {
-                draftId: props.draftId,
-                projectId: props.projectId,
-                title: props.title,
-              }
-            : undefined,
+        props.mode === "draft"
+          ? {
+              draftId: props.draftId,
+              projectId: props.projectId,
+              title: props.title,
+            }
+          : undefined,
         runtimeId: props.runtimeId,
         runtimeModelId: getRuntimeModelIdForSend({
-          runtimeModelId: props.runtimeModelId,
+        runtimeModelId: props.runtimeModelId,
         }),
         runtimeMode: props.runtimeMode,
         transcript,
@@ -829,39 +980,39 @@ export function Composer(props: ComposerProps) {
       },
       {
         onDelta: (text) => {
-          receivedTextRef.current += text;
-          startTypewriter(assistantMsg.id);
+        receivedTextRef.current += text;
+        startTypewriter(assistantMsg.id);
         },
         onReasoning: (reasoning) => {
-          stopTypewriter();
-          flushPendingTypewriterText();
-          updateLocalMessageReasoningPart(assistantMsg.id, reasoning);
+        stopTypewriter();
+        flushPendingTypewriterText();
+        updateLocalMessageReasoningPart(assistantMsg.id, reasoning);
         },
         onShell: (shell) => {
-          stopTypewriter();
-          flushPendingTypewriterText();
-          updateLocalMessageShellPart(assistantMsg.id, shell);
+        stopTypewriter();
+        flushPendingTypewriterText();
+        updateLocalMessageShellPart(assistantMsg.id, shell);
         },
         onComplete: (text) => {
-          if (!receivedTextRef.current || text.startsWith(receivedTextRef.current)) {
-            receivedTextRef.current = text;
-          }
-          startTypewriter(assistantMsg.id);
+        if (!receivedTextRef.current || text.startsWith(receivedTextRef.current)) {
+          receivedTextRef.current = text;
+        }
+        startTypewriter(assistantMsg.id);
         },
         onError: (error) => {
-          stopTypewriter();
-          updateLocalMessage(assistantMsg.id, `Error: ${error}`);
-          activeAssistantMessageIdRef.current = null;
-          flushTypewriterRef.current = null;
+        stopTypewriter();
+        updateLocalMessage(assistantMsg.id, `Error: ${error}`);
+        activeAssistantMessageIdRef.current = null;
+        flushTypewriterRef.current = null;
         },
         onStop: () => {
-          stopTypewriter();
-          updateLocalMessage(
-            assistantMsg.id,
-            `${receivedTextRef.current || visibleTextRef.current}\n\n[Stopped]`,
-          );
-          activeAssistantMessageIdRef.current = null;
-          flushTypewriterRef.current = null;
+        stopTypewriter();
+        updateLocalMessage(
+          assistantMsg.id,
+          `${receivedTextRef.current || visibleTextRef.current}\n\n[Stopped]`,
+        );
+        activeAssistantMessageIdRef.current = null;
+        flushTypewriterRef.current = null;
         },
       },
     );
@@ -885,6 +1036,37 @@ export function Composer(props: ComposerProps) {
     }
   };
 
+  const updateTextareaCursor = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    setTextareaCursor(textarea.selectionStart);
+  };
+
+  const handleSkillInsert = (skill: SkillRecord) => {
+    if (!skillTrigger) {
+      return;
+    }
+
+    const nextInput = replaceSkillSlashTrigger(input, skillTrigger, skill);
+    const nextCursor = skillTrigger.start + buildSkillReference(skill).length + 1;
+    setInput(nextInput);
+    setDismissedSkillInput(null);
+    setTextareaCursor(nextCursor);
+
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        return;
+      }
+
+      textarea.focus();
+      textarea.setSelectionRange(nextCursor, nextCursor);
+    });
+  };
+
   const handlePermissionResponse = (
     permission: ChatPermissionRequest,
     decision: ChatPermissionDecision,
@@ -898,7 +1080,64 @@ export function Composer(props: ComposerProps) {
 
   return (
     <div className="px-6 pb-5 pt-2" onPaste={handlePaste}>
-      <div className="mx-auto max-w-[56rem]">
+      <div className="relative mx-auto max-w-[56rem]">
+        {showSkillMenu ? (
+          <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border-strong bg-surface shadow-[0_18px_60px_rgb(0_0_0/0.28)]">
+            <div className="px-3 py-2 text-[12px] font-medium text-muted">
+              Skills
+            </div>
+            <div className="max-h-80 overflow-y-auto p-1">
+              {skillsLoading ? (
+                <div className="px-3 py-2 text-[12px] text-subtle">Loading skills...</div>
+              ) : skillsError ? (
+                <div className="px-3 py-2 text-[12px] text-danger">{skillsError}</div>
+              ) : filteredSkills.length > 0 ? (
+                filteredSkills.map((skill, index) => {
+                  const isSelected = index === selectedSkillIndex;
+
+                  return (
+                    <button
+                      key={skill.path}
+                      ref={(element) => {
+                        if (element) {
+                          skillItemRefs.current.set(index, element);
+                        } else {
+                          skillItemRefs.current.delete(index);
+                        }
+                      }}
+                      type="button"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        handleSkillInsert(skill);
+                      }}
+                      onMouseEnter={() => setSelectedSkillIndex(index)}
+                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left transition ${
+                        isSelected
+                          ? "bg-surface-hover"
+                          : "hover:bg-surface-raised"
+                      }`}
+                    >
+                      <Box className="h-4 w-4 shrink-0 text-muted" />
+                      <span className="min-w-0 flex-1 truncate">
+                        <span className="text-[13px] font-medium text-fg">
+                          {formatSkillLabel(skill.name)}
+                        </span>
+                        <span className="ml-2 text-[12px] text-subtle">
+                          {skill.description}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-[10px] uppercase text-subtle">
+                        {skill.source}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="px-3 py-2 text-[12px] text-subtle">No skills found.</div>
+              )}
+            </div>
+          </div>
+        ) : null}
         <div className="rounded-2xl border border-border bg-surface-raised/90 p-3 shadow-[0_18px_60px_rgb(0_0_0/0.18)]">
           {threadPermissions.length > 0 ? (
             <div className="mb-2 space-y-2">
@@ -975,12 +1214,58 @@ export function Composer(props: ComposerProps) {
             </div>
           )}
           <textarea
+            ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              setTextareaCursor(e.target.selectionStart);
+              setDismissedSkillInput(null);
+            }}
+            onFocus={(event) => {
+              setIsTextareaFocused(true);
+              setTextareaCursor(event.currentTarget.selectionStart);
+            }}
+            onBlur={() => {
+              setIsTextareaFocused(false);
+            }}
+            onClick={updateTextareaCursor}
+            onSelect={updateTextareaCursor}
             placeholder="Message..."
             className="min-h-16 w-full resize-none bg-transparent text-[15px] leading-6 text-fg placeholder:text-subtle outline-none"
             rows={2}
             onKeyDown={(e) => {
+              if (showSkillMenu) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setSelectedSkillIndex((index) =>
+                    filteredSkills.length === 0 ? 0 : (index + 1) % filteredSkills.length,
+                  );
+                  return;
+                }
+
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setSelectedSkillIndex((index) =>
+                    filteredSkills.length === 0
+                      ? 0
+                      : (index - 1 + filteredSkills.length) % filteredSkills.length,
+                  );
+                  return;
+                }
+
+                if ((e.key === "Enter" || e.key === "Tab") && filteredSkills.length > 0) {
+                  e.preventDefault();
+                  handleSkillInsert(filteredSkills[selectedSkillIndex] ?? filteredSkills[0]);
+                  return;
+                }
+
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setDismissedSkillInput(input);
+                  return;
+                }
+              }
+
               if (shouldSubmitComposerOnKeyDown(e)) {
                 e.preventDefault();
                 if (canSend && !isThreadSending) {
@@ -989,7 +1274,9 @@ export function Composer(props: ComposerProps) {
               }
             }}
           />
-          {attachmentError && <div className="mt-2 text-[12px] text-danger">{attachmentError}</div>}
+          {attachmentError && (
+            <div className="mt-2 text-[12px] text-danger">{attachmentError}</div>
+          )}
           <div className="mt-3 flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
               {props.onRuntimeIdChange ? (

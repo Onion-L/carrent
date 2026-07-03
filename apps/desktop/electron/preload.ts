@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { ChatTurnRequest, ChatRunEvent, ImageAttachmentMetadata } from "../src/shared/chat";
 import type { ChatPermissionResponse } from "../src/shared/chatPermissions";
+import type { SkillRecord } from "../src/shared/skills";
 import type {
   WorkspaceSnapshot,
   ProviderSessionSnapshot,
@@ -40,6 +41,9 @@ const carrent = {
       ipcRenderer.invoke("attachments:store", input) as Promise<ImageAttachmentMetadata>,
     read: (storageKey: string) =>
       ipcRenderer.invoke("attachments:read", storageKey) as Promise<Uint8Array>,
+  },
+  skills: {
+    list: () => ipcRenderer.invoke("skills:list") as Promise<SkillRecord[]>,
   },
   dialog: {
     openDirectory: () =>

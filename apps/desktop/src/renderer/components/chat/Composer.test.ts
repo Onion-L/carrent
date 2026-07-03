@@ -3,13 +3,19 @@ import { describe, expect, it } from "bun:test";
 import {
   getCascadingPanelPosition,
   getActionablePermissionsForThread,
+  buildSkillReference,
+  filterSkillsForQuery,
+  formatSkillLabel,
   getDisplayRuntimeModel,
   getPermissionDetail,
   getRuntimeModelIdForSend,
+  getSkillSlashTrigger,
+  replaceSkillSlashTrigger,
   shouldSubmitComposerOnKeyDown,
   storeImageAttachmentFile,
 } from "./Composer";
 import type { ChatPermissionRequest } from "../../../shared/chatPermissions";
+import type { SkillRecord } from "../../../shared/skills";
 
 const piModels = [
   {
@@ -244,6 +250,80 @@ describe("getPermissionDetail", () => {
   });
 });
 
+describe("skill slash helpers", () => {
+  const skills: SkillRecord[] = [
+    {
+      name: "grilling",
+      description: "Interview the user relentlessly.",
+      path: "/Users/test/.agents/skills/grilling/SKILL.md",
+      source: "agents",
+    },
+    {
+      name: "browser:control-in-app-browser",
+      description: "Control the in-app Browser.",
+      path: "/Users/test/.codex/plugins/cache/browser/SKILL.md",
+      source: "plugin",
+    },
+    {
+      name: "openai-docs",
+      description: "Use official OpenAI docs.",
+      path: "/Users/test/.codex/skills/openai-docs/SKILL.md",
+      source: "codex",
+    },
+    {
+      name: "diagnosing-bugs",
+      description: "Diagnose bugs and performance regressions.",
+      path: "/Users/test/.agents/skills/diagnosing-bugs/SKILL.md",
+      source: "agents",
+    },
+  ];
+
+  it("finds a slash token at the cursor", () => {
+    expect(getSkillSlashTrigger("/", 1)).toEqual({ start: 0, end: 1, query: "" });
+    expect(getSkillSlashTrigger("use /grill please", 10)).toEqual({
+      start: 4,
+      end: 10,
+      query: "grill",
+    });
+    expect(getSkillSlashTrigger("use /Users/test", 15)).toEqual(null);
+  });
+
+  it("filters skills by name, label, and description", () => {
+    expect(filterSkillsForQuery(skills, "grill").map((skill) => skill.name)).toEqual(["grilling"]);
+    expect(filterSkillsForQuery(skills, "browser").map((skill) => skill.name)).toEqual([
+      "browser:control-in-app-browser",
+    ]);
+    expect(filterSkillsForQuery(skills, "official").map((skill) => skill.name)).toEqual([
+      "openai-docs",
+    ]);
+  });
+
+  it("treats spaces and hyphens as equivalent for multi-word skill names", () => {
+    expect(filterSkillsForQuery(skills, "diagnosing-bugs").map((skill) => skill.name)).toEqual([
+      "diagnosing-bugs",
+    ]);
+    expect(filterSkillsForQuery(skills, "diagnosing bugs").map((skill) => skill.name)).toEqual([
+      "diagnosing-bugs",
+    ]);
+    expect(filterSkillsForQuery(skills, "diagnosingbugs").map((skill) => skill.name)).toEqual([]);
+  });
+
+  it("formats and inserts the selected skill reference", () => {
+    const trigger = getSkillSlashTrigger("please /grill now", 13);
+    expect(trigger).toEqual({ start: 7, end: 13, query: "grill" });
+
+    expect(formatSkillLabel("browser:control-in-app-browser")).toBe(
+      "Browser: Control In App Browser",
+    );
+    expect(buildSkillReference(skills[0])).toBe(
+      "[$grilling](/Users/test/.agents/skills/grilling/SKILL.md)",
+    );
+    expect(replaceSkillSlashTrigger("please /grill now", trigger!, skills[0])).toBe(
+      "please [$grilling](/Users/test/.agents/skills/grilling/SKILL.md) now",
+    );
+  });
+});
+
 describe("storeImageAttachmentFile", () => {
   it("reports a clear error when the preload attachment bridge is missing", async () => {
     const file = new File(["hello"], "test.png", { type: "image/png" });
@@ -254,9 +334,7 @@ describe("storeImageAttachmentFile", () => {
     } catch (error) {
       expect(error instanceof Error).toBe(true);
       const message = error instanceof Error ? error.message : String(error);
-      expect(message).toBe(
-        "Image attachments are unavailable. Restart Carrent and try again.",
-      );
+      expect(message).toBe("Image attachments are unavailable. Restart Carrent and try again.");
     }
   });
 

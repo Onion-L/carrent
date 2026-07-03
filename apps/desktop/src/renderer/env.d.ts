@@ -8,6 +8,7 @@ import type {
 } from "../shared/runtimes";
 import type { ChatTurnRequest, ChatRunEvent, ImageAttachmentMetadata } from "../shared/chat";
 import type { ChatPermissionResponse } from "../shared/chatPermissions";
+import type { SkillRecord } from "../shared/skills";
 import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../shared/workspacePersistence";
 
 declare global {
@@ -41,6 +42,9 @@ declare global {
           data: Uint8Array;
         }) => Promise<ImageAttachmentMetadata>;
         read: (storageKey: string) => Promise<Uint8Array>;
+      };
+      skills: {
+        list: () => Promise<SkillRecord[]>;
       };
       dialog: {
         openDirectory: () => Promise<{ canceled: boolean; filePaths: string[] }>;

@@ -1,6 +1,6 @@
 import { ArrowDown, Check, Copy, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { type Message, type ImageAttachmentMetadata } from "../../mock/uiShellData";
+import { type Message, type MessagePart, type ImageAttachmentMetadata } from "../../mock/uiShellData";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 import { ReasoningBlock } from "./ReasoningBlock";
 import { ShellBlock } from "./ShellBlock";
@@ -155,6 +155,8 @@ function UserMessage({
   );
 }
 
+type ReasoningPart = Extract<MessagePart, { type: "reasoning" }>;
+
 function AssistantMessage({ message, timestamp }: { message: Message; timestamp: string }) {
   const content = message.content ?? "";
   const parts = message.type !== "changed_files" ? message.parts : undefined;
@@ -162,6 +164,10 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
   const isStreaming = !hasParts && content === "";
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const reasoningParts =
+    parts?.filter((part): part is ReasoningPart => part.type === "reasoning") ?? [];
+  const nonReasoningParts = parts?.filter((part) => part.type !== "reasoning") ?? [];
 
   const copyText = hasParts
     ? (parts
@@ -200,7 +206,8 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
         </div>
       ) : hasParts ? (
         <div className="flex flex-col gap-4">
-          {parts?.map((part, index) =>
+          {reasoningParts.length > 0 && <ReasoningBlock reasoning={reasoningParts} />}
+          {nonReasoningParts.map((part, index) =>
             part.type === "text" ? (
               part.content ? (
                 <p
@@ -210,8 +217,6 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
                   {part.content}
                 </p>
               ) : null
-            ) : part.type === "reasoning" ? (
-              <ReasoningBlock key={part.id} reasoning={part} />
             ) : (
               <ShellBlock key={part.id} shell={part} />
             ),

@@ -1,6 +1,23 @@
-import { AlertTriangle, ArrowUp, Check, ChevronDown, Lock, Pencil, X } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ArrowUp, Check, ChevronDown, Image, Lock, Pencil, X } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+} from "react";
 import { createPortal } from "react-dom";
+
+import type { ImageAttachmentMetadata } from "../../../shared/chat";
+import {
+  metadataOnly,
+  pendingAttachmentFromFile,
+  validateImageAttachments,
+  type PendingAttachment,
+} from "../../lib/imageAttachments";
+import { ImageAttachmentLightbox, type LightboxItem } from "./ImageAttachmentLightbox";
 
 import { useDraftThread } from "../../context/DraftThreadContext";
 
@@ -22,11 +39,7 @@ import {
   getRuntimeModeLabel,
   type RuntimeMode,
 } from "../../../shared/runtimeMode";
-import {
-  runtimeNameMap,
-  type RuntimeId,
-  type RuntimeModelRecord,
-} from "../../../shared/runtimes";
+import { runtimeNameMap, type RuntimeId, type RuntimeModelRecord } from "../../../shared/runtimes";
 import { RuntimeIcon } from "../RuntimeIcon";
 import { useRuntimeModels } from "../../hooks/useRuntimeModels";
 import { useRuntimes } from "../../hooks/useRuntimes";
@@ -94,7 +107,12 @@ function createMessageId() {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function buildTextMessage(threadId: string, role: "user" | "assistant", content: string): Message {
+function buildTextMessage(
+  threadId: string,
+  role: "user" | "assistant",
+  content: string,
+  attachments?: ImageAttachmentMetadata[],
+): Message {
   return {
     id: createMessageId(),
     role,
@@ -102,7 +120,41 @@ function buildTextMessage(threadId: string, role: "user" | "assistant", content:
     content,
     timestamp: formatTime(new Date()),
     type: "text",
+    attachments,
   };
+}
+
+type AttachmentStoreBridge = {
+  store: (input: {
+    name: string;
+    mimeType: string;
+    data: Uint8Array;
+  }) => Promise<ImageAttachmentMetadata>;
+};
+
+function getAttachmentStoreBridge(attachments: unknown): AttachmentStoreBridge {
+  if (
+    typeof attachments !== "object" ||
+    attachments === null ||
+    typeof (attachments as { store?: unknown }).store !== "function"
+  ) {
+    throw new Error("Image attachments are unavailable. Restart Carrent and try again.");
+  }
+
+  return attachments as AttachmentStoreBridge;
+}
+
+export async function storeImageAttachmentFile(
+  file: File,
+  attachments: unknown,
+): Promise<ImageAttachmentMetadata> {
+  const attachmentStore = getAttachmentStoreBridge(attachments);
+  const data = new Uint8Array(await file.arrayBuffer());
+  return attachmentStore.store({
+    name: file.name,
+    mimeType: file.type,
+    data,
+  });
 }
 
 type ComposerKeyDownEvent = {
@@ -255,6 +307,10 @@ export function Composer(props: ComposerProps) {
   const [cascadingPanelPosition, setCascadingPanelPosition] =
     useState<CascadingPanelPosition | null>(null);
   const [showModePicker, setShowModePicker] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [lightboxAttachmentIndex, setLightboxAttachmentIndex] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const runtimePickerRef = useRef<HTMLDivElement>(null);
   const cascadingPanelRef = useRef<HTMLDivElement>(null);
   const modePickerRef = useRef<HTMLDivElement>(null);
@@ -270,10 +326,8 @@ export function Composer(props: ComposerProps) {
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
   const modelRuntimeId = props.runtimeId === "pi" ? props.runtimeId : null;
   const { models } = useRuntimeModels(modelRuntimeId);
-  const {
-    models: cascadingModels,
-    loading: cascadingLoading,
-  } = useRuntimeModels(cascadingRuntimeId);
+  const { models: cascadingModels, loading: cascadingLoading } =
+    useRuntimeModels(cascadingRuntimeId);
   const selectedRuntimeModel = getDisplayRuntimeModel({
     models,
     runtimeModelId: props.runtimeModelId,
@@ -289,8 +343,9 @@ export function Composer(props: ComposerProps) {
           : runtimeNameMap[props.runtimeId]
         : "Select runtime";
 
+  const hasSendableContent = !!input.trim() || pendingAttachments.length > 0;
   const canSend =
-    (props.mode === "chat" ? !!input.trim() : !!input.trim() && !!project) &&
+    (props.mode === "chat" ? hasSendableContent : hasSendableContent && !!project) &&
     isSelectedRuntimeAvailable;
   const isThreadSending = runningThreadIds.includes(threadId);
   const threadPermissions = useMemo(
@@ -361,11 +416,7 @@ export function Composer(props: ComposerProps) {
       ) {
         closeRuntimePicker();
       }
-      if (
-        showModePicker &&
-        modePickerRef.current &&
-        !modePickerRef.current.contains(target)
-      ) {
+      if (showModePicker && modePickerRef.current && !modePickerRef.current.contains(target)) {
         setShowModePicker(false);
       }
     };
@@ -486,22 +537,106 @@ export function Composer(props: ComposerProps) {
     };
   }, [cascadingAnchorRect, cascadingRuntimeId, showRuntimePicker, updateCascadingPanelPosition]);
 
+  const handleAddFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0) {
+        return;
+      }
+
+      const fileArray = Array.from(files);
+      const validation = validateImageAttachments([
+        ...pendingAttachments.map((pending) => pending.file),
+        ...fileArray,
+      ]);
+
+      if (!validation.ok) {
+        setAttachmentError(validation.reason);
+        return;
+      }
+
+      setAttachmentError(null);
+
+      for (const file of fileArray) {
+        try {
+          const metadata = await storeImageAttachmentFile(file, window.carrent?.attachments);
+          const pendingAttachment = pendingAttachmentFromFile(file, metadata);
+          setPendingAttachments((prev) => [...prev, pendingAttachment]);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setAttachmentError(`Failed to attach ${file.name}: ${message}`);
+          return;
+        }
+      }
+    },
+    [pendingAttachments],
+  );
+
+  const handleRemovePendingAttachment = useCallback((id: string) => {
+    setPendingAttachments((prev) => {
+      const removed = prev.find((item) => item.id === id);
+      if (removed) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return prev.filter((item) => item.id !== id);
+    });
+  }, []);
+
+  const handlePaste = useCallback(
+    (event: ClipboardEvent<HTMLDivElement>) => {
+      const files = event.clipboardData?.files;
+      if (!files || files.length === 0) {
+        return;
+      }
+
+      const imageFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
+      if (imageFiles.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      const dataTransfer = new DataTransfer();
+      imageFiles.forEach((file) => dataTransfer.items.add(file));
+      void handleAddFiles(dataTransfer.files);
+    },
+    [handleAddFiles],
+  );
+
   const handleSend = async () => {
     if (!canSend) return;
 
-    const messageText = input.trim();
-    setInput("");
+    const validation = validateImageAttachments(pendingAttachments.map((pending) => pending.file));
+    if (!validation.ok) {
+      setAttachmentError(validation.reason);
+      return;
+    }
 
-    const appendLocalMessage = (role: "user" | "assistant", content: string) => {
+    if (pendingAttachments.some((pending) => !pending.metadata)) {
+      setAttachmentError("Some attachments are still being prepared.");
+      return;
+    }
+
+    const messageText = input.trim();
+    const attachmentMetadata: ImageAttachmentMetadata[] = metadataOnly(
+      pendingAttachments.map((pending) => pending.metadata!),
+    );
+
+    setAttachmentError(null);
+
+    const appendLocalMessage = (
+      role: "user" | "assistant",
+      content: string,
+      attachments?: ImageAttachmentMetadata[],
+    ) => {
       if (props.mode === "thread" || props.mode === "chat") {
         return appendMessage({
           threadId,
           role,
           content,
+          attachments,
         });
       }
 
-      const draftMessage = buildTextMessage(threadId, role, content);
+      const draftMessage = buildTextMessage(threadId, role, content, attachments);
       appendDraftMessage(props.draftId, draftMessage);
       return draftMessage;
     };
@@ -637,7 +772,7 @@ export function Composer(props: ComposerProps) {
       }, TYPEWRITER_INTERVAL_MS);
     };
 
-    appendLocalMessage("user", messageText);
+    appendLocalMessage("user", messageText, attachmentMetadata);
     const assistantMsg = appendLocalMessage("assistant", "");
 
     flushActiveTypewriter();
@@ -664,14 +799,7 @@ export function Composer(props: ComposerProps) {
         content: m.content ?? "",
       }));
 
-    if (props.mode === "chat") {
-      const chatThread = chats.find((c) => c.id === threadId);
-      if (chatThread && chatThread.title === "New chat") {
-        upsertChat({ ...chatThread, title: messageText.slice(0, 60) });
-      }
-    }
-
-    await send(
+    const sendStarted = await send(
       {
         workspace:
           props.mode === "chat"
@@ -697,6 +825,7 @@ export function Composer(props: ComposerProps) {
         runtimeMode: props.runtimeMode,
         transcript,
         message: messageText,
+        attachments: attachmentMetadata,
       },
       {
         onDelta: (text) => {
@@ -736,6 +865,24 @@ export function Composer(props: ComposerProps) {
         },
       },
     );
+
+    if (!sendStarted) {
+      return;
+    }
+
+    setInput("");
+    setPendingAttachments((prev) => {
+      prev.forEach((pending) => URL.revokeObjectURL(pending.previewUrl));
+      return [];
+    });
+
+    if (props.mode === "chat") {
+      const chatThread = chats.find((c) => c.id === threadId);
+      if (chatThread && chatThread.title === "New chat") {
+        const title = messageText || attachmentMetadata[0]?.name || "Image message";
+        upsertChat({ ...chatThread, title: title.slice(0, 60) });
+      }
+    }
   };
 
   const handlePermissionResponse = (
@@ -750,15 +897,15 @@ export function Composer(props: ComposerProps) {
   };
 
   return (
-    <div className="px-4 pb-4 pt-2">
-      <div className="mx-auto max-w-3xl">
-        <div className="rounded-2xl border border-border bg-surface p-3">
+    <div className="px-6 pb-5 pt-2" onPaste={handlePaste}>
+      <div className="mx-auto max-w-[56rem]">
+        <div className="rounded-2xl border border-border bg-surface-raised/90 p-3 shadow-[0_18px_60px_rgb(0_0_0/0.18)]">
           {threadPermissions.length > 0 ? (
             <div className="mb-2 space-y-2">
               {threadPermissions.map((permission) => (
                 <div
                   key={permission.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-border-strong bg-surface-raised px-3 py-2"
+                  className="flex items-center justify-between gap-3 rounded-xl border border-border-strong bg-bg/45 px-3 py-2"
                 >
                   <div className="min-w-0">
                     <div className="truncate text-[12px] font-medium text-fg">
@@ -772,7 +919,7 @@ export function Composer(props: ComposerProps) {
                     <button
                       type="button"
                       onClick={() => handlePermissionResponse(permission, "denied")}
-                      className="flex h-7 w-7 items-center justify-center rounded-full border border-border-strong text-muted transition hover:bg-surface-hover hover:text-fg"
+                      className="flex h-7 w-7 items-center justify-center rounded-full border border-border-strong text-muted transition hover:bg-surface-hover hover:text-fg active:scale-95"
                       title="Deny"
                     >
                       <X className="h-3.5 w-3.5" />
@@ -780,7 +927,7 @@ export function Composer(props: ComposerProps) {
                     <button
                       type="button"
                       onClick={() => handlePermissionResponse(permission, "approved")}
-                      className="flex h-7 w-7 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90"
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 active:scale-95"
                       title="Approve"
                     >
                       <Check className="h-3.5 w-3.5" />
@@ -790,11 +937,48 @@ export function Composer(props: ComposerProps) {
               ))}
             </div>
           ) : null}
+          {pendingAttachments.length > 0 && (
+            <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+              {pendingAttachments.map((attachment, index) => (
+                <div
+                  key={attachment.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setLightboxAttachmentIndex(index)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setLightboxAttachmentIndex(index);
+                    }
+                  }}
+                  className="group relative shrink-0 cursor-pointer overflow-hidden rounded-lg border border-border-strong"
+                >
+                  <img
+                    src={attachment.previewUrl}
+                    alt={attachment.file.name}
+                    className="h-16 w-16 object-cover"
+                  />
+                  <span className="sr-only">{attachment.file.name}</span>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleRemovePendingAttachment(attachment.id);
+                    }}
+                    className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-bg/80 text-muted transition hover:text-fg"
+                    title="Remove"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Message..."
-            className="w-full resize-none bg-transparent text-[14px] text-fg placeholder:text-subtle outline-none"
+            className="min-h-16 w-full resize-none bg-transparent text-[15px] leading-6 text-fg placeholder:text-subtle outline-none"
             rows={2}
             onKeyDown={(e) => {
               if (shouldSubmitComposerOnKeyDown(e)) {
@@ -805,8 +989,9 @@ export function Composer(props: ComposerProps) {
               }
             }}
           />
-          <div className="mt-2 flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          {attachmentError && <div className="mt-2 text-[12px] text-danger">{attachmentError}</div>}
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
               {props.onRuntimeIdChange ? (
                 <div ref={runtimePickerRef} className="relative">
                   <button
@@ -823,7 +1008,7 @@ export function Composer(props: ComposerProps) {
                       }
                     }}
                     disabled={isThreadSending}
-                    className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition disabled:opacity-40 ${
+                    className={`flex max-w-[18rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition disabled:opacity-40 ${
                       showRuntimePicker
                         ? "border-fg/20 bg-surface-hover text-fg"
                         : "border-border-strong bg-surface-raised text-muted hover:bg-surface-hover hover:text-fg"
@@ -836,7 +1021,7 @@ export function Composer(props: ComposerProps) {
                       }
                       size="xs"
                     />
-                    <span>{runtimeButtonLabel}</span>
+                    <span className="min-w-0 truncate">{runtimeButtonLabel}</span>
                     <ChevronDown className="h-3 w-3" />
                   </button>
                   {showRuntimePicker && (
@@ -1010,7 +1195,7 @@ export function Composer(props: ComposerProps) {
                       }
                     }}
                     disabled={isThreadSending}
-                    className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition disabled:opacity-40 ${
+                    className={`flex max-w-[12rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition disabled:opacity-40 ${
                       showModePicker
                         ? "border-fg/20 bg-surface-hover text-fg"
                         : "border-border-strong bg-surface-raised text-muted hover:bg-surface-hover hover:text-fg"
@@ -1023,7 +1208,9 @@ export function Composer(props: ComposerProps) {
                       mode={props.runtimeMode ?? DEFAULT_RUNTIME_MODE}
                       className="h-3 w-3"
                     />
-                    <span>{getRuntimeModeLabel(props.runtimeMode ?? DEFAULT_RUNTIME_MODE)}</span>
+                    <span className="min-w-0 truncate">
+                      {getRuntimeModeLabel(props.runtimeMode ?? DEFAULT_RUNTIME_MODE)}
+                    </span>
                     <ChevronDown className="h-3 w-3" />
                   </button>
                   {showModePicker && (
@@ -1052,13 +1239,35 @@ export function Composer(props: ComposerProps) {
                   )}
                 </div>
               ) : null}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  void handleAddFiles(event.target.files);
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = "";
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isThreadSending}
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-border-strong text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
+                title="Attach image"
+              >
+                <Image className="h-4 w-4" />
+              </button>
             </div>
 
             <div className="flex items-center gap-2">
               {isThreadSending ? (
                 <button
                   onClick={() => stop(threadId)}
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-black transition hover:opacity-90"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-black transition hover:opacity-90 active:scale-95"
                 >
                   <div className="h-3 w-3 rounded-[2px] bg-current" />
                 </button>
@@ -1066,13 +1275,26 @@ export function Composer(props: ComposerProps) {
                 <button
                   onClick={handleSend}
                   disabled={!canSend || isThreadSending}
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 disabled:opacity-30"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 active:scale-95 disabled:opacity-30"
                 >
                   <ArrowUp className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
           </div>
+          {lightboxAttachmentIndex !== null && (
+            <ImageAttachmentLightbox
+              items={pendingAttachments.map(
+                (attachment): LightboxItem => ({
+                  id: attachment.id,
+                  name: attachment.file.name,
+                  url: attachment.previewUrl,
+                }),
+              )}
+              initialIndex={lightboxAttachmentIndex}
+              onClose={() => setLightboxAttachmentIndex(null)}
+            />
+          )}
         </div>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import type { DraftThreadRecord } from "../renderer/lib/draftThreads";
 import type { Message, ProjectRecord, ThreadRecord } from "../renderer/mock/uiShellData";
+import type { ImageAttachmentMetadata } from "./chat";
 import { normalizeRuntimeMode } from "./runtimeMode";
 import { normalizeRuntimeId } from "./runtimes";
 
@@ -30,6 +31,39 @@ function normalizeOptionalString(value: unknown) {
 
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function normalizeImageAttachmentMetadata(value: unknown): ImageAttachmentMetadata | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== "string") return null;
+  if (typeof value.name !== "string") return null;
+  if (typeof value.mimeType !== "string") return null;
+  if (typeof value.size !== "number") return null;
+  if (typeof value.storageKey !== "string") return null;
+
+  return {
+    id: value.id,
+    name: value.name,
+    mimeType: value.mimeType,
+    size: value.size,
+    storageKey: value.storageKey,
+    ...(typeof value.width === "number" ? { width: value.width } : {}),
+    ...(typeof value.height === "number" ? { height: value.height } : {}),
+  };
+}
+
+function normalizeMessageRecord(message: Message): Message {
+  const record = message as Message & { attachments?: unknown };
+  if (!Array.isArray(record.attachments)) {
+    return message;
+  }
+
+  return {
+    ...message,
+    attachments: record.attachments
+      .map((attachment) => normalizeImageAttachmentMetadata(attachment))
+      .filter((attachment): attachment is ImageAttachmentMetadata => attachment !== null),
+  } as Message;
 }
 
 export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | null {
@@ -65,6 +99,7 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
       threads: project.threads.map(normalizeThreadRecord),
     })),
     chats: chats.map(normalizeThreadRecord),
+    messages: snapshot.messages.map(normalizeMessageRecord),
     drafts: snapshot.drafts.map((draft) => {
       const runtimeModelId = normalizeOptionalString(draft.runtimeModelId);
       const { runtimeModelId: _runtimeModelId, ...rest } = draft;
@@ -73,6 +108,7 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
         ...(rest as Omit<DraftThreadRecord, "runtimeId" | "runtimeMode" | "runtimeModelId">),
         runtimeId: normalizeRuntimeId(draft.runtimeId),
         runtimeMode: normalizeRuntimeMode(draft.runtimeMode),
+        messages: draft.messages.map(normalizeMessageRecord),
         ...(runtimeModelId ? { runtimeModelId } : {}),
       } satisfies DraftThreadRecord;
     }),

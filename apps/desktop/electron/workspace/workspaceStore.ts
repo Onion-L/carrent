@@ -50,7 +50,11 @@ export function createWorkspaceStore(baseDir: string): WorkspaceStore {
     },
 
     async saveWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Promise<void> {
-      await atomicWrite(workspacePath, JSON.stringify(snapshot, null, 2));
+      const normalized = normalizeWorkspaceSnapshot(snapshot);
+      if (!normalized) {
+        throw new Error("Invalid workspace snapshot.");
+      }
+      await atomicWrite(workspacePath, JSON.stringify(normalized, null, 2));
     },
 
     async loadProviderSessions(): Promise<ProviderSessionSnapshot> {

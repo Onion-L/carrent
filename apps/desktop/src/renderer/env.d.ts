@@ -6,7 +6,7 @@ import type {
   RuntimeRecord,
   RuntimeVerificationResult,
 } from "../shared/runtimes";
-import type { ChatTurnRequest, ChatRunEvent } from "../shared/chat";
+import type { ChatTurnRequest, ChatRunEvent, ImageAttachmentMetadata } from "../shared/chat";
 import type { ChatPermissionResponse } from "../shared/chatPermissions";
 import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../shared/workspacePersistence";
 
@@ -33,6 +33,14 @@ declare global {
         stop: (runId: string) => Promise<void>;
         respondToPermission: (response: ChatPermissionResponse) => Promise<void>;
         onEvent: (listener: (event: ChatRunEvent) => void) => VoidFunction;
+      };
+      attachments: {
+        store: (input: {
+          name: string;
+          mimeType: string;
+          data: Uint8Array;
+        }) => Promise<ImageAttachmentMetadata>;
+        read: (storageKey: string) => Promise<Uint8Array>;
       };
       dialog: {
         openDirectory: () => Promise<{ canceled: boolean; filePaths: string[] }>;

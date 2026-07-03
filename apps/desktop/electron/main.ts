@@ -10,6 +10,8 @@ import { createPersistentProviderSessionStore } from "./chat/providerSessionStor
 import { createWorkspaceStore } from "./workspace/workspaceStore";
 import { getLastWorkspaceSnapshot, registerWorkspaceIpc } from "./workspace/workspaceIpc";
 import type { WorkspaceStore } from "./workspace/workspaceStore";
+import { createAttachmentStore } from "./attachments/attachmentStore";
+import { registerAttachmentIpc } from "./attachments/attachmentIpc";
 import { spawn } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -75,6 +77,9 @@ app.whenReady().then(async () => {
   workspaceStore = store;
   registerWorkspaceIpc(ipcMain, store);
 
+  const attachmentStore = createAttachmentStore(app.getPath("userData"));
+  registerAttachmentIpc(ipcMain, { attachmentStore });
+
   ipcMain.handle("dialog:open-directory", async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openDirectory"],
@@ -104,6 +109,7 @@ app.whenReady().then(async () => {
       emit: emitChatEvent as (event: { type: string }) => void,
       spawn,
       providerSessions: createPersistentProviderSessionStore(store, providerSessionsSnapshot),
+      attachmentStore,
     }),
   });
   createWindow(icon);

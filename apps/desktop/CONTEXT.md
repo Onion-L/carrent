@@ -31,3 +31,7 @@ _Avoid_: Only runtime, preferred model, provider
 **ACP Runtime**:
 A runtime driven through Agent Client Protocol over stdio, where Carrent acts as the client and the runtime process acts as an agent server.
 _Avoid_: Stream parser, CLI prompt mode
+
+**Image Attachment**:
+An image included in a user message as input for the coding agent to inspect during that run.
+_Avoid_: Preview image, uploaded file, file attachment

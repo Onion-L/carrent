@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleDashed, Terminal, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, CircleDashed, XCircle } from "lucide-react";
 import { useState } from "react";
 import type { MessagePart } from "../../mock/uiShellData";
 
@@ -8,21 +8,21 @@ function getStatusMeta(status: ShellPart["status"]) {
   switch (status) {
     case "completed":
       return {
-        label: "completed",
+        label: "Ran command",
         icon: CheckCircle2,
-        className: "text-success",
+        className: "text-subtle",
       };
     case "failed":
       return {
-        label: "failed",
+        label: "Command failed",
         icon: XCircle,
         className: "text-danger",
       };
     case "running":
       return {
-        label: "running",
+        label: "Running command",
         icon: CircleDashed,
-        className: "text-warning",
+        className: "text-muted",
       };
   }
 }
@@ -37,32 +37,31 @@ export function ShellBlock({ shell }: { shell: ShellPart }) {
   const StatusIcon = status.icon;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface">
+    <div className="py-1">
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center justify-between gap-3 bg-surface-raised px-3 py-2 text-left transition hover:bg-surface-hover"
+        className="group flex w-full items-center gap-2 text-left text-[13px] text-subtle transition hover:text-muted"
         aria-expanded={expanded}
       >
-        <div className="flex min-w-0 items-center gap-2 text-[12px] font-medium text-fg">
-          <Terminal className="h-3.5 w-3.5 shrink-0 text-muted" />
-          <span className="shrink-0">Shell</span>
-        </div>
-        <div className={`flex shrink-0 items-center gap-1.5 text-[11px] ${status.className}`}>
-          <StatusIcon
-            className={`h-3.5 w-3.5 ${shell.status === "running" ? "animate-spin" : ""}`}
-          />
-          <span>{status.label}</span>
-        </div>
+        <StatusIcon
+          className={`h-3.5 w-3.5 shrink-0 ${status.className} ${
+            shell.status === "running" ? "animate-spin" : ""
+          }`}
+        />
+        <span className={`min-w-0 truncate font-medium ${status.className}`}>{status.label}</span>
+        <ChevronDown
+          className={`h-3.5 w-3.5 shrink-0 transition ${expanded ? "rotate-180" : ""}`}
+        />
       </button>
       {expanded && (
-        <div className="space-y-2 px-3 py-3 font-mono text-[12px] leading-relaxed">
-          <pre className="whitespace-pre-wrap break-words text-fg">
+        <div className="mt-2 space-y-2 border-l border-border pl-5 font-mono text-[12px] leading-relaxed">
+          <pre className="whitespace-pre-wrap break-words text-muted">
             <span className="text-muted">$ </span>
             {shell.command}
           </pre>
           {shell.output ? (
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-code-bg p-3 text-muted">
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-code-bg p-3 text-muted">
               {shell.output}
             </pre>
           ) : (

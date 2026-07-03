@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createWorkspaceStore } from "./workspaceStore";
@@ -28,6 +28,44 @@ describe("createWorkspaceStore", () => {
     await store.saveWorkspaceSnapshot(snapshot);
     const loaded = await store.loadWorkspaceSnapshot();
     expect(loaded).toEqual(snapshot);
+  });
+
+  it("normalizes workspace snapshots before writing", async () => {
+    const baseDir = await makeTempDir();
+    const store = createWorkspaceStore(baseDir);
+    const snapshot = {
+      version: 1,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          threadId: "t1",
+          content: "",
+          timestamp: "09:00",
+          attachments: [
+            {
+              id: "a1",
+              name: "screen.png",
+              mimeType: "image/png",
+              size: 10,
+              storageKey: "a1.png",
+              localPath: "/tmp/attachments/a1.png",
+              base64: "raw",
+            },
+          ],
+        },
+      ],
+      activeThreadId: null,
+      drafts: [],
+    } as unknown as WorkspaceSnapshot;
+
+    await store.saveWorkspaceSnapshot(snapshot);
+
+    const raw = await readFile(join(baseDir, "workspace.json"), "utf-8");
+    expect(raw).not.toContain("localPath");
+    expect(raw).not.toContain("base64");
   });
 
   it("writes and reads provider sessions", async () => {

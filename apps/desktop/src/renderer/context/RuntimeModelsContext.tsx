@@ -1,9 +1,6 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 
-import {
-  createRuntimeModelsStore,
-  type RuntimeModelsStore,
-} from "../lib/runtimeModelsCache";
+import { createRuntimeModelsStore, type RuntimeModelsStore } from "../lib/runtimeModelsCache";
 
 const RuntimeModelsContext = createContext<RuntimeModelsStore | null>(null);
 
@@ -16,9 +13,7 @@ export function RuntimeModelsProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  return (
-    <RuntimeModelsContext.Provider value={store}>{children}</RuntimeModelsContext.Provider>
-  );
+  return <RuntimeModelsContext.Provider value={store}>{children}</RuntimeModelsContext.Provider>;
 }
 
 export function useRuntimeModelsStore() {

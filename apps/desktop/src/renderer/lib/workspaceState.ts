@@ -304,9 +304,7 @@ export function setChatThreadRuntimeModelId(
   threadId: string,
   runtimeModelId: string | undefined,
 ) {
-  return chats.map((thread) =>
-    thread.id === threadId ? { ...thread, runtimeModelId } : thread,
-  );
+  return chats.map((thread) => (thread.id === threadId ? { ...thread, runtimeModelId } : thread));
 }
 
 function findNextVisibleThreadId(projects: ProjectRecord[], preferredProjectId: string) {

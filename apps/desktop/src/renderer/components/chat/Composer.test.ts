@@ -7,6 +7,7 @@ import {
   getPermissionDetail,
   getRuntimeModelIdForSend,
   shouldSubmitComposerOnKeyDown,
+  storeImageAttachmentFile,
 } from "./Composer";
 import type { ChatPermissionRequest } from "../../../shared/chatPermissions";
 
@@ -240,5 +241,45 @@ describe("getPermissionDetail", () => {
         expiresAt: "2026-01-01T00:01:00.000Z",
       }),
     ).toBe("pwd");
+  });
+});
+
+describe("storeImageAttachmentFile", () => {
+  it("reports a clear error when the preload attachment bridge is missing", async () => {
+    const file = new File(["hello"], "test.png", { type: "image/png" });
+
+    try {
+      await storeImageAttachmentFile(file, undefined);
+      throw new Error("Expected storeImageAttachmentFile to reject.");
+    } catch (error) {
+      expect(error instanceof Error).toBe(true);
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toBe(
+        "Image attachments are unavailable. Restart Carrent and try again.",
+      );
+    }
+  });
+
+  it("stores file bytes through the preload attachment bridge", async () => {
+    const file = new File(["hello"], "test.png", { type: "image/png" });
+    let stored: { name: string; mimeType: string; data: Uint8Array } | undefined;
+
+    const metadata = await storeImageAttachmentFile(file, {
+      store: async (input: { name: string; mimeType: string; data: Uint8Array }) => {
+        stored = input;
+        return {
+          id: "attachment-1",
+          name: input.name,
+          mimeType: input.mimeType,
+          size: input.data.byteLength,
+          storageKey: "attachment-1.png",
+        };
+      },
+    });
+
+    expect(stored?.name).toBe("test.png");
+    expect(stored?.mimeType).toBe("image/png");
+    expect(Array.from(stored?.data ?? [])).toEqual([104, 101, 108, 108, 111]);
+    expect(metadata.storageKey).toBe("attachment-1.png");
   });
 });

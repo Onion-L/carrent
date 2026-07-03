@@ -125,4 +125,51 @@ describe("buildChatPrompt", () => {
     const transcriptSection = prompt.split("Recent conversation:")[1]?.split("user: Hi")[0] ?? "";
     expect(transcriptSection.length).toBeLessThan(6000);
   });
+
+  it("uses a default prompt for image-only messages", () => {
+    const prompt = buildChatPrompt(
+      makeRequest({
+        message: "",
+        attachments: [
+          {
+            id: "a1",
+            name: "screenshot.png",
+            mimeType: "image/png",
+            size: 1024,
+            storageKey: "a1.png",
+          },
+        ],
+      }),
+    );
+
+    expect(prompt).toContain("Inspect the attached images");
+  });
+
+  it("includes image references for text-only runtimes", () => {
+    const prompt = buildChatPrompt(
+      makeRequest({
+        message: "Check this",
+        attachments: [
+          {
+            id: "a1",
+            name: "screenshot.png",
+            mimeType: "image/png",
+            size: 1024,
+            storageKey: "a1.png",
+            localPath: "/tmp/attachments/a1.png",
+          },
+        ],
+      }),
+    );
+
+    expect(prompt).toContain("Attached images:");
+    expect(prompt).toContain("screenshot.png");
+    expect(prompt).toContain("/tmp/attachments/a1.png");
+  });
+
+  it("does not include an image section when no attachments are present", () => {
+    const prompt = buildChatPrompt(makeRequest({ message: "No images" }));
+
+    expect(prompt).not.toContain("Attached images:");
+  });
 });

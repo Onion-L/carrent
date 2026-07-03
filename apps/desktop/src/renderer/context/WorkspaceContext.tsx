@@ -36,6 +36,7 @@ import {
   useDebouncedWorkspaceSave,
 } from "../hooks/useDebouncedWorkspaceSave";
 import type { RuntimeId } from "../../shared/runtimes";
+import type { ImageAttachmentMetadata } from "../../shared/chat";
 
 export type WorkspaceContextValue = {
   projects: ProjectRecord[];
@@ -74,7 +75,11 @@ export type WorkspaceContextValue = {
   upsertThread: (projectId: string, thread: ThreadRecord) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
   archiveThread: (projectId: string, threadId: string) => string | null;
-  createChat: (title: string, runtimeId?: RuntimeId, runtimeModelId?: string) => ThreadRecord | null;
+  createChat: (
+    title: string,
+    runtimeId?: RuntimeId,
+    runtimeModelId?: string,
+  ) => ThreadRecord | null;
   upsertChat: (thread: ThreadRecord) => void;
   toggleChatPin: (threadId: string) => void;
   archiveChat: (threadId: string) => void;
@@ -83,6 +88,7 @@ export type WorkspaceContextValue = {
     threadId: string;
     role: "user" | "assistant";
     content: string;
+    attachments?: ImageAttachmentMetadata[];
   }) => Message;
   updateMessage: (id: string, content: string) => void;
   updateMessageParts: (id: string, update: MessagePartUpdate) => void;
@@ -147,6 +153,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
     threadId: "",
     content: "",
     timestamp: "",
+    type: "text",
   }),
   updateMessage: () => {},
   updateMessageParts: () => {},
@@ -458,6 +465,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     threadId: string;
     role: "user" | "assistant";
     content: string;
+    attachments?: ImageAttachmentMetadata[];
   }): Message => {
     const newMessage: Message = {
       ...message,

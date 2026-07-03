@@ -60,7 +60,13 @@ class FakeKimiAcpTransport implements KimiAcpTransport {
     this.errorListeners.push(listener);
   }
 
-  onClose(listener: (details: { code: number | null; signal: NodeJS.Signals | null; stderr: string }) => void) {
+  onClose(
+    listener: (details: {
+      code: number | null;
+      signal: NodeJS.Signals | null;
+      stderr: string;
+    }) => void,
+  ) {
     this.closeListeners.push(listener);
   }
 
@@ -687,7 +693,8 @@ describe("createChatSessionManager", () => {
     expect(emitted.find((event) => event.type === "failed")).toMatchObject({
       type: "failed",
       runId: "run-kimi-unsupported-model",
-      error: "Kimi Code does not list selected model \"not-a-kimi-model\". Clear it or choose a Kimi-supported model.",
+      error:
+        'Kimi Code does not list selected model "not-a-kimi-model". Clear it or choose a Kimi-supported model.',
     });
   });
 
@@ -998,7 +1005,10 @@ describe("createChatSessionManager", () => {
     const workspacePath = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-workspace-"));
     const outsidePath = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-outside-"));
     await writeFile(path.join(outsidePath, "secret.txt"), "secret", "utf8");
-    await symlink(path.join(outsidePath, "secret.txt"), path.join(workspacePath, "linked-secret.txt"));
+    await symlink(
+      path.join(outsidePath, "secret.txt"),
+      path.join(workspacePath, "linked-secret.txt"),
+    );
 
     const emitted: ChatRunEvent[] = [];
     const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
@@ -1053,9 +1063,7 @@ describe("createChatSessionManager", () => {
     );
     await waitForAsyncEvents();
 
-    const readResponse = transports[0]?.sent.find(
-      (message) => message.id === "agent-read-symlink",
-    );
+    const readResponse = transports[0]?.sent.find((message) => message.id === "agent-read-symlink");
     const readError = readResponse?.error as { code?: number; message?: string } | undefined;
     expect(readError?.code).toBe(-32000);
     expect(readError?.message).toContain("Refusing to read outside workspace");
@@ -1193,9 +1201,7 @@ describe("createChatSessionManager", () => {
     await waitForAsyncEvents();
 
     const fileReasoningEvents = emitted.filter(
-      (
-        event,
-      ): event is Extract<ChatRunEvent, { type: "reasoning" }> =>
+      (event): event is Extract<ChatRunEvent, { type: "reasoning" }> =>
         event.type === "reasoning" && event.reasoning.id === "kimi-tool-tool-read-1",
     );
     expect(fileReasoningEvents.map((event) => event.reasoning)).toEqual([
@@ -1436,7 +1442,11 @@ describe("createChatSessionManager", () => {
             params: {
               sessionId: "session-1",
               options: [
-                { optionId: "approve_always", name: "Approve for this session", kind: "allow_always" },
+                {
+                  optionId: "approve_always",
+                  name: "Approve for this session",
+                  kind: "allow_always",
+                },
                 { optionId: "approve_once", name: "Approve once", kind: "allow_once" },
                 { optionId: "reject", name: "Reject", kind: "reject_once" },
               ],
@@ -1484,9 +1494,7 @@ describe("createChatSessionManager", () => {
     await waitForAsyncEvents();
 
     const permissionRequested = emitted.find(
-      (
-        event,
-      ): event is Extract<ChatRunEvent, { type: "permission-requested" }> =>
+      (event): event is Extract<ChatRunEvent, { type: "permission-requested" }> =>
         event.type === "permission-requested",
     );
     expect(permissionRequested).toMatchObject({
@@ -1608,9 +1616,7 @@ describe("createChatSessionManager", () => {
     await waitForAsyncEvents();
 
     const permissions = emitted.filter(
-      (
-        event,
-      ): event is Extract<ChatRunEvent, { type: "permission-requested" }> =>
+      (event): event is Extract<ChatRunEvent, { type: "permission-requested" }> =>
         event.type === "permission-requested",
     );
     expect(permissions).toHaveLength(2);
@@ -1686,8 +1692,7 @@ describe("createChatSessionManager", () => {
 
     expect(emitted.some((event) => event.type === "permission-requested")).toBe(false);
     expect(
-      transports[0]?.sent.find((message) => message.id === "agent-permission-unsupported")
-        ?.result,
+      transports[0]?.sent.find((message) => message.id === "agent-permission-unsupported")?.result,
     ).toEqual({ outcome: { outcome: "cancelled" } });
     const failed = emitted.find((event) => event.type === "failed");
     expect(failed).toMatchObject({
@@ -1720,7 +1725,11 @@ describe("createChatSessionManager", () => {
             params: {
               sessionId: "session-1",
               options: [
-                { optionId: "approve_always", name: "Approve for this session", kind: "allow_always" },
+                {
+                  optionId: "approve_always",
+                  name: "Approve for this session",
+                  kind: "allow_always",
+                },
                 { optionId: "reject", name: "Reject", kind: "reject_once" },
               ],
               toolCall: {
@@ -3261,11 +3270,7 @@ describe("createChatSessionManager", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(capturedCommand).toBe("pi");
-    expect(capturedArgs.slice(0, 3)).toEqual([
-      "--model",
-      "deepseek/deepseek-v4-flash",
-      "-p",
-    ]);
+    expect(capturedArgs.slice(0, 3)).toEqual(["--model", "deepseek/deepseek-v4-flash", "-p"]);
   });
 
   it("emits permission-failed for unknown permission responses", async () => {

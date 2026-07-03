@@ -8,6 +8,20 @@ export type ChatWorkspaceScope =
   | { kind: "project"; projectPath: string; projectId: string }
   | { kind: "chat" };
 
+export type ImageAttachmentMetadata = {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  storageKey: string;
+  width?: number;
+  height?: number;
+};
+
+export type ImageAttachment = ImageAttachmentMetadata & {
+  localPath?: string;
+};
+
 export interface ChatTurnRequest {
   requestKey?: string;
   workspace: ChatWorkspaceScope;
@@ -25,6 +39,7 @@ export interface ChatTurnRequest {
     content: string;
   }>;
   message: string;
+  attachments?: ImageAttachment[];
 }
 
 type ChatRunEventBase = {

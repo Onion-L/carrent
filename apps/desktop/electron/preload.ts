@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import type { ChatTurnRequest, ChatRunEvent } from "../src/shared/chat";
+import type { ChatTurnRequest, ChatRunEvent, ImageAttachmentMetadata } from "../src/shared/chat";
 import type { ChatPermissionResponse } from "../src/shared/chatPermissions";
 import type {
   WorkspaceSnapshot,
@@ -34,6 +34,12 @@ const carrent = {
       ipcRenderer.on("chat:event", wrapped);
       return () => ipcRenderer.removeListener("chat:event", wrapped);
     },
+  },
+  attachments: {
+    store: (input: { name: string; mimeType: string; data: Uint8Array }) =>
+      ipcRenderer.invoke("attachments:store", input) as Promise<ImageAttachmentMetadata>,
+    read: (storageKey: string) =>
+      ipcRenderer.invoke("attachments:read", storageKey) as Promise<Uint8Array>,
   },
   dialog: {
     openDirectory: () =>

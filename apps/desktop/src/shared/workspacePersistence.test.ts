@@ -191,9 +191,7 @@ describe("normalizeWorkspaceSnapshot", () => {
           id: "p1",
           name: "P1",
           path: "/tmp/p1",
-          threads: [
-            { id: "t1", title: "Thread", updatedAt: "now", runtimeModelId: " gpt-5 " },
-          ],
+          threads: [{ id: "t1", title: "Thread", updatedAt: "now", runtimeModelId: " gpt-5 " }],
         },
       ],
       chats: [{ id: "c1", title: "Chat", updatedAt: "now", runtimeModelId: "gpt-5" }],
@@ -247,5 +245,116 @@ describe("normalizeWorkspaceSnapshot", () => {
     expect(snapshot?.projects[0].threads[0].runtimeModelId).toBeUndefined();
     expect(snapshot?.chats[0].runtimeModelId).toBeUndefined();
     expect(snapshot?.drafts[0].runtimeModelId).toBeUndefined();
+  });
+
+  it("preserves image attachment metadata in messages", () => {
+    const snapshot = {
+      version: WORKSPACE_SNAPSHOT_VERSION,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          threadId: "t1",
+          content: "Look at this",
+          timestamp: "09:00",
+          attachments: [
+            {
+              id: "a1",
+              name: "screenshot.png",
+              mimeType: "image/png",
+              size: 1024,
+              storageKey: "a1.png",
+            },
+          ],
+        },
+      ],
+      activeThreadId: null,
+      drafts: [],
+    };
+
+    const normalized = normalizeWorkspaceSnapshot(snapshot);
+    const userMessage = normalized!.messages[0] as { attachments?: unknown };
+    expect(userMessage.attachments).toEqual(snapshot.messages[0].attachments);
+  });
+
+  it("strips runtime-only image attachment fields from persisted messages and drafts", () => {
+    const snapshot = {
+      version: WORKSPACE_SNAPSHOT_VERSION,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          threadId: "t1",
+          content: "",
+          timestamp: "09:00",
+          attachments: [
+            {
+              id: "a1",
+              name: "screenshot.png",
+              mimeType: "image/png",
+              size: 1024,
+              storageKey: "a1.png",
+              localPath: "/tmp/attachments/a1.png",
+              base64: "raw",
+            },
+          ],
+        },
+      ],
+      activeThreadId: null,
+      drafts: [
+        {
+          draftId: "d1",
+          projectId: "p1",
+          title: "Draft",
+          preallocatedThreadId: "t1",
+          createdAt: "now",
+          messages: [
+            {
+              id: "m2",
+              role: "user",
+              threadId: "t1",
+              content: "",
+              timestamp: "09:01",
+              attachments: [
+                {
+                  id: "a2",
+                  name: "draft.png",
+                  mimeType: "image/png",
+                  size: 2048,
+                  storageKey: "a2.png",
+                  localPath: "/tmp/attachments/a2.png",
+                  dataUrl: "data:image/png;base64,raw",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const normalized = normalizeWorkspaceSnapshot(snapshot);
+    const messageAttachment = (normalized!.messages[0] as { attachments?: unknown[] })
+      .attachments![0] as Record<string, unknown>;
+    const draftAttachment = (normalized!.drafts[0].messages[0] as { attachments?: unknown[] })
+      .attachments![0] as Record<string, unknown>;
+
+    expect(messageAttachment).toEqual({
+      id: "a1",
+      name: "screenshot.png",
+      mimeType: "image/png",
+      size: 1024,
+      storageKey: "a1.png",
+    });
+    expect(draftAttachment).toEqual({
+      id: "a2",
+      name: "draft.png",
+      mimeType: "image/png",
+      size: 2048,
+      storageKey: "a2.png",
+    });
   });
 });

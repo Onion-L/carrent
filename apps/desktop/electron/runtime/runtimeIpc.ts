@@ -16,9 +16,9 @@ interface IpcMainLike {
     listener: (
       event: unknown,
       runtimeId?: RuntimeId,
-    ) =>
-      | Promise<RuntimeRecord[] | RuntimeRecord | RuntimeVerificationResult | RuntimeModelListResult | void>
-      | void,
+    ) => Promise<
+      RuntimeRecord[] | RuntimeRecord | RuntimeVerificationResult | RuntimeModelListResult | void
+    > | void,
   ) => void;
 }
 

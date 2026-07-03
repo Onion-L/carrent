@@ -1,6 +1,7 @@
-import type {
-  WorkspaceSnapshot,
-  ProviderSessionSnapshot,
+import {
+  normalizeWorkspaceSnapshot,
+  type ProviderSessionSnapshot,
+  type WorkspaceSnapshot,
 } from "../../src/shared/workspacePersistence";
 import type { WorkspaceStore } from "./workspaceStore";
 
@@ -21,12 +22,18 @@ export function getLastWorkspaceSnapshot(): WorkspaceSnapshot | null {
 export function registerWorkspaceIpc(ipcMainLike: IpcMainLike, store: WorkspaceStore) {
   ipcMainLike.handle("workspace:load", () => store.loadWorkspaceSnapshot());
   ipcMainLike.on("workspace:remember", (_event, snapshot) => {
-    lastWorkspaceSnapshot = snapshot as WorkspaceSnapshot;
+    const normalized = normalizeWorkspaceSnapshot(snapshot);
+    if (normalized) {
+      lastWorkspaceSnapshot = normalized;
+    }
   });
   ipcMainLike.handle("workspace:save", (_event, snapshot) => {
-    const s = snapshot as WorkspaceSnapshot;
-    lastWorkspaceSnapshot = s;
-    return store.saveWorkspaceSnapshot(s);
+    const normalized = normalizeWorkspaceSnapshot(snapshot);
+    if (!normalized) {
+      throw new Error("Invalid workspace snapshot.");
+    }
+    lastWorkspaceSnapshot = normalized;
+    return store.saveWorkspaceSnapshot(normalized);
   });
   ipcMainLike.handle("provider-sessions:load", () => store.loadProviderSessions());
   ipcMainLike.handle("provider-sessions:save", (_event, snapshot) =>

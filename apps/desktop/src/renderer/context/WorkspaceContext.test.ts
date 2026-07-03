@@ -44,6 +44,29 @@ describe("mergeMessagesIntoWorkspace", () => {
       makeMessage({ id: "message-3", threadId: "thread-1" }),
     ]);
   });
+
+  it("preserves image attachment metadata when merging messages", () => {
+    const existing = [makeMessage({ id: "message-1", threadId: "thread-1" })];
+    const incoming = [
+      makeMessage({
+        id: "message-2",
+        threadId: "thread-1",
+        attachments: [
+          {
+            id: "a1",
+            name: "screenshot.png",
+            mimeType: "image/png",
+            size: 1024,
+            storageKey: "a1.png",
+          },
+        ],
+      }),
+    ];
+
+    const merged = mergeMessagesIntoWorkspace(existing, incoming);
+    expect(merged).toHaveLength(2);
+    expect((merged[1] as TextMessage).attachments).toEqual(incoming[0].attachments);
+  });
 });
 
 describe("applyMessagePartUpdate", () => {

@@ -283,7 +283,7 @@ export function useChatRun() {
     ensureChatListener();
     const requestKey = createRequestKey();
     if (!chatRunCoordinator.beginRequest(requestKey, request.threadId, callbacks)) {
-      return;
+      return false;
     }
 
     try {
@@ -292,9 +292,11 @@ export function useChatRun() {
         requestKey,
       });
       chatRunCoordinator.attachRunId(requestKey, runId);
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       chatRunCoordinator.failRequest(requestKey, message);
+      return false;
     }
   }, []);
 

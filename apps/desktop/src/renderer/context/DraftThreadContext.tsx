@@ -78,11 +78,7 @@ export function DraftThreadProvider({ children }: { children: ReactNode }) {
     setDrafts(updater);
   };
 
-  const createDraft = (
-    projectId: string,
-    runtimeId?: RuntimeId,
-    runtimeModelId?: string,
-  ) => {
+  const createDraft = (projectId: string, runtimeId?: RuntimeId, runtimeModelId?: string) => {
     const draft = buildDraftThreadRecord(projectId, "New thread", runtimeId, runtimeModelId);
     if (!draft) {
       return null;

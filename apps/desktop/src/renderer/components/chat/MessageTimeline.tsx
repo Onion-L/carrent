@@ -1,13 +1,81 @@
 import { ArrowDown, Check, Copy, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { type Message } from "../../mock/uiShellData";
+import { type Message, type ImageAttachmentMetadata } from "../../mock/uiShellData";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 import { ReasoningBlock } from "./ReasoningBlock";
 import { ShellBlock } from "./ShellBlock";
+import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachmentLightbox";
 
-function UserMessage({ content, timestamp }: { content: string; timestamp: string }) {
+function StoredAttachmentThumbnail({
+  attachment,
+  onClick,
+}: {
+  attachment: ImageAttachmentMetadata;
+  onClick: () => void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    window.carrent.attachments
+      .read(attachment.storageKey)
+      .then((data) => {
+        const blob = new Blob([data.slice()], { type: attachment.mimeType });
+        objectUrl = URL.createObjectURL(blob);
+        if (cancelled) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        setUrl(objectUrl);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [attachment.storageKey, attachment.mimeType]);
+
+  if (failed || !url) {
+    return (
+      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border-strong bg-surface text-[11px] text-muted">
+        {failed ? "Missing" : "..."}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="shrink-0 overflow-hidden rounded-lg border border-border-strong"
+      title={attachment.name}
+    >
+      <img src={url} alt={attachment.name} className="h-16 w-16 object-cover" />
+    </button>
+  );
+}
+
+function UserMessage({
+  content,
+  timestamp,
+  attachments,
+}: {
+  content: string;
+  timestamp: string;
+  attachments?: ImageAttachmentMetadata[];
+}) {
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const handleCopy = async () => {
     try {
@@ -19,16 +87,45 @@ function UserMessage({ content, timestamp }: { content: string; timestamp: strin
     }
   };
 
+  const lightboxItems: StoredLightboxItem[] =
+    attachments?.map((attachment) => ({
+      id: attachment.id,
+      name: attachment.name,
+      storageKey: attachment.storageKey,
+    })) ?? [];
+
   return (
     <div
       className="relative flex justify-end"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
-        <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-user-bubble-fg">
-          {content}
-        </p>
+      <div className="max-w-[80%]">
+        <div className="rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
+          {content && (
+            <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-user-bubble-fg">
+              {content}
+            </p>
+          )}
+          {attachments && attachments.length > 0 && (
+            <div className={`flex gap-2 overflow-x-auto ${content ? "mt-2" : ""}`}>
+              {attachments.map((attachment, index) => (
+                <StoredAttachmentThumbnail
+                  key={attachment.id}
+                  attachment={attachment}
+                  onClick={() => setLightboxIndex(index)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+        {lightboxIndex !== null && (
+          <ImageAttachmentLightbox
+            items={lightboxItems}
+            initialIndex={lightboxIndex}
+            onClose={() => setLightboxIndex(null)}
+          />
+        )}
       </div>
       {hovered && (
         <div className="absolute -bottom-6 right-0 flex items-center gap-3 px-1">
@@ -58,13 +155,7 @@ function UserMessage({ content, timestamp }: { content: string; timestamp: strin
   );
 }
 
-function AssistantMessage({
-  message,
-  timestamp,
-}: {
-  message: Message;
-  timestamp: string;
-}) {
+function AssistantMessage({ message, timestamp }: { message: Message; timestamp: string }) {
   const content = message.content ?? "";
   const parts = message.type !== "changed_files" ? message.parts : undefined;
   const hasParts = !!parts?.length;
@@ -73,10 +164,10 @@ function AssistantMessage({
   const [copied, setCopied] = useState(false);
 
   const copyText = hasParts
-    ? parts
+    ? (parts
         ?.filter((p) => p.type === "text")
         .map((p) => p.content)
-        .join("\n") ?? content
+        .join("\n") ?? content)
     : content;
 
   const handleCopy = async () => {
@@ -91,45 +182,45 @@ function AssistantMessage({
 
   return (
     <div
-      className="flex flex-col gap-2"
+      className="flex flex-col gap-3"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       {isStreaming ? (
-          <div className="flex items-center py-1">
-            {"Thinking".split("").map((char, i) => (
-              <span
-                key={i}
-                className="inline-block animate-pulse text-[13px] text-subtle"
-                style={{ animationDelay: `${i * 120}ms` }}
-              >
-                {char}
-              </span>
-            ))}
-          </div>
-        ) : hasParts ? (
-          <div className="flex flex-col gap-3">
-            {parts?.map((part, index) =>
-              part.type === "text" ? (
-                part.content ? (
-                  <p
-                    key={`${index}-text`}
-                    className="whitespace-pre-wrap text-[14px] leading-relaxed text-fg"
-                  >
-                    {part.content}
-                  </p>
-                ) : null
-              ) : part.type === "reasoning" ? (
-                <ReasoningBlock key={part.id} reasoning={part} />
-              ) : (
-                <ShellBlock key={part.id} shell={part} />
-              ),
-            )}
-          </div>
-        ) : (
-          <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-fg">{content}</p>
-        )}
-      <div className="flex items-center gap-2">
+        <div className="flex items-center py-1">
+          {"Thinking".split("").map((char, i) => (
+            <span
+              key={i}
+              className="inline-block animate-pulse text-[13px] text-subtle"
+              style={{ animationDelay: `${i * 120}ms` }}
+            >
+              {char}
+            </span>
+          ))}
+        </div>
+      ) : hasParts ? (
+        <div className="flex flex-col gap-4">
+          {parts?.map((part, index) =>
+            part.type === "text" ? (
+              part.content ? (
+                <p
+                  key={`${index}-text`}
+                  className="whitespace-pre-wrap text-[15px] leading-7 text-fg"
+                >
+                  {part.content}
+                </p>
+              ) : null
+            ) : part.type === "reasoning" ? (
+              <ReasoningBlock key={part.id} reasoning={part} />
+            ) : (
+              <ShellBlock key={part.id} shell={part} />
+            ),
+          )}
+        </div>
+      ) : (
+        <p className="whitespace-pre-wrap text-[15px] leading-7 text-fg">{content}</p>
+      )}
+      <div className="flex items-center gap-2 opacity-70">
         <span className="text-[11px] text-subtle">{timestamp}</span>
         {hovered && (
           <button
@@ -238,12 +329,16 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
         {messages.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="mx-auto flex w-full max-w-3xl flex-col">
+          <div className="mx-auto flex w-full max-w-[56rem] flex-col pb-4">
             {messages.map((msg) => {
               if (msg.role === "user") {
                 return (
-                  <div key={msg.id} className="px-4 py-5">
-                    <UserMessage content={msg.content} timestamp={msg.timestamp} />
+                  <div key={msg.id} className="px-6 py-4">
+                    <UserMessage
+                      content={msg.content}
+                      timestamp={msg.timestamp}
+                      attachments={msg.attachments}
+                    />
                   </div>
                 );
               }
@@ -257,7 +352,7 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
               }
 
               return (
-                <div key={msg.id} className="px-4 py-5">
+                <div key={msg.id} className="px-6 py-4">
                   <AssistantMessage message={msg} timestamp={msg.timestamp} />
                 </div>
               );

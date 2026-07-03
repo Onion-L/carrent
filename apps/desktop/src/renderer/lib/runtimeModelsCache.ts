@@ -120,8 +120,7 @@ export function createRuntimeModelsStore({
   const ensureFresh = (runtimeId: RuntimeId) => {
     const cachedResult = state.resultById[runtimeId];
     const lastFetchedAt = state.lastFetchedAtById[runtimeId];
-    const isFresh =
-      cachedResult != null && lastFetchedAt != null && now() - lastFetchedAt < ttlMs;
+    const isFresh = cachedResult != null && lastFetchedAt != null && now() - lastFetchedAt < ttlMs;
 
     if (isFresh) {
       return Promise.resolve();

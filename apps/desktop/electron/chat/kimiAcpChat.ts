@@ -1,8 +1,9 @@
 import type { ChildProcess } from "node:child_process";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
-import type { ChatRunEvent, ChatTurnRequest } from "../../src/shared/chat";
+import type { ChatRunEvent, ChatTurnRequest, ImageAttachment } from "../../src/shared/chat";
 import {
   CHAT_PERMISSION_TIMEOUT_MS,
   buildPermissionExpiry,
@@ -11,6 +12,7 @@ import {
   type ChatPermissionResponse,
 } from "../../src/shared/chatPermissions";
 import type { RuntimeMode } from "../../src/shared/runtimeMode";
+import { DEFAULT_IMAGE_ONLY_PROMPT } from "./chatPrompt";
 
 type JsonRpcId = string | number;
 type JsonObject = Record<string, unknown>;
@@ -23,7 +25,13 @@ export type KimiAcpTransport = {
   close: () => void;
   onMessage: (listener: (message: JsonObject) => void) => void;
   onError: (listener: (error: Error) => void) => void;
-  onClose: (listener: (details: { code: number | null; signal: NodeJS.Signals | null; stderr: string }) => void) => void;
+  onClose: (
+    listener: (details: {
+      code: number | null;
+      signal: NodeJS.Signals | null;
+      stderr: string;
+    }) => void,
+  ) => void;
 };
 
 export type KimiAcpTransportFactory = (options: { cwd: string }) => KimiAcpTransport;
@@ -155,6 +163,38 @@ export function startKimiAcpChatRun(options: {
   };
 }
 
+export async function buildKimiPromptParts(
+  request: ChatTurnRequest,
+): Promise<Array<Record<string, unknown>>> {
+  const imageAttachments = request.attachments?.filter(
+    (attachment): attachment is ImageAttachment & { localPath: string } =>
+      typeof attachment.localPath === "string",
+  );
+  const messageText =
+    request.message.trim() || (imageAttachments && imageAttachments.length > 0 ? DEFAULT_IMAGE_ONLY_PROMPT : "");
+  const parts: Array<Record<string, unknown>> = [];
+
+  if (messageText) {
+    parts.push({ type: "text", text: messageText });
+  }
+
+  for (const attachment of imageAttachments ?? []) {
+    const data = await readFile(attachment.localPath);
+    parts.push({
+      type: "image",
+      data: data.toString("base64"),
+      mimeType: attachment.mimeType,
+      uri: pathToFileURL(attachment.localPath).toString(),
+    });
+  }
+
+  if (parts.length === 0) {
+    parts.push({ type: "text", text: request.message });
+  }
+
+  return parts;
+}
+
 class KimiAcpRun {
   private readonly transport: KimiAcpTransport;
   private readonly pending = new Map<
@@ -162,7 +202,7 @@ class KimiAcpRun {
     {
       resolve: (result: unknown) => void;
       reject: (error: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
+      timer: ReturnType<typeof setTimeout> | null;
     }
   >();
   private nextId = 1;
@@ -250,9 +290,9 @@ class KimiAcpRun {
         "session/prompt",
         {
           sessionId: this.sessionId,
-          prompt: [{ type: "text", text: this.options.request.message }],
+          prompt: await buildKimiPromptParts(this.options.request),
         },
-        { timeoutMs: 180_000 },
+        { timeoutMs: null },
       );
 
       this.emitThreadLifecycle();
@@ -479,16 +519,20 @@ class KimiAcpRun {
   private request(
     method: string,
     params: JsonObject,
-    options: { timeoutMs?: number } = {},
+    options: { timeoutMs?: number | null } = {},
   ): Promise<unknown> {
     const id = this.nextId++;
-    const timeoutMs = options.timeoutMs ?? this.options.requestTimeoutMs ?? 30_000;
+    const timeoutMs =
+      "timeoutMs" in options ? options.timeoutMs : (this.options.requestTimeoutMs ?? 30_000);
 
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`Timed out waiting for Kimi ACP ${method}.`));
-      }, timeoutMs);
+      const timer =
+        timeoutMs == null
+          ? null
+          : setTimeout(() => {
+              this.pending.delete(id);
+              reject(new Error(`Timed out waiting for Kimi ACP ${method}.`));
+            }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       this.transport.send({ jsonrpc: "2.0", id, method, params });
     });
@@ -507,7 +551,9 @@ class KimiAcpRun {
     if (message.id != null && this.pending.has(message.id as JsonRpcId)) {
       const pending = this.pending.get(message.id as JsonRpcId)!;
       this.pending.delete(message.id as JsonRpcId);
-      clearTimeout(pending.timer);
+      if (pending.timer) {
+        clearTimeout(pending.timer);
+      }
 
       const error = readObject(message.error);
       if (error) {
@@ -711,7 +757,8 @@ class KimiAcpRun {
       reasoning: {
         id: `kimi-tool-${id}`,
         content: describeToolActivity(title, kind, filePath),
-        status: normalizeToolStatus(readString(update.status)) === "running" ? "running" : "completed",
+        status:
+          normalizeToolStatus(readString(update.status)) === "running" ? "running" : "completed",
       },
     });
   }
@@ -786,7 +833,11 @@ class KimiAcpRun {
       clearTimeout(this.stopFallbackTimer);
       this.stopFallbackTimer = null;
     }
-    this.pending.forEach((pending) => clearTimeout(pending.timer));
+    this.pending.forEach((pending) => {
+      if (pending.timer) {
+        clearTimeout(pending.timer);
+      }
+    });
     this.pending.clear();
     this.pendingPermissions.clear();
     this.options.emit(event);
@@ -984,7 +1035,10 @@ function buildKimiPermissionRequest(options: {
   const title = readString(toolCall?.title) ?? "Kimi permission request";
   const kind = readString(toolCall?.kind) ?? "";
   const command =
-    readString(rawInput?.command) ?? commandFromTitle(title) ?? commandFromText(content) ?? undefined;
+    readString(rawInput?.command) ??
+    commandFromTitle(title) ??
+    commandFromText(content) ??
+    undefined;
   const filePath =
     readString(rawInput?.path) ??
     readString(rawInput?.file_path) ??

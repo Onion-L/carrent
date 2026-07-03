@@ -254,18 +254,18 @@ The observed `session/load` replay did not include the final assistant `agent_me
 
 Recommended first mapping for the Kimi ACP adapter:
 
-| ACP input | Carrent event |
-| --- | --- |
-| adapter accepts a `ChatTurnRequest` and sends `session/prompt` | `started` |
-| `agent_message_chunk` text | `delta` |
-| `agent_thought_chunk` text | `reasoning` with one stable reasoning id per run |
-| `tool_call` / `tool_call_update` with `kind: "execute"` or title `Bash` | `shell` |
-| `tool_call` / `tool_call_update` with read/search/edit/delete/move kinds | initially `reasoning`; issue 04 can add richer file activity UI/events |
-| `session/request_permission` | `permission-requested` |
-| permission response sent back to Kimi | `permission-resolved` |
-| `session/prompt` response `stopReason: "end_turn"` | `completed` |
-| `session/prompt` response `stopReason: "cancelled"` | `stopped` |
-| JSON-RPC error, process startup failure, protocol mismatch, or rejected required client method | `failed` |
+| ACP input                                                                                      | Carrent event                                                          |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| adapter accepts a `ChatTurnRequest` and sends `session/prompt`                                 | `started`                                                              |
+| `agent_message_chunk` text                                                                     | `delta`                                                                |
+| `agent_thought_chunk` text                                                                     | `reasoning` with one stable reasoning id per run                       |
+| `tool_call` / `tool_call_update` with `kind: "execute"` or title `Bash`                        | `shell`                                                                |
+| `tool_call` / `tool_call_update` with read/search/edit/delete/move kinds                       | initially `reasoning`; issue 04 can add richer file activity UI/events |
+| `session/request_permission`                                                                   | `permission-requested`                                                 |
+| permission response sent back to Kimi                                                          | `permission-resolved`                                                  |
+| `session/prompt` response `stopReason: "end_turn"`                                             | `completed`                                                            |
+| `session/prompt` response `stopReason: "cancelled"`                                            | `stopped`                                                              |
+| JSON-RPC error, process startup failure, protocol mismatch, or rejected required client method | `failed`                                                               |
 
 Current shared types only allow permission provider values `codex`, `claude-code`, and `pi`; Kimi integration will need to extend that before emitting Kimi permission events.
 

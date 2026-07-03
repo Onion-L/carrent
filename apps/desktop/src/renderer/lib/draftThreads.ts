@@ -111,7 +111,5 @@ export function setDraftThreadRuntimeModelId(
   draftId: string,
   runtimeModelId: string | undefined,
 ) {
-  return drafts.map((draft) =>
-    draft.draftId === draftId ? { ...draft, runtimeModelId } : draft,
-  );
+  return drafts.map((draft) => (draft.draftId === draftId ? { ...draft, runtimeModelId } : draft));
 }

@@ -1,4 +1,4 @@
-import { Brain, ChevronDown, CircleDashed } from "lucide-react";
+import { ChevronDown, CircleDashed, TerminalSquare } from "lucide-react";
 import { useState } from "react";
 import type { MessagePart } from "../../mock/uiShellData";
 
@@ -10,35 +10,34 @@ export function getInitialReasoningBlockExpanded() {
 
 export function ReasoningBlock({ reasoning }: { reasoning: ReasoningPart }) {
   const [expanded, setExpanded] = useState(getInitialReasoningBlockExpanded);
+  const label = reasoning.status === "running" ? "Thinking" : "Thought";
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface">
+    <div className="py-1">
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center justify-between gap-3 bg-surface-raised px-3 py-2 text-left transition hover:bg-surface-hover"
+        className="group flex w-full items-center gap-2 text-left text-[13px] text-subtle transition hover:text-muted"
         aria-expanded={expanded}
       >
-        <div className="flex min-w-0 items-center gap-2 text-[12px] font-medium text-fg">
-          <Brain className="h-3.5 w-3.5 shrink-0 text-muted" />
-          <span className="shrink-0">Thinking</span>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted">
-          {reasoning.status === "running" && (
-            <CircleDashed className="h-3.5 w-3.5 animate-spin text-warning" />
-          )}
-          <span>{reasoning.status}</span>
-          <ChevronDown className={`h-3.5 w-3.5 transition ${expanded ? "rotate-180" : ""}`} />
-        </div>
+        {reasoning.status === "running" ? (
+          <CircleDashed className="h-3.5 w-3.5 shrink-0 animate-spin text-muted" />
+        ) : (
+          <TerminalSquare className="h-3.5 w-3.5 shrink-0 text-subtle group-hover:text-muted" />
+        )}
+        <span className="min-w-0 truncate font-medium">{label}</span>
+        <ChevronDown
+          className={`h-3.5 w-3.5 shrink-0 transition ${expanded ? "rotate-180" : ""}`}
+        />
       </button>
       {expanded && (
-        <div className="px-3 py-3">
+        <div className="mt-2 border-l border-border pl-5">
           {reasoning.content ? (
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-[12px] leading-relaxed text-muted">
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-[13px] leading-6 text-muted">
               {reasoning.content}
             </pre>
           ) : (
-            <div className="text-[12px] text-subtle">Thinking...</div>
+            <div className="text-[13px] text-subtle">Thinking...</div>
           )}
         </div>
       )}

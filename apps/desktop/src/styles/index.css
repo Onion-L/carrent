@@ -4,20 +4,20 @@
 
 @layer base {
   :root {
-    --color-bg: 17 17 17;
-    --color-sidebar: 20 20 20;
-    --color-surface: 30 30 30;
-    --color-surface-raised: 37 37 37;
-    --color-surface-hover: 42 42 42;
-    --color-fg: 224 224 224;
-    --color-muted: 130 130 130;
-    --color-subtle: 85 85 85;
-    --color-border: 45 45 45;
-    --color-border-strong: 60 60 60;
+    --color-bg: 15 15 14;
+    --color-sidebar: 25 25 24;
+    --color-surface: 31 31 29;
+    --color-surface-raised: 39 39 36;
+    --color-surface-hover: 48 48 44;
+    --color-fg: 231 230 224;
+    --color-muted: 148 146 137;
+    --color-subtle: 105 103 96;
+    --color-border: 49 49 45;
+    --color-border-strong: 70 69 63;
     --color-brand: 180 180 180;
-    --color-user-bubble: 42 42 42;
+    --color-user-bubble: 50 50 46;
     --color-user-bubble-fg: 238 238 238;
-    --color-code-bg: 16 16 16;
+    --color-code-bg: 12 12 11;
     --color-success: 70 170 110;
     --color-warning: 232 125 90;
     --color-danger: 200 80 80;
@@ -70,7 +70,9 @@
   }
 
   body {
-    background: rgb(var(--color-bg));
+    background:
+      radial-gradient(circle at 50% 0%, rgb(42 41 37 / 0.28), transparent 36rem),
+      rgb(var(--color-bg));
     color: rgb(var(--color-fg));
     margin: 0;
     font-family: var(--font-sans);

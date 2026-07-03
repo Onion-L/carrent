@@ -138,6 +138,56 @@ describe("registerWorkspaceIpc", () => {
     expect(saved).toHaveLength(0);
   });
 
+  it("workspace:remember stores a normalized snapshot", () => {
+    const listeners = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const snapshot = {
+      version: 1,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          threadId: "t1",
+          content: "",
+          timestamp: "09:00",
+          attachments: [
+            {
+              id: "a1",
+              name: "screen.png",
+              mimeType: "image/png",
+              size: 10,
+              storageKey: "a1.png",
+              localPath: "/tmp/attachments/a1.png",
+            },
+          ],
+        },
+      ],
+      activeThreadId: null,
+      drafts: [],
+    } as unknown as WorkspaceSnapshot;
+
+    registerWorkspaceIpc(
+      {
+        handle() {},
+        on(channel, listener) {
+          listeners.set(channel, listener);
+        },
+      },
+      {
+        loadWorkspaceSnapshot: async () => null,
+        saveWorkspaceSnapshot: async () => {},
+        loadProviderSessions: async () => ({ version: 1, sessions: {} }),
+        saveProviderSessions: async () => {},
+      },
+    );
+
+    listeners.get("workspace:remember")?.({}, snapshot);
+    const attachment = (getLastWorkspaceSnapshot()!.messages[0] as { attachments?: unknown[] })
+      .attachments![0] as Record<string, unknown>;
+    expect("localPath" in attachment).toBe(false);
+  });
+
   it("provider-sessions:load returns sessions from store", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const sessions: ProviderSessionSnapshot = { version: 1, sessions: { k1: "s1" } };

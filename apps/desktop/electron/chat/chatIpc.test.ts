@@ -73,6 +73,47 @@ describe("registerChatIpc", () => {
     expect(started[0].request.message).toBe("Hello");
   });
 
+  it("forwards attachments with the chat:send request", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const started: { runId: string; request: ChatTurnRequest }[] = [];
+
+    registerChatIpc(
+      {
+        handle(channel, listener) {
+          handlers.set(channel, listener);
+        },
+      },
+      {
+        sessionManager: {
+          start: (runId, request) => {
+            started.push({ runId, request });
+          },
+          stop: () => {},
+          respondToPermission: () => {},
+        },
+      },
+    );
+
+    const request = makeRequest({
+      attachments: [
+        {
+          id: "a1",
+          name: "ui.png",
+          mimeType: "image/png",
+          size: 1024,
+          storageKey: "a1.png",
+        },
+      ],
+    });
+
+    const result = (await handlers.get("chat:send")?.({}, request)) as {
+      runId: string;
+    };
+    expect(result.runId).toBeString();
+    expect(started).toHaveLength(1);
+    expect(started[0].request.attachments).toEqual(request.attachments);
+  });
+
   it("rejects legacy runtimes before starting the session", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const started: { runId: string; request: ChatTurnRequest }[] = [];

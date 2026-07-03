@@ -6,13 +6,11 @@ import type {
   ChatShellEventPayload,
   ChatTurnRequest,
   ChatRunEvent,
+  ImageAttachment,
 } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import { buildChatPrompt } from "./chatPrompt";
-import {
-  getRuntimeCommand,
-  getRuntimeCommandUnavailableMessage,
-} from "./chatRunner";
+import { getRuntimeCommand, getRuntimeCommandUnavailableMessage } from "./chatRunner";
 import {
   createKimiAcpProcessTransportFactory,
   startKimiAcpChatRun,
@@ -21,6 +19,7 @@ import {
 } from "./kimiAcpChat";
 import { getClaudeRuntimeModeArgs, getCodexRuntimeModeArgs } from "../../src/shared/runtimeMode";
 import { extractClaudePermissionRequest } from "./providerPermissionProtocol";
+import type { AttachmentStore } from "../attachments/attachmentStore";
 
 interface ChatSession {
   runId: string;
@@ -639,11 +638,25 @@ export function createChatSessionManager(options: {
   providerSessions?: ProviderSessionStore;
   allowLegacyRuntimeCommands?: boolean;
   kimiAcpTransportFactory?: KimiAcpTransportFactory;
+  attachmentStore?: AttachmentStore;
 }): ChatSessionManager {
   const sessions = new Map<string, ChatSession>();
   const kimiSessions = new Map<string, KimiAcpRunHandle>();
   const runtimeSessions = new Map<string, string>();
   const TIMEOUT_MS = 120_000;
+
+  function resolveAttachmentPaths(request: ChatTurnRequest): ChatTurnRequest {
+    if (!request.attachments || request.attachments.length === 0 || !options.attachmentStore) {
+      return request;
+    }
+
+    const attachments: ImageAttachment[] = request.attachments.map((attachment) => ({
+      ...attachment,
+      localPath: options.attachmentStore!.resolvePath(attachment.storageKey),
+    }));
+
+    return { ...request, attachments };
+  }
 
   function start(runId: string, request: ChatTurnRequest) {
     if (request.workspace.kind === "project" && !request.workspace.projectPath) {
@@ -656,18 +669,22 @@ export function createChatSessionManager(options: {
       return;
     }
 
-    if (request.runtimeId === "kimi") {
-      const requestSessionKey = buildRequestSessionKey(request);
+    const requestWithAttachments = resolveAttachmentPaths(request);
+
+    if (requestWithAttachments.runtimeId === "kimi") {
+      const requestSessionKey = buildRequestSessionKey(requestWithAttachments);
       const resumeSessionId =
-        runtimeSessions.get(requestSessionKey) ?? options.providerSessions?.get(requestSessionKey) ?? null;
+        runtimeSessions.get(requestSessionKey) ??
+        options.providerSessions?.get(requestSessionKey) ??
+        null;
 
       try {
         const transportFactory =
           options.kimiAcpTransportFactory ?? createKimiAcpProcessTransportFactory(options.spawn);
         const handle = startKimiAcpChatRun({
           runId,
-          request,
-          cwd: resolveRequestCwd(request),
+          request: requestWithAttachments,
+          cwd: resolveRequestCwd(requestWithAttachments),
           emit: options.emit,
           transportFactory,
           resumeSessionId,
@@ -690,29 +707,32 @@ export function createChatSessionManager(options: {
         options.emit({
           type: "failed",
           runId,
-          requestKey: request.requestKey,
+          requestKey: requestWithAttachments.requestKey,
           error: error instanceof Error ? error.message : "Failed to start Kimi ACP.",
         });
       }
       return;
     }
 
-    const unavailableMessage = getRuntimeCommandUnavailableMessage(request.runtimeId, {
-      allowLegacyRuntimeCommands: options.allowLegacyRuntimeCommands,
-    });
+    const unavailableMessage = getRuntimeCommandUnavailableMessage(
+      requestWithAttachments.runtimeId,
+      {
+        allowLegacyRuntimeCommands: options.allowLegacyRuntimeCommands,
+      },
+    );
     if (unavailableMessage) {
       options.emit({
         type: "failed",
         runId,
-        requestKey: request.requestKey,
+        requestKey: requestWithAttachments.requestKey,
         error: unavailableMessage,
       });
       return;
     }
 
-    const requestSessionKey = buildRequestSessionKey(request);
+    const requestSessionKey = buildRequestSessionKey(requestWithAttachments);
     const resumeSessionId =
-      request.runtimeId === "claude-code"
+      requestWithAttachments.runtimeId === "claude-code"
         ? (runtimeSessions.get(requestSessionKey) ??
           options.providerSessions?.get(requestSessionKey) ??
           null)
@@ -720,11 +740,11 @@ export function createChatSessionManager(options: {
 
     spawnAttempt({
       runId,
-      request,
+      request: requestWithAttachments,
       requestSessionKey,
       resumeSessionId,
-      includeTranscript: !(request.runtimeId === "claude-code" && resumeSessionId),
-      allowResumeFallback: request.runtimeId === "claude-code" && !!resumeSessionId,
+      includeTranscript: !(requestWithAttachments.runtimeId === "claude-code" && resumeSessionId),
+      allowResumeFallback: requestWithAttachments.runtimeId === "claude-code" && !!resumeSessionId,
       emitLifecycleEvents: true,
     });
   }

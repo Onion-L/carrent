@@ -15,11 +15,9 @@ describe("registerRuntimeIpc", () => {
       (
         event: unknown,
         runtimeId?: RuntimeId,
-      ) =>
-        | Promise<
-            RuntimeRecord[] | RuntimeRecord | RuntimeVerificationResult | RuntimeModelListResult | void
-          >
-        | void
+      ) => Promise<
+        RuntimeRecord[] | RuntimeRecord | RuntimeVerificationResult | RuntimeModelListResult | void
+      > | void
     >();
     const calls: string[] = [];
     const listResult: RuntimeRecord[] = [

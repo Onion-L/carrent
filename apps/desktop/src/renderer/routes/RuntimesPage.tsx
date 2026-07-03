@@ -1,12 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import {
-  ChevronRight,
-  Monitor,
-  Play,
-  Plug,
-  RefreshCw,
-  Square,
-} from "lucide-react";
+import { ChevronRight, Monitor, Play, Plug, RefreshCw, Square } from "lucide-react";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { RuntimeIcon } from "../components/RuntimeIcon";
@@ -211,10 +204,10 @@ export function RuntimesPage() {
                       {selectedRuntime.id === "kimi"
                         ? "Moonshot AI"
                         : selectedRuntime.id === "claude-code"
-                        ? "Anthropic"
-                        : selectedRuntime.id === "codex"
-                          ? "OpenAI"
-                          : selectedRuntime.id}
+                          ? "Anthropic"
+                          : selectedRuntime.id === "codex"
+                            ? "OpenAI"
+                            : selectedRuntime.id}
                     </span>
                   </div>
                 </div>

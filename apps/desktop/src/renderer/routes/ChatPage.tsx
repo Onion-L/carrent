@@ -47,9 +47,7 @@ export function ChatPage() {
           runtimeModelId={routeData.thread.runtimeModelId}
           runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
           onRuntimeIdChange={(runtimeId) => setChatRuntimeId(routeData.thread.id, runtimeId)}
-          onRuntimeModelIdChange={(modelId) =>
-            setChatRuntimeModelId(routeData.thread.id, modelId)
-          }
+          onRuntimeModelIdChange={(modelId) => setChatRuntimeModelId(routeData.thread.id, modelId)}
           onRuntimeModeChange={(mode) => setChatRuntimeMode(routeData.thread.id, mode)}
         />
       ) : null}

@@ -171,7 +171,8 @@ export async function buildKimiPromptParts(
       typeof attachment.localPath === "string",
   );
   const messageText =
-    request.message.trim() || (imageAttachments && imageAttachments.length > 0 ? DEFAULT_IMAGE_ONLY_PROMPT : "");
+    request.message.trim() ||
+    (imageAttachments && imageAttachments.length > 0 ? DEFAULT_IMAGE_ONLY_PROMPT : "");
   const parts: Array<Record<string, unknown>> = [];
 
   if (messageText) {

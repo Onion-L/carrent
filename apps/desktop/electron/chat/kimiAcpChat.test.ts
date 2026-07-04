@@ -22,7 +22,11 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
   };
 }
 
-function respondAcp(transport: FakeKimiAcpTransport, request: Record<string, unknown>, result: unknown) {
+function respondAcp(
+  transport: FakeKimiAcpTransport,
+  request: Record<string, unknown>,
+  result: unknown,
+) {
   transport.emitMessage({ jsonrpc: "2.0", id: request.id, result });
 }
 
@@ -31,7 +35,10 @@ class FakeKimiAcpTransport implements KimiAcpTransport {
   private readonly messageListeners: Array<(message: Record<string, unknown>) => void> = [];
 
   constructor(
-    private readonly onSend: (transport: FakeKimiAcpTransport, message: Record<string, unknown>) => void,
+    private readonly onSend: (
+      transport: FakeKimiAcpTransport,
+      message: Record<string, unknown>,
+    ) => void,
   ) {}
 
   send(message: Record<string, unknown>) {
@@ -94,15 +101,11 @@ describe("startKimiAcpChatRun", () => {
     const originalClearTimeout = globalThis.clearTimeout;
     const timeoutDelays: unknown[] = [];
 
-    globalThis.setTimeout = (((
-      handler: TimerHandler,
-      timeout?: number,
-      ...args: unknown[]
-    ) => {
+    globalThis.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
       const timer = { handler, timeout, args };
       timeoutDelays.push(timeout);
       return timer as unknown as ReturnType<typeof setTimeout>;
-    }) as unknown) as typeof setTimeout;
+    }) as unknown as typeof setTimeout;
     globalThis.clearTimeout = (() => {}) as typeof clearTimeout;
 
     try {

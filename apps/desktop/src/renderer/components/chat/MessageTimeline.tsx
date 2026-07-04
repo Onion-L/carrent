@@ -1,9 +1,12 @@
 import { ArrowDown, Check, Copy, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { type Message, type MessagePart, type ImageAttachmentMetadata } from "../../mock/uiShellData";
+import {
+  type Message,
+  type MessagePart,
+  type ImageAttachmentMetadata,
+} from "../../mock/uiShellData";
+import { AgentActivityBlock } from "./AgentActivityBlock";
 import { ChangedFilesCard } from "./ChangedFilesCard";
-import { ReasoningBlock } from "./ReasoningBlock";
-import { ShellBlock } from "./ShellBlock";
 import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachmentLightbox";
 
 function StoredAttachmentThumbnail({
@@ -155,7 +158,7 @@ function UserMessage({
   );
 }
 
-type ReasoningPart = Extract<MessagePart, { type: "reasoning" }>;
+type ActivityPart = Extract<MessagePart, { type: "reasoning" | "shell" }>;
 
 function AssistantMessage({ message, timestamp }: { message: Message; timestamp: string }) {
   const content = message.content ?? "";
@@ -165,16 +168,13 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const reasoningParts =
-    parts?.filter((part): part is ReasoningPart => part.type === "reasoning") ?? [];
-  const nonReasoningParts = parts?.filter((part) => part.type !== "reasoning") ?? [];
+  const activityParts =
+    parts?.filter(
+      (part): part is ActivityPart => part.type === "reasoning" || part.type === "shell",
+    ) ?? [];
+  const textParts = parts?.filter((part) => part.type === "text") ?? [];
 
-  const copyText = hasParts
-    ? (parts
-        ?.filter((p) => p.type === "text")
-        .map((p) => p.content)
-        .join("\n") ?? content)
-    : content;
+  const copyText = hasParts ? (textParts.map((p) => p.content).join("\n") ?? content) : content;
 
   const handleCopy = async () => {
     try {
@@ -206,20 +206,16 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
         </div>
       ) : hasParts ? (
         <div className="flex flex-col gap-4">
-          {reasoningParts.length > 0 && <ReasoningBlock reasoning={reasoningParts} />}
-          {nonReasoningParts.map((part, index) =>
-            part.type === "text" ? (
-              part.content ? (
-                <p
-                  key={`${index}-text`}
-                  className="whitespace-pre-wrap text-[15px] leading-7 text-fg"
-                >
-                  {part.content}
-                </p>
-              ) : null
-            ) : (
-              <ShellBlock key={part.id} shell={part} />
-            ),
+          {activityParts.length > 0 && <AgentActivityBlock steps={activityParts} />}
+          {textParts.map((part, index) =>
+            part.content ? (
+              <p
+                key={`${index}-text`}
+                className="whitespace-pre-wrap text-[15px] leading-7 text-fg"
+              >
+                {part.content}
+              </p>
+            ) : null,
           )}
         </div>
       ) : (

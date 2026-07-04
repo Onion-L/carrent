@@ -353,18 +353,18 @@ export function filterSkillsForQuery(skills: SkillRecord[], query: string) {
       const description = skill.description.toLowerCase();
       const score =
         normalizedQuery.length === 0
-        ? 0
-        : name.startsWith(normalizedQuery)
           ? 0
-          : label.startsWith(normalizedQuery)
-            ? 1
-            : name.includes(normalizedQuery)
-              ? 2
-              : label.includes(normalizedQuery)
-                ? 3
-                : description.includes(normalizedQuery)
-                  ? 4
-                  : null;
+          : name.startsWith(normalizedQuery)
+            ? 0
+            : label.startsWith(normalizedQuery)
+              ? 1
+              : name.includes(normalizedQuery)
+                ? 2
+                : label.includes(normalizedQuery)
+                  ? 3
+                  : description.includes(normalizedQuery)
+                    ? 4
+                    : null;
 
       return score === null ? null : { skill, score };
     })
@@ -463,8 +463,8 @@ export function Composer(props: ComposerProps) {
       ? "No runtime available"
       : isSelectedRuntimeAvailable
         ? selectedRuntimeModel
-        ? `${runtimeNameMap[props.runtimeId]} · ${selectedRuntimeModel.name}`
-        : runtimeNameMap[props.runtimeId]
+          ? `${runtimeNameMap[props.runtimeId]} · ${selectedRuntimeModel.name}`
+          : runtimeNameMap[props.runtimeId]
         : "Select runtime";
   const skillTrigger = useMemo(
     () => (isTextareaFocused ? getSkillSlashTrigger(input, textareaCursor) : null),
@@ -560,10 +560,10 @@ export function Composer(props: ComposerProps) {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         if (showRuntimePicker) {
-        closeRuntimePicker();
+          closeRuntimePicker();
         }
         if (showModePicker) {
-        setShowModePicker(false);
+          setShowModePicker(false);
         }
       }
     };
@@ -631,12 +631,12 @@ export function Composer(props: ComposerProps) {
       getCascadingPanelPosition(
         cascadingAnchorRect,
         {
-        width: window.innerWidth,
-        height: window.innerHeight,
+          width: window.innerWidth,
+          height: window.innerHeight,
         },
         {
-        width: panelRect.width,
-        height: panelRect.height,
+          width: panelRect.width,
+          height: panelRect.height,
         },
       ),
     );
@@ -674,8 +674,8 @@ export function Composer(props: ComposerProps) {
       typeof ResizeObserver === "undefined"
         ? null
         : new ResizeObserver(() => {
-          handleWindowUpdate();
-        });
+            handleWindowUpdate();
+          });
 
     if (observer && cascadingPanelRef.current) {
       observer.observe(cascadingPanelRef.current);
@@ -709,13 +709,13 @@ export function Composer(props: ComposerProps) {
 
       for (const file of fileArray) {
         try {
-        const metadata = await storeImageAttachmentFile(file, window.carrent?.attachments);
-        const pendingAttachment = pendingAttachmentFromFile(file, metadata);
-        setPendingAttachments((prev) => [...prev, pendingAttachment]);
+          const metadata = await storeImageAttachmentFile(file, window.carrent?.attachments);
+          const pendingAttachment = pendingAttachmentFromFile(file, metadata);
+          setPendingAttachments((prev) => [...prev, pendingAttachment]);
         } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        setAttachmentError(`Failed to attach ${file.name}: ${message}`);
-        return;
+          const message = error instanceof Error ? error.message : String(error);
+          setAttachmentError(`Failed to attach ${file.name}: ${message}`);
+          return;
         }
       }
     },
@@ -780,10 +780,10 @@ export function Composer(props: ComposerProps) {
     ) => {
       if (props.mode === "thread" || props.mode === "chat") {
         return appendMessage({
-        threadId,
-        role,
-        content,
-        attachments,
+          threadId,
+          role,
+          content,
+          attachments,
         });
       }
 
@@ -809,8 +809,8 @@ export function Composer(props: ComposerProps) {
 
       if (props.mode === "thread" || props.mode === "chat") {
         updateMessageParts(messageId, {
-        kind: "append-text",
-        content,
+          kind: "append-text",
+          content,
         });
         return;
       }
@@ -828,11 +828,11 @@ export function Composer(props: ComposerProps) {
     const updateLocalMessageShellPart = (messageId: string, shell: ChatShellEventPayload) => {
       if (props.mode === "thread" || props.mode === "chat") {
         updateMessageParts(messageId, {
-        kind: "upsert-shell",
-        shell: {
-          type: "shell",
-          ...shell,
-        },
+          kind: "upsert-shell",
+          shell: {
+            type: "shell",
+            ...shell,
+          },
         });
         return;
       }
@@ -840,15 +840,15 @@ export function Composer(props: ComposerProps) {
       updateDraftMessageParts(props.draftId, messageId, {
         kind: "upsert-shell",
         shell: {
-        type: "shell",
-        ...shell,
+          type: "shell",
+          ...shell,
         },
       });
       updateMessageParts(messageId, {
         kind: "upsert-shell",
         shell: {
-        type: "shell",
-        ...shell,
+          type: "shell",
+          ...shell,
         },
       });
     };
@@ -859,11 +859,11 @@ export function Composer(props: ComposerProps) {
     ) => {
       if (props.mode === "thread" || props.mode === "chat") {
         updateMessageParts(messageId, {
-        kind: "upsert-reasoning",
-        reasoning: {
-          type: "reasoning",
-          ...reasoning,
-        },
+          kind: "upsert-reasoning",
+          reasoning: {
+            type: "reasoning",
+            ...reasoning,
+          },
         });
         return;
       }
@@ -871,15 +871,15 @@ export function Composer(props: ComposerProps) {
       updateDraftMessageParts(props.draftId, messageId, {
         kind: "upsert-reasoning",
         reasoning: {
-        type: "reasoning",
-        ...reasoning,
+          type: "reasoning",
+          ...reasoning,
         },
       });
       updateMessageParts(messageId, {
         kind: "upsert-reasoning",
         reasoning: {
-        type: "reasoning",
-        ...reasoning,
+          type: "reasoning",
+          ...reasoning,
         },
       });
     };
@@ -907,18 +907,18 @@ export function Composer(props: ComposerProps) {
 
       typewriterTimerRef.current = setInterval(() => {
         const nextVisibleText = getNextTypewriterText(
-        visibleTextRef.current,
-        receivedTextRef.current,
+          visibleTextRef.current,
+          receivedTextRef.current,
         );
 
         if (nextVisibleText !== visibleTextRef.current) {
-        const delta = nextVisibleText.slice(visibleTextRef.current.length);
-        visibleTextRef.current = nextVisibleText;
-        updateLocalMessageTextPart(messageId, delta);
+          const delta = nextVisibleText.slice(visibleTextRef.current.length);
+          visibleTextRef.current = nextVisibleText;
+          updateLocalMessageTextPart(messageId, delta);
         }
 
         if (!hasPendingTypewriterText(visibleTextRef.current, receivedTextRef.current)) {
-        stopTypewriter();
+          stopTypewriter();
         }
       }, TYPEWRITER_INTERVAL_MS);
     };
@@ -953,25 +953,25 @@ export function Composer(props: ComposerProps) {
     const sendStarted = await send(
       {
         workspace:
-        props.mode === "chat"
-          ? { kind: "chat" }
-          : {
-              kind: "project",
-              projectId: props.projectId,
-              projectPath: project!.path,
-            },
+          props.mode === "chat"
+            ? { kind: "chat" }
+            : {
+                kind: "project",
+                projectId: props.projectId,
+                projectPath: project!.path,
+              },
         threadId,
         draftRef:
-        props.mode === "draft"
-          ? {
-              draftId: props.draftId,
-              projectId: props.projectId,
-              title: props.title,
-            }
-          : undefined,
+          props.mode === "draft"
+            ? {
+                draftId: props.draftId,
+                projectId: props.projectId,
+                title: props.title,
+              }
+            : undefined,
         runtimeId: props.runtimeId,
         runtimeModelId: getRuntimeModelIdForSend({
-        runtimeModelId: props.runtimeModelId,
+          runtimeModelId: props.runtimeModelId,
         }),
         runtimeMode: props.runtimeMode,
         transcript,
@@ -980,39 +980,39 @@ export function Composer(props: ComposerProps) {
       },
       {
         onDelta: (text) => {
-        receivedTextRef.current += text;
-        startTypewriter(assistantMsg.id);
+          receivedTextRef.current += text;
+          startTypewriter(assistantMsg.id);
         },
         onReasoning: (reasoning) => {
-        stopTypewriter();
-        flushPendingTypewriterText();
-        updateLocalMessageReasoningPart(assistantMsg.id, reasoning);
+          stopTypewriter();
+          flushPendingTypewriterText();
+          updateLocalMessageReasoningPart(assistantMsg.id, reasoning);
         },
         onShell: (shell) => {
-        stopTypewriter();
-        flushPendingTypewriterText();
-        updateLocalMessageShellPart(assistantMsg.id, shell);
+          stopTypewriter();
+          flushPendingTypewriterText();
+          updateLocalMessageShellPart(assistantMsg.id, shell);
         },
         onComplete: (text) => {
-        if (!receivedTextRef.current || text.startsWith(receivedTextRef.current)) {
-          receivedTextRef.current = text;
-        }
-        startTypewriter(assistantMsg.id);
+          if (!receivedTextRef.current || text.startsWith(receivedTextRef.current)) {
+            receivedTextRef.current = text;
+          }
+          startTypewriter(assistantMsg.id);
         },
         onError: (error) => {
-        stopTypewriter();
-        updateLocalMessage(assistantMsg.id, `Error: ${error}`);
-        activeAssistantMessageIdRef.current = null;
-        flushTypewriterRef.current = null;
+          stopTypewriter();
+          updateLocalMessage(assistantMsg.id, `Error: ${error}`);
+          activeAssistantMessageIdRef.current = null;
+          flushTypewriterRef.current = null;
         },
         onStop: () => {
-        stopTypewriter();
-        updateLocalMessage(
-          assistantMsg.id,
-          `${receivedTextRef.current || visibleTextRef.current}\n\n[Stopped]`,
-        );
-        activeAssistantMessageIdRef.current = null;
-        flushTypewriterRef.current = null;
+          stopTypewriter();
+          updateLocalMessage(
+            assistantMsg.id,
+            `${receivedTextRef.current || visibleTextRef.current}\n\n[Stopped]`,
+          );
+          activeAssistantMessageIdRef.current = null;
+          flushTypewriterRef.current = null;
         },
       },
     );
@@ -1083,9 +1083,7 @@ export function Composer(props: ComposerProps) {
       <div className="relative mx-auto max-w-[56rem]">
         {showSkillMenu ? (
           <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border-strong bg-surface shadow-[0_18px_60px_rgb(0_0_0/0.28)]">
-            <div className="px-3 py-2 text-[12px] font-medium text-muted">
-              Skills
-            </div>
+            <div className="px-3 py-2 text-[12px] font-medium text-muted">Skills</div>
             <div className="max-h-80 overflow-y-auto p-1">
               {skillsLoading ? (
                 <div className="px-3 py-2 text-[12px] text-subtle">Loading skills...</div>
@@ -1112,9 +1110,7 @@ export function Composer(props: ComposerProps) {
                       }}
                       onMouseEnter={() => setSelectedSkillIndex(index)}
                       className={`flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left transition ${
-                        isSelected
-                          ? "bg-surface-hover"
-                          : "hover:bg-surface-raised"
+                        isSelected ? "bg-surface-hover" : "hover:bg-surface-raised"
                       }`}
                     >
                       <Box className="h-4 w-4 shrink-0 text-muted" />
@@ -1122,9 +1118,7 @@ export function Composer(props: ComposerProps) {
                         <span className="text-[13px] font-medium text-fg">
                           {formatSkillLabel(skill.name)}
                         </span>
-                        <span className="ml-2 text-[12px] text-subtle">
-                          {skill.description}
-                        </span>
+                        <span className="ml-2 text-[12px] text-subtle">{skill.description}</span>
                       </span>
                       <span className="shrink-0 text-[10px] uppercase text-subtle">
                         {skill.source}
@@ -1274,9 +1268,7 @@ export function Composer(props: ComposerProps) {
               }
             }}
           />
-          {attachmentError && (
-            <div className="mt-2 text-[12px] text-danger">{attachmentError}</div>
-          )}
+          {attachmentError && <div className="mt-2 text-[12px] text-danger">{attachmentError}</div>}
           <div className="mt-3 flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
               {props.onRuntimeIdChange ? (

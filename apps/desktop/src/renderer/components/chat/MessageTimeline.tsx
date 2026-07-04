@@ -1,4 +1,4 @@
-import { ArrowDown, Check, Copy, Pencil, RefreshCw } from "lucide-react";
+import { ArrowDown, Box, Check, Copy, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   type Message,
@@ -8,6 +8,57 @@ import {
 import { AgentActivityBlock } from "./AgentActivityBlock";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachmentLightbox";
+import { MarkdownContent } from "./MarkdownContent";
+
+type UserMessageSegment =
+  | { type: "text"; content: string }
+  | { type: "skill"; name: string; path: string };
+
+const SKILL_REFERENCE_PATTERN = /\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\)/gu;
+
+export function parseSkillReferenceSegments(content: string): UserMessageSegment[] {
+  const segments: UserMessageSegment[] = [];
+  let lastIndex = 0;
+
+  for (const match of content.matchAll(SKILL_REFERENCE_PATTERN)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      segments.push({ type: "text", content: content.slice(lastIndex, index) });
+    }
+
+    segments.push({ type: "skill", name: match[1], path: match[2] });
+    lastIndex = index + match[0].length;
+  }
+
+  if (lastIndex < content.length) {
+    segments.push({ type: "text", content: content.slice(lastIndex) });
+  }
+
+  return segments.length > 0 ? segments : [{ type: "text", content }];
+}
+
+function UserMessageContent({ content }: { content: string }) {
+  return (
+    <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-user-bubble-fg">
+      {parseSkillReferenceSegments(content).map((segment, index) => {
+        if (segment.type === "text") {
+          return <span key={`${index}-text`}>{segment.content}</span>;
+        }
+
+        return (
+          <span
+            key={`${index}-${segment.name}`}
+            title={segment.path}
+            className="inline-flex max-w-full items-center gap-2 rounded-full bg-black/25 px-3 py-1 align-middle font-medium text-[#82bdff]"
+          >
+            <Box className="h-4 w-4 shrink-0" strokeWidth={2} />
+            <span className="truncate">${segment.name}</span>
+          </span>
+        );
+      })}
+    </p>
+  );
+}
 
 function StoredAttachmentThumbnail({
   attachment,
@@ -105,11 +156,7 @@ function UserMessage({
     >
       <div className="max-w-[80%]">
         <div className="rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
-          {content && (
-            <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-user-bubble-fg">
-              {content}
-            </p>
-          )}
+          {content && <UserMessageContent content={content} />}
           {attachments && attachments.length > 0 && (
             <div className={`flex gap-2 overflow-x-auto ${content ? "mt-2" : ""}`}>
               {attachments.map((attachment, index) => (
@@ -207,19 +254,12 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
       ) : hasParts ? (
         <div className="flex flex-col gap-4">
           {activityParts.length > 0 && <AgentActivityBlock steps={activityParts} />}
-          {textParts.map((part, index) =>
-            part.content ? (
-              <p
-                key={`${index}-text`}
-                className="whitespace-pre-wrap text-[15px] leading-7 text-fg"
-              >
-                {part.content}
-              </p>
-            ) : null,
+          {textParts.length > 0 && (
+            <MarkdownContent>{textParts.map((part) => part.content).join("\n")}</MarkdownContent>
           )}
         </div>
       ) : (
-        <p className="whitespace-pre-wrap text-[15px] leading-7 text-fg">{content}</p>
+        <MarkdownContent>{content}</MarkdownContent>
       )}
       <div className="flex items-center gap-2 opacity-70">
         <span className="text-[11px] text-subtle">{timestamp}</span>

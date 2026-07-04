@@ -1,15 +1,11 @@
-import { Archive, MoreHorizontal, Pin, Plus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Archive, Pin, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useRuntimes } from "../../hooks/useRuntimes";
 import { formatRelativeTime } from "../../lib/formatRelativeTime";
-import {
-  buildProjectPath,
-  buildThreadPath,
-  getProjectIdFromPathname,
-} from "../../lib/navigation";
+import { buildProjectPath, buildThreadPath, getProjectIdFromPathname } from "../../lib/navigation";
 import { splitProjectThreads } from "../../lib/projectThreads";
 import { getChatRuntimeOptions } from "../../lib/runtimeSelection";
 
@@ -27,7 +23,6 @@ export function ThreadHistoryPane() {
   const { runtimes } = useRuntimes();
   const defaultRuntimeId = getChatRuntimeOptions(runtimes)[0]?.id;
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
-  const [openThreadMenuId, setOpenThreadMenuId] = useState<string | null>(null);
 
   const routeProjectId = useMemo(
     () => getProjectIdFromPathname(location.pathname),
@@ -38,39 +33,14 @@ export function ThreadHistoryPane() {
     projects.find((project) => project.active) ??
     projects[0] ??
     null;
-  const projectThreads = selectedProject
-    ? splitProjectThreads(selectedProject.threads).active
-    : [];
-
-  useEffect(() => {
-    if (!openThreadMenuId) return;
-
-    const handleMouseDown = (e: MouseEvent) => {
-      const target = e.target as Node;
-      const inside =
-        target instanceof Element &&
-        target.closest(
-          '[data-thread-menu="true"], [data-thread-menu-trigger="true"]',
-        );
-      if (!inside) {
-        setOpenThreadMenuId(null);
-      }
-    };
-
-    document.addEventListener("mousedown", handleMouseDown);
-    return () => document.removeEventListener("mousedown", handleMouseDown);
-  }, [openThreadMenuId]);
+  const projectThreads = selectedProject ? splitProjectThreads(selectedProject.threads).active : [];
 
   const createThreadAndOpen = () => {
     if (!selectedProject) {
       return;
     }
 
-    const thread = createThread(
-      selectedProject.id,
-      "New thread",
-      defaultRuntimeId,
-    );
+    const thread = createThread(selectedProject.id, "New thread", defaultRuntimeId);
     if (thread) {
       navigate(buildThreadPath(selectedProject.id, thread.id));
     }
@@ -81,7 +51,6 @@ export function ThreadHistoryPane() {
       return;
     }
 
-    setOpenThreadMenuId(null);
     const nextActiveThreadId = archiveThread(selectedProject.id, threadId);
     if (activeThreadId === threadId) {
       if (nextActiveThreadId) {
@@ -115,15 +84,11 @@ export function ThreadHistoryPane() {
 
       <div className="min-h-0 flex-1 overflow-auto px-2 pb-3">
         {!selectedProject ? (
-          <div className="px-4 py-8 text-center text-[13px] text-subtle">
-            Add a project first
-          </div>
+          <div className="px-4 py-8 text-center text-[13px] text-subtle">Add a project first</div>
         ) : projectThreads.length === 0 ? (
           <div className="px-4 py-8 text-center">
             <p className="text-[13px] text-muted">No threads yet</p>
-            <p className="mt-1 text-[12px] text-subtle">
-              Start a new thread in this project
-            </p>
+            <p className="mt-1 text-[12px] text-subtle">Start a new thread in this project</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -134,8 +99,7 @@ export function ThreadHistoryPane() {
               <div className="space-y-0.5">
                 {projectThreads.map((thread) => {
                   const isActive = thread.id === activeThreadId;
-                  const showActions = isActive || hoveredThreadId === thread.id;
-                  const menuOpen = openThreadMenuId === thread.id;
+                  const showActions = hoveredThreadId === thread.id;
 
                   return (
                     <div
@@ -143,17 +107,13 @@ export function ThreadHistoryPane() {
                       className="relative"
                       onMouseEnter={() => setHoveredThreadId(thread.id)}
                       onMouseLeave={() =>
-                        setHoveredThreadId((prev) =>
-                          prev === thread.id ? null : prev,
-                        )
+                        setHoveredThreadId((prev) => (prev === thread.id ? null : prev))
                       }
                     >
                       <div
                         onClick={() => {
                           setActiveThreadId(thread.id);
-                          navigate(
-                            buildThreadPath(selectedProject.id, thread.id),
-                          );
+                          navigate(buildThreadPath(selectedProject.id, thread.id));
                         }}
                         className={`hover:cursor-pointer flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-left transition ${
                           isActive
@@ -178,48 +138,32 @@ export function ThreadHistoryPane() {
                         </div>
 
                         {showActions && (
-                          <button
-                            data-thread-menu-trigger="true"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenThreadMenuId(menuOpen ? null : thread.id);
-                            }}
-                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
-                            aria-label="Thread actions"
-                          >
-                            <MoreHorizontal className="h-3.5 w-3.5" />
-                          </button>
+                          <div className="flex shrink-0 items-center gap-0.5">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleThreadPin(selectedProject.id, thread.id);
+                              }}
+                              className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+                              aria-label={thread.pinned ? "Unpin thread" : "Pin thread"}
+                              title={thread.pinned ? "Unpin" : "Pin"}
+                            >
+                              <Pin className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                archiveThreadAction(thread.id);
+                              }}
+                              className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-danger"
+                              aria-label="Archive thread"
+                              title="Archive"
+                            >
+                              <Archive className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         )}
                       </div>
-
-                      {menuOpen && (
-                        <div
-                          data-thread-menu="true"
-                          className="absolute right-0 top-full z-20 mt-1 w-32 rounded-lg border border-border-strong bg-surface py-1 shadow-xl"
-                        >
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleThreadPin(selectedProject.id, thread.id);
-                              setOpenThreadMenuId(null);
-                            }}
-                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-fg transition hover:bg-surface-hover"
-                          >
-                            <Pin className="h-3 w-3" />
-                            {thread.pinned ? "Unpin" : "Pin"}
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              archiveThreadAction(thread.id);
-                            }}
-                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-danger transition hover:bg-surface-hover"
-                          >
-                            <Archive className="h-3 w-3 text-danger" />
-                            Archive
-                          </button>
-                        </div>
-                      )}
                     </div>
                   );
                 })}

@@ -1,10 +1,15 @@
 import { useState } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { useLocation } from "react-router-dom";
 import { SidebarNav } from "./SidebarNav";
 import { ThreadHistoryPane } from "./chat/ThreadHistoryPane";
+import { RuntimeListPane } from "./runtime/RuntimeListPane";
 
 export function DesktopShell({ children }: { children: React.ReactNode }) {
   const [isProjectSidebarCollapsed, setIsProjectSidebarCollapsed] = useState(false);
+  const location = useLocation();
+  const secondaryPane =
+    location.pathname === "/runtimes" ? <RuntimeListPane /> : <ThreadHistoryPane />;
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-bg text-fg">
@@ -45,7 +50,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
                 gridTemplateColumns: "minmax(270px, 320px) minmax(440px, 1fr)",
               }}
             >
-              <ThreadHistoryPane />
+              {secondaryPane}
               <main className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-bg">
                 {children}
               </main>

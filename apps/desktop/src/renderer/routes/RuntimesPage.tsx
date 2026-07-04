@@ -1,31 +1,14 @@
-import { useState, useMemo, useEffect } from "react";
-import { ChevronRight, Monitor, Play, Plug, RefreshCw, Square } from "lucide-react";
+import { useMemo, useEffect } from "react";
+import { Monitor, Play, Plug, RefreshCw, Square } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { RuntimeIcon } from "../components/RuntimeIcon";
 import { useRuntimeModels } from "../hooks/useRuntimeModels";
 
-function RuntimeListSkeleton() {
-  return (
-    <div className="space-y-1 px-3 py-2">
-      {Array.from({ length: 3 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-lg px-3 py-3">
-          <div className="h-4 w-4 shrink-0 rounded bg-surface-raised" />
-          <div className="h-8 w-8 shrink-0 rounded-lg bg-surface-raised" />
-          <div className="min-w-0 flex-1 space-y-2">
-            <div className="h-3.5 w-24 rounded bg-surface-raised" />
-            <div className="h-2.5 w-16 rounded bg-surface-raised" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function RuntimesPage() {
   const {
     runtimes,
-    loading,
     actionStateById,
     runModelPing,
     setRuntimeEnabled,
@@ -37,19 +20,12 @@ export function RuntimesPage() {
   useEffect(() => {
     setActiveThreadId(null);
   }, [setActiveThreadId]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+  const selectedId = searchParams.get("runtime");
 
   const sortedRuntimes = useMemo(() => {
     return [...runtimes].sort((a, b) => a.name.localeCompare(b.name));
   }, [runtimes]);
-
-  useEffect(() => {
-    if (selectedId && sortedRuntimes.some((runtime) => runtime.id === selectedId)) {
-      return;
-    }
-
-    setSelectedId(sortedRuntimes[0]?.id ?? null);
-  }, [selectedId, sortedRuntimes]);
 
   const selectedRuntime = sortedRuntimes.find((r) => r.id === selectedId);
   const {
@@ -106,77 +82,6 @@ export function RuntimesPage() {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Left: runtime list */}
-        <div className="flex h-full w-[260px] shrink-0 flex-col border-r border-border bg-bg">
-          <div className="flex items-center justify-between px-4 pb-2 pt-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">Runtimes</h2>
-            <span className="text-[11px] text-subtle">
-              {enabledCount}/{sortedRuntimes.length}
-            </span>
-          </div>
-
-          <div className="flex-1 overflow-auto px-2 pb-2">
-            {loading && sortedRuntimes.length === 0 ? (
-              <RuntimeListSkeleton />
-            ) : sortedRuntimes.length > 0 ? (
-              sortedRuntimes.map((runtime) => {
-                const isActive = runtime.id === selectedId;
-
-                return (
-                  <div key={runtime.id}>
-                    <div
-                      className={`group flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left transition ${
-                        isActive ? "bg-surface" : "hover:bg-surface/60"
-                      }`}
-                    >
-                      <div
-                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5"
-                        onClick={() => setSelectedId(runtime.id)}
-                      >
-                        <div className="relative">
-                          <RuntimeIcon name={runtime.name} size="sm" />
-                          <span
-                            className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-bg ${
-                              runtime.availability === "detected" && runtime.enabled
-                                ? "bg-success"
-                                : "bg-subtle"
-                            }`}
-                          />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-[13px] font-medium text-fg">
-                            {runtime.name}
-                          </div>
-                          <div className="mt-0.5">
-                            <span className="text-[11px] text-muted">
-                              {runtime.availability === "detected"
-                                ? runtime.enabled
-                                  ? "Ready"
-                                  : "Disabled"
-                                : "Unavailable"}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <ChevronRight
-                        className={`h-3.5 w-3.5 shrink-0 transition ${
-                          isActive ? "text-fg" : "text-subtle"
-                        }`}
-                      />
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="px-4 py-8 text-center text-xs text-subtle">
-                No supported CLI detected
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right: detail area */}
         <div className="flex min-w-0 flex-1 flex-col overflow-auto">
           {selectedRuntime ? (
             <div className="mx-auto w-full max-w-xl px-10 py-10">

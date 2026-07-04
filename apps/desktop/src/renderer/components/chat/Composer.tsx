@@ -29,8 +29,6 @@ import {
 } from "../../lib/imageAttachments";
 import { ImageAttachmentLightbox, type LightboxItem } from "./ImageAttachmentLightbox";
 
-import { useDraftThread } from "../../context/DraftThreadContext";
-
 import {
   TYPEWRITER_INTERVAL_MS,
   getNextTypewriterText,
@@ -70,20 +68,6 @@ function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: s
 
 type ComposerProps =
   | {
-      mode: "draft";
-      draftId: string;
-      projectId: string;
-      title: string;
-      preallocatedThreadId: string;
-      messages: Message[];
-      runtimeId: RuntimeId;
-      runtimeModelId?: string;
-      runtimeMode: RuntimeMode;
-      onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
-      onRuntimeModelIdChange?: (modelId: string | undefined) => void;
-      onRuntimeModeChange?: (mode: RuntimeMode) => void;
-    }
-  | {
       mode: "thread";
       projectId: string;
       threadId: string;
@@ -106,35 +90,6 @@ type ComposerProps =
       onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
     };
-
-function formatTime(date: Date) {
-  return date.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
-
-function createMessageId() {
-  return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function buildTextMessage(
-  threadId: string,
-  role: "user" | "assistant",
-  content: string,
-  attachments?: ImageAttachmentMetadata[],
-): Message {
-  return {
-    id: createMessageId(),
-    role,
-    threadId,
-    content,
-    timestamp: formatTime(new Date()),
-    type: "text",
-    attachments,
-  };
-}
 
 type AttachmentStoreBridge = {
   store: (input: {
@@ -412,7 +367,6 @@ function titleCaseSkillName(name: string) {
 export function Composer(props: ComposerProps) {
   const { projects, chats, appendMessage, updateMessage, updateMessageParts, upsertChat } =
     useWorkspace();
-  const { appendDraftMessage, updateDraftMessage, updateDraftMessageParts } = useDraftThread();
   const { runningThreadIds, pendingPermissions, respondToPermission, send, stop } = useChatRun();
   const { runtimes, loading: runtimesLoading } = useRuntimes();
   const { skills, loading: skillsLoading, error: skillsError } = useSkills();
@@ -446,7 +400,7 @@ export function Composer(props: ComposerProps) {
   const flushTypewriterRef = useRef<VoidFunction | null>(null);
   const projectId = props.mode === "chat" ? null : props.projectId;
   const project = projectId ? (projects.find((item) => item.id === projectId) ?? null) : null;
-  const threadId = props.mode === "draft" ? props.preallocatedThreadId : props.threadId;
+  const threadId = props.threadId;
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
   const modelRuntimeId = props.runtimeId === "pi" ? props.runtimeId : null;
   const { models } = useRuntimeModels(modelRuntimeId);
@@ -777,28 +731,15 @@ export function Composer(props: ComposerProps) {
       role: "user" | "assistant",
       content: string,
       attachments?: ImageAttachmentMetadata[],
-    ) => {
-      if (props.mode === "thread" || props.mode === "chat") {
-        return appendMessage({
-          threadId,
-          role,
-          content,
-          attachments,
-        });
-      }
-
-      const draftMessage = buildTextMessage(threadId, role, content, attachments);
-      appendDraftMessage(props.draftId, draftMessage);
-      return draftMessage;
-    };
+    ) =>
+      appendMessage({
+        threadId,
+        role,
+        content,
+        attachments,
+      });
 
     const updateLocalMessage = (messageId: string, content: string) => {
-      if (props.mode === "thread" || props.mode === "chat") {
-        updateMessage(messageId, content);
-        return;
-      }
-
-      updateDraftMessage(props.draftId, messageId, content);
       updateMessage(messageId, content);
     };
 
@@ -807,18 +748,6 @@ export function Composer(props: ComposerProps) {
         return;
       }
 
-      if (props.mode === "thread" || props.mode === "chat") {
-        updateMessageParts(messageId, {
-          kind: "append-text",
-          content,
-        });
-        return;
-      }
-
-      updateDraftMessageParts(props.draftId, messageId, {
-        kind: "append-text",
-        content,
-      });
       updateMessageParts(messageId, {
         kind: "append-text",
         content,
@@ -826,24 +755,6 @@ export function Composer(props: ComposerProps) {
     };
 
     const updateLocalMessageShellPart = (messageId: string, shell: ChatShellEventPayload) => {
-      if (props.mode === "thread" || props.mode === "chat") {
-        updateMessageParts(messageId, {
-          kind: "upsert-shell",
-          shell: {
-            type: "shell",
-            ...shell,
-          },
-        });
-        return;
-      }
-
-      updateDraftMessageParts(props.draftId, messageId, {
-        kind: "upsert-shell",
-        shell: {
-          type: "shell",
-          ...shell,
-        },
-      });
       updateMessageParts(messageId, {
         kind: "upsert-shell",
         shell: {
@@ -857,24 +768,6 @@ export function Composer(props: ComposerProps) {
       messageId: string,
       reasoning: ChatReasoningEventPayload,
     ) => {
-      if (props.mode === "thread" || props.mode === "chat") {
-        updateMessageParts(messageId, {
-          kind: "upsert-reasoning",
-          reasoning: {
-            type: "reasoning",
-            ...reasoning,
-          },
-        });
-        return;
-      }
-
-      updateDraftMessageParts(props.draftId, messageId, {
-        kind: "upsert-reasoning",
-        reasoning: {
-          type: "reasoning",
-          ...reasoning,
-        },
-      });
       updateMessageParts(messageId, {
         kind: "upsert-reasoning",
         reasoning: {
@@ -961,14 +854,6 @@ export function Composer(props: ComposerProps) {
                 projectPath: project!.path,
               },
         threadId,
-        draftRef:
-          props.mode === "draft"
-            ? {
-                draftId: props.draftId,
-                projectId: props.projectId,
-                title: props.title,
-              }
-            : undefined,
         runtimeId: props.runtimeId,
         runtimeModelId: getRuntimeModelIdForSend({
           runtimeModelId: props.runtimeModelId,

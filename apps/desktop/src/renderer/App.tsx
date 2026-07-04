@@ -2,11 +2,9 @@ import { Route, Routes } from "react-router-dom";
 
 import { DesktopShell } from "./components/DesktopShell";
 import { ToastProvider } from "./components/toast/ToastContext";
-import { DraftThreadProvider } from "./context/DraftThreadContext";
 import { useWorkspace } from "./context/WorkspaceContext";
 import { SettingsProvider } from "./context/SettingsContext";
 import { RuntimeModelsProvider } from "./context/RuntimeModelsContext";
-import { DraftThreadPage } from "./routes/DraftThreadPage";
 import { HomePage } from "./routes/HomePage";
 import { RuntimesPage } from "./routes/RuntimesPage";
 import { SettingsPage } from "./routes/SettingsPage";
@@ -26,22 +24,20 @@ function AppRoutes() {
   }
 
   return (
-    <DraftThreadProvider>
-      <ToastProvider>
-        <DesktopShell>
-          <Routes>
-            <Route element={<HomePage />} path="/" />
-            <Route element={<DraftThreadPage />} path="/draft/:draftId" />
-            <Route element={<ThreadPage />} path="/thread/:projectId/:threadId" />
-            <Route element={<ChatPage />} path="/chat/:threadId" />
-            <Route element={<HomePage />} path="/agents" />
-            <Route element={<RuntimesPage />} path="/runtimes" />
-            <Route element={<SettingsPage />} path="/settings" />
-            <Route element={<HomePage />} path="*" />
-          </Routes>
-        </DesktopShell>
-      </ToastProvider>
-    </DraftThreadProvider>
+    <ToastProvider>
+      <DesktopShell>
+        <Routes>
+          <Route element={<HomePage />} path="/" />
+          <Route element={<HomePage />} path="/project/:projectId" />
+          <Route element={<ThreadPage />} path="/thread/:projectId/:threadId" />
+          <Route element={<ChatPage />} path="/chat/:threadId" />
+          <Route element={<HomePage />} path="/agents" />
+          <Route element={<RuntimesPage />} path="/runtimes" />
+          <Route element={<SettingsPage />} path="/settings" />
+          <Route element={<HomePage />} path="*" />
+        </Routes>
+      </DesktopShell>
+    </ToastProvider>
   );
 }
 

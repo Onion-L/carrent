@@ -1,10 +1,12 @@
 export function ChatHeader({ title }: { title?: string }) {
   return (
     <header
-      className="drag-region flex shrink-0 items-center px-4"
+      className="drag-region relative flex shrink-0 items-center justify-center border-b border-border/70 bg-bg px-14"
       style={{ height: "env(titlebar-area-height, 38px)" }}
     >
-      <h1 className="text-[14px] font-medium text-muted">{title ?? "New Chat"}</h1>
+      <h1 className="max-w-full truncate text-center text-[13px] font-semibold text-muted">
+        {title ?? "New Chat"}
+      </h1>
     </header>
   );
 }

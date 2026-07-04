@@ -44,7 +44,6 @@ describe("registerWorkspaceIpc", () => {
       chats: [],
       messages: [],
       activeThreadId: null,
-      drafts: [],
     };
 
     registerWorkspaceIpc(
@@ -75,7 +74,6 @@ describe("registerWorkspaceIpc", () => {
       chats: [],
       messages: [],
       activeThreadId: null,
-      drafts: [],
     };
 
     registerWorkspaceIpc(
@@ -111,7 +109,6 @@ describe("registerWorkspaceIpc", () => {
       chats: [],
       messages: [],
       activeThreadId: null,
-      drafts: [],
     };
 
     registerWorkspaceIpc(
@@ -164,7 +161,6 @@ describe("registerWorkspaceIpc", () => {
         },
       ],
       activeThreadId: null,
-      drafts: [],
     } as unknown as WorkspaceSnapshot;
 
     registerWorkspaceIpc(

@@ -11,17 +11,15 @@ describe("buildWorkspaceSnapshot", () => {
       chats: [],
       messages: [],
       activeThreadId: null,
-      drafts: [],
     });
 
     expect(snapshot.version).toBe(1);
     expect(snapshot.projects).toEqual([]);
     expect(snapshot.messages).toEqual([]);
     expect(snapshot.activeThreadId).toBe(null);
-    expect(snapshot.drafts).toEqual([]);
   });
 
-  it("includes projects, messages, activeThreadId and drafts", () => {
+  it("includes projects, messages, and activeThreadId", () => {
     const snapshot = buildWorkspaceSnapshot({
       projects: [{ id: "p1", name: "P1", path: "/tmp/p1", threads: [] }],
       chats: [],
@@ -35,7 +33,6 @@ describe("buildWorkspaceSnapshot", () => {
         },
       ],
       activeThreadId: "t1",
-      drafts: [],
     });
 
     expect(snapshot.projects).toHaveLength(1);

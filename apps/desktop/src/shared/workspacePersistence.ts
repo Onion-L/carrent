@@ -1,4 +1,3 @@
-import type { DraftThreadRecord } from "../renderer/lib/draftThreads";
 import type { Message, ProjectRecord, ThreadRecord } from "../renderer/mock/uiShellData";
 import type { ImageAttachmentMetadata } from "./chat";
 import { normalizeRuntimeMode } from "./runtimeMode";
@@ -12,7 +11,6 @@ export type WorkspaceSnapshot = {
   chats: ThreadRecord[];
   messages: Message[];
   activeThreadId: string | null;
-  drafts: DraftThreadRecord[];
 };
 
 export type ProviderSessionSnapshot = {
@@ -71,7 +69,6 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
   if (value.version !== WORKSPACE_SNAPSHOT_VERSION) return null;
   if (!Array.isArray(value.projects)) return null;
   if (!Array.isArray(value.messages)) return null;
-  if (!Array.isArray(value.drafts)) return null;
   if (typeof value.activeThreadId !== "string" && value.activeThreadId !== null) return null;
 
   const chats = value.chats === undefined ? [] : value.chats;
@@ -100,18 +97,6 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
     })),
     chats: chats.map(normalizeThreadRecord),
     messages: snapshot.messages.map(normalizeMessageRecord),
-    drafts: snapshot.drafts.map((draft) => {
-      const runtimeModelId = normalizeOptionalString(draft.runtimeModelId);
-      const { runtimeModelId: _runtimeModelId, ...rest } = draft;
-
-      return {
-        ...(rest as Omit<DraftThreadRecord, "runtimeId" | "runtimeMode" | "runtimeModelId">),
-        runtimeId: normalizeRuntimeId(draft.runtimeId),
-        runtimeMode: normalizeRuntimeMode(draft.runtimeMode),
-        messages: draft.messages.map(normalizeMessageRecord),
-        ...(runtimeModelId ? { runtimeModelId } : {}),
-      } satisfies DraftThreadRecord;
-    }),
   };
 }
 

@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { DraftThreadRecord } from "../lib/draftThreads";
 import {
   initialActiveThreadId,
   messages as initialMessages,
@@ -44,7 +43,6 @@ export type WorkspaceContextValue = {
   messages: Message[];
   activeThreadId: string | null;
   hasHydrated: boolean;
-  drafts: DraftThreadRecord[];
   currentThread: ThreadRecord | null;
   currentProject: ProjectRecord | null;
   getThreadRouteData: (
@@ -60,9 +58,6 @@ export type WorkspaceContextValue = {
     messages: Message[];
   } | null;
   setActiveThreadId: (id: string | null) => void;
-  setDrafts: (
-    drafts: DraftThreadRecord[] | ((prev: DraftThreadRecord[]) => DraftThreadRecord[]),
-  ) => void;
   createProject: (folderPath: string) => ProjectRecord | null;
   removeProject: (projectId: string) => void;
   renameProject: (projectId: string, newName: string) => boolean;
@@ -128,13 +123,11 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   messages: [],
   activeThreadId: null,
   hasHydrated: false,
-  drafts: [],
   currentThread: null,
   currentProject: null,
   getThreadRouteData: () => null,
   getChatRouteData: () => null,
   setActiveThreadId: () => {},
-  setDrafts: () => {},
   createProject: () => null,
   removeProject: () => {},
   renameProject: () => false,
@@ -286,7 +279,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [chats, setChats] = useState<ThreadRecord[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<DraftThreadRecord[]>([]);
   const [hasHydrated, setHasHydrated] = useState(false);
 
   const currentThread =
@@ -309,13 +301,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           setChats(snapshot.chats ?? []);
           setMessages(snapshot.messages);
           setActiveThreadId(snapshot.activeThreadId);
-          setDrafts(snapshot.drafts);
         } else {
           setProjects(initialProjects);
           setChats([]);
           setMessages(initialMessages);
           setActiveThreadId(initialActiveThreadId);
-          setDrafts([]);
         }
       })
       .catch((error) => {
@@ -325,7 +315,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           setChats([]);
           setMessages(initialMessages);
           setActiveThreadId(initialActiveThreadId);
-          setDrafts([]);
         }
       })
       .finally(() => {
@@ -340,7 +329,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useDebouncedWorkspaceSave(
-    buildWorkspaceSnapshot({ projects, chats, messages, activeThreadId, drafts }),
+    buildWorkspaceSnapshot({ projects, chats, messages, activeThreadId }),
     hasHydrated,
   );
 
@@ -499,13 +488,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         messages,
         activeThreadId,
         hasHydrated,
-        drafts,
         currentThread,
         currentProject,
         getThreadRouteData,
         getChatRouteData,
         setActiveThreadId,
-        setDrafts,
         createProject,
         removeProject,
         renameProject,

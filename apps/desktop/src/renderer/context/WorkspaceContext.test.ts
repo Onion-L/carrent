@@ -18,7 +18,7 @@ function makeMessage(overrides: Partial<TextMessage> = {}): TextMessage {
 }
 
 describe("mergeMessagesIntoWorkspace", () => {
-  it("adds promoted draft messages only when they are not already present", () => {
+  it("merges incoming messages without duplicating existing ones", () => {
     const existing = [makeMessage({ id: "message-1" })];
     const incoming = [
       makeMessage({ id: "message-1", content: "updated" }),

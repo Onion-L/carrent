@@ -22,7 +22,6 @@ describe("createWorkspaceStore", () => {
       chats: [],
       messages: [],
       activeThreadId: null,
-      drafts: [],
     };
 
     await store.saveWorkspaceSnapshot(snapshot);
@@ -58,7 +57,6 @@ describe("createWorkspaceStore", () => {
         },
       ],
       activeThreadId: null,
-      drafts: [],
     } as unknown as WorkspaceSnapshot;
 
     await store.saveWorkspaceSnapshot(snapshot);
@@ -130,7 +128,6 @@ describe("createWorkspaceStore", () => {
       chats: [],
       messages: [],
       activeThreadId: null,
-      drafts: [],
     };
 
     await store.saveWorkspaceSnapshot(snapshot);

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
 import { resolveWorkspaceThreadRouteData } from "../context/WorkspaceContext";
-import type { DraftThreadRecord } from "../lib/draftThreads";
 import {
   messages as seededMessages,
   projects as seededProjects,
@@ -9,7 +8,7 @@ import {
   type ProjectRecord,
   type ThreadRecord,
 } from "../mock/uiShellData";
-import { findPromotedDraftToFinalize, resolveThreadRouteData } from "./ThreadPage";
+import { resolveThreadRouteData } from "./ThreadPage";
 
 type TextMessage = {
   id: string;
@@ -50,18 +49,6 @@ function makeMessage(overrides: Partial<TextMessage> = {}): TextMessage {
     timestamp: "09:00",
     threadId: "thread-1",
     content: "hello",
-    ...overrides,
-  };
-}
-
-function makeDraft(overrides: Partial<DraftThreadRecord> = {}): DraftThreadRecord {
-  return {
-    draftId: "draft-1",
-    projectId: "project-1",
-    title: "Draft 1",
-    preallocatedThreadId: "thread-1",
-    createdAt: "2026-04-25T00:00:00.000Z",
-    messages: [],
     ...overrides,
   };
 }
@@ -121,33 +108,5 @@ describe("resolveThreadRouteData", () => {
       "message-carrent-1",
       "message-carrent-2",
     ]);
-  });
-});
-
-describe("findPromotedDraftToFinalize", () => {
-  it("returns the promoted draft that matches the real thread route", () => {
-    const result = findPromotedDraftToFinalize(
-      [
-        makeDraft(),
-        makeDraft({
-          draftId: "draft-2",
-          promotedToThreadId: "thread-99",
-        }),
-      ],
-      "project-1",
-      "thread-99",
-    );
-
-    expect(result?.draftId).toBe("draft-2");
-  });
-
-  it("returns null when the thread route has no promoted draft", () => {
-    expect(
-      findPromotedDraftToFinalize(
-        [makeDraft({ promotedToThreadId: "thread-99" })],
-        "project-1",
-        "thread-1",
-      ),
-    ).toBe(null);
   });
 });

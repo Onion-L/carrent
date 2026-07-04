@@ -89,7 +89,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
           onClick={handleNewProject}
           aria-label="New session"
           title="New session"
-          className={`flex h-9 w-full items-center justify-center rounded-lg bg-bg text-[13px] font-medium text-fg shadow-[inset_0_0_0_1px_rgb(var(--color-border)/0.9)] transition hover:bg-surface-raised active:scale-[0.99] ${
+          className={`flex h-11 w-full items-center justify-center rounded-lg bg-bg text-[13px] font-medium text-fg shadow-[inset_0_0_0_1px_rgb(var(--color-border)/0.9)] transition hover:bg-surface-raised active:scale-[0.99] ${
             collapsed ? "px-0" : "gap-2 px-3"
           }`}
         >

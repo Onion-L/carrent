@@ -66,6 +66,14 @@ export function findCurrentProject(projects: ProjectRecord[], activeThreadId: st
   );
 }
 
+export function findProjectIdForThread(projects: ProjectRecord[], threadId: string) {
+  return (
+    projects.find((project) =>
+      project.threads.some((thread) => thread.id === threadId && !thread.archived),
+    )?.id ?? null
+  );
+}
+
 export function createThreadInProjects(
   projects: ProjectRecord[],
   projectId: string,

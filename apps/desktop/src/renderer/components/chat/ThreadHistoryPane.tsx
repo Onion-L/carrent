@@ -8,6 +8,7 @@ import { formatRelativeTime } from "../../lib/formatRelativeTime";
 import { buildProjectPath, buildThreadPath, getProjectIdFromPathname } from "../../lib/navigation";
 import { splitProjectThreads } from "../../lib/projectThreads";
 import { getChatRuntimeOptions } from "../../lib/runtimeSelection";
+import { findProjectIdForThread } from "../../lib/workspaceState";
 
 export function ThreadHistoryPane() {
   const navigate = useNavigate();
@@ -54,7 +55,12 @@ export function ThreadHistoryPane() {
     const nextActiveThreadId = archiveThread(selectedProject.id, threadId);
     if (activeThreadId === threadId) {
       if (nextActiveThreadId) {
-        navigate(buildThreadPath(selectedProject.id, nextActiveThreadId));
+        const nextProjectId = findProjectIdForThread(projects, nextActiveThreadId);
+        navigate(
+          nextProjectId
+            ? buildThreadPath(nextProjectId, nextActiveThreadId)
+            : buildProjectPath(selectedProject.id),
+        );
       } else {
         navigate(buildProjectPath(selectedProject.id));
       }

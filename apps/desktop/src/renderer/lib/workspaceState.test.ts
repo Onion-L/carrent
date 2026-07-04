@@ -10,6 +10,7 @@ import {
   createThreadInProjects,
   findCurrentProject,
   findCurrentThread,
+  findProjectIdForThread,
   resolveChatThreadRouteData,
   setChatThreadRuntimeId,
   setChatThreadRuntimeMode,
@@ -53,6 +54,16 @@ describe("workspaceState", () => {
 
     expect(findCurrentThread(projects, "thread-b")?.id).toBe("thread-b");
     expect(findCurrentProject(projects, "thread-b")?.id).toBe("project-b");
+  });
+
+  it("finds the owning project for a visible thread", () => {
+    const projects = [
+      makeProject({ id: "project-a" }, [makeThread({ id: "thread-a", archived: true })]),
+      makeProject({ id: "project-b" }, [makeThread({ id: "thread-b" })]),
+    ];
+
+    expect(findProjectIdForThread(projects, "thread-b")).toBe("project-b");
+    expect(findProjectIdForThread(projects, "thread-a")).toBe(null);
   });
 
   it("creates a new thread at the top of the target project", () => {

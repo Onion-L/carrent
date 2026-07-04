@@ -80,6 +80,7 @@ export function createThreadInProjects(
   title: string,
   runtimeId: RuntimeId = DEFAULT_RUNTIME_ID,
   runtimeModelId?: string,
+  draft = false,
 ) {
   const nextTitle = title.trim();
   if (!nextTitle) {
@@ -94,6 +95,9 @@ export function createThreadInProjects(
     runtimeModelId,
     runtimeMode: DEFAULT_RUNTIME_MODE,
   };
+  if (draft) {
+    thread.draft = true;
+  }
 
   let foundProject = false;
   const nextProjects = projects.map((project) => {

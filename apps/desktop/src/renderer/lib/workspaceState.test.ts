@@ -22,6 +22,7 @@ import {
   upsertChatThread,
   upsertThreadInProjects,
 } from "./workspaceState";
+import { splitProjectThreads } from "./projectThreads";
 
 function makeThread(overrides: Partial<ThreadRecord> = {}): ThreadRecord {
   return {
@@ -328,5 +329,34 @@ describe("workspaceState", () => {
   it("sets runtime model id on a chat thread", () => {
     const updated = setChatThreadRuntimeModelId([makeThread({ id: "c1" })], "c1", "gpt-5");
     expect(updated[0].runtimeModelId).toBe("gpt-5");
+  });
+
+  it("creates a draft thread when draft is true", () => {
+    const result = createThreadInProjects(
+      [makeProject({ id: "p1" }, [])],
+      "p1",
+      "Draft",
+      undefined,
+      undefined,
+      true,
+    );
+    expect(result.thread?.draft).toBe(true);
+    expect(result.projects[0]?.threads[0]?.draft).toBe(true);
+  });
+
+  it("creates a non-draft thread by default", () => {
+    const result = createThreadInProjects([makeProject({ id: "p1" }, [])], "p1", "Not draft");
+    expect(result.thread?.draft).toBeUndefined();
+  });
+
+  it("excludes draft threads from split project threads", () => {
+    const threads = [
+      makeThread({ id: "draft-thread", draft: true }),
+      makeThread({ id: "visible-thread" }),
+    ];
+    const split = splitProjectThreads(threads);
+    expect(split.active).toHaveLength(1);
+    expect(split.active[0]?.id).toBe("visible-thread");
+    expect(split.archived).toHaveLength(0);
   });
 });

@@ -1,8 +1,9 @@
 import type { ThreadRecord } from "../mock/uiShellData";
 
 export function splitProjectThreads(threads: ThreadRecord[]) {
-  const archived = threads.filter((thread) => thread.archived);
-  const active = threads.filter((thread) => !thread.archived);
+  const visible = threads.filter((thread) => !thread.draft);
+  const archived = visible.filter((thread) => thread.archived);
+  const active = visible.filter((thread) => !thread.archived);
   const pinned = active.filter((thread) => thread.pinned);
   const regular = active.filter((thread) => !thread.pinned);
 

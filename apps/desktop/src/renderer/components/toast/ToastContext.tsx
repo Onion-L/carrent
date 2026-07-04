@@ -1,4 +1,13 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { X } from "lucide-react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  type ReactNode,
+} from "react";
 
 export type Toast = {
   id: string;
@@ -14,29 +23,96 @@ const ToastContext = createContext<ToastContextValue>({
   showToast: () => {},
 });
 
+const AUTO_DISMISS_MS = 3000;
+const TRANSITION_DURATION_MS = 300;
+
+function ToastItem({
+  toast,
+  onRemove,
+}: {
+  toast: Toast;
+  onRemove: (id: string) => void;
+}) {
+  const [visible, setVisible] = useState(false);
+  const [exiting, setExiting] = useState(false);
+  const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const enterTimeout = setTimeout(() => setVisible(true), 10);
+    autoDismissRef.current = setTimeout(() => setExiting(true), AUTO_DISMISS_MS);
+
+    return () => {
+      clearTimeout(enterTimeout);
+      if (autoDismissRef.current) {
+        clearTimeout(autoDismissRef.current);
+      }
+      if (exitRef.current) {
+        clearTimeout(exitRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (exiting) {
+      exitRef.current = setTimeout(() => onRemove(toast.id), TRANSITION_DURATION_MS);
+      return () => {
+        if (exitRef.current) {
+          clearTimeout(exitRef.current);
+        }
+      };
+    }
+  }, [exiting, onRemove, toast.id]);
+
+  const handleDismiss = () => {
+    if (autoDismissRef.current) {
+      clearTimeout(autoDismissRef.current);
+    }
+    setExiting(true);
+  };
+
+  return (
+    <div
+      className={`pointer-events-auto flex max-w-md items-center gap-3 rounded-xl border border-border-strong bg-surface-raised px-4 py-3 text-[14px] text-fg shadow-xl transition-all duration-300 ease-out ${
+        visible && !exiting
+          ? "opacity-100 translate-y-0 scale-100"
+          : "opacity-0 -translate-y-3 scale-95"
+      }`}
+      role="status"
+      aria-live="polite"
+    >
+      <span className="flex-1">{toast.message}</span>
+      <button
+        onClick={handleDismiss}
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+        aria-label="Dismiss toast"
+        title="Dismiss"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   const showToast = useCallback((message: string, type?: Toast["type"]) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
     const toast: Toast = { id, message, type };
     setToasts((prev) => [...prev, toast]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 2500);
   }, []);
 
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      <div className="pointer-events-none fixed right-4 top-12 z-50 flex flex-col gap-2">
+      <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex flex-col items-center justify-start gap-2 p-4">
         {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border-strong bg-surface-raised px-4 py-2.5 text-[13px] text-fg shadow-lg transition-all"
-          >
-            {toast.message}
-          </div>
+          <ToastItem key={toast.id} toast={toast} onRemove={removeToast} />
         ))}
       </div>
     </ToastContext.Provider>

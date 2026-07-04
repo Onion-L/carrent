@@ -1,5 +1,5 @@
 import { Archive, Pin, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -9,6 +9,7 @@ import { buildProjectPath, buildThreadPath, getProjectIdFromPathname } from "../
 import { splitProjectThreads } from "../../lib/projectThreads";
 import { getChatRuntimeOptions } from "../../lib/runtimeSelection";
 import { findProjectIdForThread } from "../../lib/workspaceState";
+import { useToast } from "../toast/ToastContext";
 
 export function ThreadHistoryPane() {
   const navigate = useNavigate();
@@ -24,6 +25,8 @@ export function ThreadHistoryPane() {
   const { runtimes } = useRuntimes();
   const defaultRuntimeId = getChatRuntimeOptions(runtimes)[0]?.id;
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
+  const { showToast } = useToast();
+  const creatingRef = useRef(false);
 
   const routeProjectId = useMemo(
     () => getProjectIdFromPathname(location.pathname),
@@ -37,22 +40,25 @@ export function ThreadHistoryPane() {
   const projectThreads = selectedProject ? splitProjectThreads(selectedProject.threads).active : [];
 
   const createThreadAndOpen = () => {
-    if (!selectedProject) {
+    if (!selectedProject || creatingRef.current) {
       return;
     }
 
+    creatingRef.current = true;
     const thread = createThread(selectedProject.id, "New thread", defaultRuntimeId);
     if (thread) {
       navigate(buildThreadPath(selectedProject.id, thread.id));
     }
+    creatingRef.current = false;
   };
 
   const archiveThreadAction = (threadId: string) => {
-    if (!selectedProject || !window.confirm("Archive this thread?")) {
+    if (!selectedProject) {
       return;
     }
 
     const nextActiveThreadId = archiveThread(selectedProject.id, threadId);
+    showToast("Archived successfully", "success");
     if (activeThreadId === threadId) {
       if (nextActiveThreadId) {
         const nextProjectId = findProjectIdForThread(projects, nextActiveThreadId);
@@ -70,9 +76,7 @@ export function ThreadHistoryPane() {
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-bg">
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border/70 px-3">
-        <h2 className="min-w-0 truncate text-[13px] font-semibold text-fg">
-          Sessions
-        </h2>
+        <h2 className="min-w-0 truncate text-[13px] font-semibold text-fg">Sessions</h2>
         <button
           onClick={createThreadAndOpen}
           disabled={!selectedProject}

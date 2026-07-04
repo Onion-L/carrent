@@ -365,8 +365,15 @@ function titleCaseSkillName(name: string) {
 }
 
 export function Composer(props: ComposerProps) {
-  const { projects, chats, appendMessage, updateMessage, updateMessageParts, upsertChat } =
-    useWorkspace();
+  const {
+    projects,
+    chats,
+    appendMessage,
+    updateMessage,
+    updateMessageParts,
+    upsertChat,
+    promoteDraftThread,
+  } = useWorkspace();
   const { runningThreadIds, pendingPermissions, respondToPermission, send, stop } = useChatRun();
   const { runtimes, loading: runtimesLoading } = useRuntimes();
   const { skills, loading: skillsLoading, error: skillsError } = useSkills();
@@ -708,6 +715,10 @@ export function Composer(props: ComposerProps) {
 
   const handleSend = async () => {
     if (!canSend) return;
+
+    if (props.mode === "thread") {
+      promoteDraftThread(props.projectId, props.threadId);
+    }
 
     const validation = validateImageAttachments(pendingAttachments.map((pending) => pending.file));
     if (!validation.ok) {

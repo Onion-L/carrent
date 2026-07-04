@@ -14,6 +14,7 @@ export type ThreadRecord = {
   pinned?: boolean;
   archived?: boolean;
   active?: boolean;
+  draft?: boolean;
 };
 
 export type ProjectRecord = {

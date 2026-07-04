@@ -68,6 +68,7 @@ export type WorkspaceContextValue = {
     runtimeModelId?: string,
   ) => ThreadRecord | null;
   upsertThread: (projectId: string, thread: ThreadRecord) => void;
+  promoteDraftThread: (projectId: string, threadId: string) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
   archiveThread: (projectId: string, threadId: string) => string | null;
   createChat: (
@@ -133,6 +134,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   renameProject: () => false,
   createThread: () => null,
   upsertThread: () => {},
+  promoteDraftThread: () => {},
   toggleThreadPin: () => {},
   archiveThread: () => null,
   createChat: () => null,
@@ -357,7 +359,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     runtimeId?: RuntimeId,
     runtimeModelId?: string,
   ) => {
-    const result = createThreadInProjects(projects, projectId, title, runtimeId, runtimeModelId);
+    const project = projects.find((p) => p.id === projectId);
+    const existingDraft = project?.threads.find((t) => t.draft);
+    if (existingDraft) {
+      setActiveThreadId(existingDraft.id);
+      return existingDraft;
+    }
+
+    const result = createThreadInProjects(
+      projects,
+      projectId,
+      title,
+      runtimeId,
+      runtimeModelId,
+      true,
+    );
     if (!result.thread) {
       return null;
     }
@@ -365,6 +381,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setProjects(result.projects);
     setActiveThreadId(result.thread.id);
     return result.thread;
+  };
+
+  const promoteDraftThread = (projectId: string, threadId: string) => {
+    setProjects((prev) =>
+      prev.map((project) => {
+        if (project.id !== projectId) {
+          return project;
+        }
+
+        return {
+          ...project,
+          threads: project.threads.map((thread) =>
+            thread.id === threadId ? { ...thread, draft: undefined } : thread,
+          ),
+        };
+      }),
+    );
   };
 
   const upsertThread = (projectId: string, thread: ThreadRecord) => {
@@ -498,6 +531,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         renameProject,
         createThread,
         upsertThread,
+        promoteDraftThread,
         toggleThreadPin,
         archiveThread,
         createChat,

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { getInitialAgentActivityBlockExpanded, getBlockStatusMeta } from "./AgentActivityBlock";
+import {
+  getInitialAgentActivityBlockExpanded,
+  getBlockStatusMeta,
+  getBlockTitle,
+} from "./AgentActivityBlock";
 import type { MessagePart } from "../../mock/uiShellData";
 
 type ReasoningPart = Extract<MessagePart, { type: "reasoning" }>;
@@ -61,5 +65,24 @@ describe("AgentActivityBlock status labels", () => {
       makeShell({ id: "s2" }),
     ]);
     expect(status.label).toBe("4 steps");
+  });
+});
+
+describe("AgentActivityBlock title", () => {
+  it("uses the first reasoning content as title", () => {
+    const title = getBlockTitle([
+      makeReasoning({ id: "r1", content: "Read full ShellBlock test file before updating" }),
+      makeShell({ id: "s1" }),
+    ]);
+    expect(title).toBe("Read full ShellBlock test file before updating");
+  });
+
+  it("falls back to the first shell command when no reasoning exists", () => {
+    const title = getBlockTitle([makeShell({ id: "s1", command: "pwd" })]);
+    expect(title).toBe("$ pwd");
+  });
+
+  it("falls back to default title when steps are empty", () => {
+    expect(getBlockTitle([])).toBe("Agent activity");
   });
 });

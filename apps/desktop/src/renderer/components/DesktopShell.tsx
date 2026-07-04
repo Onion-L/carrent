@@ -1,15 +1,56 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { SidebarNav } from "./SidebarNav";
 import { ThreadHistoryPane } from "./chat/ThreadHistoryPane";
 import { RuntimeListPane } from "./runtime/RuntimeListPane";
 
+const LEFT_SIDEBAR_WIDTH = 58;
+const MIN_SECONDARY_PANE_WIDTH = 200;
+const MAX_SECONDARY_PANE_WIDTH = 480;
+const DEFAULT_SECONDARY_PANE_WIDTH = 280;
+
 export function DesktopShell({ children }: { children: React.ReactNode }) {
-  const [isProjectSidebarCollapsed, setIsProjectSidebarCollapsed] = useState(false);
+  const [isSecondaryPaneCollapsed, setIsSecondaryPaneCollapsed] = useState(false);
+  const [secondaryPaneWidth, setSecondaryPaneWidth] = useState(DEFAULT_SECONDARY_PANE_WIDTH);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartRef = useRef({ x: 0, width: DEFAULT_SECONDARY_PANE_WIDTH });
   const location = useLocation();
   const secondaryPane =
     location.pathname === "/runtimes" ? <RuntimeListPane /> : <ThreadHistoryPane />;
+
+  const toggleSecondaryPane = useCallback(() => {
+    setIsSecondaryPaneCollapsed((collapsed) => !collapsed);
+  }, []);
+
+  const handleResizeStart = useCallback(
+    (event: React.MouseEvent) => {
+      event.preventDefault();
+      resizeStartRef.current = { x: event.clientX, width: secondaryPaneWidth };
+      setIsResizing(true);
+      document.body.style.userSelect = "none";
+
+      const handleMouseMove = (e: MouseEvent) => {
+        const delta = e.clientX - resizeStartRef.current.x;
+        const nextWidth = Math.max(
+          MIN_SECONDARY_PANE_WIDTH,
+          Math.min(MAX_SECONDARY_PANE_WIDTH, resizeStartRef.current.width + delta),
+        );
+        setSecondaryPaneWidth(nextWidth);
+      };
+
+      const handleMouseUp = () => {
+        setIsResizing(false);
+        document.body.style.userSelect = "";
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+      };
+
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+    },
+    [secondaryPaneWidth],
+  );
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-bg text-fg">
@@ -22,12 +63,12 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
           }}
         >
           <button
-            aria-label={isProjectSidebarCollapsed ? "Expand projects" : "Collapse projects"}
-            title={isProjectSidebarCollapsed ? "Expand projects" : "Collapse projects"}
-            onClick={() => setIsProjectSidebarCollapsed((collapsed) => !collapsed)}
+            aria-label={isSecondaryPaneCollapsed ? "Expand sessions" : "Collapse sessions"}
+            title={isSecondaryPaneCollapsed ? "Expand sessions" : "Collapse sessions"}
+            onClick={toggleSecondaryPane}
             className="flex h-7 w-7 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
           >
-            {isProjectSidebarCollapsed ? (
+            {isSecondaryPaneCollapsed ? (
               <PanelLeftOpen className="h-4 w-4" />
             ) : (
               <PanelLeftClose className="h-4 w-4" />
@@ -36,22 +77,24 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
         </header>
 
         <div className="flex min-h-0 flex-1 bg-bg">
-          <div
-            className="min-h-0 shrink-0 transition-[width] duration-200 ease-out"
-            style={{ width: isProjectSidebarCollapsed ? 58 : 280 }}
-          >
-            <SidebarNav collapsed={isProjectSidebarCollapsed} />
+          <div className="min-h-0 shrink-0" style={{ width: LEFT_SIDEBAR_WIDTH }}>
+            <SidebarNav collapsed={true} />
           </div>
 
           <div className="min-h-0 min-w-0 flex-1 bg-sidebar p-1.5 pl-0">
-            <div
-              className="grid h-full min-h-0 gap-1.5 transition-[grid-template-columns] duration-200 ease-out"
-              style={{
-                gridTemplateColumns: "minmax(270px, 320px) minmax(440px, 1fr)",
-              }}
-            >
-              {secondaryPane}
-              <main className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-bg">
+            <div className="flex h-full min-h-0">
+              <div
+                className={`min-h-0 shrink-0 overflow-hidden ${isResizing ? "" : "transition-[width] duration-200 ease-out"}`}
+                style={{ width: isSecondaryPaneCollapsed ? 0 : secondaryPaneWidth }}
+              >
+                {secondaryPane}
+              </div>
+
+              {!isSecondaryPaneCollapsed && (
+                <div onMouseDown={handleResizeStart} className="w-1 shrink-0 cursor-col-resize" />
+              )}
+
+              <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-bg">
                 {children}
               </main>
             </div>

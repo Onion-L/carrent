@@ -5,7 +5,11 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useRuntimes } from "../../hooks/useRuntimes";
 import { formatRelativeTime } from "../../lib/formatRelativeTime";
-import { buildProjectPath, buildThreadPath, getProjectIdFromPathname } from "../../lib/navigation";
+import {
+  buildProjectPath,
+  buildThreadPath,
+  getProjectIdFromPathname,
+} from "../../lib/navigation";
 import { splitProjectThreads } from "../../lib/projectThreads";
 import { getChatRuntimeOptions } from "../../lib/runtimeSelection";
 
@@ -34,7 +38,9 @@ export function ThreadHistoryPane() {
     projects.find((project) => project.active) ??
     projects[0] ??
     null;
-  const projectThreads = selectedProject ? splitProjectThreads(selectedProject.threads).active : [];
+  const projectThreads = selectedProject
+    ? splitProjectThreads(selectedProject.threads).active
+    : [];
 
   useEffect(() => {
     if (!openThreadMenuId) return;
@@ -43,7 +49,9 @@ export function ThreadHistoryPane() {
       const target = e.target as Node;
       const inside =
         target instanceof Element &&
-        target.closest('[data-thread-menu="true"], [data-thread-menu-trigger="true"]');
+        target.closest(
+          '[data-thread-menu="true"], [data-thread-menu-trigger="true"]',
+        );
       if (!inside) {
         setOpenThreadMenuId(null);
       }
@@ -58,7 +66,11 @@ export function ThreadHistoryPane() {
       return;
     }
 
-    const thread = createThread(selectedProject.id, "New thread", defaultRuntimeId);
+    const thread = createThread(
+      selectedProject.id,
+      "New thread",
+      defaultRuntimeId,
+    );
     if (thread) {
       navigate(buildThreadPath(selectedProject.id, thread.id));
     }
@@ -103,11 +115,15 @@ export function ThreadHistoryPane() {
 
       <div className="min-h-0 flex-1 overflow-auto px-2 pb-3">
         {!selectedProject ? (
-          <div className="px-4 py-8 text-center text-[13px] text-subtle">Add a project first</div>
+          <div className="px-4 py-8 text-center text-[13px] text-subtle">
+            Add a project first
+          </div>
         ) : projectThreads.length === 0 ? (
           <div className="px-4 py-8 text-center">
             <p className="text-[13px] text-muted">No threads yet</p>
-            <p className="mt-1 text-[12px] text-subtle">Start a new thread in this project</p>
+            <p className="mt-1 text-[12px] text-subtle">
+              Start a new thread in this project
+            </p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -127,23 +143,25 @@ export function ThreadHistoryPane() {
                       className="relative"
                       onMouseEnter={() => setHoveredThreadId(thread.id)}
                       onMouseLeave={() =>
-                        setHoveredThreadId((prev) => (prev === thread.id ? null : prev))
+                        setHoveredThreadId((prev) =>
+                          prev === thread.id ? null : prev,
+                        )
                       }
                     >
                       <div
-                        className={`flex min-h-11 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition ${
+                        onClick={() => {
+                          setActiveThreadId(thread.id);
+                          navigate(
+                            buildThreadPath(selectedProject.id, thread.id),
+                          );
+                        }}
+                        className={`hover:cursor-pointer flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-left transition ${
                           isActive
                             ? "bg-surface-hover text-fg shadow-[inset_0_0_0_1px_rgb(var(--color-border-strong)/0.32)]"
                             : "text-muted hover:bg-surface-raised hover:text-fg"
                         }`}
                       >
-                        <button
-                          onClick={() => {
-                            setActiveThreadId(thread.id);
-                            navigate(buildThreadPath(selectedProject.id, thread.id));
-                          }}
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                        >
+                        <div className="flex min-w-0 flex-1 items-center gap-2 h-full">
                           {thread.pinned ? (
                             <Pin className="h-3.5 w-3.5 shrink-0 text-subtle" />
                           ) : (
@@ -157,7 +175,7 @@ export function ThreadHistoryPane() {
                               {formatRelativeTime(thread.updatedAt)}
                             </span>
                           )}
-                        </button>
+                        </div>
 
                         {showActions && (
                           <button

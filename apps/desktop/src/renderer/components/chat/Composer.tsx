@@ -27,6 +27,7 @@ import {
   validateImageAttachments,
   type PendingAttachment,
 } from "../../lib/imageAttachments";
+import { deriveThreadTitle } from "../../lib/threadTitle";
 import { ImageAttachmentLightbox, type LightboxItem } from "./ImageAttachmentLightbox";
 
 import {
@@ -372,6 +373,7 @@ export function Composer(props: ComposerProps) {
     updateMessage,
     updateMessageParts,
     upsertChat,
+    upsertThread,
     promoteDraftThread,
   } = useWorkspace();
   const { runningThreadIds, pendingPermissions, respondToPermission, send, stop } = useChatRun();
@@ -926,8 +928,22 @@ export function Composer(props: ComposerProps) {
     if (props.mode === "chat") {
       const chatThread = chats.find((c) => c.id === threadId);
       if (chatThread && chatThread.title === "New chat") {
-        const title = messageText || attachmentMetadata[0]?.name || "Image message";
-        upsertChat({ ...chatThread, title: title.slice(0, 60) });
+        const title =
+          deriveThreadTitle(messageText, { fallback: "" }) ||
+          attachmentMetadata[0]?.name ||
+          "Image message";
+        upsertChat({ ...chatThread, title });
+      }
+    }
+
+    if (props.mode === "thread") {
+      const thread = project?.threads.find((t) => t.id === threadId);
+      if (thread && thread.title === "New thread") {
+        const title =
+          deriveThreadTitle(messageText, { fallback: "" }) ||
+          attachmentMetadata[0]?.name ||
+          "New thread";
+        upsertThread(props.projectId, { ...thread, title });
       }
     }
   };

@@ -1543,7 +1543,7 @@ export function Composer(props: ComposerProps) {
                     <ChevronDown className="h-3 w-3" />
                   </button>
                   {showModePicker && (
-                    <div className="absolute bottom-full left-0 mb-1.5 w-56 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
+                    <div className="absolute bottom-full left-0 mb-1.5 w-72 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
                       {(
                         ["approval-required", "auto-accept-edits", "full-access"] as RuntimeMode[]
                       ).map((mode) => (

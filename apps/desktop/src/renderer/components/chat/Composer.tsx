@@ -1516,7 +1516,6 @@ export function Composer(props: ComposerProps) {
                     document.body,
                   )
                 : null}
-              <div className="mx-1 h-4 w-px bg-border-strong" />
               {props.onRuntimeModeChange ? (
                 <div ref={modePickerRef} className="relative">
                   <button
@@ -1568,7 +1567,6 @@ export function Composer(props: ComposerProps) {
                   )}
                 </div>
               ) : null}
-              <div className="mx-1 h-4 w-px bg-border-strong" />
               <input
                 ref={fileInputRef}
                 type="file"

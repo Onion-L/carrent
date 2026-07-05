@@ -1178,7 +1178,7 @@ export function Composer(props: ComposerProps) {
             </div>
           </div>
         ) : null}
-        <div className="rounded-xl border border-border bg-surface-raised/90 p-3 shadow-[0_18px_60px_rgb(0_0_0/0.18)]">
+        <div className="rounded-xl border border-border bg-surface-raised/90 p-4 shadow-[0_18px_60px_rgb(0_0_0/0.18)]">
           {threadPermissions.length > 0 ? (
             <div className="mb-2 space-y-2">
               {threadPermissions.map((permission) => (
@@ -1271,7 +1271,7 @@ export function Composer(props: ComposerProps) {
             onClick={updateTextareaCursor}
             onSelect={updateTextareaCursor}
             placeholder="Message..."
-            className="min-h-16 w-full resize-none bg-transparent text-[15px] leading-6 text-fg placeholder:text-subtle outline-none"
+            className="min-h-24 w-full resize-none bg-transparent text-[15px] leading-6 text-fg placeholder:text-subtle outline-none"
             rows={2}
             onKeyDown={(e) => {
               if (showSkillMenu) {
@@ -1315,8 +1315,8 @@ export function Composer(props: ComposerProps) {
             }}
           />
           {attachmentError && <div className="mt-2 text-[12px] text-danger">{attachmentError}</div>}
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
+          <div className="mt-4 flex items-end justify-between gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-1">
               {props.onRuntimeIdChange ? (
                 <div ref={runtimePickerRef} className="relative">
                   <button
@@ -1333,10 +1333,8 @@ export function Composer(props: ComposerProps) {
                       }
                     }}
                     disabled={isThreadSending}
-                    className={`flex max-w-[18rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition disabled:opacity-40 ${
-                      showRuntimePicker
-                        ? "border-fg/20 bg-surface-hover text-fg"
-                        : "border-border-strong bg-surface-raised text-muted hover:bg-surface-hover hover:text-fg"
+                    className={`flex max-w-[14rem] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition disabled:opacity-40 ${
+                      showRuntimePicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
                     }`}
                     title={isThreadSending ? "Locked while runtime is running" : "Runtime"}
                   >
@@ -1518,6 +1516,7 @@ export function Composer(props: ComposerProps) {
                     document.body,
                   )
                 : null}
+              <div className="mx-1 h-4 w-px bg-border-strong" />
               {props.onRuntimeModeChange ? (
                 <div ref={modePickerRef} className="relative">
                   <button
@@ -1527,10 +1526,8 @@ export function Composer(props: ComposerProps) {
                       }
                     }}
                     disabled={isThreadSending}
-                    className={`flex max-w-[12rem] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition disabled:opacity-40 ${
-                      showModePicker
-                        ? "border-fg/20 bg-surface-hover text-fg"
-                        : "border-border-strong bg-surface-raised text-muted hover:bg-surface-hover hover:text-fg"
+                    className={`flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition disabled:opacity-40 ${
+                      showModePicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
                     }`}
                     title={
                       isThreadSending ? "Locked while runtime is running" : "Runtime permissions"
@@ -1571,6 +1568,7 @@ export function Composer(props: ComposerProps) {
                   )}
                 </div>
               ) : null}
+              <div className="mx-1 h-4 w-px bg-border-strong" />
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1588,10 +1586,11 @@ export function Composer(props: ComposerProps) {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isThreadSending}
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-border-strong text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
+                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-muted transition hover:text-fg disabled:opacity-40"
                 title="Attach image"
               >
-                <Image className="h-4 w-4" />
+                <Image className="h-3.5 w-3.5" />
+                <span>Attach</span>
               </button>
             </div>
 
@@ -1606,7 +1605,7 @@ export function Composer(props: ComposerProps) {
               {isThreadSending ? (
                 <button
                   onClick={() => stop(threadId)}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-black transition hover:opacity-90 active:scale-95"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition hover:opacity-90 active:scale-95"
                 >
                   <div className="h-3 w-3 rounded-[2px] bg-current" />
                 </button>
@@ -1614,9 +1613,9 @@ export function Composer(props: ComposerProps) {
                 <button
                   onClick={handleSend}
                   disabled={!canSend || isThreadSending}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 active:scale-95 disabled:opacity-30"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 active:scale-95 disabled:opacity-30"
                 >
-                  <ArrowUp className="h-3.5 w-3.5" />
+                  <ArrowUp className="h-4 w-4" />
                 </button>
               )}
             </div>

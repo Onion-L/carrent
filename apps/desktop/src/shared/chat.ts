@@ -22,6 +22,13 @@ export type ImageAttachment = ImageAttachmentMetadata & {
   localPath?: string;
 };
 
+export type KimiSessionStatus = {
+  model?: string;
+  used: number;
+  total: number;
+  percentage: number;
+};
+
 export interface ChatTurnRequest {
   requestKey?: string;
   workspace: ChatWorkspaceScope;

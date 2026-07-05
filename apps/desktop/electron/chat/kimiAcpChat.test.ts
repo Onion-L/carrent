@@ -4,7 +4,12 @@ import os from "node:os";
 import path from "node:path";
 
 import type { ChatRunEvent, ChatTurnRequest } from "../../src/shared/chat";
-import { buildKimiPromptParts, startKimiAcpChatRun, type KimiAcpTransport } from "./kimiAcpChat";
+import {
+  buildKimiPromptParts,
+  getKimiSessionStatus,
+  startKimiAcpChatRun,
+  type KimiAcpTransport,
+} from "./kimiAcpChat";
 
 function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
@@ -96,6 +101,88 @@ describe("buildKimiPromptParts", () => {
 });
 
 describe("startKimiAcpChatRun", () => {
+  it("returns parsed session status from a /status prompt", async () => {
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/resume") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: {
+                type: "text",
+                text: "Session status:\n- Model: kimi-code/kimi-for-coding\n- Thinking: on\n- Permission: manual\n- Plan mode: off\n- Context: 21,169 / 262,144 (8.1%)",
+              },
+            },
+          },
+        });
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    const status = await getKimiSessionStatus({
+      sessionId: "session-1",
+      cwd: "/Users/onion/workbench/carrent",
+      transportFactory: () => transport,
+    });
+
+    expect(status).toEqual({
+      model: "kimi-code/kimi-for-coding",
+      used: 21169,
+      total: 262144,
+      percentage: 8.1,
+    });
+  });
+
+  it("returns null when status text does not contain context usage", async () => {
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/resume") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "No usage data here." },
+            },
+          },
+        });
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    const status = await getKimiSessionStatus({
+      sessionId: "session-1",
+      cwd: "/Users/onion/workbench/carrent",
+      transportFactory: () => transport,
+    });
+
+    expect(status).toBe(null);
+  });
+
   it("does not install a Carrent-side runtime timeout for session/prompt", async () => {
     const originalSetTimeout = globalThis.setTimeout;
     const originalClearTimeout = globalThis.clearTimeout;

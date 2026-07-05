@@ -33,11 +33,13 @@ describe("registerChatIpc", () => {
           start: () => {},
           stop: () => {},
           respondToPermission: () => {},
+          getStatus: async () => null,
         },
       },
     );
 
     expect([...handlers.keys()].sort()).toEqual([
+      "chat:kimi-status",
       "chat:permission-response",
       "chat:send",
       "chat:stop",
@@ -61,6 +63,7 @@ describe("registerChatIpc", () => {
           },
           stop: () => {},
           respondToPermission: () => {},
+          getStatus: async () => null,
         },
       },
     );
@@ -90,6 +93,7 @@ describe("registerChatIpc", () => {
           },
           stop: () => {},
           respondToPermission: () => {},
+          getStatus: async () => null,
         },
       },
     );
@@ -131,6 +135,7 @@ describe("registerChatIpc", () => {
           },
           stop: () => {},
           respondToPermission: () => {},
+          getStatus: async () => null,
         },
       },
     );
@@ -163,12 +168,81 @@ describe("registerChatIpc", () => {
             stopped.push(runId);
           },
           respondToPermission: () => {},
+          getStatus: async () => null,
         },
       },
     );
 
     await handlers.get("chat:stop")?.({}, "run-123");
     expect(stopped).toEqual(["run-123"]);
+  });
+
+  it("chat:kimi-status returns null for non-kimi runtimes", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+
+    registerChatIpc(
+      {
+        handle(channel, listener) {
+          handlers.set(channel, listener);
+        },
+      },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          respondToPermission: () => {},
+          getStatus: async () => ({
+            model: "kimi-code/kimi-for-coding",
+            used: 1000,
+            total: 200000,
+            percentage: 0.5,
+          }),
+        },
+      },
+    );
+
+    const result = await handlers.get("chat:kimi-status")?.({}, makeRequest({ runtimeId: "codex" }));
+    expect(result).toBe(null);
+  });
+
+  it("chat:kimi-status forwards to the session manager for kimi", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const requested: ChatTurnRequest[] = [];
+
+    registerChatIpc(
+      {
+        handle(channel, listener) {
+          handlers.set(channel, listener);
+        },
+      },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          respondToPermission: () => {},
+          getStatus: async (request) => {
+            requested.push(request);
+            return {
+              model: "kimi-code/kimi-for-coding",
+              used: 21169,
+              total: 262144,
+              percentage: 8.1,
+            };
+          },
+        },
+      },
+    );
+
+    const request = makeRequest({ runtimeId: "kimi" });
+    const result = await handlers.get("chat:kimi-status")?.({}, request);
+    expect(requested).toHaveLength(1);
+    expect(requested[0].threadId).toBe("thread-1");
+    expect(result).toEqual({
+      model: "kimi-code/kimi-for-coding",
+      used: 21169,
+      total: 262144,
+      percentage: 8.1,
+    });
   });
 
   it("chat:permission-response forwards decisions to the session manager", async () => {
@@ -183,6 +257,7 @@ describe("registerChatIpc", () => {
           start: () => {},
           stop: () => {},
           respondToPermission: (response) => responses.push(response),
+          getStatus: async () => null,
         },
       },
     );

@@ -26,13 +26,7 @@ const ToastContext = createContext<ToastContextValue>({
 const AUTO_DISMISS_MS = 3000;
 const TRANSITION_DURATION_MS = 300;
 
-function ToastItem({
-  toast,
-  onRemove,
-}: {
-  toast: Toast;
-  onRemove: (id: string) => void;
-}) {
+function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) => void }) {
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
   const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);

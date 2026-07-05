@@ -13,6 +13,7 @@ import { buildChatPrompt } from "./chatPrompt";
 import { getRuntimeCommand, getRuntimeCommandUnavailableMessage } from "./chatRunner";
 import {
   createKimiAcpProcessTransportFactory,
+  getKimiSessionStatus,
   startKimiAcpChatRun,
   type KimiAcpTransportFactory,
   type KimiAcpRunHandle,
@@ -46,6 +47,7 @@ export interface ChatSessionManager {
   start: (runId: string, request: ChatTurnRequest) => void;
   stop: (runId: string) => void;
   respondToPermission: (response: ChatPermissionResponse) => void;
+  getStatus: (request: ChatTurnRequest) => Promise<import("../../src/shared/chat").KimiSessionStatus | null>;
 }
 
 type ClaudeStreamState = {
@@ -1128,5 +1130,32 @@ export function createChatSessionManager(options: {
     });
   }
 
-  return { start, stop, respondToPermission };
+  async function getStatus(request: ChatTurnRequest) {
+    if (request.runtimeId !== "kimi") {
+      return null;
+    }
+
+    const requestSessionKey = buildRequestSessionKey(request);
+    const sessionId =
+      runtimeSessions.get(requestSessionKey) ?? options.providerSessions?.get(requestSessionKey);
+    if (!sessionId) {
+      return null;
+    }
+
+    const transportFactory =
+      options.kimiAcpTransportFactory ?? createKimiAcpProcessTransportFactory(options.spawn);
+
+    try {
+      return await getKimiSessionStatus({
+        sessionId,
+        cwd: resolveRequestCwd(request),
+        transportFactory,
+        requestTimeoutMs: 30_000,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  return { start, stop, respondToPermission, getStatus };
 }

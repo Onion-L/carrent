@@ -6,7 +6,12 @@ import type {
   RuntimeRecord,
   RuntimeVerificationResult,
 } from "../shared/runtimes";
-import type { ChatTurnRequest, ChatRunEvent, ImageAttachmentMetadata } from "../shared/chat";
+import type {
+  ChatTurnRequest,
+  ChatRunEvent,
+  ImageAttachmentMetadata,
+  KimiSessionStatus,
+} from "../shared/chat";
 import type { ChatPermissionResponse } from "../shared/chatPermissions";
 import type { SkillRecord } from "../shared/skills";
 import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../shared/workspacePersistence";
@@ -33,6 +38,7 @@ declare global {
         send: (request: ChatTurnRequest) => Promise<{ runId: string }>;
         stop: (runId: string) => Promise<void>;
         respondToPermission: (response: ChatPermissionResponse) => Promise<void>;
+        getKimiStatus: (request: ChatTurnRequest) => Promise<KimiSessionStatus | null>;
         onEvent: (listener: (event: ChatRunEvent) => void) => VoidFunction;
       };
       attachments: {

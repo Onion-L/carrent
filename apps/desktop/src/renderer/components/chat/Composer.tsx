@@ -20,7 +20,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import type { ImageAttachmentMetadata } from "../../../shared/chat";
+import type { ImageAttachmentMetadata, KimiSessionStatus } from "../../../shared/chat";
 import {
   metadataOnly,
   pendingAttachmentFromFile,
@@ -65,6 +65,79 @@ function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: s
     case "full-access":
       return <AlertTriangle className={className} />;
   }
+}
+
+function ContextUsageIndicator({
+  status,
+  onHover,
+}: {
+  status: KimiSessionStatus | null;
+  onHover: () => void;
+}) {
+  const [showPopover, setShowPopover] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setMounted(true), 30);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!status) {
+    return null;
+  }
+
+  const radius = 8;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference * (1 - Math.min(status.percentage, 100) / 100);
+
+  return (
+    <div
+      className={`relative flex h-8 w-8 cursor-pointer items-center justify-center transition-all duration-300 ease-out ${
+        mounted ? "scale-100 opacity-100" : "scale-50 opacity-0"
+      }`}
+      onMouseEnter={() => {
+        setShowPopover(true);
+        onHover();
+      }}
+      onMouseLeave={() => setShowPopover(false)}
+      title="Kimi context usage"
+    >
+      <svg className="h-5 w-5 -rotate-90" viewBox="0 0 20 20">
+        <circle
+          cx="10"
+          cy="10"
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="text-border-strong"
+        />
+        <circle
+          cx="10"
+          cy="10"
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          className={status.percentage > 90 ? "text-danger" : "text-fg"}
+        />
+      </svg>
+      {showPopover && (
+        <div className="absolute bottom-full right-0 mb-2 w-52 rounded-lg border border-border-strong bg-surface px-3 py-2 shadow-xl">
+          <div className="text-[11px] text-muted">Context usage</div>
+          <div className="mt-0.5 text-[12px] font-medium text-fg">
+            {status.used.toLocaleString()} / {status.total.toLocaleString()} ({status.percentage.toFixed(1)}%)
+          </div>
+          {status.model ? (
+            <div className="mt-1 truncate text-[11px] text-subtle">{status.model}</div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
 }
 
 type ComposerProps =
@@ -395,6 +468,7 @@ export function Composer(props: ComposerProps) {
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [lightboxAttachmentIndex, setLightboxAttachmentIndex] = useState<number | null>(null);
+  const [kimiStatus, setKimiStatus] = useState<KimiSessionStatus | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const runtimePickerRef = useRef<HTMLDivElement>(null);
@@ -407,9 +481,47 @@ export function Composer(props: ComposerProps) {
   const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeAssistantMessageIdRef = useRef<string | null>(null);
   const flushTypewriterRef = useRef<VoidFunction | null>(null);
+  const wasSendingRef = useRef(false);
   const projectId = props.mode === "chat" ? null : props.projectId;
   const project = projectId ? (projects.find((item) => item.id === projectId) ?? null) : null;
   const threadId = props.threadId;
+
+  const refreshKimiStatus = useCallback(async () => {
+    if (props.runtimeId !== "kimi") {
+      return;
+    }
+
+    const workspace =
+      props.mode === "chat"
+        ? { kind: "chat" as const }
+        : {
+            kind: "project" as const,
+            projectId: props.projectId,
+            projectPath: project?.path ?? "",
+          };
+
+    const status = await window.carrent.chat.getKimiStatus({
+      workspace,
+      threadId,
+      runtimeId: props.runtimeId,
+      runtimeModelId: props.runtimeModelId,
+      runtimeMode: props.runtimeMode,
+      transcript: [],
+      message: "",
+    });
+    if (status) {
+      setKimiStatus(status);
+    }
+  }, [
+    props.mode,
+    projectId,
+    project?.path,
+    threadId,
+    props.runtimeId,
+    props.runtimeModelId,
+    props.runtimeMode,
+  ]);
+
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
   const modelRuntimeId = props.runtimeId === "pi" ? props.runtimeId : null;
   const { models } = useRuntimeModels(modelRuntimeId);
@@ -420,14 +532,17 @@ export function Composer(props: ComposerProps) {
     runtimeModelId: props.runtimeModelId,
   });
   const isSelectedRuntimeAvailable = isChatRuntimeAvailable(props.runtimeId, runtimes);
+  const kimiModelDisplay = kimiStatus?.model?.split("/").pop();
   const runtimeButtonLabel = runtimesLoading
     ? "Checking runtimes"
     : runtimeOptions.length === 0
       ? "No runtime available"
       : isSelectedRuntimeAvailable
-        ? selectedRuntimeModel
-          ? `${runtimeNameMap[props.runtimeId]} · ${selectedRuntimeModel.name}`
-          : runtimeNameMap[props.runtimeId]
+        ? props.runtimeId === "kimi" && kimiModelDisplay
+          ? kimiModelDisplay
+          : selectedRuntimeModel
+            ? `${runtimeNameMap[props.runtimeId]} · ${selectedRuntimeModel.name}`
+            : runtimeNameMap[props.runtimeId]
         : "Select runtime";
   const skillTrigger = useMemo(
     () => (isTextareaFocused ? getSkillSlashTrigger(input, textareaCursor) : null),
@@ -501,6 +616,21 @@ export function Composer(props: ComposerProps) {
       }
     };
   }, []);
+
+  useEffect(() => {
+    setKimiStatus(null);
+  }, [threadId]);
+
+  useEffect(() => {
+    void refreshKimiStatus();
+  }, [refreshKimiStatus]);
+
+  useEffect(() => {
+    if (wasSendingRef.current && !isThreadSending) {
+      void refreshKimiStatus();
+    }
+    wasSendingRef.current = isThreadSending;
+  }, [isThreadSending, refreshKimiStatus]);
 
   useEffect(() => {
     if (!showRuntimePicker && !showModePicker) return;
@@ -943,7 +1073,7 @@ export function Composer(props: ComposerProps) {
           deriveThreadTitle(messageText, { fallback: "" }) ||
           attachmentMetadata[0]?.name ||
           "New thread";
-        upsertThread(props.projectId, { ...thread, title });
+        upsertThread(props.projectId, { ...thread, title, draft: undefined });
       }
     }
   };
@@ -1271,7 +1401,11 @@ export function Composer(props: ComposerProps) {
                               }`}
                             >
                               <RuntimeIcon name={runtime.name} size="xs" />
-                              <span className="min-w-0 flex-1">{runtime.name}</span>
+                              <span className="min-w-0 flex-1">
+                                {runtime.id === "kimi" && kimiModelDisplay
+                                  ? kimiModelDisplay
+                                  : runtime.name}
+                              </span>
                               {supportsModelCascade ? (
                                 <ChevronDown className="ml-auto h-3 w-3 shrink-0" />
                               ) : null}
@@ -1455,6 +1589,13 @@ export function Composer(props: ComposerProps) {
             </div>
 
             <div className="flex items-center gap-2">
+              {props.runtimeId === "kimi" ? (
+                <ContextUsageIndicator
+                  key={threadId}
+                  status={kimiStatus}
+                  onHover={refreshKimiStatus}
+                />
+              ) : null}
               {isThreadSending ? (
                 <button
                   onClick={() => stop(threadId)}

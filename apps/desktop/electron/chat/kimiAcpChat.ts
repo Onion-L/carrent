@@ -3,7 +3,7 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { ChatRunEvent, ChatTurnRequest, ImageAttachment } from "../../src/shared/chat";
+import type { ChatRunEvent, ChatTurnRequest, ImageAttachment, KimiSessionStatus } from "../../src/shared/chat";
 import {
   CHAT_PERMISSION_TIMEOUT_MS,
   buildPermissionExpiry,
@@ -160,6 +160,127 @@ export function startKimiAcpChatRun(options: {
   return {
     stop: () => runner.stop(),
     respondToPermission: (response) => runner.respondToPermission(response),
+  };
+}
+
+export async function getKimiSessionStatus(options: {
+  sessionId: string;
+  cwd: string;
+  transportFactory: KimiAcpTransportFactory;
+  requestTimeoutMs?: number;
+}): Promise<KimiSessionStatus | null> {
+  const { sessionId, cwd, transportFactory, requestTimeoutMs = 30_000 } = options;
+  const transport = transportFactory({ cwd });
+
+  let statusText = "";
+  let nextId = 1;
+  const pending = new Map<
+    JsonRpcId,
+    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+  >();
+
+  return new Promise((resolve, reject) => {
+    const timeoutTimer = setTimeout(() => {
+      transport.close();
+      reject(new Error("Timed out waiting for Kimi session status."));
+    }, requestTimeoutMs);
+
+    const cleanup = () => {
+      clearTimeout(timeoutTimer);
+      transport.close();
+    };
+
+    transport.onMessage((message) => {
+      if (message.id != null && pending.has(message.id as JsonRpcId)) {
+        const handler = pending.get(message.id as JsonRpcId)!;
+        pending.delete(message.id as JsonRpcId);
+        if (message.error) {
+          const errorObject = readObject(message.error);
+          handler.reject(new Error(readString(errorObject?.message) ?? JSON.stringify(message.error)));
+        } else {
+          handler.resolve(message.result);
+        }
+        return;
+      }
+
+      if (message.method === "session/update") {
+        const payload = readObject(message.params);
+        const update = readObject(payload?.update);
+        const updateType = readString(update?.sessionUpdate);
+        const text = readTextContent(update?.content);
+        if (updateType === "agent_message_chunk" && text) {
+          statusText += text;
+        }
+      }
+    });
+
+    transport.onError((error) => {
+      cleanup();
+      reject(error);
+    });
+
+    transport.onClose(({ stderr, signal, code }) => {
+      cleanup();
+      if (!statusText) {
+        reject(
+          new Error(
+            `Kimi ACP exited before status was received: ${stderr || signal || code || "unknown"}`,
+          ),
+        );
+        return;
+      }
+      resolve(parseKimiStatusText(statusText));
+    });
+
+    const send = (method: string, params: JsonObject): Promise<unknown> => {
+      const id = nextId++;
+      const message = { jsonrpc: "2.0", id, method, params };
+      return new Promise((res, rej) => {
+        pending.set(id, { resolve: res, reject: rej });
+        transport.send(message);
+      });
+    };
+
+    void (async () => {
+      try {
+        await send("initialize", {
+          protocolVersion: 1,
+          clientCapabilities: {
+            fs: { readTextFile: true, writeTextFile: false },
+            terminal: false,
+          },
+        });
+        await send("session/resume", { sessionId, cwd, mcpServers: [] });
+        await send("session/prompt", {
+          sessionId,
+          prompt: [{ type: "text", text: "/status" }],
+        });
+        cleanup();
+        resolve(parseKimiStatusText(statusText));
+      } catch (error) {
+        cleanup();
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    })();
+  });
+}
+
+function parseKimiStatusText(text: string): KimiSessionStatus | null {
+  const match = /Context:\s*([\d,]+)\s*\/\s*([\d,]+)\s*\(([\d.]+)%\)/u.exec(text);
+  if (!match) {
+    return null;
+  }
+
+  const used = Number.parseInt(match[1].replace(/,/gu, ""), 10);
+  const total = Number.parseInt(match[2].replace(/,/gu, ""), 10);
+  const percentage = Number.parseFloat(match[3]);
+  const modelMatch = /Model:\s*(.+)/u.exec(text);
+
+  return {
+    model: modelMatch ? modelMatch[1].trim() : undefined,
+    used,
+    total,
+    percentage,
   };
 }
 

@@ -30,6 +30,10 @@ const carrent = {
     stop: (runId: string) => ipcRenderer.invoke("chat:stop", runId) as Promise<void>,
     respondToPermission: (response: ChatPermissionResponse) =>
       ipcRenderer.invoke("chat:permission-response", response) as Promise<void>,
+    getKimiStatus: (request: ChatTurnRequest) =>
+      ipcRenderer.invoke("chat:kimi-status", request) as Promise<
+        import("../src/shared/chat").KimiSessionStatus | null
+      >,
     onEvent: (listener: (event: ChatRunEvent) => void) => {
       const wrapped = (_event: IpcRendererEvent, evt: ChatRunEvent) => listener(evt);
       ipcRenderer.on("chat:event", wrapped);

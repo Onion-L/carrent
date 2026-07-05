@@ -1,4 +1,4 @@
-import type { ChatTurnRequest } from "../../src/shared/chat";
+import type { ChatTurnRequest, KimiSessionStatus } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import { runtimeNameMap, type RuntimeId } from "../../src/shared/runtimes";
 import type { ChatSessionManager } from "./chatSessionManager";
@@ -37,6 +37,15 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
   ipcMainLike.handle("chat:permission-response", async (_event, response) => {
     services.sessionManager.respondToPermission(response as ChatPermissionResponse);
     return undefined;
+  });
+
+  ipcMainLike.handle("chat:kimi-status", async (_event, request) => {
+    const req = request as ChatTurnRequest;
+    if (req.runtimeId !== "kimi") {
+      return null;
+    }
+
+    return services.sessionManager.getStatus(req) as Promise<KimiSessionStatus | null>;
   });
 }
 

@@ -14,6 +14,7 @@ import type {
 } from "../shared/chat";
 import type { ChatPermissionResponse } from "../shared/chatPermissions";
 import type { SkillRecord } from "../shared/skills";
+import type { GitBranchInfo } from "../../electron/git/gitIpc";
 import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../shared/workspacePersistence";
 
 declare global {
@@ -72,6 +73,10 @@ declare global {
       };
       settings: {
         checkForUpdates: () => Promise<{ hasUpdate: boolean; latestVersion?: string }>;
+      };
+      git: {
+        branches: (projectPath: string) => Promise<GitBranchInfo>;
+        checkout: (projectPath: string, branch: string) => Promise<GitBranchInfo>;
       };
     };
   }

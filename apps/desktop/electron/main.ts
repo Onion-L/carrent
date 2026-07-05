@@ -13,6 +13,7 @@ import type { WorkspaceStore } from "./workspace/workspaceStore";
 import { createAttachmentStore } from "./attachments/attachmentStore";
 import { registerAttachmentIpc } from "./attachments/attachmentIpc";
 import { registerSkillIpc } from "./skills/skillIpc";
+import { registerGitIpc } from "./git/gitIpc";
 import { spawn } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -81,6 +82,7 @@ app.whenReady().then(async () => {
   const attachmentStore = createAttachmentStore(app.getPath("userData"));
   registerAttachmentIpc(ipcMain, { attachmentStore });
   registerSkillIpc(ipcMain);
+  registerGitIpc(ipcMain);
 
   ipcMain.handle("dialog:open-directory", async () => {
     const result = await dialog.showOpenDialog({

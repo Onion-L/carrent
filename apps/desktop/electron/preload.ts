@@ -7,6 +7,7 @@ import type {
   ProviderSessionSnapshot,
 } from "../src/shared/workspacePersistence";
 import type { RuntimeId } from "../src/shared/runtimes";
+import type { GitBranchInfo } from "./git/gitIpc";
 
 const carrent = {
   platform: process.platform,
@@ -79,6 +80,12 @@ const carrent = {
         hasUpdate: boolean;
         latestVersion?: string;
       }>,
+  },
+  git: {
+    branches: (projectPath: string) =>
+      ipcRenderer.invoke("git:branches", projectPath) as Promise<GitBranchInfo>,
+    checkout: (projectPath: string, branch: string) =>
+      ipcRenderer.invoke("git:checkout", projectPath, branch) as Promise<GitBranchInfo>,
   },
 };
 

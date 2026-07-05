@@ -4,9 +4,11 @@ import {
   Box,
   Check,
   ChevronDown,
+  GitBranch,
   Image,
   Lock,
   Pencil,
+  Search,
   X,
 } from "lucide-react";
 import {
@@ -469,11 +471,18 @@ export function Composer(props: ComposerProps) {
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [lightboxAttachmentIndex, setLightboxAttachmentIndex] = useState<number | null>(null);
   const [kimiStatus, setKimiStatus] = useState<KimiSessionStatus | null>(null);
+  const [gitBranches, setGitBranches] = useState<string[]>([]);
+  const [currentBranch, setCurrentBranch] = useState<string | null>(null);
+  const [gitLoading, setGitLoading] = useState(false);
+  const [gitError, setGitError] = useState<string | null>(null);
+  const [showBranchPicker, setShowBranchPicker] = useState(false);
+  const [branchSearchQuery, setBranchSearchQuery] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const runtimePickerRef = useRef<HTMLDivElement>(null);
   const cascadingPanelRef = useRef<HTMLDivElement>(null);
   const modePickerRef = useRef<HTMLDivElement>(null);
+  const branchPickerRef = useRef<HTMLDivElement>(null);
   const skillItemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const runtimeCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const receivedTextRef = useRef("");
@@ -637,7 +646,41 @@ export function Composer(props: ComposerProps) {
   }, [isThreadSending, refreshKimiStatus]);
 
   useEffect(() => {
-    if (!showRuntimePicker && !showModePicker) return;
+    if (!project?.path) {
+      setGitBranches([]);
+      setCurrentBranch(null);
+      return;
+    }
+
+    let cancelled = false;
+    setGitLoading(true);
+    setGitError(null);
+
+    void (async () => {
+      try {
+        const info = await window.carrent.git.branches(project.path);
+        if (!cancelled) {
+          setGitBranches(info.branches);
+          setCurrentBranch(info.current);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setGitError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setGitLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.path]);
+
+  useEffect(() => {
+    if (!showRuntimePicker && !showModePicker && !showBranchPicker) return;
 
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
@@ -652,6 +695,13 @@ export function Composer(props: ComposerProps) {
       if (showModePicker && modePickerRef.current && !modePickerRef.current.contains(target)) {
         setShowModePicker(false);
       }
+      if (
+        showBranchPicker &&
+        branchPickerRef.current &&
+        !branchPickerRef.current.contains(target)
+      ) {
+        setShowBranchPicker(false);
+      }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -662,6 +712,9 @@ export function Composer(props: ComposerProps) {
         if (showModePicker) {
           setShowModePicker(false);
         }
+        if (showBranchPicker) {
+          setShowBranchPicker(false);
+        }
       }
     };
 
@@ -671,7 +724,7 @@ export function Composer(props: ComposerProps) {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [showRuntimePicker, showModePicker]);
+  }, [showRuntimePicker, showModePicker, showBranchPicker]);
 
   useEffect(() => {
     setSelectedSkillIndex(0);
@@ -1563,6 +1616,96 @@ export function Composer(props: ComposerProps) {
                           </span>
                         </button>
                       ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+              {project?.path ? (
+                <div ref={branchPickerRef} className="relative">
+                  <button
+                    onClick={() => {
+                      if (!isThreadSending) {
+                        setShowBranchPicker((v) => !v);
+                      }
+                    }}
+                    disabled={isThreadSending || gitLoading}
+                    className={`flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition disabled:opacity-40 ${
+                      showBranchPicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
+                    }`}
+                    title={gitLoading ? "Loading branches" : "Git branch"}
+                  >
+                    <GitBranch className="h-3.5 w-3.5" />
+                    <span className="min-w-0 truncate">
+                      {gitLoading ? "Loading..." : currentBranch ?? "No branch"}
+                    </span>
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                  {showBranchPicker && (
+                    <div className="absolute bottom-full left-0 mb-1.5 w-64 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
+                      <div className="px-2 pb-1.5 pt-1.5">
+                        <div className="relative">
+                          <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+                          <input
+                            type="text"
+                            value={branchSearchQuery}
+                            onChange={(e) => setBranchSearchQuery(e.target.value)}
+                            placeholder="Search branches"
+                            className="w-full rounded-md border border-border-strong bg-bg py-1 pl-7 pr-2 text-[12px] text-fg placeholder:text-subtle outline-none focus:border-fg/20"
+                            autoFocus
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto px-1 pb-1">
+                        {gitError ? (
+                          <div className="px-3 py-2 text-[12px] leading-5 text-danger">
+                            {gitError}
+                          </div>
+                        ) : (
+                          gitBranches
+                            .filter((branch) =>
+                              branch.toLowerCase().includes(branchSearchQuery.toLowerCase()),
+                            )
+                            .map((branch) => {
+                              const isCurrent = branch === currentBranch;
+                              return (
+                                <button
+                                  key={branch}
+                                  onClick={() => {
+                                    if (!isCurrent && project?.path) {
+                                      void (async () => {
+                                        try {
+                                          const info = await window.carrent.git.checkout(
+                                            project.path,
+                                            branch,
+                                          );
+                                          setCurrentBranch(info.current);
+                                          setGitBranches(info.branches);
+                                          setGitError(null);
+                                        } catch (error) {
+                                          setGitError(
+                                            error instanceof Error
+                                              ? error.message
+                                              : String(error),
+                                          );
+                                        }
+                                      })();
+                                    }
+                                    setShowBranchPicker(false);
+                                    setBranchSearchQuery("");
+                                  }}
+                                  className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                                    isCurrent ? "text-fg" : "text-muted"
+                                  }`}
+                                >
+                                  <span className="min-w-0 truncate">{branch}</span>
+                                  {isCurrent ? (
+                                    <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
+                                  ) : null}
+                                </button>
+                              );
+                            })
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

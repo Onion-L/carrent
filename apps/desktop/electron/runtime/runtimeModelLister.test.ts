@@ -2,7 +2,12 @@ import { describe, expect, it } from "bun:test";
 import os from "node:os";
 
 import type { RuntimeDescriptor } from "../../src/shared/runtimes";
-import { listRuntimeModels, parsePiModelList } from "./runtimeModelLister";
+import {
+  listKimiRuntimeModels,
+  listRuntimeModels,
+  parsePiModelList,
+} from "./runtimeModelLister";
+import type { KimiAcpTransport } from "../chat/kimiAcpChat";
 
 const SAMPLE_MODEL_TABLE = `provider    model                   context  max-out  thinking  images
 deepseek    deepseek-v4-flash       1M       384K     yes       no
@@ -73,6 +78,63 @@ function createFailureResult(stderr: string, stdout = "") {
     signal: null,
     timedOut: false,
   };
+}
+
+
+function createKimiRuntimeDescriptor(): RuntimeDescriptor {
+  return {
+    id: "kimi",
+    name: "Kimi Code",
+    command: "kimi",
+    versionArgs: ["--version"],
+    configMarkers: ["~/.kimi-code", "~/.config/kimi-code"],
+    supportsModelPing: false,
+    detection: {
+      localCheck: {
+        mayUseTokens: false,
+      },
+    },
+    verification: {},
+  };
+}
+
+function respondAcp(
+  transport: FakeKimiAcpTransport,
+  request: Record<string, unknown>,
+  result: unknown,
+) {
+  transport.emitMessage({ jsonrpc: "2.0", id: request.id, result });
+}
+
+class FakeKimiAcpTransport implements KimiAcpTransport {
+  readonly sent: Array<Record<string, unknown>> = [];
+  private readonly messageListeners: Array<(message: Record<string, unknown>) => void> = [];
+
+  constructor(
+    private readonly onSend: (
+      transport: FakeKimiAcpTransport,
+      message: Record<string, unknown>,
+    ) => void,
+  ) {}
+
+  send(message: Record<string, unknown>) {
+    this.sent.push(message);
+    this.onSend(this, message);
+  }
+
+  close() {}
+
+  onMessage(listener: (message: Record<string, unknown>) => void) {
+    this.messageListeners.push(listener);
+  }
+
+  onError() {}
+
+  onClose() {}
+
+  emitMessage(message: Record<string, unknown>) {
+    this.messageListeners.forEach((listener) => listener(message));
+  }
 }
 
 describe("parsePiModelList", () => {
@@ -213,3 +275,105 @@ describe("listRuntimeModels", () => {
     });
   });
 });
+describe("listKimiRuntimeModels", () => {
+  it("returns models from session/new configOptions", async () => {
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, {
+          sessionId: "session-1",
+          configOptions: [
+            {
+              type: "select",
+              id: "model",
+              category: "model",
+              currentValue: "kimi-code/kimi-for-coding",
+              options: [
+                { value: "kimi-code/kimi-for-coding", name: "K2.7 Code High Speed" },
+                { value: "kimi-code/kimi-for-coding-deep", name: "K2.7 Code Deep" },
+              ],
+            },
+          ],
+        });
+      }
+    });
+
+    const result = await listKimiRuntimeModels("/Users/onion/workbench/carrent", () => transport);
+
+    expect(result).toEqual({
+      state: "listed",
+      models: [
+        { id: "kimi-code/kimi-for-coding", name: "K2.7 Code High Speed", source: "cli" },
+        { id: "kimi-code/kimi-for-coding-deep", name: "K2.7 Code Deep", source: "cli" },
+      ],
+      defaultModelId: "kimi-code/kimi-for-coding",
+    });
+  });
+
+  it("returns unsupported when there is no model config option", async () => {
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, {
+          sessionId: "session-1",
+          configOptions: [],
+        });
+      }
+    });
+
+    const result = await listKimiRuntimeModels("/Users/onion/workbench/carrent", () => transport);
+
+    expect(result).toEqual({ state: "unsupported", models: [] });
+  });
+});
+
+describe("listRuntimeModels for kimi", () => {
+  it("lists Kimi models without invoking the process runner", async () => {
+    let runCalls = 0;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, {
+          sessionId: "session-1",
+          configOptions: [
+            {
+              type: "select",
+              id: "model",
+              category: "model",
+              currentValue: "kimi-code/kimi-for-coding",
+              options: [{ value: "kimi-code/kimi-for-coding", name: "K2.7 Code High Speed" }],
+            },
+          ],
+        });
+      }
+    });
+
+    const result = await listRuntimeModels(createKimiRuntimeDescriptor(), {
+      run: async () => {
+        runCalls += 1;
+        return createSuccessResult("");
+      },
+      kimiTransportFactory: () => transport,
+    });
+
+    expect(runCalls).toBe(0);
+    expect(result).toEqual({
+      state: "listed",
+      models: [{ id: "kimi-code/kimi-for-coding", name: "K2.7 Code High Speed", source: "cli" }],
+      defaultModelId: "kimi-code/kimi-for-coding",
+    });
+  });
+});
+

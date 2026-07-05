@@ -36,7 +36,7 @@ export type KimiAcpTransport = {
 
 export type KimiAcpTransportFactory = (options: { cwd: string }) => KimiAcpTransport;
 
-type SpawnAcpProcess = (
+export type SpawnAcpProcess = (
   command: string,
   args: string[],
   options: {

@@ -523,7 +523,8 @@ export function Composer(props: ComposerProps) {
   ]);
 
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
-  const modelRuntimeId = props.runtimeId === "pi" ? props.runtimeId : null;
+  const modelRuntimeId =
+    props.runtimeId === "pi" || props.runtimeId === "kimi" ? props.runtimeId : null;
   const { models } = useRuntimeModels(modelRuntimeId);
   const { models: cascadingModels, loading: cascadingLoading } =
     useRuntimeModels(cascadingRuntimeId);
@@ -532,7 +533,10 @@ export function Composer(props: ComposerProps) {
     runtimeModelId: props.runtimeModelId,
   });
   const isSelectedRuntimeAvailable = isChatRuntimeAvailable(props.runtimeId, runtimes);
-  const kimiModelDisplay = kimiStatus?.model?.split("/").pop();
+  const kimiModelDisplay =
+    kimiStatus?.model?.split("/").pop() ??
+    selectedRuntimeModel?.id.split("/").pop() ??
+    props.runtimeModelId?.split("/").pop();
   const runtimeButtonLabel = runtimesLoading
     ? "Checking runtimes"
     : runtimeOptions.length === 0
@@ -1174,7 +1178,7 @@ export function Composer(props: ComposerProps) {
             </div>
           </div>
         ) : null}
-        <div className="rounded-2xl border border-border bg-surface-raised/90 p-3 shadow-[0_18px_60px_rgb(0_0_0/0.18)]">
+        <div className="rounded-xl border border-border bg-surface-raised/90 p-3 shadow-[0_18px_60px_rgb(0_0_0/0.18)]">
           {threadPermissions.length > 0 ? (
             <div className="mb-2 space-y-2">
               {threadPermissions.map((permission) => (
@@ -1356,7 +1360,8 @@ export function Composer(props: ComposerProps) {
                       {runtimeOptions.length > 0 ? (
                         runtimeOptions.map((runtime) => {
                           const supportsModelCascade =
-                            runtime.id === "pi" && props.onRuntimeModelIdChange;
+                            (runtime.id === "pi" || runtime.id === "kimi") &&
+                            props.onRuntimeModelIdChange;
 
                           return (
                             <button
@@ -1452,7 +1457,9 @@ export function Composer(props: ComposerProps) {
                     >
                       <div className="px-3 pb-1.5 pt-1.5">
                         <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
-                          pi models
+                          {cascadingRuntimeId
+                            ? `${runtimeNameMap[cascadingRuntimeId]} models`
+                            : "models"}
                         </div>
                       </div>
                       <div className="max-h-[calc(100vh-24px)] overflow-y-auto px-1 pb-1">

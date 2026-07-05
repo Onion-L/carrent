@@ -6,10 +6,13 @@ import {
   buildSkillReference,
   filterSkillsForQuery,
   formatSkillLabel,
+  getGitBridge,
+  getGitToastMessage,
   getDisplayRuntimeModel,
   getPermissionDetail,
   getRuntimeModelIdForSend,
   getSkillSlashTrigger,
+  normalizeGitBranchInfo,
   replaceSkillSlashTrigger,
   shouldSubmitComposerOnKeyDown,
   storeImageAttachmentFile,
@@ -193,6 +196,113 @@ describe("getRuntimeModelIdForSend", () => {
         defaultModelId: "deepseek/deepseek-v4-flash",
       }),
     ).toBe("minimax-cn/MiniMax-M2.7");
+  });
+});
+
+describe("normalizeGitBranchInfo", () => {
+  it("accepts valid branch info", () => {
+    expect(normalizeGitBranchInfo({ current: "main", branches: ["main", "feature"] })).toEqual({
+      current: "main",
+      branches: ["main", "feature"],
+      branchWorktrees: [],
+    });
+  });
+
+  it("accepts branch worktree metadata", () => {
+    expect(
+      normalizeGitBranchInfo({
+        current: "main",
+        branches: ["main", "feature"],
+        branchWorktrees: [{ branch: "feature", path: "/tmp/feature" }],
+      }),
+    ).toEqual({
+      current: "main",
+      branches: ["main", "feature"],
+      branchWorktrees: [{ branch: "feature", path: "/tmp/feature" }],
+    });
+  });
+
+  it("reports a clear error when the git bridge returns no branch info", () => {
+    try {
+      normalizeGitBranchInfo(undefined);
+      throw new Error("Expected normalizeGitBranchInfo to reject.");
+    } catch (error) {
+      expect(error instanceof Error).toBe(true);
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toBe("Git branch information is unavailable. Restart Carrent and try again.");
+    }
+  });
+
+  it("reports a clear error when the git bridge returns malformed branch info", () => {
+    try {
+      normalizeGitBranchInfo({ current: "main" });
+      throw new Error("Expected normalizeGitBranchInfo to reject.");
+    } catch (error) {
+      expect(error instanceof Error).toBe(true);
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toBe("Git branch information is unavailable. Restart Carrent and try again.");
+    }
+  });
+
+  it("reports a clear error when branch worktree metadata is malformed", () => {
+    try {
+      normalizeGitBranchInfo({
+        current: "main",
+        branches: ["main"],
+        branchWorktrees: [{ branch: "feature" }],
+      });
+      throw new Error("Expected normalizeGitBranchInfo to reject.");
+    } catch (error) {
+      expect(error instanceof Error).toBe(true);
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toBe("Git branch information is unavailable. Restart Carrent and try again.");
+    }
+  });
+});
+
+describe("getGitBridge", () => {
+  it("accepts the preload git bridge", async () => {
+    const git = getGitBridge({
+      git: {
+        branches: async () => ({ current: "main", branches: ["main"] }),
+        checkout: async () => ({ current: "feature", branches: ["main", "feature"] }),
+      },
+    });
+
+    expect(await git.branches("/repo")).toEqual({ current: "main", branches: ["main"] });
+  });
+
+  it("reports a clear error when the preload git bridge is missing", () => {
+    try {
+      getGitBridge({});
+      throw new Error("Expected getGitBridge to reject.");
+    } catch (error) {
+      expect(error instanceof Error).toBe(true);
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toBe("Git controls are unavailable. Restart Carrent and try again.");
+    }
+  });
+});
+
+describe("getGitToastMessage", () => {
+  it("summarizes dirty worktree checkout errors", () => {
+    expect(
+      getGitToastMessage(
+        new Error(
+          "Error invoking remote method 'git:checkout': Error: Command failed: git checkout codex/polish error: Your local changes to the following files would be overwritten by checkout: apps/desktop/electron/git/gitIpc.ts Please commit your changes or stash them before you switch branches. Aborting",
+        ),
+      ),
+    ).toBe("Cannot switch branches because you have local changes. Commit or stash them first.");
+  });
+
+  it("removes the Electron git IPC prefix from readable errors", () => {
+    expect(
+      getGitToastMessage(
+        new Error(
+          "Error invoking remote method 'git:checkout': Error: Branch \"feature\" is already checked out at /tmp/feature.",
+        ),
+      ),
+    ).toBe('Branch "feature" is already checked out at /tmp/feature.');
   });
 });
 

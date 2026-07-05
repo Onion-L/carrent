@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
 import {
   createContext,
   useContext,
@@ -65,20 +65,30 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
     setExiting(true);
   };
 
+  const Icon =
+    toast.type === "error" ? AlertCircle : toast.type === "success" ? CheckCircle2 : Info;
+  const iconClassName =
+    toast.type === "error"
+      ? "text-danger"
+      : toast.type === "success"
+        ? "text-fg"
+        : "text-muted";
+
   return (
     <div
-      className={`pointer-events-auto flex max-w-md items-center gap-3 rounded-xl border border-border-strong bg-surface-raised px-4 py-3 text-[14px] text-fg shadow-xl transition-all duration-300 ease-out ${
+      className={`pointer-events-auto flex w-[calc(100vw-2rem)] max-w-[34rem] items-start gap-3 rounded-lg border border-border-strong bg-surface-raised px-3.5 py-3 text-[13px] leading-5 text-fg shadow-xl transition-all duration-300 ease-out ${
         visible && !exiting
           ? "opacity-100 translate-y-0 scale-100"
           : "opacity-0 -translate-y-3 scale-95"
       }`}
-      role="status"
-      aria-live="polite"
+      role={toast.type === "error" ? "alert" : "status"}
+      aria-live={toast.type === "error" ? "assertive" : "polite"}
     >
-      <span className="flex-1">{toast.message}</span>
+      <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${iconClassName}`} />
+      <span className="min-w-0 flex-1 break-words">{toast.message}</span>
       <button
         onClick={handleDismiss}
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+        className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
         aria-label="Dismiss toast"
         title="Dismiss"
       >

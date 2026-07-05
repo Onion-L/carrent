@@ -1,8 +1,16 @@
 import { execFile } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
+
+export interface GitBranchWorktree {
+  branch: string;
+  path: string;
+}
 
 export interface GitBranchInfo {
   current: string;
   branches: string[];
+  branchWorktrees: GitBranchWorktree[];
 }
 
 interface IpcMainLike {
@@ -36,7 +44,10 @@ export function registerGitIpc(ipcMainLike: IpcMainLike): void {
 async function getBranches(cwd: string): Promise<GitBranchInfo> {
   const branches = await listBranchNames(cwd);
   const current = await getCurrentBranch(cwd);
-  return { current, branches };
+  const branchWorktrees = (await listBranchWorktrees(cwd)).filter(
+    (worktree) => !isSamePath(worktree.path, cwd),
+  );
+  return { current, branches, branchWorktrees };
 }
 
 function listBranchNames(cwd: string): Promise<string[]> {
@@ -68,10 +79,60 @@ function getCurrentBranch(cwd: string): Promise<string> {
   });
 }
 
+function listBranchWorktrees(cwd: string): Promise<GitBranchWorktree[]> {
+  return new Promise((resolveList, reject) => {
+    execFile("git", ["worktree", "list", "--porcelain"], { cwd }, (error, stdout) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolveList(parseGitWorktreeList(stdout));
+    });
+  });
+}
+
+export function parseGitWorktreeList(output: string): GitBranchWorktree[] {
+  const worktrees: GitBranchWorktree[] = [];
+  let currentPath: string | null = null;
+
+  for (const line of output.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      currentPath = line.slice("worktree ".length);
+      continue;
+    }
+
+    if (line.startsWith("branch refs/heads/") && currentPath) {
+      worktrees.push({
+        path: currentPath,
+        branch: line.slice("branch refs/heads/".length),
+      });
+    }
+  }
+
+  return worktrees;
+}
+
+function isSamePath(left: string, right: string): boolean {
+  return normalizePath(left) === normalizePath(right);
+}
+
+function normalizePath(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
 async function checkoutBranch(cwd: string, branch: string): Promise<void> {
-  const { branches } = await getBranches(cwd);
+  const { branches, branchWorktrees } = await getBranches(cwd);
   if (!branches.includes(branch)) {
     throw new Error(`Branch "${branch}" does not exist.`);
+  }
+
+  const occupiedWorktree = branchWorktrees.find((worktree) => worktree.branch === branch);
+  if (occupiedWorktree) {
+    throw new Error(`Branch "${branch}" is already checked out at ${occupiedWorktree.path}.`);
   }
 
   return new Promise((resolve, reject) => {

@@ -57,6 +57,7 @@ import { useRuntimeModels } from "../../hooks/useRuntimeModels";
 import { useRuntimes } from "../../hooks/useRuntimes";
 import { useSkills } from "../../hooks/useSkills";
 import { getChatRuntimeOptions, isChatRuntimeAvailable } from "../../lib/runtimeSelection";
+import { useToast } from "../toast/ToastContext";
 
 function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: string }) {
   switch (mode) {
@@ -175,6 +176,22 @@ type AttachmentStoreBridge = {
   }) => Promise<ImageAttachmentMetadata>;
 };
 
+type GitBranchInfo = {
+  current: string | null;
+  branches: string[];
+  branchWorktrees: GitBranchWorktree[];
+};
+
+type GitBranchWorktree = {
+  branch: string;
+  path: string;
+};
+
+type GitBridge = {
+  branches: (projectPath: string) => Promise<unknown>;
+  checkout: (projectPath: string, branch: string) => Promise<unknown>;
+};
+
 function getAttachmentStoreBridge(attachments: unknown): AttachmentStoreBridge {
   if (
     typeof attachments !== "object" ||
@@ -198,6 +215,71 @@ export async function storeImageAttachmentFile(
     mimeType: file.type,
     data,
   });
+}
+
+export function getGitBridge(carrent: unknown): GitBridge {
+  const git =
+    typeof carrent === "object" && carrent !== null
+      ? (carrent as { git?: unknown }).git
+      : null;
+
+  if (
+    typeof git !== "object" ||
+    git === null ||
+    typeof (git as { branches?: unknown }).branches !== "function" ||
+    typeof (git as { checkout?: unknown }).checkout !== "function"
+  ) {
+    throw new Error("Git controls are unavailable. Restart Carrent and try again.");
+  }
+
+  return git as GitBridge;
+}
+
+export function normalizeGitBranchInfo(info: unknown): GitBranchInfo {
+  const branchWorktrees = (info as { branchWorktrees?: unknown } | null)?.branchWorktrees;
+
+  if (
+    typeof info !== "object" ||
+    info === null ||
+    !Array.isArray((info as { branches?: unknown }).branches) ||
+    !(info as { branches: unknown[] }).branches.every((branch) => typeof branch === "string") ||
+    typeof (info as { current?: unknown }).current !== "string" ||
+    (branchWorktrees !== undefined &&
+      (!Array.isArray(branchWorktrees) ||
+        !branchWorktrees.every(
+          (worktree) =>
+            typeof worktree === "object" &&
+            worktree !== null &&
+            typeof (worktree as { branch?: unknown }).branch === "string" &&
+            typeof (worktree as { path?: unknown }).path === "string",
+        )))
+  ) {
+    throw new Error("Git branch information is unavailable. Restart Carrent and try again.");
+  }
+
+  return {
+    current: (info as { current: string }).current,
+    branches: (info as { branches: string[] }).branches,
+    branchWorktrees: (branchWorktrees ?? []) as GitBranchWorktree[],
+  };
+}
+
+export function getGitToastMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const withoutIpcPrefix = message
+    .replace(/^Error invoking remote method 'git:[^']+': Error:\s*/u, "")
+    .trim();
+
+  if (
+    withoutIpcPrefix.includes(
+      "Your local changes to the following files would be overwritten by checkout",
+    ) ||
+    withoutIpcPrefix.includes("Please commit your changes or stash them before you switch branches")
+  ) {
+    return "Cannot switch branches because you have local changes. Commit or stash them first.";
+  }
+
+  return withoutIpcPrefix.replace(/^Command failed: git checkout [^\n]*\s*/u, "").trim();
 }
 
 type ComposerKeyDownEvent = {
@@ -454,6 +536,7 @@ export function Composer(props: ComposerProps) {
   const { runningThreadIds, pendingPermissions, respondToPermission, send, stop } = useChatRun();
   const { runtimes, loading: runtimesLoading } = useRuntimes();
   const { skills, loading: skillsLoading, error: skillsError } = useSkills();
+  const { showToast } = useToast();
   const [input, setInput] = useState("");
   const [textareaCursor, setTextareaCursor] = useState(0);
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
@@ -472,9 +555,9 @@ export function Composer(props: ComposerProps) {
   const [lightboxAttachmentIndex, setLightboxAttachmentIndex] = useState<number | null>(null);
   const [kimiStatus, setKimiStatus] = useState<KimiSessionStatus | null>(null);
   const [gitBranches, setGitBranches] = useState<string[]>([]);
+  const [gitBranchWorktrees, setGitBranchWorktrees] = useState<GitBranchWorktree[]>([]);
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const [gitLoading, setGitLoading] = useState(false);
-  const [gitError, setGitError] = useState<string | null>(null);
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [branchSearchQuery, setBranchSearchQuery] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -648,24 +731,29 @@ export function Composer(props: ComposerProps) {
   useEffect(() => {
     if (!project?.path) {
       setGitBranches([]);
+      setGitBranchWorktrees([]);
       setCurrentBranch(null);
       return;
     }
 
     let cancelled = false;
     setGitLoading(true);
-    setGitError(null);
 
     void (async () => {
       try {
-        const info = await window.carrent.git.branches(project.path);
+        const git = getGitBridge(window.carrent);
+        const info = normalizeGitBranchInfo(await git.branches(project.path));
         if (!cancelled) {
           setGitBranches(info.branches);
+          setGitBranchWorktrees(info.branchWorktrees);
           setCurrentBranch(info.current);
         }
       } catch (error) {
         if (!cancelled) {
-          setGitError(error instanceof Error ? error.message : String(error));
+          setGitBranches([]);
+          setGitBranchWorktrees([]);
+          setCurrentBranch(null);
+          showToast(getGitToastMessage(error), "error");
         }
       } finally {
         if (!cancelled) {
@@ -677,7 +765,7 @@ export function Composer(props: ComposerProps) {
     return () => {
       cancelled = true;
     };
-  }, [project?.path]);
+  }, [project?.path, showToast]);
 
   useEffect(() => {
     if (!showRuntimePicker && !showModePicker && !showBranchPicker) return;
@@ -1656,55 +1744,64 @@ export function Composer(props: ComposerProps) {
                         </div>
                       </div>
                       <div className="max-h-64 overflow-y-auto px-1 pb-1">
-                        {gitError ? (
-                          <div className="px-3 py-2 text-[12px] leading-5 text-danger">
-                            {gitError}
-                          </div>
-                        ) : (
-                          gitBranches
-                            .filter((branch) =>
-                              branch.toLowerCase().includes(branchSearchQuery.toLowerCase()),
-                            )
-                            .map((branch) => {
-                              const isCurrent = branch === currentBranch;
-                              return (
-                                <button
-                                  key={branch}
-                                  onClick={() => {
-                                    if (!isCurrent && project?.path) {
-                                      void (async () => {
-                                        try {
-                                          const info = await window.carrent.git.checkout(
-                                            project.path,
-                                            branch,
-                                          );
-                                          setCurrentBranch(info.current);
-                                          setGitBranches(info.branches);
-                                          setGitError(null);
-                                        } catch (error) {
-                                          setGitError(
-                                            error instanceof Error
-                                              ? error.message
-                                              : String(error),
-                                          );
-                                        }
-                                      })();
-                                    }
-                                    setShowBranchPicker(false);
-                                    setBranchSearchQuery("");
-                                  }}
-                                  className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
-                                    isCurrent ? "text-fg" : "text-muted"
-                                  }`}
-                                >
-                                  <span className="min-w-0 truncate">{branch}</span>
-                                  {isCurrent ? (
-                                    <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
+                        {gitBranches
+                          .filter((branch) =>
+                            branch.toLowerCase().includes(branchSearchQuery.toLowerCase()),
+                          )
+                          .map((branch) => {
+                            const isCurrent = branch === currentBranch;
+                            const branchWorktree = gitBranchWorktrees.find(
+                              (worktree) => worktree.branch === branch,
+                            );
+                            const isUnavailable = Boolean(branchWorktree && !isCurrent);
+                            return (
+                              <button
+                                key={branch}
+                                onClick={() => {
+                                  if (!isCurrent && !isUnavailable && project?.path) {
+                                    void (async () => {
+                                      try {
+                                        const git = getGitBridge(window.carrent);
+                                        const info = normalizeGitBranchInfo(
+                                          await git.checkout(project.path, branch),
+                                        );
+                                        setCurrentBranch(info.current);
+                                        setGitBranches(info.branches);
+                                        setGitBranchWorktrees(info.branchWorktrees);
+                                      } catch (error) {
+                                        showToast(getGitToastMessage(error), "error");
+                                      }
+                                    })();
+                                  }
+                                  setShowBranchPicker(false);
+                                  setBranchSearchQuery("");
+                                }}
+                                disabled={isUnavailable}
+                                title={
+                                  isUnavailable ? `Checked out at ${branchWorktree?.path}` : undefined
+                                }
+                                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised disabled:cursor-not-allowed disabled:hover:bg-transparent ${
+                                  isCurrent
+                                    ? "text-fg"
+                                    : isUnavailable
+                                      ? "text-subtle"
+                                      : "text-muted"
+                                }`}
+                              >
+                                <span className="min-w-0">
+                                  <span className="block truncate">{branch}</span>
+                                  {isUnavailable ? (
+                                    <span className="block truncate text-[10px] text-subtle">
+                                      Checked out elsewhere
+                                    </span>
                                   ) : null}
-                                </button>
-                              );
-                            })
-                        )}
+                                </span>
+                                {isCurrent ? (
+                                  <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
+                                ) : null}
+                              </button>
+                            );
+                          })}
                       </div>
                     </div>
                   )}

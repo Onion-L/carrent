@@ -1271,7 +1271,7 @@ export function Composer(props: ComposerProps) {
             onClick={updateTextareaCursor}
             onSelect={updateTextareaCursor}
             placeholder="Message..."
-            className="min-h-24 w-full resize-none bg-transparent text-[15px] leading-6 text-fg placeholder:text-subtle outline-none"
+            className="min-h-20 w-full resize-none bg-transparent text-[15px] leading-6 text-fg placeholder:text-subtle outline-none"
             rows={2}
             onKeyDown={(e) => {
               if (showSkillMenu) {

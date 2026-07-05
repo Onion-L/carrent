@@ -3,7 +3,12 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { ChatRunEvent, ChatTurnRequest, ImageAttachment, KimiSessionStatus } from "../../src/shared/chat";
+import type {
+  ChatRunEvent,
+  ChatTurnRequest,
+  ImageAttachment,
+  KimiSessionStatus,
+} from "../../src/shared/chat";
 import {
   CHAT_PERMISSION_TIMEOUT_MS,
   buildPermissionExpiry,
@@ -196,7 +201,9 @@ export async function getKimiSessionStatus(options: {
         pending.delete(message.id as JsonRpcId);
         if (message.error) {
           const errorObject = readObject(message.error);
-          handler.reject(new Error(readString(errorObject?.message) ?? JSON.stringify(message.error)));
+          handler.reject(
+            new Error(readString(errorObject?.message) ?? JSON.stringify(message.error)),
+          );
         } else {
           handler.resolve(message.result);
         }

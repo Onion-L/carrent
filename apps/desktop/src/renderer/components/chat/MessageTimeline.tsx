@@ -146,6 +146,7 @@ function UserMessage({
       id: attachment.id,
       name: attachment.name,
       storageKey: attachment.storageKey,
+      mimeType: attachment.mimeType,
     })) ?? [];
 
   return (

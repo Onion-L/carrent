@@ -68,11 +68,7 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
   const Icon =
     toast.type === "error" ? AlertCircle : toast.type === "success" ? CheckCircle2 : Info;
   const iconClassName =
-    toast.type === "error"
-      ? "text-danger"
-      : toast.type === "success"
-        ? "text-fg"
-        : "text-muted";
+    toast.type === "error" ? "text-danger" : toast.type === "success" ? "text-fg" : "text-muted";
 
   return (
     <div

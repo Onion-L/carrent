@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { parseGitWorktreeList, registerGitIpc } from "./gitIpc";
 
 describe("registerGitIpc", () => {
-  it("registers git:branches and git:checkout handlers", () => {
+  it("registers git handlers", () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>();
 
     registerGitIpc({
@@ -18,6 +18,7 @@ describe("registerGitIpc", () => {
 
     expect(handlers.has("git:branches")).toBe(true);
     expect(handlers.has("git:checkout")).toBe(true);
+    expect(handlers.has("git:createBranch")).toBe(true);
   });
 
   it("rejects git:branches when projectPath is missing", async () => {
@@ -53,6 +54,57 @@ describe("registerGitIpc", () => {
       expect(false).toBe(true);
     } catch (error) {
       expect((error as Error).message).toBe("Project path and branch are required.");
+    }
+  });
+
+  it("rejects git:createBranch when projectPath or branch is missing", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>();
+
+    registerGitIpc({
+      handle: (channel, listener) => {
+        handlers.set(channel, listener);
+      },
+    });
+
+    const createBranchHandler = handlers.get("git:createBranch")!;
+    try {
+      await createBranchHandler({}, "/path", " ");
+      expect(false).toBe(true);
+    } catch (error) {
+      expect((error as Error).message).toBe("Project path and branch are required.");
+    }
+  });
+
+  it("creates and checks out a branch", async () => {
+    const root = mkdtempSync(join(tmpdir(), "carrent-git-ipc-"));
+    const repo = join(root, "repo");
+
+    try {
+      git(root, "init", repo);
+      git(repo, "config", "user.email", "test@example.com");
+      git(repo, "config", "user.name", "Test User");
+      writeFileSync(join(repo, "README.md"), "hello\n");
+      git(repo, "add", "README.md");
+      git(repo, "commit", "-m", "init");
+      git(repo, "branch", "-M", "main");
+
+      const handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>();
+      registerGitIpc({
+        handle: (channel, listener) => {
+          handlers.set(channel, listener);
+        },
+      });
+
+      const createBranchHandler = handlers.get("git:createBranch")!;
+      const info = await createBranchHandler({}, repo, "carrent/new-branch");
+
+      expect(info).toEqual({
+        current: "carrent/new-branch",
+        branches: ["carrent/new-branch", "main"],
+        branchWorktrees: [],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

@@ -14,7 +14,10 @@ export interface GitBranchInfo {
 }
 
 interface IpcMainLike {
-  handle: (channel: string, listener: (event: unknown, ...args: unknown[]) => Promise<unknown>) => void;
+  handle: (
+    channel: string,
+    listener: (event: unknown, ...args: unknown[]) => Promise<unknown>,
+  ) => void;
 }
 
 function readString(value: unknown): string | null {
@@ -37,6 +40,16 @@ export function registerGitIpc(ipcMainLike: IpcMainLike): void {
       throw new Error("Project path and branch are required.");
     }
     await checkoutBranch(path, branchName);
+    return getBranches(path);
+  });
+
+  ipcMainLike.handle("git:createBranch", async (_event, projectPath, branch) => {
+    const path = readString(projectPath);
+    const branchName = readString(branch)?.trim();
+    if (!path || !branchName) {
+      throw new Error("Project path and branch are required.");
+    }
+    await createBranch(path, branchName);
     return getBranches(path);
   });
 }
@@ -137,6 +150,18 @@ async function checkoutBranch(cwd: string, branch: string): Promise<void> {
 
   return new Promise((resolve, reject) => {
     execFile("git", ["checkout", branch], { cwd }, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+async function createBranch(cwd: string, branch: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile("git", ["checkout", "-b", branch], { cwd }, (error) => {
       if (error) {
         reject(error);
         return;

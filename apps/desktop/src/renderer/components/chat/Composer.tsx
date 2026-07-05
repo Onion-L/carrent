@@ -8,6 +8,7 @@ import {
   Image,
   Lock,
   Pencil,
+  Plus,
   Search,
   X,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
   useRef,
   useState,
   type ClipboardEvent,
+  type FormEvent,
 } from "react";
 import { createPortal } from "react-dom";
 
@@ -132,7 +134,8 @@ function ContextUsageIndicator({
         <div className="absolute bottom-full right-0 mb-2 w-52 rounded-lg border border-border-strong bg-surface px-3 py-2 shadow-xl">
           <div className="text-[11px] text-muted">Context usage</div>
           <div className="mt-0.5 text-[12px] font-medium text-fg">
-            {status.used.toLocaleString()} / {status.total.toLocaleString()} ({status.percentage.toFixed(1)}%)
+            {status.used.toLocaleString()} / {status.total.toLocaleString()} (
+            {status.percentage.toFixed(1)}%)
           </div>
           {status.model ? (
             <div className="mt-1 truncate text-[11px] text-subtle">{status.model}</div>
@@ -190,7 +193,10 @@ type GitBranchWorktree = {
 type GitBridge = {
   branches: (projectPath: string) => Promise<unknown>;
   checkout: (projectPath: string, branch: string) => Promise<unknown>;
+  createBranch?: (projectPath: string, branch: string) => Promise<unknown>;
 };
+
+const CREATE_BRANCH_DEFAULT_NAME = "carrent/";
 
 function getAttachmentStoreBridge(attachments: unknown): AttachmentStoreBridge {
   if (
@@ -219,9 +225,7 @@ export async function storeImageAttachmentFile(
 
 export function getGitBridge(carrent: unknown): GitBridge {
   const git =
-    typeof carrent === "object" && carrent !== null
-      ? (carrent as { git?: unknown }).git
-      : null;
+    typeof carrent === "object" && carrent !== null ? (carrent as { git?: unknown }).git : null;
 
   if (
     typeof git !== "object" ||
@@ -279,7 +283,7 @@ export function getGitToastMessage(error: unknown): string {
     return "Cannot switch branches because you have local changes. Commit or stash them first.";
   }
 
-  return withoutIpcPrefix.replace(/^Command failed: git checkout [^\n]*\s*/u, "").trim();
+  return withoutIpcPrefix.replace(/^Command failed: git checkout (?:-b )?[^\n]*\s*/u, "").trim();
 }
 
 type ComposerKeyDownEvent = {
@@ -542,6 +546,7 @@ export function Composer(props: ComposerProps) {
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
   const [dismissedSkillInput, setDismissedSkillInput] = useState<string | null>(null);
+  const [attachedSkills, setAttachedSkills] = useState<SkillRecord[]>([]);
   const [showRuntimePicker, setShowRuntimePicker] = useState(false);
   const [cascadingRuntimeId, setCascadingRuntimeId] = useState<RuntimeId | null>(null);
   const [isPointerOverRuntimeMenu, setIsPointerOverRuntimeMenu] = useState(false);
@@ -560,6 +565,9 @@ export function Composer(props: ComposerProps) {
   const [gitLoading, setGitLoading] = useState(false);
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [branchSearchQuery, setBranchSearchQuery] = useState("");
+  const [newBranchName, setNewBranchName] = useState(CREATE_BRANCH_DEFAULT_NAME);
+  const [creatingBranch, setCreatingBranch] = useState(false);
+  const [showCreateBranchInput, setShowCreateBranchInput] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const runtimePickerRef = useRef<HTMLDivElement>(null);
@@ -653,7 +661,7 @@ export function Composer(props: ComposerProps) {
     dismissedSkillInput !== input &&
     (skillsLoading || !!skillsError || filteredSkills.length > 0 || skillTrigger.query.length > 0);
 
-  const hasSendableContent = !!input.trim() || pendingAttachments.length > 0;
+  const hasSendableContent = !!input.trim() || attachedSkills.length > 0 || pendingAttachments.length > 0;
   const canSend =
     (props.mode === "chat" ? hasSendableContent : hasSendableContent && !!project) &&
     isSelectedRuntimeAvailable;
@@ -667,6 +675,28 @@ export function Composer(props: ComposerProps) {
   const cascadingPanelTransitionClass = !cascadingPanelPosition
     ? "pointer-events-none opacity-0 translate-y-1 scale-95"
     : "opacity-100 translate-x-0 translate-y-0 scale-100";
+  const visibleGitBranches = useMemo(() => {
+    const query = branchSearchQuery.trim().toLowerCase();
+    return gitBranches.filter((branch) => branch.toLowerCase().includes(query));
+  }, [branchSearchQuery, gitBranches]);
+  const worktreeBranchNames = useMemo(
+    () => new Set(gitBranchWorktrees.map((worktree) => worktree.branch)),
+    [gitBranchWorktrees],
+  );
+  const visibleLocalBranches = useMemo(
+    () =>
+      visibleGitBranches.filter(
+        (branch) => branch === currentBranch || !worktreeBranchNames.has(branch),
+      ),
+    [currentBranch, visibleGitBranches, worktreeBranchNames],
+  );
+  const visibleWorktreeBranches = useMemo(
+    () =>
+      visibleGitBranches.filter(
+        (branch) => branch !== currentBranch && worktreeBranchNames.has(branch),
+      ),
+    [currentBranch, visibleGitBranches, worktreeBranchNames],
+  );
 
   const stopTypewriter = () => {
     if (typewriterTimerRef.current) {
@@ -733,6 +763,8 @@ export function Composer(props: ComposerProps) {
       setGitBranches([]);
       setGitBranchWorktrees([]);
       setCurrentBranch(null);
+      setNewBranchName(CREATE_BRANCH_DEFAULT_NAME);
+      setShowCreateBranchInput(false);
       return;
     }
 
@@ -766,6 +798,49 @@ export function Composer(props: ComposerProps) {
       cancelled = true;
     };
   }, [project?.path, showToast]);
+
+  const handleCreateBranch = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!project?.path || creatingBranch) {
+        return;
+      }
+
+      const branchName = newBranchName.trim();
+      if (!branchName) {
+        showToast("Branch name is required.", "error");
+        return;
+      }
+
+      setCreatingBranch(true);
+      try {
+        const git = getGitBridge(window.carrent);
+        if (typeof git.createBranch !== "function") {
+          throw new Error("Git branch creation is unavailable. Restart Carrent and try again.");
+        }
+        const info = normalizeGitBranchInfo(await git.createBranch(project.path, branchName));
+        setCurrentBranch(info.current);
+        setGitBranches(info.branches);
+        setGitBranchWorktrees(info.branchWorktrees);
+        setShowBranchPicker(false);
+        setBranchSearchQuery("");
+        setNewBranchName(CREATE_BRANCH_DEFAULT_NAME);
+        setShowCreateBranchInput(false);
+      } catch (error) {
+        showToast(getGitToastMessage(error), "error");
+      } finally {
+        setCreatingBranch(false);
+      }
+    },
+    [creatingBranch, newBranchName, project?.path, showToast],
+  );
+
+  useEffect(() => {
+    if (!showBranchPicker) {
+      setShowCreateBranchInput(false);
+      setNewBranchName(CREATE_BRANCH_DEFAULT_NAME);
+    }
+  }, [showBranchPicker]);
 
   useEffect(() => {
     if (!showRuntimePicker && !showModePicker && !showBranchPicker) return;
@@ -1008,7 +1083,11 @@ export function Composer(props: ComposerProps) {
       return;
     }
 
-    const messageText = input.trim();
+    const skillPrefix =
+      attachedSkills.length > 0
+        ? `${attachedSkills.map(buildSkillReference).join(" ")} `
+        : "";
+    const messageText = `${skillPrefix}${input.trim()}`.trim();
     const attachmentMetadata: ImageAttachmentMetadata[] = metadataOnly(
       pendingAttachments.map((pending) => pending.metadata!),
     );
@@ -1195,6 +1274,7 @@ export function Composer(props: ComposerProps) {
     }
 
     setInput("");
+    setAttachedSkills([]);
     setPendingAttachments((prev) => {
       prev.forEach((pending) => URL.revokeObjectURL(pending.previewUrl));
       return [];
@@ -1237,8 +1317,18 @@ export function Composer(props: ComposerProps) {
       return;
     }
 
-    const nextInput = replaceSkillSlashTrigger(input, skillTrigger, skill);
-    const nextCursor = skillTrigger.start + buildSkillReference(skill).length + 1;
+    setAttachedSkills((prev) => {
+      if (prev.some((s) => s.path === skill.path)) {
+        return prev;
+      }
+      return [...prev, skill];
+    });
+
+    const beforeTrigger = input.slice(0, skillTrigger.start).replace(/\s+$/u, "");
+    const afterTrigger = input.slice(skillTrigger.end).replace(/^\s+/u, "");
+    const separator = beforeTrigger && afterTrigger ? " " : "";
+    const nextInput = `${beforeTrigger}${separator}${afterTrigger}`;
+    const nextCursor = beforeTrigger.length + (separator ? 1 : 0);
     setInput(nextInput);
     setDismissedSkillInput(null);
     setTextareaCursor(nextCursor);
@@ -1252,6 +1342,10 @@ export function Composer(props: ComposerProps) {
       textarea.focus();
       textarea.setSelectionRange(nextCursor, nextCursor);
     });
+  };
+
+  const handleRemoveSkill = (skill: SkillRecord) => {
+    setAttachedSkills((prev) => prev.filter((s) => s.path !== skill.path));
   };
 
   const handlePermissionResponse = (
@@ -1391,6 +1485,27 @@ export function Composer(props: ComposerProps) {
                     <X className="h-3 w-3" />
                   </button>
                 </div>
+              ))}
+            </div>
+          )}
+          {attachedSkills.length > 0 && (
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              {attachedSkills.map((skill) => (
+                <span
+                  key={skill.path}
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border-strong bg-surface px-2 py-1 text-[12px] font-medium text-fg"
+                >
+                  <Box className="h-3.5 w-3.5 shrink-0 text-muted" />
+                  <span className="truncate">{formatSkillLabel(skill.name)}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSkill(skill)}
+                    className="flex h-4 w-4 items-center justify-center rounded-full text-muted transition hover:bg-surface-hover hover:text-fg"
+                    title="Remove skill"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
               ))}
             </div>
           )}
@@ -1708,105 +1823,6 @@ export function Composer(props: ComposerProps) {
                   )}
                 </div>
               ) : null}
-              {project?.path ? (
-                <div ref={branchPickerRef} className="relative">
-                  <button
-                    onClick={() => {
-                      if (!isThreadSending) {
-                        setShowBranchPicker((v) => !v);
-                      }
-                    }}
-                    disabled={isThreadSending || gitLoading}
-                    className={`flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition disabled:opacity-40 ${
-                      showBranchPicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
-                    }`}
-                    title={gitLoading ? "Loading branches" : "Git branch"}
-                  >
-                    <GitBranch className="h-3.5 w-3.5" />
-                    <span className="min-w-0 truncate">
-                      {gitLoading ? "Loading..." : currentBranch ?? "No branch"}
-                    </span>
-                    <ChevronDown className="h-3 w-3" />
-                  </button>
-                  {showBranchPicker && (
-                    <div className="absolute bottom-full left-0 mb-1.5 w-64 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
-                      <div className="px-2 pb-1.5 pt-1.5">
-                        <div className="relative">
-                          <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
-                          <input
-                            type="text"
-                            value={branchSearchQuery}
-                            onChange={(e) => setBranchSearchQuery(e.target.value)}
-                            placeholder="Search branches"
-                            className="w-full rounded-md border border-border-strong bg-bg py-1 pl-7 pr-2 text-[12px] text-fg placeholder:text-subtle outline-none focus:border-fg/20"
-                            autoFocus
-                          />
-                        </div>
-                      </div>
-                      <div className="max-h-64 overflow-y-auto px-1 pb-1">
-                        {gitBranches
-                          .filter((branch) =>
-                            branch.toLowerCase().includes(branchSearchQuery.toLowerCase()),
-                          )
-                          .map((branch) => {
-                            const isCurrent = branch === currentBranch;
-                            const branchWorktree = gitBranchWorktrees.find(
-                              (worktree) => worktree.branch === branch,
-                            );
-                            const isUnavailable = Boolean(branchWorktree && !isCurrent);
-                            return (
-                              <button
-                                key={branch}
-                                onClick={() => {
-                                  if (!isCurrent && !isUnavailable && project?.path) {
-                                    void (async () => {
-                                      try {
-                                        const git = getGitBridge(window.carrent);
-                                        const info = normalizeGitBranchInfo(
-                                          await git.checkout(project.path, branch),
-                                        );
-                                        setCurrentBranch(info.current);
-                                        setGitBranches(info.branches);
-                                        setGitBranchWorktrees(info.branchWorktrees);
-                                      } catch (error) {
-                                        showToast(getGitToastMessage(error), "error");
-                                      }
-                                    })();
-                                  }
-                                  setShowBranchPicker(false);
-                                  setBranchSearchQuery("");
-                                }}
-                                disabled={isUnavailable}
-                                title={
-                                  isUnavailable ? `Checked out at ${branchWorktree?.path}` : undefined
-                                }
-                                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised disabled:cursor-not-allowed disabled:hover:bg-transparent ${
-                                  isCurrent
-                                    ? "text-fg"
-                                    : isUnavailable
-                                      ? "text-subtle"
-                                      : "text-muted"
-                                }`}
-                              >
-                                <span className="min-w-0">
-                                  <span className="block truncate">{branch}</span>
-                                  {isUnavailable ? (
-                                    <span className="block truncate text-[10px] text-subtle">
-                                      Checked out elsewhere
-                                    </span>
-                                  ) : null}
-                                </span>
-                                {isCurrent ? (
-                                  <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
-                                ) : null}
-                              </button>
-                            );
-                          })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : null}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1871,6 +1887,158 @@ export function Composer(props: ComposerProps) {
               onClose={() => setLightboxAttachmentIndex(null)}
             />
           )}
+        </div>
+
+        <div className="mt-2 flex justify-end">
+          {project?.path ? (
+            <div ref={branchPickerRef} className="relative">
+              <button
+                onClick={() => {
+                  if (!isThreadSending) {
+                    setShowBranchPicker((v) => !v);
+                  }
+                }}
+                disabled={isThreadSending || gitLoading}
+                className={`flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition disabled:opacity-40 ${
+                  showBranchPicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
+                }`}
+                title={gitLoading ? "Loading branches" : "Git branch"}
+              >
+                <GitBranch className="h-3.5 w-3.5" />
+                <span className="min-w-0 truncate">
+                  {gitLoading ? "Loading..." : (currentBranch ?? "No branch")}
+                </span>
+                <ChevronDown className="h-3 w-3" />
+              </button>
+              {showBranchPicker && (
+                <div className="absolute bottom-full right-0 mb-1.5 flex max-h-[24rem] w-72 flex-col rounded-lg border border-border-strong bg-surface shadow-xl">
+                  <div className="px-2 pb-1.5 pt-2">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+                      <input
+                        type="text"
+                        value={branchSearchQuery}
+                        onChange={(e) => setBranchSearchQuery(e.target.value)}
+                        placeholder="Search branches"
+                        className="w-full rounded-md border border-border-strong bg-bg py-1 pl-7 pr-2 text-[12px] text-fg placeholder:text-subtle outline-none focus:border-fg/20"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                  <div className="min-h-0 overflow-y-auto px-1 pb-1">
+                    {visibleLocalBranches.length > 0 ? (
+                      <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-subtle">
+                        Branches
+                      </div>
+                    ) : null}
+                    {visibleLocalBranches.map((branch) => {
+                      const isCurrent = branch === currentBranch;
+                      return (
+                        <button
+                          key={branch}
+                          onClick={() => {
+                            if (!isCurrent && project?.path) {
+                              void (async () => {
+                                try {
+                                  const git = getGitBridge(window.carrent);
+                                  const info = normalizeGitBranchInfo(
+                                    await git.checkout(project.path, branch),
+                                  );
+                                  setCurrentBranch(info.current);
+                                  setGitBranches(info.branches);
+                                  setGitBranchWorktrees(info.branchWorktrees);
+                                } catch (error) {
+                                  showToast(getGitToastMessage(error), "error");
+                                }
+                              })();
+                            }
+                            setShowBranchPicker(false);
+                            setBranchSearchQuery("");
+                            setNewBranchName(CREATE_BRANCH_DEFAULT_NAME);
+                            setShowCreateBranchInput(false);
+                          }}
+                          className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                            isCurrent ? "text-fg" : "text-muted"
+                          }`}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate">{branch}</span>
+                          </span>
+                          {isCurrent ? <Check className="h-3.5 w-3.5 shrink-0 text-fg" /> : null}
+                        </button>
+                      );
+                    })}
+                    {visibleWorktreeBranches.length > 0 ? (
+                      <div className="px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-[0.08em] text-subtle">
+                        Worktrees
+                      </div>
+                    ) : null}
+                    {visibleWorktreeBranches.map((branch) => {
+                      const branchWorktree = gitBranchWorktrees.find(
+                        (worktree) => worktree.branch === branch,
+                      );
+                      return (
+                        <button
+                          key={branch}
+                          disabled
+                          title={
+                            branchWorktree ? `Checked out at ${branchWorktree.path}` : undefined
+                          }
+                          className="flex w-full cursor-not-allowed items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left text-[12px] text-subtle transition disabled:hover:bg-transparent"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate">{branch}</span>
+                            <span className="block truncate text-[10px] text-subtle">
+                              {branchWorktree?.path ?? "Checked out in another worktree"}
+                            </span>
+                          </span>
+                          <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] text-subtle">
+                            Worktree
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {visibleLocalBranches.length === 0 && visibleWorktreeBranches.length === 0 ? (
+                      <div className="px-3 py-2 text-[12px] text-subtle">No branches found</div>
+                    ) : null}
+                  </div>
+                  <div className="border-t border-border px-2 pb-2 pt-2">
+                    {showCreateBranchInput ? (
+                      <form onSubmit={handleCreateBranch} className="flex gap-1.5">
+                        <input
+                          type="text"
+                          value={newBranchName}
+                          onChange={(event) => setNewBranchName(event.target.value)}
+                          placeholder="Branch name"
+                          className="min-w-0 flex-1 rounded-md border border-border-strong bg-bg px-2 py-1 text-[12px] text-fg placeholder:text-subtle outline-none focus:border-fg/20"
+                          autoFocus
+                        />
+                        <button
+                          type="submit"
+                          disabled={creatingBranch || !newBranchName.trim()}
+                          className="rounded-md bg-fg px-2.5 py-1 text-[12px] font-medium text-bg transition hover:bg-fg/90 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Create
+                        </button>
+                      </form>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCreateBranchInput(true);
+                          setNewBranchName(CREATE_BRANCH_DEFAULT_NAME);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[12px] text-muted transition hover:bg-surface-raised hover:text-fg"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>Create branch</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

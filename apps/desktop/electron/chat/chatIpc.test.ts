@@ -201,7 +201,10 @@ describe("registerChatIpc", () => {
       },
     );
 
-    const result = await handlers.get("chat:kimi-status")?.({}, makeRequest({ runtimeId: "codex" }));
+    const result = await handlers.get("chat:kimi-status")?.(
+      {},
+      makeRequest({ runtimeId: "codex" }),
+    );
     expect(result).toBe(null);
   });
 

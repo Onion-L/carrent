@@ -33,9 +33,7 @@ export function RuntimesPage() {
     loading: runtimeModelsLoading,
     error: runtimeModelsError,
     refresh: refreshRuntimeModels,
-  } = useRuntimeModels(
-    selectedRuntime?.id === "pi" ? selectedRuntime.id : null,
-  );
+  } = useRuntimeModels(selectedRuntime?.id === "pi" ? selectedRuntime.id : null);
 
   const getActionState = (id: string) => actionStateById[id] ?? "idle";
 
@@ -43,20 +41,15 @@ export function RuntimesPage() {
     return getActionState(id) !== "idle";
   };
 
-  const detectedCount = sortedRuntimes.filter(
-    (r) => r.availability === "detected",
-  ).length;
+  const detectedCount = sortedRuntimes.filter((r) => r.availability === "detected").length;
   const enabledCount = sortedRuntimes.filter((r) => r.enabled).length;
-  const allRuntimesStarted =
-    sortedRuntimes.length > 0 && enabledCount === sortedRuntimes.length;
+  const allRuntimesStarted = sortedRuntimes.length > 0 && enabledCount === sortedRuntimes.length;
 
   return (
     <div className="flex h-full w-full flex-col bg-bg">
       {/* Top status bar */}
       <div className="drag-region flex h-16 items-center gap-3 px-5">
-        <div
-          className={`h-2 w-2 rounded-full ${enabledCount > 0 ? "bg-success" : "bg-muted"}`}
-        />
+        <div className={`h-2 w-2 rounded-full ${enabledCount > 0 ? "bg-success" : "bg-muted"}`} />
         <span className="text-xs text-muted">
           {enabledCount > 0 ? `${enabledCount} enabled` : "No enabled runtimes"}
         </span>
@@ -102,21 +95,13 @@ export function RuntimesPage() {
                   <div className="mt-1 flex items-center gap-3 text-xs text-muted">
                     <span
                       className={
-                        selectedRuntime.availability === "detected"
-                          ? "text-success"
-                          : "text-danger"
+                        selectedRuntime.availability === "detected" ? "text-success" : "text-danger"
                       }
                     >
-                      {selectedRuntime.availability === "detected"
-                        ? "Detected"
-                        : "Unavailable"}
+                      {selectedRuntime.availability === "detected" ? "Detected" : "Unavailable"}
                     </span>
                     <span className="text-subtle">·</span>
-                    <span
-                      className={
-                        selectedRuntime.enabled ? "text-success" : "text-subtle"
-                      }
-                    >
+                    <span className={selectedRuntime.enabled ? "text-success" : "text-subtle"}>
                       {selectedRuntime.enabled ? "Ready" : "Disabled"}
                     </span>
                     <span className="text-subtle">·</span>
@@ -134,9 +119,7 @@ export function RuntimesPage() {
                 <div className="flex items-center gap-1">
                   {selectedRuntime.enabled ? (
                     <button
-                      onClick={() =>
-                        setRuntimeEnabled(selectedRuntime.id, false)
-                      }
+                      onClick={() => setRuntimeEnabled(selectedRuntime.id, false)}
                       disabled={
                         isActionPending(selectedRuntime.id) ||
                         selectedRuntime.availability !== "detected"
@@ -148,9 +131,7 @@ export function RuntimesPage() {
                     </button>
                   ) : (
                     <button
-                      onClick={() =>
-                        setRuntimeEnabled(selectedRuntime.id, true)
-                      }
+                      onClick={() => setRuntimeEnabled(selectedRuntime.id, true)}
                       disabled={
                         isActionPending(selectedRuntime.id) ||
                         selectedRuntime.availability !== "detected"
@@ -190,8 +171,7 @@ export function RuntimesPage() {
                 <div className="flex items-baseline justify-between gap-4">
                   <span className="text-xs text-muted">Version</span>
                   <div className="flex items-center gap-2">
-                    {getActionState(selectedRuntime.id) ===
-                    "refreshing-version" ? (
+                    {getActionState(selectedRuntime.id) === "refreshing-version" ? (
                       <span className="inline-flex items-center gap-1.5 text-sm text-muted">
                         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                         Refreshing…
@@ -209,8 +189,7 @@ export function RuntimesPage() {
                     >
                       <RefreshCw
                         className={`h-3.5 w-3.5 ${
-                          getActionState(selectedRuntime.id) ===
-                          "refreshing-version"
+                          getActionState(selectedRuntime.id) === "refreshing-version"
                             ? "animate-spin"
                             : ""
                         }`}
@@ -236,9 +215,7 @@ export function RuntimesPage() {
                       <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">
                         Models
                       </h4>
-                      <p className="mt-1 text-xs text-subtle">
-                        Available models
-                      </p>
+                      <p className="mt-1 text-xs text-subtle">Available models</p>
                     </div>
                     <button
                       onClick={() => refreshRuntimeModels(selectedRuntime.id)}
@@ -253,13 +230,9 @@ export function RuntimesPage() {
                   </div>
 
                   {runtimeModelsError ? (
-                    <p className="mt-2 text-xs text-danger">
-                      {runtimeModelsError}
-                    </p>
+                    <p className="mt-2 text-xs text-danger">{runtimeModelsError}</p>
                   ) : runtimeModelsLoading ? (
-                    <p className="mt-2 text-xs text-subtle">
-                      Loading models...
-                    </p>
+                    <p className="mt-2 text-xs text-subtle">Loading models...</p>
                   ) : runtimeModels.length === 0 ? (
                     <p className="mt-2 text-xs text-subtle">No models found.</p>
                   ) : (

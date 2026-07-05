@@ -2,11 +2,7 @@ import { describe, expect, it } from "bun:test";
 import os from "node:os";
 
 import type { RuntimeDescriptor } from "../../src/shared/runtimes";
-import {
-  listKimiRuntimeModels,
-  listRuntimeModels,
-  parsePiModelList,
-} from "./runtimeModelLister";
+import { listKimiRuntimeModels, listRuntimeModels, parsePiModelList } from "./runtimeModelLister";
 import type { KimiAcpTransport } from "../chat/kimiAcpChat";
 
 const SAMPLE_MODEL_TABLE = `provider    model                   context  max-out  thinking  images
@@ -79,7 +75,6 @@ function createFailureResult(stderr: string, stdout = "") {
     timedOut: false,
   };
 }
-
 
 function createKimiRuntimeDescriptor(): RuntimeDescriptor {
   return {
@@ -376,4 +371,3 @@ describe("listRuntimeModels for kimi", () => {
     });
   });
 });
-

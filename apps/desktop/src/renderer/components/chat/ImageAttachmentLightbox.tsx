@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Download, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Copy, X, ZoomIn, ZoomOut } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 
@@ -12,6 +12,7 @@ export type StoredLightboxItem = {
   id: string;
   name: string;
   storageKey: string;
+  mimeType?: string;
 };
 
 export type LightboxItem = LightboxAttachmentItem | StoredLightboxItem;
@@ -22,12 +23,65 @@ type ImageAttachmentLightboxProps = {
   onClose: () => void;
 };
 
-export const lightboxToolbarStyle: CSSProperties = {
-  paddingTop: "env(titlebar-area-height, 38px)",
+type ElectronToolbarStyle = CSSProperties & {
+  WebkitAppRegion: "no-drag";
 };
+
+export const lightboxToolbarStyle: ElectronToolbarStyle = {
+  paddingTop: "env(titlebar-area-height, 38px)",
+  WebkitAppRegion: "no-drag",
+};
+
+export const COPY_IMAGE_FEEDBACK_MS = 3000;
 
 function isStoredItem(item: LightboxItem): item is StoredLightboxItem {
   return "storageKey" in item;
+}
+
+export async function createStoredLightboxObjectUrl({
+  item,
+  readAttachment,
+  createObjectUrl,
+  revokeObjectUrl,
+  isCancelled,
+}: {
+  item: StoredLightboxItem;
+  readAttachment: (storageKey: string) => Promise<Uint8Array>;
+  createObjectUrl: (blob: Blob) => string;
+  revokeObjectUrl: (url: string) => void;
+  isCancelled: () => boolean;
+}): Promise<string | null> {
+  const data = await readAttachment(item.storageKey);
+  const blob = new Blob([data.slice()], { type: item.mimeType ?? "image/*" });
+  const url = createObjectUrl(blob);
+  if (isCancelled()) {
+    revokeObjectUrl(url);
+    return null;
+  }
+  return url;
+}
+
+export async function copyImageUrlToClipboard({
+  url,
+  fetchBlob = async (imageUrl) => {
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error("Unable to load image.");
+    }
+    return response.blob();
+  },
+  createClipboardItem = (items) => new ClipboardItem(items),
+  writeClipboard = (items) => navigator.clipboard.write(items),
+}: {
+  url: string;
+  fetchBlob?: (url: string) => Promise<Blob>;
+  createClipboardItem?: (items: Record<string, Blob>) => ClipboardItem;
+  writeClipboard?: (items: ClipboardItem[]) => Promise<void>;
+}): Promise<void> {
+  const blob = await fetchBlob(url);
+  const mimeType = blob.type && blob.type !== "image/*" ? blob.type : "image/png";
+  const clipboardBlob = blob.type === mimeType ? blob : blob.slice(0, blob.size, mimeType);
+  await writeClipboard([createClipboardItem({ [mimeType]: clipboardBlob })]);
 }
 
 export function ImageAttachmentLightbox({
@@ -38,40 +92,44 @@ export function ImageAttachmentLightbox({
   const [index, setIndex] = useState(initialIndex);
   const [scale, setScale] = useState(1);
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const [failedIds, setFailedIds] = useState<Record<string, true>>({});
+  const [copyConfirmed, setCopyConfirmed] = useState(false);
   const createdUrlsRef = useRef<Set<string>>(new Set());
-  const mountedRef = useRef(true);
+  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentItem = items[index];
 
-  const resolveItemUrl = useCallback(
-    async (item: LightboxItem): Promise<string> => {
-      if (!isStoredItem(item)) {
-        return item.url;
-      }
-
-      if (urls[item.id]) {
-        return urls[item.id];
-      }
-
-      const data = await window.carrent.attachments.read(item.storageKey);
-      const blob = new Blob([data.slice()], { type: "image/*" });
-      const url = URL.createObjectURL(blob);
-      if (!mountedRef.current) {
-        URL.revokeObjectURL(url);
-        return url;
-      }
-      createdUrlsRef.current.add(url);
-      setUrls((prev) => ({ ...prev, [item.id]: url }));
-      return url;
-    },
-    [urls],
-  );
-
   useEffect(() => {
-    if (currentItem && isStoredItem(currentItem) && !urls[currentItem.id]) {
-      void resolveItemUrl(currentItem);
+    if (!currentItem || !isStoredItem(currentItem) || urls[currentItem.id]) {
+      return;
     }
-  }, [currentItem, resolveItemUrl, urls]);
+
+    let cancelled = false;
+
+    void createStoredLightboxObjectUrl({
+      item: currentItem,
+      readAttachment: (storageKey) => window.carrent.attachments.read(storageKey),
+      createObjectUrl: (blob) => URL.createObjectURL(blob),
+      revokeObjectUrl: (url) => URL.revokeObjectURL(url),
+      isCancelled: () => cancelled,
+    })
+      .then((url) => {
+        if (!url) {
+          return;
+        }
+        createdUrlsRef.current.add(url);
+        setUrls((prev) => ({ ...prev, [currentItem.id]: url }));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFailedIds((prev) => ({ ...prev, [currentItem.id]: true }));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentItem, urls]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -96,9 +154,11 @@ export function ImageAttachmentLightbox({
 
   useEffect(() => {
     return () => {
-      mountedRef.current = false;
       createdUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
       createdUrlsRef.current.clear();
+      if (copyResetTimerRef.current) {
+        clearTimeout(copyResetTimerRef.current);
+      }
     };
   }, []);
 
@@ -113,6 +173,16 @@ export function ImageAttachmentLightbox({
 
     return currentItem.url;
   }, [currentItem, urls]);
+
+  const isCurrentFailed = currentItem ? !!failedIds[currentItem.id] : false;
+
+  useEffect(() => {
+    setCopyConfirmed(false);
+    if (copyResetTimerRef.current) {
+      clearTimeout(copyResetTimerRef.current);
+      copyResetTimerRef.current = null;
+    }
+  }, [currentUrl]);
 
   const handlePrevious = useCallback(() => {
     setIndex((prev) => Math.max(0, prev - 1));
@@ -132,9 +202,28 @@ export function ImageAttachmentLightbox({
     setScale((prev) => Math.max(prev - 0.25, 0.5));
   }, []);
 
-  const handleResetZoom = useCallback(() => {
-    setScale(1);
-  }, []);
+  const handleCopyImage = useCallback(() => {
+    if (!currentUrl || copyConfirmed) {
+      return;
+    }
+
+    setCopyConfirmed(true);
+    if (copyResetTimerRef.current) {
+      clearTimeout(copyResetTimerRef.current);
+    }
+    copyResetTimerRef.current = setTimeout(() => {
+      copyResetTimerRef.current = null;
+      setCopyConfirmed(false);
+    }, COPY_IMAGE_FEEDBACK_MS);
+
+    void copyImageUrlToClipboard({ url: currentUrl }).catch(() => {
+      if (copyResetTimerRef.current) {
+        clearTimeout(copyResetTimerRef.current);
+        copyResetTimerRef.current = null;
+      }
+      setCopyConfirmed(false);
+    });
+  }, [copyConfirmed, currentUrl]);
 
   if (items.length === 0 || !currentItem) {
     return null;
@@ -163,15 +252,20 @@ export function ImageAttachmentLightbox({
         </div>
         <div className="flex items-center gap-2">
           {currentUrl && (
-            <a
-              href={currentUrl}
-              download={currentItem.name}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-white transition hover:bg-white/10"
-              title="Download"
-              onClick={(event) => event.stopPropagation()}
+            <button
+              type="button"
+              disabled={copyConfirmed}
+              className={`flex h-8 w-8 items-center justify-center rounded-full transition disabled:cursor-default ${
+                copyConfirmed ? "bg-white/15 text-white" : "text-white hover:bg-white/10"
+              }`}
+              title={copyConfirmed ? "Copied" : "Copy image"}
+              onClick={(event) => {
+                event.stopPropagation();
+                handleCopyImage();
+              }}
             >
-              <Download className="h-4 w-4" />
-            </a>
+              {copyConfirmed ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            </button>
           )}
           <button
             type="button"
@@ -199,17 +293,6 @@ export function ImageAttachmentLightbox({
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              handleResetZoom();
-            }}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-white transition hover:bg-white/10"
-            title="Reset zoom"
-          >
-            <span className="text-[11px]">1:1</span>
-          </button>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
               onClose();
             }}
             className="flex h-8 w-8 items-center justify-center rounded-full text-white transition hover:bg-white/10"
@@ -232,6 +315,8 @@ export function ImageAttachmentLightbox({
             style={{ transform: `scale(${scale})` }}
             onClick={(event) => event.stopPropagation()}
           />
+        ) : isCurrentFailed ? (
+          <div className="text-[14px] text-white/70">Image unavailable</div>
         ) : (
           <div className="text-[14px] text-white/70">Loading image...</div>
         )}

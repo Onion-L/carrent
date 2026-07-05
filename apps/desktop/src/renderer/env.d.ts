@@ -77,6 +77,7 @@ declare global {
       git: {
         branches: (projectPath: string) => Promise<GitBranchInfo>;
         checkout: (projectPath: string, branch: string) => Promise<GitBranchInfo>;
+        createBranch: (projectPath: string, branch: string) => Promise<GitBranchInfo>;
       };
     };
   }

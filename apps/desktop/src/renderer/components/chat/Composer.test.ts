@@ -266,6 +266,25 @@ describe("getGitBridge", () => {
       git: {
         branches: async () => ({ current: "main", branches: ["main"] }),
         checkout: async () => ({ current: "feature", branches: ["main", "feature"] }),
+        createBranch: async () => ({
+          current: "carrent/feature",
+          branches: ["main", "carrent/feature"],
+        }),
+      },
+    });
+
+    expect(await git.branches("/repo")).toEqual({ current: "main", branches: ["main"] });
+    expect(await git.createBranch!("/repo", "carrent/feature")).toEqual({
+      current: "carrent/feature",
+      branches: ["main", "carrent/feature"],
+    });
+  });
+
+  it("accepts a preload git bridge before createBranch is available", async () => {
+    const git = getGitBridge({
+      git: {
+        branches: async () => ({ current: "main", branches: ["main"] }),
+        checkout: async () => ({ current: "feature", branches: ["main", "feature"] }),
       },
     });
 

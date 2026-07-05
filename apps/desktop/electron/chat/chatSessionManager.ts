@@ -47,7 +47,9 @@ export interface ChatSessionManager {
   start: (runId: string, request: ChatTurnRequest) => void;
   stop: (runId: string) => void;
   respondToPermission: (response: ChatPermissionResponse) => void;
-  getStatus: (request: ChatTurnRequest) => Promise<import("../../src/shared/chat").KimiSessionStatus | null>;
+  getStatus: (
+    request: ChatTurnRequest,
+  ) => Promise<import("../../src/shared/chat").KimiSessionStatus | null>;
 }
 
 type ClaudeStreamState = {

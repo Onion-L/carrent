@@ -86,6 +86,8 @@ const carrent = {
       ipcRenderer.invoke("git:branches", projectPath) as Promise<GitBranchInfo>,
     checkout: (projectPath: string, branch: string) =>
       ipcRenderer.invoke("git:checkout", projectPath, branch) as Promise<GitBranchInfo>,
+    createBranch: (projectPath: string, branch: string) =>
+      ipcRenderer.invoke("git:createBranch", projectPath, branch) as Promise<GitBranchInfo>,
   },
 };
 

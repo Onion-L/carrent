@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import { SidebarNav } from "./SidebarNav";
 import { ThreadHistoryPane } from "./chat/ThreadHistoryPane";
 import { RuntimeListPane } from "./runtime/RuntimeListPane";
+import { McpServerControl } from "./mcp/McpServerControl";
 
 const LEFT_SIDEBAR_WIDTH = 58;
 const MIN_SECONDARY_PANE_WIDTH = 200;
@@ -56,10 +57,11 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     <div className="h-screen w-screen overflow-hidden bg-bg text-fg">
       <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border bg-sidebar shadow-[0_0_0_1px_rgb(255_255_255/0.02),0_18px_48px_rgb(0_0_0/0.18)]">
         <header
-          className="drag-region flex shrink-0 items-center bg-sidebar"
+          className="drag-region flex shrink-0 items-center justify-between bg-sidebar"
           style={{
             height: "env(titlebar-area-height, 38px)",
             paddingLeft: "92px",
+            paddingRight: "16px",
           }}
         >
           <button
@@ -74,6 +76,8 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
               <PanelLeftClose className="h-4 w-4" />
             )}
           </button>
+
+          <McpServerControl />
         </header>
 
         <div className="flex min-h-0 flex-1 bg-bg">

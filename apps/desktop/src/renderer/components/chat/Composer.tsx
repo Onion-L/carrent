@@ -58,8 +58,10 @@ import { RuntimeIcon } from "../RuntimeIcon";
 import { useRuntimeModels } from "../../hooks/useRuntimeModels";
 import { useRuntimes } from "../../hooks/useRuntimes";
 import { useSkills } from "../../hooks/useSkills";
+import { useMcpServer } from "../../hooks/useMcpServer";
 import { getChatRuntimeOptions, isChatRuntimeAvailable } from "../../lib/runtimeSelection";
 import { useToast } from "../toast/ToastContext";
+import { useSettings } from "../../context/SettingsContext";
 
 function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: string }) {
   switch (mode) {
@@ -539,7 +541,9 @@ export function Composer(props: ComposerProps) {
   } = useWorkspace();
   const { runningThreadIds, pendingPermissions, respondToPermission, send, stop } = useChatRun();
   const { runtimes, loading: runtimesLoading } = useRuntimes();
+  const { rtkEnabled } = useSettings();
   const { skills, loading: skillsLoading, error: skillsError } = useSkills();
+  const { status: mcpServerStatus } = useMcpServer();
   const { showToast } = useToast();
   const [input, setInput] = useState("");
   const [textareaCursor, setTextareaCursor] = useState(0);
@@ -652,16 +656,23 @@ export function Composer(props: ComposerProps) {
     () => (isTextareaFocused ? getSkillSlashTrigger(input, textareaCursor) : null),
     [input, isTextareaFocused, textareaCursor],
   );
+  const localMcpSkillsDisabled = props.runtimeId === "kimi" && !mcpServerStatus.enabled;
   const filteredSkills = useMemo(
-    () => (skillTrigger ? filterSkillsForQuery(skills, skillTrigger.query) : []),
-    [skillTrigger, skills],
+    () =>
+      skillTrigger && !localMcpSkillsDisabled
+        ? filterSkillsForQuery(skills, skillTrigger.query)
+        : [],
+    [localMcpSkillsDisabled, skillTrigger, skills],
   );
   const showSkillMenu =
     !!skillTrigger &&
+    !localMcpSkillsDisabled &&
     dismissedSkillInput !== input &&
     (skillsLoading || !!skillsError || filteredSkills.length > 0 || skillTrigger.query.length > 0);
 
-  const hasSendableContent = !!input.trim() || attachedSkills.length > 0 || pendingAttachments.length > 0;
+  const effectiveAttachedSkills = localMcpSkillsDisabled ? [] : attachedSkills;
+  const hasSendableContent =
+    !!input.trim() || effectiveAttachedSkills.length > 0 || pendingAttachments.length > 0;
   const canSend =
     (props.mode === "chat" ? hasSendableContent : hasSendableContent && !!project) &&
     isSelectedRuntimeAvailable;
@@ -1084,8 +1095,8 @@ export function Composer(props: ComposerProps) {
     }
 
     const skillPrefix =
-      attachedSkills.length > 0
-        ? `${attachedSkills.map(buildSkillReference).join(" ")} `
+      effectiveAttachedSkills.length > 0
+        ? `${effectiveAttachedSkills.map(buildSkillReference).join(" ")} `
         : "";
     const messageText = `${skillPrefix}${input.trim()}`.trim();
     const attachmentMetadata: ImageAttachmentMetadata[] = metadataOnly(
@@ -1226,6 +1237,7 @@ export function Composer(props: ComposerProps) {
           runtimeModelId: props.runtimeModelId,
         }),
         runtimeMode: props.runtimeMode,
+        rtkEnabled,
         transcript,
         message: messageText,
         attachments: attachmentMetadata,
@@ -1488,12 +1500,19 @@ export function Composer(props: ComposerProps) {
               ))}
             </div>
           )}
+          {localMcpSkillsDisabled ? (
+            <div className="mb-2 rounded-lg border border-border bg-bg/45 px-3 py-2 text-[12px] text-subtle">
+              Local MCP Server is off. Skills are unavailable for this Kimi message.
+            </div>
+          ) : null}
           {attachedSkills.length > 0 && (
             <div className="mb-2 flex flex-wrap items-center gap-2">
               {attachedSkills.map((skill) => (
                 <span
                   key={skill.path}
-                  className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border-strong bg-surface px-2 py-1 text-[12px] font-medium text-fg"
+                  className={`inline-flex max-w-full items-center gap-1.5 rounded-full border border-border-strong bg-surface px-2 py-1 text-[12px] font-medium text-fg ${
+                    localMcpSkillsDisabled ? "opacity-50" : ""
+                  }`}
                 >
                   <Box className="h-3.5 w-3.5 shrink-0 text-muted" />
                   <span className="truncate">{formatSkillLabel(skill.name)}</span>

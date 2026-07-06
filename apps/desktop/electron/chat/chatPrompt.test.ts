@@ -80,6 +80,17 @@ describe("buildChatPrompt", () => {
     expect(prompt).not.toContain("Project:");
   });
 
+  it("includes RTK soft-enable instructions when requested", () => {
+    const prompt = buildChatPrompt(makeRequest({ rtkEnabled: true }));
+
+    expect(prompt).toContain("RTK is enabled.");
+    expect(prompt).toContain("Carrent runtime instruction (must follow):");
+    expect(prompt).toContain("Always prefix shell commands with `rtk`.");
+    expect(prompt).toContain("`rtk git status`");
+    expect(prompt).toContain("`rtk gain --history`");
+    expect(prompt).toContain("Do not run the unprefixed command first.");
+  });
+
   it("formats transcript as role: content pairs", () => {
     const prompt = buildChatPrompt(
       makeRequest({

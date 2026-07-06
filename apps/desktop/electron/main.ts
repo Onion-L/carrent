@@ -14,6 +14,12 @@ import { createAttachmentStore } from "./attachments/attachmentStore";
 import { registerAttachmentIpc } from "./attachments/attachmentIpc";
 import { registerSkillIpc } from "./skills/skillIpc";
 import { registerGitIpc } from "./git/gitIpc";
+import {
+  createCarrentBridgeManager,
+  createMcpServerPreferenceStore,
+} from "./bridge/carrentBridgeManager";
+import { registerMcpServerIpc } from "./bridge/mcpServerIpc";
+import { registerSettingsIpc } from "./settings/settingsIpc";
 import { spawn } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -83,6 +89,13 @@ app.whenReady().then(async () => {
   registerAttachmentIpc(ipcMain, { attachmentStore });
   registerSkillIpc(ipcMain);
   registerGitIpc(ipcMain);
+  registerSettingsIpc(ipcMain);
+
+  const bridgeManager = createCarrentBridgeManager({
+    preferenceStore: createMcpServerPreferenceStore(app.getPath("userData")),
+  });
+  registerMcpServerIpc(ipcMain, bridgeManager);
+  await bridgeManager.initialize();
 
   ipcMain.handle("dialog:open-directory", async () => {
     const result = await dialog.showOpenDialog({
@@ -114,6 +127,9 @@ app.whenReady().then(async () => {
       spawn,
       providerSessions: createPersistentProviderSessionStore(store, providerSessionsSnapshot),
       attachmentStore,
+      carrentBridgeFactory: async () => {
+        return bridgeManager.getRuntimeHandle();
+      },
     }),
   });
   createWindow(icon);
@@ -149,9 +165,4 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
-});
-
-ipcMain.handle("settings:check-for-updates", async () => {
-  // TODO: implement actual update check
-  return { hasUpdate: false };
 });

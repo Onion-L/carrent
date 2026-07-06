@@ -2154,6 +2154,67 @@ describe("createChatSessionManager", () => {
     expect((resumeRequest!.params as { sessionId?: string }).sessionId).toBe("session-async");
   });
 
+  it("checks Kimi session status without starting Carrent Bridge", async () => {
+    let bridgeCalls = 0;
+    const transport = new FakeKimiAcpTransport(
+      "/Users/onion/workbench/timbre",
+      (fakeTransport, message) => {
+        if (message.method === "initialize") {
+          queueMicrotask(() => respondAcp(fakeTransport, message, { protocolVersion: 1 }));
+          return;
+        }
+
+        if (message.method === "session/resume") {
+          queueMicrotask(() => respondAcp(fakeTransport, message, { sessionId: "session-status" }));
+          return;
+        }
+
+        if (message.method === "session/prompt") {
+          queueMicrotask(() => {
+            emitAcpUpdate(fakeTransport, {
+              sessionUpdate: "agent_message_chunk",
+              content: {
+                type: "text",
+                text: "Session status:\n- Model: kimi-code/kimi-for-coding\n- Thinking: on\n- Permission: manual\n- Plan mode: off\n- Context: 21,169 / 262,144 (8.1%)",
+              },
+            });
+            respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+          });
+        }
+      },
+    );
+
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: () => transport,
+      carrentBridgeFactory: async () => {
+        bridgeCalls += 1;
+        throw new Error("Bridge should not start for status checks.");
+      },
+      providerSessions: {
+        get: () => "session-status",
+        set: () => {},
+      },
+    });
+
+    expect(await manager.getStatus(makeRequest({ runtimeId: "kimi" }))).toEqual({
+      model: "kimi-code/kimi-for-coding",
+      used: 21169,
+      total: 262144,
+      percentage: 8.1,
+    });
+    expect(bridgeCalls).toBe(0);
+    expect(transport.sent.map((message) => message.method)).toEqual([
+      "initialize",
+      "session/resume",
+      "session/prompt",
+    ]);
+    expect((transport.sent[1]!.params as { mcpServers?: unknown[] }).mcpServers).toEqual([]);
+  });
+
   it("emits a clear failure for legacy runtimes without spawning", async () => {
     let spawnCalled = false;
     const emitted: ChatRunEvent[] = [];

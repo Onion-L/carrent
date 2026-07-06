@@ -5,4 +5,8 @@ export interface SkillRecord {
   description: string;
   path: string;
   source: SkillSource;
+  declaredPath?: string;
+  realPath?: string;
+  declaredRootPath?: string;
+  realRootPath?: string;
 }

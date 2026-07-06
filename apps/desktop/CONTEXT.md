@@ -32,10 +32,30 @@ _Avoid_: Only runtime, preferred model, provider
 A runtime driven through Agent Client Protocol over stdio, where Carrent acts as the client and the runtime process acts as an agent server.
 _Avoid_: Stream parser, CLI prompt mode
 
+**Carrent Bridge**:
+A Carrent-owned capability surface that lets a runtime discover and request Carrent-provided skills, tools, or resources during a run. Skill reads through this surface are explicit, logged, and separate from prompt-injected skill text.
+_Avoid_: Kimi Bridge, prompt-injected skills
+
+**Local MCP Server**:
+The user-controlled built-in Carrent MCP server that exposes Carrent-owned capabilities, including skills, to runtimes and MCP clients for the current desktop app. Turning it off disables those local MCP capabilities.
+_Avoid_: MCP marketplace, plugin server, third-party server list
+
+**Skill Catalog**:
+The set of installed skills Carrent can present to users and expose to runtimes through the Carrent Bridge.
+_Avoid_: Prompt prefix, static skill dump
+
 **CLI Runtime**:
 A runtime driven by starting the runtime's command-line process directly for a run, where Carrent maps CLI output into Carrent chat events.
 _Avoid_: ACP runtime, API runtime
 
+**RTK**:
+A local shell command proxy that coding agents can use before development commands to reduce token-heavy command output while preserving command intent.
+_Avoid_: Runtime, provider profile, model
+
 **Image Attachment**:
 An image included in a user message as input for the coding agent to inspect during that run.
 _Avoid_: Preview image, uploaded file, file attachment
+
+**Global Agent Instructions**:
+A user-owned `AGENTS.md` file outside the project tree that a runtime can read as standing instructions for every run. Carrent may let users view and edit these files, but the runtime decides how they are applied.
+_Avoid_: Settings value, prompt injection, project instructions

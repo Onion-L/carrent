@@ -14,8 +14,10 @@ import type {
 } from "../shared/chat";
 import type { ChatPermissionResponse } from "../shared/chatPermissions";
 import type { SkillRecord } from "../shared/skills";
+import type { McpServerStatus } from "../shared/mcpServer";
 import type { GitBranchInfo } from "../../electron/git/gitIpc";
 import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../shared/workspacePersistence";
+import type { RtkGainStats } from "../shared/rtk";
 
 declare global {
   interface Window {
@@ -34,6 +36,11 @@ declare global {
         startAll: () => Promise<void>;
         stopAll: () => Promise<void>;
         restartAll: () => Promise<void>;
+      };
+      mcpServer: {
+        start: () => Promise<McpServerStatus>;
+        stop: () => Promise<McpServerStatus>;
+        getStatus: () => Promise<McpServerStatus>;
       };
       chat: {
         send: (request: ChatTurnRequest) => Promise<{ runId: string }>;
@@ -73,6 +80,19 @@ declare global {
       };
       settings: {
         checkForUpdates: () => Promise<{ hasUpdate: boolean; latestVersion?: string }>;
+        rtkGain: () => Promise<RtkGainStats>;
+        readGlobalAgentInstructions: () => Promise<{
+          path: string;
+          content: string;
+          exists: boolean;
+          maxBytes: number;
+        }>;
+        writeGlobalAgentInstructions: (content: string) => Promise<{
+          path: string;
+          content: string;
+          exists: boolean;
+          maxBytes: number;
+        }>;
       };
       git: {
         branches: (projectPath: string) => Promise<GitBranchInfo>;

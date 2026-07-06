@@ -17,7 +17,8 @@ import {
   type ChatPermissionResponse,
 } from "../../src/shared/chatPermissions";
 import type { RuntimeMode } from "../../src/shared/runtimeMode";
-import { DEFAULT_IMAGE_ONLY_PROMPT } from "./chatPrompt";
+import type { CarrentBridgeFactory, CarrentBridgeHandle } from "../bridge/carrentBridge";
+import { DEFAULT_IMAGE_ONLY_PROMPT, applyRtkInstruction } from "./chatPrompt";
 
 type JsonRpcId = string | number;
 type JsonObject = Record<string, unknown>;
@@ -159,6 +160,7 @@ export function startKimiAcpChatRun(options: {
   onCompletedSession?: (sessionId: string) => void | Promise<void>;
   onDone?: () => void;
   requestTimeoutMs?: number;
+  bridgeFactory?: CarrentBridgeFactory | null;
 }): KimiAcpRunHandle {
   const runner = new KimiAcpRun(options);
   void runner.start();
@@ -298,9 +300,10 @@ export async function buildKimiPromptParts(
     (attachment): attachment is ImageAttachment & { localPath: string } =>
       typeof attachment.localPath === "string",
   );
-  const messageText =
+  const rawMessageText =
     request.message.trim() ||
     (imageAttachments && imageAttachments.length > 0 ? DEFAULT_IMAGE_ONLY_PROMPT : "");
+  const messageText = applyRtkInstruction(rawMessageText, request.rtkEnabled);
   const parts: Array<Record<string, unknown>> = [];
 
   if (messageText) {
@@ -341,6 +344,7 @@ class KimiAcpRun {
   private terminal = false;
   private stoppedByUser = false;
   private stopFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  private bridge: CarrentBridgeHandle | null = null;
   private pendingPermissions = new Map<
     string,
     {
@@ -371,6 +375,7 @@ class KimiAcpRun {
       onCompletedSession?: (sessionId: string) => void | Promise<void>;
       onDone?: () => void;
       requestTimeoutMs?: number;
+      bridgeFactory?: CarrentBridgeFactory | null;
     },
   ) {
     this.transport = options.transportFactory({ cwd: options.cwd });
@@ -410,6 +415,10 @@ class KimiAcpRun {
         },
       });
 
+      await this.startBridge();
+      if (this.terminal) {
+        return;
+      }
       const configOptions = await this.openSession();
 
       await this.configureModel(configOptions);
@@ -474,7 +483,7 @@ class KimiAcpRun {
           await this.request("session/resume", {
             sessionId: resumeSessionId,
             cwd: this.options.cwd,
-            mcpServers: [],
+            mcpServers: this.getMcpServers(),
           }),
         );
         return resume?.configOptions;
@@ -487,7 +496,7 @@ class KimiAcpRun {
     const session = readObject(
       await this.request("session/new", {
         cwd: this.options.cwd,
-        mcpServers: [],
+        mcpServers: this.getMcpServers(),
       }),
     );
     this.sessionId = readString(session?.sessionId);
@@ -495,6 +504,32 @@ class KimiAcpRun {
       throw new Error("Kimi ACP did not return a session id.");
     }
     return session?.configOptions;
+  }
+
+  private async startBridge() {
+    if (!this.options.bridgeFactory) {
+      return;
+    }
+
+    const bridge = await this.options.bridgeFactory({
+      runId: this.options.runId,
+      cwd: this.options.cwd,
+    });
+    if (!bridge) {
+      return;
+    }
+    if (this.terminal) {
+      await bridge.close().catch(() => {
+        // Best-effort cleanup; the run has already reached a terminal state.
+      });
+      return;
+    }
+
+    this.bridge = bridge;
+  }
+
+  private getMcpServers() {
+    return this.bridge ? [this.bridge.mcpServer] : [];
   }
 
   private async forgetInvalidSession(sessionId: string) {
@@ -969,9 +1004,22 @@ class KimiAcpRun {
     });
     this.pending.clear();
     this.pendingPermissions.clear();
+    this.closeBridge();
     this.options.emit(event);
     this.transport.close();
     this.options.onDone?.();
+  }
+
+  private closeBridge() {
+    const bridge = this.bridge;
+    this.bridge = null;
+    if (!bridge) {
+      return;
+    }
+
+    void bridge.close().catch(() => {
+      // Best-effort cleanup; the run has already reached a terminal state.
+    });
   }
 }
 

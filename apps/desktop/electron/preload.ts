@@ -2,12 +2,14 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { ChatTurnRequest, ChatRunEvent, ImageAttachmentMetadata } from "../src/shared/chat";
 import type { ChatPermissionResponse } from "../src/shared/chatPermissions";
 import type { SkillRecord } from "../src/shared/skills";
+import type { McpServerStatus } from "../src/shared/mcpServer";
 import type {
   WorkspaceSnapshot,
   ProviderSessionSnapshot,
 } from "../src/shared/workspacePersistence";
 import type { RuntimeId } from "../src/shared/runtimes";
 import type { GitBranchInfo } from "./git/gitIpc";
+import type { RtkGainStats } from "../src/shared/rtk";
 
 const carrent = {
   platform: process.platform,
@@ -24,6 +26,11 @@ const carrent = {
     startAll: () => ipcRenderer.invoke("runtimes:start-all"),
     stopAll: () => ipcRenderer.invoke("runtimes:stop-all"),
     restartAll: () => ipcRenderer.invoke("runtimes:restart-all"),
+  },
+  mcpServer: {
+    start: () => ipcRenderer.invoke("mcp-server:start") as Promise<McpServerStatus>,
+    stop: () => ipcRenderer.invoke("mcp-server:stop") as Promise<McpServerStatus>,
+    getStatus: () => ipcRenderer.invoke("mcp-server:status") as Promise<McpServerStatus>,
   },
   chat: {
     send: (request: ChatTurnRequest) =>
@@ -79,6 +86,21 @@ const carrent = {
       ipcRenderer.invoke("settings:check-for-updates") as Promise<{
         hasUpdate: boolean;
         latestVersion?: string;
+      }>,
+    rtkGain: () => ipcRenderer.invoke("settings:rtk-gain") as Promise<RtkGainStats>,
+    readGlobalAgentInstructions: () =>
+      ipcRenderer.invoke("settings:global-agent-instructions:read") as Promise<{
+        path: string;
+        content: string;
+        exists: boolean;
+        maxBytes: number;
+      }>,
+    writeGlobalAgentInstructions: (content: string) =>
+      ipcRenderer.invoke("settings:global-agent-instructions:write", content) as Promise<{
+        path: string;
+        content: string;
+        exists: boolean;
+        maxBytes: number;
       }>,
   },
   git: {

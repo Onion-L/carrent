@@ -18,6 +18,7 @@ import {
   type KimiAcpTransportFactory,
   type KimiAcpRunHandle,
 } from "./kimiAcpChat";
+import { startCarrentBridge, type CarrentBridgeFactory } from "../bridge/carrentBridge";
 import { getClaudeRuntimeModeArgs, getCodexRuntimeModeArgs } from "../../src/shared/runtimeMode";
 import { extractClaudePermissionRequest } from "./providerPermissionProtocol";
 import type { AttachmentStore } from "../attachments/attachmentStore";
@@ -642,6 +643,7 @@ export function createChatSessionManager(options: {
   providerSessions?: ProviderSessionStore;
   allowLegacyRuntimeCommands?: boolean;
   kimiAcpTransportFactory?: KimiAcpTransportFactory;
+  carrentBridgeFactory?: CarrentBridgeFactory;
   attachmentStore?: AttachmentStore;
 }): ChatSessionManager {
   const sessions = new Map<string, ChatSession>();
@@ -685,12 +687,16 @@ export function createChatSessionManager(options: {
       try {
         const transportFactory =
           options.kimiAcpTransportFactory ?? createKimiAcpProcessTransportFactory(options.spawn);
+        const bridgeFactory =
+          options.carrentBridgeFactory ??
+          ((bridgeOptions) => startCarrentBridge({ runId: bridgeOptions.runId }));
         const handle = startKimiAcpChatRun({
           runId,
           request: requestWithAttachments,
           cwd: resolveRequestCwd(requestWithAttachments),
           emit: options.emit,
           transportFactory,
+          bridgeFactory,
           resumeSessionId,
           onInvalidSession: async (sessionId) => {
             if (runtimeSessions.get(requestSessionKey) === sessionId) {

@@ -41,6 +41,7 @@ export interface ChatTurnRequest {
   runtimeId: RuntimeId;
   runtimeModelId?: string;
   runtimeMode: RuntimeMode;
+  rtkEnabled?: boolean;
   transcript: Array<{
     role: "user" | "assistant";
     content: string;

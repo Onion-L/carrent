@@ -1,10 +1,8 @@
 import type { ChatTurnRequest, ImageAttachment } from "../../src/shared/chat";
-import { RTK_AGENT_INSTRUCTION } from "../../src/shared/rtk";
 
 const MAX_TRANSCRIPT_MESSAGES = 6;
 const MAX_TRANSCRIPT_CHARS = 6000;
 export const DEFAULT_IMAGE_ONLY_PROMPT = "Inspect the attached images and describe what you see.";
-export const RTK_SOFT_ENABLE_INSTRUCTION = RTK_AGENT_INSTRUCTION;
 
 export function buildChatPrompt(
   request: ChatTurnRequest,
@@ -19,12 +17,6 @@ export function buildChatPrompt(
       : "Context: General chat. No project folder is selected.";
 
   const parts: string[] = [contextLine, ``];
-
-  if (request.rtkEnabled) {
-    parts.push("Carrent runtime instruction (must follow):");
-    parts.push(RTK_SOFT_ENABLE_INSTRUCTION);
-    parts.push("");
-  }
 
   if (recentTranscript.length > 0) {
     parts.push("Recent conversation:");
@@ -44,16 +36,6 @@ export function buildChatPrompt(
   }
 
   return parts.join("\n");
-}
-
-export function applyRtkInstruction(messageText: string, enabled: boolean | undefined): string {
-  if (!enabled) {
-    return messageText;
-  }
-
-  return messageText
-    ? `Carrent runtime instruction (must follow):\n${RTK_SOFT_ENABLE_INSTRUCTION}\n\nUser request:\n${messageText}`
-    : `Carrent runtime instruction (must follow):\n${RTK_SOFT_ENABLE_INSTRUCTION}`;
 }
 
 function getDefaultMessage(attachments: ChatTurnRequest["attachments"]): string {

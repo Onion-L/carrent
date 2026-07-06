@@ -18,7 +18,7 @@ import {
 } from "../../src/shared/chatPermissions";
 import type { RuntimeMode } from "../../src/shared/runtimeMode";
 import type { CarrentBridgeFactory, CarrentBridgeHandle } from "../bridge/carrentBridge";
-import { DEFAULT_IMAGE_ONLY_PROMPT, applyRtkInstruction } from "./chatPrompt";
+import { DEFAULT_IMAGE_ONLY_PROMPT } from "./chatPrompt";
 
 type JsonRpcId = string | number;
 type JsonObject = Record<string, unknown>;
@@ -300,10 +300,9 @@ export async function buildKimiPromptParts(
     (attachment): attachment is ImageAttachment & { localPath: string } =>
       typeof attachment.localPath === "string",
   );
-  const rawMessageText =
+  const messageText =
     request.message.trim() ||
     (imageAttachments && imageAttachments.length > 0 ? DEFAULT_IMAGE_ONLY_PROMPT : "");
-  const messageText = applyRtkInstruction(rawMessageText, request.rtkEnabled);
   const parts: Array<Record<string, unknown>> = [];
 
   if (messageText) {

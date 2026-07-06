@@ -61,7 +61,6 @@ import { useSkills } from "../../hooks/useSkills";
 import { useMcpServer } from "../../hooks/useMcpServer";
 import { getChatRuntimeOptions, isChatRuntimeAvailable } from "../../lib/runtimeSelection";
 import { useToast } from "../toast/ToastContext";
-import { useSettings } from "../../context/SettingsContext";
 
 function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: string }) {
   switch (mode) {
@@ -541,7 +540,6 @@ export function Composer(props: ComposerProps) {
   } = useWorkspace();
   const { runningThreadIds, pendingPermissions, respondToPermission, send, stop } = useChatRun();
   const { runtimes, loading: runtimesLoading } = useRuntimes();
-  const { rtkEnabled } = useSettings();
   const { skills, loading: skillsLoading, error: skillsError } = useSkills();
   const { status: mcpServerStatus } = useMcpServer();
   const { showToast } = useToast();
@@ -1237,7 +1235,6 @@ export function Composer(props: ComposerProps) {
           runtimeModelId: props.runtimeModelId,
         }),
         runtimeMode: props.runtimeMode,
-        rtkEnabled,
         transcript,
         message: messageText,
         attachments: attachmentMetadata,

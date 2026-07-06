@@ -95,19 +95,10 @@ class FakeKimiAcpTransport implements KimiAcpTransport {
 }
 
 describe("buildKimiPromptParts", () => {
-  it("includes RTK soft-enable instructions when requested", async () => {
-    const parts = await buildKimiPromptParts(makeRequest({ rtkEnabled: true }));
-    const text = parts[0]?.text;
+  it("does not inject RTK instructions into Kimi prompts", async () => {
+    const parts = await buildKimiPromptParts(makeRequest({ message: "Check git status" }));
 
-    expect(parts[0]?.type).toBe("text");
-    expect(typeof text === "string" && text.includes("RTK is enabled.")).toBe(true);
-    expect(
-      typeof text === "string" && text.includes("Always prefix shell commands with `rtk`."),
-    ).toBe(true);
-    expect(typeof text === "string" && text.includes("`rtk gain --history`")).toBe(true);
-    expect(
-      typeof text === "string" && text.includes("Do not run the unprefixed command first."),
-    ).toBe(true);
+    expect(parts).toEqual([{ type: "text", text: "Check git status" }]);
   });
 
   it("uses ACP image blocks for image-only messages", async () => {

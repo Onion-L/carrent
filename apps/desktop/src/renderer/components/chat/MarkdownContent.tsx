@@ -1,10 +1,23 @@
 import ReactMarkdown from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+
+export function normalizeMathDelimiters(markdown: string) {
+  return markdown
+    .replace(/\\\[/g, () => "\n$$\n")
+    .replace(/\\\]/g, () => "\n$$\n")
+    .replace(/\\\(/g, "$")
+    .replace(/\\\)/g, "$");
+}
 
 export function MarkdownContent({ children }: { children: string }) {
+  const content = normalizeMathDelimiters(children);
+
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeKatex]}
       components={{
         p: ({ children }) => <p className="text-[15px] leading-7 text-fg">{children}</p>,
         h1: ({ children }) => (
@@ -66,7 +79,7 @@ export function MarkdownContent({ children }: { children: string }) {
         hr: () => <hr className="border-border" />,
       }}
     >
-      {children}
+      {content}
     </ReactMarkdown>
   );
 }

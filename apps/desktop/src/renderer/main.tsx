@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { HashRouter } from "react-router-dom";
 
+import "katex/dist/katex.min.css";
 import "@carrent/ui/tokens.css";
 import "@carrent/ui/globals.css";
 import "../styles/index.css";

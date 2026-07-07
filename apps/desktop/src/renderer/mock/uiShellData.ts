@@ -79,7 +79,10 @@ type MessageBase = {
   role: "user" | "assistant";
   agentId?: string;
   timestamp: string;
+  createdAt?: number;
   duration?: string;
+  runStatus?: "running" | "completed" | "failed" | "cancelled";
+  runFinishedAt?: number;
   threadId: string;
 };
 

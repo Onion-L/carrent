@@ -20,6 +20,22 @@ _Avoid_: Provider, model, API endpoint
 The decision loop that turns a user request into model calls, tool use, file edits, shell commands, and follow-up reasoning.
 _Avoid_: Chat completion, single API call
 
+**Agent Activity**:
+The ordered activity trail produced during a coding agent run, including reasoning summaries, tool activity, file activity, and shell commands.
+_Avoid_: Tool log, reasoning block, execution log
+
+**Thinking**:
+The user-facing label for agent activity while a coding agent run is in progress. It refers to visible reasoning summaries and tool activity, not hidden chain of thought; settled labels are `Completed`, `Failed`, or `Cancelled`.
+_Avoid_: Full chain of thought, separate reasoning panel
+
+**Reasoning Step**:
+A concise summary of the coding agent's current reasoning shown as one item in agent activity, ordered alongside tool activity by when it occurred.
+_Avoid_: Thinking panel, separate summary, hidden chain of thought
+
+**Tool Activity**:
+An agent activity item representing a capability the coding agent used during a run, such as reading a file, editing a file, updating a plan, or running a shell command.
+_Avoid_: Shell-only step, file log, action item
+
 **Provider Profile**:
 Non-secret configuration that tells a runtime which provider, proxy, gateway, or model configuration to use for a run.
 _Avoid_: Runtime, API client, account
@@ -55,6 +71,14 @@ _Avoid_: Runtime, provider profile, model
 **Image Attachment**:
 An image included in a user message as input for the coding agent to inspect during that run.
 _Avoid_: Preview image, uploaded file, file attachment
+
+**Thread Attachment**:
+A user-added resource, such as an image, file, or pasted text, that becomes available to the coding agent for the current thread. Adding the resource is the user's authorization for Carrent and the selected runtime to read it in that thread.
+_Avoid_: Upload, project file, workspace file
+
+**File Attachment**:
+A local file added to a thread as a thread attachment, whether it is inside or outside the active project. Carrent stores a snapshot of single-file attachments so the thread can keep using them if the original file changes, moves, or disappears; folders are represented as additional local directories instead.
+_Avoid_: File reference, project-only file
 
 **Global Agent Instructions**:
 A user-owned `AGENTS.md` file outside the project tree that a runtime can read as standing instructions for every run. Carrent may let users view and edit these files, but the runtime decides how they are applied.

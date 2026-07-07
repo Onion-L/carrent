@@ -1,0 +1,3 @@
+# Use Codex-style thread attachments for user-added files
+
+Carrent follows Codex desktop's shape for user-added resources: dragging, pasting, or importing a single file creates a thread attachment that Carrent and the selected runtime can read for that thread without a second approval. Single-file attachments are copied into Carrent's attachment store as snapshots so conversation history remains reproducible if the original file changes, moves, or disappears. Attachments are global to the local machine rather than limited to the active project; folders are represented as additional local directories, similar to Codex's `--add-dir`, rather than copied as file attachments.

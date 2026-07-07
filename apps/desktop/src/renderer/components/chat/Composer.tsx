@@ -532,7 +532,7 @@ export function Composer(props: ComposerProps) {
     projects,
     chats,
     appendMessage,
-    updateMessage,
+    updateMessageRunStatus,
     updateMessageParts,
     upsertChat,
     upsertThread,
@@ -1109,17 +1109,15 @@ export function Composer(props: ComposerProps) {
       role: "user" | "assistant",
       content: string,
       attachments?: ImageAttachmentMetadata[],
+      runStatus?: Message["runStatus"],
     ) =>
       appendMessage({
         threadId,
         role,
         content,
         attachments,
+        runStatus,
       });
-
-    const updateLocalMessage = (messageId: string, content: string) => {
-      updateMessage(messageId, content);
-    };
 
     const updateLocalMessageTextPart = (messageId: string, content: string) => {
       if (!content) {
@@ -1195,7 +1193,7 @@ export function Composer(props: ComposerProps) {
     };
 
     appendLocalMessage("user", messageText, attachmentMetadata);
-    const assistantMsg = appendLocalMessage("assistant", "");
+    const assistantMsg = appendLocalMessage("assistant", "", undefined, "running");
 
     flushActiveTypewriter();
     receivedTextRef.current = "";
@@ -1260,20 +1258,27 @@ export function Composer(props: ComposerProps) {
           if (!receivedTextRef.current || text.startsWith(receivedTextRef.current)) {
             receivedTextRef.current = text;
           }
+          updateMessageRunStatus(assistantMsg.id, "completed");
           startTypewriter(assistantMsg.id);
         },
         onError: (error) => {
           stopTypewriter();
-          updateLocalMessage(assistantMsg.id, `Error: ${error}`);
+          const hasAnswerText = !!(receivedTextRef.current || visibleTextRef.current);
+          flushPendingTypewriterText();
+          updateLocalMessageTextPart(
+            assistantMsg.id,
+            `${hasAnswerText ? "\n\n" : ""}Error: ${error}`,
+          );
+          updateMessageRunStatus(assistantMsg.id, "failed");
           activeAssistantMessageIdRef.current = null;
           flushTypewriterRef.current = null;
         },
         onStop: () => {
           stopTypewriter();
-          updateLocalMessage(
-            assistantMsg.id,
-            `${receivedTextRef.current || visibleTextRef.current}\n\n[Stopped]`,
-          );
+          const hasAnswerText = !!(receivedTextRef.current || visibleTextRef.current);
+          flushPendingTypewriterText();
+          updateLocalMessageTextPart(assistantMsg.id, `${hasAnswerText ? "\n\n" : ""}[Stopped]`);
+          updateMessageRunStatus(assistantMsg.id, "cancelled");
           activeAssistantMessageIdRef.current = null;
           flushTypewriterRef.current = null;
         },

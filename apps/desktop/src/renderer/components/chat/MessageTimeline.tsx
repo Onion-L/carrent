@@ -254,7 +254,16 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
         </div>
       ) : hasParts ? (
         <div className="flex flex-col gap-4">
-          {activityParts.length > 0 && <AgentActivityBlock steps={activityParts} />}
+          {activityParts.length > 0 && (
+            <AgentActivityBlock
+              steps={activityParts}
+              status={message.runStatus}
+              startedAt={message.createdAt}
+              finishedAt={message.runFinishedAt}
+              duration={message.duration}
+              hasFinalAnswerStarted={textParts.some((part) => part.content.length > 0)}
+            />
+          )}
           {textParts.length > 0 && (
             <MarkdownContent>{textParts.map((part) => part.content).join("\n")}</MarkdownContent>
           )}

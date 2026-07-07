@@ -175,10 +175,10 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                           onClick={() => navigate(buildProjectPath(project.id))}
                           className={
                             collapsed
-                              ? `flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface-raised text-[12px] font-semibold transition ${
+                              ? `flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-bg text-[13px] font-semibold shadow-[inset_0_0_0_1px_rgb(var(--color-border)/0.9)] transition ${
                                   isActive
-                                    ? "text-fg ring-1 ring-white/80"
-                                    : "text-muted ring-0 hover:text-fg hover:ring-1 hover:ring-white/50"
+                                    ? "text-fg ring-1 ring-fg/80"
+                                    : "text-muted ring-0 hover:text-fg hover:ring-1 hover:ring-fg/50"
                                 }`
                               : "flex min-w-0 flex-1 items-center gap-2 text-left"
                           }

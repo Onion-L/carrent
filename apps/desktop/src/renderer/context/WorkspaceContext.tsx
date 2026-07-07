@@ -37,6 +37,8 @@ import {
 import type { RuntimeId } from "../../shared/runtimes";
 import type { ImageAttachmentMetadata } from "../../shared/chat";
 
+type MessageRunStatus = NonNullable<Message["runStatus"]>;
+
 export type WorkspaceContextValue = {
   projects: ProjectRecord[];
   chats: ThreadRecord[];
@@ -85,8 +87,10 @@ export type WorkspaceContextValue = {
     role: "user" | "assistant";
     content: string;
     attachments?: ImageAttachmentMetadata[];
+    runStatus?: MessageRunStatus;
   }) => Message;
   updateMessage: (id: string, content: string) => void;
+  updateMessageRunStatus: (id: string, status: MessageRunStatus) => void;
   updateMessageParts: (id: string, update: MessagePartUpdate) => void;
   setThreadRuntimeMode: (
     projectId: string,
@@ -151,6 +155,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
     type: "text",
   }),
   updateMessage: () => {},
+  updateMessageRunStatus: () => {},
   updateMessageParts: () => {},
   setThreadRuntimeMode: () => {},
   setThreadRuntimeId: () => {},
@@ -488,12 +493,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     role: "user" | "assistant";
     content: string;
     attachments?: ImageAttachmentMetadata[];
+    runStatus?: MessageRunStatus;
   }): Message => {
+    const now = Date.now();
     const newMessage: Message = {
       ...message,
       type: "text",
-      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      timestamp: formatTime(new Date()),
+      id: `msg-${now}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: formatTime(new Date(now)),
+      createdAt: now,
     };
     setMessages((prev) => [...prev, newMessage]);
     return newMessage;
@@ -504,6 +512,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       prev.map((msg) =>
         msg.id === id && msg.type !== "changed_files" ? { ...msg, content, parts: undefined } : msg,
       ),
+    );
+  };
+
+  const updateMessageRunStatus = (id: string, status: MessageRunStatus) => {
+    setMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.id !== id || msg.type === "changed_files") {
+          return msg;
+        }
+
+        return {
+          ...msg,
+          runStatus: status,
+          runFinishedAt: status === "running" ? undefined : Date.now(),
+        };
+      }),
     );
   };
 
@@ -541,6 +565,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         upsertMessages,
         appendMessage,
         updateMessage,
+        updateMessageRunStatus,
         updateMessageParts,
         setThreadRuntimeMode,
         setThreadRuntimeId,

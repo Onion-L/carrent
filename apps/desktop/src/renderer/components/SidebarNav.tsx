@@ -4,7 +4,6 @@ import {
   Folder,
   FolderOpen,
   Link,
-  Monitor,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -27,7 +26,7 @@ import {
 export { buildChatPath, buildThreadPath };
 
 export function getWorkspaceNavItems() {
-  return [{ to: "/runtimes", label: "Runtimes", icon: Monitor }];
+  return [];
 }
 
 function getProjectInitial(name: string) {
@@ -38,9 +37,12 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { showToast } = useToast();
-  const { projects, createProject, removeProject, renameProject } = useWorkspace();
+  const { projects, createProject, removeProject, renameProject } =
+    useWorkspace();
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
-  const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
+  const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(
+    null,
+  );
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingProjectName, setEditingProjectName] = useState("");
   const [isProjectDialogOpen, setIsProjectDialogOpen] = useState(false);
@@ -57,7 +59,9 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
       const target = e.target as Node;
       const inside =
         target instanceof Element &&
-        target.closest('[data-project-menu="true"], [data-project-menu-trigger="true"]');
+        target.closest(
+          '[data-project-menu="true"], [data-project-menu-trigger="true"]',
+        );
       if (!inside) {
         setOpenProjectMenuId(null);
       }
@@ -102,7 +106,9 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
   return (
     <>
       <aside className="flex h-full min-h-0 flex-col overflow-hidden bg-sidebar">
-        <div className={`shrink-0 ${collapsed ? "px-2 pb-2 pt-1" : "px-2 pb-2 pt-2"}`}>
+        <div
+          className={`shrink-0 ${collapsed ? "px-2 pb-2 pt-1" : "px-2 pb-2 pt-2"}`}
+        >
           <button
             onClick={() => setIsProjectDialogOpen(true)}
             aria-label="New project"
@@ -128,7 +134,8 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
             <div className="space-y-0.5">
               {projects.map((project) => {
                 const isActive = project.id === activeProjectId;
-                const showActions = !collapsed && hoveredProjectId === project.id;
+                const showActions =
+                  !collapsed && hoveredProjectId === project.id;
                 const menuOpen = openProjectMenuId === project.id;
 
                 return (
@@ -137,7 +144,9 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                     className="relative"
                     onMouseEnter={() => setHoveredProjectId(project.id)}
                     onMouseLeave={() =>
-                      setHoveredProjectId((prev) => (prev === project.id ? null : prev))
+                      setHoveredProjectId((prev) =>
+                        prev === project.id ? null : prev,
+                      )
                     }
                   >
                     <div
@@ -155,7 +164,9 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                         <input
                           autoFocus
                           value={editingProjectName}
-                          onChange={(e) => setEditingProjectName(e.target.value)}
+                          onChange={(e) =>
+                            setEditingProjectName(e.target.value)
+                          }
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
@@ -273,28 +284,12 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
           )}
         </div>
 
-        <div className="shrink-0 border-t border-border/70 px-2 py-2">
-          <NavLink
-            to="/runtimes"
-            title="Runtimes"
-            className={({ isActive }) =>
-              `flex h-8 items-center rounded-lg px-2 text-[13px] transition ${
-                collapsed ? "justify-center" : "gap-2"
-              } ${
-                isActive
-                  ? "bg-surface-hover font-medium text-fg"
-                  : "text-muted hover:bg-surface-raised hover:text-fg"
-              }`
-            }
-          >
-            <Monitor className="h-4 w-4 shrink-0" />
-            {!collapsed && <span>Runtimes</span>}
-          </NavLink>
+        <div className="shrink-0 px-2 py-2">
           <NavLink
             to="/settings"
             title="Settings"
             className={({ isActive }) =>
-              `mt-0.5 flex h-8 items-center rounded-lg px-2 text-[13px] transition ${
+              `flex h-8 items-center rounded-lg px-2 text-[13px] transition ${
                 collapsed ? "justify-center" : "gap-2"
               } ${
                 isActive
@@ -361,7 +356,9 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                   <span className="block text-[13px] font-semibold text-fg">
                     Import existing project
                   </span>
-                  <span className="mt-0.5 block text-[12px] text-subtle">Open a local folder</span>
+                  <span className="mt-0.5 block text-[12px] text-subtle">
+                    Open a local folder
+                  </span>
                 </span>
               </button>
             </div>

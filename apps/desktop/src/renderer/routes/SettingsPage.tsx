@@ -8,9 +8,13 @@ import {
   FolderOpen,
   Save,
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useSettings } from "../context/SettingsContext";
 import { upsertRtkAgentsBlock, type RtkGainStats } from "../../shared/rtk";
+import { resolveSettingsTabId, SETTINGS_TABS } from "../lib/settingsTabs";
+import { RuntimeIcon } from "../components/RuntimeIcon";
+import { useRuntimes } from "../hooks/useRuntimes";
 
 /* -------------------------------------------------------------------------- */
 /*  Toggle                                                                    */
@@ -202,6 +206,126 @@ function CheckForUpdatesRow() {
       </button>
     </div>
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Runtime status                                                            */
+/* -------------------------------------------------------------------------- */
+
+function RuntimeStatusPanel() {
+  const { runtimes, loading, error, refresh } = useRuntimes();
+  const sortedRuntimes = [...runtimes].sort((a, b) => a.name.localeCompare(b.name));
+  const detectedCount = sortedRuntimes.filter(
+    (runtime) => runtime.availability === "detected",
+  ).length;
+  const enabledCount = sortedRuntimes.filter((runtime) => runtime.enabled).length;
+
+  return (
+    <div className="py-3.5">
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3 text-[12px] text-muted">
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${detectedCount > 0 ? "bg-success" : "bg-muted"}`}
+          />
+          <span>{enabledCount > 0 ? `${enabledCount} enabled` : "No enabled runtimes"}</span>
+          <span className="text-subtle">/</span>
+          <span>{detectedCount} detected</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={loading}
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-30"
+        >
+          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
+      </div>
+
+      {error ? <div className="mb-3 text-[12px] text-danger">{error}</div> : null}
+
+      {loading && sortedRuntimes.length === 0 ? (
+        <div className="space-y-2">
+          {Array.from({ length: 2 }).map((_, index) => (
+            <div key={index} className="rounded-lg border border-border px-4 py-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-surface-raised" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-3.5 w-28 rounded bg-surface-raised" />
+                  <div className="h-2.5 w-44 rounded bg-surface-raised" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : sortedRuntimes.length > 0 ? (
+        <div className="space-y-2">
+          {sortedRuntimes.map((runtime) => (
+            <div key={runtime.id} className="rounded-lg border border-border px-4 py-4">
+              <div className="flex items-start gap-3">
+                <RuntimeIcon name={runtime.name} size="md" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <h3 className="text-[14px] font-semibold text-fg">{runtime.name}</h3>
+                    <span
+                      className={
+                        runtime.availability === "detected"
+                          ? "text-[12px] text-success"
+                          : "text-[12px] text-danger"
+                      }
+                    >
+                      {runtime.availability === "detected" ? "Detected" : "Unavailable"}
+                    </span>
+                    <span className="text-[12px] text-subtle">/</span>
+                    <span
+                      className={
+                        runtime.enabled ? "text-[12px] text-success" : "text-[12px] text-subtle"
+                      }
+                    >
+                      {runtime.enabled ? "Ready" : "Disabled"}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 space-y-2">
+                    <Field label="Version" value={runtime.version ?? "Unknown"} />
+                    <Field
+                      label="Last checked"
+                      value={
+                        runtime.lastCheckedAt
+                          ? new Date(runtime.lastCheckedAt).toLocaleString()
+                          : "Never"
+                      }
+                    />
+                    <Field label="Owner" value={getRuntimeOwner(runtime.id)} />
+                  </div>
+
+                  {runtime.lastError ? (
+                    <div className="mt-4 rounded-md bg-surface px-3 py-2">
+                      <div className="text-[12px] text-danger">Last error</div>
+                      <div className="mt-1 whitespace-pre-wrap break-all font-mono text-[12px] leading-5 text-danger/80">
+                        {runtime.lastError}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[12px] text-subtle">
+          No supported CLI detected
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getRuntimeOwner(runtimeId: string) {
+  if (runtimeId === "kimi") return "Moonshot AI";
+  if (runtimeId === "claude-code") return "Anthropic";
+  if (runtimeId === "codex") return "OpenAI";
+  return runtimeId;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -552,6 +676,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export function SettingsPage() {
   const { setActiveThreadId } = useWorkspace();
   const { autoDetectRuntimes, rtkEnabled, theme, fontSize, updateSetting } = useSettings();
+  const [searchParams] = useSearchParams();
+  const activeTabId = resolveSettingsTabId(searchParams.get("tab"));
+  const activeTab = SETTINGS_TABS.find((tab) => tab.id === activeTabId) ?? SETTINGS_TABS[0];
 
   useEffect(() => {
     setActiveThreadId(null);
@@ -568,61 +695,70 @@ export function SettingsPage() {
         <div className="mx-auto w-full max-w-2xl px-8 py-8">
           <div className="mb-8 flex items-center gap-2">
             <Settings className="h-5 w-5 text-subtle" />
-            <h1 className="text-[18px] font-medium text-fg">Settings</h1>
+            <h1 className="text-[18px] font-medium text-fg">{activeTab.label}</h1>
           </div>
 
-          <div className="space-y-8">
-            <Section title="Runtime">
-              <Toggle
-                label="Auto-detect runtimes"
-                description="Automatically detect installed runtimes on startup"
-                enabled={autoDetectRuntimes}
-                onChange={(value) => updateSetting("autoDetectRuntimes", value)}
-              />
-              <Toggle
-                label="RTK token optimization"
-                description="Ask all runtimes to use RTK for local development commands when available"
-                enabled={rtkEnabled}
-                onChange={(value) => updateSetting("rtkEnabled", value)}
-              />
-              {rtkEnabled ? <RtkStatsPanel /> : null}
-            </Section>
+          <div>
+            {activeTabId === "runtime" ? (
+              <Section title="Runtime">
+                <RuntimeStatusPanel />
+                <Toggle
+                  label="Auto-detect runtimes"
+                  description="Automatically detect installed runtimes on startup"
+                  enabled={autoDetectRuntimes}
+                  onChange={(value) => updateSetting("autoDetectRuntimes", value)}
+                />
+                <Toggle
+                  label="RTK token optimization"
+                  description="Ask all runtimes to use RTK for local development commands when available"
+                  enabled={rtkEnabled}
+                  onChange={(value) => updateSetting("rtkEnabled", value)}
+                />
+                {rtkEnabled ? <RtkStatsPanel /> : null}
+              </Section>
+            ) : null}
 
-            <Section title="Personalization">
-              <GlobalAgentInstructionsPanel />
-            </Section>
+            {activeTabId === "personalization" ? (
+              <Section title="Personalization">
+                <GlobalAgentInstructionsPanel />
+              </Section>
+            ) : null}
 
-            <Section title="Interface">
-              <Select
-                label="Theme"
-                value={theme}
-                onChange={(value) => updateSetting("theme", value as "dark" | "light" | "system")}
-                options={[
-                  { value: "dark", label: "Dark" },
-                  { value: "light", label: "Light" },
-                  { value: "system", label: "System" },
-                ]}
-              />
-              <Select
-                label="Font size"
-                value={String(fontSize)}
-                onChange={(value) =>
-                  updateSetting("fontSize", Number(value) as 12 | 13 | 14 | 15 | 16)
-                }
-                options={[
-                  { value: "12", label: "12px" },
-                  { value: "13", label: "13px" },
-                  { value: "14", label: "14px" },
-                  { value: "15", label: "15px" },
-                  { value: "16", label: "16px" },
-                ]}
-              />
-            </Section>
+            {activeTabId === "interface" ? (
+              <Section title="Interface">
+                <Select
+                  label="Theme"
+                  value={theme}
+                  onChange={(value) => updateSetting("theme", value as "dark" | "light" | "system")}
+                  options={[
+                    { value: "dark", label: "Dark" },
+                    { value: "light", label: "Light" },
+                    { value: "system", label: "System" },
+                  ]}
+                />
+                <Select
+                  label="Font size"
+                  value={String(fontSize)}
+                  onChange={(value) =>
+                    updateSetting("fontSize", Number(value) as 12 | 13 | 14 | 15 | 16)
+                  }
+                  options={[
+                    { value: "12", label: "12px" },
+                    { value: "13", label: "13px" },
+                    { value: "14", label: "14px" },
+                    { value: "15", label: "15px" },
+                    { value: "16", label: "16px" },
+                  ]}
+                />
+              </Section>
+            ) : null}
 
-            <Section title="About">
-              <Field label="Version" value="v0.1.0" />
-              <CheckForUpdatesRow />
-            </Section>
+            {activeTabId === "about" ? (
+              <Section title="About">
+                <Field label="Version" value="v0.1.0" />
+                <CheckForUpdatesRow />
+              </Section>
+            ) : null}
           </div>
         </div>
       </div>

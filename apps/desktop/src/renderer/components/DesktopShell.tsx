@@ -3,7 +3,7 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { SidebarNav } from "./SidebarNav";
 import { ThreadHistoryPane } from "./chat/ThreadHistoryPane";
-import { RuntimeListPane } from "./runtime/RuntimeListPane";
+import { SettingsTabsPane } from "./settings/SettingsTabsPane";
 import { McpServerControl } from "./mcp/McpServerControl";
 
 const LEFT_SIDEBAR_WIDTH = 58;
@@ -18,7 +18,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   const resizeStartRef = useRef({ x: 0, width: DEFAULT_SECONDARY_PANE_WIDTH });
   const location = useLocation();
   const secondaryPane =
-    location.pathname === "/runtimes" ? <RuntimeListPane /> : <ThreadHistoryPane />;
+    location.pathname === "/settings" ? <SettingsTabsPane /> : <ThreadHistoryPane />;
 
   const toggleSecondaryPane = useCallback(() => {
     setIsSecondaryPaneCollapsed((collapsed) => !collapsed);

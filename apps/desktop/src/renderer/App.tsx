@@ -1,4 +1,4 @@
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 
 import { DesktopShell } from "./components/DesktopShell";
 import { ToastProvider } from "./components/toast/ToastContext";
@@ -6,7 +6,6 @@ import { useWorkspace } from "./context/WorkspaceContext";
 import { SettingsProvider } from "./context/SettingsContext";
 import { RuntimeModelsProvider } from "./context/RuntimeModelsContext";
 import { HomePage } from "./routes/HomePage";
-import { RuntimesPage } from "./routes/RuntimesPage";
 import { SettingsPage } from "./routes/SettingsPage";
 import { ThreadPage } from "./routes/ThreadPage";
 import { ChatPage } from "./routes/ChatPage";
@@ -32,7 +31,7 @@ function AppRoutes() {
           <Route element={<ThreadPage />} path="/thread/:projectId/:threadId" />
           <Route element={<ChatPage />} path="/chat/:threadId" />
           <Route element={<HomePage />} path="/agents" />
-          <Route element={<RuntimesPage />} path="/runtimes" />
+          <Route element={<Navigate replace to="/settings?tab=runtime" />} path="/runtimes" />
           <Route element={<SettingsPage />} path="/settings" />
           <Route element={<HomePage />} path="*" />
         </Routes>

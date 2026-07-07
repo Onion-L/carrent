@@ -83,3 +83,7 @@ _Avoid_: File reference, project-only file
 **Global Agent Instructions**:
 A user-owned `AGENTS.md` file outside the project tree that a runtime can read as standing instructions for every run. Carrent may let users view and edit these files, but the runtime decides how they are applied.
 _Avoid_: Settings value, prompt injection, project instructions
+
+**Settings Tab**:
+A top-level settings category selected from the Settings middle pane. Each tab contains one coherent group of user preferences or app controls.
+_Avoid_: Settings section, subpage

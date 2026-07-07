@@ -17,7 +17,7 @@ describe("buildChatPath", () => {
 });
 
 describe("getWorkspaceNavItems", () => {
-  it("hides the Agents entry for V1", () => {
-    expect(getWorkspaceNavItems().map((item) => item.label)).toEqual(["Runtimes"]);
+  it("keeps workspace utilities out of the primary nav", () => {
+    expect(getWorkspaceNavItems()).toEqual([]);
   });
 });

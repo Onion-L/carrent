@@ -57,27 +57,31 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     <div className="h-screen w-screen overflow-hidden bg-bg text-fg">
       <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border bg-sidebar shadow-[0_0_0_1px_rgb(255_255_255/0.02),0_18px_48px_rgb(0_0_0/0.18)]">
         <header
-          className="drag-region flex shrink-0 items-center justify-between bg-sidebar"
+          className="drag-region flex shrink-0 items-stretch justify-between bg-sidebar"
           style={{
             height: "env(titlebar-area-height, 38px)",
             paddingLeft: "92px",
             paddingRight: "16px",
           }}
         >
-          <button
-            aria-label={isSecondaryPaneCollapsed ? "Expand sessions" : "Collapse sessions"}
-            title={isSecondaryPaneCollapsed ? "Expand sessions" : "Collapse sessions"}
-            onClick={toggleSecondaryPane}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
-          >
-            {isSecondaryPaneCollapsed ? (
-              <PanelLeftOpen className="h-4 w-4" />
-            ) : (
-              <PanelLeftClose className="h-4 w-4" />
-            )}
-          </button>
+          <div className="no-drag flex h-full items-center">
+            <button
+              aria-label={isSecondaryPaneCollapsed ? "Expand sessions" : "Collapse sessions"}
+              title={isSecondaryPaneCollapsed ? "Expand sessions" : "Collapse sessions"}
+              onClick={toggleSecondaryPane}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
+            >
+              {isSecondaryPaneCollapsed ? (
+                <PanelLeftOpen className="h-4 w-4" />
+              ) : (
+                <PanelLeftClose className="h-4 w-4" />
+              )}
+            </button>
+          </div>
 
-          <McpServerControl />
+          <div className="no-drag flex h-full items-center">
+            <McpServerControl />
+          </div>
         </header>
 
         <div className="flex min-h-0 flex-1 bg-bg">

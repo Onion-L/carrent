@@ -12,7 +12,6 @@ export type ThreadRecord = {
   runtimeModelId?: string;
   runtimeMode?: RuntimeMode;
   pinned?: boolean;
-  archived?: boolean;
   active?: boolean;
   draft?: boolean;
 };

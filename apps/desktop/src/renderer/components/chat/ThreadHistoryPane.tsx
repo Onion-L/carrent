@@ -1,4 +1,4 @@
-import { Archive, Pin, Plus } from "lucide-react";
+import { Pin, Plus, Trash2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -19,7 +19,7 @@ export function ThreadHistoryPane() {
     activeThreadId,
     setActiveThreadId,
     toggleThreadPin,
-    archiveThread,
+    deleteThread,
     createThread,
   } = useWorkspace();
   const { runtimes } = useRuntimes();
@@ -49,16 +49,18 @@ export function ThreadHistoryPane() {
     if (thread) {
       navigate(buildThreadPath(selectedProject.id, thread.id));
     }
-    creatingRef.current = false;
+    window.setTimeout(() => {
+      creatingRef.current = false;
+    }, 0);
   };
 
-  const archiveThreadAction = (threadId: string) => {
+  const deleteThreadAction = (threadId: string) => {
     if (!selectedProject) {
       return;
     }
 
-    const nextActiveThreadId = archiveThread(selectedProject.id, threadId);
-    showToast("Archived successfully", "success");
+    const nextActiveThreadId = deleteThread(selectedProject.id, threadId);
+    showToast("Deleted successfully", "success");
     if (activeThreadId === threadId) {
       if (nextActiveThreadId) {
         const nextProjectId = findProjectIdForThread(projects, nextActiveThreadId);
@@ -155,13 +157,13 @@ export function ThreadHistoryPane() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                archiveThreadAction(thread.id);
+                                deleteThreadAction(thread.id);
                               }}
                               className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-danger"
-                              aria-label="Archive thread"
-                              title="Archive"
+                              aria-label="Delete thread"
+                              title="Delete"
                             >
-                              <Archive className="h-3.5 w-3.5" />
+                              <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </div>
                         )}

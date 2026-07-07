@@ -3,9 +3,9 @@ import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import type { ProjectRecord, ThreadRecord } from "../mock/uiShellData";
 import {
-  archiveChatThread,
-  archiveThreadInProjects,
   createChatThread,
+  deleteChatThread,
+  deleteThreadInProjects,
   createProjectInProjects,
   createThreadInProjects,
   findCurrentProject,
@@ -57,14 +57,14 @@ describe("workspaceState", () => {
     expect(findCurrentProject(projects, "thread-b")?.id).toBe("project-b");
   });
 
-  it("finds the owning project for a visible thread", () => {
+  it("finds the owning project for a thread", () => {
     const projects = [
-      makeProject({ id: "project-a" }, [makeThread({ id: "thread-a", archived: true })]),
+      makeProject({ id: "project-a" }, [makeThread({ id: "thread-a" })]),
       makeProject({ id: "project-b" }, [makeThread({ id: "thread-b" })]),
     ];
 
     expect(findProjectIdForThread(projects, "thread-b")).toBe("project-b");
-    expect(findProjectIdForThread(projects, "thread-a")).toBe(null);
+    expect(findProjectIdForThread(projects, "thread-a")).toBe("project-a");
   });
 
   it("creates a new thread at the top of the target project", () => {
@@ -95,7 +95,7 @@ describe("workspaceState", () => {
     expect(result.thread?.runtimeModelId).toBe("gpt-5");
   });
 
-  it("archives the active thread and returns the next visible thread id", () => {
+  it("deletes the active thread and returns the next visible thread id", () => {
     const projects = [
       makeProject({ id: "project-a" }, [
         makeThread({ id: "thread-a", title: "Pinned thread", pinned: true }),
@@ -106,11 +106,9 @@ describe("workspaceState", () => {
       ]),
     ];
 
-    const result = archiveThreadInProjects(projects, "project-a", "thread-b");
+    const result = deleteThreadInProjects(projects, "project-a", "thread-b");
 
-    expect(result.projects[0]?.threads.find((thread) => thread.id === "thread-b")?.archived).toBe(
-      true,
-    );
+    expect(result.projects[0]?.threads.some((thread) => thread.id === "thread-b")).toBe(false);
     expect(result.nextActiveThreadId).toBe("thread-a");
   });
 
@@ -154,7 +152,6 @@ describe("workspaceState", () => {
       title: "Old title",
       updatedAt: "1h",
       pinned: true,
-      archived: true,
       active: true,
     });
     const promotedThread = makeThread({
@@ -182,7 +179,7 @@ describe("workspaceState", () => {
   it("leaves projects unchanged when the target project does not exist", () => {
     const projects = [
       makeProject({ id: "project-a" }, [makeThread({ id: "thread-a", pinned: true })]),
-      makeProject({ id: "project-b" }, [makeThread({ id: "thread-b", archived: true })]),
+      makeProject({ id: "project-b" }, [makeThread({ id: "thread-b" })]),
     ];
     const promotedThread = makeThread({
       id: "thread-real",
@@ -229,10 +226,11 @@ describe("workspaceState", () => {
     expect(updated[0]?.pinned).toBe(true);
   });
 
-  it("archives a chat thread", () => {
-    const chats = [makeThread({ id: "chat-1" })];
-    const updated = archiveChatThread(chats, "chat-1");
-    expect(updated[0]?.archived).toBe(true);
+  it("deletes a chat thread", () => {
+    const chats = [makeThread({ id: "chat-1" }), makeThread({ id: "chat-2" })];
+    const updated = deleteChatThread(chats, "chat-1");
+    expect(updated.some((thread) => thread.id === "chat-1")).toBe(false);
+    expect(updated.some((thread) => thread.id === "chat-2")).toBe(true);
   });
 
   it("resolves chat route data for a thread id", () => {
@@ -357,6 +355,5 @@ describe("workspaceState", () => {
     const split = splitProjectThreads(threads);
     expect(split.active).toHaveLength(1);
     expect(split.active[0]?.id).toBe("visible-thread");
-    expect(split.archived).toHaveLength(0);
   });
 });

@@ -9,8 +9,8 @@ import {
   type ThreadRecord,
 } from "../mock/uiShellData";
 import {
-  archiveChatThread,
-  archiveThreadInProjects,
+  deleteChatThread,
+  deleteThreadInProjects,
   createChatThread,
   createProjectInProjects,
   createThreadInProjects,
@@ -72,7 +72,7 @@ export type WorkspaceContextValue = {
   upsertThread: (projectId: string, thread: ThreadRecord) => void;
   promoteDraftThread: (projectId: string, threadId: string) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
-  archiveThread: (projectId: string, threadId: string) => string | null;
+  deleteThread: (projectId: string, threadId: string) => string | null;
   createChat: (
     title: string,
     runtimeId?: RuntimeId,
@@ -80,7 +80,7 @@ export type WorkspaceContextValue = {
   ) => ThreadRecord | null;
   upsertChat: (thread: ThreadRecord) => void;
   toggleChatPin: (threadId: string) => void;
-  archiveChat: (threadId: string) => void;
+  deleteChat: (threadId: string) => void;
   upsertMessages: (messages: Message[]) => void;
   appendMessage: (message: {
     threadId: string;
@@ -140,11 +140,11 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   upsertThread: () => {},
   promoteDraftThread: () => {},
   toggleThreadPin: () => {},
-  archiveThread: () => null,
+  deleteThread: () => null,
   createChat: () => null,
   upsertChat: () => {},
   toggleChatPin: () => {},
-  archiveChat: () => {},
+  deleteChat: () => {},
   upsertMessages: () => {},
   appendMessage: () => ({
     id: "",
@@ -431,15 +431,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setChats((prev) => toggleChatThreadPin(prev, threadId));
   };
 
-  const archiveChat = (threadId: string) => {
-    setChats((prev) => archiveChatThread(prev, threadId));
+  const deleteChat = (threadId: string) => {
+    setChats((prev) => deleteChatThread(prev, threadId));
     if (activeThreadId === threadId) {
       setActiveThreadId(null);
     }
   };
 
-  const archiveThread = (projectId: string, threadId: string) => {
-    const result = archiveThreadInProjects(projects, projectId, threadId);
+  const deleteThread = (projectId: string, threadId: string) => {
+    const result = deleteThreadInProjects(projects, projectId, threadId);
     setProjects(result.projects);
     if (activeThreadId === threadId) {
       setActiveThreadId(result.nextActiveThreadId);
@@ -557,11 +557,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         upsertThread,
         promoteDraftThread,
         toggleThreadPin,
-        archiveThread,
+        deleteThread,
         createChat,
         upsertChat,
         toggleChatPin,
-        archiveChat,
+        deleteChat,
         upsertMessages,
         appendMessage,
         updateMessage,

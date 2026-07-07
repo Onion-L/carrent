@@ -92,6 +92,7 @@
   }
 
   .drag-region button,
+  .drag-region .no-drag,
   .drag-region input,
   .drag-region textarea,
   .drag-region select {

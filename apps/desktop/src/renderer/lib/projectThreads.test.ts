@@ -24,28 +24,6 @@ describe("splitProjectThreads", () => {
     expect(active.map((t) => t.id)).toEqual(["b", "d", "a", "c"]);
   });
 
-  it("omits archived threads from the active list", () => {
-    const threads = [
-      makeThread({ id: "a", title: "Active A" }),
-      makeThread({ id: "b", title: "Archived B", archived: true }),
-      makeThread({ id: "c", title: "Active C" }),
-    ];
-
-    const { active } = splitProjectThreads(threads);
-    expect(active.map((t) => t.id)).toEqual(["a", "c"]);
-  });
-
-  it("returns archived threads separately", () => {
-    const threads = [
-      makeThread({ id: "a", title: "Active A" }),
-      makeThread({ id: "b", title: "Archived B", archived: true }),
-      makeThread({ id: "c", title: "Archived C", archived: true }),
-    ];
-
-    const { archived } = splitProjectThreads(threads);
-    expect(archived.map((t) => t.id)).toEqual(["b", "c"]);
-  });
-
   it("keeps original order within pinned and regular groups", () => {
     const threads = [
       makeThread({ id: "p2", title: "Pinned 2", pinned: true }),

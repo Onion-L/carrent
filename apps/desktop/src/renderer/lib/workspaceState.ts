@@ -68,9 +68,7 @@ export function findCurrentProject(projects: ProjectRecord[], activeThreadId: st
 
 export function findProjectIdForThread(projects: ProjectRecord[], threadId: string) {
   return (
-    projects.find((project) =>
-      project.threads.some((thread) => thread.id === threadId && !thread.archived),
-    )?.id ?? null
+    projects.find((project) => project.threads.some((thread) => thread.id === threadId))?.id ?? null
   );
 }
 
@@ -161,7 +159,7 @@ export function toggleThreadPinInProjects(
   });
 }
 
-export function archiveThreadInProjects(
+export function deleteThreadInProjects(
   projects: ProjectRecord[],
   projectId: string,
   threadId: string,
@@ -173,9 +171,7 @@ export function archiveThreadInProjects(
 
     return {
       ...project,
-      threads: project.threads.map((thread) =>
-        thread.id === threadId ? { ...thread, archived: true } : thread,
-      ),
+      threads: project.threads.filter((thread) => thread.id !== threadId),
     };
   });
 
@@ -219,10 +215,8 @@ export function toggleChatThreadPin(existingChats: ThreadRecord[], threadId: str
   );
 }
 
-export function archiveChatThread(existingChats: ThreadRecord[], threadId: string) {
-  return existingChats.map((thread) =>
-    thread.id === threadId ? { ...thread, archived: true } : thread,
-  );
+export function deleteChatThread(existingChats: ThreadRecord[], threadId: string) {
+  return existingChats.filter((thread) => thread.id !== threadId);
 }
 
 export function resolveChatThreadRouteData(

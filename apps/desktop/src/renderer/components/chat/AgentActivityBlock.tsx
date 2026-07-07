@@ -231,8 +231,7 @@ export function AgentActivityBlock({
   const status = getBlockStatusMeta(steps, resolvedStatus);
   const StatusIcon = status.icon;
   const isRunning = resolvedStatus === "running";
-  const elapsedMs =
-    startedAt != null ? Math.max(0, (finishedAt ?? now) - startedAt) : undefined;
+  const elapsedMs = startedAt != null ? Math.max(0, (finishedAt ?? now) - startedAt) : undefined;
   const title = getBlockTitle({
     status: resolvedStatus,
     duration: duration ?? (elapsedMs != null ? formatAgentActivityDuration(elapsedMs) : undefined),

@@ -8,10 +8,7 @@ interface IpcMainLike {
   ) => void;
 }
 
-export function registerMcpServerIpc(
-  ipcMainLike: IpcMainLike,
-  manager: CarrentBridgeManager,
-) {
+export function registerMcpServerIpc(ipcMainLike: IpcMainLike, manager: CarrentBridgeManager) {
   ipcMainLike.handle("mcp-server:start", async () => {
     return manager.start() as Promise<McpServerStatus>;
   });

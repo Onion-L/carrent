@@ -89,9 +89,7 @@ describe("AgentActivityBlock status", () => {
 describe("AgentActivityBlock title", () => {
   it("shows status and duration without a step count", () => {
     expect(getBlockTitle({ status: "running", duration: "12s" })).toBe("Thinking · 12s");
-    expect(getBlockTitle({ status: "completed", duration: "1m 24s" })).toBe(
-      "Completed · 1m 24s",
-    );
+    expect(getBlockTitle({ status: "completed", duration: "1m 24s" })).toBe("Completed · 1m 24s");
   });
 
   it("omits duration when no timing data is available", () => {

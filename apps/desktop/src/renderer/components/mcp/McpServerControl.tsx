@@ -14,7 +14,9 @@ export function McpServerControl() {
 
     const handleMouseDown = (event: MouseEvent) => {
       const target = event.target as Node;
-      const inside = popoverRef.current?.contains(target) || buttonRef.current?.contains(target);
+      const inside =
+        popoverRef.current?.contains(target) ||
+        buttonRef.current?.contains(target);
       if (!inside) {
         setOpen(false);
       }
@@ -59,7 +61,7 @@ export function McpServerControl() {
         title="Local MCP Server"
         className={`flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] transition active:scale-95 ${
           status.running
-            ? "bg-success/10 text-success hover:bg-success/15"
+            ? "text-success hover:bg-success/15"
             : "text-subtle hover:bg-surface-hover hover:text-fg"
         }`}
       >
@@ -86,7 +88,9 @@ export function McpServerControl() {
             <div className="flex items-center gap-2">
               <span className={`h-2 w-2 rounded-full ${statusTone}`} />
               <div>
-                <div className="text-[13px] font-medium text-fg">Carrent Local Server</div>
+                <div className="text-[13px] font-medium text-fg">
+                  Carrent Local Server
+                </div>
                 <div className="text-[11px] text-subtle">{statusText}</div>
               </div>
             </div>
@@ -105,7 +109,9 @@ export function McpServerControl() {
             </div>
           )}
 
-          {status.error && <div className="mt-3 text-[11px] text-danger">{status.error}</div>}
+          {status.error && (
+            <div className="mt-3 text-[11px] text-danger">{status.error}</div>
+          )}
 
           <button
             onClick={handleToggle}

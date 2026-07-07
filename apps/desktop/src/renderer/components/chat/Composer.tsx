@@ -680,7 +680,9 @@ export function Composer(props: ComposerProps) {
     [pendingPermissions, threadId],
   );
   const showCascadingPanel =
-    showRuntimePicker && cascadingRuntimeId === "pi" && !!props.onRuntimeModelIdChange;
+    showRuntimePicker &&
+    (cascadingRuntimeId === "pi" || cascadingRuntimeId === "kimi") &&
+    !!props.onRuntimeModelIdChange;
   const cascadingPanelTransitionClass = !cascadingPanelPosition
     ? "pointer-events-none opacity-0 translate-y-1 scale-95"
     : "opacity-100 translate-x-0 translate-y-0 scale-100";
@@ -1658,13 +1660,16 @@ export function Composer(props: ComposerProps) {
                               }}
                               onClick={() => {
                                 props.onRuntimeIdChange!(runtime.id);
-                                if (runtime.id !== "pi" || !props.onRuntimeModelIdChange) {
+                                if (
+                                  (runtime.id !== "pi" && runtime.id !== "kimi") ||
+                                  !props.onRuntimeModelIdChange
+                                ) {
                                   props.onRuntimeModelIdChange?.(undefined);
                                   closeRuntimePicker();
                                   return;
                                 }
 
-                                if (cascadingRuntimeId !== "pi") {
+                                if (cascadingRuntimeId !== runtime.id) {
                                   closeRuntimePicker();
                                   return;
                                 }
@@ -1737,7 +1742,7 @@ export function Composer(props: ComposerProps) {
                         !cascadingModels.some((model) => model.id === props.runtimeModelId) ? (
                           <button
                             onClick={() => {
-                              props.onRuntimeIdChange?.("pi");
+                              props.onRuntimeIdChange?.(cascadingRuntimeId ?? "pi");
                               props.onRuntimeModelIdChange?.(props.runtimeModelId);
                               closeRuntimePicker();
                             }}
@@ -1763,7 +1768,7 @@ export function Composer(props: ComposerProps) {
                               <button
                                 key={model.id}
                                 onClick={() => {
-                                  props.onRuntimeIdChange?.("pi");
+                                  props.onRuntimeIdChange?.(cascadingRuntimeId ?? "pi");
                                   props.onRuntimeModelIdChange?.(model.id);
                                   closeRuntimePicker();
                                 }}

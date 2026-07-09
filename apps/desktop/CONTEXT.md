@@ -16,6 +16,10 @@ _Avoid_: Chat client, API client
 An external coding agent implementation that Carrent drives for a run. A runtime owns the agent loop; Carrent owns selection, orchestration, persistence, and presentation around it.
 _Avoid_: Provider, model, API endpoint
 
+**Runtime Setup**:
+The user-facing state and flow for making an external runtime usable by Carrent, including local command availability and runtime-owned sign-in or configuration.
+_Avoid_: Runtime error, diagnostics, onboarding
+
 **Agent Loop**:
 The decision loop that turns a user request into model calls, tool use, file edits, shell commands, and follow-up reasoning.
 _Avoid_: Chat completion, single API call
@@ -41,7 +45,7 @@ Non-secret configuration that tells a runtime which provider, proxy, gateway, or
 _Avoid_: Runtime, API client, account
 
 **Primary Runtime**:
-The runtime Carrent optimizes first and treats as the default path for the current product version.
+The runtime Carrent optimizes first and treats as the default path for the current product version. Primary does not mean exclusive; future runtimes may become available without changing the current primary runtime.
 _Avoid_: Only runtime, preferred model, provider
 
 **ACP Runtime**:

@@ -52,19 +52,9 @@ export function useRuntimes() {
       const freshRuntimes = await window.carrent.runtimes.list();
 
       setState((current) => {
-        const merged = freshRuntimes.map((fresh) => {
-          const existing = current.runtimes.find((r) => r.id === fresh.id);
-          if (!existing) return fresh;
-          return {
-            ...fresh,
-            verification: existing.verification,
-            lastVerifiedAt: existing.lastVerifiedAt,
-            lastError: existing.lastError,
-          };
-        });
         return {
           ...current,
-          runtimes: merged,
+          runtimes: mergeRuntimeDetectionResults(freshRuntimes, current.runtimes),
           loading: false,
         };
       });
@@ -292,6 +282,21 @@ export function useRuntimes() {
     stopAll,
     restartAll,
   };
+}
+
+export function mergeRuntimeDetectionResults(
+  freshRuntimes: RuntimeRecord[],
+  existingRuntimes: RuntimeRecord[],
+) {
+  return freshRuntimes.map((fresh) => {
+    const existing = existingRuntimes.find((runtime) => runtime.id === fresh.id);
+    if (!existing) return fresh;
+    return {
+      ...fresh,
+      verification: existing.verification,
+      lastVerifiedAt: existing.lastVerifiedAt,
+    };
+  });
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {

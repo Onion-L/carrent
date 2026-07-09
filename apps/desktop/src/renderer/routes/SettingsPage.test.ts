@@ -1,11 +1,107 @@
 import { describe, expect, it } from "bun:test";
 import {
   formatGlobalAgentInstructionsSize,
+  getKimiInstallCommand,
+  getKimiSetupAction,
+  getKimiSetupSteps,
   getGlobalAgentInstructionsByteLength,
   readGlobalAgentInstructions,
   readRtkGainStats,
+  shouldShowKimiSetup,
   writeGlobalAgentInstructions,
 } from "./SettingsPage";
+
+describe("Kimi setup helpers", () => {
+  it("shows setup only when Kimi is unavailable or unconfigured", () => {
+    expect(
+      shouldShowKimiSetup({
+        id: "kimi",
+        availability: "unavailable",
+        configuration: "unknown",
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowKimiSetup({
+        id: "kimi",
+        availability: "detected",
+        configuration: "missing",
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowKimiSetup({
+        id: "kimi",
+        availability: "detected",
+        configuration: "configured",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowKimiSetup({
+        id: "codex",
+        availability: "unavailable",
+        configuration: "unknown",
+      }),
+    ).toBe(false);
+  });
+
+  it("marks CLI and auth steps from runtime state", () => {
+    expect(
+      getKimiSetupSteps({
+        availability: "unavailable",
+        configuration: "unknown",
+      }).map((step) => step.done),
+    ).toEqual([false, false, false]);
+
+    expect(
+      getKimiSetupSteps({
+        availability: "detected",
+        configuration: "missing",
+      }).map((step) => step.done),
+    ).toEqual([true, true, false]);
+  });
+
+  it("uses the install command until the Kimi CLI is detected", () => {
+    const action = getKimiSetupAction(
+      {
+        availability: "unavailable",
+        configuration: "unknown",
+      },
+      "darwin",
+    );
+
+    expect(action).toMatchObject({
+      command: "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
+    });
+    expect(action.description).toContain("sign in");
+    expect(action.copiedMessage).toContain("sign-in command");
+  });
+
+  it("uses the sign-in command after the Kimi CLI is detected", () => {
+    const action = getKimiSetupAction(
+      {
+        availability: "detected",
+        configuration: "missing",
+      },
+      "darwin",
+    );
+
+    expect(action).toMatchObject({
+      command: "kimi",
+    });
+    expect(action.description).toContain("finish sign-in");
+  });
+
+  it("selects the install command for the current platform", () => {
+    expect(getKimiInstallCommand("darwin")).toBe(
+      "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
+    );
+    expect(getKimiInstallCommand("linux")).toBe(
+      "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
+    );
+    expect(getKimiInstallCommand("win32")).toBe(
+      "irm https://code.kimi.com/kimi-code/install.ps1 | iex",
+    );
+  });
+});
 
 describe("readRtkGainStats", () => {
   it("returns a restart hint when the current preload does not expose RTK stats", async () => {

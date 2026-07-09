@@ -6,6 +6,7 @@ import {
   buildSkillReference,
   filterSkillsForQuery,
   formatSkillLabel,
+  getComposerRuntimeLabel,
   getGitBridge,
   getGitToastMessage,
   getDisplayRuntimeModel,
@@ -196,6 +197,25 @@ describe("getRuntimeModelIdForSend", () => {
         defaultModelId: "deepseek/deepseek-v4-flash",
       }),
     ).toBe("minimax-cn/MiniMax-M2.7");
+  });
+
+  it("does not send a Kimi model override from stale thread state", () => {
+    expect(
+      getRuntimeModelIdForSend({
+        runtimeId: "kimi",
+        runtimeModelId: "kimi-code/kimi-for-coding",
+      }),
+    ).toBeUndefined();
+  });
+});
+
+describe("getComposerRuntimeLabel", () => {
+  it("uses the product label for the Kimi coding runtime", () => {
+    expect(getComposerRuntimeLabel({ id: "kimi", name: "Kimi Code" })).toBe("Kimi for coding");
+  });
+
+  it("uses the runtime name for non-Kimi runtimes", () => {
+    expect(getComposerRuntimeLabel({ id: "codex", name: "Codex" })).toBe("Codex");
   });
 });
 

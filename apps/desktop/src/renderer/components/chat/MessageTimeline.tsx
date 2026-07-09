@@ -1,5 +1,5 @@
-import { ArrowDown, Box, Check, Copy, Pencil, RefreshCw } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ArrowDown, Box, Check, Copy, Pencil } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type Message,
   type MessagePart,
@@ -7,16 +7,29 @@ import {
 } from "../../mock/uiShellData";
 import { AgentActivityBlock } from "./AgentActivityBlock";
 import { ChangedFilesCard } from "./ChangedFilesCard";
-import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachmentLightbox";
+import {
+  ImageAttachmentLightbox,
+  type StoredLightboxItem,
+} from "./ImageAttachmentLightbox";
 import { MarkdownContent } from "./MarkdownContent";
 
 type UserMessageSegment =
   | { type: "text"; content: string }
   | { type: "skill"; name: string; path: string };
 
-const SKILL_REFERENCE_PATTERN = /\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\)/gu;
+export type UserMessageEditDraft = {
+  messageId: string;
+  content: string;
+  attachments?: ImageAttachmentMetadata[];
+};
 
-export function parseSkillReferenceSegments(content: string): UserMessageSegment[] {
+const SKILL_REFERENCE_PATTERN = /\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\)/gu;
+const LEADING_SKILL_REFERENCE_PATTERN =
+  /^\s*(\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\))\s*/u;
+
+export function parseSkillReferenceSegments(
+  content: string,
+): UserMessageSegment[] {
   const segments: UserMessageSegment[] = [];
   let lastIndex = 0;
 
@@ -37,6 +50,57 @@ export function parseSkillReferenceSegments(content: string): UserMessageSegment
   return segments.length > 0 ? segments : [{ type: "text", content }];
 }
 
+export function getUserMessageEditDraft(
+  message: Message,
+): UserMessageEditDraft | null {
+  if (message.role !== "user" || !message.content.trim()) {
+    return null;
+  }
+
+  return {
+    messageId: message.id,
+    content: message.content,
+    attachments: message.attachments,
+  };
+}
+
+export function splitLeadingSkillReferences(content: string) {
+  const skills: Extract<UserMessageSegment, { type: "skill" }>[] = [];
+  const references: string[] = [];
+  let rest = content;
+
+  while (true) {
+    const match = LEADING_SKILL_REFERENCE_PATTERN.exec(rest);
+    if (!match) break;
+
+    references.push(match[1]);
+    skills.push({ type: "skill", name: match[2], path: match[3] });
+    rest = rest.slice(match[0].length);
+  }
+
+  return {
+    skills,
+    prefix: references.length > 0 ? `${references.join(" ")} ` : "",
+    body: references.length > 0 ? rest.trimStart() : rest,
+  };
+}
+
+export function buildUserMessageEditContent(prefix: string, body: string) {
+  return `${prefix}${body.trim()}`.trim();
+}
+
+function SkillBadge({ name, path }: { name: string; path: string }) {
+  return (
+    <span
+      title={path}
+      className="inline-flex max-w-full items-center gap-2 rounded-full bg-black/25 px-3 py-1 align-middle font-medium text-[#82bdff]"
+    >
+      <Box className="h-4 w-4 shrink-0" strokeWidth={2} />
+      <span className="truncate">${name}</span>
+    </span>
+  );
+}
+
 function UserMessageContent({ content }: { content: string }) {
   return (
     <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-user-bubble-fg">
@@ -46,14 +110,11 @@ function UserMessageContent({ content }: { content: string }) {
         }
 
         return (
-          <span
+          <SkillBadge
             key={`${index}-${segment.name}`}
-            title={segment.path}
-            className="inline-flex max-w-full items-center gap-2 rounded-full bg-black/25 px-3 py-1 align-middle font-medium text-[#82bdff]"
-          >
-            <Box className="h-4 w-4 shrink-0" strokeWidth={2} />
-            <span className="truncate">${segment.name}</span>
-          </span>
+            name={segment.name}
+            path={segment.path}
+          />
         );
       })}
     </p>
@@ -122,14 +183,33 @@ function UserMessage({
   content,
   timestamp,
   attachments,
+  isEditing,
+  onEdit,
+  onCancelEdit,
+  onSubmitEdit,
 }: {
   content: string;
   timestamp: string;
   attachments?: ImageAttachmentMetadata[];
+  isEditing?: boolean;
+  onEdit?: () => void;
+  onCancelEdit?: () => void;
+  onSubmitEdit?: (content: string) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const editState = useMemo(
+    () => splitLeadingSkillReferences(content),
+    [content],
+  );
+  const [draftBody, setDraftBody] = useState(editState.body);
+
+  useEffect(() => {
+    if (isEditing) {
+      setDraftBody(editState.body);
+    }
+  }, [editState.body, isEditing]);
 
   const handleCopy = async () => {
     try {
@@ -148,6 +228,86 @@ function UserMessage({
       storageKey: attachment.storageKey,
       mimeType: attachment.mimeType,
     })) ?? [];
+  const editedContent = buildUserMessageEditContent(
+    editState.prefix,
+    draftBody,
+  );
+  const canSubmitEdit = !!editedContent.trim();
+
+  const handleSubmitEdit = () => {
+    if (!canSubmitEdit) return;
+    onSubmitEdit?.(editedContent);
+  };
+
+  if (isEditing) {
+    return (
+      <div className="relative flex justify-end">
+        <div className="w-full max-w-[80%] rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
+          <div className="flex min-h-20 flex-wrap items-start gap-2">
+            {editState.skills.map((skill) => (
+              <SkillBadge
+                key={skill.path}
+                name={skill.name}
+                path={skill.path}
+              />
+            ))}
+            <textarea
+              value={draftBody}
+              onChange={(event) => setDraftBody(event.target.value)}
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  !event.nativeEvent.isComposing &&
+                  event.keyCode !== 229
+                ) {
+                  event.preventDefault();
+                  handleSubmitEdit();
+                }
+              }}
+              className="min-h-16 min-w-[14rem] flex-1 resize-none bg-transparent text-[15px] leading-6 text-user-bubble-fg outline-none placeholder:text-subtle"
+              autoFocus
+            />
+          </div>
+          {attachments && attachments.length > 0 && (
+            <div className="mt-2 flex gap-2 overflow-x-auto">
+              {attachments.map((attachment, index) => (
+                <StoredAttachmentThumbnail
+                  key={attachment.id}
+                  attachment={attachment}
+                  onClick={() => setLightboxIndex(index)}
+                />
+              ))}
+            </div>
+          )}
+          <div className="mt-5 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={onCancelEdit}
+              className="rounded-full border border-white/10 px-4 py-2 text-[15px] font-semibold text-user-bubble-fg transition hover:bg-white/5"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmitEdit}
+              disabled={!canSubmitEdit}
+              className="rounded-full bg-white px-4 py-2 text-[15px] font-semibold text-black transition hover:bg-white/90 disabled:opacity-40"
+            >
+              发送
+            </button>
+          </div>
+          {lightboxIndex !== null && (
+            <ImageAttachmentLightbox
+              items={lightboxItems}
+              initialIndex={lightboxIndex}
+              onClose={() => setLightboxIndex(null)}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -159,7 +319,9 @@ function UserMessage({
         <div className="rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
           {content && <UserMessageContent content={content} />}
           {attachments && attachments.length > 0 && (
-            <div className={`flex gap-2 overflow-x-auto ${content ? "mt-2" : ""}`}>
+            <div
+              className={`flex gap-2 overflow-x-auto ${content ? "mt-2" : ""}`}
+            >
               {attachments.map((attachment, index) => (
                 <StoredAttachmentThumbnail
                   key={attachment.id}
@@ -181,24 +343,26 @@ function UserMessage({
       {hovered && (
         <div className="absolute -bottom-6 right-0 flex items-center gap-3 px-1">
           <span className="text-[12px] text-subtle">{timestamp}</span>
-          <button
-            className="flex h-6 w-6 items-center justify-center rounded text-subtle transition hover:text-muted"
-            title="Retry"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
-          <button
-            className="flex h-6 w-6 items-center justify-center rounded text-subtle transition hover:text-muted"
-            title="Edit"
-          >
-            <Pencil className="h-4 w-4" />
-          </button>
+          {onEdit ? (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="flex h-6 w-6 items-center justify-center rounded text-subtle transition hover:text-muted"
+              title="Edit"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+          ) : null}
           <button
             onClick={handleCopy}
             className="flex h-6 w-6 items-center justify-center rounded text-subtle transition hover:text-muted"
             title="Copy"
           >
-            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            {copied ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
           </button>
         </div>
       )}
@@ -208,7 +372,13 @@ function UserMessage({
 
 type ActivityPart = Extract<MessagePart, { type: "reasoning" | "shell" }>;
 
-function AssistantMessage({ message, timestamp }: { message: Message; timestamp: string }) {
+function AssistantMessage({
+  message,
+  timestamp,
+}: {
+  message: Message;
+  timestamp: string;
+}) {
   const content = message.content ?? "";
   const parts = message.type !== "changed_files" ? message.parts : undefined;
   const hasParts = !!parts?.length;
@@ -218,11 +388,14 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
 
   const activityParts =
     parts?.filter(
-      (part): part is ActivityPart => part.type === "reasoning" || part.type === "shell",
+      (part): part is ActivityPart =>
+        part.type === "reasoning" || part.type === "shell",
     ) ?? [];
   const textParts = parts?.filter((part) => part.type === "text") ?? [];
 
-  const copyText = hasParts ? (textParts.map((p) => p.content).join("\n") ?? content) : content;
+  const copyText = hasParts
+    ? (textParts.map((p) => p.content).join("\n") ?? content)
+    : content;
 
   const handleCopy = async () => {
     try {
@@ -261,11 +434,15 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
               startedAt={message.createdAt}
               finishedAt={message.runFinishedAt}
               duration={message.duration}
-              hasFinalAnswerStarted={textParts.some((part) => part.content.length > 0)}
+              hasFinalAnswerStarted={textParts.some(
+                (part) => part.content.length > 0,
+              )}
             />
           )}
           {textParts.length > 0 && (
-            <MarkdownContent>{textParts.map((part) => part.content).join("\n")}</MarkdownContent>
+            <MarkdownContent>
+              {textParts.map((part) => part.content).join("\n")}
+            </MarkdownContent>
           )}
         </div>
       ) : (
@@ -279,7 +456,11 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
             className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:text-muted"
             title="Copy"
           >
-            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            {copied ? (
+              <Check className="h-3 w-3" />
+            ) : (
+              <Copy className="h-3 w-3" />
+            )}
           </button>
         )}
       </div>
@@ -323,7 +504,11 @@ function ChangedFilesMessageItem({
             className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:text-muted"
             title="Copy"
           >
-            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            {copied ? (
+              <Check className="h-3 w-3" />
+            ) : (
+              <Copy className="h-3 w-3" />
+            )}
           </button>
         )}
       </div>
@@ -339,9 +524,25 @@ function EmptyState() {
   );
 }
 
-export function MessageTimeline({ messages }: { messages: Message[] }) {
+export function MessageTimeline({
+  messages,
+  onSubmitUserEdit,
+}: {
+  messages: Message[];
+  onSubmitUserEdit?: (draft: UserMessageEditDraft) => void;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (
+      editingMessageId &&
+      !messages.some((message) => message.id === editingMessageId)
+    ) {
+      setEditingMessageId(null);
+    }
+  }, [editingMessageId, messages]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -383,12 +584,28 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
           <div className="mx-auto flex w-full max-w-[56rem] flex-col pb-4">
             {messages.map((msg) => {
               if (msg.role === "user") {
+                const editDraft = getUserMessageEditDraft(msg);
                 return (
                   <div key={msg.id} className="px-6 py-4">
                     <UserMessage
                       content={msg.content}
                       timestamp={msg.timestamp}
                       attachments={msg.attachments}
+                      isEditing={editingMessageId === msg.id}
+                      onEdit={
+                        editDraft && onSubmitUserEdit
+                          ? () => setEditingMessageId(msg.id)
+                          : undefined
+                      }
+                      onCancelEdit={() => setEditingMessageId(null)}
+                      onSubmitEdit={(content) => {
+                        onSubmitUserEdit?.({
+                          messageId: msg.id,
+                          content,
+                          attachments: msg.attachments,
+                        });
+                        setEditingMessageId(null);
+                      }}
                     />
                   </div>
                 );
@@ -397,7 +614,10 @@ export function MessageTimeline({ messages }: { messages: Message[] }) {
               if (msg.type === "changed_files") {
                 return (
                   <div key={msg.id} className="px-4 py-5">
-                    <ChangedFilesMessageItem message={msg} timestamp={msg.timestamp} />
+                    <ChangedFilesMessageItem
+                      message={msg}
+                      timestamp={msg.timestamp}
+                    />
                   </div>
                 );
               }

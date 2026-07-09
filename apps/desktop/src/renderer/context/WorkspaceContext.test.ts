@@ -1,9 +1,16 @@
 import { describe, expect, it } from "bun:test";
 
 import type { Message } from "../mock/uiShellData";
-import { applyMessagePartUpdate, mergeMessagesIntoWorkspace } from "./WorkspaceContext";
+import {
+  applyMessagePartUpdate,
+  mergeMessagesIntoWorkspace,
+  updateMessageAndPruneThreadAfter,
+} from "./WorkspaceContext";
 
-type TextMessage = Extract<Message, { role: "user" | "assistant"; content: string }>;
+type TextMessage = Extract<
+  Message,
+  { role: "user" | "assistant"; content: string }
+>;
 
 function makeMessage(overrides: Partial<TextMessage> = {}): TextMessage {
   return {
@@ -65,7 +72,71 @@ describe("mergeMessagesIntoWorkspace", () => {
 
     const merged = mergeMessagesIntoWorkspace(existing, incoming);
     expect(merged).toHaveLength(2);
-    expect((merged[1] as TextMessage).attachments).toEqual(incoming[0].attachments);
+    expect((merged[1] as TextMessage).attachments).toEqual(
+      incoming[0].attachments,
+    );
+  });
+});
+
+describe("updateMessageAndPruneThreadAfter", () => {
+  it("updates the target message and removes later messages in the same thread", () => {
+    const messages: Message[] = [
+      makeMessage({ id: "user-1", threadId: "thread-1", content: "old" }),
+      makeMessage({
+        id: "assistant-1",
+        threadId: "thread-1",
+        role: "assistant",
+        content: "old answer",
+      }),
+      makeMessage({
+        id: "other-thread",
+        threadId: "thread-2",
+        content: "keep",
+      }),
+    ];
+
+    expect(
+      updateMessageAndPruneThreadAfter(messages, "user-1", "edited"),
+    ).toEqual([
+      makeMessage({ id: "user-1", threadId: "thread-1", content: "edited" }),
+      makeMessage({
+        id: "other-thread",
+        threadId: "thread-2",
+        content: "keep",
+      }),
+    ]);
+  });
+
+  it("keeps earlier messages from the edited thread", () => {
+    const messages: Message[] = [
+      makeMessage({ id: "user-1", threadId: "thread-1", content: "first" }),
+      makeMessage({
+        id: "assistant-1",
+        threadId: "thread-1",
+        role: "assistant",
+        content: "first answer",
+      }),
+      makeMessage({ id: "user-2", threadId: "thread-1", content: "old" }),
+      makeMessage({
+        id: "assistant-2",
+        threadId: "thread-1",
+        role: "assistant",
+        content: "stale answer",
+      }),
+    ];
+
+    expect(
+      updateMessageAndPruneThreadAfter(messages, "user-2", "edited"),
+    ).toEqual([
+      makeMessage({ id: "user-1", threadId: "thread-1", content: "first" }),
+      makeMessage({
+        id: "assistant-1",
+        threadId: "thread-1",
+        role: "assistant",
+        content: "first answer",
+      }),
+      makeMessage({ id: "user-2", threadId: "thread-1", content: "edited" }),
+    ]);
   });
 });
 

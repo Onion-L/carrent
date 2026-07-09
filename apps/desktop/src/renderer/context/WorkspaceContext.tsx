@@ -1,4 +1,10 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   initialActiveThreadId,
   messages as initialMessages,
@@ -90,6 +96,7 @@ export type WorkspaceContextValue = {
     runStatus?: MessageRunStatus;
   }) => Message;
   updateMessage: (id: string, content: string) => void;
+  updateMessageAndPruneAfter: (id: string, content: string) => void;
   updateMessageRunStatus: (id: string, status: MessageRunStatus) => void;
   updateMessageParts: (id: string, update: MessagePartUpdate) => void;
   setThreadRuntimeMode: (
@@ -97,7 +104,11 @@ export type WorkspaceContextValue = {
     threadId: string,
     runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
   ) => void;
-  setThreadRuntimeId: (projectId: string, threadId: string, runtimeId: RuntimeId) => void;
+  setThreadRuntimeId: (
+    projectId: string,
+    threadId: string,
+    runtimeId: RuntimeId,
+  ) => void;
   setThreadRuntimeModelId: (
     projectId: string,
     threadId: string,
@@ -108,7 +119,10 @@ export type WorkspaceContextValue = {
     runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
   ) => void;
   setChatRuntimeId: (threadId: string, runtimeId: RuntimeId) => void;
-  setChatRuntimeModelId: (threadId: string, runtimeModelId: string | undefined) => void;
+  setChatRuntimeModelId: (
+    threadId: string,
+    runtimeModelId: string | undefined,
+  ) => void;
 };
 
 export type MessagePartUpdate =
@@ -155,6 +169,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
     type: "text",
   }),
   updateMessage: () => {},
+  updateMessageAndPruneAfter: () => {},
   updateMessageRunStatus: () => {},
   updateMessageParts: () => {},
   setThreadRuntimeMode: () => {},
@@ -196,8 +211,12 @@ export function mergeMessagesIntoWorkspace(
   existingMessages: Message[],
   incomingMessages: Message[],
 ) {
-  const incomingById = new Map(incomingMessages.map((message) => [message.id, message]));
-  const merged = existingMessages.map((message) => incomingById.get(message.id) ?? message);
+  const incomingById = new Map(
+    incomingMessages.map((message) => [message.id, message]),
+  );
+  const merged = existingMessages.map(
+    (message) => incomingById.get(message.id) ?? message,
+  );
   const knownIds = new Set(existingMessages.map((message) => message.id));
 
   incomingMessages.forEach((message) => {
@@ -209,6 +228,32 @@ export function mergeMessagesIntoWorkspace(
   return merged;
 }
 
+export function updateMessageAndPruneThreadAfter(
+  messages: Message[],
+  messageId: string,
+  content: string,
+) {
+  const targetIndex = messages.findIndex((message) => message.id === messageId);
+  const target = messages[targetIndex];
+
+  if (!target || target.type === "changed_files") {
+    return messages;
+  }
+
+  return messages
+    .slice(0, targetIndex + 1)
+    .map((message) =>
+      message.id === messageId
+        ? { ...message, content, parts: undefined }
+        : message,
+    )
+    .concat(
+      messages
+        .slice(targetIndex + 1)
+        .filter((message) => message.threadId !== target.threadId),
+    );
+}
+
 function getTextMessageParts(message: Message) {
   if (message.type === "changed_files") {
     return [];
@@ -218,10 +263,15 @@ function getTextMessageParts(message: Message) {
     return [...message.parts];
   }
 
-  return message.content ? [{ type: "text" as const, content: message.content }] : [];
+  return message.content
+    ? [{ type: "text" as const, content: message.content }]
+    : [];
 }
 
-export function applyMessagePartUpdate(message: Message, update: MessagePartUpdate): Message {
+export function applyMessagePartUpdate(
+  message: Message,
+  update: MessagePartUpdate,
+): Message {
   if (message.type === "changed_files") {
     return message;
   }
@@ -289,7 +339,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [hasHydrated, setHasHydrated] = useState(false);
 
   const currentThread =
-    findCurrentThread(projects, activeThreadId) ?? findCurrentChatThread(chats, activeThreadId);
+    findCurrentThread(projects, activeThreadId) ??
+    findCurrentChatThread(chats, activeThreadId);
   const currentProject = findCurrentProject(projects, activeThreadId);
   const getThreadRouteData = (projectId: string, threadId: string) =>
     resolveWorkspaceThreadRouteData(projects, messages, projectId, threadId);
@@ -413,7 +464,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setProjects(toggleThreadPinInProjects(projects, projectId, threadId));
   };
 
-  const createChat = (title: string, runtimeId?: RuntimeId, runtimeModelId?: string) => {
+  const createChat = (
+    title: string,
+    runtimeId?: RuntimeId,
+    runtimeModelId?: string,
+  ) => {
     const thread = createChatThread(title, runtimeId, runtimeModelId);
     if (!thread) {
       return null;
@@ -452,11 +507,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     threadId: string,
     runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
   ) => {
-    setProjects((prev) => setThreadRuntimeModeInProjects(prev, projectId, threadId, runtimeMode));
+    setProjects((prev) =>
+      setThreadRuntimeModeInProjects(prev, projectId, threadId, runtimeMode),
+    );
   };
 
-  const setThreadRuntimeId = (projectId: string, threadId: string, runtimeId: RuntimeId) => {
-    setProjects((prev) => setThreadRuntimeIdInProjects(prev, projectId, threadId, runtimeId));
+  const setThreadRuntimeId = (
+    projectId: string,
+    threadId: string,
+    runtimeId: RuntimeId,
+  ) => {
+    setProjects((prev) =>
+      setThreadRuntimeIdInProjects(prev, projectId, threadId, runtimeId),
+    );
   };
 
   const setThreadRuntimeModelId = (
@@ -465,7 +528,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     runtimeModelId: string | undefined,
   ) => {
     setProjects((prev) =>
-      setThreadRuntimeModelIdInProjects(prev, projectId, threadId, runtimeModelId),
+      setThreadRuntimeModelIdInProjects(
+        prev,
+        projectId,
+        threadId,
+        runtimeModelId,
+      ),
     );
   };
 
@@ -480,8 +548,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setChats((prev) => setChatThreadRuntimeId(prev, threadId, runtimeId));
   };
 
-  const setChatRuntimeModelId = (threadId: string, runtimeModelId: string | undefined) => {
-    setChats((prev) => setChatThreadRuntimeModelId(prev, threadId, runtimeModelId));
+  const setChatRuntimeModelId = (
+    threadId: string,
+    runtimeModelId: string | undefined,
+  ) => {
+    setChats((prev) =>
+      setChatThreadRuntimeModelId(prev, threadId, runtimeModelId),
+    );
   };
 
   const upsertMessages = (incomingMessages: Message[]) => {
@@ -510,9 +583,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const updateMessage = (id: string, content: string) => {
     setMessages((prev) =>
       prev.map((msg) =>
-        msg.id === id && msg.type !== "changed_files" ? { ...msg, content, parts: undefined } : msg,
+        msg.id === id && msg.type !== "changed_files"
+          ? { ...msg, content, parts: undefined }
+          : msg,
       ),
     );
+  };
+
+  const updateMessageAndPruneAfter = (id: string, content: string) => {
+    setMessages((prev) => updateMessageAndPruneThreadAfter(prev, id, content));
   };
 
   const updateMessageRunStatus = (id: string, status: MessageRunStatus) => {
@@ -533,7 +612,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const updateMessageParts = (id: string, update: MessagePartUpdate) => {
     setMessages((prev) =>
-      prev.map((msg) => (msg.id === id ? applyMessagePartUpdate(msg, update) : msg)),
+      prev.map((msg) =>
+        msg.id === id ? applyMessagePartUpdate(msg, update) : msg,
+      ),
     );
   };
 
@@ -565,6 +646,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         upsertMessages,
         appendMessage,
         updateMessage,
+        updateMessageAndPruneAfter,
         updateMessageRunStatus,
         updateMessageParts,
         setThreadRuntimeMode,

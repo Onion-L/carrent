@@ -69,6 +69,7 @@ import {
   runtimeNameMap,
   type RuntimeId,
   type RuntimeModelRecord,
+  type RuntimeRecord,
 } from "../../../shared/runtimes";
 import { RuntimeIcon } from "../RuntimeIcon";
 import { useRuntimeModels } from "../../hooks/useRuntimeModels";
@@ -174,6 +175,13 @@ function ContextUsageIndicator({
   );
 }
 
+export type ComposerSubmitRequest = {
+  messageId: string;
+  content: string;
+  attachments?: ImageAttachmentMetadata[];
+  requestId: number;
+};
+
 type ComposerProps =
   | {
       mode: "thread";
@@ -183,6 +191,7 @@ type ComposerProps =
       runtimeId: RuntimeId;
       runtimeModelId?: string;
       runtimeMode: RuntimeMode;
+      submitRequest?: ComposerSubmitRequest;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
@@ -194,6 +203,7 @@ type ComposerProps =
       runtimeId: RuntimeId;
       runtimeModelId?: string;
       runtimeMode: RuntimeMode;
+      submitRequest?: ComposerSubmitRequest;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
@@ -452,12 +462,22 @@ export function getDisplayRuntimeModel({
   return models.find((model) => model.id === runtimeModelId);
 }
 
+export function getComposerRuntimeLabel(
+  runtime: Pick<RuntimeRecord, "id" | "name">,
+) {
+  if (runtime.id === "kimi") return "Kimi for coding";
+  return runtime.name;
+}
+
 export function getRuntimeModelIdForSend({
+  runtimeId,
   runtimeModelId,
 }: {
+  runtimeId?: RuntimeId;
   runtimeModelId?: string;
   defaultModelId?: string;
 }) {
+  if (runtimeId === "kimi") return undefined;
   return runtimeModelId;
 }
 
@@ -597,6 +617,7 @@ export function Composer(props: ComposerProps) {
     projects,
     chats,
     appendMessage,
+    updateMessageAndPruneAfter,
     updateMessageRunStatus,
     updateMessageParts,
     upsertChat,
@@ -677,6 +698,7 @@ export function Composer(props: ComposerProps) {
   const activeAssistantMessageIdRef = useRef<string | null>(null);
   const flushTypewriterRef = useRef<VoidFunction | null>(null);
   const wasSendingRef = useRef(false);
+  const lastSubmitRequestIdRef = useRef<number | null>(null);
   const projectId = props.mode === "chat" ? null : props.projectId;
   const project = projectId
     ? (projects.find((item) => item.id === projectId) ?? null)
@@ -701,7 +723,10 @@ export function Composer(props: ComposerProps) {
       workspace,
       threadId,
       runtimeId: props.runtimeId,
-      runtimeModelId: props.runtimeModelId,
+      runtimeModelId: getRuntimeModelIdForSend({
+        runtimeId: props.runtimeId,
+        runtimeModelId: props.runtimeModelId,
+      }),
       runtimeMode: props.runtimeMode,
       transcript: [],
       message: "",
@@ -723,13 +748,12 @@ export function Composer(props: ComposerProps) {
     () => getChatRuntimeOptions(runtimes),
     [runtimes],
   );
-  const modelRuntimeId =
-    props.runtimeId === "pi" || props.runtimeId === "kimi"
-      ? props.runtimeId
-      : null;
+  const modelRuntimeId = props.runtimeId === "pi" ? props.runtimeId : null;
   const { models } = useRuntimeModels(modelRuntimeId);
+  const cascadingModelRuntimeId =
+    cascadingRuntimeId === "pi" ? cascadingRuntimeId : null;
   const { models: cascadingModels, loading: cascadingLoading } =
-    useRuntimeModels(cascadingRuntimeId);
+    useRuntimeModels(cascadingModelRuntimeId);
   const selectedRuntimeModel = getDisplayRuntimeModel({
     models,
     runtimeModelId: props.runtimeModelId,
@@ -746,19 +770,15 @@ export function Composer(props: ComposerProps) {
     !runtimesLoading &&
     !!selectedRuntime &&
     selectedRuntime.availability !== "detected";
-  const kimiModelDisplay =
-    kimiStatus?.model?.split("/").pop() ??
-    selectedRuntimeModel?.id.split("/").pop() ??
-    props.runtimeModelId?.split("/").pop();
   const runtimeButtonLabel = runtimesLoading
     ? "Checking runtimes"
     : runtimeOptions.length === 0
       ? "No runtime available"
       : isSelectedRuntimeAvailable
-        ? props.runtimeId === "kimi" && kimiModelDisplay
-          ? kimiModelDisplay
-          : selectedRuntimeModel
-            ? `${runtimeNameMap[props.runtimeId]} · ${selectedRuntimeModel.name}`
+        ? selectedRuntimeModel
+          ? `${runtimeNameMap[props.runtimeId]} · ${selectedRuntimeModel.name}`
+          : selectedRuntime
+            ? getComposerRuntimeLabel(selectedRuntime)
             : runtimeNameMap[props.runtimeId]
         : "Select runtime";
   const skillTrigger = useMemo(
@@ -800,7 +820,7 @@ export function Composer(props: ComposerProps) {
   );
   const showCascadingPanel =
     showRuntimePicker &&
-    (cascadingRuntimeId === "pi" || cascadingRuntimeId === "kimi") &&
+    cascadingModelRuntimeId === "pi" &&
     !!props.onRuntimeModelIdChange;
   const cascadingPanelTransitionClass = !cascadingPanelPosition
     ? "pointer-events-none opacity-0 translate-y-1 scale-95"
@@ -1218,34 +1238,60 @@ export function Composer(props: ComposerProps) {
     [handleAddFiles],
   );
 
-  const handleSend = async () => {
-    if (!canSend) return;
+  const handleSend = async (override?: {
+    messageId?: string;
+    content: string;
+    attachments?: ImageAttachmentMetadata[];
+  }) => {
+    const externalSubmit = override;
+    const isExternalSubmit = externalSubmit !== undefined;
+    const currentPendingAttachments = externalSubmit
+      ? []
+      : pendingAttachments;
+    const currentAttachedSkills = externalSubmit
+      ? []
+      : effectiveAttachedSkills;
+    const currentInput = externalSubmit
+      ? externalSubmit.content.trim()
+      : input.trim();
+    const hasCurrentSendableContent =
+      !!currentInput ||
+      currentAttachedSkills.length > 0 ||
+      currentPendingAttachments.length > 0;
+    const canSendCurrent =
+      (props.mode === "chat"
+        ? hasCurrentSendableContent
+        : hasCurrentSendableContent && !!project) && isSelectedRuntimeAvailable;
+
+    if (!canSendCurrent || isThreadSending) return false;
 
     if (props.mode === "thread") {
       promoteDraftThread(props.projectId, props.threadId);
     }
 
     const validation = validateImageAttachments(
-      pendingAttachments.map((pending) => pending.file),
+      currentPendingAttachments.map((pending) => pending.file),
     );
     if (!validation.ok) {
       setAttachmentError(validation.reason);
-      return;
+      return false;
     }
 
-    if (pendingAttachments.some((pending) => !pending.metadata)) {
+    if (currentPendingAttachments.some((pending) => !pending.metadata)) {
       setAttachmentError("Some attachments are still being prepared.");
-      return;
+      return false;
     }
 
     const skillPrefix =
-      effectiveAttachedSkills.length > 0
-        ? `${effectiveAttachedSkills.map(buildSkillReference).join(" ")} `
+      currentAttachedSkills.length > 0
+        ? `${currentAttachedSkills.map(buildSkillReference).join(" ")} `
         : "";
-    const messageText = `${skillPrefix}${input.trim()}`.trim();
-    const attachmentMetadata: ImageAttachmentMetadata[] = metadataOnly(
-      pendingAttachments.map((pending) => pending.metadata!),
-    );
+    const messageText = `${skillPrefix}${currentInput}`.trim();
+    const attachmentMetadata: ImageAttachmentMetadata[] = externalSubmit
+      ? metadataOnly(externalSubmit.attachments ?? [])
+      : metadataOnly(
+          currentPendingAttachments.map((pending) => pending.metadata!),
+        );
 
     setAttachmentError(null);
 
@@ -1344,7 +1390,12 @@ export function Composer(props: ComposerProps) {
       }, TYPEWRITER_INTERVAL_MS);
     };
 
-    appendLocalMessage("user", messageText, attachmentMetadata);
+    if (externalSubmit?.messageId) {
+      updateMessageAndPruneAfter(externalSubmit.messageId, messageText);
+    } else {
+      appendLocalMessage("user", messageText, attachmentMetadata);
+    }
+
     const assistantMsg = appendLocalMessage(
       "assistant",
       "",
@@ -1368,7 +1419,19 @@ export function Composer(props: ComposerProps) {
       flushTypewriterRef.current = null;
     };
 
-    const transcript = props.messages
+    const transcriptMessages =
+      externalSubmit?.messageId
+        ? props.messages.slice(
+            0,
+            Math.max(
+              0,
+              props.messages.findIndex(
+                (message) => message.id === externalSubmit.messageId,
+              ),
+            ),
+          )
+        : props.messages;
+    const transcript = transcriptMessages
       .filter((m) => m.type !== "changed_files")
       .slice(-6)
       .map((m) => ({
@@ -1389,6 +1452,7 @@ export function Composer(props: ComposerProps) {
         threadId,
         runtimeId: props.runtimeId,
         runtimeModelId: getRuntimeModelIdForSend({
+          runtimeId: props.runtimeId,
           runtimeModelId: props.runtimeModelId,
         }),
         runtimeMode: props.runtimeMode,
@@ -1453,15 +1517,17 @@ export function Composer(props: ComposerProps) {
     );
 
     if (!sendStarted) {
-      return;
+      return false;
     }
 
-    setInput("");
-    setAttachedSkills([]);
-    setPendingAttachments((prev) => {
-      prev.forEach((pending) => URL.revokeObjectURL(pending.previewUrl));
-      return [];
-    });
+    if (!isExternalSubmit) {
+      setInput("");
+      setAttachedSkills([]);
+      setPendingAttachments((prev) => {
+        prev.forEach((pending) => URL.revokeObjectURL(pending.previewUrl));
+        return [];
+      });
+    }
 
     if (props.mode === "chat") {
       const chatThread = chats.find((c) => c.id === threadId);
@@ -1484,7 +1550,25 @@ export function Composer(props: ComposerProps) {
         upsertThread(props.projectId, { ...thread, title, draft: undefined });
       }
     }
+
+    return true;
   };
+
+  useEffect(() => {
+    if (
+      !props.submitRequest ||
+      lastSubmitRequestIdRef.current === props.submitRequest.requestId
+    ) {
+      return;
+    }
+
+    lastSubmitRequestIdRef.current = props.submitRequest.requestId;
+    void handleSend({
+      messageId: props.submitRequest.messageId,
+      content: props.submitRequest.content,
+      attachments: props.submitRequest.attachments,
+    });
+  }, [props.submitRequest?.requestId, props.submitRequest?.content]);
 
   const updateTextareaCursor = () => {
     const textarea = textareaRef.current;
@@ -1816,7 +1900,7 @@ export function Composer(props: ComposerProps) {
               if (shouldSubmitComposerOnKeyDown(e)) {
                 e.preventDefault();
                 if (canSend && !isThreadSending) {
-                  handleSend();
+                  void handleSend();
                 }
               }
             }}
@@ -1879,8 +1963,7 @@ export function Composer(props: ComposerProps) {
                       {runtimeOptions.length > 0 ? (
                         runtimeOptions.map((runtime) => {
                           const supportsModelCascade =
-                            (runtime.id === "pi" || runtime.id === "kimi") &&
-                            props.onRuntimeModelIdChange;
+                            runtime.id === "pi" && props.onRuntimeModelIdChange;
 
                           return (
                             <button
@@ -1909,8 +1992,7 @@ export function Composer(props: ComposerProps) {
                               onClick={() => {
                                 props.onRuntimeIdChange!(runtime.id);
                                 if (
-                                  (runtime.id !== "pi" &&
-                                    runtime.id !== "kimi") ||
+                                  runtime.id !== "pi" ||
                                   !props.onRuntimeModelIdChange
                                 ) {
                                   props.onRuntimeModelIdChange?.(undefined);
@@ -1933,9 +2015,7 @@ export function Composer(props: ComposerProps) {
                             >
                               <RuntimeIcon name={runtime.name} size="xs" />
                               <span className="min-w-0 flex-1">
-                                {runtime.id === "kimi" && kimiModelDisplay
-                                  ? kimiModelDisplay
-                                  : runtime.name}
+                                {getComposerRuntimeLabel(runtime)}
                               </span>
                               {supportsModelCascade ? (
                                 <ChevronDown className="ml-auto h-3 w-3 shrink-0" />
@@ -2164,7 +2244,7 @@ export function Composer(props: ComposerProps) {
                 </button>
               ) : (
                 <button
-                  onClick={handleSend}
+                  onClick={() => void handleSend()}
                   disabled={!canSend || isThreadSending}
                   className="flex h-9 w-9 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 active:scale-95 disabled:opacity-30"
                 >

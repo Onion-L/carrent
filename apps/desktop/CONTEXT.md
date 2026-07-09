@@ -80,6 +80,10 @@ _Avoid_: Preview image, uploaded file, file attachment
 A user-added resource, such as an image, file, or pasted text, that becomes available to the coding agent for the current thread. Adding the resource is the user's authorization for Carrent and the selected runtime to read it in that thread.
 _Avoid_: Upload, project file, workspace file
 
+**User Message Edit**:
+An interaction that turns an existing user message bubble into an inline editor so the user can revise the text, cancel, or submit the revised text. Submitting updates that same user message and discards later messages in the same thread before starting the replacement run.
+_Avoid_: Retry, message rewrite
+
 **File Attachment**:
 A local file added to a thread as a thread attachment, whether it is inside or outside the active project. Carrent stores a snapshot of single-file attachments so the thread can keep using them if the original file changes, moves, or disappears; folders are represented as additional local directories instead.
 _Avoid_: File reference, project-only file

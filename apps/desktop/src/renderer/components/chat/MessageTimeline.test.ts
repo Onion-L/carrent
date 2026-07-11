@@ -10,9 +10,7 @@ import type { Message } from "../../mock/uiShellData";
 
 describe("parseSkillReferenceSegments", () => {
   it("keeps plain text unchanged", () => {
-    expect(parseSkillReferenceSegments("hello")).toEqual([
-      { type: "text", content: "hello" },
-    ]);
+    expect(parseSkillReferenceSegments("hello")).toEqual([{ type: "text", content: "hello" }]);
   });
 
   it("extracts a skill markdown reference", () => {
@@ -32,9 +30,7 @@ describe("parseSkillReferenceSegments", () => {
 
   it("handles multiple skill references", () => {
     expect(
-      parseSkillReferenceSegments(
-        "use [$one](/tmp/one/SKILL.md) and [$two](/tmp/two/SKILL.md)",
-      ),
+      parseSkillReferenceSegments("use [$one](/tmp/one/SKILL.md) and [$two](/tmp/two/SKILL.md)"),
     ).toEqual([
       { type: "text", content: "use " },
       { type: "skill", name: "one", path: "/tmp/one/SKILL.md" },
@@ -116,8 +112,7 @@ describe("user message inline editing", () => {
           path: "/Users/test/.agents/skills/grill-with-docs/SKILL.md",
         },
       ],
-      prefix:
-        "[$grill-with-docs](/Users/test/.agents/skills/grill-with-docs/SKILL.md) ",
+      prefix: "[$grill-with-docs](/Users/test/.agents/skills/grill-with-docs/SKILL.md) ",
       body: "实现编辑",
     });
   });
@@ -128,8 +123,6 @@ describe("user message inline editing", () => {
         "[$grill-with-docs](/Users/test/.agents/skills/grill-with-docs/SKILL.md) ",
         "  改成内联编辑  ",
       ),
-    ).toBe(
-      "[$grill-with-docs](/Users/test/.agents/skills/grill-with-docs/SKILL.md) 改成内联编辑",
-    );
+    ).toBe("[$grill-with-docs](/Users/test/.agents/skills/grill-with-docs/SKILL.md) 改成内联编辑");
   });
 });

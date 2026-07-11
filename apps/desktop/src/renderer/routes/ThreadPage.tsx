@@ -2,11 +2,9 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import { ChatHeader } from "../components/chat/ChatHeader";
+import { Composer, type ComposerSubmitRequest } from "../components/chat/Composer";
 import {
-  Composer,
-  type ComposerSubmitRequest,
-} from "../components/chat/Composer";
-import {
+  EmptyThreadPrompt,
   MessageTimeline,
   type UserMessageEditDraft,
 } from "../components/chat/MessageTimeline";
@@ -28,9 +26,7 @@ export function resolveThreadRouteData(
 
 export function ThreadPage() {
   const { projectId, threadId } = useParams();
-  const [submitRequest, setSubmitRequest] = useState<
-    ComposerSubmitRequest | undefined
-  >();
+  const [submitRequest, setSubmitRequest] = useState<ComposerSubmitRequest | undefined>();
   const {
     getThreadRouteData,
     setActiveThreadId,
@@ -38,11 +34,7 @@ export function ThreadPage() {
     setThreadRuntimeId,
     setThreadRuntimeModelId,
   } = useWorkspace();
-  const routeData = resolveThreadRouteData(
-    getThreadRouteData,
-    projectId,
-    threadId,
-  );
+  const routeData = resolveThreadRouteData(getThreadRouteData, projectId, threadId);
 
   useEffect(() => {
     setActiveThreadId(routeData?.thread.id ?? null);
@@ -60,47 +52,49 @@ export function ThreadPage() {
       requestId: Date.now(),
     });
   };
+  const isEmptyThread = routeData?.messages.length === 0;
+  const composer = routeData ? (
+    <Composer
+      mode="thread"
+      placement={isEmptyThread ? "centered" : "default"}
+      projectId={routeData.project.id}
+      threadId={routeData.thread.id}
+      messages={routeData.messages}
+      runtimeId={routeData.thread.runtimeId ?? DEFAULT_RUNTIME_ID}
+      runtimeModelId={routeData.thread.runtimeModelId}
+      runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
+      submitRequest={submitRequest}
+      onRuntimeIdChange={(runtimeId) =>
+        setThreadRuntimeId(routeData.project.id, routeData.thread.id, runtimeId)
+      }
+      onRuntimeModelIdChange={(modelId) =>
+        setThreadRuntimeModelId(routeData.project.id, routeData.thread.id, modelId)
+      }
+      onRuntimeModeChange={(mode) =>
+        setThreadRuntimeMode(routeData.project.id, routeData.thread.id, mode)
+      }
+    />
+  ) : null;
 
   return (
     <div className="flex h-full w-full flex-col">
       <ChatHeader title={routeData?.thread.title ?? "Thread not found"} />
-      <MessageTimeline
-        messages={routeData?.messages ?? []}
-        onSubmitUserEdit={handleSubmitUserEdit}
-      />
-      {routeData ? (
-        <Composer
-          mode="thread"
-          projectId={routeData.project.id}
-          threadId={routeData.thread.id}
-          messages={routeData.messages}
-          runtimeId={routeData.thread.runtimeId ?? DEFAULT_RUNTIME_ID}
-          runtimeModelId={routeData.thread.runtimeModelId}
-          runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
-          submitRequest={submitRequest}
-          onRuntimeIdChange={(runtimeId) =>
-            setThreadRuntimeId(
-              routeData.project.id,
-              routeData.thread.id,
-              runtimeId,
-            )
-          }
-          onRuntimeModelIdChange={(modelId) =>
-            setThreadRuntimeModelId(
-              routeData.project.id,
-              routeData.thread.id,
-              modelId,
-            )
-          }
-          onRuntimeModeChange={(mode) =>
-            setThreadRuntimeMode(
-              routeData.project.id,
-              routeData.thread.id,
-              mode,
-            )
-          }
-        />
-      ) : null}
+      {routeData && isEmptyThread ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
+          <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
+            <EmptyThreadPrompt />
+            {composer}
+          </div>
+        </div>
+      ) : (
+        <>
+          <MessageTimeline
+            messages={routeData?.messages ?? []}
+            onSubmitUserEdit={handleSubmitUserEdit}
+          />
+          {composer}
+        </>
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   getActionablePermissionsForThread,
   buildSkillReference,
   filterSkillsForQuery,
+  formatKimiModelLabel,
   formatSkillLabel,
   getComposerRuntimeLabel,
   getGitBridge,
@@ -12,9 +13,11 @@ import {
   getDisplayRuntimeModel,
   getPermissionDetail,
   getRuntimeModelIdForSend,
+  getRuntimeSelectionLabel,
   getSkillSlashTrigger,
   normalizeGitBranchInfo,
   replaceSkillSlashTrigger,
+  supportsRuntimeModelSelection,
   shouldSubmitComposerOnKeyDown,
   storeImageAttachmentFile,
 } from "./Composer";
@@ -35,6 +38,15 @@ const piModels = [
     source: "cli" as const,
   },
 ];
+
+describe("supportsRuntimeModelSelection", () => {
+  it("supports model selection for Kimi and pi runtimes", () => {
+    expect(supportsRuntimeModelSelection("kimi")).toBe(true);
+    expect(supportsRuntimeModelSelection("pi")).toBe(true);
+    expect(supportsRuntimeModelSelection("codex")).toBe(false);
+    expect(supportsRuntimeModelSelection("claude-code")).toBe(false);
+  });
+});
 
 describe("shouldSubmitComposerOnKeyDown", () => {
   it("submits on plain Enter", () => {
@@ -199,13 +211,13 @@ describe("getRuntimeModelIdForSend", () => {
     ).toBe("minimax-cn/MiniMax-M2.7");
   });
 
-  it("does not send a Kimi model override from stale thread state", () => {
+  it("sends an explicitly selected Kimi model", () => {
     expect(
       getRuntimeModelIdForSend({
         runtimeId: "kimi",
-        runtimeModelId: "kimi-code/kimi-for-coding",
+        runtimeModelId: "kimi-code/kimi-for-coding-highspeed",
       }),
-    ).toBeUndefined();
+    ).toBe("kimi-code/kimi-for-coding-highspeed");
   });
 });
 
@@ -216,6 +228,37 @@ describe("getComposerRuntimeLabel", () => {
 
   it("uses the runtime name for non-Kimi runtimes", () => {
     expect(getComposerRuntimeLabel({ id: "codex", name: "Codex" })).toBe("Codex");
+  });
+});
+
+describe("formatKimiModelLabel", () => {
+  it("formats Kimi model ids for the primary selector", () => {
+    expect(formatKimiModelLabel("kimi-for-coding")).toBe("Kimi for Coding");
+    expect(formatKimiModelLabel("kimi-for-coding-highspeed")).toBe(
+      "Kimi for Coding High Speed",
+    );
+  });
+});
+
+describe("getRuntimeSelectionLabel", () => {
+  it("shows only the model name for Kimi", () => {
+    expect(
+      getRuntimeSelectionLabel({
+        runtimeId: "kimi",
+        runtimeName: "Kimi Code",
+        modelName: "kimi-for-coding-highspeed",
+      }),
+    ).toBe("kimi-for-coding-highspeed");
+  });
+
+  it("keeps the runtime prefix for other runtimes", () => {
+    expect(
+      getRuntimeSelectionLabel({
+        runtimeId: "pi",
+        runtimeName: "pi",
+        modelName: "deepseek-v4-flash",
+      }),
+    ).toBe("pi · deepseek-v4-flash");
   });
 });
 

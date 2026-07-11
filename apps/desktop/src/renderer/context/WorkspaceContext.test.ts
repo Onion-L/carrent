@@ -7,10 +7,7 @@ import {
   updateMessageAndPruneThreadAfter,
 } from "./WorkspaceContext";
 
-type TextMessage = Extract<
-  Message,
-  { role: "user" | "assistant"; content: string }
->;
+type TextMessage = Extract<Message, { role: "user" | "assistant"; content: string }>;
 
 function makeMessage(overrides: Partial<TextMessage> = {}): TextMessage {
   return {
@@ -72,9 +69,7 @@ describe("mergeMessagesIntoWorkspace", () => {
 
     const merged = mergeMessagesIntoWorkspace(existing, incoming);
     expect(merged).toHaveLength(2);
-    expect((merged[1] as TextMessage).attachments).toEqual(
-      incoming[0].attachments,
-    );
+    expect((merged[1] as TextMessage).attachments).toEqual(incoming[0].attachments);
   });
 });
 
@@ -95,9 +90,7 @@ describe("updateMessageAndPruneThreadAfter", () => {
       }),
     ];
 
-    expect(
-      updateMessageAndPruneThreadAfter(messages, "user-1", "edited"),
-    ).toEqual([
+    expect(updateMessageAndPruneThreadAfter(messages, "user-1", "edited")).toEqual([
       makeMessage({ id: "user-1", threadId: "thread-1", content: "edited" }),
       makeMessage({
         id: "other-thread",
@@ -125,9 +118,7 @@ describe("updateMessageAndPruneThreadAfter", () => {
       }),
     ];
 
-    expect(
-      updateMessageAndPruneThreadAfter(messages, "user-2", "edited"),
-    ).toEqual([
+    expect(updateMessageAndPruneThreadAfter(messages, "user-2", "edited")).toEqual([
       makeMessage({ id: "user-1", threadId: "thread-1", content: "first" }),
       makeMessage({
         id: "assistant-1",

@@ -33,7 +33,9 @@ export function RuntimesPage() {
     loading: runtimeModelsLoading,
     error: runtimeModelsError,
     refresh: refreshRuntimeModels,
-  } = useRuntimeModels(selectedRuntime?.id === "pi" ? selectedRuntime.id : null);
+  } = useRuntimeModels(
+    selectedRuntime?.id === "pi" || selectedRuntime?.id === "kimi" ? selectedRuntime.id : null,
+  );
 
   const getActionState = (id: string) => actionStateById[id] ?? "idle";
 

@@ -7,10 +7,7 @@ import {
 } from "../../mock/uiShellData";
 import { AgentActivityBlock } from "./AgentActivityBlock";
 import { ChangedFilesCard } from "./ChangedFilesCard";
-import {
-  ImageAttachmentLightbox,
-  type StoredLightboxItem,
-} from "./ImageAttachmentLightbox";
+import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachmentLightbox";
 import { MarkdownContent } from "./MarkdownContent";
 
 type UserMessageSegment =
@@ -24,12 +21,9 @@ export type UserMessageEditDraft = {
 };
 
 const SKILL_REFERENCE_PATTERN = /\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\)/gu;
-const LEADING_SKILL_REFERENCE_PATTERN =
-  /^\s*(\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\))\s*/u;
+const LEADING_SKILL_REFERENCE_PATTERN = /^\s*(\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\))\s*/u;
 
-export function parseSkillReferenceSegments(
-  content: string,
-): UserMessageSegment[] {
+export function parseSkillReferenceSegments(content: string): UserMessageSegment[] {
   const segments: UserMessageSegment[] = [];
   let lastIndex = 0;
 
@@ -50,9 +44,7 @@ export function parseSkillReferenceSegments(
   return segments.length > 0 ? segments : [{ type: "text", content }];
 }
 
-export function getUserMessageEditDraft(
-  message: Message,
-): UserMessageEditDraft | null {
+export function getUserMessageEditDraft(message: Message): UserMessageEditDraft | null {
   if (message.role !== "user" || !message.content.trim()) {
     return null;
   }
@@ -110,11 +102,7 @@ function UserMessageContent({ content }: { content: string }) {
         }
 
         return (
-          <SkillBadge
-            key={`${index}-${segment.name}`}
-            name={segment.name}
-            path={segment.path}
-          />
+          <SkillBadge key={`${index}-${segment.name}`} name={segment.name} path={segment.path} />
         );
       })}
     </p>
@@ -199,10 +187,7 @@ function UserMessage({
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const editState = useMemo(
-    () => splitLeadingSkillReferences(content),
-    [content],
-  );
+  const editState = useMemo(() => splitLeadingSkillReferences(content), [content]);
   const [draftBody, setDraftBody] = useState(editState.body);
 
   useEffect(() => {
@@ -228,10 +213,7 @@ function UserMessage({
       storageKey: attachment.storageKey,
       mimeType: attachment.mimeType,
     })) ?? [];
-  const editedContent = buildUserMessageEditContent(
-    editState.prefix,
-    draftBody,
-  );
+  const editedContent = buildUserMessageEditContent(editState.prefix, draftBody);
   const canSubmitEdit = !!editedContent.trim();
 
   const handleSubmitEdit = () => {
@@ -245,11 +227,7 @@ function UserMessage({
         <div className="w-full max-w-[80%] rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
           <div className="flex min-h-20 flex-wrap items-start gap-2">
             {editState.skills.map((skill) => (
-              <SkillBadge
-                key={skill.path}
-                name={skill.name}
-                path={skill.path}
-              />
+              <SkillBadge key={skill.path} name={skill.name} path={skill.path} />
             ))}
             <textarea
               value={draftBody}
@@ -319,9 +297,7 @@ function UserMessage({
         <div className="rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
           {content && <UserMessageContent content={content} />}
           {attachments && attachments.length > 0 && (
-            <div
-              className={`flex gap-2 overflow-x-auto ${content ? "mt-2" : ""}`}
-            >
+            <div className={`flex gap-2 overflow-x-auto ${content ? "mt-2" : ""}`}>
               {attachments.map((attachment, index) => (
                 <StoredAttachmentThumbnail
                   key={attachment.id}
@@ -358,11 +334,7 @@ function UserMessage({
             className="flex h-6 w-6 items-center justify-center rounded text-subtle transition hover:text-muted"
             title="Copy"
           >
-            {copied ? (
-              <Check className="h-4 w-4" />
-            ) : (
-              <Copy className="h-4 w-4" />
-            )}
+            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
           </button>
         </div>
       )}
@@ -372,13 +344,7 @@ function UserMessage({
 
 type ActivityPart = Extract<MessagePart, { type: "reasoning" | "shell" }>;
 
-function AssistantMessage({
-  message,
-  timestamp,
-}: {
-  message: Message;
-  timestamp: string;
-}) {
+function AssistantMessage({ message, timestamp }: { message: Message; timestamp: string }) {
   const content = message.content ?? "";
   const parts = message.type !== "changed_files" ? message.parts : undefined;
   const hasParts = !!parts?.length;
@@ -388,14 +354,11 @@ function AssistantMessage({
 
   const activityParts =
     parts?.filter(
-      (part): part is ActivityPart =>
-        part.type === "reasoning" || part.type === "shell",
+      (part): part is ActivityPart => part.type === "reasoning" || part.type === "shell",
     ) ?? [];
   const textParts = parts?.filter((part) => part.type === "text") ?? [];
 
-  const copyText = hasParts
-    ? (textParts.map((p) => p.content).join("\n") ?? content)
-    : content;
+  const copyText = hasParts ? (textParts.map((p) => p.content).join("\n") ?? content) : content;
 
   const handleCopy = async () => {
     try {
@@ -434,15 +397,11 @@ function AssistantMessage({
               startedAt={message.createdAt}
               finishedAt={message.runFinishedAt}
               duration={message.duration}
-              hasFinalAnswerStarted={textParts.some(
-                (part) => part.content.length > 0,
-              )}
+              hasFinalAnswerStarted={textParts.some((part) => part.content.length > 0)}
             />
           )}
           {textParts.length > 0 && (
-            <MarkdownContent>
-              {textParts.map((part) => part.content).join("\n")}
-            </MarkdownContent>
+            <MarkdownContent>{textParts.map((part) => part.content).join("\n")}</MarkdownContent>
           )}
         </div>
       ) : (
@@ -456,11 +415,7 @@ function AssistantMessage({
             className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:text-muted"
             title="Copy"
           >
-            {copied ? (
-              <Check className="h-3 w-3" />
-            ) : (
-              <Copy className="h-3 w-3" />
-            )}
+            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
           </button>
         )}
       </div>
@@ -504,11 +459,7 @@ function ChangedFilesMessageItem({
             className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:text-muted"
             title="Copy"
           >
-            {copied ? (
-              <Check className="h-3 w-3" />
-            ) : (
-              <Copy className="h-3 w-3" />
-            )}
+            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
           </button>
         )}
       </div>
@@ -516,10 +467,18 @@ function ChangedFilesMessageItem({
   );
 }
 
+export function EmptyThreadPrompt() {
+  return (
+    <p className="text-center text-[32px] font-semibold leading-tight text-fg sm:text-[36px]">
+      What should we build?
+    </p>
+  );
+}
+
 function EmptyState() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4">
-      <p className="text-[15px] text-subtle">What should we build?</p>
+      <EmptyThreadPrompt />
     </div>
   );
 }
@@ -536,10 +495,7 @@ export function MessageTimeline({
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (
-      editingMessageId &&
-      !messages.some((message) => message.id === editingMessageId)
-    ) {
+    if (editingMessageId && !messages.some((message) => message.id === editingMessageId)) {
       setEditingMessageId(null);
     }
   }, [editingMessageId, messages]);
@@ -614,10 +570,7 @@ export function MessageTimeline({
               if (msg.type === "changed_files") {
                 return (
                   <div key={msg.id} className="px-4 py-5">
-                    <ChangedFilesMessageItem
-                      message={msg}
-                      timestamp={msg.timestamp}
-                    />
+                    <ChangedFilesMessageItem message={msg} timestamp={msg.timestamp} />
                   </div>
                 );
               }

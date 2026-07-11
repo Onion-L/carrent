@@ -27,10 +27,7 @@ import {
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 
-import type {
-  ImageAttachmentMetadata,
-  KimiSessionStatus,
-} from "../../../shared/chat";
+import type { ImageAttachmentMetadata, KimiSessionStatus } from "../../../shared/chat";
 import {
   metadataOnly,
   pendingAttachmentFromFile,
@@ -38,10 +35,7 @@ import {
   type PendingAttachment,
 } from "../../lib/imageAttachments";
 import { deriveThreadTitle } from "../../lib/threadTitle";
-import {
-  ImageAttachmentLightbox,
-  type LightboxItem,
-} from "./ImageAttachmentLightbox";
+import { ImageAttachmentLightbox, type LightboxItem } from "./ImageAttachmentLightbox";
 
 import {
   TYPEWRITER_INTERVAL_MS,
@@ -51,10 +45,7 @@ import {
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import type { Message } from "../../mock/uiShellData";
-import {
-  type ChatReasoningEventPayload,
-  type ChatShellEventPayload,
-} from "../../../shared/chat";
+import { type ChatReasoningEventPayload, type ChatShellEventPayload } from "../../../shared/chat";
 import type { SkillRecord } from "../../../shared/skills";
 import type {
   ChatPermissionDecision,
@@ -76,19 +67,10 @@ import { useRuntimeModels } from "../../hooks/useRuntimeModels";
 import { useRuntimes } from "../../hooks/useRuntimes";
 import { useSkills } from "../../hooks/useSkills";
 import { useMcpServer } from "../../hooks/useMcpServer";
-import {
-  getChatRuntimeOptions,
-  isChatRuntimeAvailable,
-} from "../../lib/runtimeSelection";
+import { getChatRuntimeOptions, isChatRuntimeAvailable } from "../../lib/runtimeSelection";
 import { useToast } from "../toast/ToastContext";
 
-function RuntimeModeIcon({
-  mode,
-  className,
-}: {
-  mode: RuntimeMode;
-  className?: string;
-}) {
+function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: string }) {
   switch (mode) {
     case "approval-required":
       return <Lock className={className} />;
@@ -165,9 +147,7 @@ function ContextUsageIndicator({
             {status.percentage.toFixed(1)}%)
           </div>
           {status.model ? (
-            <div className="mt-1 truncate text-[11px] text-subtle">
-              {status.model}
-            </div>
+            <div className="mt-1 truncate text-[11px] text-subtle">{status.model}</div>
           ) : null}
         </div>
       )}
@@ -185,6 +165,7 @@ export type ComposerSubmitRequest = {
 type ComposerProps =
   | {
       mode: "thread";
+      placement?: "default" | "centered";
       projectId: string;
       threadId: string;
       messages: Message[];
@@ -198,6 +179,7 @@ type ComposerProps =
     }
   | {
       mode: "chat";
+      placement?: "default" | "centered";
       threadId: string;
       messages: Message[];
       runtimeId: RuntimeId;
@@ -242,9 +224,7 @@ function getAttachmentStoreBridge(attachments: unknown): AttachmentStoreBridge {
     attachments === null ||
     typeof (attachments as { store?: unknown }).store !== "function"
   ) {
-    throw new Error(
-      "Image attachments are unavailable. Restart Carrent and try again.",
-    );
+    throw new Error("Image attachments are unavailable. Restart Carrent and try again.");
   }
 
   return attachments as AttachmentStoreBridge;
@@ -265,9 +245,7 @@ export async function storeImageAttachmentFile(
 
 export function getGitBridge(carrent: unknown): GitBridge {
   const git =
-    typeof carrent === "object" && carrent !== null
-      ? (carrent as { git?: unknown }).git
-      : null;
+    typeof carrent === "object" && carrent !== null ? (carrent as { git?: unknown }).git : null;
 
   if (
     typeof git !== "object" ||
@@ -275,25 +253,20 @@ export function getGitBridge(carrent: unknown): GitBridge {
     typeof (git as { branches?: unknown }).branches !== "function" ||
     typeof (git as { checkout?: unknown }).checkout !== "function"
   ) {
-    throw new Error(
-      "Git controls are unavailable. Restart Carrent and try again.",
-    );
+    throw new Error("Git controls are unavailable. Restart Carrent and try again.");
   }
 
   return git as GitBridge;
 }
 
 export function normalizeGitBranchInfo(info: unknown): GitBranchInfo {
-  const branchWorktrees = (info as { branchWorktrees?: unknown } | null)
-    ?.branchWorktrees;
+  const branchWorktrees = (info as { branchWorktrees?: unknown } | null)?.branchWorktrees;
 
   if (
     typeof info !== "object" ||
     info === null ||
     !Array.isArray((info as { branches?: unknown }).branches) ||
-    !(info as { branches: unknown[] }).branches.every(
-      (branch) => typeof branch === "string",
-    ) ||
+    !(info as { branches: unknown[] }).branches.every((branch) => typeof branch === "string") ||
     typeof (info as { current?: unknown }).current !== "string" ||
     (branchWorktrees !== undefined &&
       (!Array.isArray(branchWorktrees) ||
@@ -305,9 +278,7 @@ export function normalizeGitBranchInfo(info: unknown): GitBranchInfo {
             typeof (worktree as { path?: unknown }).path === "string",
         )))
   ) {
-    throw new Error(
-      "Git branch information is unavailable. Restart Carrent and try again.",
-    );
+    throw new Error("Git branch information is unavailable. Restart Carrent and try again.");
   }
 
   return {
@@ -327,16 +298,12 @@ export function getGitToastMessage(error: unknown): string {
     withoutIpcPrefix.includes(
       "Your local changes to the following files would be overwritten by checkout",
     ) ||
-    withoutIpcPrefix.includes(
-      "Please commit your changes or stash them before you switch branches",
-    )
+    withoutIpcPrefix.includes("Please commit your changes or stash them before you switch branches")
   ) {
     return "Cannot switch branches because you have local changes. Commit or stash them first.";
   }
 
-  return withoutIpcPrefix
-    .replace(/^Command failed: git checkout (?:-b )?[^\n]*\s*/u, "")
-    .trim();
+  return withoutIpcPrefix.replace(/^Command failed: git checkout (?:-b )?[^\n]*\s*/u, "").trim();
 }
 
 type ComposerKeyDownEvent = {
@@ -353,10 +320,7 @@ type ViewportSize = {
   height: number;
 };
 
-type RectLike = Pick<
-  DOMRect,
-  "left" | "top" | "right" | "bottom" | "width" | "height"
->;
+type RectLike = Pick<DOMRect, "left" | "top" | "right" | "bottom" | "width" | "height">;
 
 type CascadingPanelSide = "right" | "left" | "center";
 
@@ -396,31 +360,21 @@ export function getCascadingPanelPosition(
 ): CascadingPanelPosition {
   const maxViewportWidth = Math.max(0, viewport.width - padding * 2);
   const desiredWidth = Math.min(
-    Math.max(
-      panelSize.width || CASCADING_PANEL_DEFAULT_WIDTH,
-      CASCADING_PANEL_MIN_WIDTH,
-    ),
+    Math.max(panelSize.width || CASCADING_PANEL_DEFAULT_WIDTH, CASCADING_PANEL_MIN_WIDTH),
     maxViewportWidth,
   );
   const rightSpace = viewport.width - padding - (anchorRect.right + gap);
   const leftSpace = anchorRect.left - gap - padding;
   const maxViewportHeight = Math.max(0, viewport.height - padding * 2);
-  const desiredHeight = Math.min(
-    panelSize.height || 0,
-    maxViewportHeight || panelSize.height || 0,
-  );
+  const desiredHeight = Math.min(panelSize.height || 0, maxViewportHeight || panelSize.height || 0);
 
-  const useCenterFallback =
-    Math.max(rightSpace, leftSpace) < CASCADING_PANEL_MIN_WIDTH;
+  const useCenterFallback = Math.max(rightSpace, leftSpace) < CASCADING_PANEL_MIN_WIDTH;
 
   let side: CascadingPanelSide;
   let width: number;
   let left: number;
 
-  if (
-    !useCenterFallback &&
-    (rightSpace >= desiredWidth || rightSpace >= leftSpace)
-  ) {
+  if (!useCenterFallback && (rightSpace >= desiredWidth || rightSpace >= leftSpace)) {
     side = "right";
     width = Math.min(desiredWidth, Math.max(0, rightSpace));
     left = anchorRect.right + gap;
@@ -462,22 +416,42 @@ export function getDisplayRuntimeModel({
   return models.find((model) => model.id === runtimeModelId);
 }
 
-export function getComposerRuntimeLabel(
-  runtime: Pick<RuntimeRecord, "id" | "name">,
-) {
+export function getComposerRuntimeLabel(runtime: Pick<RuntimeRecord, "id" | "name">) {
   if (runtime.id === "kimi") return "Kimi for coding";
   return runtime.name;
 }
 
-export function getRuntimeModelIdForSend({
+export function formatKimiModelLabel(modelName: string) {
+  const normalizedName = modelName.replace(/^kimi-code\//u, "").toLowerCase();
+  if (normalizedName === "kimi-for-coding") return "Kimi for Coding";
+  if (normalizedName === "kimi-for-coding-highspeed") return "Kimi for Coding High Speed";
+  return modelName;
+}
+
+export function getRuntimeSelectionLabel({
   runtimeId,
+  runtimeName,
+  modelName,
+}: {
+  runtimeId: RuntimeId;
+  runtimeName: string;
+  modelName?: string;
+}) {
+  if (!modelName) return runtimeId === "kimi" ? "Kimi for Coding" : runtimeName;
+  return runtimeId === "kimi" ? modelName : `${runtimeName} · ${modelName}`;
+}
+
+export function supportsRuntimeModelSelection(runtimeId: RuntimeId | null) {
+  return runtimeId === "kimi" || runtimeId === "pi";
+}
+
+export function getRuntimeModelIdForSend({
   runtimeModelId,
 }: {
   runtimeId?: RuntimeId;
   runtimeModelId?: string;
   defaultModelId?: string;
 }) {
-  if (runtimeId === "kimi") return undefined;
   return runtimeModelId;
 }
 
@@ -489,8 +463,7 @@ export function getActionablePermissionsForThread({
   threadId: string;
 }) {
   return pendingPermissions.filter(
-    (permission) =>
-      permission.threadId === threadId && permission.provider === "kimi",
+    (permission) => permission.threadId === threadId && permission.provider === "kimi",
   );
 }
 
@@ -511,11 +484,7 @@ export function getSkillSlashTrigger(
   const cursor = Math.min(Math.max(cursorPosition, 0), input.length);
   const left = input.slice(0, cursor);
   const tokenStart =
-    Math.max(
-      left.lastIndexOf(" "),
-      left.lastIndexOf("\n"),
-      left.lastIndexOf("\t"),
-    ) + 1;
+    Math.max(left.lastIndexOf(" "), left.lastIndexOf("\n"), left.lastIndexOf("\t")) + 1;
   const token = left.slice(tokenStart);
 
   if (!token.startsWith("/")) {
@@ -566,12 +535,8 @@ export function filterSkillsForQuery(skills: SkillRecord[], query: string) {
 
       return score === null ? null : { skill, score };
     })
-    .filter(
-      (entry): entry is { skill: SkillRecord; score: number } => entry !== null,
-    )
-    .sort(
-      (a, b) => a.score - b.score || a.skill.name.localeCompare(b.skill.name),
-    )
+    .filter((entry): entry is { skill: SkillRecord; score: number } => entry !== null)
+    .sort((a, b) => a.score - b.score || a.skill.name.localeCompare(b.skill.name))
     .map((entry) => entry.skill);
 }
 
@@ -624,18 +589,8 @@ export function Composer(props: ComposerProps) {
     upsertThread,
     promoteDraftThread,
   } = useWorkspace();
-  const {
-    runningThreadIds,
-    pendingPermissions,
-    respondToPermission,
-    send,
-    stop,
-  } = useChatRun();
-  const {
-    runtimes,
-    loading: runtimesLoading,
-    refresh: refreshRuntimes,
-  } = useRuntimes();
+  const { runningThreadIds, pendingPermissions, respondToPermission, send, stop } = useChatRun();
+  const { runtimes, loading: runtimesLoading, refresh: refreshRuntimes } = useRuntimes();
   const { skills, loading: skillsLoading, error: skillsError } = useSkills();
   const { status: mcpServerStatus } = useMcpServer();
   const { showToast } = useToast();
@@ -643,41 +598,27 @@ export function Composer(props: ComposerProps) {
   const [textareaCursor, setTextareaCursor] = useState(0);
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
-  const [dismissedSkillInput, setDismissedSkillInput] = useState<string | null>(
-    null,
-  );
+  const [dismissedSkillInput, setDismissedSkillInput] = useState<string | null>(null);
   const [attachedSkills, setAttachedSkills] = useState<SkillRecord[]>([]);
   const [showRuntimePicker, setShowRuntimePicker] = useState(false);
-  const [cascadingRuntimeId, setCascadingRuntimeId] =
-    useState<RuntimeId | null>(null);
-  const [isPointerOverRuntimeMenu, setIsPointerOverRuntimeMenu] =
-    useState(false);
-  const [isPointerOverCascadingPanel, setIsPointerOverCascadingPanel] =
-    useState(false);
-  const [cascadingAnchorRect, setCascadingAnchorRect] =
-    useState<RectLike | null>(null);
+  const [cascadingRuntimeId, setCascadingRuntimeId] = useState<RuntimeId | null>(null);
+  const [isPointerOverRuntimeMenu, setIsPointerOverRuntimeMenu] = useState(false);
+  const [isPointerOverCascadingPanel, setIsPointerOverCascadingPanel] = useState(false);
+  const [cascadingAnchorRect, setCascadingAnchorRect] = useState<RectLike | null>(null);
   const [cascadingPanelPosition, setCascadingPanelPosition] =
     useState<CascadingPanelPosition | null>(null);
   const [showModePicker, setShowModePicker] = useState(false);
-  const [pendingAttachments, setPendingAttachments] = useState<
-    PendingAttachment[]
-  >([]);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
-  const [lightboxAttachmentIndex, setLightboxAttachmentIndex] = useState<
-    number | null
-  >(null);
+  const [lightboxAttachmentIndex, setLightboxAttachmentIndex] = useState<number | null>(null);
   const [kimiStatus, setKimiStatus] = useState<KimiSessionStatus | null>(null);
   const [gitBranches, setGitBranches] = useState<string[]>([]);
-  const [gitBranchWorktrees, setGitBranchWorktrees] = useState<
-    GitBranchWorktree[]
-  >([]);
+  const [gitBranchWorktrees, setGitBranchWorktrees] = useState<GitBranchWorktree[]>([]);
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const [gitLoading, setGitLoading] = useState(false);
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [branchSearchQuery, setBranchSearchQuery] = useState("");
-  const [newBranchName, setNewBranchName] = useState(
-    CREATE_BRANCH_DEFAULT_NAME,
-  );
+  const [newBranchName, setNewBranchName] = useState(CREATE_BRANCH_DEFAULT_NAME);
   const [creatingBranch, setCreatingBranch] = useState(false);
   const [showCreateBranchInput, setShowCreateBranchInput] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -687,22 +628,16 @@ export function Composer(props: ComposerProps) {
   const modePickerRef = useRef<HTMLDivElement>(null);
   const branchPickerRef = useRef<HTMLDivElement>(null);
   const skillItemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
-  const runtimeCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const runtimeCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const receivedTextRef = useRef("");
   const visibleTextRef = useRef("");
-  const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(
-    null,
-  );
+  const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeAssistantMessageIdRef = useRef<string | null>(null);
   const flushTypewriterRef = useRef<VoidFunction | null>(null);
   const wasSendingRef = useRef(false);
   const lastSubmitRequestIdRef = useRef<number | null>(null);
   const projectId = props.mode === "chat" ? null : props.projectId;
-  const project = projectId
-    ? (projects.find((item) => item.id === projectId) ?? null)
-    : null;
+  const project = projectId ? (projects.find((item) => item.id === projectId) ?? null) : null;
   const threadId = props.threadId;
 
   const refreshKimiStatus = useCallback(async () => {
@@ -744,27 +679,30 @@ export function Composer(props: ComposerProps) {
     props.runtimeMode,
   ]);
 
-  const runtimeOptions = useMemo(
-    () => getChatRuntimeOptions(runtimes),
-    [runtimes],
-  );
-  const modelRuntimeId = props.runtimeId === "pi" ? props.runtimeId : null;
-  const { models } = useRuntimeModels(modelRuntimeId);
-  const cascadingModelRuntimeId =
-    cascadingRuntimeId === "pi" ? cascadingRuntimeId : null;
+  const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
+  const modelRuntimeId = supportsRuntimeModelSelection(props.runtimeId) ? props.runtimeId : null;
+  const { models, defaultModelId, loading: modelsLoading } = useRuntimeModels(modelRuntimeId);
+  const {
+    models: kimiMenuModels,
+    defaultModelId: kimiMenuDefaultModelId,
+    loading: kimiMenuLoading,
+  } = useRuntimeModels(showRuntimePicker ? "kimi" : null);
+  const cascadingModelRuntimeId = supportsRuntimeModelSelection(cascadingRuntimeId)
+    ? cascadingRuntimeId
+    : null;
   const { models: cascadingModels, loading: cascadingLoading } =
     useRuntimeModels(cascadingModelRuntimeId);
   const selectedRuntimeModel = getDisplayRuntimeModel({
     models,
     runtimeModelId: props.runtimeModelId,
   });
-  const selectedRuntime = runtimes.find(
-    (runtime) => runtime.id === props.runtimeId,
-  );
-  const isSelectedRuntimeAvailable = isChatRuntimeAvailable(
-    props.runtimeId,
-    runtimes,
-  );
+  const activeRuntimeModel =
+    selectedRuntimeModel ??
+    (props.runtimeId === "kimi"
+      ? (models.find((model) => model.id === defaultModelId) ?? models[0])
+      : undefined);
+  const selectedRuntime = runtimes.find((runtime) => runtime.id === props.runtimeId);
+  const isSelectedRuntimeAvailable = isChatRuntimeAvailable(props.runtimeId, runtimes);
   const runtimeSetupRequired =
     props.runtimeId === "kimi" &&
     !runtimesLoading &&
@@ -775,19 +713,19 @@ export function Composer(props: ComposerProps) {
     : runtimeOptions.length === 0
       ? "No runtime available"
       : isSelectedRuntimeAvailable
-        ? selectedRuntimeModel
-          ? `${runtimeNameMap[props.runtimeId]} · ${selectedRuntimeModel.name}`
-          : selectedRuntime
-            ? getComposerRuntimeLabel(selectedRuntime)
-            : runtimeNameMap[props.runtimeId]
+        ? getRuntimeSelectionLabel({
+            runtimeId: props.runtimeId,
+            runtimeName: selectedRuntime
+              ? getComposerRuntimeLabel(selectedRuntime)
+              : runtimeNameMap[props.runtimeId],
+            modelName: activeRuntimeModel?.name,
+          })
         : "Select runtime";
   const skillTrigger = useMemo(
-    () =>
-      isTextareaFocused ? getSkillSlashTrigger(input, textareaCursor) : null,
+    () => (isTextareaFocused ? getSkillSlashTrigger(input, textareaCursor) : null),
     [input, isTextareaFocused, textareaCursor],
   );
-  const localMcpSkillsDisabled =
-    props.runtimeId === "kimi" && !mcpServerStatus.enabled;
+  const localMcpSkillsDisabled = props.runtimeId === "kimi" && !mcpServerStatus.enabled;
   const filteredSkills = useMemo(
     () =>
       skillTrigger && !localMcpSkillsDisabled
@@ -799,29 +737,21 @@ export function Composer(props: ComposerProps) {
     !!skillTrigger &&
     !localMcpSkillsDisabled &&
     dismissedSkillInput !== input &&
-    (skillsLoading ||
-      !!skillsError ||
-      filteredSkills.length > 0 ||
-      skillTrigger.query.length > 0);
+    (skillsLoading || !!skillsError || filteredSkills.length > 0 || skillTrigger.query.length > 0);
 
   const effectiveAttachedSkills = localMcpSkillsDisabled ? [] : attachedSkills;
   const hasSendableContent =
-    !!input.trim() ||
-    effectiveAttachedSkills.length > 0 ||
-    pendingAttachments.length > 0;
+    !!input.trim() || effectiveAttachedSkills.length > 0 || pendingAttachments.length > 0;
   const canSend =
-    (props.mode === "chat"
-      ? hasSendableContent
-      : hasSendableContent && !!project) && isSelectedRuntimeAvailable;
+    (props.mode === "chat" ? hasSendableContent : hasSendableContent && !!project) &&
+    isSelectedRuntimeAvailable;
   const isThreadSending = runningThreadIds.includes(threadId);
   const threadPermissions = useMemo(
     () => getActionablePermissionsForThread({ pendingPermissions, threadId }),
     [pendingPermissions, threadId],
   );
   const showCascadingPanel =
-    showRuntimePicker &&
-    cascadingModelRuntimeId === "pi" &&
-    !!props.onRuntimeModelIdChange;
+    showRuntimePicker && !!cascadingModelRuntimeId && !!props.onRuntimeModelIdChange;
   const cascadingPanelTransitionClass = !cascadingPanelPosition
     ? "pointer-events-none opacity-0 translate-y-1 scale-95"
     : "opacity-100 translate-x-0 translate-y-0 scale-100";
@@ -836,8 +766,7 @@ export function Composer(props: ComposerProps) {
   const visibleLocalBranches = useMemo(
     () =>
       visibleGitBranches.filter(
-        (branch) =>
-          branch === currentBranch || !worktreeBranchNames.has(branch),
+        (branch) => branch === currentBranch || !worktreeBranchNames.has(branch),
       ),
     [currentBranch, visibleGitBranches, worktreeBranchNames],
   );
@@ -967,13 +896,9 @@ export function Composer(props: ComposerProps) {
       try {
         const git = getGitBridge(window.carrent);
         if (typeof git.createBranch !== "function") {
-          throw new Error(
-            "Git branch creation is unavailable. Restart Carrent and try again.",
-          );
+          throw new Error("Git branch creation is unavailable. Restart Carrent and try again.");
         }
-        const info = normalizeGitBranchInfo(
-          await git.createBranch(project.path, branchName),
-        );
+        const info = normalizeGitBranchInfo(await git.createBranch(project.path, branchName));
         setCurrentBranch(info.current);
         setGitBranches(info.branches);
         setGitBranchWorktrees(info.branchWorktrees);
@@ -1006,18 +931,11 @@ export function Composer(props: ComposerProps) {
         showRuntimePicker &&
         runtimePickerRef.current &&
         !runtimePickerRef.current.contains(target) &&
-        !(
-          cascadingPanelRef.current &&
-          cascadingPanelRef.current.contains(target)
-        )
+        !(cascadingPanelRef.current && cascadingPanelRef.current.contains(target))
       ) {
         closeRuntimePicker();
       }
-      if (
-        showModePicker &&
-        modePickerRef.current &&
-        !modePickerRef.current.contains(target)
-      ) {
+      if (showModePicker && modePickerRef.current && !modePickerRef.current.contains(target)) {
         setShowModePicker(false);
       }
       if (
@@ -1161,12 +1079,7 @@ export function Composer(props: ComposerProps) {
       window.removeEventListener("scroll", handleWindowUpdate, true);
       observer?.disconnect();
     };
-  }, [
-    cascadingAnchorRect,
-    cascadingRuntimeId,
-    showRuntimePicker,
-    updateCascadingPanelPosition,
-  ]);
+  }, [cascadingAnchorRect, cascadingRuntimeId, showRuntimePicker, updateCascadingPanelPosition]);
 
   const handleAddFiles = useCallback(
     async (files: FileList | null) => {
@@ -1189,15 +1102,11 @@ export function Composer(props: ComposerProps) {
 
       for (const file of fileArray) {
         try {
-          const metadata = await storeImageAttachmentFile(
-            file,
-            window.carrent?.attachments,
-          );
+          const metadata = await storeImageAttachmentFile(file, window.carrent?.attachments);
           const pendingAttachment = pendingAttachmentFromFile(file, metadata);
           setPendingAttachments((prev) => [...prev, pendingAttachment]);
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
+          const message = error instanceof Error ? error.message : String(error);
           setAttachmentError(`Failed to attach ${file.name}: ${message}`);
           return;
         }
@@ -1223,9 +1132,7 @@ export function Composer(props: ComposerProps) {
         return;
       }
 
-      const imageFiles = Array.from(files).filter((file) =>
-        file.type.startsWith("image/"),
-      );
+      const imageFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
       if (imageFiles.length === 0) {
         return;
       }
@@ -1245,19 +1152,11 @@ export function Composer(props: ComposerProps) {
   }) => {
     const externalSubmit = override;
     const isExternalSubmit = externalSubmit !== undefined;
-    const currentPendingAttachments = externalSubmit
-      ? []
-      : pendingAttachments;
-    const currentAttachedSkills = externalSubmit
-      ? []
-      : effectiveAttachedSkills;
-    const currentInput = externalSubmit
-      ? externalSubmit.content.trim()
-      : input.trim();
+    const currentPendingAttachments = externalSubmit ? [] : pendingAttachments;
+    const currentAttachedSkills = externalSubmit ? [] : effectiveAttachedSkills;
+    const currentInput = externalSubmit ? externalSubmit.content.trim() : input.trim();
     const hasCurrentSendableContent =
-      !!currentInput ||
-      currentAttachedSkills.length > 0 ||
-      currentPendingAttachments.length > 0;
+      !!currentInput || currentAttachedSkills.length > 0 || currentPendingAttachments.length > 0;
     const canSendCurrent =
       (props.mode === "chat"
         ? hasCurrentSendableContent
@@ -1289,9 +1188,7 @@ export function Composer(props: ComposerProps) {
     const messageText = `${skillPrefix}${currentInput}`.trim();
     const attachmentMetadata: ImageAttachmentMetadata[] = externalSubmit
       ? metadataOnly(externalSubmit.attachments ?? [])
-      : metadataOnly(
-          currentPendingAttachments.map((pending) => pending.metadata!),
-        );
+      : metadataOnly(currentPendingAttachments.map((pending) => pending.metadata!));
 
     setAttachmentError(null);
 
@@ -1320,10 +1217,7 @@ export function Composer(props: ComposerProps) {
       });
     };
 
-    const updateLocalMessageShellPart = (
-      messageId: string,
-      shell: ChatShellEventPayload,
-    ) => {
+    const updateLocalMessageShellPart = (messageId: string, shell: ChatShellEventPayload) => {
       updateMessageParts(messageId, {
         kind: "upsert-shell",
         shell: {
@@ -1379,12 +1273,7 @@ export function Composer(props: ComposerProps) {
           updateLocalMessageTextPart(messageId, delta);
         }
 
-        if (
-          !hasPendingTypewriterText(
-            visibleTextRef.current,
-            receivedTextRef.current,
-          )
-        ) {
+        if (!hasPendingTypewriterText(visibleTextRef.current, receivedTextRef.current)) {
           stopTypewriter();
         }
       }, TYPEWRITER_INTERVAL_MS);
@@ -1396,12 +1285,7 @@ export function Composer(props: ComposerProps) {
       appendLocalMessage("user", messageText, attachmentMetadata);
     }
 
-    const assistantMsg = appendLocalMessage(
-      "assistant",
-      "",
-      undefined,
-      "running",
-    );
+    const assistantMsg = appendLocalMessage("assistant", "", undefined, "running");
 
     flushActiveTypewriter();
     receivedTextRef.current = "";
@@ -1419,18 +1303,15 @@ export function Composer(props: ComposerProps) {
       flushTypewriterRef.current = null;
     };
 
-    const transcriptMessages =
-      externalSubmit?.messageId
-        ? props.messages.slice(
+    const transcriptMessages = externalSubmit?.messageId
+      ? props.messages.slice(
+          0,
+          Math.max(
             0,
-            Math.max(
-              0,
-              props.messages.findIndex(
-                (message) => message.id === externalSubmit.messageId,
-              ),
-            ),
-          )
-        : props.messages;
+            props.messages.findIndex((message) => message.id === externalSubmit.messageId),
+          ),
+        )
+      : props.messages;
     const transcript = transcriptMessages
       .filter((m) => m.type !== "changed_files")
       .slice(-6)
@@ -1476,10 +1357,7 @@ export function Composer(props: ComposerProps) {
           updateLocalMessageShellPart(assistantMsg.id, shell);
         },
         onComplete: (text) => {
-          if (
-            !receivedTextRef.current ||
-            text.startsWith(receivedTextRef.current)
-          ) {
+          if (!receivedTextRef.current || text.startsWith(receivedTextRef.current)) {
             receivedTextRef.current = text;
           }
           updateMessageRunStatus(assistantMsg.id, "completed");
@@ -1487,9 +1365,7 @@ export function Composer(props: ComposerProps) {
         },
         onError: (error) => {
           stopTypewriter();
-          const hasAnswerText = !!(
-            receivedTextRef.current || visibleTextRef.current
-          );
+          const hasAnswerText = !!(receivedTextRef.current || visibleTextRef.current);
           flushPendingTypewriterText();
           updateLocalMessageTextPart(
             assistantMsg.id,
@@ -1501,14 +1377,9 @@ export function Composer(props: ComposerProps) {
         },
         onStop: () => {
           stopTypewriter();
-          const hasAnswerText = !!(
-            receivedTextRef.current || visibleTextRef.current
-          );
+          const hasAnswerText = !!(receivedTextRef.current || visibleTextRef.current);
           flushPendingTypewriterText();
-          updateLocalMessageTextPart(
-            assistantMsg.id,
-            `${hasAnswerText ? "\n\n" : ""}[Stopped]`,
-          );
+          updateLocalMessageTextPart(assistantMsg.id, `${hasAnswerText ? "\n\n" : ""}[Stopped]`);
           updateMessageRunStatus(assistantMsg.id, "cancelled");
           activeAssistantMessageIdRef.current = null;
           flushTypewriterRef.current = null;
@@ -1555,10 +1426,7 @@ export function Composer(props: ComposerProps) {
   };
 
   useEffect(() => {
-    if (
-      !props.submitRequest ||
-      lastSubmitRequestIdRef.current === props.submitRequest.requestId
-    ) {
+    if (!props.submitRequest || lastSubmitRequestIdRef.current === props.submitRequest.requestId) {
       return;
     }
 
@@ -1591,9 +1459,7 @@ export function Composer(props: ComposerProps) {
       return [...prev, skill];
     });
 
-    const beforeTrigger = input
-      .slice(0, skillTrigger.start)
-      .replace(/\s+$/u, "");
+    const beforeTrigger = input.slice(0, skillTrigger.start).replace(/\s+$/u, "");
     const afterTrigger = input.slice(skillTrigger.end).replace(/^\s+/u, "");
     const separator = beforeTrigger && afterTrigger ? " " : "";
     const nextInput = `${beforeTrigger}${separator}${afterTrigger}`;
@@ -1627,24 +1493,19 @@ export function Composer(props: ComposerProps) {
       decision,
     });
   };
+  const isCenteredPlacement = props.placement === "centered";
 
   return (
-    <div className="px-6 pb-5 pt-2" onPaste={handlePaste}>
-      <div className="relative mx-auto max-w-[56rem]">
+    <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"} onPaste={handlePaste}>
+      <div className="relative mx-auto w-full max-w-[48rem]">
         {showSkillMenu ? (
           <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border-strong bg-surface shadow-[0_18px_60px_rgb(0_0_0/0.28)]">
-            <div className="px-3 py-2 text-[12px] font-medium text-muted">
-              Skills
-            </div>
+            <div className="px-3 py-2 text-[12px] font-medium text-muted">Skills</div>
             <div className="max-h-80 overflow-y-auto p-1">
               {skillsLoading ? (
-                <div className="px-3 py-2 text-[12px] text-subtle">
-                  Loading skills...
-                </div>
+                <div className="px-3 py-2 text-[12px] text-subtle">Loading skills...</div>
               ) : skillsError ? (
-                <div className="px-3 py-2 text-[12px] text-danger">
-                  {skillsError}
-                </div>
+                <div className="px-3 py-2 text-[12px] text-danger">{skillsError}</div>
               ) : filteredSkills.length > 0 ? (
                 filteredSkills.map((skill, index) => {
                   const isSelected = index === selectedSkillIndex;
@@ -1666,9 +1527,7 @@ export function Composer(props: ComposerProps) {
                       }}
                       onMouseEnter={() => setSelectedSkillIndex(index)}
                       className={`flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left transition ${
-                        isSelected
-                          ? "bg-surface-hover"
-                          : "hover:bg-surface-raised"
+                        isSelected ? "bg-surface-hover" : "hover:bg-surface-raised"
                       }`}
                     >
                       <Box className="h-4 w-4 shrink-0 text-muted" />
@@ -1676,9 +1535,7 @@ export function Composer(props: ComposerProps) {
                         <span className="text-[13px] font-medium text-fg">
                           {formatSkillLabel(skill.name)}
                         </span>
-                        <span className="ml-2 text-[12px] text-subtle">
-                          {skill.description}
-                        </span>
+                        <span className="ml-2 text-[12px] text-subtle">{skill.description}</span>
                       </span>
                       <span className="shrink-0 text-[10px] uppercase text-subtle">
                         {skill.source}
@@ -1687,14 +1544,12 @@ export function Composer(props: ComposerProps) {
                   );
                 })
               ) : (
-                <div className="px-3 py-2 text-[12px] text-subtle">
-                  No skills found.
-                </div>
+                <div className="px-3 py-2 text-[12px] text-subtle">No skills found.</div>
               )}
             </div>
           </div>
         ) : null}
-        <div className="rounded-xl border border-border bg-surface-raised/90 p-4 shadow-[0_18px_60px_rgb(0_0_0/0.18)]">
+        <div className="rounded-xl border border-border bg-surface-raised/90 p-3 shadow-[0_18px_60px_rgb(0_0_0/0.18)]">
           {threadPermissions.length > 0 ? (
             <div className="mb-2 space-y-2">
               {threadPermissions.map((permission) => (
@@ -1713,9 +1568,7 @@ export function Composer(props: ComposerProps) {
                   <div className="flex shrink-0 items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() =>
-                        handlePermissionResponse(permission, "denied")
-                      }
+                      onClick={() => handlePermissionResponse(permission, "denied")}
                       className="flex h-7 w-7 items-center justify-center rounded-full border border-border-strong text-muted transition hover:bg-surface-hover hover:text-fg active:scale-95"
                       title="Deny"
                     >
@@ -1723,9 +1576,7 @@ export function Composer(props: ComposerProps) {
                     </button>
                     <button
                       type="button"
-                      onClick={() =>
-                        handlePermissionResponse(permission, "approved")
-                      }
+                      onClick={() => handlePermissionResponse(permission, "approved")}
                       className="flex h-7 w-7 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 active:scale-95"
                       title="Approve"
                     >
@@ -1775,8 +1626,7 @@ export function Composer(props: ComposerProps) {
           )}
           {localMcpSkillsDisabled ? (
             <div className="mb-2 rounded-lg border border-border bg-bg/45 px-3 py-2 text-[12px] text-subtle">
-              Local MCP Server is off. Skills are unavailable for this Kimi
-              message.
+              Local MCP Server is off. Skills are unavailable for this Kimi message.
             </div>
           ) : null}
           {runtimeSetupRequired ? (
@@ -1802,9 +1652,7 @@ export function Composer(props: ComposerProps) {
                     disabled={runtimesLoading}
                     className="flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
                   >
-                    <RefreshCw
-                      className={`h-3 w-3 ${runtimesLoading ? "animate-spin" : ""}`}
-                    />
+                    <RefreshCw className={`h-3 w-3 ${runtimesLoading ? "animate-spin" : ""}`} />
                     Refresh
                   </button>
                 </div>
@@ -1821,9 +1669,7 @@ export function Composer(props: ComposerProps) {
                   }`}
                 >
                   <Box className="h-3.5 w-3.5 shrink-0 text-muted" />
-                  <span className="truncate">
-                    {formatSkillLabel(skill.name)}
-                  </span>
+                  <span className="truncate">{formatSkillLabel(skill.name)}</span>
                   <button
                     type="button"
                     onClick={() => handleRemoveSkill(skill)}
@@ -1854,16 +1700,14 @@ export function Composer(props: ComposerProps) {
             onClick={updateTextareaCursor}
             onSelect={updateTextareaCursor}
             placeholder="Message..."
-            className="min-h-20 w-full resize-none bg-transparent text-[15px] leading-6 text-fg placeholder:text-subtle outline-none"
-            rows={2}
+            className="min-h-12 w-full resize-none bg-transparent text-[15px] leading-6 text-fg placeholder:text-subtle outline-none"
+            rows={1}
             onKeyDown={(e) => {
               if (showSkillMenu) {
                 if (e.key === "ArrowDown") {
                   e.preventDefault();
                   setSelectedSkillIndex((index) =>
-                    filteredSkills.length === 0
-                      ? 0
-                      : (index + 1) % filteredSkills.length,
+                    filteredSkills.length === 0 ? 0 : (index + 1) % filteredSkills.length,
                   );
                   return;
                 }
@@ -1873,20 +1717,14 @@ export function Composer(props: ComposerProps) {
                   setSelectedSkillIndex((index) =>
                     filteredSkills.length === 0
                       ? 0
-                      : (index - 1 + filteredSkills.length) %
-                        filteredSkills.length,
+                      : (index - 1 + filteredSkills.length) % filteredSkills.length,
                   );
                   return;
                 }
 
-                if (
-                  (e.key === "Enter" || e.key === "Tab") &&
-                  filteredSkills.length > 0
-                ) {
+                if ((e.key === "Enter" || e.key === "Tab") && filteredSkills.length > 0) {
                   e.preventDefault();
-                  handleSkillInsert(
-                    filteredSkills[selectedSkillIndex] ?? filteredSkills[0],
-                  );
+                  handleSkillInsert(filteredSkills[selectedSkillIndex] ?? filteredSkills[0]);
                   return;
                 }
 
@@ -1905,12 +1743,35 @@ export function Composer(props: ComposerProps) {
               }
             }}
           />
-          {attachmentError && (
-            <div className="mt-2 text-[12px] text-danger">
-              {attachmentError}
+          {isCenteredPlacement && props.runtimeId === "kimi" && props.onRuntimeModelIdChange ? (
+            <div className="relative mt-2">
+              <span className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2">
+                <RuntimeIcon name="Kimi Code" size="xs" />
+              </span>
+              <select
+                aria-label="Kimi model"
+                value={props.runtimeModelId ?? defaultModelId ?? models[0]?.id ?? ""}
+                onChange={(event) => props.onRuntimeModelIdChange?.(event.target.value)}
+                disabled={isThreadSending || modelsLoading || models.length === 0}
+                className="h-12 w-full appearance-none rounded-lg border border-border-strong bg-surface py-0 pl-11 pr-10 text-[15px] text-fg outline-none transition hover:bg-surface-hover focus:border-fg/50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {models.length === 0 ? (
+                  <option value="">
+                    {modelsLoading ? "Loading models..." : "No models found"}
+                  </option>
+                ) : (
+                  models.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {formatKimiModelLabel(model.name)}
+                    </option>
+                  ))
+                )}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
             </div>
-          )}
-          <div className="mt-4 flex items-end justify-between gap-3">
+          ) : null}
+          {attachmentError && <div className="mt-2 text-[12px] text-danger">{attachmentError}</div>}
+          <div className="mt-3 flex items-end justify-between gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-1">
               {props.onRuntimeIdChange ? (
                 <div ref={runtimePickerRef} className="relative">
@@ -1929,27 +1790,17 @@ export function Composer(props: ComposerProps) {
                     }}
                     disabled={isThreadSending}
                     className={`flex max-w-[14rem] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition disabled:opacity-40 ${
-                      showRuntimePicker
-                        ? "bg-surface-hover text-fg"
-                        : "text-muted hover:text-fg"
+                      showRuntimePicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
                     }`}
-                    title={
-                      isThreadSending
-                        ? "Locked while runtime is running"
-                        : "Runtime"
-                    }
+                    title={isThreadSending ? "Locked while runtime is running" : "Runtime"}
                   >
                     <RuntimeIcon
                       name={
-                        isSelectedRuntimeAvailable
-                          ? runtimeNameMap[props.runtimeId]
-                          : "Runtime"
+                        isSelectedRuntimeAvailable ? runtimeNameMap[props.runtimeId] : "Runtime"
                       }
                       size="xs"
                     />
-                    <span className="min-w-0 truncate">
-                      {runtimeButtonLabel}
-                    </span>
+                    <span className="min-w-0 truncate">{runtimeButtonLabel}</span>
                     <ChevronDown className="h-3 w-3" />
                   </button>
                   {showRuntimePicker && (
@@ -1963,64 +1814,108 @@ export function Composer(props: ComposerProps) {
                       {runtimeOptions.length > 0 ? (
                         runtimeOptions.map((runtime) => {
                           const supportsModelCascade =
-                            runtime.id === "pi" && props.onRuntimeModelIdChange;
+                            runtime.id !== "kimi" &&
+                            supportsRuntimeModelSelection(runtime.id) &&
+                            props.onRuntimeModelIdChange;
 
                           return (
-                            <button
-                              key={runtime.id}
-                              onMouseEnter={(event) => {
-                                if (!supportsModelCascade) {
-                                  setCascadingRuntimeId(null);
-                                  setCascadingAnchorRect(null);
-                                  setCascadingPanelPosition(null);
-                                  return;
-                                }
+                            <div key={runtime.id}>
+                              {!(runtime.id === "kimi" && props.onRuntimeModelIdChange) ? (
+                                <button
+                                  onMouseEnter={(event) => {
+                                    if (!supportsModelCascade) {
+                                      setCascadingRuntimeId(null);
+                                      setCascadingAnchorRect(null);
+                                      setCascadingPanelPosition(null);
+                                      return;
+                                    }
 
-                                const rect =
-                                  event.currentTarget.getBoundingClientRect();
-                                setCascadingRuntimeId(runtime.id);
-                                setCascadingAnchorRect({
-                                  left: rect.left,
-                                  top: rect.top,
-                                  right: rect.right,
-                                  bottom: rect.bottom,
-                                  width: rect.width,
-                                  height: rect.height,
-                                });
-                                setIsPointerOverCascadingPanel(false);
-                              }}
-                              onClick={() => {
-                                props.onRuntimeIdChange!(runtime.id);
-                                if (
-                                  runtime.id !== "pi" ||
-                                  !props.onRuntimeModelIdChange
-                                ) {
-                                  props.onRuntimeModelIdChange?.(undefined);
-                                  closeRuntimePicker();
-                                  return;
-                                }
+                                    const rect = event.currentTarget.getBoundingClientRect();
+                                    setCascadingRuntimeId(runtime.id);
+                                    setCascadingAnchorRect({
+                                      left: rect.left,
+                                      top: rect.top,
+                                      right: rect.right,
+                                      bottom: rect.bottom,
+                                      width: rect.width,
+                                      height: rect.height,
+                                    });
+                                    setIsPointerOverCascadingPanel(false);
+                                  }}
+                                  onClick={() => {
+                                    props.onRuntimeIdChange!(runtime.id);
+                                    if (
+                                      !supportsRuntimeModelSelection(runtime.id) ||
+                                      !props.onRuntimeModelIdChange
+                                    ) {
+                                      props.onRuntimeModelIdChange?.(undefined);
+                                      closeRuntimePicker();
+                                      return;
+                                    }
 
-                                if (cascadingRuntimeId !== runtime.id) {
-                                  closeRuntimePicker();
-                                  return;
-                                }
-
-                                closeRuntimePicker();
-                              }}
-                              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
-                                runtime.id === props.runtimeId
-                                  ? "text-fg"
-                                  : "text-muted"
-                              }`}
-                            >
-                              <RuntimeIcon name={runtime.name} size="xs" />
-                              <span className="min-w-0 flex-1">
-                                {getComposerRuntimeLabel(runtime)}
-                              </span>
-                              {supportsModelCascade ? (
-                                <ChevronDown className="ml-auto h-3 w-3 shrink-0" />
+                                    closeRuntimePicker();
+                                  }}
+                                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                                    runtime.id === props.runtimeId ? "text-fg" : "text-muted"
+                                  }`}
+                                >
+                                  <RuntimeIcon name={runtime.name} size="xs" />
+                                  <span className="min-w-0 flex-1">
+                                    {getComposerRuntimeLabel(runtime)}
+                                  </span>
+                                  {supportsModelCascade ? (
+                                    <ChevronDown className="ml-auto h-3 w-3 shrink-0" />
+                                  ) : null}
+                                </button>
                               ) : null}
-                            </button>
+                              {runtime.id === "kimi" && props.onRuntimeModelIdChange ? (
+                                <div className="mx-2 mb-1 pt-1">
+                                  <div className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                                    Kimi Code models
+                                  </div>
+                                  {kimiMenuLoading ? (
+                                    <div className="px-2 py-2 text-[12px] leading-5 text-subtle">
+                                      Loading models...
+                                    </div>
+                                  ) : kimiMenuModels.length > 0 ? (
+                                    kimiMenuModels.map((model) => {
+                                      const selectedModelId =
+                                        props.runtimeId === "kimi"
+                                          ? (props.runtimeModelId ??
+                                            kimiMenuDefaultModelId ??
+                                            kimiMenuModels[0]?.id)
+                                          : undefined;
+                                      const isSelected = model.id === selectedModelId;
+
+                                      return (
+                                        <button
+                                          key={model.id}
+                                          onClick={() => {
+                                            props.onRuntimeIdChange?.("kimi");
+                                            props.onRuntimeModelIdChange?.(model.id);
+                                            closeRuntimePicker();
+                                          }}
+                                          className={`flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-[12px] transition hover:bg-surface-raised ${
+                                            isSelected ? "text-fg" : "text-muted"
+                                          }`}
+                                        >
+                                          <span className="min-w-0 truncate">
+                                            {formatKimiModelLabel(model.name)}
+                                          </span>
+                                          {isSelected ? (
+                                            <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
+                                          ) : null}
+                                        </button>
+                                      );
+                                    })
+                                  ) : (
+                                    <div className="px-2 py-2 text-[12px] leading-5 text-subtle">
+                                      No models found.
+                                    </div>
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
                           );
                         })
                       ) : (
@@ -2052,9 +1947,7 @@ export function Composer(props: ComposerProps) {
                         top: `${cascadingPanelPosition?.top ?? 0}px`,
                         width: `${cascadingPanelPosition?.width ?? CASCADING_PANEL_DEFAULT_WIDTH}px`,
                         maxHeight: `calc(100vh - ${CASCADING_PANEL_PADDING * 2}px)`,
-                        visibility: cascadingPanelPosition
-                          ? "visible"
-                          : "hidden",
+                        visibility: cascadingPanelPosition ? "visible" : "hidden",
                         transformOrigin:
                           cascadingPanelPosition?.side === "left"
                             ? "top right"
@@ -2072,24 +1965,16 @@ export function Composer(props: ComposerProps) {
                       </div>
                       <div className="max-h-[calc(100vh-24px)] overflow-y-auto px-1 pb-1">
                         {props.runtimeModelId &&
-                        !cascadingModels.some(
-                          (model) => model.id === props.runtimeModelId,
-                        ) ? (
+                        !cascadingModels.some((model) => model.id === props.runtimeModelId) ? (
                           <button
                             onClick={() => {
-                              props.onRuntimeIdChange?.(
-                                cascadingRuntimeId ?? "pi",
-                              );
-                              props.onRuntimeModelIdChange?.(
-                                props.runtimeModelId,
-                              );
+                              props.onRuntimeIdChange?.(cascadingRuntimeId ?? "pi");
+                              props.onRuntimeModelIdChange?.(props.runtimeModelId);
                               closeRuntimePicker();
                             }}
                             className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] text-fg transition hover:bg-surface-raised"
                           >
-                            <span className="min-w-0 truncate">
-                              {props.runtimeModelId}
-                            </span>
+                            <span className="min-w-0 truncate">{props.runtimeModelId}</span>
                             <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
                           </button>
                         ) : null}
@@ -2103,16 +1988,13 @@ export function Composer(props: ComposerProps) {
                             const label = model.provider
                               ? `${model.provider} / ${model.name}`
                               : model.name;
-                            const isSelected =
-                              model.id === props.runtimeModelId;
+                            const isSelected = model.id === props.runtimeModelId;
 
                             return (
                               <button
                                 key={model.id}
                                 onClick={() => {
-                                  props.onRuntimeIdChange?.(
-                                    cascadingRuntimeId ?? "pi",
-                                  );
+                                  props.onRuntimeIdChange?.(cascadingRuntimeId ?? "pi");
                                   props.onRuntimeModelIdChange?.(model.id);
                                   closeRuntimePicker();
                                 }}
@@ -2120,9 +2002,7 @@ export function Composer(props: ComposerProps) {
                                   isSelected ? "text-fg" : "text-muted"
                                 }`}
                               >
-                                <span className="min-w-0 truncate">
-                                  {label}
-                                </span>
+                                <span className="min-w-0 truncate">{label}</span>
                                 {isSelected ? (
                                   <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
                                 ) : null}
@@ -2149,14 +2029,10 @@ export function Composer(props: ComposerProps) {
                     }}
                     disabled={isThreadSending}
                     className={`flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition disabled:opacity-40 ${
-                      showModePicker
-                        ? "bg-surface-hover text-fg"
-                        : "text-muted hover:text-fg"
+                      showModePicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
                     }`}
                     title={
-                      isThreadSending
-                        ? "Locked while runtime is running"
-                        : "Runtime permissions"
+                      isThreadSending ? "Locked while runtime is running" : "Runtime permissions"
                     }
                   >
                     <RuntimeModeIcon
@@ -2164,20 +2040,14 @@ export function Composer(props: ComposerProps) {
                       className="h-3 w-3"
                     />
                     <span className="min-w-0 truncate">
-                      {getRuntimeModeLabel(
-                        props.runtimeMode ?? DEFAULT_RUNTIME_MODE,
-                      )}
+                      {getRuntimeModeLabel(props.runtimeMode ?? DEFAULT_RUNTIME_MODE)}
                     </span>
                     <ChevronDown className="h-3 w-3" />
                   </button>
                   {showModePicker && (
                     <div className="absolute bottom-full left-0 mb-1.5 w-72 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
                       {(
-                        [
-                          "approval-required",
-                          "auto-accept-edits",
-                          "full-access",
-                        ] as RuntimeMode[]
+                        ["approval-required", "auto-accept-edits", "full-access"] as RuntimeMode[]
                       ).map((mode) => (
                         <button
                           key={mode}
@@ -2186,9 +2056,7 @@ export function Composer(props: ComposerProps) {
                             setShowModePicker(false);
                           }}
                           className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
-                            mode === props.runtimeMode
-                              ? "text-fg"
-                              : "text-muted"
+                            mode === props.runtimeMode ? "text-fg" : "text-muted"
                           }`}
                         >
                           <RuntimeModeIcon mode={mode} className="h-3 w-3" />
@@ -2279,9 +2147,7 @@ export function Composer(props: ComposerProps) {
                 }}
                 disabled={isThreadSending || gitLoading}
                 className={`flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition disabled:opacity-40 ${
-                  showBranchPicker
-                    ? "bg-surface-hover text-fg"
-                    : "text-muted hover:text-fg"
+                  showBranchPicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
                 }`}
                 title={gitLoading ? "Loading branches" : "Git branch"}
               >
@@ -2345,9 +2211,7 @@ export function Composer(props: ComposerProps) {
                           <span className="min-w-0">
                             <span className="block truncate">{branch}</span>
                           </span>
-                          {isCurrent ? (
-                            <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
-                          ) : null}
+                          {isCurrent ? <Check className="h-3.5 w-3.5 shrink-0 text-fg" /> : null}
                         </button>
                       );
                     })}
@@ -2365,17 +2229,14 @@ export function Composer(props: ComposerProps) {
                           key={branch}
                           disabled
                           title={
-                            branchWorktree
-                              ? `Checked out at ${branchWorktree.path}`
-                              : undefined
+                            branchWorktree ? `Checked out at ${branchWorktree.path}` : undefined
                           }
                           className="flex w-full cursor-not-allowed items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left text-[12px] text-subtle transition disabled:hover:bg-transparent"
                         >
                           <span className="min-w-0">
                             <span className="block truncate">{branch}</span>
                             <span className="block truncate text-[10px] text-subtle">
-                              {branchWorktree?.path ??
-                                "Checked out in another worktree"}
+                              {branchWorktree?.path ?? "Checked out in another worktree"}
                             </span>
                           </span>
                           <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] text-subtle">
@@ -2384,25 +2245,17 @@ export function Composer(props: ComposerProps) {
                         </button>
                       );
                     })}
-                    {visibleLocalBranches.length === 0 &&
-                    visibleWorktreeBranches.length === 0 ? (
-                      <div className="px-3 py-2 text-[12px] text-subtle">
-                        No branches found
-                      </div>
+                    {visibleLocalBranches.length === 0 && visibleWorktreeBranches.length === 0 ? (
+                      <div className="px-3 py-2 text-[12px] text-subtle">No branches found</div>
                     ) : null}
                   </div>
                   <div className="border-t border-border px-2 pb-2 pt-2">
                     {showCreateBranchInput ? (
-                      <form
-                        onSubmit={handleCreateBranch}
-                        className="flex gap-1.5"
-                      >
+                      <form onSubmit={handleCreateBranch} className="flex gap-1.5">
                         <input
                           type="text"
                           value={newBranchName}
-                          onChange={(event) =>
-                            setNewBranchName(event.target.value)
-                          }
+                          onChange={(event) => setNewBranchName(event.target.value)}
                           placeholder="Branch name"
                           className="min-w-0 flex-1 rounded-md border border-border-strong bg-bg px-2 py-1 text-[12px] text-fg placeholder:text-subtle outline-none focus:border-fg/20"
                           autoFocus

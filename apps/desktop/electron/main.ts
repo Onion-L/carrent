@@ -9,6 +9,7 @@ import { createChatSessionManager } from "./chat/chatSessionManager";
 import { createPersistentProviderSessionStore } from "./chat/providerSessionStore";
 import { createWorkspaceStore } from "./workspace/workspaceStore";
 import { getLastWorkspaceSnapshot, registerWorkspaceIpc } from "./workspace/workspaceIpc";
+import { createWorkspaceShutdown } from "./workspace/workspaceShutdown";
 import type { WorkspaceStore } from "./workspace/workspaceStore";
 import { createAttachmentStore } from "./attachments/attachmentStore";
 import { registerAttachmentIpc } from "./attachments/attachmentIpc";
@@ -141,24 +142,15 @@ app.whenReady().then(async () => {
   });
 });
 
-let isQuitting = false;
+const workspaceShutdown = createWorkspaceShutdown({
+  getLastWorkspaceSnapshot,
+  getWorkspaceStore: () => workspaceStore,
+  quit: () => app.quit(),
+  reportSaveError: (error) => console.error("[workspace] failed to save before quit", error),
+});
 
-app.on("before-quit", async (event) => {
-  if (isQuitting) return;
-  if (BrowserWindow.getAllWindows().length > 0) {
-    event.preventDefault();
-    isQuitting = true;
-    const lastSnapshot = getLastWorkspaceSnapshot();
-    try {
-      if (lastSnapshot && workspaceStore) {
-        await workspaceStore.saveWorkspaceSnapshot(lastSnapshot);
-      }
-    } catch (error) {
-      console.error("[workspace] failed to save before quit", error);
-    } finally {
-      app.quit();
-    }
-  }
+app.on("before-quit", (event) => {
+  void workspaceShutdown.beforeQuit(event);
 });
 
 app.on("window-all-closed", () => {

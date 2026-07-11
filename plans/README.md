@@ -15,7 +15,7 @@ written. Preserve it exactly; it is outside every plan.
 | 001  | Keep Kimi history correct across replacement and recovery sessions | P1       | M      | -          | DONE   |
 | 002  | Keep Local MCP credentials private and bound request memory        | P1       | M      | -          | DONE   |
 | 003  | Make thread and project deletion remove owned data                 | P1       | L      | -          | DONE   |
-| 004  | Flush the final workspace snapshot on every quit path              | P1       | S      | -          | TODO   |
+| 004  | Flush the final workspace snapshot on every quit path              | P1       | S      | -          | DONE   |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)

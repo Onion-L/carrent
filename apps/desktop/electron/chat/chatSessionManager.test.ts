@@ -3542,4 +3542,150 @@ describe("createChatSessionManager", () => {
     // Session is gone after stop, so "not found"
     expect(failed?.error).toContain("not found");
   });
+
+  it("deletes sessions and attachments while stopping only runs owned by the thread", async () => {
+    const deletedProviderThreads: string[][] = [];
+    const deletedAttachments: string[][] = [];
+    const firstChild = createMockChildProcess();
+    const secondChild = createMockChildProcess();
+    const children = [firstChild, secondChild];
+    const providerSessions = new Map([
+      ["kimi:project:/tmp/project:thread-1", "kimi-session"],
+      ["claude-code:chat:thread-1", "claude-session"],
+      ["kimi:chat:thread-2", "unrelated-session"],
+    ]);
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: () => children.shift()!,
+      providerSessions: {
+        get: (key) => providerSessions.get(key),
+        set: (key, sessionId) => {
+          providerSessions.set(key, sessionId);
+        },
+        deleteThreads: (threadIds) => {
+          deletedProviderThreads.push(threadIds);
+          for (const key of providerSessions.keys()) {
+            if (threadIds.some((threadId) => key.endsWith(`:${threadId}`))) {
+              providerSessions.delete(key);
+            }
+          }
+        },
+      },
+      attachmentStore: {
+        storeAttachment: async () => {
+          throw new Error("not used");
+        },
+        readAttachment: async () => new Uint8Array(),
+        resolvePath: (key) => `/tmp/attachments/${key}`,
+        deleteAttachments: async (keys) => {
+          deletedAttachments.push(keys);
+        },
+      },
+    });
+
+    manager.start("run-owned", makeRequest({ threadId: "thread-1" }));
+    manager.start("run-unrelated", makeRequest({ threadId: "thread-2" }));
+    await manager.deleteThreadData({
+      threadIds: ["thread-1"],
+      attachmentStorageKeys: ["attachment.png"],
+    });
+
+    expect(firstChild.killed).toBe(true);
+    expect(secondChild.killed).toBe(false);
+    expect(deletedProviderThreads).toEqual([["thread-1"]]);
+    expect(providerSessions.has("kimi:project:/tmp/project:thread-1")).toBe(false);
+    expect(providerSessions.has("claude-code:chat:thread-1")).toBe(false);
+    expect(providerSessions.get("kimi:chat:thread-2")).toBe("unrelated-session");
+    expect(deletedAttachments).toEqual([["attachment.png"]]);
+  });
+
+  it("does not persist a Claude session after its thread is deleted", async () => {
+    const child = createMockChildProcess();
+    const persisted: Array<{ key: string; sessionId: string }> = [];
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: () => child,
+      providerSessions: {
+        get: () => undefined,
+        set: (key, sessionId) => {
+          persisted.push({ key, sessionId });
+        },
+        deleteThreads: () => {},
+      },
+    });
+
+    manager.start("run-late-claude", makeRequest({ runtimeId: "claude-code" }));
+    child.stdout.emit(
+      "data",
+      Buffer.from(
+        [
+          '{"type":"system","subtype":"init","session_id":"late-session"}',
+          '{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Late"}}}',
+        ].join("\n") + "\n",
+      ),
+    );
+    await manager.deleteThreadData({ threadIds: ["thread-1"], attachmentStorageKeys: [] });
+    await waitForAsyncEvents();
+
+    expect(persisted).toHaveLength(0);
+  });
+
+  it("removes a Kimi session whose save completes after thread deletion", async () => {
+    let resolveSave!: () => void;
+    const saveGate = new Promise<void>((resolve) => {
+      resolveSave = resolve;
+    });
+    let saveStarted = false;
+    const persisted = new Map<string, string>();
+    const deletedProviderThreads: string[][] = [];
+    const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+      } else if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "late-kimi-session" });
+      } else if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Late" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: {
+        get: (key) => persisted.get(key),
+        set: async (key, sessionId) => {
+          saveStarted = true;
+          await saveGate;
+          persisted.set(key, sessionId);
+        },
+        deleteThreads: (threadIds) => {
+          deletedProviderThreads.push(threadIds);
+          for (const key of persisted.keys()) {
+            if (threadIds.some((threadId) => key.endsWith(`:${threadId}`))) {
+              persisted.delete(key);
+            }
+          }
+        },
+      },
+    });
+
+    manager.start("run-late-kimi", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+    expect(saveStarted).toBe(true);
+
+    await manager.deleteThreadData({ threadIds: ["thread-1"], attachmentStorageKeys: [] });
+    resolveSave();
+    await waitForAsyncEvents();
+
+    expect(persisted.size).toBe(0);
+    expect(deletedProviderThreads).toEqual([["thread-1"], ["thread-1"]]);
+  });
 });

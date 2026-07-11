@@ -9,6 +9,7 @@ import type {
 import type {
   ChatTurnRequest,
   ChatRunEvent,
+  DeleteThreadDataRequest,
   ImageAttachmentMetadata,
   KimiSessionStatus,
 } from "../shared/chat";
@@ -45,6 +46,7 @@ declare global {
       chat: {
         send: (request: ChatTurnRequest) => Promise<{ runId: string }>;
         stop: (runId: string) => Promise<void>;
+        deleteThreadData: (request: DeleteThreadDataRequest) => Promise<void>;
         respondToPermission: (response: ChatPermissionResponse) => Promise<void>;
         getKimiStatus: (request: ChatTurnRequest) => Promise<KimiSessionStatus | null>;
         onEvent: (listener: (event: ChatRunEvent) => void) => VoidFunction;

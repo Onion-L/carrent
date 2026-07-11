@@ -35,7 +35,7 @@ import {
   useDebouncedWorkspaceSave,
 } from "../hooks/useDebouncedWorkspaceSave";
 import type { RuntimeId } from "../../shared/runtimes";
-import type { ImageAttachmentMetadata } from "../../shared/chat";
+import type { DeleteThreadDataRequest, ImageAttachmentMetadata } from "../../shared/chat";
 
 type MessageRunStatus = NonNullable<Message["runStatus"]>;
 
@@ -61,7 +61,7 @@ export type WorkspaceContextValue = {
   } | null;
   setActiveThreadId: (id: string | null) => void;
   createProject: (folderPath: string) => ProjectRecord | null;
-  removeProject: (projectId: string) => void;
+  removeProject: (projectId: string) => Promise<void>;
   renameProject: (projectId: string, newName: string) => boolean;
   createThread: (
     projectId: string,
@@ -72,7 +72,7 @@ export type WorkspaceContextValue = {
   upsertThread: (projectId: string, thread: ThreadRecord) => void;
   promoteDraftThread: (projectId: string, threadId: string) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
-  deleteThread: (projectId: string, threadId: string) => string | null;
+  deleteThread: (projectId: string, threadId: string) => Promise<string | null>;
   createChat: (
     title: string,
     runtimeId?: RuntimeId,
@@ -80,7 +80,7 @@ export type WorkspaceContextValue = {
   ) => ThreadRecord | null;
   upsertChat: (thread: ThreadRecord) => void;
   toggleChatPin: (threadId: string) => void;
-  deleteChat: (threadId: string) => void;
+  deleteChat: (threadId: string) => Promise<void>;
   upsertMessages: (messages: Message[]) => void;
   appendMessage: (message: {
     threadId: string;
@@ -135,17 +135,17 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   getChatRouteData: () => null,
   setActiveThreadId: () => {},
   createProject: () => null,
-  removeProject: () => {},
+  removeProject: async () => {},
   renameProject: () => false,
   createThread: () => null,
   upsertThread: () => {},
   promoteDraftThread: () => {},
   toggleThreadPin: () => {},
-  deleteThread: () => null,
+  deleteThread: async () => null,
   createChat: () => null,
   upsertChat: () => {},
   toggleChatPin: () => {},
-  deleteChat: () => {},
+  deleteChat: async () => {},
   upsertMessages: () => {},
   appendMessage: () => ({
     id: "",
@@ -209,6 +209,63 @@ export function mergeMessagesIntoWorkspace(
   });
 
   return merged;
+}
+
+export function collectProjectThreadIds(projects: ProjectRecord[], projectId: string) {
+  return (
+    projects.find((project) => project.id === projectId)?.threads.map((thread) => thread.id) ?? []
+  );
+}
+
+export function removeMessagesForThreads(messages: Message[], requestedThreadIds: string[]) {
+  const threadIds = new Set(requestedThreadIds);
+  return messages.filter((message) => !threadIds.has(message.threadId));
+}
+
+export function prepareThreadDataDeletion(
+  messages: Message[],
+  requestedThreadIds: string[],
+): { request: DeleteThreadDataRequest; remainingMessages: Message[] } {
+  const threadIds = [...new Set(requestedThreadIds)];
+  const deletedThreadIds = new Set(threadIds);
+  const attachmentOwners = new Map<string, Set<string>>();
+
+  for (const message of messages) {
+    if (message.type === "changed_files") {
+      continue;
+    }
+    for (const attachment of message.attachments ?? []) {
+      const owners = attachmentOwners.get(attachment.storageKey) ?? new Set<string>();
+      owners.add(message.threadId);
+      attachmentOwners.set(attachment.storageKey, owners);
+    }
+  }
+
+  const attachmentStorageKeys: string[] = [];
+  for (const [storageKey, owners] of attachmentOwners) {
+    if (![...owners].some((threadId) => deletedThreadIds.has(threadId))) {
+      continue;
+    }
+    if (owners.size > 1) {
+      throw new Error("An attachment is shared by multiple threads and cannot be deleted safely.");
+    }
+    attachmentStorageKeys.push(storageKey);
+  }
+
+  return {
+    request: { threadIds, attachmentStorageKeys },
+    remainingMessages: removeMessagesForThreads(messages, threadIds),
+  };
+}
+
+export async function deleteThreadMessagesAfterCleanup(
+  messages: Message[],
+  threadIds: string[],
+  cleanup: (request: DeleteThreadDataRequest) => Promise<void>,
+) {
+  const deletion = prepareThreadDataDeletion(messages, threadIds);
+  await cleanup(deletion.request);
+  return deletion.remainingMessages;
 }
 
 export function updateMessageAndPruneThreadAfter(
@@ -370,8 +427,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return result.project;
   };
 
-  const removeProject = (projectId: string) => {
-    setProjects((prev) => prev.filter((p) => p.id !== projectId));
+  const removeProject = async (projectId: string) => {
+    const threadIds = collectProjectThreadIds(projects, projectId);
+    if (threadIds.length > 0) {
+      await deleteThreadMessagesAfterCleanup(
+        messages,
+        threadIds,
+        window.carrent.chat.deleteThreadData,
+      );
+    }
+    setProjects((prev) => prev.filter((project) => project.id !== projectId));
+    if (threadIds.length > 0) {
+      setMessages((prev) => removeMessagesForThreads(prev, threadIds));
+    }
+    setActiveThreadId((prev) => (prev && threadIds.includes(prev) ? null : prev));
   };
 
   const renameProject = (projectId: string, newName: string) => {
@@ -455,19 +524,27 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setChats((prev) => toggleChatThreadPin(prev, threadId));
   };
 
-  const deleteChat = (threadId: string) => {
+  const deleteChat = async (threadId: string) => {
+    await deleteThreadMessagesAfterCleanup(
+      messages,
+      [threadId],
+      window.carrent.chat.deleteThreadData,
+    );
     setChats((prev) => deleteChatThread(prev, threadId));
-    if (activeThreadId === threadId) {
-      setActiveThreadId(null);
-    }
+    setMessages((prev) => removeMessagesForThreads(prev, [threadId]));
+    setActiveThreadId((prev) => (prev === threadId ? null : prev));
   };
 
-  const deleteThread = (projectId: string, threadId: string) => {
+  const deleteThread = async (projectId: string, threadId: string) => {
     const result = deleteThreadInProjects(projects, projectId, threadId);
-    setProjects(result.projects);
-    if (activeThreadId === threadId) {
-      setActiveThreadId(result.nextActiveThreadId);
-    }
+    await deleteThreadMessagesAfterCleanup(
+      messages,
+      [threadId],
+      window.carrent.chat.deleteThreadData,
+    );
+    setProjects((prev) => deleteThreadInProjects(prev, projectId, threadId).projects);
+    setMessages((prev) => removeMessagesForThreads(prev, [threadId]));
+    setActiveThreadId((prev) => (prev === threadId ? result.nextActiveThreadId : prev));
     return result.nextActiveThreadId;
   };
 

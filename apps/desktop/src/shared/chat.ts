@@ -29,6 +29,11 @@ export type KimiSessionStatus = {
   percentage: number;
 };
 
+export type DeleteThreadDataRequest = {
+  threadIds: string[];
+  attachmentStorageKeys: string[];
+};
+
 export interface ChatTurnRequest {
   requestKey?: string;
   workspace: ChatWorkspaceScope;

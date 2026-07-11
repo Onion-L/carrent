@@ -25,6 +25,7 @@ function createMockStore(): AttachmentStore {
     resolvePath(storageKey) {
       return `/tmp/attachments/${storageKey}`;
     },
+    async deleteAttachments() {},
   };
 }
 

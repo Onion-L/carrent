@@ -54,24 +54,28 @@ export function ThreadHistoryPane() {
     }, 0);
   };
 
-  const deleteThreadAction = (threadId: string) => {
+  const deleteThreadAction = async (threadId: string) => {
     if (!selectedProject) {
       return;
     }
 
-    const nextActiveThreadId = deleteThread(selectedProject.id, threadId);
-    showToast("Deleted successfully", "success");
-    if (activeThreadId === threadId) {
-      if (nextActiveThreadId) {
-        const nextProjectId = findProjectIdForThread(projects, nextActiveThreadId);
-        navigate(
-          nextProjectId
-            ? buildThreadPath(nextProjectId, nextActiveThreadId)
-            : buildProjectPath(selectedProject.id),
-        );
-      } else {
-        navigate(buildProjectPath(selectedProject.id));
+    try {
+      const nextActiveThreadId = await deleteThread(selectedProject.id, threadId);
+      showToast("Deleted successfully", "success");
+      if (activeThreadId === threadId) {
+        if (nextActiveThreadId) {
+          const nextProjectId = findProjectIdForThread(projects, nextActiveThreadId);
+          navigate(
+            nextProjectId
+              ? buildThreadPath(nextProjectId, nextActiveThreadId)
+              : buildProjectPath(selectedProject.id),
+          );
+        } else {
+          navigate(buildProjectPath(selectedProject.id));
+        }
       }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Failed to delete thread.", "error");
     }
   };
 
@@ -157,7 +161,7 @@ export function ThreadHistoryPane() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                deleteThreadAction(thread.id);
+                                void deleteThreadAction(thread.id);
                               }}
                               className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-danger"
                               aria-label="Delete thread"

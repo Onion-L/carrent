@@ -37,5 +37,16 @@ export function createPersistentProviderSessionStore(
         await store.saveProviderSessions({ version: 1, sessions: nextSessions });
         sessions = nextSessions;
       }),
+    deleteThreads: (threadIds) =>
+      enqueueWrite(async () => {
+        const suffixes = [...new Set(threadIds)].map((threadId) => `:${threadId}`);
+        const nextSessions = Object.fromEntries(
+          Object.entries(sessions).filter(
+            ([key]) => !suffixes.some((suffix) => key.endsWith(suffix)),
+          ),
+        );
+        await store.saveProviderSessions({ version: 1, sessions: nextSessions });
+        sessions = nextSessions;
+      }),
   };
 }

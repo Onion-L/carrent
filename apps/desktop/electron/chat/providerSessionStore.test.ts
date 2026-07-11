@@ -95,4 +95,57 @@ describe("createPersistentProviderSessionStore", () => {
     expect((error as Error).message).toBe("disk full");
     expect(store.get("thread-a")).toBe("session-old");
   });
+
+  it("deletes every provider session for requested threads", async () => {
+    const saved: ProviderSessionSnapshot[] = [];
+    const store = createPersistentProviderSessionStore(
+      {
+        saveProviderSessions: async (nextSnapshot) => {
+          saved.push(nextSnapshot);
+        },
+      },
+      snapshot({
+        "kimi:project:/tmp/project:thread-a": "kimi-project",
+        "claude-code:project:/tmp/project:thread-a": "claude-project",
+        "kimi:chat:thread-a": "kimi-chat",
+        "kimi:project:/tmp/project:thread-ab": "unrelated-suffix",
+        "kimi:chat:thread-b": "unrelated-thread",
+      }),
+    );
+
+    await store.deleteThreads?.(["thread-a", "thread-a"]);
+
+    expect(saved).toEqual([
+      {
+        version: 1,
+        sessions: {
+          "kimi:project:/tmp/project:thread-ab": "unrelated-suffix",
+          "kimi:chat:thread-b": "unrelated-thread",
+        },
+      },
+    ]);
+    expect(store.get("kimi:project:/tmp/project:thread-a")).toBeUndefined();
+    expect(store.get("kimi:chat:thread-b")).toBe("unrelated-thread");
+  });
+
+  it("keeps memory unchanged when bulk deletion persistence fails", async () => {
+    const key = "kimi:chat:thread-a";
+    const store = createPersistentProviderSessionStore(
+      {
+        saveProviderSessions: async () => {
+          throw new Error("disk full");
+        },
+      },
+      snapshot({ [key]: "session-old" }),
+    );
+
+    let error: unknown;
+    try {
+      await store.deleteThreads?.(["thread-a"]);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error instanceof Error ? error.message : String(error)).toBe("disk full");
+    expect(store.get(key)).toBe("session-old");
+  });
 });

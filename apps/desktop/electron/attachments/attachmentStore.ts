@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ImageAttachmentMetadata } from "../../src/shared/chat";
@@ -12,6 +12,7 @@ export type AttachmentStore = {
   }) => Promise<ImageAttachmentMetadata>;
   readAttachment: (storageKey: string) => Promise<Uint8Array>;
   resolvePath: (storageKey: string) => string;
+  deleteAttachments: (storageKeys: string[]) => Promise<void>;
 };
 
 const SAFE_STORAGE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -63,9 +64,24 @@ export function createAttachmentStore(baseDir: string): AttachmentStore {
     return join(attachmentsDir, assertValidStorageKey(storageKey));
   }
 
+  async function deleteAttachments(storageKeys: string[]): Promise<void> {
+    const validatedKeys = [...new Set(storageKeys.map(assertValidStorageKey))];
+
+    for (const storageKey of validatedKeys) {
+      try {
+        await unlink(join(attachmentsDir, storageKey));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
+      }
+    }
+  }
+
   return {
     storeAttachment,
     readAttachment,
     resolvePath,
+    deleteAttachments,
   };
 }

@@ -251,10 +251,23 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                           Copy location
                         </button>
                         <button
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
                             if (window.confirm(`Delete "${project.name}"?`)) {
-                              removeProject(project.id);
+                              try {
+                                await removeProject(project.id);
+                                showToast("Project deleted", "success");
+                                if (activeProjectId === project.id) {
+                                  navigate("/");
+                                }
+                              } catch (error) {
+                                showToast(
+                                  error instanceof Error
+                                    ? error.message
+                                    : "Failed to delete project.",
+                                  "error",
+                                );
+                              }
                             }
                             setOpenProjectMenuId(null);
                           }}

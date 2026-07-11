@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAttachmentStore } from "./attachmentStore";
@@ -100,6 +100,58 @@ describe("createAttachmentStore", () => {
           "Invalid attachment storage key",
         );
       }
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("deletes stored attachments and ignores duplicates", async () => {
+    const { store, cleanup } = createTempStore();
+
+    try {
+      const metadata = await store.storeAttachment({
+        name: "screenshot.png",
+        mimeType: "image/png",
+        data: new Uint8Array([1, 2, 3]),
+      });
+
+      await store.deleteAttachments([metadata.storageKey, metadata.storageKey]);
+
+      expect(existsSync(store.resolvePath(metadata.storageKey))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("treats missing attachment deletion as successful", async () => {
+    const { store, cleanup } = createTempStore();
+
+    try {
+      await store.deleteAttachments(["missing.png"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("validates every storage key before deleting anything", async () => {
+    const { store, baseDir, cleanup } = createTempStore();
+
+    try {
+      const attachmentsDir = join(baseDir, "attachments");
+      const validPath = join(attachmentsDir, "keep.png");
+      mkdirSync(attachmentsDir, { recursive: true });
+      writeFileSync(validPath, new Uint8Array([1]));
+
+      let error: unknown;
+      try {
+        await store.deleteAttachments(["keep.png", "../workspace.json"]);
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error instanceof Error ? error.message : String(error)).toContain(
+        "Invalid attachment storage key",
+      );
+      expect(existsSync(validPath)).toBe(true);
     } finally {
       cleanup();
     }

@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import type { ChatTurnRequest, ChatRunEvent, ImageAttachmentMetadata } from "../src/shared/chat";
+import type {
+  ChatTurnRequest,
+  ChatRunEvent,
+  DeleteThreadDataRequest,
+  ImageAttachmentMetadata,
+} from "../src/shared/chat";
 import type { ChatPermissionResponse } from "../src/shared/chatPermissions";
 import type { SkillRecord } from "../src/shared/skills";
 import type { McpServerStatus } from "../src/shared/mcpServer";
@@ -36,6 +41,8 @@ const carrent = {
     send: (request: ChatTurnRequest) =>
       ipcRenderer.invoke("chat:send", request) as Promise<{ runId: string }>,
     stop: (runId: string) => ipcRenderer.invoke("chat:stop", runId) as Promise<void>,
+    deleteThreadData: (request: DeleteThreadDataRequest) =>
+      ipcRenderer.invoke("chat:delete-thread-data", request) as Promise<void>,
     respondToPermission: (response: ChatPermissionResponse) =>
       ipcRenderer.invoke("chat:permission-response", response) as Promise<void>,
     getKimiStatus: (request: ChatTurnRequest) =>

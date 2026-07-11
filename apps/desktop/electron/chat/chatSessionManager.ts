@@ -7,6 +7,7 @@ import type {
   ChatTurnRequest,
   ChatRunEvent,
   ImageAttachment,
+  DeleteThreadDataRequest,
 } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import { buildChatPrompt } from "./chatPrompt";
@@ -25,6 +26,7 @@ import type { AttachmentStore } from "../attachments/attachmentStore";
 
 interface ChatSession {
   runId: string;
+  threadId: string;
   child: ChildProcess;
   stdout: string;
   stderr: string;
@@ -47,6 +49,7 @@ export type SpawnFn = (
 export interface ChatSessionManager {
   start: (runId: string, request: ChatTurnRequest) => void;
   stop: (runId: string) => void;
+  deleteThreadData: (request: DeleteThreadDataRequest) => Promise<void>;
   respondToPermission: (response: ChatPermissionResponse) => void;
   getStatus: (
     request: ChatTurnRequest,
@@ -635,6 +638,7 @@ export type ProviderSessionStore = {
   get: (key: string) => string | undefined;
   set: (key: string, sessionId: string) => void | Promise<void>;
   delete?: (key: string, sessionId?: string) => void | Promise<void>;
+  deleteThreads?: (threadIds: string[]) => void | Promise<void>;
 };
 
 export function createChatSessionManager(options: {
@@ -647,10 +651,11 @@ export function createChatSessionManager(options: {
   attachmentStore?: AttachmentStore;
 }): ChatSessionManager {
   const sessions = new Map<string, ChatSession>();
-  const kimiSessions = new Map<string, KimiAcpRunHandle>();
-  const pendingKimiRuns = new Set<string>();
+  const kimiSessions = new Map<string, { handle: KimiAcpRunHandle; threadId: string }>();
+  const pendingKimiRuns = new Map<string, string>();
   const stoppedPendingKimiRuns = new Set<string>();
   const runtimeSessions = new Map<string, string>();
+  const deletedThreadIds = new Set<string>();
   const TIMEOUT_MS = 120_000;
 
   function resolveAttachmentPaths(request: ChatTurnRequest): ChatTurnRequest {
@@ -667,6 +672,16 @@ export function createChatSessionManager(options: {
   }
 
   function start(runId: string, request: ChatTurnRequest) {
+    if (deletedThreadIds.has(request.threadId)) {
+      options.emit({
+        type: "failed",
+        runId,
+        requestKey: request.requestKey,
+        error: "Thread has been deleted.",
+      });
+      return;
+    }
+
     if (request.workspace.kind === "project" && !request.workspace.projectPath) {
       options.emit({
         type: "failed",
@@ -681,7 +696,7 @@ export function createChatSessionManager(options: {
 
     if (requestWithAttachments.runtimeId === "kimi") {
       const requestSessionKey = buildRequestSessionKey(requestWithAttachments);
-      pendingKimiRuns.add(runId);
+      pendingKimiRuns.set(runId, requestWithAttachments.threadId);
 
       void (async () => {
         try {
@@ -726,14 +741,21 @@ export function createChatSessionManager(options: {
               await options.providerSessions?.delete?.(requestSessionKey, sessionId);
             },
             onCompletedSession: async (sessionId) => {
+              if (deletedThreadIds.has(requestWithAttachments.threadId)) {
+                return;
+              }
               await options.providerSessions?.set(requestSessionKey, sessionId);
+              if (deletedThreadIds.has(requestWithAttachments.threadId)) {
+                await options.providerSessions?.deleteThreads?.([requestWithAttachments.threadId]);
+                return;
+              }
               runtimeSessions.set(requestSessionKey, sessionId);
             },
             onDone: () => {
               kimiSessions.delete(runId);
             },
           });
-          kimiSessions.set(runId, handle);
+          kimiSessions.set(runId, { handle, threadId: requestWithAttachments.threadId });
         } catch (error) {
           if (stoppedPendingKimiRuns.has(runId)) {
             options.emit({
@@ -845,6 +867,7 @@ export function createChatSessionManager(options: {
 
     const session: ChatSession = {
       runId,
+      threadId: request.threadId,
       child,
       stdout: "",
       stderr: "",
@@ -1058,7 +1081,7 @@ export function createChatSessionManager(options: {
         return;
       }
 
-      if (claudeStreamState?.sessionId) {
+      if (claudeStreamState?.sessionId && !deletedThreadIds.has(request.threadId)) {
         runtimeSessions.set(requestSessionKey, claudeStreamState.sessionId);
         Promise.resolve(
           options.providerSessions?.set(requestSessionKey, claudeStreamState.sessionId),
@@ -1130,7 +1153,7 @@ export function createChatSessionManager(options: {
 
     const kimiSession = kimiSessions.get(runId);
     if (kimiSession) {
-      kimiSession.stop();
+      kimiSession.handle.stop();
       kimiSessions.delete(runId);
       return;
     }
@@ -1142,13 +1165,59 @@ export function createChatSessionManager(options: {
     }
   }
 
+  async function deleteThreadData(request: DeleteThreadDataRequest) {
+    const threadIds = [...new Set(request.threadIds)];
+    if (threadIds.length === 0) {
+      throw new Error("At least one thread is required for deletion.");
+    }
+    if (options.providerSessions && !options.providerSessions.deleteThreads) {
+      throw new Error("Provider session cleanup is unavailable.");
+    }
+    if (request.attachmentStorageKeys.length > 0 && !options.attachmentStore) {
+      throw new Error("Attachment store is unavailable.");
+    }
+    request.attachmentStorageKeys.forEach((storageKey) =>
+      options.attachmentStore?.resolvePath(storageKey),
+    );
+
+    const threadIdSet = new Set(threadIds);
+    threadIds.forEach((threadId) => deletedThreadIds.add(threadId));
+
+    for (const [runId, threadId] of pendingKimiRuns) {
+      if (threadIdSet.has(threadId)) {
+        stop(runId);
+      }
+    }
+    for (const [runId, session] of kimiSessions) {
+      if (threadIdSet.has(session.threadId)) {
+        stop(runId);
+      }
+    }
+    for (const [runId, session] of sessions) {
+      if (threadIdSet.has(session.threadId)) {
+        stop(runId);
+      }
+    }
+
+    for (const key of runtimeSessions.keys()) {
+      if (threadIds.some((threadId) => key.endsWith(`:${threadId}`))) {
+        runtimeSessions.delete(key);
+      }
+    }
+
+    await options.providerSessions?.deleteThreads?.(threadIds);
+    if (request.attachmentStorageKeys.length > 0) {
+      await options.attachmentStore!.deleteAttachments(request.attachmentStorageKeys);
+    }
+  }
+
   // Since no provider currently supports interactive stdin-based approval (per spike findings),
   // we emit permission-failed for all responses when in approval-required mode.
   // The pending permission infrastructure is in place for future provider support.
   function respondToPermission(response: ChatPermissionResponse) {
     const kimiSession = kimiSessions.get(response.runId);
     if (kimiSession) {
-      kimiSession.respondToPermission(response);
+      kimiSession.handle.respondToPermission(response);
       return;
     }
 
@@ -1177,7 +1246,7 @@ export function createChatSessionManager(options: {
   }
 
   async function getStatus(request: ChatTurnRequest) {
-    if (request.runtimeId !== "kimi") {
+    if (request.runtimeId !== "kimi" || deletedThreadIds.has(request.threadId)) {
       return null;
     }
 
@@ -1203,5 +1272,5 @@ export function createChatSessionManager(options: {
     }
   }
 
-  return { start, stop, respondToPermission, getStatus };
+  return { start, stop, deleteThreadData, respondToPermission, getStatus };
 }

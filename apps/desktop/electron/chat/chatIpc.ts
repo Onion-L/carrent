@@ -1,4 +1,8 @@
-import type { ChatTurnRequest, KimiSessionStatus } from "../../src/shared/chat";
+import type {
+  ChatTurnRequest,
+  DeleteThreadDataRequest,
+  KimiSessionStatus,
+} from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import { runtimeNameMap, type RuntimeId } from "../../src/shared/runtimes";
 import type { ChatSessionManager } from "./chatSessionManager";
@@ -12,6 +16,48 @@ interface IpcMainLike {
 
 export interface ChatIpcServices {
   sessionManager: ChatSessionManager;
+}
+
+const MAX_DELETE_THREAD_IDS = 10_000;
+const MAX_DELETE_ATTACHMENT_KEYS = 10_000;
+
+function readNonEmptyStringArray(
+  value: unknown,
+  field: string,
+  maximumLength: number,
+  allowEmpty: boolean,
+) {
+  if (
+    !Array.isArray(value) ||
+    (!allowEmpty && value.length === 0) ||
+    value.length > maximumLength ||
+    value.some((item) => typeof item !== "string" || item.trim().length === 0)
+  ) {
+    throw new Error(`Invalid ${field}.`);
+  }
+  return value as string[];
+}
+
+export function parseDeleteThreadDataRequest(value: unknown): DeleteThreadDataRequest {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid thread data deletion request.");
+  }
+
+  const request = value as Record<string, unknown>;
+  return {
+    threadIds: readNonEmptyStringArray(
+      request.threadIds,
+      "threadIds",
+      MAX_DELETE_THREAD_IDS,
+      false,
+    ),
+    attachmentStorageKeys: readNonEmptyStringArray(
+      request.attachmentStorageKeys,
+      "attachmentStorageKeys",
+      MAX_DELETE_ATTACHMENT_KEYS,
+      true,
+    ),
+  };
 }
 
 export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServices) {
@@ -31,6 +77,11 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
 
   ipcMainLike.handle("chat:stop", async (_event, runId) => {
     services.sessionManager.stop(runId as string);
+    return undefined;
+  });
+
+  ipcMainLike.handle("chat:delete-thread-data", async (_event, request) => {
+    await services.sessionManager.deleteThreadData(parseDeleteThreadDataRequest(request));
     return undefined;
   });
 

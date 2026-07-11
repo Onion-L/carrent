@@ -32,6 +32,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          deleteThreadData: async () => {},
           respondToPermission: () => {},
           getStatus: async () => null,
         },
@@ -39,11 +40,84 @@ describe("registerChatIpc", () => {
     );
 
     expect([...handlers.keys()].sort()).toEqual([
+      "chat:delete-thread-data",
       "chat:kimi-status",
       "chat:permission-response",
       "chat:send",
       "chat:stop",
     ]);
+  });
+
+  it("validates and forwards thread data deletion", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const deleted: unknown[] = [];
+
+    registerChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          deleteThreadData: async (request) => {
+            deleted.push(request);
+          },
+          respondToPermission: () => {},
+          getStatus: async () => null,
+        },
+      },
+    );
+
+    await handlers.get("chat:delete-thread-data")?.(
+      {},
+      { threadIds: ["thread-1"], attachmentStorageKeys: ["attachment.png"] },
+    );
+
+    expect(deleted).toEqual([
+      { threadIds: ["thread-1"], attachmentStorageKeys: ["attachment.png"] },
+    ]);
+  });
+
+  it("rejects malformed thread data deletion requests", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const deleted: unknown[] = [];
+
+    registerChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          deleteThreadData: async (request) => {
+            deleted.push(request);
+          },
+          respondToPermission: () => {},
+          getStatus: async () => null,
+        },
+      },
+    );
+
+    const invalidRequests = [
+      null,
+      {},
+      { threadIds: [], attachmentStorageKeys: [] },
+      { threadIds: [""], attachmentStorageKeys: [] },
+      { threadIds: ["thread-1"], attachmentStorageKeys: [" "] },
+      { threadIds: "thread-1", attachmentStorageKeys: [] },
+      {
+        threadIds: Array.from({ length: 10_001 }, (_, index) => `thread-${index}`),
+        attachmentStorageKeys: [],
+      },
+    ];
+    for (const request of invalidRequests) {
+      let error: unknown;
+      try {
+        await handlers.get("chat:delete-thread-data")?.({}, request);
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error instanceof Error ? error.message : String(error)).toContain("Invalid");
+    }
+    expect(deleted).toHaveLength(0);
   });
 
   it("chat:send returns a runId and starts the session", async () => {
@@ -62,6 +136,7 @@ describe("registerChatIpc", () => {
             started.push({ runId, request });
           },
           stop: () => {},
+          deleteThreadData: async () => {},
           respondToPermission: () => {},
           getStatus: async () => null,
         },
@@ -92,6 +167,7 @@ describe("registerChatIpc", () => {
             started.push({ runId, request });
           },
           stop: () => {},
+          deleteThreadData: async () => {},
           respondToPermission: () => {},
           getStatus: async () => null,
         },
@@ -134,6 +210,7 @@ describe("registerChatIpc", () => {
             started.push({ runId, request });
           },
           stop: () => {},
+          deleteThreadData: async () => {},
           respondToPermission: () => {},
           getStatus: async () => null,
         },
@@ -167,6 +244,7 @@ describe("registerChatIpc", () => {
           stop: (runId) => {
             stopped.push(runId);
           },
+          deleteThreadData: async () => {},
           respondToPermission: () => {},
           getStatus: async () => null,
         },
@@ -190,6 +268,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          deleteThreadData: async () => {},
           respondToPermission: () => {},
           getStatus: async () => ({
             model: "kimi-code/kimi-for-coding",
@@ -222,6 +301,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          deleteThreadData: async () => {},
           respondToPermission: () => {},
           getStatus: async (request) => {
             requested.push(request);
@@ -259,6 +339,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          deleteThreadData: async () => {},
           respondToPermission: (response) => responses.push(response),
           getStatus: async () => null,
         },

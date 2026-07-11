@@ -1,9 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
-import type { Message } from "../mock/uiShellData";
+import type { Message, ProjectRecord } from "../mock/uiShellData";
 import {
   applyMessagePartUpdate,
+  collectProjectThreadIds,
+  deleteThreadMessagesAfterCleanup,
   mergeMessagesIntoWorkspace,
+  prepareThreadDataDeletion,
+  removeMessagesForThreads,
   updateMessageAndPruneThreadAfter,
 } from "./WorkspaceContext";
 
@@ -70,6 +74,136 @@ describe("mergeMessagesIntoWorkspace", () => {
     const merged = mergeMessagesIntoWorkspace(existing, incoming);
     expect(merged).toHaveLength(2);
     expect((merged[1] as TextMessage).attachments).toEqual(incoming[0].attachments);
+  });
+});
+
+describe("thread data deletion", () => {
+  const attachment = (storageKey: string) => ({
+    id: storageKey,
+    name: storageKey,
+    mimeType: "image/png",
+    size: 1,
+    storageKey,
+  });
+
+  it("collects a deleted thread's attachments and preserves unrelated messages", () => {
+    const messages = [
+      makeMessage({
+        id: "delete",
+        threadId: "thread-1",
+        attachments: [attachment("one.png")],
+      }),
+      makeMessage({ id: "keep", threadId: "thread-2" }),
+    ];
+
+    expect(prepareThreadDataDeletion(messages, ["thread-1"])).toEqual({
+      request: { threadIds: ["thread-1"], attachmentStorageKeys: ["one.png"] },
+      remainingMessages: [makeMessage({ id: "keep", threadId: "thread-2" })],
+    });
+  });
+
+  it("preserves unrelated messages added while cleanup is pending", () => {
+    const latestMessages = [
+      makeMessage({ id: "delete", threadId: "thread-1" }),
+      makeMessage({ id: "existing", threadId: "thread-2" }),
+      makeMessage({ id: "late", threadId: "thread-3" }),
+    ];
+
+    expect(removeMessagesForThreads(latestMessages, ["thread-1"])).toEqual([
+      makeMessage({ id: "existing", threadId: "thread-2" }),
+      makeMessage({ id: "late", threadId: "thread-3" }),
+    ]);
+  });
+
+  it("deduplicates attachment references within a chat", () => {
+    const messages = [
+      makeMessage({
+        id: "chat-1",
+        threadId: "chat-1",
+        attachments: [attachment("shared-in-chat.png")],
+      }),
+      makeMessage({
+        id: "chat-2",
+        threadId: "chat-1",
+        attachments: [attachment("shared-in-chat.png")],
+      }),
+    ];
+
+    expect(prepareThreadDataDeletion(messages, ["chat-1"]).request).toEqual({
+      threadIds: ["chat-1"],
+      attachmentStorageKeys: ["shared-in-chat.png"],
+    });
+  });
+
+  it("collects every thread and message owned by a project", () => {
+    const projects: ProjectRecord[] = [
+      {
+        id: "project-1",
+        name: "One",
+        path: "/tmp/one",
+        threads: [
+          { id: "thread-1", title: "One", updatedAt: "now" },
+          { id: "thread-2", title: "Two", updatedAt: "now" },
+        ],
+      },
+      {
+        id: "project-2",
+        name: "Two",
+        path: "/tmp/two",
+        threads: [{ id: "thread-3", title: "Three", updatedAt: "now" }],
+      },
+    ];
+    const messages = [
+      makeMessage({ id: "one", threadId: "thread-1" }),
+      makeMessage({ id: "two", threadId: "thread-2" }),
+      makeMessage({ id: "three", threadId: "thread-3" }),
+    ];
+    const threadIds = collectProjectThreadIds(projects, "project-1");
+
+    expect(threadIds).toEqual(["thread-1", "thread-2"]);
+    expect(prepareThreadDataDeletion(messages, threadIds).remainingMessages).toEqual([
+      makeMessage({ id: "three", threadId: "thread-3" }),
+    ]);
+  });
+
+  it("leaves messages unchanged when persistent cleanup fails", async () => {
+    const messages = [makeMessage({ id: "delete", threadId: "thread-1" })];
+
+    let error: unknown;
+    try {
+      await deleteThreadMessagesAfterCleanup(messages, ["thread-1"], async () => {
+        throw new Error("disk full");
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error instanceof Error ? error.message : String(error)).toBe("disk full");
+    expect(messages).toEqual([makeMessage({ id: "delete", threadId: "thread-1" })]);
+  });
+
+  it("rejects deletion when an attachment is shared across threads", () => {
+    const messages = [
+      makeMessage({
+        id: "one",
+        threadId: "thread-1",
+        attachments: [attachment("shared.png")],
+      }),
+      makeMessage({
+        id: "two",
+        threadId: "thread-2",
+        attachments: [attachment("shared.png")],
+      }),
+    ];
+
+    let error: unknown;
+    try {
+      prepareThreadDataDeletion(messages, ["thread-1"]);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error instanceof Error ? error.message : String(error)).toContain(
+      "shared by multiple threads",
+    );
   });
 });
 

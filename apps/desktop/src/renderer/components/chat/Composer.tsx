@@ -445,6 +445,10 @@ export function supportsRuntimeModelSelection(runtimeId: RuntimeId | null) {
   return runtimeId === "kimi" || runtimeId === "pi";
 }
 
+export function getChatHistoryMode(isReplacement: boolean): "continue" | "replace" {
+  return isReplacement ? "replace" : "continue";
+}
+
 export function getRuntimeModelIdForSend({
   runtimeModelId,
 }: {
@@ -1340,6 +1344,7 @@ export function Composer(props: ComposerProps) {
         transcript,
         message: messageText,
         attachments: attachmentMetadata,
+        historyMode: getChatHistoryMode(!!externalSubmit?.messageId),
       },
       {
         onDelta: (text) => {

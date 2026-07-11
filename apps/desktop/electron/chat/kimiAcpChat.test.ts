@@ -132,6 +132,62 @@ describe("buildKimiPromptParts", () => {
       },
     ]);
   });
+
+  it("includes bounded transcript text for fresh sessions", async () => {
+    const parts = await buildKimiPromptParts(
+      makeRequest({
+        message: "Follow up",
+        transcript: [
+          { role: "user" as const, content: "First" },
+          { role: "assistant" as const, content: "First answer" },
+        ],
+      }),
+      { includeTranscript: true },
+    );
+
+    expect(parts).toHaveLength(1);
+    const text = (parts[0] as { text: string }).text;
+    expect(text).toContain("Recent conversation:");
+    expect(text).toContain("user: First");
+    expect(text).toContain("assistant: First answer");
+    expect(text).toContain("user: Follow up");
+  });
+
+  it("does not duplicate local image paths in text when including transcript", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-image-transcript-"));
+    const imagePath = path.join(dir, "a1.png");
+    await writeFile(imagePath, Buffer.from("image bytes"));
+
+    const parts = await buildKimiPromptParts(
+      makeRequest({
+        message: "   ",
+        transcript: [{ role: "user" as const, content: "Earlier" }],
+        attachments: [
+          {
+            id: "a1",
+            name: "screen.png",
+            mimeType: "image/png",
+            size: 1024,
+            storageKey: "a1.png",
+            localPath: imagePath,
+          },
+        ],
+      }),
+      { includeTranscript: true },
+    );
+
+    expect(parts).toHaveLength(2);
+    const text = (parts[0] as { text: string }).text;
+    expect(text).toContain("user: Earlier");
+    expect(text).not.toContain("Attached images:");
+    expect(text).not.toContain(imagePath);
+    expect(parts[1]).toEqual({
+      type: "image",
+      data: Buffer.from("image bytes").toString("base64"),
+      mimeType: "image/png",
+      uri: `file://${imagePath}`,
+    });
+  });
 });
 
 describe("startKimiAcpChatRun", () => {
@@ -606,5 +662,142 @@ describe("startKimiAcpChatRun", () => {
         error: "bridge failed",
       },
     ]);
+  });
+
+  it("omits transcript when resuming an existing Kimi ACP session", async () => {
+    const emitted: ChatRunEvent[] = [];
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/resume") {
+        respondAcp(fakeTransport, message, { configOptions: [] });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-resumed",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Resumed" },
+            },
+          },
+        });
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-resume-no-transcript",
+      request: makeRequest({
+        runtimeId: "kimi",
+        message: "Follow up",
+        transcript: [{ role: "user" as const, content: "Earlier" }],
+      }),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+      resumeSessionId: "session-resumed",
+    });
+
+    await waitForAsyncEvents();
+
+    expect(transport.sent.map((message) => message.method)).toEqual([
+      "initialize",
+      "session/resume",
+      "session/prompt",
+    ]);
+    const prompt = (promptRequest!.params as { prompt: Array<{ text: string }> }).prompt;
+    expect(prompt).toHaveLength(1);
+    expect(prompt[0].text).toBe("Follow up");
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Resumed",
+    });
+  });
+
+  it("replays bounded transcript after a failed resume creates a fresh session", async () => {
+    const emitted: ChatRunEvent[] = [];
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/resume") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: message.id,
+          error: { code: -32000, message: "Session not found" },
+        });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "fresh-session" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "fresh-session",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Recovered" },
+            },
+          },
+        });
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-failed-resume-transcript",
+      request: makeRequest({
+        runtimeId: "kimi",
+        message: "Follow up",
+        transcript: [
+          { role: "user" as const, content: "First" },
+          { role: "assistant" as const, content: "First answer" },
+        ],
+      }),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+      resumeSessionId: "stale-session",
+    });
+
+    await waitForAsyncEvents();
+
+    expect(transport.sent.map((message) => message.method)).toEqual([
+      "initialize",
+      "session/resume",
+      "session/new",
+      "session/prompt",
+    ]);
+    const prompt = (promptRequest!.params as { prompt: Array<{ text: string }> }).prompt;
+    expect(prompt).toHaveLength(1);
+    const text = prompt[0].text;
+    expect(text).toContain("Recent conversation:");
+    expect(text).toContain("user: First");
+    expect(text).toContain("assistant: First answer");
+    expect(text).toContain("user: Follow up");
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Recovered",
+    });
   });
 });

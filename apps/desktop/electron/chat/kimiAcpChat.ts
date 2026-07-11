@@ -18,7 +18,7 @@ import {
 } from "../../src/shared/chatPermissions";
 import type { RuntimeMode } from "../../src/shared/runtimeMode";
 import type { CarrentBridgeFactory, CarrentBridgeHandle } from "../bridge/carrentBridge";
-import { DEFAULT_IMAGE_ONLY_PROMPT } from "./chatPrompt";
+import { buildChatPrompt, DEFAULT_IMAGE_ONLY_PROMPT } from "./chatPrompt";
 
 type JsonRpcId = string | number;
 type JsonObject = Record<string, unknown>;
@@ -295,6 +295,7 @@ function parseKimiStatusText(text: string): KimiSessionStatus | null {
 
 export async function buildKimiPromptParts(
   request: ChatTurnRequest,
+  options?: { includeTranscript?: boolean },
 ): Promise<Array<Record<string, unknown>>> {
   const imageAttachments = request.attachments?.filter(
     (attachment): attachment is ImageAttachment & { localPath: string } =>
@@ -305,7 +306,17 @@ export async function buildKimiPromptParts(
     (imageAttachments && imageAttachments.length > 0 ? DEFAULT_IMAGE_ONLY_PROMPT : "");
   const parts: Array<Record<string, unknown>> = [];
 
-  if (messageText) {
+  if (options?.includeTranscript === true && request.transcript.length > 0) {
+    const promptRequest: ChatTurnRequest = {
+      ...request,
+      message: messageText,
+      attachments: request.attachments?.map(({ localPath: _localPath, ...metadata }) => metadata),
+    };
+    parts.push({
+      type: "text",
+      text: buildChatPrompt(promptRequest, { includeTranscript: true }),
+    });
+  } else if (messageText) {
     parts.push({ type: "text", text: messageText });
   }
 
@@ -418,7 +429,7 @@ class KimiAcpRun {
       if (this.terminal) {
         return;
       }
-      const configOptions = await this.openSession();
+      const { configOptions, resumed } = await this.openSession();
 
       await this.configureModel(configOptions);
       await this.configureRuntimeMode(configOptions);
@@ -427,7 +438,9 @@ class KimiAcpRun {
         "session/prompt",
         {
           sessionId: this.sessionId,
-          prompt: await buildKimiPromptParts(this.options.request),
+          prompt: await buildKimiPromptParts(this.options.request, {
+            includeTranscript: !resumed,
+          }),
         },
         { timeoutMs: null },
       );
@@ -473,7 +486,7 @@ class KimiAcpRun {
     }
   }
 
-  private async openSession() {
+  private async openSession(): Promise<{ configOptions: unknown; resumed: boolean }> {
     const resumeSessionId = this.options.resumeSessionId ?? null;
     if (resumeSessionId) {
       try {
@@ -485,7 +498,7 @@ class KimiAcpRun {
             mcpServers: this.getMcpServers(),
           }),
         );
-        return resume?.configOptions;
+        return { configOptions: resume?.configOptions, resumed: true };
       } catch {
         this.sessionId = null;
         await this.forgetInvalidSession(resumeSessionId);
@@ -502,7 +515,7 @@ class KimiAcpRun {
     if (!this.sessionId) {
       throw new Error("Kimi ACP did not return a session id.");
     }
-    return session?.configOptions;
+    return { configOptions: session?.configOptions, resumed: false };
   }
 
   private async startBridge() {

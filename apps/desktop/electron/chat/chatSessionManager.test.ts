@@ -1915,6 +1915,132 @@ describe("createChatSessionManager", () => {
     });
   });
 
+  it("deletes the old persisted session and starts a fresh one for replacement runs", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const sessionKey = "kimi:project:/Users/onion/workbench/timbre:thread-1";
+    const persistedSessions = new Map([[sessionKey, "old-session"]]);
+    const deletedSessions: Array<{ key: string; sessionId?: string }> = [];
+    const sessionSets: Array<{ key: string; sessionId: string }> = [];
+    let promptRequest: JsonMessage | null = null;
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "new-session" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Replaced" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: {
+        get: (key) => persistedSessions.get(key),
+        set: (key, sessionId) => {
+          sessionSets.push({ key, sessionId });
+          persistedSessions.set(key, sessionId);
+        },
+        delete: (key, sessionId) => {
+          deletedSessions.push({ key, sessionId });
+          if (!sessionId || persistedSessions.get(key) === sessionId) {
+            persistedSessions.delete(key);
+          }
+        },
+      },
+    });
+
+    manager.start(
+      "run-kimi-replace",
+      makeRequest({
+        runtimeId: "kimi",
+        historyMode: "replace",
+        message: "Edited message",
+        transcript: [
+          { role: "user" as const, content: "Before edit" },
+          { role: "assistant" as const, content: "Answer" },
+        ],
+      }),
+    );
+    await waitForAsyncEvents();
+
+    expect(
+      transports[0]?.sent
+        .filter((message) => typeof message.method === "string")
+        .map((message) => message.method),
+    ).toEqual(["initialize", "session/new", "session/prompt"]);
+    expect(deletedSessions).toEqual([{ key: sessionKey, sessionId: "old-session" }]);
+    expect(sessionSets).toEqual([{ key: sessionKey, sessionId: "new-session" }]);
+    expect(persistedSessions.get(sessionKey)).toBe("new-session");
+    const prompt = (promptRequest!.params as { prompt: Array<{ text: string }> }).prompt;
+    const text = prompt[0].text;
+    expect(text).toContain("user: Before edit");
+    expect(text).toContain("assistant: Answer");
+    expect(text).toContain("user: Edited message");
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Replaced",
+    });
+  });
+
+  it("stops a replacement run while the old session is still being deleted", async () => {
+    const emitted: ChatRunEvent[] = [];
+    let resolveDelete!: () => void;
+    const deleteGate = new Promise<void>((resolve) => {
+      resolveDelete = resolve;
+    });
+    const { factory, transports } = createFakeKimiAcpTransportFactory(() => {});
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: {
+        get: () => "old-session",
+        set: () => {},
+        delete: async () => {
+          await deleteGate;
+        },
+      },
+    });
+
+    manager.start(
+      "run-kimi-replace-stop",
+      makeRequest({
+        runtimeId: "kimi",
+        historyMode: "replace",
+        message: "Edited message",
+      }),
+    );
+    manager.stop("run-kimi-replace-stop");
+    resolveDelete();
+    await waitForAsyncEvents();
+
+    expect(transports).toHaveLength(0);
+    expect(emitted.find((event) => event.type === "stopped")).toEqual({
+      type: "stopped",
+      runId: "run-kimi-replace-stop",
+      requestKey: undefined,
+    });
+  });
+
   it("does not reuse a Kimi ACP session across different threads", async () => {
     const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
       if (message.method === "initialize") {

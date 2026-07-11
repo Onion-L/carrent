@@ -648,6 +648,8 @@ export function createChatSessionManager(options: {
 }): ChatSessionManager {
   const sessions = new Map<string, ChatSession>();
   const kimiSessions = new Map<string, KimiAcpRunHandle>();
+  const pendingKimiRuns = new Set<string>();
+  const stoppedPendingKimiRuns = new Set<string>();
   const runtimeSessions = new Map<string, string>();
   const TIMEOUT_MS = 120_000;
 
@@ -679,48 +681,79 @@ export function createChatSessionManager(options: {
 
     if (requestWithAttachments.runtimeId === "kimi") {
       const requestSessionKey = buildRequestSessionKey(requestWithAttachments);
-      const resumeSessionId =
-        runtimeSessions.get(requestSessionKey) ??
-        options.providerSessions?.get(requestSessionKey) ??
-        null;
+      pendingKimiRuns.add(runId);
 
-      try {
-        const transportFactory =
-          options.kimiAcpTransportFactory ?? createKimiAcpProcessTransportFactory(options.spawn);
-        const bridgeFactory =
-          options.carrentBridgeFactory ??
-          ((bridgeOptions) => startCarrentBridge({ runId: bridgeOptions.runId }));
-        const handle = startKimiAcpChatRun({
-          runId,
-          request: requestWithAttachments,
-          cwd: resolveRequestCwd(requestWithAttachments),
-          emit: options.emit,
-          transportFactory,
-          bridgeFactory,
-          resumeSessionId,
-          onInvalidSession: async (sessionId) => {
-            if (runtimeSessions.get(requestSessionKey) === sessionId) {
-              runtimeSessions.delete(requestSessionKey);
-            }
-            await options.providerSessions?.delete?.(requestSessionKey, sessionId);
-          },
-          onCompletedSession: async (sessionId) => {
-            await options.providerSessions?.set(requestSessionKey, sessionId);
-            runtimeSessions.set(requestSessionKey, sessionId);
-          },
-          onDone: () => {
-            kimiSessions.delete(runId);
-          },
-        });
-        kimiSessions.set(runId, handle);
-      } catch (error) {
-        options.emit({
-          type: "failed",
-          runId,
-          requestKey: requestWithAttachments.requestKey,
-          error: error instanceof Error ? error.message : "Failed to start Kimi ACP.",
-        });
-      }
+      void (async () => {
+        try {
+          let resumeSessionId: string | null =
+            runtimeSessions.get(requestSessionKey) ??
+            options.providerSessions?.get(requestSessionKey) ??
+            null;
+
+          if (requestWithAttachments.historyMode === "replace") {
+            const oldSessionId = resumeSessionId;
+            runtimeSessions.delete(requestSessionKey);
+            await options.providerSessions?.delete?.(requestSessionKey, oldSessionId ?? undefined);
+            resumeSessionId = null;
+          }
+
+          if (stoppedPendingKimiRuns.has(runId)) {
+            options.emit({
+              type: "stopped",
+              runId,
+              requestKey: requestWithAttachments.requestKey,
+            });
+            return;
+          }
+
+          const transportFactory =
+            options.kimiAcpTransportFactory ?? createKimiAcpProcessTransportFactory(options.spawn);
+          const bridgeFactory =
+            options.carrentBridgeFactory ??
+            ((bridgeOptions) => startCarrentBridge({ runId: bridgeOptions.runId }));
+          const handle = startKimiAcpChatRun({
+            runId,
+            request: requestWithAttachments,
+            cwd: resolveRequestCwd(requestWithAttachments),
+            emit: options.emit,
+            transportFactory,
+            bridgeFactory,
+            resumeSessionId,
+            onInvalidSession: async (sessionId) => {
+              if (runtimeSessions.get(requestSessionKey) === sessionId) {
+                runtimeSessions.delete(requestSessionKey);
+              }
+              await options.providerSessions?.delete?.(requestSessionKey, sessionId);
+            },
+            onCompletedSession: async (sessionId) => {
+              await options.providerSessions?.set(requestSessionKey, sessionId);
+              runtimeSessions.set(requestSessionKey, sessionId);
+            },
+            onDone: () => {
+              kimiSessions.delete(runId);
+            },
+          });
+          kimiSessions.set(runId, handle);
+        } catch (error) {
+          if (stoppedPendingKimiRuns.has(runId)) {
+            options.emit({
+              type: "stopped",
+              runId,
+              requestKey: requestWithAttachments.requestKey,
+            });
+          } else {
+            options.emit({
+              type: "failed",
+              runId,
+              requestKey: requestWithAttachments.requestKey,
+              error: error instanceof Error ? error.message : "Failed to start Kimi ACP.",
+            });
+          }
+        } finally {
+          pendingKimiRuns.delete(runId);
+          stoppedPendingKimiRuns.delete(runId);
+        }
+      })();
       return;
     }
 
@@ -1090,6 +1123,11 @@ export function createChatSessionManager(options: {
   }
 
   function stop(runId: string) {
+    if (pendingKimiRuns.has(runId)) {
+      stoppedPendingKimiRuns.add(runId);
+      return;
+    }
+
     const kimiSession = kimiSessions.get(runId);
     if (kimiSession) {
       kimiSession.stop();

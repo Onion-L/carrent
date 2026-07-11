@@ -47,6 +47,7 @@ export interface ChatTurnRequest {
   }>;
   message: string;
   attachments?: ImageAttachment[];
+  historyMode?: "continue" | "replace";
 }
 
 type ChatRunEventBase = {

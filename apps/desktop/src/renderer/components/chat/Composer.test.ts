@@ -15,6 +15,7 @@ import {
   getRuntimeModelIdForSend,
   getRuntimeSelectionLabel,
   getSkillSlashTrigger,
+  getChatHistoryMode,
   normalizeGitBranchInfo,
   replaceSkillSlashTrigger,
   supportsRuntimeModelSelection,
@@ -45,6 +46,16 @@ describe("supportsRuntimeModelSelection", () => {
     expect(supportsRuntimeModelSelection("pi")).toBe(true);
     expect(supportsRuntimeModelSelection("codex")).toBe(false);
     expect(supportsRuntimeModelSelection("claude-code")).toBe(false);
+  });
+});
+
+describe("getChatHistoryMode", () => {
+  it("maps a normal submit to continue", () => {
+    expect(getChatHistoryMode(false)).toBe("continue");
+  });
+
+  it("maps an edited-message submit to replace", () => {
+    expect(getChatHistoryMode(true)).toBe("replace");
   });
 });
 
@@ -234,9 +245,7 @@ describe("getComposerRuntimeLabel", () => {
 describe("formatKimiModelLabel", () => {
   it("formats Kimi model ids for the primary selector", () => {
     expect(formatKimiModelLabel("kimi-for-coding")).toBe("Kimi for Coding");
-    expect(formatKimiModelLabel("kimi-for-coding-highspeed")).toBe(
-      "Kimi for Coding High Speed",
-    );
+    expect(formatKimiModelLabel("kimi-for-coding-highspeed")).toBe("Kimi for Coding High Speed");
   });
 });
 

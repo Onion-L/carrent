@@ -1,6 +1,6 @@
 import type { RuntimeId, RuntimeModelListResult } from "../../shared/runtimes";
 
-export const RUNTIME_MODELS_CACHE_TTL_MS = 10 * 60 * 1000;
+export const RUNTIME_MODELS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export type RuntimeModelsCacheState = {
   resultById: Partial<Record<RuntimeId, RuntimeModelListResult>>;

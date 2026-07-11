@@ -75,10 +75,9 @@ describe("createCarrentBridgeManager", () => {
       startBridge: bridge.startBridge,
     });
 
-    expect(await manager.initialize()).toMatchObject({
+    expect(await manager.initialize()).toEqual({
       enabled: true,
       running: true,
-      url: "http://127.0.0.1/global/mcp?token=test",
     });
     expect(bridge.calls).toEqual(["global"]);
     expect(preferences.saves).toEqual([]);
@@ -123,8 +122,9 @@ describe("createCarrentBridgeManager", () => {
     const runtimeHandle = await manager.getRuntimeHandle();
     await runtimeHandle?.close();
 
+    expect(runtimeHandle?.mcpServer.url).toBe("http://127.0.0.1/global/mcp?token=test");
     expect(bridge.handles[0]?.closed).toBe(false);
-    expect(manager.getStatus()).toMatchObject({ enabled: true, running: true });
+    expect(manager.getStatus()).toEqual({ enabled: true, running: true });
 
     await manager.stop();
     expect(bridge.handles[0]?.closed).toBe(true);

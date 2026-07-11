@@ -89,7 +89,6 @@ export function createCarrentBridgeManager(
     return {
       enabled,
       running: !!handle,
-      ...(handle ? { url: handle.mcpServer.url } : {}),
       ...((error ?? lastError) ? { error: error ?? lastError } : {}),
     };
   }

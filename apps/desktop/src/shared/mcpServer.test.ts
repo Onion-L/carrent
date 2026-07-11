@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { normalizeMcpServerStatus } from "./mcpServer";
 
 describe("normalizeMcpServerStatus", () => {
-  it("treats a running legacy status as enabled", () => {
+  it("treats a running legacy status as enabled and discards its URL", () => {
     expect(
       normalizeMcpServerStatus({
         running: true,
@@ -12,7 +12,6 @@ describe("normalizeMcpServerStatus", () => {
     ).toEqual({
       enabled: true,
       running: true,
-      url: "http://127.0.0.1:1234/mcp?token=test",
     });
   });
 

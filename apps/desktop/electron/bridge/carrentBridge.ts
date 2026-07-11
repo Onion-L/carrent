@@ -58,7 +58,10 @@ export type SkillCatalogBridgeService = {
 };
 
 const DEFAULT_AUDIT_LIMIT = 1_000;
+const MAX_REQUEST_BODY_BYTES = 1 * 1024 * 1024;
 const defaultAuditEntries: CarrentBridgeAuditEntry[] = [];
+
+class RequestBodyTooLargeError extends Error {}
 
 export function getCarrentBridgeAuditEntries() {
   return [...defaultAuditEntries];
@@ -197,6 +200,11 @@ class CarrentBridgeServer {
 
       sendJson(response, 200, result);
     } catch (error) {
+      if (error instanceof RequestBodyTooLargeError) {
+        sendText(response, 413, "Payload too large");
+        return;
+      }
+
       sendJson(response, 200, jsonRpcError(null, -32700, errorMessage(error)));
     }
   }
@@ -426,11 +434,72 @@ function toolError(code: string, message: string) {
 }
 
 async function readRequestBody(request: IncomingMessage) {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  const contentLength = request.headers["content-length"];
+  if (
+    typeof contentLength === "string" &&
+    /^\d+$/.test(contentLength) &&
+    Number(contentLength) > MAX_REQUEST_BODY_BYTES
+  ) {
+    await drainRequest(request);
+    throw new RequestBodyTooLargeError();
   }
-  return Buffer.concat(chunks).toString("utf8");
+
+  return new Promise<string>((resolve, reject) => {
+    let chunks: Buffer[] = [];
+    let receivedBytes = 0;
+    let tooLarge = false;
+
+    const cleanup = () => {
+      request.off("data", onData);
+      request.off("end", onEnd);
+      request.off("error", onError);
+    };
+    const onData = (chunk: Buffer | string) => {
+      if (tooLarge) {
+        return;
+      }
+
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      receivedBytes += buffer.byteLength;
+      if (receivedBytes > MAX_REQUEST_BODY_BYTES) {
+        tooLarge = true;
+        chunks = [];
+        return;
+      }
+
+      chunks.push(buffer);
+    };
+    const onEnd = () => {
+      cleanup();
+      if (tooLarge) {
+        reject(new RequestBodyTooLargeError());
+        return;
+      }
+
+      resolve(Buffer.concat(chunks, receivedBytes).toString("utf8"));
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(tooLarge ? new RequestBodyTooLargeError() : error);
+    };
+
+    request.on("data", onData);
+    request.on("end", onEnd);
+    request.on("error", onError);
+  });
+}
+
+function drainRequest(request: IncomingMessage) {
+  return new Promise<void>((resolve) => {
+    const finish = () => {
+      request.off("end", finish);
+      request.off("error", finish);
+      resolve();
+    };
+    request.once("end", finish);
+    request.once("error", finish);
+    request.resume();
+  });
 }
 
 function sendJson(response: ServerResponse, statusCode: number, value: unknown) {

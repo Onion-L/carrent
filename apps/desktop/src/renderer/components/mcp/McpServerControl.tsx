@@ -99,12 +99,6 @@ export function McpServerControl() {
               : "Skills are disabled while this server is off."}
           </div>
 
-          {status.url && (
-            <div className="mt-3 break-all rounded-md bg-surface-raised px-2 py-1.5 text-[11px] text-subtle">
-              {status.url}
-            </div>
-          )}
-
           {status.error && <div className="mt-3 text-[11px] text-danger">{status.error}</div>}
 
           <button

@@ -685,7 +685,7 @@ export function Composer(props: ComposerProps) {
 
   const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
   const modelRuntimeId = supportsRuntimeModelSelection(props.runtimeId) ? props.runtimeId : null;
-  const { models, defaultModelId, loading: modelsLoading } = useRuntimeModels(modelRuntimeId);
+  const { models, defaultModelId } = useRuntimeModels(modelRuntimeId);
   const {
     models: kimiMenuModels,
     defaultModelId: kimiMenuDefaultModelId,
@@ -1748,33 +1748,6 @@ export function Composer(props: ComposerProps) {
               }
             }}
           />
-          {isCenteredPlacement && props.runtimeId === "kimi" && props.onRuntimeModelIdChange ? (
-            <div className="relative mt-2">
-              <span className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2">
-                <RuntimeIcon name="Kimi Code" size="xs" />
-              </span>
-              <select
-                aria-label="Kimi model"
-                value={props.runtimeModelId ?? defaultModelId ?? models[0]?.id ?? ""}
-                onChange={(event) => props.onRuntimeModelIdChange?.(event.target.value)}
-                disabled={isThreadSending || modelsLoading || models.length === 0}
-                className="h-12 w-full appearance-none rounded-lg border border-border-strong bg-surface py-0 pl-11 pr-10 text-[15px] text-fg outline-none transition hover:bg-surface-hover focus:border-fg/50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {models.length === 0 ? (
-                  <option value="">
-                    {modelsLoading ? "Loading models..." : "No models found"}
-                  </option>
-                ) : (
-                  models.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {formatKimiModelLabel(model.name)}
-                    </option>
-                  ))
-                )}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-            </div>
-          ) : null}
           {attachmentError && <div className="mt-2 text-[12px] text-danger">{attachmentError}</div>}
           <div className="mt-3 flex items-end justify-between gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-1">

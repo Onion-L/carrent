@@ -7,10 +7,6 @@ import {
   FileText,
   FolderOpen,
   Save,
-  Check,
-  CheckCircle2,
-  Circle,
-  Copy,
   ExternalLink,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
@@ -20,6 +16,7 @@ import { upsertRtkAgentsBlock, type RtkGainStats } from "../../shared/rtk";
 import type { RuntimeRecord } from "../../shared/runtimes";
 import { resolveSettingsTabId, SETTINGS_TABS } from "../lib/settingsTabs";
 import { RuntimeIcon } from "../components/RuntimeIcon";
+import { useRuntimeModels } from "../hooks/useRuntimeModels";
 import { useRuntimes } from "../hooks/useRuntimes";
 
 /* -------------------------------------------------------------------------- */
@@ -219,350 +216,93 @@ function CheckForUpdatesRow() {
 /* -------------------------------------------------------------------------- */
 
 function RuntimeStatusPanel() {
-  const { runtimes, loading, error, refresh } = useRuntimes();
+  const { runtimes, loading, refresh } = useRuntimes();
   const sortedRuntimes = [...runtimes].sort((a, b) => a.name.localeCompare(b.name));
   const kimiRuntime = sortedRuntimes.find((runtime) => runtime.id === "kimi");
-  const kimiSetupRequired = kimiRuntime ? shouldShowKimiSetup(kimiRuntime) : false;
-  const enabledCount = sortedRuntimes.filter((runtime) => runtime.enabled).length;
+  const canCheckKimi = kimiRuntime ? canCheckKimiConnection(kimiRuntime) : false;
+  const { loading: kimiModelsLoading, refresh: refreshRuntimeModels } = useRuntimeModels(
+    canCheckKimi ? "kimi" : null,
+  );
+
+  async function handleCheck(runtime: RuntimeRecord) {
+    if (runtime.id === "kimi" && canCheckKimiConnection(runtime)) {
+      await refreshRuntimeModels("kimi");
+      return;
+    }
+
+    await refresh();
+  }
 
   return (
     <div className="py-3.5">
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-3 text-[12px] text-muted">
-          <span
-            className={`h-2 w-2 shrink-0 rounded-full ${enabledCount > 0 ? "bg-success" : "bg-muted"}`}
-          />
-          {kimiSetupRequired ? (
-            <span>Kimi Code setup required</span>
-          ) : (
-            <span>{enabledCount > 0 ? `${enabledCount} ready` : "No ready runtimes"}</span>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          disabled={loading}
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-30"
-        >
-          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
-      </div>
-
-      {error ? <div className="mb-3 text-[12px] text-danger">{error}</div> : null}
-
       {loading && sortedRuntimes.length === 0 ? (
-        <div className="space-y-2">
-          {Array.from({ length: 2 }).map((_, index) => (
-            <div key={index} className="rounded-lg border border-border px-4 py-4">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-surface-raised" />
-                <div className="min-w-0 flex-1 space-y-2">
-                  <div className="h-3.5 w-28 rounded bg-surface-raised" />
-                  <div className="h-2.5 w-44 rounded bg-surface-raised" />
-                </div>
-              </div>
-            </div>
-          ))}
+        <div className="flex min-h-16 items-center gap-3 border-y border-border py-3">
+          <div className="h-8 w-8 shrink-0 rounded-lg bg-surface-raised" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="h-3.5 w-28 rounded bg-surface-raised" />
+            <div className="h-2.5 w-16 rounded bg-surface-raised" />
+          </div>
+          <div className="h-8 w-20 rounded-md bg-surface-raised" />
+          <div className="h-8 w-16 rounded-md bg-surface-raised" />
         </div>
       ) : sortedRuntimes.length > 0 ? (
-        <div className="space-y-2">
+        <div className="divide-y divide-border border-y border-border">
           {sortedRuntimes.map((runtime) => {
-            const showKimiSetup = shouldShowKimiSetup(runtime);
+            const checking = loading || (runtime.id === "kimi" && kimiModelsLoading);
 
             return (
               <div
                 key={runtime.id}
-                className={`rounded-lg border ${
-                  showKimiSetup
-                    ? "border-border px-4 py-4"
-                    : "border-border bg-surface/35 px-3.5 py-3 transition-colors hover:border-border-strong"
-                }`}
+                className="flex min-h-16 flex-wrap items-center gap-x-3 gap-y-2 py-3"
               >
-                <div className="flex items-center gap-3">
-                  <div className="relative shrink-0">
-                    <RuntimeIcon name={runtime.name} size={showKimiSetup ? "md" : "sm"} />
-                    {!showKimiSetup ? (
-                      <span
-                        className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-bg ${getRuntimeStatusDotClass(runtime)}`}
-                      />
-                    ) : null}
+                <RuntimeIcon name={runtime.name} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-[13px] font-medium text-fg">{runtime.name}</h3>
+                  <div className="mt-0.5 truncate font-mono text-[11px] text-subtle">
+                    {runtime.version ?? "Unknown"}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <h3 className="text-[14px] font-semibold text-fg">{runtime.name}</h3>
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4 ${getRuntimeStatusBadgeClass(runtime)}`}
-                      >
-                        {getRuntimeStatusLabel(runtime)}
-                      </span>
-                    </div>
-
-                    {showKimiSetup ? (
-                      <KimiSetupPanel
-                        runtime={runtime}
-                        loading={loading}
-                        onRefresh={() => refresh()}
-                      />
-                    ) : (
-                      <div className="mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-bg px-2 py-0.5 text-[11px] leading-4 text-subtle">
-                        <span className="uppercase tracking-[0.08em]">Version</span>
-                        <span className="truncate font-mono text-[11px] text-muted">
-                          {runtime.version ?? "Unknown"}
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                </div>
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => void handleCheck(runtime)}
+                    disabled={checking}
+                    className="flex h-8 items-center gap-1.5 rounded-md bg-fg px-3 text-[12px] text-bg transition-opacity hover:opacity-90 disabled:opacity-30"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${checking ? "animate-spin" : ""}`} />
+                    Check
+                  </button>
+                  {runtime.id === "kimi" ? (
+                    <button
+                      type="button"
+                      onClick={() => window.open(KIMI_DOCS_URL, "_blank", "noopener,noreferrer")}
+                      className="flex h-8 items-center gap-1.5 rounded-md px-3 text-[12px] text-muted transition-colors hover:bg-surface-hover hover:text-fg"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Docs
+                    </button>
+                  ) : null}
                 </div>
               </div>
             );
           })}
         </div>
-      ) : (
-        <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[12px] text-subtle">
-          No supported CLI detected
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
-export function shouldShowKimiSetup(
+export function canCheckKimiConnection(
   runtime: Pick<RuntimeRecord, "id" | "availability" | "configuration">,
 ) {
   return (
     runtime.id === "kimi" &&
-    (runtime.availability !== "detected" || runtime.configuration !== "configured")
+    runtime.availability === "detected" &&
+    runtime.configuration === "configured"
   );
 }
 
-function getRuntimeStatusLabel(runtime: RuntimeRecord) {
-  if (shouldShowKimiSetup(runtime)) return "Setup required";
-  if (runtime.enabled) return "Ready";
-  if (runtime.availability === "detected") return "Disabled";
-  return "Unavailable";
-}
-
-function getRuntimeStatusBadgeClass(runtime: RuntimeRecord) {
-  const label = getRuntimeStatusLabel(runtime);
-  if (label === "Ready") return "border-success/20 bg-success/10 text-success";
-  if (label === "Setup required") return "border-warning/20 bg-warning/10 text-warning";
-  if (label === "Unavailable") return "border-danger/20 bg-danger/10 text-danger";
-  return "border-border bg-surface text-subtle";
-}
-
-function getRuntimeStatusDotClass(runtime: RuntimeRecord) {
-  const label = getRuntimeStatusLabel(runtime);
-  if (label === "Ready") return "bg-success shadow-[0_0_0_3px_rgb(var(--color-success)/0.12)]";
-  if (label === "Unavailable") return "bg-danger shadow-[0_0_0_3px_rgb(var(--color-danger)/0.12)]";
-  return "bg-muted";
-}
-
-function KimiSetupPanel({
-  runtime,
-  loading,
-  onRefresh,
-}: {
-  runtime: RuntimeRecord;
-  loading: boolean;
-  onRefresh: () => Promise<void> | void;
-}) {
-  const setupSteps = getKimiSetupSteps(runtime);
-  const setupAction = getKimiSetupAction(runtime, window.carrent.platform);
-  const [copyFeedbackVisible, setCopyFeedbackVisible] = useState(false);
-  const [hasCopiedSetupCommand, setHasCopiedSetupCommand] = useState(false);
-  const [copyError, setCopyError] = useState<string | null>(null);
-  const [refreshAttemptedAfterCopy, setRefreshAttemptedAfterCopy] = useState(false);
-  const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    setCopyFeedbackVisible(false);
-    setHasCopiedSetupCommand(false);
-    setCopyError(null);
-    setRefreshAttemptedAfterCopy(false);
-    if (copyFeedbackTimerRef.current) {
-      clearTimeout(copyFeedbackTimerRef.current);
-      copyFeedbackTimerRef.current = null;
-    }
-  }, [setupAction.command]);
-
-  useEffect(() => {
-    return () => {
-      if (copyFeedbackTimerRef.current) {
-        clearTimeout(copyFeedbackTimerRef.current);
-      }
-    };
-  }, []);
-
-  async function copySetupCommand() {
-    setCopyError(null);
-    try {
-      await window.carrent.clipboard.writeText(setupAction.command);
-      setCopyFeedbackVisible(true);
-      setHasCopiedSetupCommand(true);
-      setRefreshAttemptedAfterCopy(false);
-      if (copyFeedbackTimerRef.current) {
-        clearTimeout(copyFeedbackTimerRef.current);
-      }
-      copyFeedbackTimerRef.current = setTimeout(() => {
-        setCopyFeedbackVisible(false);
-        copyFeedbackTimerRef.current = null;
-      }, COPY_FEEDBACK_RESET_MS);
-    } catch (error) {
-      setCopyError(error instanceof Error ? error.message : "Failed to copy command.");
-    }
-  }
-
-  async function refreshAfterSetup() {
-    await onRefresh();
-    if (hasCopiedSetupCommand) {
-      setRefreshAttemptedAfterCopy(true);
-    }
-  }
-
-  return (
-    <div className="mt-5">
-      <div className="text-[15px] font-medium text-fg">Kimi Code needs setup</div>
-      <p className="mt-1 max-w-[54ch] text-[12px] leading-5 text-subtle">
-        {setupAction.description}
-      </p>
-
-      <div className="mt-4 flex min-w-0 items-center gap-2 rounded-md bg-surface px-3 py-2">
-        <code className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted">
-          {setupAction.command}
-        </code>
-        <button
-          type="button"
-          onClick={copySetupCommand}
-          className="flex h-7 min-w-[4.5rem] shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-[12px] text-muted transition-all duration-200 ease-out hover:bg-surface-hover hover:text-fg active:scale-[0.98]"
-        >
-          {copyFeedbackVisible ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-          <span className="transition-opacity duration-200">
-            {copyFeedbackVisible ? "Copied" : "Copy"}
-          </span>
-        </button>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => void refreshAfterSetup()}
-          disabled={loading}
-          className="flex shrink-0 items-center gap-1.5 rounded-md bg-fg px-3 py-1.5 text-[12px] text-bg transition-colors hover:opacity-90 disabled:opacity-30"
-        >
-          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
-        <button
-          type="button"
-          onClick={() => window.open(KIMI_SETUP_DOCS_URL, "_blank", "noopener,noreferrer")}
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] text-muted transition-colors hover:bg-surface-hover hover:text-fg"
-        >
-          <ExternalLink className="h-3 w-3" />
-          Docs
-        </button>
-      </div>
-
-      {copyError ? <div className="mt-2 text-[12px] text-danger">{copyError}</div> : null}
-      {copyFeedbackVisible ? (
-        <div className="mt-2 text-[12px] text-subtle">{setupAction.copiedMessage}</div>
-      ) : null}
-      {hasCopiedSetupCommand && refreshAttemptedAfterCopy && shouldShowKimiSetup(runtime) ? (
-        <div className="mt-2 text-[12px] leading-5 text-subtle">{setupAction.refreshHelp}</div>
-      ) : null}
-
-      <div className="mt-5 space-y-2">
-        {setupSteps.map((step) => {
-          const StepIcon = step.done ? CheckCircle2 : Circle;
-          return (
-            <div key={step.label} className="flex items-center gap-2.5">
-              <StepIcon
-                className={`h-3.5 w-3.5 shrink-0 ${step.done ? "text-success" : "text-subtle"}`}
-              />
-              <div className={step.done ? "text-[12px] text-muted" : "text-[12px] text-fg"}>
-                {step.label}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {runtime.lastError ? (
-        <details className="mt-5 border-t border-border pt-3">
-          <summary className="cursor-pointer text-[12px] text-muted transition-colors hover:text-fg">
-            Details
-          </summary>
-          <div className="mt-2 whitespace-pre-wrap break-all font-mono text-[12px] leading-5 text-danger/80">
-            {runtime.lastError}
-          </div>
-        </details>
-      ) : null}
-    </div>
-  );
-}
-
-const KIMI_SETUP_DOCS_URL = "https://moonshotai.github.io/kimi-code/en/guides/getting-started";
-const COPY_FEEDBACK_RESET_MS = 2800;
-
-export function getKimiSetupSteps(runtime: Pick<RuntimeRecord, "availability" | "configuration">) {
-  const cliDetected = runtime.availability === "detected";
-  const configured = runtime.configuration === "configured";
-
-  return [
-    {
-      label: "Install Kimi Code CLI",
-      done: cliDetected,
-    },
-    {
-      label: 'Add "kimi" to PATH',
-      done: cliDetected,
-    },
-    {
-      label: "Finish Kimi sign-in",
-      done: configured,
-    },
-  ];
-}
-
-type KimiSetupAction = {
-  command: string;
-  description: string;
-  copiedMessage: string;
-  refreshHelp: string;
-};
-
-export function getKimiSetupAction(
-  runtime: Pick<RuntimeRecord, "availability" | "configuration">,
-  platform: NodeJS.Platform,
-): KimiSetupAction {
-  if (runtime.availability === "detected" && runtime.configuration !== "configured") {
-    return {
-      command: "kimi",
-      description: "Run Kimi once in a terminal and finish sign-in, then refresh detection.",
-      copiedMessage: "Run this in a terminal, finish sign-in, then click Refresh.",
-      refreshHelp:
-        "If sign-in is complete but Carrent still shows setup required, check the Kimi config location or restart Carrent.",
-    };
-  }
-
-  return {
-    command: getKimiInstallCommand(platform),
-    description:
-      "Install the Kimi Code CLI first. After Carrent detects it, run kimi once to sign in.",
-    copiedMessage:
-      "Run this in a terminal, then click Refresh. Carrent will show the sign-in command next if needed.",
-    refreshHelp:
-      "If kimi works in Terminal but Carrent still cannot find it, restart Carrent or fix PATH.",
-  };
-}
-
-export function getKimiInstallCommand(platform: NodeJS.Platform) {
-  if (platform === "win32") {
-    return "irm https://code.kimi.com/kimi-code/install.ps1 | iex";
-  }
-
-  return "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash";
-}
+const KIMI_DOCS_URL = "https://moonshotai.github.io/kimi-code/en/guides/getting-started";
 
 /* -------------------------------------------------------------------------- */
 /*  RTK stats                                                                 */

@@ -13,7 +13,7 @@ must read its plan fully, honor the STOP conditions, and update its status row.
 | 002  | Keep Local MCP credentials private and bound request memory        | P1       | M      | -          | DONE   |
 | 003  | Make thread and project deletion remove owned data                 | P1       | L      | -          | DONE   |
 | 004  | Flush the final workspace snapshot on every quit path              | P1       | S      | -          | DONE   |
-| 005  | Make Kimi Runtime Setup verify ACP before reporting Ready           | P1       | M      | -          | TODO   |
+| 005  | Make Kimi Runtime Setup verify ACP before reporting Ready           | P1       | M      | -          | DONE   |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)
@@ -31,6 +31,8 @@ REJECTED (with one-line rationale)
 - Plan 005 must reuse the existing Kimi ACP model-list path and shared renderer
   cache. It changes only the active Runtime Settings presentation and must not
   reconnect the unused standalone `RuntimesPage`.
+- Plan 005 treats a successful ACP session without model options as Ready and
+  leaves model selection to Kimi's runtime-owned default.
 
 ## Findings considered and rejected
 

@@ -1,9 +1,17 @@
-import type { Message, ProjectRecord, ThreadRecord } from "../renderer/mock/uiShellData";
+import type {
+  ChangedFile,
+  ChangedFilesMessage,
+  Message,
+  ProjectRecord,
+  ThreadRecord,
+} from "../renderer/mock/uiShellData";
 import type { ImageAttachmentMetadata } from "./chat";
 import { normalizeRuntimeMode } from "./runtimeMode";
 import { normalizeRuntimeId } from "./runtimes";
 
 export const WORKSPACE_SNAPSHOT_VERSION = 1;
+
+const MAX_PATCH_BYTES = 256 * 1024;
 
 export type WorkspaceSnapshot = {
   version: typeof WORKSPACE_SNAPSHOT_VERSION;
@@ -50,8 +58,84 @@ function normalizeImageAttachmentMetadata(value: unknown): ImageAttachmentMetada
   };
 }
 
+function normalizeChangedFile(value: unknown): ChangedFile | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.path !== "string") return null;
+  if (typeof value.additions !== "number" || !Number.isFinite(value.additions)) return null;
+  if (typeof value.deletions !== "number" || !Number.isFinite(value.deletions)) return null;
+  if (value.binary !== undefined && typeof value.binary !== "boolean") return null;
+  if (value.untracked !== undefined && typeof value.untracked !== "boolean") return null;
+
+  const file: ChangedFile = {
+    path: value.path,
+    additions: value.additions,
+    deletions: value.deletions,
+    binary: value.binary === true,
+    untracked: value.untracked === true,
+  };
+
+  if (value.omitted === true) {
+    file.omitted = true;
+  }
+
+  if (typeof value.isFolder === "boolean") {
+    file.isFolder = value.isFolder;
+  }
+
+  if (
+    value.fileType === "swift" ||
+    value.fileType === "markdown" ||
+    value.fileType === "other"
+  ) {
+    file.fileType = value.fileType;
+  }
+
+  return file;
+}
+
+function normalizeChangedFilesSnapshot(
+  value: unknown,
+): ChangedFilesMessage["snapshot"] | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.baseRevision !== "string") return null;
+  if (typeof value.capturedAt !== "string") return null;
+  if (typeof value.patch !== "string") return null;
+  if (typeof value.truncated !== "boolean") return null;
+
+  const patchBytes = new TextEncoder().encode(value.patch).length;
+  if (patchBytes > MAX_PATCH_BYTES) return null;
+
+  return {
+    baseRevision: value.baseRevision,
+    capturedAt: value.capturedAt,
+    patch: value.patch,
+    truncated: value.truncated,
+  };
+}
+
 function normalizeMessageRecord(message: Message): Message {
   const record = message as Message & { attachments?: unknown };
+
+  if (record.type === "changed_files") {
+    const changedFilesRecord = record as ChangedFilesMessage & { changedFiles?: unknown };
+    const normalizedFiles = Array.isArray(changedFilesRecord.changedFiles)
+      ? changedFilesRecord.changedFiles
+          .map((file) => normalizeChangedFile(file))
+          .filter((file): file is ChangedFile => file !== null)
+      : [];
+
+    const normalizedSnapshot = normalizeChangedFilesSnapshot(changedFilesRecord.snapshot);
+    const { snapshot: _oldSnapshot, ...recordWithoutSnapshot } = changedFilesRecord;
+
+    const normalized: ChangedFilesMessage = {
+      ...recordWithoutSnapshot,
+      changedFiles: normalizedFiles,
+      ...(normalizedSnapshot ? { snapshot: normalizedSnapshot } : {}),
+    };
+
+    return normalized as Message;
+  }
+
   if (!Array.isArray(record.attachments)) {
     return message;
   }

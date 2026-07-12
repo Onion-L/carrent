@@ -66,10 +66,13 @@ export const initialActiveThreadId =
 // Seed-only fallback for screens that still read directly from mock data.
 export const currentProject = projects.find((project) => project.active) ?? projects[0];
 
-type ChangedFile = {
+export type ChangedFile = {
   path: string;
   additions: number;
   deletions: number;
+  binary: boolean;
+  untracked: boolean;
+  omitted?: boolean;
   isFolder?: boolean;
   fileType?: "swift" | "markdown" | "other";
 };
@@ -110,11 +113,17 @@ type TextMessage = MessageBase & {
   attachments?: ImageAttachmentMetadata[];
 };
 
-type ChangedFilesMessage = Omit<MessageBase, "role"> & {
+export type ChangedFilesMessage = Omit<MessageBase, "role"> & {
   role: "assistant";
   type: "changed_files";
   content?: string;
   changedFiles: ChangedFile[];
+  snapshot?: {
+    baseRevision: string;
+    capturedAt: string;
+    patch: string;
+    truncated: boolean;
+  };
 };
 
 export type Message = TextMessage | ChangedFilesMessage;

@@ -4,6 +4,7 @@ import {
   getCascadingPanelPosition,
   getActionablePermissionsForThread,
   buildSkillReference,
+  createWorkspaceDiffCapture,
   filterSkillsForQuery,
   formatKimiModelLabel,
   formatSkillLabel,
@@ -342,6 +343,7 @@ describe("getGitBridge", () => {
           current: "carrent/feature",
           branches: ["main", "carrent/feature"],
         }),
+        workspaceDiff: async () => ({ state: "clean", baseRevision: "abc", capturedAt: "now" }),
       },
     });
 
@@ -350,6 +352,11 @@ describe("getGitBridge", () => {
       current: "carrent/feature",
       branches: ["main", "carrent/feature"],
     });
+    expect(await git.workspaceDiff("/repo")).toEqual({
+      state: "clean",
+      baseRevision: "abc",
+      capturedAt: "now",
+    });
   });
 
   it("accepts a preload git bridge before createBranch is available", async () => {
@@ -357,10 +364,27 @@ describe("getGitBridge", () => {
       git: {
         branches: async () => ({ current: "main", branches: ["main"] }),
         checkout: async () => ({ current: "feature", branches: ["main", "feature"] }),
+        workspaceDiff: async () => ({ state: "clean", baseRevision: "abc", capturedAt: "now" }),
       },
     });
 
     expect(await git.branches("/repo")).toEqual({ current: "main", branches: ["main"] });
+  });
+
+  it("reports a clear error when the preload git bridge is missing workspaceDiff", () => {
+    try {
+      getGitBridge({
+        git: {
+          branches: async () => ({ current: "main", branches: ["main"] }),
+          checkout: async () => ({ current: "feature", branches: ["main", "feature"] }),
+        },
+      });
+      throw new Error("Expected getGitBridge to reject.");
+    } catch (error) {
+      expect(error instanceof Error).toBe(true);
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toBe("Git controls are unavailable. Restart Carrent and try again.");
+    }
   });
 
   it("reports a clear error when the preload git bridge is missing", () => {
@@ -522,6 +546,123 @@ describe("skill slash helpers", () => {
     expect(replaceSkillSlashTrigger("please /grill now", trigger!, skills[0])).toBe(
       "please [$grilling](/Users/test/.agents/skills/grilling/SKILL.md) now",
     );
+  });
+});
+
+describe("createWorkspaceDiffCapture", () => {
+  it("does not capture for General chat", async () => {
+    const workspaceDiff = async () => ({ state: "clean" as const, baseRevision: "abc", capturedAt: "now" });
+    const append = () => {
+      throw new Error("should not append");
+    };
+    const capture = createWorkspaceDiffCapture({
+      mode: "chat",
+      threadId: "t1",
+      workspaceDiff,
+      appendWorkspaceDiffMessage: append,
+      showToast: () => {},
+    });
+    capture();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+
+  it("does not append for clean or unavailable results", async () => {
+    const append = () => {
+      throw new Error("should not append");
+    };
+    const captureClean = createWorkspaceDiffCapture({
+      mode: "thread",
+      projectPath: "/repo",
+      threadId: "t1",
+      workspaceDiff: async () => ({ state: "clean" as const, baseRevision: "abc", capturedAt: "now" }),
+      appendWorkspaceDiffMessage: append,
+      showToast: () => {},
+    });
+    captureClean();
+
+    const captureUnavailable = createWorkspaceDiffCapture({
+      mode: "thread",
+      projectPath: "/repo",
+      threadId: "t1",
+      workspaceDiff: async () => ({ state: "unavailable" as const, reason: "no-head" as const }),
+      appendWorkspaceDiffMessage: append,
+      showToast: () => {},
+    });
+    captureUnavailable();
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+
+  it("appends a ready result with files", async () => {
+    let appended: { threadId: string; result: { state: "ready" } } | null = null;
+    const capture = createWorkspaceDiffCapture({
+      mode: "thread",
+      projectPath: "/repo",
+      threadId: "t1",
+      workspaceDiff: async () => ({
+        state: "ready" as const,
+        baseRevision: "abc",
+        capturedAt: "now",
+        files: [{ path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false }],
+        patch: "diff",
+        truncated: false,
+      }),
+      appendWorkspaceDiffMessage: (threadId, result) => {
+        appended = { threadId, result: { state: result.state } };
+      },
+      showToast: () => {},
+    });
+    capture();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(appended).toEqual({ threadId: "t1", result: { state: "ready" } });
+  });
+
+  it("suppresses duplicate terminal capture attempts", async () => {
+    let diffCalls = 0;
+    const capture = createWorkspaceDiffCapture({
+      mode: "thread",
+      projectPath: "/repo",
+      threadId: "t1",
+      workspaceDiff: async () => {
+        diffCalls++;
+        return {
+          state: "ready" as const,
+          baseRevision: "abc",
+          capturedAt: "now",
+          files: [{ path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false }],
+          patch: "diff",
+          truncated: false,
+        };
+      },
+      appendWorkspaceDiffMessage: () => {},
+      showToast: () => {},
+    });
+    capture();
+    capture();
+    capture();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(diffCalls).toBe(1);
+  });
+
+  it("shows a toast when workspace diff capture fails", async () => {
+    const toasts: Array<{ message: string; type: "error" }> = [];
+    const capture = createWorkspaceDiffCapture({
+      mode: "thread",
+      projectPath: "/repo",
+      threadId: "t1",
+      workspaceDiff: async () => {
+        throw new Error("git failed");
+      },
+      appendWorkspaceDiffMessage: () => {},
+      showToast: (message, type) => {
+        toasts.push({ message, type });
+      },
+    });
+    capture();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(toasts).toEqual([
+      { message: "Run finished, but workspace diff could not be captured.", type: "error" },
+    ]);
   });
 });
 

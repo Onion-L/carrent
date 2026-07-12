@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import type { Message, ProjectRecord } from "../mock/uiShellData";
 import {
   applyMessagePartUpdate,
+  buildChangedFilesMessage,
   collectProjectThreadIds,
   deleteThreadMessagesAfterCleanup,
   mergeMessagesIntoWorkspace,
@@ -24,6 +25,47 @@ function makeMessage(overrides: Partial<TextMessage> = {}): TextMessage {
     ...overrides,
   };
 }
+
+describe("buildChangedFilesMessage", () => {
+  it("creates a changed_files message preserving snapshot fields and flags", () => {
+    const now = 1_700_000_000_000;
+    const message = buildChangedFilesMessage({
+      threadId: "thread-1",
+      result: {
+        state: "ready",
+        baseRevision: "abc123",
+        capturedAt: "2024-01-01T00:00:00.000Z",
+        files: [
+          { path: "a.txt", additions: 1, deletions: 2, binary: false, untracked: false },
+          { path: "b.bin", additions: 0, deletions: 0, binary: true, untracked: false },
+          { path: "c.txt", additions: 3, deletions: 0, binary: false, untracked: true },
+          { path: "d.txt", additions: 0, deletions: 0, binary: false, untracked: true, omitted: true },
+        ],
+        patch: "diff --git a/a.txt b/a.txt\n...",
+        truncated: true,
+      },
+      now,
+      formatTime: () => "12:00",
+    });
+
+    expect(message.role).toBe("assistant");
+    expect(message.type).toBe("changed_files");
+    expect(message.threadId).toBe("thread-1");
+    expect(message.content).toBe("Workspace changes");
+    expect(message.changedFiles).toEqual([
+      { path: "a.txt", additions: 1, deletions: 2, binary: false, untracked: false },
+      { path: "b.bin", additions: 0, deletions: 0, binary: true, untracked: false },
+      { path: "c.txt", additions: 3, deletions: 0, binary: false, untracked: true },
+      { path: "d.txt", additions: 0, deletions: 0, binary: false, untracked: true, omitted: true },
+    ]);
+    expect(message.snapshot).toEqual({
+      baseRevision: "abc123",
+      capturedAt: "2024-01-01T00:00:00.000Z",
+      patch: "diff --git a/a.txt b/a.txt\n...",
+      truncated: true,
+    });
+  });
+});
 
 describe("mergeMessagesIntoWorkspace", () => {
   it("merges incoming messages without duplicating existing ones", () => {

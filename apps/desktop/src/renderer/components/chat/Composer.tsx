@@ -45,6 +45,7 @@ import {
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import type { Message } from "../../mock/uiShellData";
+import type { GitWorkspaceDiffResult } from "../../../../electron/git/gitIpc";
 import { type ChatReasoningEventPayload, type ChatShellEventPayload } from "../../../shared/chat";
 import type { SkillRecord } from "../../../shared/skills";
 import type {
@@ -214,6 +215,7 @@ type GitBridge = {
   branches: (projectPath: string) => Promise<unknown>;
   checkout: (projectPath: string, branch: string) => Promise<unknown>;
   createBranch?: (projectPath: string, branch: string) => Promise<unknown>;
+  workspaceDiff: (projectPath: string) => Promise<unknown>;
 };
 
 const CREATE_BRANCH_DEFAULT_NAME = "carrent/";
@@ -251,7 +253,8 @@ export function getGitBridge(carrent: unknown): GitBridge {
     typeof git !== "object" ||
     git === null ||
     typeof (git as { branches?: unknown }).branches !== "function" ||
-    typeof (git as { checkout?: unknown }).checkout !== "function"
+    typeof (git as { checkout?: unknown }).checkout !== "function" ||
+    typeof (git as { workspaceDiff?: unknown }).workspaceDiff !== "function"
   ) {
     throw new Error("Git controls are unavailable. Restart Carrent and try again.");
   }
@@ -285,6 +288,38 @@ export function normalizeGitBranchInfo(info: unknown): GitBranchInfo {
     current: (info as { current: string }).current,
     branches: (info as { branches: string[] }).branches,
     branchWorktrees: (branchWorktrees ?? []) as GitBranchWorktree[],
+  };
+}
+
+export function createWorkspaceDiffCapture(options: {
+  mode: "thread" | "chat";
+  projectPath?: string;
+  threadId: string;
+  workspaceDiff: (projectPath: string) => Promise<GitWorkspaceDiffResult>;
+  appendWorkspaceDiffMessage: (
+    threadId: string,
+    result: Extract<GitWorkspaceDiffResult, { state: "ready" }>,
+  ) => void;
+  showToast: (message: string, type: "error") => void;
+}): () => void {
+  let captured = false;
+  return () => {
+    if (options.mode === "chat" || !options.projectPath || captured) {
+      return;
+    }
+    captured = true;
+
+    void (async () => {
+      try {
+        const result = await options.workspaceDiff(options.projectPath!);
+        if (result.state === "ready" && result.files.length > 0) {
+          options.appendWorkspaceDiffMessage(options.threadId, result);
+        }
+      } catch {
+        console.error("[workspace-diff] capture failed");
+        options.showToast("Run finished, but workspace diff could not be captured.", "error");
+      }
+    })();
   };
 }
 
@@ -586,6 +621,7 @@ export function Composer(props: ComposerProps) {
     projects,
     chats,
     appendMessage,
+    appendWorkspaceDiffMessage,
     updateMessageAndPruneAfter,
     updateMessageRunStatus,
     updateMessageParts,
@@ -1284,6 +1320,15 @@ export function Composer(props: ComposerProps) {
       }, TYPEWRITER_INTERVAL_MS);
     };
 
+    const captureWorkspaceDiff = createWorkspaceDiffCapture({
+      mode: props.mode,
+      projectPath: project?.path,
+      threadId,
+      workspaceDiff: (projectPath) => window.carrent.git.workspaceDiff(projectPath),
+      appendWorkspaceDiffMessage,
+      showToast,
+    });
+
     if (externalSubmit?.messageId) {
       updateMessageAndPruneAfter(externalSubmit.messageId, messageText);
     } else {
@@ -1373,6 +1418,7 @@ export function Composer(props: ComposerProps) {
           updateMessageRunStatus(assistantMsg.id, "completed");
           markThreadActivity(threadId);
           startTypewriter(assistantMsg.id);
+          captureWorkspaceDiff();
         },
         onError: (error) => {
           stopTypewriter();
@@ -1386,6 +1432,7 @@ export function Composer(props: ComposerProps) {
           markThreadActivity(threadId);
           activeAssistantMessageIdRef.current = null;
           flushTypewriterRef.current = null;
+          captureWorkspaceDiff();
         },
         onStop: () => {
           stopTypewriter();
@@ -1396,6 +1443,7 @@ export function Composer(props: ComposerProps) {
           markThreadActivity(threadId);
           activeAssistantMessageIdRef.current = null;
           flushTypewriterRef.current = null;
+          captureWorkspaceDiff();
         },
       },
     );

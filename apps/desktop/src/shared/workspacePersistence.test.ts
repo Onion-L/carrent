@@ -245,6 +245,133 @@ describe("normalizeWorkspaceSnapshot", () => {
     expect(userMessage.attachments).toEqual(snapshot.messages[0].attachments);
   });
 
+  it("accepts a changed_files message with a valid snapshot", () => {
+    const snapshot = {
+      version: WORKSPACE_SNAPSHOT_VERSION,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          type: "changed_files",
+          content: "Workspace changes",
+          changedFiles: [
+            { path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false },
+          ],
+          snapshot: {
+            baseRevision: "abc123",
+            capturedAt: "2024-01-01T00:00:00.000Z",
+            patch: "diff --git a/a.txt b/a.txt",
+            truncated: false,
+          },
+        },
+      ],
+      activeThreadId: null,
+    };
+
+    const normalized = normalizeWorkspaceSnapshot(snapshot);
+    const message = normalized!.messages[0] as { snapshot?: unknown; changedFiles?: unknown[] };
+    expect(message.snapshot).toEqual(snapshot.messages[0].snapshot);
+    expect(message.changedFiles).toEqual(snapshot.messages[0].changedFiles);
+  });
+
+  it("accepts a legacy changed_files message without a snapshot", () => {
+    const snapshot = {
+      version: WORKSPACE_SNAPSHOT_VERSION,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          type: "changed_files",
+          content: "Changed files",
+          changedFiles: [{ path: "a.txt", additions: 1, deletions: 0 }],
+        },
+      ],
+      activeThreadId: null,
+    };
+
+    const normalized = normalizeWorkspaceSnapshot(snapshot);
+    const message = normalized!.messages[0] as { snapshot?: unknown; changedFiles?: unknown[] };
+    expect(message.snapshot).toBeUndefined();
+    expect(message.changedFiles).toEqual([
+      { path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false },
+    ]);
+  });
+
+  it("drops malformed changed_files fields and keeps the message", () => {
+    const snapshot = {
+      version: WORKSPACE_SNAPSHOT_VERSION,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          type: "changed_files",
+          changedFiles: [
+            { path: "valid.txt", additions: 1, deletions: 0, binary: false, untracked: false },
+            { path: "invalid" },
+            "not-a-file",
+          ],
+          snapshot: {
+            baseRevision: "abc123",
+            capturedAt: "2024-01-01T00:00:00.000Z",
+            patch: "diff",
+            truncated: "not-a-boolean",
+          },
+        },
+      ],
+      activeThreadId: null,
+    };
+
+    const normalized = normalizeWorkspaceSnapshot(snapshot);
+    const message = normalized!.messages[0] as { snapshot?: unknown; changedFiles?: unknown[] };
+    expect(message.snapshot).toBeUndefined();
+    expect(message.changedFiles).toEqual([
+      { path: "valid.txt", additions: 1, deletions: 0, binary: false, untracked: false },
+    ]);
+  });
+
+  it("drops an oversized persisted patch", () => {
+    const snapshot = {
+      version: WORKSPACE_SNAPSHOT_VERSION,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          type: "changed_files",
+          changedFiles: [
+            { path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false },
+          ],
+          snapshot: {
+            baseRevision: "abc123",
+            capturedAt: "2024-01-01T00:00:00.000Z",
+            patch: "x".repeat(256 * 1024 + 1),
+            truncated: false,
+          },
+        },
+      ],
+      activeThreadId: null,
+    };
+
+    const normalized = normalizeWorkspaceSnapshot(snapshot);
+    const message = normalized!.messages[0] as { snapshot?: unknown };
+    expect(message.snapshot).toBeUndefined();
+  });
+
   it("strips runtime-only image attachment fields from persisted messages", () => {
     const snapshot = {
       version: WORKSPACE_SNAPSHOT_VERSION,

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { lstatSync, realpathSync } from "node:fs";
+import { resolve, relative } from "node:path";
 
 export interface GitBranchWorktree {
   branch: string;
@@ -13,12 +13,47 @@ export interface GitBranchInfo {
   branchWorktrees: GitBranchWorktree[];
 }
 
+export type GitWorkspaceDiffFile = {
+  path: string;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  untracked: boolean;
+  omitted?: boolean;
+};
+
+export type GitWorkspaceDiffResult =
+  | {
+      state: "ready";
+      baseRevision: string;
+      capturedAt: string;
+      files: GitWorkspaceDiffFile[];
+      patch: string;
+      truncated: boolean;
+    }
+  | {
+      state: "clean";
+      baseRevision: string;
+      capturedAt: string;
+    }
+  | {
+      state: "unavailable";
+      reason: "not-git" | "no-head";
+    };
+
 interface IpcMainLike {
   handle: (
     channel: string,
     listener: (event: unknown, ...args: unknown[]) => Promise<unknown>,
   ) => void;
 }
+
+const MAX_SUMMARY_FILES = 200;
+const MAX_UNTRACKED_PATCHES = 100;
+const MAX_PATCH_BYTES = 256 * 1024;
+const MAX_DIFF_BUFFER_BYTES = 2 * 1024 * 1024;
+const GIT_TIMEOUT_MS = 30_000;
+const TRUNCATION_MARKER = "\n\n[diff truncated by Carrent]\n";
 
 function readString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
@@ -51,6 +86,14 @@ export function registerGitIpc(ipcMainLike: IpcMainLike): void {
     }
     await createBranch(path, branchName);
     return getBranches(path);
+  });
+
+  ipcMainLike.handle("git:workspace-diff", async (_event, projectPath) => {
+    const path = readString(projectPath);
+    if (!path) {
+      throw new Error("Project path is required.");
+    }
+    return getWorkspaceDiff(path);
   });
 }
 
@@ -169,4 +212,414 @@ async function createBranch(cwd: string, branch: string): Promise<void> {
       resolve();
     });
   });
+}
+
+function runGit(
+  cwd: string,
+  args: string[],
+  options: { maxBuffer?: number; timeout?: number } = {},
+): Promise<{ stdout: Buffer; stderr: Buffer }> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "git",
+      args,
+      { cwd, encoding: "buffer", timeout: options.timeout, maxBuffer: options.maxBuffer },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve({ stdout, stderr });
+      },
+    );
+  });
+}
+
+function runGitDiff(
+  cwd: string,
+  args: string[],
+  options: { maxBuffer?: number; timeout?: number } = {},
+): Promise<{ stdout: Buffer; stderr: Buffer; code: number }> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "git",
+      args,
+      { cwd, encoding: "buffer", timeout: options.timeout, maxBuffer: options.maxBuffer },
+      (error, stdout, stderr) => {
+        const code = (error?.code ?? 0) as number;
+        if (error && code !== 1) {
+          reject(error);
+          return;
+        }
+        resolve({ stdout, stderr, code });
+      },
+    );
+  });
+}
+
+function runGitPatch(
+  cwd: string,
+  args: string[],
+): Promise<{ stdout: Buffer; code: number; truncated: boolean }> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "git",
+      args,
+      {
+        cwd,
+        encoding: "buffer",
+        timeout: GIT_TIMEOUT_MS,
+        maxBuffer: MAX_PATCH_BYTES,
+      },
+      (error, stdout) => {
+        const maxBufferExceeded = error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+        const code = typeof error?.code === "number" ? error.code : 0;
+        if (error && !maxBufferExceeded && code !== 1) {
+          reject(error);
+          return;
+        }
+        resolve({ stdout, code, truncated: maxBufferExceeded });
+      },
+    );
+  });
+}
+
+async function getWorkspaceDiff(projectPath: string): Promise<GitWorkspaceDiffResult> {
+  const repoRoot = await resolveRepoRoot(projectPath);
+  if (!repoRoot) {
+    return { state: "unavailable", reason: "not-git" };
+  }
+
+  const baseRevision = await resolveHead(repoRoot);
+  if (!baseRevision) {
+    return { state: "unavailable", reason: "no-head" };
+  }
+
+  const pathspec = getRepoRelativePathspec(repoRoot, projectPath);
+  const capturedAt = new Date().toISOString();
+
+  const [trackedSummary, trackedPatchResult, untrackedResult] = await Promise.all([
+    runGitDiff(
+      repoRoot,
+      [
+        "diff",
+        "--numstat",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-textconv",
+        "-z",
+        "HEAD",
+        "--",
+        pathspec,
+      ],
+      { timeout: GIT_TIMEOUT_MS, maxBuffer: MAX_DIFF_BUFFER_BYTES },
+    ),
+    runGitPatch(
+      repoRoot,
+      [
+        "diff",
+        "--no-color",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--unified=3",
+        "HEAD",
+        "--",
+        pathspec,
+      ],
+    ),
+    runGit(
+      repoRoot,
+      ["ls-files", "--others", "--exclude-standard", "-z", "--", pathspec],
+      { timeout: GIT_TIMEOUT_MS, maxBuffer: MAX_DIFF_BUFFER_BYTES },
+    ),
+  ]);
+
+  const trackedFiles = parseNumstatZ(trackedSummary.stdout);
+  const untrackedPaths = parseNullSeparatedPaths(untrackedResult.stdout);
+
+  const files: GitWorkspaceDiffFile[] = trackedFiles.slice(0, MAX_SUMMARY_FILES).map((file) => ({
+    path: file.path,
+    additions: file.additions,
+    deletions: file.deletions,
+    binary: file.binary,
+    untracked: false,
+  }));
+
+  let untrackedPatchBuffer = Buffer.alloc(0);
+  let untrackedCount = 0;
+  let truncated = trackedFiles.length > MAX_SUMMARY_FILES || trackedPatchResult.truncated;
+  let patchFull = trackedPatchResult.truncated || trackedPatchResult.stdout.length >= MAX_PATCH_BYTES;
+
+  for (const untrackedPath of untrackedPaths) {
+    if (files.length >= MAX_SUMMARY_FILES) {
+      truncated = true;
+      break;
+    }
+
+    if (patchFull) {
+      files.push({
+        path: untrackedPath,
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        untracked: true,
+        omitted: true,
+      });
+      truncated = true;
+      continue;
+    }
+
+    const stat = safeLstat(resolve(repoRoot, untrackedPath));
+    if (!stat || !stat.isFile() || stat.isSymbolicLink()) {
+      files.push({
+        path: untrackedPath,
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        untracked: true,
+        omitted: true,
+      });
+      truncated = true;
+      continue;
+    }
+
+    if (stat.size > MAX_PATCH_BYTES) {
+      files.push({
+        path: untrackedPath,
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        untracked: true,
+        omitted: true,
+      });
+      truncated = true;
+      continue;
+    }
+
+    if (untrackedCount >= MAX_UNTRACKED_PATCHES) {
+      files.push({
+        path: untrackedPath,
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        untracked: true,
+        omitted: true,
+      });
+      truncated = true;
+      continue;
+    }
+
+    try {
+      const [patchResult, numstatResult] = await Promise.all([
+        runGitPatch(
+          repoRoot,
+          [
+            "diff",
+            "--no-index",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--unified=3",
+            "--",
+            "/dev/null",
+            untrackedPath,
+          ],
+        ),
+        runGitDiff(
+          repoRoot,
+          [
+            "diff",
+            "--no-index",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--numstat",
+            "-z",
+            "--",
+            "/dev/null",
+            untrackedPath,
+          ],
+          { timeout: GIT_TIMEOUT_MS, maxBuffer: MAX_DIFF_BUFFER_BYTES },
+        ),
+      ]);
+
+      if (patchResult.code !== 1 && !patchResult.truncated) {
+        files.push({
+          path: untrackedPath,
+          additions: 0,
+          deletions: 0,
+          binary: false,
+          untracked: true,
+          omitted: true,
+        });
+        truncated = true;
+        continue;
+      }
+
+      const numstat = parseNumstatZ(numstatResult.stdout)[0];
+      const fileEntry: GitWorkspaceDiffFile = {
+        path: untrackedPath,
+        additions: numstat?.additions ?? 0,
+        deletions: numstat?.deletions ?? 0,
+        binary: numstat?.binary ?? false,
+        untracked: true,
+      };
+
+      if (patchResult.truncated) {
+        fileEntry.omitted = true;
+        files.push(fileEntry);
+        truncated = true;
+        continue;
+      }
+
+      files.push(fileEntry);
+      untrackedCount++;
+
+      const patchBytes = patchResult.stdout;
+      if (untrackedPatchBuffer.length + patchBytes.length > MAX_PATCH_BYTES) {
+        const remaining = MAX_PATCH_BYTES - untrackedPatchBuffer.length;
+        if (remaining > 0) {
+          untrackedPatchBuffer = Buffer.concat([untrackedPatchBuffer, patchBytes.subarray(0, remaining)]);
+        }
+        patchFull = true;
+        truncated = true;
+        continue;
+      }
+
+      untrackedPatchBuffer = Buffer.concat([untrackedPatchBuffer, patchBytes]);
+    } catch {
+      files.push({
+        path: untrackedPath,
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        untracked: true,
+        omitted: true,
+      });
+      truncated = true;
+    }
+  }
+
+  const combinedPatch = Buffer.concat([trackedPatchResult.stdout, untrackedPatchBuffer]);
+  if (combinedPatch.length > MAX_PATCH_BYTES) {
+    truncated = true;
+  }
+
+  files.sort((a, b) => a.path.localeCompare(b.path));
+
+  if (files.length === 0) {
+    return { state: "clean", baseRevision, capturedAt };
+  }
+
+  const patchText = formatBoundedPatch(combinedPatch, truncated);
+
+  return {
+    state: "ready",
+    baseRevision,
+    capturedAt,
+    files,
+    patch: patchText,
+    truncated,
+  };
+}
+
+function formatBoundedPatch(patch: Buffer, truncated: boolean): string {
+  if (!truncated && patch.length <= MAX_PATCH_BYTES) {
+    return patch.toString("utf8");
+  }
+
+  const marker = Buffer.from(TRUNCATION_MARKER, "utf8");
+  // Leave room for one UTF-8 replacement character if the byte slice ends
+  // inside a multibyte code point.
+  const contentLimit = Math.max(0, MAX_PATCH_BYTES - marker.length - 3);
+  return Buffer.concat([patch.subarray(0, contentLimit), marker]).toString("utf8");
+}
+
+async function resolveRepoRoot(projectPath: string): Promise<string | null> {
+  try {
+    const { stdout } = await runGit(
+      projectPath,
+      ["rev-parse", "--show-toplevel"],
+      { timeout: GIT_TIMEOUT_MS },
+    );
+    return stdout.toString("utf8").trim();
+  } catch {
+    return null;
+  }
+}
+
+async function resolveHead(repoRoot: string): Promise<string | null> {
+  try {
+    const { stdout } = await runGit(
+      repoRoot,
+      ["rev-parse", "--verify", "HEAD"],
+      { timeout: GIT_TIMEOUT_MS },
+    );
+    return stdout.toString("utf8").trim();
+  } catch {
+    return null;
+  }
+}
+
+function getRepoRelativePathspec(repoRoot: string, projectPath: string): string {
+  const resolvedRoot = normalizePath(repoRoot);
+  const resolvedProject = normalizePath(projectPath);
+  if (resolvedProject === resolvedRoot) {
+    return ".";
+  }
+  const relativePath = relative(resolvedRoot, resolvedProject);
+  return relativePath || ".";
+}
+
+function parseNumstatZ(buffer: Buffer): Array<{
+  path: string;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+}> {
+  const text = buffer.toString("utf8");
+  const entries: Array<{ path: string; additions: number; deletions: number; binary: boolean }> = [];
+  const records = text.split("\0");
+
+  for (const record of records) {
+    if (!record) {
+      continue;
+    }
+    const firstTab = record.indexOf("\t");
+    const secondTab = firstTab < 0 ? -1 : record.indexOf("\t", firstTab + 1);
+    if (firstTab < 0 || secondTab < 0) {
+      continue;
+    }
+    const additions = record.slice(0, firstTab);
+    const deletions = record.slice(firstTab + 1, secondTab);
+    const filePath = record.slice(secondTab + 1);
+    if (additions === "-" && deletions === "-") {
+      entries.push({ path: filePath, additions: 0, deletions: 0, binary: true });
+    } else {
+      const a = parseInt(additions, 10);
+      const d = parseInt(deletions, 10);
+      entries.push({
+        path: filePath,
+        additions: Number.isNaN(a) ? 0 : a,
+        deletions: Number.isNaN(d) ? 0 : d,
+        binary: false,
+      });
+    }
+  }
+
+  return entries;
+}
+
+function parseNullSeparatedPaths(buffer: Buffer): string[] {
+  const text = buffer.toString("utf8");
+  return text.split("\0").filter((entry) => entry.length > 0);
+}
+
+function safeLstat(path: string) {
+  try {
+    return lstatSync(path);
+  } catch {
+    return null;
+  }
 }

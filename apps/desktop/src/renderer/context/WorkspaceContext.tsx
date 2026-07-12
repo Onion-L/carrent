@@ -3,6 +3,7 @@ import {
   initialActiveThreadId,
   messages as initialMessages,
   projects as initialProjects,
+  type ChangedFilesMessage,
   type Message,
   type MessagePart,
   type ProjectRecord,
@@ -39,6 +40,7 @@ import {
 } from "../hooks/useDebouncedWorkspaceSave";
 import type { RuntimeId } from "../../shared/runtimes";
 import type { DeleteThreadDataRequest, ImageAttachmentMetadata } from "../../shared/chat";
+import type { GitWorkspaceDiffResult } from "../../../electron/git/gitIpc";
 
 type MessageRunStatus = NonNullable<Message["runStatus"]>;
 
@@ -94,6 +96,10 @@ export type WorkspaceContextValue = {
     attachments?: ImageAttachmentMetadata[];
     runStatus?: MessageRunStatus;
   }) => Message;
+  appendWorkspaceDiffMessage: (
+    threadId: string,
+    result: Extract<GitWorkspaceDiffResult, { state: "ready" }>,
+  ) => ChangedFilesMessage;
   updateMessage: (id: string, content: string) => void;
   updateMessageAndPruneAfter: (id: string, content: string) => void;
   updateMessageRunStatus: (id: string, status: MessageRunStatus) => void;
@@ -162,6 +168,15 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
     timestamp: "",
     type: "text",
   }),
+  appendWorkspaceDiffMessage: () =>
+    ({
+      id: "",
+      role: "assistant",
+      threadId: "",
+      timestamp: "",
+      type: "changed_files",
+      changedFiles: [],
+    }) as ChangedFilesMessage,
   updateMessage: () => {},
   updateMessageAndPruneAfter: () => {},
   updateMessageRunStatus: () => {},
@@ -216,6 +231,42 @@ export function mergeMessagesIntoWorkspace(
   });
 
   return merged;
+}
+
+export function buildChangedFilesMessage({
+  threadId,
+  result,
+  now,
+  formatTime: formatTimeFn,
+}: {
+  threadId: string;
+  result: Extract<GitWorkspaceDiffResult, { state: "ready" }>;
+  now: number;
+  formatTime: (date: Date) => string;
+}): ChangedFilesMessage {
+  return {
+    id: `msg-${now}-${Math.random().toString(36).slice(2, 7)}`,
+    role: "assistant",
+    threadId,
+    timestamp: formatTimeFn(new Date(now)),
+    createdAt: now,
+    type: "changed_files",
+    content: "Workspace changes",
+    changedFiles: result.files.map((file) => ({
+      path: file.path,
+      additions: file.additions,
+      deletions: file.deletions,
+      binary: file.binary,
+      untracked: file.untracked,
+      ...(file.omitted ? { omitted: true } : {}),
+    })),
+    snapshot: {
+      baseRevision: result.baseRevision,
+      capturedAt: result.capturedAt,
+      patch: result.patch,
+      truncated: result.truncated,
+    },
+  };
 }
 
 export function collectProjectThreadIds(projects: ProjectRecord[], projectId: string) {
@@ -633,6 +684,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return newMessage;
   };
 
+  const appendWorkspaceDiffMessage = (
+    threadId: string,
+    result: Extract<GitWorkspaceDiffResult, { state: "ready" }>,
+  ): ChangedFilesMessage => {
+    const now = Date.now();
+    const message = buildChangedFilesMessage({ threadId, result, now, formatTime });
+    setMessages((prev) => [...prev, message]);
+    return message;
+  };
+
   const updateMessage = (id: string, content: string) => {
     setMessages((prev) =>
       prev.map((msg) =>
@@ -696,6 +757,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         deleteChat,
         upsertMessages,
         appendMessage,
+        appendWorkspaceDiffMessage,
         updateMessage,
         updateMessageAndPruneAfter,
         updateMessageRunStatus,

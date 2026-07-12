@@ -16,7 +16,7 @@ import type {
 import type { ChatPermissionResponse } from "../shared/chatPermissions";
 import type { SkillRecord } from "../shared/skills";
 import type { McpServerStatus } from "../shared/mcpServer";
-import type { GitBranchInfo } from "../../electron/git/gitIpc";
+import type { GitBranchInfo, GitWorkspaceDiffResult } from "../../electron/git/gitIpc";
 import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../shared/workspacePersistence";
 import type { RtkGainStats } from "../shared/rtk";
 
@@ -104,6 +104,7 @@ declare global {
         branches: (projectPath: string) => Promise<GitBranchInfo>;
         checkout: (projectPath: string, branch: string) => Promise<GitBranchInfo>;
         createBranch: (projectPath: string, branch: string) => Promise<GitBranchInfo>;
+        workspaceDiff: (projectPath: string) => Promise<GitWorkspaceDiffResult>;
       };
     };
   }

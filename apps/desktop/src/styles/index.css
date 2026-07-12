@@ -4,6 +4,29 @@
 
 @layer base {
   :root {
+    font-size: 14px;
+    --font-size-10: 10px;
+    --font-size-11: 11px;
+    --font-size-12: 12px;
+    --font-size-13: 13px;
+    --font-size-14: 14px;
+    --font-size-15: 15px;
+    --font-size-16: 16px;
+    --font-size-18: 18px;
+    --font-size-22: 22px;
+    --font-size-32: 32px;
+    --font-size-36: 36px;
+    --font-size-xs: 10.5px;
+    --font-size-sm: 12.25px;
+    --font-size-base: 14px;
+    --font-size-lg: 15.75px;
+    --line-height-xs: 14px;
+    --line-height-sm: 17.5px;
+    --line-height-base: 21px;
+    --line-height-lg: 24.5px;
+    --line-height-5: 17.5px;
+    --line-height-6: 21px;
+    --line-height-7: 24.5px;
     --color-bg: 15 15 14;
     --color-sidebar: 25 25 24;
     --color-surface: 31 31 29;

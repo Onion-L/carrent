@@ -141,13 +141,13 @@ function ContextUsageIndicator({
       </svg>
       {showPopover && (
         <div className="absolute bottom-full right-0 mb-2 w-52 rounded-lg border border-border-strong bg-surface px-3 py-2 shadow-xl">
-          <div className="text-[11px] text-muted">Context usage</div>
-          <div className="mt-0.5 text-[12px] font-medium text-fg">
+          <div className="text-app-11 text-muted">Context usage</div>
+          <div className="mt-0.5 text-app-12 font-medium text-fg">
             {status.used.toLocaleString()} / {status.total.toLocaleString()} (
             {status.percentage.toFixed(1)}%)
           </div>
           {status.model ? (
-            <div className="mt-1 truncate text-[11px] text-subtle">{status.model}</div>
+            <div className="mt-1 truncate text-app-11 text-subtle">{status.model}</div>
           ) : null}
         </div>
       )}
@@ -1505,12 +1505,12 @@ export function Composer(props: ComposerProps) {
       <div className="relative mx-auto w-full max-w-[48rem]">
         {showSkillMenu ? (
           <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border-strong bg-surface shadow-[0_18px_60px_rgb(0_0_0/0.28)]">
-            <div className="px-3 py-2 text-[12px] font-medium text-muted">Skills</div>
+            <div className="px-3 py-2 text-app-12 font-medium text-muted">Skills</div>
             <div className="max-h-80 overflow-y-auto p-1">
               {skillsLoading ? (
-                <div className="px-3 py-2 text-[12px] text-subtle">Loading skills...</div>
+                <div className="px-3 py-2 text-app-12 text-subtle">Loading skills...</div>
               ) : skillsError ? (
-                <div className="px-3 py-2 text-[12px] text-danger">{skillsError}</div>
+                <div className="px-3 py-2 text-app-12 text-danger">{skillsError}</div>
               ) : filteredSkills.length > 0 ? (
                 filteredSkills.map((skill, index) => {
                   const isSelected = index === selectedSkillIndex;
@@ -1537,19 +1537,19 @@ export function Composer(props: ComposerProps) {
                     >
                       <Box className="h-4 w-4 shrink-0 text-muted" />
                       <span className="min-w-0 flex-1 truncate">
-                        <span className="text-[13px] font-medium text-fg">
+                        <span className="text-app-13 font-medium text-fg">
                           {formatSkillLabel(skill.name)}
                         </span>
-                        <span className="ml-2 text-[12px] text-subtle">{skill.description}</span>
+                        <span className="ml-2 text-app-12 text-subtle">{skill.description}</span>
                       </span>
-                      <span className="shrink-0 text-[10px] uppercase text-subtle">
+                      <span className="shrink-0 text-app-10 uppercase text-subtle">
                         {skill.source}
                       </span>
                     </button>
                   );
                 })
               ) : (
-                <div className="px-3 py-2 text-[12px] text-subtle">No skills found.</div>
+                <div className="px-3 py-2 text-app-12 text-subtle">No skills found.</div>
               )}
             </div>
           </div>
@@ -1563,10 +1563,10 @@ export function Composer(props: ComposerProps) {
                   className="flex items-center justify-between gap-3 rounded-xl border border-border-strong bg-bg/45 px-3 py-2"
                 >
                   <div className="min-w-0">
-                    <div className="truncate text-[12px] font-medium text-fg">
+                    <div className="truncate text-app-12 font-medium text-fg">
                       {permission.title}
                     </div>
-                    <div className="truncate text-[11px] text-subtle">
+                    <div className="truncate text-app-11 text-subtle">
                       {getPermissionDetail(permission)}
                     </div>
                   </div>
@@ -1630,7 +1630,7 @@ export function Composer(props: ComposerProps) {
             </div>
           )}
           {localMcpSkillsDisabled ? (
-            <div className="mb-2 rounded-lg border border-border bg-bg/45 px-3 py-2 text-[12px] text-subtle">
+            <div className="mb-2 rounded-lg border border-border bg-bg/45 px-3 py-2 text-app-12 text-subtle">
               Local MCP Server is off. Skills are unavailable for this Kimi message.
             </div>
           ) : null}
@@ -1639,7 +1639,7 @@ export function Composer(props: ComposerProps) {
               <div className="flex min-h-7 items-center gap-2.5">
                 <CircleAlert className="h-4 w-4 shrink-0 text-danger" />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12px] font-medium leading-5 text-fg">
+                  <div className="truncate text-app-12 font-medium leading-5 text-fg">
                     {runtimeNameMap[props.runtimeId]} setup required
                   </div>
                 </div>
@@ -1647,7 +1647,7 @@ export function Composer(props: ComposerProps) {
                   <button
                     type="button"
                     onClick={() => navigate("/settings?tab=runtime")}
-                    className="flex h-7 items-center rounded-md px-2 text-[12px] text-muted transition hover:bg-surface-hover hover:text-fg"
+                    className="flex min-h-7 items-center rounded-md px-2 text-app-12 text-muted transition hover:bg-surface-hover hover:text-fg"
                   >
                     Setup
                   </button>
@@ -1655,7 +1655,7 @@ export function Composer(props: ComposerProps) {
                     type="button"
                     onClick={() => void refreshRuntimes()}
                     disabled={runtimesLoading}
-                    className="flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
+                    className="flex min-h-7 items-center gap-1.5 rounded-md px-2 text-app-12 text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
                   >
                     <RefreshCw className={`h-3 w-3 ${runtimesLoading ? "animate-spin" : ""}`} />
                     Refresh
@@ -1669,7 +1669,7 @@ export function Composer(props: ComposerProps) {
               {attachedSkills.map((skill) => (
                 <span
                   key={skill.path}
-                  className={`inline-flex max-w-full items-center gap-1.5 rounded-full border border-border-strong bg-surface px-2 py-1 text-[12px] font-medium text-fg ${
+                  className={`inline-flex max-w-full items-center gap-1.5 rounded-full border border-border-strong bg-surface px-2 py-1 text-app-12 font-medium text-fg ${
                     localMcpSkillsDisabled ? "opacity-50" : ""
                   }`}
                 >
@@ -1705,7 +1705,7 @@ export function Composer(props: ComposerProps) {
             onClick={updateTextareaCursor}
             onSelect={updateTextareaCursor}
             placeholder="Message..."
-            className="min-h-12 w-full resize-none bg-transparent text-[15px] leading-6 text-fg placeholder:text-subtle outline-none"
+            className="min-h-12 w-full resize-none bg-transparent text-app-15 leading-6 text-fg placeholder:text-subtle outline-none"
             rows={1}
             onKeyDown={(e) => {
               if (showSkillMenu) {
@@ -1748,7 +1748,7 @@ export function Composer(props: ComposerProps) {
               }
             }}
           />
-          {attachmentError && <div className="mt-2 text-[12px] text-danger">{attachmentError}</div>}
+          {attachmentError && <div className="mt-2 text-app-12 text-danger">{attachmentError}</div>}
           <div className="mt-3 flex items-end justify-between gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-1">
               {props.onRuntimeIdChange ? (
@@ -1767,7 +1767,7 @@ export function Composer(props: ComposerProps) {
                       }
                     }}
                     disabled={isThreadSending}
-                    className={`flex max-w-[14rem] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition disabled:opacity-40 ${
+                    className={`flex max-w-[14rem] items-center gap-1.5 rounded-md px-2 py-1 text-app-12 transition disabled:opacity-40 ${
                       showRuntimePicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
                     }`}
                     title={isThreadSending ? "Locked while runtime is running" : "Runtime"}
@@ -1833,7 +1833,7 @@ export function Composer(props: ComposerProps) {
 
                                     closeRuntimePicker();
                                   }}
-                                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 transition hover:bg-surface-raised ${
                                     runtime.id === props.runtimeId ? "text-fg" : "text-muted"
                                   }`}
                                 >
@@ -1848,11 +1848,11 @@ export function Composer(props: ComposerProps) {
                               ) : null}
                               {runtime.id === "kimi" && props.onRuntimeModelIdChange ? (
                                 <div className="mx-2 mb-1 pt-1">
-                                  <div className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                                  <div className="px-2 pb-1 pt-1 text-app-11 font-semibold uppercase tracking-wider text-muted">
                                     Kimi Code models
                                   </div>
                                   {kimiMenuLoading ? (
-                                    <div className="px-2 py-2 text-[12px] leading-5 text-subtle">
+                                    <div className="px-2 py-2 text-app-12 leading-5 text-subtle">
                                       Loading models...
                                     </div>
                                   ) : kimiMenuModels.length > 0 ? (
@@ -1873,7 +1873,7 @@ export function Composer(props: ComposerProps) {
                                             props.onRuntimeModelIdChange?.(model.id);
                                             closeRuntimePicker();
                                           }}
-                                          className={`flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-[12px] transition hover:bg-surface-raised ${
+                                          className={`flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-app-12 transition hover:bg-surface-raised ${
                                             isSelected ? "text-fg" : "text-muted"
                                           }`}
                                         >
@@ -1887,7 +1887,7 @@ export function Composer(props: ComposerProps) {
                                       );
                                     })
                                   ) : (
-                                    <div className="px-2 py-2 text-[12px] leading-5 text-subtle">
+                                    <div className="px-2 py-2 text-app-12 leading-5 text-subtle">
                                       No models found.
                                     </div>
                                   )}
@@ -1897,7 +1897,7 @@ export function Composer(props: ComposerProps) {
                           );
                         })
                       ) : (
-                        <div className="px-3 py-2 text-[12px] leading-5 text-subtle">
+                        <div className="px-3 py-2 text-app-12 leading-5 text-subtle">
                           No runtime available
                         </div>
                       )}
@@ -1935,7 +1935,7 @@ export function Composer(props: ComposerProps) {
                       }}
                     >
                       <div className="px-3 pb-1.5 pt-1.5">
-                        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+                        <div className="text-app-11 font-semibold uppercase tracking-wider text-muted">
                           {cascadingRuntimeId
                             ? `${runtimeNameMap[cascadingRuntimeId]} models`
                             : "models"}
@@ -1950,7 +1950,7 @@ export function Composer(props: ComposerProps) {
                               props.onRuntimeModelIdChange?.(props.runtimeModelId);
                               closeRuntimePicker();
                             }}
-                            className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] text-fg transition hover:bg-surface-raised"
+                            className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-app-12 text-fg transition hover:bg-surface-raised"
                           >
                             <span className="min-w-0 truncate">{props.runtimeModelId}</span>
                             <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
@@ -1958,7 +1958,7 @@ export function Composer(props: ComposerProps) {
                         ) : null}
 
                         {cascadingLoading ? (
-                          <div className="px-3 py-2 text-[12px] leading-5 text-subtle">
+                          <div className="px-3 py-2 text-app-12 leading-5 text-subtle">
                             Loading models...
                           </div>
                         ) : cascadingModels.length > 0 ? (
@@ -1976,7 +1976,7 @@ export function Composer(props: ComposerProps) {
                                   props.onRuntimeModelIdChange?.(model.id);
                                   closeRuntimePicker();
                                 }}
-                                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-[12px] transition hover:bg-surface-raised ${
+                                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-app-12 transition hover:bg-surface-raised ${
                                   isSelected ? "text-fg" : "text-muted"
                                 }`}
                               >
@@ -1988,7 +1988,7 @@ export function Composer(props: ComposerProps) {
                             );
                           })
                         ) : (
-                          <div className="px-3 py-2 text-[12px] leading-5 text-subtle">
+                          <div className="px-3 py-2 text-app-12 leading-5 text-subtle">
                             No models found.
                           </div>
                         )}
@@ -2006,7 +2006,7 @@ export function Composer(props: ComposerProps) {
                       }
                     }}
                     disabled={isThreadSending}
-                    className={`flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition disabled:opacity-40 ${
+                    className={`flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 text-app-12 transition disabled:opacity-40 ${
                       showModePicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
                     }`}
                     title={
@@ -2033,7 +2033,7 @@ export function Composer(props: ComposerProps) {
                             props.onRuntimeModeChange!(mode);
                             setShowModePicker(false);
                           }}
-                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 transition hover:bg-surface-raised ${
                             mode === props.runtimeMode ? "text-fg" : "text-muted"
                           }`}
                         >
@@ -2065,7 +2065,7 @@ export function Composer(props: ComposerProps) {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isThreadSending}
-                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-muted transition hover:text-fg disabled:opacity-40"
+                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-app-12 text-muted transition hover:text-fg disabled:opacity-40"
                 title="Attach image"
               >
                 <Image className="h-3.5 w-3.5" />
@@ -2124,7 +2124,7 @@ export function Composer(props: ComposerProps) {
                   }
                 }}
                 disabled={isThreadSending || gitLoading}
-                className={`flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] transition disabled:opacity-40 ${
+                className={`flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 text-app-12 transition disabled:opacity-40 ${
                   showBranchPicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
                 }`}
                 title={gitLoading ? "Loading branches" : "Git branch"}
@@ -2145,14 +2145,14 @@ export function Composer(props: ComposerProps) {
                         value={branchSearchQuery}
                         onChange={(e) => setBranchSearchQuery(e.target.value)}
                         placeholder="Search branches"
-                        className="w-full rounded-md border border-border-strong bg-bg py-1 pl-7 pr-2 text-[12px] text-fg placeholder:text-subtle outline-none focus:border-fg/20"
+                        className="w-full rounded-md border border-border-strong bg-bg py-1 pl-7 pr-2 text-app-12 text-fg placeholder:text-subtle outline-none focus:border-fg/20"
                         autoFocus
                       />
                     </div>
                   </div>
                   <div className="min-h-0 overflow-y-auto px-1 pb-1">
                     {visibleLocalBranches.length > 0 ? (
-                      <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.08em] text-subtle">
+                      <div className="px-2 pb-1 pt-1 text-app-10 font-medium uppercase tracking-[0.08em] text-subtle">
                         Branches
                       </div>
                     ) : null}
@@ -2182,7 +2182,7 @@ export function Composer(props: ComposerProps) {
                             setNewBranchName(CREATE_BRANCH_DEFAULT_NAME);
                             setShowCreateBranchInput(false);
                           }}
-                          className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left text-[12px] transition hover:bg-surface-raised ${
+                          className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left text-app-12 transition hover:bg-surface-raised ${
                             isCurrent ? "text-fg" : "text-muted"
                           }`}
                         >
@@ -2194,7 +2194,7 @@ export function Composer(props: ComposerProps) {
                       );
                     })}
                     {visibleWorktreeBranches.length > 0 ? (
-                      <div className="px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-[0.08em] text-subtle">
+                      <div className="px-2 pb-1 pt-2 text-app-10 font-medium uppercase tracking-[0.08em] text-subtle">
                         Worktrees
                       </div>
                     ) : null}
@@ -2209,22 +2209,22 @@ export function Composer(props: ComposerProps) {
                           title={
                             branchWorktree ? `Checked out at ${branchWorktree.path}` : undefined
                           }
-                          className="flex w-full cursor-not-allowed items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left text-[12px] text-subtle transition disabled:hover:bg-transparent"
+                          className="flex w-full cursor-not-allowed items-center justify-between gap-3 rounded-md px-3 py-1.5 text-left text-app-12 text-subtle transition disabled:hover:bg-transparent"
                         >
                           <span className="min-w-0">
                             <span className="block truncate">{branch}</span>
-                            <span className="block truncate text-[10px] text-subtle">
+                            <span className="block truncate text-app-10 text-subtle">
                               {branchWorktree?.path ?? "Checked out in another worktree"}
                             </span>
                           </span>
-                          <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] text-subtle">
+                          <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-app-10 text-subtle">
                             Worktree
                           </span>
                         </button>
                       );
                     })}
                     {visibleLocalBranches.length === 0 && visibleWorktreeBranches.length === 0 ? (
-                      <div className="px-3 py-2 text-[12px] text-subtle">No branches found</div>
+                      <div className="px-3 py-2 text-app-12 text-subtle">No branches found</div>
                     ) : null}
                   </div>
                   <div className="border-t border-border px-2 pb-2 pt-2">
@@ -2235,13 +2235,13 @@ export function Composer(props: ComposerProps) {
                           value={newBranchName}
                           onChange={(event) => setNewBranchName(event.target.value)}
                           placeholder="Branch name"
-                          className="min-w-0 flex-1 rounded-md border border-border-strong bg-bg px-2 py-1 text-[12px] text-fg placeholder:text-subtle outline-none focus:border-fg/20"
+                          className="min-w-0 flex-1 rounded-md border border-border-strong bg-bg px-2 py-1 text-app-12 text-fg placeholder:text-subtle outline-none focus:border-fg/20"
                           autoFocus
                         />
                         <button
                           type="submit"
                           disabled={creatingBranch || !newBranchName.trim()}
-                          className="rounded-md bg-fg px-2.5 py-1 text-[12px] font-medium text-bg transition hover:bg-fg/90 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded-md bg-fg px-2.5 py-1 text-app-12 font-medium text-bg transition hover:bg-fg/90 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           Create
                         </button>
@@ -2253,7 +2253,7 @@ export function Composer(props: ComposerProps) {
                           setShowCreateBranchInput(true);
                           setNewBranchName(CREATE_BRANCH_DEFAULT_NAME);
                         }}
-                        className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[12px] text-muted transition hover:bg-surface-raised hover:text-fg"
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-app-12 text-muted transition hover:bg-surface-raised hover:text-fg"
                       >
                         <Plus className="h-3.5 w-3.5" />
                         <span>Create branch</span>

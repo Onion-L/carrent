@@ -8,6 +8,8 @@ import {
   FolderOpen,
   Save,
   ExternalLink,
+  Minus,
+  Plus,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useWorkspace } from "../context/WorkspaceContext";
@@ -15,6 +17,7 @@ import { useSettings } from "../context/SettingsContext";
 import { upsertRtkAgentsBlock, type RtkGainStats } from "../../shared/rtk";
 import type { RuntimeRecord } from "../../shared/runtimes";
 import { resolveSettingsTabId, SETTINGS_TABS } from "../lib/settingsTabs";
+import { MAX_FONT_SIZE, MIN_FONT_SIZE, parseFontSizeInput, stepFontSize } from "../lib/fontSize";
 import { RuntimeIcon } from "../components/RuntimeIcon";
 import { useRuntimeModels } from "../hooks/useRuntimeModels";
 import { useRuntimes } from "../hooks/useRuntimes";
@@ -37,8 +40,8 @@ function Toggle({
   return (
     <div className="flex items-center justify-between gap-6 py-3.5">
       <div className="min-w-0">
-        <div className="text-[13px] text-fg">{label}</div>
-        {description && <div className="mt-0.5 text-[12px] text-subtle">{description}</div>}
+        <div className="text-app-13 text-fg">{label}</div>
+        {description && <div className="mt-0.5 text-app-12 text-subtle">{description}</div>}
       </div>
       <button
         onClick={() => onChange(!enabled)}
@@ -93,8 +96,8 @@ function Select({
   return (
     <div className="flex items-center justify-between gap-6 py-3.5">
       <div className="min-w-0">
-        <div className="text-[13px] text-fg">{label}</div>
-        {description && <div className="mt-0.5 text-[12px] text-subtle">{description}</div>}
+        <div className="text-app-13 text-fg">{label}</div>
+        {description && <div className="mt-0.5 text-app-12 text-subtle">{description}</div>}
       </div>
       <div ref={ref} className="relative shrink-0">
         <button
@@ -102,7 +105,7 @@ function Select({
           onClick={() => setOpen((v) => !v)}
           className="flex w-[140px] items-center justify-between rounded-md border border-border bg-surface px-3 py-1.5 text-left transition-colors hover:border-border-strong"
         >
-          <span className="text-[13px] text-fg">{selected?.label ?? value}</span>
+          <span className="text-app-13 text-fg">{selected?.label ?? value}</span>
           <ChevronDown
             className={`h-3 w-3 shrink-0 text-subtle transition-transform ${
               open ? "rotate-180" : ""
@@ -122,7 +125,7 @@ function Select({
                     onChange(opt.value);
                     setOpen(false);
                   }}
-                  className={`flex w-full px-3 py-2 text-left text-[13px] transition-colors ${
+                  className={`flex w-full px-3 py-2 text-left text-app-13 transition-colors ${
                     isActive
                       ? "bg-surface-hover text-fg"
                       : "text-muted hover:bg-surface-raised hover:text-fg"
@@ -135,6 +138,101 @@ function Select({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function IntegerInput({
+  value,
+  onChange,
+  label,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  label: string;
+}) {
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = () => {
+    const nextValue = parseFontSizeInput(draft);
+    if (nextValue === null) {
+      setDraft(String(value));
+      return;
+    }
+    onChange(nextValue);
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-6 py-3.5">
+      <label className="text-app-13 text-fg" htmlFor="font-size-input">
+        {label}
+      </label>
+      <div className="flex min-h-8 w-[148px] shrink-0 items-stretch overflow-hidden rounded-md border border-border bg-surface transition-colors focus-within:border-border-strong">
+        <button
+          type="button"
+          aria-label="Decrease font size"
+          title="Decrease font size"
+          disabled={value <= MIN_FONT_SIZE}
+          onClick={() => onChange(stepFontSize(value, -1))}
+          className="flex w-8 shrink-0 items-center justify-center border-r border-border text-subtle transition-colors hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <Minus className="h-3.5 w-3.5" />
+        </button>
+        <input
+          id="font-size-input"
+          className="min-w-0 flex-1 bg-transparent pl-2 text-center text-app-13 text-fg outline-none"
+          inputMode="numeric"
+          maxLength={2}
+          value={draft}
+          onBlur={commit}
+          onChange={(event) => {
+            const nextDraft = event.target.value;
+            if (nextDraft === "" || /^\d+$/.test(nextDraft)) {
+              const boundedDraft =
+                nextDraft !== "" && Number(nextDraft) > MAX_FONT_SIZE
+                  ? String(MAX_FONT_SIZE)
+                  : nextDraft;
+              setDraft(boundedDraft);
+              const nextValue = parseFontSizeInput(boundedDraft);
+              if (nextValue !== null) onChange(nextValue);
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+            if (event.key === "Escape") {
+              setDraft(String(value));
+              event.currentTarget.blur();
+            }
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              onChange(stepFontSize(value, -1));
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              onChange(stepFontSize(value, 1));
+            }
+          }}
+          aria-describedby="font-size-range"
+        />
+        <span className="flex items-center pr-2 text-app-12 text-subtle">px</span>
+        <button
+          type="button"
+          aria-label="Increase font size"
+          title="Increase font size"
+          disabled={value >= MAX_FONT_SIZE}
+          onClick={() => onChange(stepFontSize(value, 1))}
+          className="flex w-8 shrink-0 items-center justify-center border-l border-border text-subtle transition-colors hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <span className="sr-only" id="font-size-range">
+        Integer from {MIN_FONT_SIZE} to {MAX_FONT_SIZE}
+      </span>
     </div>
   );
 }
@@ -155,10 +253,10 @@ function Field({
   return (
     <div className="flex items-center justify-between gap-6 py-3.5">
       <div className="min-w-0">
-        <div className="text-[13px] text-fg">{label}</div>
-        {description && <div className="mt-0.5 text-[12px] text-subtle">{description}</div>}
+        <div className="text-app-13 text-fg">{label}</div>
+        {description && <div className="mt-0.5 text-app-12 text-subtle">{description}</div>}
       </div>
-      <div className="shrink-0 text-[13px] text-muted">{value}</div>
+      <div className="shrink-0 text-app-13 text-muted">{value}</div>
     </div>
   );
 }
@@ -188,9 +286,9 @@ function CheckForUpdatesRow() {
   return (
     <div className="flex items-center justify-between gap-6 py-3.5">
       <div className="min-w-0">
-        <div className="text-[13px] text-fg">Check for updates</div>
+        <div className="text-app-13 text-fg">Check for updates</div>
         {result && (
-          <div className="mt-0.5 text-[12px] text-subtle">
+          <div className="mt-0.5 text-app-12 text-subtle">
             {result.hasUpdate ? `Update available: ${result.latestVersion}` : "Up to date"}
           </div>
         )}
@@ -198,7 +296,7 @@ function CheckForUpdatesRow() {
       <button
         onClick={handleCheck}
         disabled={checking}
-        className="flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-30"
+        className="flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-app-12 text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-30"
       >
         {checking ? (
           <RefreshCw className="h-3 w-3 animate-spin" />
@@ -257,8 +355,8 @@ function RuntimeStatusPanel() {
               >
                 <RuntimeIcon name={runtime.name} size="sm" />
                 <div className="min-w-0 flex-1">
-                  <h3 className="truncate text-[13px] font-medium text-fg">{runtime.name}</h3>
-                  <div className="mt-0.5 truncate font-mono text-[11px] text-subtle">
+                  <h3 className="truncate text-app-13 font-medium text-fg">{runtime.name}</h3>
+                  <div className="mt-0.5 truncate font-mono text-app-11 text-subtle">
                     {runtime.version ?? "Unknown"}
                   </div>
                 </div>
@@ -267,7 +365,7 @@ function RuntimeStatusPanel() {
                     type="button"
                     onClick={() => void handleCheck(runtime)}
                     disabled={checking}
-                    className="flex h-8 items-center gap-1.5 rounded-md bg-fg px-3 text-[12px] text-bg transition-opacity hover:opacity-90 disabled:opacity-30"
+                    className="flex min-h-8 items-center gap-1.5 rounded-md bg-fg px-3 text-app-12 text-bg transition-opacity hover:opacity-90 disabled:opacity-30"
                   >
                     <RefreshCw className={`h-3 w-3 ${checking ? "animate-spin" : ""}`} />
                     Check
@@ -276,7 +374,7 @@ function RuntimeStatusPanel() {
                     <button
                       type="button"
                       onClick={() => window.open(KIMI_DOCS_URL, "_blank", "noopener,noreferrer")}
-                      className="flex h-8 items-center gap-1.5 rounded-md px-3 text-[12px] text-muted transition-colors hover:bg-surface-hover hover:text-fg"
+                      className="flex min-h-8 items-center gap-1.5 rounded-md px-3 text-app-12 text-muted transition-colors hover:bg-surface-hover hover:text-fg"
                     >
                       <ExternalLink className="h-3 w-3" />
                       Docs
@@ -388,8 +486,8 @@ function RtkStatsPanel() {
     <div className="mb-3 rounded-lg border border-border bg-surface px-4 py-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="text-[13px] font-medium text-fg">Token optimization</div>
-          <div className="mt-1 text-[12px] text-subtle">
+          <div className="text-app-13 font-medium text-fg">Token optimization</div>
+          <div className="mt-1 text-app-12 text-subtle">
             Route shell commands through RTK when it is available.
           </div>
         </div>
@@ -405,7 +503,7 @@ function RtkStatsPanel() {
         </button>
       </div>
 
-      <div className="mt-4 text-[12px] text-muted">
+      <div className="mt-4 text-app-12 text-muted">
         {loading
           ? stats
             ? "Refreshing RTK savings..."
@@ -424,7 +522,7 @@ function RtkStatsPanel() {
 
       <div className="mt-4 flex items-center justify-between gap-4 border-t border-border pt-3">
         <div
-          className={`min-w-0 text-[12px] ${
+          className={`min-w-0 text-app-12 ${
             agentsError ? "text-danger" : agentsMessage ? "text-success" : "text-subtle"
           }`}
         >
@@ -434,7 +532,7 @@ function RtkStatsPanel() {
           type="button"
           onClick={saveToAgents}
           disabled={agentsSaving}
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-30"
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-app-12 text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-30"
         >
           {agentsSaving ? (
             <RefreshCw className="h-3 w-3 animate-spin" />
@@ -547,11 +645,11 @@ function GlobalAgentInstructionsPanel() {
     <div className="py-3.5">
       <div className="mb-3 flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-[13px] text-fg">
+          <div className="flex items-center gap-2 text-app-13 text-fg">
             <FileText className="h-3.5 w-3.5 text-subtle" />
             Global agent instructions
           </div>
-          <div className="mt-1 break-all text-[12px] text-subtle">
+          <div className="mt-1 break-all text-app-12 text-subtle">
             {snapshot?.path ?? "~/.agents/AGENTS.md"}
           </div>
         </div>
@@ -560,7 +658,7 @@ function GlobalAgentInstructionsPanel() {
             type="button"
             onClick={openFile}
             disabled={!snapshot?.exists}
-            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-30"
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-app-12 text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-30"
           >
             <FolderOpen className="h-3 w-3" />
             Open
@@ -569,7 +667,7 @@ function GlobalAgentInstructionsPanel() {
             type="button"
             onClick={save}
             disabled={loading || saving || tooLarge}
-            className="flex items-center gap-1.5 rounded-md bg-fg px-3 py-1.5 text-[12px] text-bg transition-colors hover:opacity-90 disabled:opacity-30"
+            className="flex items-center gap-1.5 rounded-md bg-fg px-3 py-1.5 text-app-12 text-bg transition-colors hover:opacity-90 disabled:opacity-30"
           >
             {saving ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
             {saving ? "Saving..." : "Save"}
@@ -587,10 +685,10 @@ function GlobalAgentInstructionsPanel() {
         disabled={loading}
         spellCheck={false}
         placeholder="Add instructions for compatible coding agents..."
-        className="min-h-[240px] w-full resize-y rounded-lg border border-border bg-surface px-3 py-3 font-mono text-[13px] leading-5 text-fg outline-none transition-colors placeholder:text-subtle focus:border-border-strong disabled:opacity-50"
+        className="min-h-[240px] w-full resize-y rounded-lg border border-border bg-surface px-3 py-3 font-mono text-app-13 leading-5 text-fg outline-none transition-colors placeholder:text-subtle focus:border-border-strong disabled:opacity-50"
       />
 
-      <div className="mt-2 flex items-center justify-between gap-4 text-[12px]">
+      <div className="mt-2 flex items-center justify-between gap-4 text-app-12">
         <div className={error ? "text-danger" : message ? "text-success" : "text-subtle"}>
           {error ??
             message ??
@@ -639,7 +737,7 @@ export async function writeGlobalAgentInstructions(
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="border-t border-border">
-      <h2 className="py-4 text-[13px] font-medium text-muted">{title}</h2>
+      <h2 className="py-4 text-app-13 font-medium text-muted">{title}</h2>
       <div className="divide-y divide-border">{children}</div>
     </section>
   );
@@ -671,7 +769,7 @@ export function SettingsPage() {
         <div className="mx-auto w-full max-w-2xl px-8 py-8">
           <div className="mb-8 flex items-center gap-2">
             <Settings className="h-5 w-5 text-subtle" />
-            <h1 className="text-[18px] font-medium text-fg">{activeTab.label}</h1>
+            <h1 className="text-app-18 font-medium text-fg">{activeTab.label}</h1>
           </div>
 
           <div>
@@ -712,19 +810,10 @@ export function SettingsPage() {
                     { value: "system", label: "System" },
                   ]}
                 />
-                <Select
+                <IntegerInput
                   label="Font size"
-                  value={String(fontSize)}
-                  onChange={(value) =>
-                    updateSetting("fontSize", Number(value) as 12 | 13 | 14 | 15 | 16)
-                  }
-                  options={[
-                    { value: "12", label: "12px" },
-                    { value: "13", label: "13px" },
-                    { value: "14", label: "14px" },
-                    { value: "15", label: "15px" },
-                    { value: "16", label: "16px" },
-                  ]}
+                  value={fontSize}
+                  onChange={(value) => updateSetting("fontSize", value)}
                 />
               </Section>
             ) : null}

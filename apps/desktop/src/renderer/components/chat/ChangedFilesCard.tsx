@@ -24,7 +24,7 @@ export function ChangedFilesCard({ message }: { message: ChangedFilesMessage }) 
       <div className="flex items-center justify-between px-4 py-3">
         <button
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-2 text-[13px] text-muted transition hover:text-fg"
+          className="flex items-center gap-2 text-app-13 text-muted transition hover:text-fg"
         >
           {expanded ? (
             <ChevronDown className="h-3.5 w-3.5" />
@@ -38,10 +38,10 @@ export function ChangedFilesCard({ message }: { message: ChangedFilesMessage }) 
           <span className="text-danger">-{totalDeletions}</span>
         </button>
         <div className="flex items-center gap-2">
-          <button className="rounded-md px-2.5 py-1 text-[12px] text-muted transition hover:bg-surface-hover hover:text-fg">
+          <button className="rounded-md px-2.5 py-1 text-app-12 text-muted transition hover:bg-surface-hover hover:text-fg">
             Collapse all
           </button>
-          <button className="rounded-md px-2.5 py-1 text-[12px] text-muted transition hover:bg-surface-hover hover:text-fg">
+          <button className="rounded-md px-2.5 py-1 text-app-12 text-muted transition hover:bg-surface-hover hover:text-fg">
             View diff
           </button>
         </div>
@@ -57,10 +57,10 @@ export function ChangedFilesCard({ message }: { message: ChangedFilesMessage }) 
             >
               <div className="flex items-center gap-2">
                 <FileIcon file={file} />
-                <span className="text-[13px] text-fg">{file.path}</span>
+                <span className="text-app-13 text-fg">{file.path}</span>
               </div>
               {!file.isFolder && (
-                <div className="flex items-center gap-2 text-[12px]">
+                <div className="flex items-center gap-2 text-app-12">
                   <span className="text-success">+{file.additions}</span>
                   <span className="text-danger">-{file.deletions}</span>
                 </div>

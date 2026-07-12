@@ -1,8 +1,17 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { runtimeIds, type RuntimeId } from "../../shared/runtimes";
+import { getFontSizeCssVariables, normalizeFontSize } from "../lib/fontSize";
 
 export type Theme = "dark" | "light" | "system";
-export type FontSize = 12 | 13 | 14 | 15 | 16;
+export type FontSize = number;
 
 export type Settings = {
   autoDetectRuntimes: boolean;
@@ -15,7 +24,6 @@ export type Settings = {
 
 const STORAGE_KEY = "carrent:settings";
 const THEMES: Theme[] = ["dark", "light", "system"];
-const FONT_SIZES: FontSize[] = [12, 13, 14, 15, 16];
 const THEME_TRANSITION_CLASS = "theme-transitioning";
 const THEME_TRANSITION_MS = 260;
 
@@ -69,9 +77,7 @@ function loadSettings(): Settings {
     if (!raw) return defaultSettings;
     const parsed = JSON.parse(raw);
     const theme = THEMES.includes(parsed.theme) ? parsed.theme : defaultSettings.theme;
-    const fontSize = FONT_SIZES.includes(parsed.fontSize)
-      ? parsed.fontSize
-      : defaultSettings.fontSize;
+    const fontSize = normalizeFontSize(parsed.fontSize, defaultSettings.fontSize);
     return {
       autoDetectRuntimes: parsed.autoDetectRuntimes ?? defaultSettings.autoDetectRuntimes,
       rtkEnabled:
@@ -163,9 +169,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, [settings.theme]);
 
-  /* Apply font size to <html> */
-  useEffect(() => {
-    document.documentElement.style.fontSize = `${settings.fontSize}px`;
+  /* Apply font size without scaling rem-based layout dimensions. */
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    for (const [property, value] of Object.entries(getFontSizeCssVariables(settings.fontSize))) {
+      root.style.setProperty(property, value);
+    }
   }, [settings.fontSize]);
 
   const updateSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => {

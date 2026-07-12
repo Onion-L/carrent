@@ -25,7 +25,7 @@ export function SettingsTabsPane() {
       <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-2">
           <Settings className="h-4 w-4 shrink-0 text-subtle" />
-          <h2 className="min-w-0 truncate text-[13px] font-semibold text-fg">Settings</h2>
+          <h2 className="min-w-0 truncate text-app-13 font-semibold text-fg">Settings</h2>
         </div>
       </div>
 
@@ -49,8 +49,8 @@ export function SettingsTabsPane() {
               >
                 <Icon className="h-3.5 w-3.5 shrink-0 text-subtle" />
                 <span className="min-w-0">
-                  <span className="block truncate text-[13px] font-medium">{tab.label}</span>
-                  <span className="mt-0.5 block truncate text-[11px] text-subtle">
+                  <span className="block truncate text-app-13 font-medium">{tab.label}</span>
+                  <span className="mt-0.5 block truncate text-app-11 text-subtle">
                     {tab.description}
                   </span>
                 </span>

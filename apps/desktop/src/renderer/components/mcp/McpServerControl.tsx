@@ -57,7 +57,7 @@ export function McpServerControl() {
         ref={buttonRef}
         onClick={() => setOpen((prev) => !prev)}
         title="Local MCP Server"
-        className={`flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] transition active:scale-95 ${
+        className={`flex h-7 items-center gap-1.5 rounded-md px-2 text-app-12 transition active:scale-95 ${
           status.running
             ? "text-success hover:bg-success/15"
             : "text-subtle hover:bg-surface-hover hover:text-fg"
@@ -72,7 +72,7 @@ export function McpServerControl() {
           className="absolute right-0 top-full z-20 mt-2 w-64 rounded-lg border border-border-strong bg-surface p-3 shadow-xl"
         >
           <div className="mb-3 flex items-center justify-between border-b border-border pb-2">
-            <span className="text-[12px] font-medium text-muted">Server</span>
+            <span className="text-app-12 font-medium text-muted">Server</span>
             <button
               onClick={() => setOpen(false)}
               className="flex h-5 w-5 items-center justify-center rounded text-subtle transition hover:bg-surface-hover hover:text-fg"
@@ -86,25 +86,25 @@ export function McpServerControl() {
             <div className="flex items-center gap-2">
               <span className={`h-2 w-2 rounded-full ${statusTone}`} />
               <div>
-                <div className="text-[13px] font-medium text-fg">Carrent Local Server</div>
-                <div className="text-[11px] text-subtle">{statusText}</div>
+                <div className="text-app-13 font-medium text-fg">Carrent Local Server</div>
+                <div className="text-app-11 text-subtle">{statusText}</div>
               </div>
             </div>
             {status.running && <Check className="h-4 w-4 text-success" />}
           </div>
 
-          <div className="mt-3 rounded-md bg-surface-raised px-2 py-1.5 text-[11px] text-subtle">
+          <div className="mt-3 rounded-md bg-surface-raised px-2 py-1.5 text-app-11 text-subtle">
             {status.enabled
               ? "Skills can use Carrent's local MCP capabilities."
               : "Skills are disabled while this server is off."}
           </div>
 
-          {status.error && <div className="mt-3 text-[11px] text-danger">{status.error}</div>}
+          {status.error && <div className="mt-3 text-app-11 text-danger">{status.error}</div>}
 
           <button
             onClick={handleToggle}
             disabled={loading}
-            className={`mt-3 flex w-full items-center justify-center rounded-md px-3 py-1.5 text-[12px] font-medium transition active:scale-95 disabled:opacity-50 ${
+            className={`mt-3 flex w-full items-center justify-center rounded-md px-3 py-1.5 text-app-12 font-medium transition active:scale-95 disabled:opacity-50 ${
               status.enabled
                 ? "bg-surface-raised text-fg hover:bg-surface-hover"
                 : "bg-fg text-bg hover:bg-fg/90"

@@ -243,9 +243,9 @@ export function ImageAttachmentLightbox({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="min-w-0">
-          <div className="truncate text-[14px] font-medium text-white">{currentItem.name}</div>
+          <div className="truncate text-app-14 font-medium text-white">{currentItem.name}</div>
           {items.length > 1 && (
-            <div className="text-[12px] text-white/70">
+            <div className="text-app-12 text-white/70">
               {index + 1} / {items.length}
             </div>
           )}
@@ -316,9 +316,9 @@ export function ImageAttachmentLightbox({
             onClick={(event) => event.stopPropagation()}
           />
         ) : isCurrentFailed ? (
-          <div className="text-[14px] text-white/70">Image unavailable</div>
+          <div className="text-app-14 text-white/70">Image unavailable</div>
         ) : (
-          <div className="text-[14px] text-white/70">Loading image...</div>
+          <div className="text-app-14 text-white/70">Loading image...</div>
         )}
 
         {items.length > 1 && index > 0 && (

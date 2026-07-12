@@ -106,7 +106,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
             onClick={() => setIsProjectDialogOpen(true)}
             aria-label="New project"
             title="New project"
-            className={`flex h-12 w-full items-center justify-center rounded-lg bg-bg text-[13px] font-medium text-fg shadow-[inset_0_0_0_1px_rgb(var(--color-border)/0.9)] transition hover:bg-surface-raised active:scale-[0.99] ${
+            className={`flex min-h-12 w-full items-center justify-center rounded-lg bg-bg text-app-13 font-medium text-fg shadow-[inset_0_0_0_1px_rgb(var(--color-border)/0.9)] transition hover:bg-surface-raised active:scale-[0.99] ${
               collapsed ? "px-0" : "gap-2 px-3"
             }`}
           >
@@ -119,7 +119,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
           {projects.length === 0 ? (
             <button
               onClick={handleNewProject}
-              className="flex w-full items-center justify-center rounded-lg border border-dashed border-border px-2 py-5 text-[12px] text-subtle transition hover:border-border-strong hover:text-muted"
+              className="flex w-full items-center justify-center rounded-lg border border-dashed border-border px-2 py-5 text-app-12 text-subtle transition hover:border-border-strong hover:text-muted"
             >
               {collapsed ? <Plus className="h-4 w-4" /> : "Add project"}
             </button>
@@ -166,7 +166,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                             }
                           }}
                           onBlur={() => commitProjectRename(project.id)}
-                          className="min-w-0 flex-1 bg-transparent text-[13px] text-fg outline-none"
+                          className="min-w-0 flex-1 bg-transparent text-app-13 text-fg outline-none"
                         />
                       ) : (
                         <button
@@ -174,7 +174,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                           onClick={() => navigate(buildProjectPath(project.id))}
                           className={
                             collapsed
-                              ? `flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-bg text-[13px] font-semibold shadow-[inset_0_0_0_1px_rgb(var(--color-border)/0.9)] transition ${
+                              ? `flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-bg text-app-13 font-semibold leading-none shadow-[inset_0_0_0_1px_rgb(var(--color-border)/0.9)] transition ${
                                   isActive
                                     ? "text-fg ring-1 ring-fg/80"
                                     : "text-muted ring-0 hover:text-fg hover:ring-1 hover:ring-fg/50"
@@ -187,7 +187,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                           ) : (
                             <>
                               <Folder className="h-4 w-4 shrink-0 text-subtle" />
-                              <span className="min-w-0 truncate text-[13px] font-medium">
+                              <span className="min-w-0 truncate text-app-13 font-medium">
                                 {project.name}
                               </span>
                             </>
@@ -221,7 +221,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                             void window.carrent.shell.openPath(project.path);
                             setOpenProjectMenuId(null);
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-fg transition hover:bg-surface-hover"
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover"
                         >
                           <ExternalLink className="h-3 w-3" />
                           Open in Finder
@@ -233,7 +233,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                             setEditingProjectId(project.id);
                             setEditingProjectName(project.name);
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-fg transition hover:bg-surface-hover"
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover"
                         >
                           <Pencil className="h-3 w-3" />
                           Rename project
@@ -245,7 +245,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                             setOpenProjectMenuId(null);
                             showToast("Path copied to clipboard", "success");
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-fg transition hover:bg-surface-hover"
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover"
                         >
                           <Link className="h-3 w-3" />
                           Copy location
@@ -271,7 +271,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                             }
                             setOpenProjectMenuId(null);
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-danger transition hover:bg-surface-hover"
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-danger transition hover:bg-surface-hover"
                         >
                           <Trash2 className="h-3 w-3 text-danger" />
                           Delete
@@ -290,7 +290,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
             to="/settings"
             title="Settings"
             className={({ isActive }) =>
-              `flex h-8 items-center rounded-lg px-2 text-[13px] transition ${
+              `flex min-h-8 items-center rounded-lg px-2 text-app-13 transition ${
                 collapsed ? "justify-center" : "gap-2"
               } ${
                 isActive
@@ -318,7 +318,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <h2 className="text-[13px] font-semibold text-fg">New Project</h2>
+              <h2 className="text-app-13 font-semibold text-fg">New Project</h2>
               <button
                 onClick={() => setIsProjectDialogOpen(false)}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
@@ -337,10 +337,10 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                   <FilePlus className="h-5 w-5" />
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-[13px] font-semibold text-fg">
+                  <span className="block text-app-13 font-semibold text-fg">
                     Create a new project
                   </span>
-                  <span className="mt-0.5 block text-[12px] text-subtle">
+                  <span className="mt-0.5 block text-app-12 text-subtle">
                     Choose a workspace folder
                   </span>
                 </span>
@@ -354,10 +354,10 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                   <FolderOpen className="h-5 w-5" />
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-[13px] font-semibold text-fg">
+                  <span className="block text-app-13 font-semibold text-fg">
                     Import existing project
                   </span>
-                  <span className="mt-0.5 block text-[12px] text-subtle">Open a local folder</span>
+                  <span className="mt-0.5 block text-app-12 text-subtle">Open a local folder</span>
                 </span>
               </button>
             </div>

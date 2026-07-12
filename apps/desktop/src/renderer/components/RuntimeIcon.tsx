@@ -62,7 +62,7 @@ export function RuntimeIcon({
   }
   return (
     <div
-      className={`flex shrink-0 items-center justify-center bg-surface-raised text-[15px] font-bold text-fg ${sizeClasses[size]}`}
+      className={`flex shrink-0 items-center justify-center bg-surface-raised text-app-15 font-bold text-fg ${sizeClasses[size]}`}
     >
       {name.charAt(0).toUpperCase()}
     </div>

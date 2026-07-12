@@ -11,3 +11,4 @@ coverage
 .superpowers/
 .worktrees/
 docs/superpowers
+.playwright-cli

@@ -72,7 +72,7 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
 
   return (
     <div
-      className={`pointer-events-auto flex w-[calc(100vw-2rem)] max-w-[34rem] items-start gap-3 rounded-lg border border-border-strong bg-surface-raised px-3.5 py-3 text-[13px] leading-5 text-fg shadow-xl transition-all duration-300 ease-out ${
+      className={`pointer-events-auto flex w-[calc(100vw-2rem)] max-w-[34rem] items-start gap-3 rounded-lg border border-border-strong bg-surface-raised px-3.5 py-3 text-app-13 leading-5 text-fg shadow-xl transition-all duration-300 ease-out ${
         visible && !exiting
           ? "opacity-100 translate-y-0 scale-100"
           : "opacity-0 -translate-y-3 scale-95"

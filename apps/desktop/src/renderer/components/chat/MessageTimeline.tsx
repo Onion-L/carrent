@@ -95,7 +95,7 @@ function SkillBadge({ name, path }: { name: string; path: string }) {
 
 function UserMessageContent({ content }: { content: string }) {
   return (
-    <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-user-bubble-fg">
+    <p className="whitespace-pre-wrap text-app-14 leading-relaxed text-user-bubble-fg">
       {parseSkillReferenceSegments(content).map((segment, index) => {
         if (segment.type === "text") {
           return <span key={`${index}-text`}>{segment.content}</span>;
@@ -149,7 +149,7 @@ function StoredAttachmentThumbnail({
 
   if (failed || !url) {
     return (
-      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border-strong bg-surface text-[11px] text-muted">
+      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border-strong bg-surface text-app-11 text-muted">
         {failed ? "Missing" : "..."}
       </div>
     );
@@ -243,7 +243,7 @@ function UserMessage({
                   handleSubmitEdit();
                 }
               }}
-              className="min-h-16 min-w-[14rem] flex-1 resize-none bg-transparent text-[15px] leading-6 text-user-bubble-fg outline-none placeholder:text-subtle"
+              className="min-h-16 min-w-[14rem] flex-1 resize-none bg-transparent text-app-15 leading-6 text-user-bubble-fg outline-none placeholder:text-subtle"
               autoFocus
             />
           </div>
@@ -262,7 +262,7 @@ function UserMessage({
             <button
               type="button"
               onClick={onCancelEdit}
-              className="rounded-full border border-white/10 px-4 py-2 text-[15px] font-semibold text-user-bubble-fg transition hover:bg-white/5"
+              className="rounded-full border border-white/10 px-4 py-2 text-app-15 font-semibold text-user-bubble-fg transition hover:bg-white/5"
             >
               取消
             </button>
@@ -270,7 +270,7 @@ function UserMessage({
               type="button"
               onClick={handleSubmitEdit}
               disabled={!canSubmitEdit}
-              className="rounded-full bg-white px-4 py-2 text-[15px] font-semibold text-black transition hover:bg-white/90 disabled:opacity-40"
+              className="rounded-full bg-white px-4 py-2 text-app-15 font-semibold text-black transition hover:bg-white/90 disabled:opacity-40"
             >
               发送
             </button>
@@ -318,7 +318,7 @@ function UserMessage({
       </div>
       {hovered && (
         <div className="absolute -bottom-6 right-0 flex items-center gap-3 px-1">
-          <span className="text-[12px] text-subtle">{timestamp}</span>
+          <span className="text-app-12 text-subtle">{timestamp}</span>
           {onEdit ? (
             <button
               type="button"
@@ -381,7 +381,7 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
           {"Thinking".split("").map((char, i) => (
             <span
               key={i}
-              className="inline-block animate-pulse text-[13px] text-subtle"
+              className="inline-block animate-pulse text-app-13 text-subtle"
               style={{ animationDelay: `${i * 120}ms` }}
             >
               {char}
@@ -408,7 +408,7 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
         <MarkdownContent>{content}</MarkdownContent>
       )}
       <div className="flex items-center gap-2 opacity-70">
-        <span className="text-[11px] text-subtle">{timestamp}</span>
+        <span className="text-app-11 text-subtle">{timestamp}</span>
         {hovered && (
           <button
             onClick={handleCopy}
@@ -452,7 +452,7 @@ function ChangedFilesMessageItem({
     >
       <ChangedFilesCard message={message} />
       <div className="flex items-center gap-2">
-        <span className="text-[11px] text-subtle">{timestamp}</span>
+        <span className="text-app-11 text-subtle">{timestamp}</span>
         {hovered && (
           <button
             onClick={handleCopy}
@@ -469,7 +469,7 @@ function ChangedFilesMessageItem({
 
 export function EmptyThreadPrompt() {
   return (
-    <p className="text-center text-[32px] font-semibold leading-tight text-fg sm:text-[36px]">
+    <p className="text-center text-app-32 font-semibold leading-tight text-fg sm:text-app-36">
       What should we build?
     </p>
   );

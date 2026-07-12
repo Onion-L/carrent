@@ -127,7 +127,7 @@ function ReasoningStepItem({ step }: { step: ReasoningPart }) {
       <StatusIcon
         className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta.className} ${isRunning ? "animate-spin" : ""}`}
       />
-      <pre className="flex-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-muted">
+      <pre className="flex-1 whitespace-pre-wrap break-words text-app-12 leading-5 text-muted">
         {step.content}
       </pre>
     </div>
@@ -155,7 +155,7 @@ function ShellStepItem({ step }: { step: ShellPart }) {
           className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta.className} ${isRunning ? "animate-spin" : ""}`}
         />
         <pre
-          className={`flex-1 whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-muted ${expanded ? "" : "line-clamp-1"}`}
+          className={`flex-1 whitespace-pre-wrap break-words font-mono text-app-12 leading-5 text-muted ${expanded ? "" : "line-clamp-1"}`}
         >
           <span className="text-muted">$ </span>
           {step.command}
@@ -169,11 +169,11 @@ function ShellStepItem({ step }: { step: ShellPart }) {
       {expanded && (
         <div className="pl-6">
           {step.output ? (
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-code-bg p-3 font-mono text-[12px] leading-relaxed text-muted">
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-code-bg p-3 font-mono text-app-12 leading-relaxed text-muted">
               {step.output}
             </pre>
           ) : isRunning ? (
-            <div className="text-[12px] text-subtle">Running...</div>
+            <div className="text-app-12 text-subtle">Running...</div>
           ) : null}
         </div>
       )}
@@ -242,7 +242,7 @@ export function AgentActivityBlock({
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="group flex w-full items-center gap-2.5 py-1 text-left text-[13px] text-subtle transition hover:text-muted"
+        className="group flex w-full items-center gap-2.5 py-1 text-left text-app-13 text-subtle transition hover:text-muted"
         aria-expanded={expanded}
       >
         <ChevronRight

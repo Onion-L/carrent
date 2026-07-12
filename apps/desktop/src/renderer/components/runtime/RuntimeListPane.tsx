@@ -58,7 +58,7 @@ export function RuntimeListPane() {
     <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-bg">
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/70 px-4">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">Runtimes</h2>
-        <span className="text-[11px] text-subtle">
+        <span className="text-app-11 text-subtle">
           {enabledCount}/{sortedRuntimes.length}
         </span>
       </div>
@@ -93,8 +93,8 @@ export function RuntimeListPane() {
                   </div>
 
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-medium">{runtime.name}</div>
-                    <div className="mt-0.5 text-[11px] text-muted">
+                    <div className="truncate text-app-13 font-medium">{runtime.name}</div>
+                    <div className="mt-0.5 text-app-11 text-muted">
                       {runtime.availability === "detected"
                         ? runtime.enabled
                           ? "Ready"

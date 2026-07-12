@@ -82,11 +82,11 @@ export function ThreadHistoryPane() {
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-bg">
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border/70 px-3">
-        <h2 className="min-w-0 truncate text-[13px] font-semibold text-fg">Sessions</h2>
+        <h2 className="min-w-0 truncate text-app-13 font-semibold text-fg">Sessions</h2>
         <button
           onClick={createThreadAndOpen}
           disabled={!selectedProject}
-          className="flex h-8 shrink-0 items-center justify-center gap-2 rounded-lg px-3 text-[13px] font-medium text-muted transition hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex min-h-8 shrink-0 items-center justify-center gap-2 rounded-lg px-3 text-app-13 font-medium text-muted transition hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Plus className="h-3.5 w-3.5" />
           New
@@ -95,11 +95,11 @@ export function ThreadHistoryPane() {
 
       <div className="min-h-0 flex-1 overflow-auto px-2 pb-3 pt-3">
         {!selectedProject ? (
-          <div className="px-4 py-8 text-center text-[13px] text-subtle">Add a project first</div>
+          <div className="px-4 py-8 text-center text-app-13 text-subtle">Add a project first</div>
         ) : projectThreads.length === 0 ? (
           <div className="px-4 py-8 text-center">
-            <p className="text-[13px] text-muted">No threads yet</p>
-            <p className="mt-1 text-[12px] text-subtle">Start a new thread in this project</p>
+            <p className="text-app-13 text-muted">No threads yet</p>
+            <p className="mt-1 text-app-12 text-subtle">Start a new thread in this project</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -135,11 +135,11 @@ export function ThreadHistoryPane() {
                           ) : (
                             <span className="h-2 w-2 shrink-0 rounded-full border border-subtle/70" />
                           )}
-                          <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                          <span className="min-w-0 flex-1 truncate text-app-13 font-medium">
                             {thread.title}
                           </span>
                           {!showActions && (
-                            <span className="shrink-0 text-[11px] text-subtle">
+                            <span className="shrink-0 text-app-11 text-subtle">
                               {formatRelativeTime(thread.updatedAt)}
                             </span>
                           )}

@@ -1,34 +1,33 @@
-/**
- * Accepts ISO timestamp strings (like "2026-04-26T10:30:00.000Z")
- * and returns a relative time label: "xs ago", "xm ago", "xh ago", "xd ago".
- * Falls back to the original string when the value does not parse as an ISO date.
- */
-export function formatRelativeTime(updatedAt: string): string {
-  const ms = Date.parse(updatedAt);
-  if (Number.isNaN(ms)) {
-    return updatedAt;
+export function formatRelativeTime(timestamp: number, now = Date.now()): string {
+  if (!Number.isFinite(timestamp)) {
+    return "";
   }
 
-  const diff = Date.now() - ms;
-  if (diff < 0) {
+  const diff = now - timestamp;
+  if (diff < 60_000) {
     return "now";
   }
 
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) {
-    return `${seconds}s ago`;
-  }
-
-  const minutes = Math.floor(seconds / 60);
+  const minutes = Math.floor(diff / 60_000);
   if (minutes < 60) {
-    return `${minutes}m ago`;
+    return `${minutes}m`;
   }
 
   const hours = Math.floor(minutes / 60);
   if (hours < 24) {
-    return `${hours}h ago`;
+    return `${hours}h`;
   }
 
   const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  return `${days}d`;
+}
+
+export function formatAbsoluteTime(timestamp: number): string {
+  if (!Number.isFinite(timestamp)) {
+    return "";
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(timestamp));
 }

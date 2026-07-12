@@ -66,8 +66,8 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
         >
           <div className="no-drag flex h-full items-center">
             <button
-              aria-label={isSecondaryPaneCollapsed ? "Expand sessions" : "Collapse sessions"}
-              title={isSecondaryPaneCollapsed ? "Expand sessions" : "Collapse sessions"}
+              aria-label={isSecondaryPaneCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={isSecondaryPaneCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               onClick={toggleSecondaryPane}
               className="flex h-7 w-7 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
             >

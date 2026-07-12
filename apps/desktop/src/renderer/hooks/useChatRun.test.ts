@@ -188,7 +188,10 @@ describe("createChatRunCoordinator", () => {
 
   it("tracks pending permission requests by thread", () => {
     const coordinator = createChatRunCoordinator();
-    coordinator.beginRequest("req-1", "thread-1", {});
+    const received: string[] = [];
+    coordinator.beginRequest("req-1", "thread-1", {
+      onPermissionRequested: (permission) => received.push(permission.id),
+    });
     coordinator.attachRunId("req-1", "run-1");
 
     coordinator.handleEvent({
@@ -211,6 +214,7 @@ describe("createChatRunCoordinator", () => {
     const snapshot = coordinator.getSnapshot();
     expect(snapshot.pendingPermissions).toHaveLength(1);
     expect(snapshot.pendingPermissions[0].id).toBe("perm-1");
+    expect(received).toEqual(["perm-1"]);
   });
 
   it("removes permission requests when resolved", () => {

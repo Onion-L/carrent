@@ -12,6 +12,7 @@ export type ChatRunCallbacks = {
   onDelta?: (text: string) => void;
   onReasoning?: (reasoning: ChatReasoningEventPayload) => void;
   onShell?: (shell: ChatShellEventPayload) => void;
+  onPermissionRequested?: (permission: ChatPermissionRequest) => void;
   onComplete?: (text: string) => void;
   onError?: (error: string) => void;
   onStop?: () => void;
@@ -236,6 +237,7 @@ export function createChatRunCoordinator() {
 
       if (event.type === "permission-requested") {
         pendingPermissionById.set(event.permission.id, event.permission);
+        run.callbacks.onPermissionRequested?.(event.permission);
         updateSnapshot();
         emit();
         return;

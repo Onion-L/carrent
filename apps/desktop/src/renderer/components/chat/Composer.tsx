@@ -589,6 +589,7 @@ export function Composer(props: ComposerProps) {
     updateMessageAndPruneAfter,
     updateMessageRunStatus,
     updateMessageParts,
+    markThreadActivity,
     upsertChat,
     upsertThread,
     promoteDraftThread,
@@ -1288,6 +1289,7 @@ export function Composer(props: ComposerProps) {
     } else {
       appendLocalMessage("user", messageText, attachmentMetadata);
     }
+    markThreadActivity(threadId);
 
     const assistantMsg = appendLocalMessage("assistant", "", undefined, "running");
 
@@ -1361,11 +1363,15 @@ export function Composer(props: ComposerProps) {
           flushPendingTypewriterText();
           updateLocalMessageShellPart(assistantMsg.id, shell);
         },
+        onPermissionRequested: (permission) => {
+          markThreadActivity(threadId, Date.parse(permission.createdAt));
+        },
         onComplete: (text) => {
           if (!receivedTextRef.current || text.startsWith(receivedTextRef.current)) {
             receivedTextRef.current = text;
           }
           updateMessageRunStatus(assistantMsg.id, "completed");
+          markThreadActivity(threadId);
           startTypewriter(assistantMsg.id);
         },
         onError: (error) => {
@@ -1377,6 +1383,7 @@ export function Composer(props: ComposerProps) {
             `${hasAnswerText ? "\n\n" : ""}Error: ${error}`,
           );
           updateMessageRunStatus(assistantMsg.id, "failed");
+          markThreadActivity(threadId);
           activeAssistantMessageIdRef.current = null;
           flushTypewriterRef.current = null;
         },
@@ -1386,6 +1393,7 @@ export function Composer(props: ComposerProps) {
           flushPendingTypewriterText();
           updateLocalMessageTextPart(assistantMsg.id, `${hasAnswerText ? "\n\n" : ""}[Stopped]`);
           updateMessageRunStatus(assistantMsg.id, "cancelled");
+          markThreadActivity(threadId);
           activeAssistantMessageIdRef.current = null;
           flushTypewriterRef.current = null;
         },

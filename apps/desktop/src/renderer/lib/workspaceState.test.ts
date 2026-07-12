@@ -11,6 +11,8 @@ import {
   findCurrentProject,
   findCurrentThread,
   findProjectIdForThread,
+  markThreadActivityInProjects,
+  renameThreadInProjects,
   resolveChatThreadRouteData,
   setChatThreadRuntimeId,
   setChatThreadRuntimeMode,
@@ -65,6 +67,44 @@ describe("workspaceState", () => {
 
     expect(findProjectIdForThread(projects, "thread-b")).toBe("project-b");
     expect(findProjectIdForThread(projects, "thread-a")).toBe("project-a");
+  });
+
+  it("renames a thread without changing its activity time", () => {
+    const thread = makeThread({
+      id: "thread-a",
+      title: "Old title",
+      lastActivityAt: "2026-01-01T00:00:00Z",
+    });
+    const result = renameThreadInProjects(
+      [makeProject({ id: "project-a" }, [thread])],
+      "project-a",
+      "thread-a",
+      "  New title  ",
+    );
+
+    expect(result.renamed).toBe(true);
+    expect(result.projects[0].threads[0]).toEqual({ ...thread, title: "New title" });
+  });
+
+  it("rejects an empty thread title", () => {
+    const projects = [makeProject({ id: "project-a" }, [makeThread({ id: "thread-a" })])];
+    expect(renameThreadInProjects(projects, "project-a", "thread-a", "  ")).toEqual({
+      projects,
+      renamed: false,
+    });
+  });
+
+  it("marks thread activity without reordering project threads", () => {
+    const projects = [
+      makeProject({ id: "project-a" }, [
+        makeThread({ id: "thread-a" }),
+        makeThread({ id: "thread-b" }),
+      ]),
+    ];
+    const result = markThreadActivityInProjects(projects, "thread-b", "2026-05-01T00:00:00Z");
+
+    expect(result[0].threads.map((thread) => thread.id)).toEqual(["thread-a", "thread-b"]);
+    expect(result[0].threads[1].lastActivityAt).toBe("2026-05-01T00:00:00Z");
   });
 
   it("creates a new thread at the top of the target project", () => {

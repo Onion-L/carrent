@@ -8,6 +8,7 @@ export type ThreadRecord = {
   id: string;
   title: string;
   updatedAt: string;
+  lastActivityAt?: string;
   runtimeId?: RuntimeId;
   runtimeModelId?: string;
   runtimeMode?: RuntimeMode;

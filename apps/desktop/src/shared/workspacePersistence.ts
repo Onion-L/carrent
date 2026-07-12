@@ -76,16 +76,25 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
 
   const snapshot = value as WorkspaceSnapshot;
   function normalizeThreadRecord(
-    thread: ThreadRecord & { runtimeId?: unknown; runtimeMode?: unknown; runtimeModelId?: unknown },
+    thread: ThreadRecord & {
+      runtimeId?: unknown;
+      runtimeMode?: unknown;
+      runtimeModelId?: unknown;
+      lastActivityAt?: unknown;
+    },
   ): ThreadRecord {
     const runtimeModelId = normalizeOptionalString(thread.runtimeModelId);
-    const { runtimeModelId: _runtimeModelId, ...rest } = thread;
+    const lastActivityAt = normalizeOptionalString(thread.lastActivityAt);
+    const validLastActivityAt =
+      lastActivityAt && !Number.isNaN(Date.parse(lastActivityAt)) ? lastActivityAt : undefined;
+    const { runtimeModelId: _runtimeModelId, lastActivityAt: _lastActivityAt, ...rest } = thread;
 
     return {
       ...(rest as Omit<ThreadRecord, "runtimeId" | "runtimeMode" | "runtimeModelId">),
       runtimeId: normalizeRuntimeId(thread.runtimeId),
       runtimeMode: normalizeRuntimeMode(thread.runtimeMode),
       ...(runtimeModelId ? { runtimeModelId } : {}),
+      ...(validLastActivityAt ? { lastActivityAt: validLastActivityAt } : {}),
     };
   }
 

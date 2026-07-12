@@ -21,12 +21,16 @@ One execution of a coding agent in a thread, beginning with a user request and e
 _Avoid_: Thread, runtime session, message
 
 **Thread Status**:
-The single attention state shown for a thread. Waiting for approval takes precedence over running, which takes precedence over failed; a failed result remains visible until the thread's next run begins, while an idle thread without a failure has no status.
+The single attention state shown for a thread. Waiting for approval takes precedence over running, which takes precedence over failed; waiting and running exist only while a run is live, and an interrupted run without an explicit failure returns to idle. A failed result remains visible until the thread's next run begins, while an idle thread without a failure has no status.
 _Avoid_: Runtime status, message status
 
 **Thread Activity Time**:
 The time of a thread's most recent meaningful interaction: a submitted user message, a run ending, or an approval request. Opening, renaming, pinning, and individual streaming updates are not thread activity.
 _Avoid_: Updated time, viewed time, modified time
+
+**Approval Request**:
+A request from a run for the user's decision before a controlled action can proceed. Permission is reserved for runtime protocol and implementation terminology.
+_Avoid_: Permission request, confirmation
 
 **Agent GUI**:
 A graphical workspace for driving coding agents, managing project-scoped threads, and controlling how agent runs execute.

@@ -17,7 +17,10 @@ import {
   findCurrentChatThread,
   findCurrentProject,
   findCurrentThread,
+  markChatThreadActivity,
+  markThreadActivityInProjects,
   renameProjectInProjects,
+  renameThreadInProjects,
   resolveChatThreadRouteData,
   setChatThreadRuntimeMode,
   setChatThreadRuntimeModelId,
@@ -63,6 +66,8 @@ export type WorkspaceContextValue = {
   createProject: (folderPath: string) => ProjectRecord | null;
   removeProject: (projectId: string) => Promise<void>;
   renameProject: (projectId: string, newName: string) => boolean;
+  renameThread: (projectId: string, threadId: string, newTitle: string) => boolean;
+  markThreadActivity: (threadId: string, at?: number) => void;
   createThread: (
     projectId: string,
     title: string,
@@ -137,6 +142,8 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   createProject: () => null,
   removeProject: async () => {},
   renameProject: () => false,
+  renameThread: () => false,
+  markThreadActivity: () => {},
   createThread: () => null,
   upsertThread: () => {},
   promoteDraftThread: () => {},
@@ -451,6 +458,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return result.renamed;
   };
 
+  const renameThread = (projectId: string, threadId: string, newTitle: string) => {
+    const title = newTitle.trim();
+    if (!title) {
+      return false;
+    }
+    setProjects((prev) => renameThreadInProjects(prev, projectId, threadId, title).projects);
+    return true;
+  };
+
+  const markThreadActivity = (threadId: string, at = Date.now()) => {
+    if (!Number.isFinite(at)) {
+      return;
+    }
+    const lastActivityAt = new Date(at).toISOString();
+    setProjects((prev) => markThreadActivityInProjects(prev, threadId, lastActivityAt));
+    setChats((prev) => markChatThreadActivity(prev, threadId, lastActivityAt));
+  };
+
   const createThread = (
     projectId: string,
     title: string,
@@ -503,7 +528,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   };
 
   const toggleThreadPin = (projectId: string, threadId: string) => {
-    setProjects(toggleThreadPinInProjects(projects, projectId, threadId));
+    setProjects((prev) => toggleThreadPinInProjects(prev, projectId, threadId));
   };
 
   const createChat = (title: string, runtimeId?: RuntimeId, runtimeModelId?: string) => {
@@ -658,6 +683,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         createProject,
         removeProject,
         renameProject,
+        renameThread,
+        markThreadActivity,
         createThread,
         upsertThread,
         promoteDraftThread,

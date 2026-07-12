@@ -32,6 +32,66 @@ export function renameProjectInProjects(
   };
 }
 
+export function renameThreadInProjects(
+  projects: ProjectRecord[],
+  projectId: string,
+  threadId: string,
+  newTitle: string,
+) {
+  const title = newTitle.trim();
+  if (!title) return { projects, renamed: false as boolean };
+
+  let renamed = false;
+  const nextProjects = projects.map((project) => {
+    if (project.id !== projectId) {
+      return project;
+    }
+
+    return {
+      ...project,
+      threads: project.threads.map((thread) => {
+        if (thread.id !== threadId) {
+          return thread;
+        }
+        renamed = true;
+        return { ...thread, title };
+      }),
+    };
+  });
+
+  return { projects: renamed ? nextProjects : projects, renamed };
+}
+
+export function markThreadActivityInProjects(
+  projects: ProjectRecord[],
+  threadId: string,
+  lastActivityAt: string,
+) {
+  return projects.map((project) => {
+    if (!project.threads.some((thread) => thread.id === threadId)) {
+      return project;
+    }
+
+    return {
+      ...project,
+      threads: project.threads.map((thread) =>
+        thread.id === threadId ? { ...thread, lastActivityAt } : thread,
+      ),
+    };
+  });
+}
+
+export function markChatThreadActivity(
+  chats: ThreadRecord[],
+  threadId: string,
+  lastActivityAt: string,
+) {
+  if (!chats.some((thread) => thread.id === threadId)) {
+    return chats;
+  }
+  return chats.map((thread) => (thread.id === threadId ? { ...thread, lastActivityAt } : thread));
+}
+
 export function findCurrentThread(projects: ProjectRecord[], activeThreadId: string | null) {
   if (!activeThreadId) {
     return null;

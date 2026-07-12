@@ -88,6 +88,39 @@ describe("normalizeWorkspaceSnapshot", () => {
     expect(snapshot?.projects[0].threads[0].runtimeMode).toBe("approval-required");
   });
 
+  it("preserves valid thread activity timestamps and drops invalid values", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [
+        {
+          id: "p1",
+          name: "P1",
+          path: "/tmp/p1",
+          threads: [
+            {
+              id: "valid",
+              title: "Valid",
+              updatedAt: "now",
+              lastActivityAt: "2026-05-01T00:00:00Z",
+            },
+            {
+              id: "invalid",
+              title: "Invalid",
+              updatedAt: "now",
+              lastActivityAt: "recently",
+            },
+          ],
+        },
+      ],
+      chats: [],
+      messages: [],
+      activeThreadId: null,
+    });
+
+    expect(snapshot?.projects[0].threads[0].lastActivityAt).toBe("2026-05-01T00:00:00Z");
+    expect(snapshot?.projects[0].threads[1].lastActivityAt).toBeUndefined();
+  });
+
   it("normalizes legacy chats without runtime fields", () => {
     const snapshot = normalizeWorkspaceSnapshot({
       version: 1,

@@ -1,0 +1,616 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-12T05:44:14Z",
+  "title": "Design System: Carrent Desktop",
+  "extensions": {
+    "colorMeta": {
+      "night-canvas": {
+        "role": "neutral",
+        "displayName": "Graphite Canvas",
+        "canonical": "#0f0f0e",
+        "tonalRamp": [
+          "oklch(15% 0.002 106.6177)",
+          "oklch(27% 0.002 106.6177)",
+          "oklch(39% 0.002 106.6177)",
+          "oklch(51% 0.002 106.6177)",
+          "oklch(63% 0.002 106.6177)",
+          "oklch(75% 0.002 106.6177)",
+          "oklch(87% 0.002 106.6177)",
+          "oklch(95% 0.002 106.6177)"
+        ]
+      },
+      "night-sidebar": {
+        "role": "neutral",
+        "displayName": "Warm Rail",
+        "canonical": "#191918",
+        "tonalRamp": [
+          "oklch(15% 0.0019 106.5622)",
+          "oklch(27% 0.0019 106.5622)",
+          "oklch(39% 0.0019 106.5622)",
+          "oklch(51% 0.0019 106.5622)",
+          "oklch(63% 0.0019 106.5622)",
+          "oklch(75% 0.0019 106.5622)",
+          "oklch(87% 0.0019 106.5622)",
+          "oklch(95% 0.0019 106.5622)"
+        ]
+      },
+      "night-surface": {
+        "role": "neutral",
+        "displayName": "Workbench Surface",
+        "canonical": "#1f1f1d",
+        "tonalRamp": [
+          "oklch(15% 0.0037 106.6801)",
+          "oklch(27% 0.0037 106.6801)",
+          "oklch(39% 0.0037 106.6801)",
+          "oklch(51% 0.0037 106.6801)",
+          "oklch(63% 0.0037 106.6801)",
+          "oklch(75% 0.0037 106.6801)",
+          "oklch(87% 0.0037 106.6801)",
+          "oklch(95% 0.0037 106.6801)"
+        ]
+      },
+      "night-raised": {
+        "role": "neutral",
+        "displayName": "Raised Graphite",
+        "canonical": "#272724",
+        "tonalRamp": [
+          "oklch(15% 0.0054 106.7555)",
+          "oklch(27% 0.0054 106.7555)",
+          "oklch(39% 0.0054 106.7555)",
+          "oklch(51% 0.0054 106.7555)",
+          "oklch(63% 0.0054 106.7555)",
+          "oklch(75% 0.0054 106.7555)",
+          "oklch(87% 0.0054 106.7555)",
+          "oklch(95% 0.0054 106.7555)"
+        ]
+      },
+      "night-hover": {
+        "role": "neutral",
+        "displayName": "Active Graphite",
+        "canonical": "#30302c",
+        "tonalRamp": [
+          "oklch(15% 0.007 106.8044)",
+          "oklch(27% 0.007 106.8044)",
+          "oklch(39% 0.007 106.8044)",
+          "oklch(51% 0.007 106.8044)",
+          "oklch(63% 0.007 106.8044)",
+          "oklch(75% 0.007 106.8044)",
+          "oklch(87% 0.007 106.8044)",
+          "oklch(95% 0.007 106.8044)"
+        ]
+      },
+      "night-foreground": {
+        "role": "neutral",
+        "displayName": "Chalk Foreground",
+        "canonical": "#e7e6e0",
+        "tonalRamp": [
+          "oklch(15% 0.0081 98.8859)",
+          "oklch(27% 0.0081 98.8859)",
+          "oklch(39% 0.0081 98.8859)",
+          "oklch(51% 0.0081 98.8859)",
+          "oklch(63% 0.0081 98.8859)",
+          "oklch(75% 0.0081 98.8859)",
+          "oklch(87% 0.0081 98.8859)",
+          "oklch(95% 0.0081 98.8859)"
+        ]
+      },
+      "night-muted": {
+        "role": "neutral",
+        "displayName": "Tool Steel Text",
+        "canonical": "#949289",
+        "tonalRamp": [
+          "oklch(15% 0.0133 96.5125)",
+          "oklch(27% 0.0133 96.5125)",
+          "oklch(39% 0.0133 96.5125)",
+          "oklch(51% 0.0133 96.5125)",
+          "oklch(63% 0.0133 96.5125)",
+          "oklch(75% 0.0133 96.5125)",
+          "oklch(87% 0.0133 96.5125)",
+          "oklch(95% 0.0133 96.5125)"
+        ]
+      },
+      "night-subtle": {
+        "role": "neutral",
+        "displayName": "Quiet Text",
+        "canonical": "#696760",
+        "tonalRamp": [
+          "oklch(15% 0.0111 93.6814)",
+          "oklch(27% 0.0111 93.6814)",
+          "oklch(39% 0.0111 93.6814)",
+          "oklch(51% 0.0111 93.6814)",
+          "oklch(63% 0.0111 93.6814)",
+          "oklch(75% 0.0111 93.6814)",
+          "oklch(87% 0.0111 93.6814)",
+          "oklch(95% 0.0111 93.6814)"
+        ]
+      },
+      "night-border": {
+        "role": "neutral",
+        "displayName": "Graphite Hairline",
+        "canonical": "#31312d",
+        "tonalRamp": [
+          "oklch(15% 0.007 106.7981)",
+          "oklch(27% 0.007 106.7981)",
+          "oklch(39% 0.007 106.7981)",
+          "oklch(51% 0.007 106.7981)",
+          "oklch(63% 0.007 106.7981)",
+          "oklch(75% 0.007 106.7981)",
+          "oklch(87% 0.007 106.7981)",
+          "oklch(95% 0.007 106.7981)"
+        ]
+      },
+      "night-border-strong": {
+        "role": "neutral",
+        "displayName": "Assertive Hairline",
+        "canonical": "#46453f",
+        "tonalRamp": [
+          "oklch(15% 0.01 99.1159)",
+          "oklch(27% 0.01 99.1159)",
+          "oklch(39% 0.01 99.1159)",
+          "oklch(51% 0.01 99.1159)",
+          "oklch(63% 0.01 99.1159)",
+          "oklch(75% 0.01 99.1159)",
+          "oklch(87% 0.01 99.1159)",
+          "oklch(95% 0.01 99.1159)"
+        ]
+      },
+      "night-action": {
+        "role": "primary",
+        "displayName": "Neutral Action",
+        "canonical": "#b4b4b4",
+        "tonalRamp": [
+          "oklch(15% 0 89.8756)",
+          "oklch(27% 0 89.8756)",
+          "oklch(39% 0 89.8756)",
+          "oklch(51% 0 89.8756)",
+          "oklch(63% 0 89.8756)",
+          "oklch(75% 0 89.8756)",
+          "oklch(87% 0 89.8756)",
+          "oklch(95% 0 89.8756)"
+        ]
+      },
+      "night-code": {
+        "role": "neutral",
+        "displayName": "Ink Well",
+        "canonical": "#0c0c0b",
+        "tonalRamp": [
+          "oklch(15% 0.0021 106.6426)",
+          "oklch(27% 0.0021 106.6426)",
+          "oklch(39% 0.0021 106.6426)",
+          "oklch(51% 0.0021 106.6426)",
+          "oklch(63% 0.0021 106.6426)",
+          "oklch(75% 0.0021 106.6426)",
+          "oklch(87% 0.0021 106.6426)",
+          "oklch(95% 0.0021 106.6426)"
+        ]
+      },
+      "paper-canvas": {
+        "role": "neutral",
+        "displayName": "Paper Canvas",
+        "canonical": "#f7f7f4",
+        "tonalRamp": [
+          "oklch(15% 0.004 106.4727)",
+          "oklch(27% 0.004 106.4727)",
+          "oklch(39% 0.004 106.4727)",
+          "oklch(51% 0.004 106.4727)",
+          "oklch(63% 0.004 106.4727)",
+          "oklch(75% 0.004 106.4727)",
+          "oklch(87% 0.004 106.4727)",
+          "oklch(95% 0.004 106.4727)"
+        ]
+      },
+      "paper-sidebar": {
+        "role": "neutral",
+        "displayName": "Warm Paper Rail",
+        "canonical": "#fafaf7",
+        "tonalRamp": [
+          "oklch(15% 0.004 106.4719)",
+          "oklch(27% 0.004 106.4719)",
+          "oklch(39% 0.004 106.4719)",
+          "oklch(51% 0.004 106.4719)",
+          "oklch(63% 0.004 106.4719)",
+          "oklch(75% 0.004 106.4719)",
+          "oklch(87% 0.004 106.4719)",
+          "oklch(95% 0.004 106.4719)"
+        ]
+      },
+      "paper-surface": {
+        "role": "neutral",
+        "displayName": "Clean Paper Surface",
+        "canonical": "#fffffc",
+        "tonalRamp": [
+          "oklch(15% 0.0039 106.4705)",
+          "oklch(27% 0.0039 106.4705)",
+          "oklch(39% 0.0039 106.4705)",
+          "oklch(51% 0.0039 106.4705)",
+          "oklch(63% 0.0039 106.4705)",
+          "oklch(75% 0.0039 106.4705)",
+          "oklch(87% 0.0039 106.4705)",
+          "oklch(95% 0.0039 106.4705)"
+        ]
+      },
+      "paper-hover": {
+        "role": "neutral",
+        "displayName": "Pressed Paper",
+        "canonical": "#ebebe6",
+        "tonalRamp": [
+          "oklch(15% 0.0067 106.5272)",
+          "oklch(27% 0.0067 106.5272)",
+          "oklch(39% 0.0067 106.5272)",
+          "oklch(51% 0.0067 106.5272)",
+          "oklch(63% 0.0067 106.5272)",
+          "oklch(75% 0.0067 106.5272)",
+          "oklch(87% 0.0067 106.5272)",
+          "oklch(95% 0.0067 106.5272)"
+        ]
+      },
+      "paper-foreground": {
+        "role": "neutral",
+        "displayName": "Soft Ink",
+        "canonical": "#1e1e1e",
+        "tonalRamp": [
+          "oklch(15% 0 89.8756)",
+          "oklch(27% 0 89.8756)",
+          "oklch(39% 0 89.8756)",
+          "oklch(51% 0 89.8756)",
+          "oklch(63% 0 89.8756)",
+          "oklch(75% 0 89.8756)",
+          "oklch(87% 0 89.8756)",
+          "oklch(95% 0 89.8756)"
+        ]
+      },
+      "paper-muted": {
+        "role": "neutral",
+        "displayName": "Graphite Text",
+        "canonical": "#696964",
+        "tonalRamp": [
+          "oklch(15% 0.0077 106.665)",
+          "oklch(27% 0.0077 106.665)",
+          "oklch(39% 0.0077 106.665)",
+          "oklch(51% 0.0077 106.665)",
+          "oklch(63% 0.0077 106.665)",
+          "oklch(75% 0.0077 106.665)",
+          "oklch(87% 0.0077 106.665)",
+          "oklch(95% 0.0077 106.665)"
+        ]
+      },
+      "paper-subtle": {
+        "role": "neutral",
+        "displayName": "Quiet Graphite",
+        "canonical": "#91918a",
+        "tonalRamp": [
+          "oklch(15% 0.0102 106.6775)",
+          "oklch(27% 0.0102 106.6775)",
+          "oklch(39% 0.0102 106.6775)",
+          "oklch(51% 0.0102 106.6775)",
+          "oklch(63% 0.0102 106.6775)",
+          "oklch(75% 0.0102 106.6775)",
+          "oklch(87% 0.0102 106.6775)",
+          "oklch(95% 0.0102 106.6775)"
+        ]
+      },
+      "paper-border": {
+        "role": "neutral",
+        "displayName": "Paper Hairline",
+        "canonical": "#e0e0d8",
+        "tonalRamp": [
+          "oklch(15% 0.0107 106.6124)",
+          "oklch(27% 0.0107 106.6124)",
+          "oklch(39% 0.0107 106.6124)",
+          "oklch(51% 0.0107 106.6124)",
+          "oklch(63% 0.0107 106.6124)",
+          "oklch(75% 0.0107 106.6124)",
+          "oklch(87% 0.0107 106.6124)",
+          "oklch(95% 0.0107 106.6124)"
+        ]
+      },
+      "paper-border-strong": {
+        "role": "neutral",
+        "displayName": "Strong Paper Hairline",
+        "canonical": "#cbcbc2",
+        "tonalRamp": [
+          "oklch(15% 0.0123 106.6616)",
+          "oklch(27% 0.0123 106.6616)",
+          "oklch(39% 0.0123 106.6616)",
+          "oklch(51% 0.0123 106.6616)",
+          "oklch(63% 0.0123 106.6616)",
+          "oklch(75% 0.0123 106.6616)",
+          "oklch(87% 0.0123 106.6616)",
+          "oklch(95% 0.0123 106.6616)"
+        ]
+      },
+      "paper-action": {
+        "role": "primary",
+        "displayName": "Dense Graphite",
+        "canonical": "#505050",
+        "tonalRamp": [
+          "oklch(15% 0 89.8756)",
+          "oklch(27% 0 89.8756)",
+          "oklch(39% 0 89.8756)",
+          "oklch(51% 0 89.8756)",
+          "oklch(63% 0 89.8756)",
+          "oklch(75% 0 89.8756)",
+          "oklch(87% 0 89.8756)",
+          "oklch(95% 0 89.8756)"
+        ]
+      },
+      "success-night": {
+        "role": "primary",
+        "displayName": "Measured Green",
+        "canonical": "#46aa6e",
+        "tonalRamp": [
+          "oklch(15% 0.1298 154.2538)",
+          "oklch(27% 0.1298 154.2538)",
+          "oklch(39% 0.1298 154.2538)",
+          "oklch(51% 0.1298 154.2538)",
+          "oklch(63% 0.1298 154.2538)",
+          "oklch(75% 0.1298 154.2538)",
+          "oklch(87% 0.1298 154.2538)",
+          "oklch(95% 0.1298 154.2538)"
+        ]
+      },
+      "warning-night": {
+        "role": "primary",
+        "displayName": "Warm Signal",
+        "canonical": "#e87d5a",
+        "tonalRamp": [
+          "oklch(15% 0.1412 38.7574)",
+          "oklch(27% 0.1412 38.7574)",
+          "oklch(39% 0.1412 38.7574)",
+          "oklch(51% 0.1412 38.7574)",
+          "oklch(63% 0.1412 38.7574)",
+          "oklch(75% 0.1412 38.7574)",
+          "oklch(87% 0.1412 38.7574)",
+          "oklch(95% 0.1412 38.7574)"
+        ]
+      },
+      "danger-night": {
+        "role": "primary",
+        "displayName": "Muted Red",
+        "canonical": "#c85050",
+        "tonalRamp": [
+          "oklch(15% 0.1538 23.0345)",
+          "oklch(27% 0.1538 23.0345)",
+          "oklch(39% 0.1538 23.0345)",
+          "oklch(51% 0.1538 23.0345)",
+          "oklch(63% 0.1538 23.0345)",
+          "oklch(75% 0.1538 23.0345)",
+          "oklch(87% 0.1538 23.0345)",
+          "oklch(95% 0.1538 23.0345)"
+        ]
+      },
+      "success-paper": {
+        "role": "primary",
+        "displayName": "Measured Green on Paper",
+        "canonical": "#32965a",
+        "tonalRamp": [
+          "oklch(15% 0.1298 153.2699)",
+          "oklch(27% 0.1298 153.2699)",
+          "oklch(39% 0.1298 153.2699)",
+          "oklch(51% 0.1298 153.2699)",
+          "oklch(63% 0.1298 153.2699)",
+          "oklch(75% 0.1298 153.2699)",
+          "oklch(87% 0.1298 153.2699)",
+          "oklch(95% 0.1298 153.2699)"
+        ]
+      },
+      "warning-paper": {
+        "role": "primary",
+        "displayName": "Warm Signal on Paper",
+        "canonical": "#d26e46",
+        "tonalRamp": [
+          "oklch(15% 0.1374 41.8226)",
+          "oklch(27% 0.1374 41.8226)",
+          "oklch(39% 0.1374 41.8226)",
+          "oklch(51% 0.1374 41.8226)",
+          "oklch(63% 0.1374 41.8226)",
+          "oklch(75% 0.1374 41.8226)",
+          "oklch(87% 0.1374 41.8226)",
+          "oklch(95% 0.1374 41.8226)"
+        ]
+      },
+      "danger-paper": {
+        "role": "primary",
+        "displayName": "Muted Red on Paper",
+        "canonical": "#b43c3c",
+        "tonalRamp": [
+          "oklch(15% 0.1559 24.1594)",
+          "oklch(27% 0.1559 24.1594)",
+          "oklch(39% 0.1559 24.1594)",
+          "oklch(51% 0.1559 24.1594)",
+          "oklch(63% 0.1559 24.1594)",
+          "oklch(75% 0.1559 24.1594)",
+          "oklch(87% 0.1559 24.1594)",
+          "oklch(95% 0.1559 24.1594)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Headline", "purpose": "Page and active workspace headings." },
+      "title": { "displayName": "Title", "purpose": "Pane headings and selected items." },
+      "body": { "displayName": "Body", "purpose": "Agent and user prose." },
+      "label": { "displayName": "Label", "purpose": "Controls, statuses, and menu actions." },
+      "caption": { "displayName": "Caption", "purpose": "Descriptions, timestamps, and metadata." },
+      "mono": { "displayName": "Mono", "purpose": "Code, shell output, versions, and paths." }
+    },
+    "shadows": [
+      {
+        "name": "shell-frame",
+        "value": "0 0 0 1px rgb(255 255 255 / 0.02), 0 18px 48px rgb(0 0 0 / 0.18)",
+        "purpose": "Defines the Electron window as one contained work surface."
+      },
+      {
+        "name": "composer-lift",
+        "value": "0 18px 60px rgb(0 0 0 / 0.18)",
+        "purpose": "Separates the message composer from the timeline."
+      },
+      {
+        "name": "menu-lift",
+        "value": "0 18px 60px rgb(0 0 0 / 0.28)",
+        "purpose": "Temporary menus and panels above the active task."
+      },
+      {
+        "name": "inset-selection",
+        "value": "0 0 0 1px rgb(var(--color-border-strong) / 0.32) inset",
+        "purpose": "Selected navigation without a saturated highlight."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Hover, focus, selection, and compact menu state."
+      },
+      {
+        "name": "theme-transition",
+        "value": "220ms cubic-bezier(0.2, 0.8, 0.2, 1)",
+        "purpose": "Theme color interpolation."
+      },
+      {
+        "name": "view-transition",
+        "value": "260ms cubic-bezier(0.2, 0.8, 0.2, 1)",
+        "purpose": "Whole-view theme transition."
+      },
+      {
+        "name": "toast-transition",
+        "value": "300ms cubic-bezier(0, 0, 0.2, 1)",
+        "purpose": "Toast opacity, translate, and scale."
+      }
+    ],
+    "breakpoints": [
+      { "name": "desktop-min", "value": "1080px" },
+      { "name": "secondary-pane-min", "value": "200px" },
+      { "name": "secondary-pane-max", "value": "480px" },
+      { "name": "composer-max", "value": "48rem" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "High-confidence confirmation or execution action.",
+      "html": "<button class=\"ds-btn-primary\">Approve</button>",
+      "css": ".ds-btn-primary { border: 0; border-radius: var(--radius-md, 0.5rem); background: rgb(var(--color-fg, 231 230 224)); color: rgb(var(--color-bg, 15 15 14)); min-height: 28px; padding: 7px 12px; font: 500 12px/1.5 var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif); transition: opacity 150ms cubic-bezier(0.4, 0, 0.2, 1), transform 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-primary:hover { opacity: 0.9; } .ds-btn-primary:active { transform: scale(0.95); } .ds-btn-primary:focus-visible { outline: 2px solid rgb(var(--color-fg, 231 230 224)); outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Compact secondary command used throughout toolbars and menus.",
+      "html": "<button class=\"ds-btn-ghost\">Refresh</button>",
+      "css": ".ds-btn-ghost { border: 0; border-radius: var(--radius-md, 0.5rem); background: transparent; color: rgb(var(--color-muted, 148 146 137)); min-height: 28px; padding: 7px 8px; font: 500 12px/1.5 var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif); transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-btn-ghost:hover { background: rgb(var(--color-surface-hover, 48 48 44)); color: rgb(var(--color-fg, 231 230 224)); } .ds-btn-ghost:focus-visible { outline: 2px solid rgb(var(--color-border-strong, 70 69 63)); outline-offset: 2px; }"
+    },
+    {
+      "name": "Icon Button",
+      "kind": "button",
+      "refersTo": "icon-button",
+      "description": "Square tool control with a required accessible name and tooltip.",
+      "html": "<button class=\"ds-icon-btn\" aria-label=\"Close\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M18 6 6 18M6 6l12 12\" /></svg></button>",
+      "css": ".ds-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-md, 0.5rem); background: transparent; color: rgb(var(--color-subtle, 105 103 96)); transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1), background-color 150ms cubic-bezier(0.4, 0, 0.2, 1), transform 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-icon-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; } .ds-icon-btn:hover { background: rgb(var(--color-surface-hover, 48 48 44)); color: rgb(var(--color-fg, 231 230 224)); } .ds-icon-btn:active { transform: scale(0.95); } .ds-icon-btn:focus-visible { outline: 2px solid rgb(var(--color-border-strong, 70 69 63)); outline-offset: 2px; }"
+    },
+    {
+      "name": "Input Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Compact framed field for settings, paths, and filtering.",
+      "html": "<input class=\"ds-input\" value=\"14\" aria-label=\"Font size\" />",
+      "css": ".ds-input { width: 148px; border: 1px solid rgb(var(--color-border, 49 49 45)); border-radius: var(--radius-md, 0.5rem); background: rgb(var(--color-surface, 31 31 29)); color: rgb(var(--color-fg, 231 230 224)); padding: 8px 12px; font: 600 13px/1.5 var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif); transition: border-color 150ms cubic-bezier(0.4, 0, 0.2, 1); } .ds-input:focus { border-color: rgb(var(--color-border-strong, 70 69 63)); outline: none; } .ds-input:focus-visible { box-shadow: 0 0 0 2px rgb(var(--color-border-strong, 70 69 63) / 0.22); }"
+    },
+    {
+      "name": "Active Navigation Item",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "Selected item in settings, runtime, or thread navigation.",
+      "html": "<button class=\"ds-nav-active\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"3\" /><path d=\"M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6H10a1.7 1.7 0 0 0-1-.6 1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1v-4a1.7 1.7 0 0 0 .6-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6h4a1.7 1.7 0 0 0 1 .6 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 .6 1v4a1.7 1.7 0 0 0-.6 1Z\" /></svg><span><strong>Interface</strong><small>Theme and text size</small></span></button>",
+      "css": ".ds-nav-active { display: flex; width: 240px; align-items: center; gap: 8px; border: 0; border-radius: var(--radius-lg, 0.75rem); background: rgb(var(--color-surface-hover, 48 48 44)); color: rgb(var(--color-fg, 231 230 224)); padding: 8px 10px; text-align: left; box-shadow: 0 0 0 1px rgb(var(--color-border-strong, 70 69 63) / 0.28) inset; } .ds-nav-active svg { width: 14px; height: 14px; flex: none; fill: none; stroke: rgb(var(--color-subtle, 105 103 96)); stroke-width: 1.8; } .ds-nav-active span { min-width: 0; } .ds-nav-active strong, .ds-nav-active small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif); } .ds-nav-active strong { font-size: 13px; line-height: 1.5; font-weight: 500; } .ds-nav-active small { margin-top: 2px; color: rgb(var(--color-subtle, 105 103 96)); font-size: 11px; line-height: 1.5; } .ds-nav-active:focus-visible { outline: 2px solid rgb(var(--color-border-strong, 70 69 63)); outline-offset: 2px; }"
+    },
+    {
+      "name": "Skill Chip",
+      "kind": "chip",
+      "refersTo": "skill-chip",
+      "description": "Attached skill or compact contextual capability marker.",
+      "html": "<span class=\"ds-skill-chip\">frontend-design<button aria-label=\"Remove skill\">×</button></span>",
+      "css": ".ds-skill-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; border: 1px solid rgb(var(--color-border-strong, 70 69 63)); border-radius: 9999px; background: rgb(var(--color-surface, 31 31 29)); color: rgb(var(--color-fg, 231 230 224)); padding: 4px 8px; font: 500 12px/1.5 var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif); } .ds-skill-chip button { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border: 0; border-radius: 9999px; background: transparent; color: rgb(var(--color-muted, 148 146 137)); } .ds-skill-chip button:hover { background: rgb(var(--color-surface-hover, 48 48 44)); color: rgb(var(--color-fg, 231 230 224)); } .ds-skill-chip button:focus-visible { outline: 2px solid rgb(var(--color-border-strong, 70 69 63)); outline-offset: 1px; }"
+    },
+    {
+      "name": "Chat Composer",
+      "kind": "custom",
+      "refersTo": "composer",
+      "description": "Primary working surface for message input and active runtime context.",
+      "html": "<div class=\"ds-composer\"><textarea aria-label=\"Message\" placeholder=\"Message...\"></textarea><div class=\"ds-composer-tools\"><button>Kimi Code</button><button>Approval required</button><button class=\"ds-send\" aria-label=\"Send\">↑</button></div></div>",
+      "css": ".ds-composer { width: min(100%, 48rem); border: 1px solid rgb(var(--color-border, 49 49 45)); border-radius: var(--radius-lg, 0.75rem); background: rgb(var(--color-surface-raised, 39 39 36) / 0.9); color: rgb(var(--color-fg, 231 230 224)); padding: 12px; box-shadow: 0 18px 60px rgb(0 0 0 / 0.18); font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif); } .ds-composer textarea { width: 100%; min-height: 48px; resize: none; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; font-size: 15px; font-weight: 400; line-height: 1.5; } .ds-composer textarea::placeholder { color: rgb(var(--color-subtle, 105 103 96)); } .ds-composer-tools { display: flex; align-items: center; gap: 4px; margin-top: 12px; } .ds-composer-tools button { border: 0; border-radius: var(--radius-md, 0.5rem); background: transparent; color: rgb(var(--color-muted, 148 146 137)); padding: 4px 8px; font: inherit; font-size: 12px; font-weight: 500; line-height: 1.5; } .ds-composer-tools button:hover { background: rgb(var(--color-surface-hover, 48 48 44)); color: rgb(var(--color-fg, 231 230 224)); } .ds-composer-tools .ds-send { width: 36px; height: 36px; margin-left: auto; border-radius: 9999px; background: rgb(var(--color-fg, 231 230 224)); color: rgb(var(--color-bg, 15 15 14)); } .ds-composer-tools button:focus-visible, .ds-composer textarea:focus-visible { outline: 2px solid rgb(var(--color-border-strong, 70 69 63)); outline-offset: 2px; }"
+    },
+    {
+      "name": "Toast",
+      "kind": "custom",
+      "refersTo": "toast",
+      "description": "Concise status feedback above the active task.",
+      "html": "<div class=\"ds-toast\" role=\"status\"><span class=\"ds-toast-icon\">i</span><span>Runtime settings saved.</span><button aria-label=\"Dismiss\">×</button></div>",
+      "css": ".ds-toast { display: flex; align-items: flex-start; gap: 12px; width: min(calc(100vw - 32px), 34rem); border: 1px solid rgb(var(--color-border-strong, 70 69 63)); border-radius: var(--radius-lg, 0.75rem); background: rgb(var(--color-surface-raised, 39 39 36)); color: rgb(var(--color-fg, 231 230 224)); padding: 12px 14px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); font: 400 13px/1.35 var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif); } .ds-toast-icon { color: rgb(var(--color-muted, 148 146 137)); } .ds-toast button { margin-left: auto; border: 0; border-radius: var(--radius-md, 0.5rem); background: transparent; color: rgb(var(--color-subtle, 105 103 96)); } .ds-toast button:hover { background: rgb(var(--color-surface-hover, 48 48 44)); color: rgb(var(--color-fg, 231 230 224)); } .ds-toast button:focus-visible { outline: 2px solid rgb(var(--color-border-strong, 70 69 63)); outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Workbench",
+    "overview": "Carrent is a focused desktop surface for an engineer working through sustained local agent sessions. In a dim workspace the Night theme reduces glare with warm graphite layers; in daylight the Paper theme preserves the same hierarchy with warm whites and soft ink. Both themes feel like the same tool, not separate brands.\n\nThe system is dense, restrained, and operational. Information stays close to the action, familiar icons carry repeated commands, and state is conveyed with tone, border strength, and concise text. It explicitly rejects marketing-style composition inside the app, playful chatbot aesthetics, decorative gradients, excessive cards, oversized labels, and runtime terminology that hides the user's actual selection.\n\nThis document covers `apps/desktop` only. The landing site is not designed yet and must not inherit a speculative theme from this file.",
+    "keyCharacteristics": [
+      "Warm graphite and paper-white theme parity.",
+      "Compact three-pane desktop structure with predictable navigation.",
+      "Tonal layering and 1px hairlines before shadows.",
+      "System sans typography with mono reserved for code and paths.",
+      "Controls that remain usable from 8px through 32px text scaling."
+    ],
+    "rules": [
+      {
+        "name": "The Desktop-Only Rule",
+        "body": "Apply these tokens to `apps/desktop`; do not theme the undeveloped landing site from this document.",
+        "section": "overview"
+      },
+      {
+        "name": "The Restrained Signal Rule",
+        "body": "Semantic green, orange, and red communicate state only; they never decorate navigation, headings, or empty space.",
+        "section": "colors"
+      },
+      {
+        "name": "The Theme Parity Rule",
+        "body": "A component must keep the same hierarchy in Night and Paper themes even when exact contrast relationships invert.",
+        "section": "colors"
+      },
+      {
+        "name": "The Fixed Layout Rule",
+        "body": "The user's 8px-32px setting scales typography tokens, not the root rem size, so layout dimensions remain stable while text grows.",
+        "section": "typography"
+      },
+      {
+        "name": "The No Display Type Rule",
+        "body": "Never introduce a display font, fluid viewport typography, negative letter spacing, or oversized product labels.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-at-Rest Rule",
+        "body": "Persistent content surfaces use tonal separation and hairlines; if every section casts a shadow, the hierarchy is wrong.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do preserve Night and Paper theme parity using the existing semantic color roles.",
+      "Do keep repeated workflows compact, predictable, and directly adjacent to the active coding task.",
+      "Do show runtime, model, permission mode, branch, and execution state in plain domain language.",
+      "Do use familiar Lucide icons for commands and provide accessible names for icon-only buttons.",
+      "Do use tonal layering and 1px borders before adding a shadow.",
+      "Do keep controls usable under 8px-32px text scaling and constrained desktop widths.",
+      "Do use 150ms-260ms state transitions with ease-out curves; animate opacity and transform, not layout."
+    ],
+    "donts": [
+      "Don't use marketing-style composition inside the app.",
+      "Don't use playful chatbot aesthetics.",
+      "Don't add decorative gradients; the single subdued neutral canvas wash is the only existing exception.",
+      "Don't create excessive cards or cards nested inside cards.",
+      "Don't use oversized labels or hero-scale typography inside product UI.",
+      "Don't use runtime terminology that obscures the user's actual selection.",
+      "Don't use gradient text, glassmorphism, decorative colored side stripes, or saturated inactive states.",
+      "Don't invent a landing theme until the landing product and content are designed.",
+      "Don't open a modal when an inline or progressively disclosed control can complete the task."
+    ]
+  }
+}

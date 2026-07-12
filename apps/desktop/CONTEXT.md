@@ -8,6 +8,26 @@ The Carrent desktop app is the product context for project-scoped coding agent c
 An agent that can work inside a local project by reading files, editing files, running shell commands, and continuing work across a thread.
 _Avoid_: Chat agent, chatbot, model
 
+**Thread**:
+A project-scoped conversation that preserves user messages, agent activity, runtime selection, and continuity across runs.
+_Avoid_: Session, chat
+
+**Runtime Session**:
+A runtime-owned continuity handle associated with a Carrent thread so later runs can resume the coding agent's context.
+_Avoid_: Thread, Carrent session
+
+**Run**:
+One execution of a coding agent in a thread, beginning with a user request and ending in completion, failure, or cancellation.
+_Avoid_: Thread, runtime session, message
+
+**Thread Status**:
+The single attention state shown for a thread. Waiting for approval takes precedence over running, which takes precedence over failed; a failed result remains visible until the thread's next run begins, while an idle thread without a failure has no status.
+_Avoid_: Runtime status, message status
+
+**Thread Activity Time**:
+The time of a thread's most recent meaningful interaction: a submitted user message, a run ending, or an approval request. Opening, renaming, pinning, and individual streaming updates are not thread activity.
+_Avoid_: Updated time, viewed time, modified time
+
 **Agent GUI**:
 A graphical workspace for driving coding agents, managing project-scoped threads, and controlling how agent runs execute.
 _Avoid_: Chat client, API client

@@ -2,6 +2,7 @@ import { getRtkGainStats } from "./rtkGain";
 import {
   readGlobalAgentInstructions,
   writeGlobalAgentInstructions,
+  writeGlobalRtkInstructions,
 } from "./globalAgentInstructions";
 
 interface IpcMainLike {
@@ -28,5 +29,13 @@ export function registerSettingsIpc(ipcMainLike: IpcMainLike): void {
     }
 
     return writeGlobalAgentInstructions(content);
+  });
+
+  ipcMainLike.handle("settings:global-rtk-instructions:write", async (_event, content) => {
+    if (typeof content !== "string") {
+      throw new Error("Global RTK instructions content must be a string.");
+    }
+
+    return writeGlobalRtkInstructions(content);
   });
 }

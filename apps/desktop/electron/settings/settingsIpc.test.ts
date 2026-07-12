@@ -15,6 +15,7 @@ describe("registerSettingsIpc", () => {
       "settings:check-for-updates",
       "settings:global-agent-instructions:read",
       "settings:global-agent-instructions:write",
+      "settings:global-rtk-instructions:write",
       "settings:rtk-gain",
     ]);
   });
@@ -33,6 +34,23 @@ describe("registerSettingsIpc", () => {
       expect(false).toBe(true);
     } catch (error) {
       expect((error as Error).message).toBe("Global agent instructions content must be a string.");
+    }
+  });
+
+  it("rejects non-string global RTK instructions content", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+
+    registerSettingsIpc({
+      handle(channel, listener) {
+        handlers.set(channel, listener);
+      },
+    });
+
+    try {
+      await handlers.get("settings:global-rtk-instructions:write")?.({}, 123);
+      expect(false).toBe(true);
+    } catch (error) {
+      expect((error as Error).message).toBe("Global RTK instructions content must be a string.");
     }
   });
 });

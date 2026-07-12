@@ -14,7 +14,7 @@ import {
 import { useSearchParams } from "react-router-dom";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useSettings } from "../context/SettingsContext";
-import { upsertRtkAgentsBlock, type RtkGainStats } from "../../shared/rtk";
+import { RTK_MD_CONTENT, upsertRtkAgentsBlock, type RtkGainStats } from "../../shared/rtk";
 import type { RuntimeRecord } from "../../shared/runtimes";
 import { resolveSettingsTabId, SETTINGS_TABS } from "../lib/settingsTabs";
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, parseFontSizeInput, stepFontSize } from "../lib/fontSize";
@@ -403,6 +403,76 @@ export function canCheckKimiConnection(
 const KIMI_DOCS_URL = "https://moonshotai.github.io/kimi-code/en/guides/getting-started";
 
 /* -------------------------------------------------------------------------- */
+/*  RTK check panel                                                           */
+/* -------------------------------------------------------------------------- */
+
+const RTK_CHECK_RESULT_KEY = "carrent:rtk-check-result";
+
+function loadRtkCheckResult(): RtkGainStats | null {
+  try {
+    const raw = localStorage.getItem(RTK_CHECK_RESULT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as RtkGainStats;
+  } catch {
+    return null;
+  }
+}
+
+function saveRtkCheckResult(stats: RtkGainStats) {
+  try {
+    localStorage.setItem(RTK_CHECK_RESULT_KEY, JSON.stringify(stats));
+  } catch {
+    // ignore
+  }
+}
+
+function RtkCheckPanel() {
+  const [checking, setChecking] = useState(false);
+  const [stats, setStats] = useState<RtkGainStats | null>(loadRtkCheckResult);
+
+  async function handleCheck() {
+    setChecking(true);
+    try {
+      const result = await readRtkGainStats(window.carrent.settings);
+      setStats(result);
+      saveRtkCheckResult(result);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <div className="py-3.5">
+      <div className="flex items-center justify-between gap-6">
+        <div className="min-w-0">
+          <div className="text-app-13 text-fg">RTK token optimization</div>
+          <div className="mt-0.5 text-app-12 text-subtle">
+            Check whether RTK is installed to view savings and add its instructions to AGENTS.md.
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => void handleCheck()}
+          disabled={checking}
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-app-12 text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-30"
+        >
+          {checking ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+          {checking ? "Checking..." : "Check"}
+        </button>
+      </div>
+
+      {stats?.available ? (
+        <div className="mt-4">
+          <RtkStatsPanel />
+        </div>
+      ) : stats ? (
+        <div className="mt-4 text-app-12 text-subtle">RTK is not installed.</div>
+      ) : null}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  RTK stats                                                                 */
 /* -------------------------------------------------------------------------- */
 
@@ -465,10 +535,11 @@ function RtkStatsPanel() {
     setAgentsMessage(null);
     setAgentsError(null);
     try {
+      const rtk = await writeGlobalRtkInstructions(window.carrent.settings, RTK_MD_CONTENT);
       const current = await readGlobalAgentInstructions(window.carrent.settings);
       const next = await writeGlobalAgentInstructions(
         window.carrent.settings,
-        upsertRtkAgentsBlock(current.content),
+        upsertRtkAgentsBlock(current.content, rtk.path),
       );
       setAgentsMessage(`Saved to ${next.path}`);
     } catch (error) {
@@ -572,6 +643,7 @@ type GlobalAgentInstructionsSnapshot = {
 type GlobalAgentInstructionsApi = {
   readGlobalAgentInstructions?: () => Promise<GlobalAgentInstructionsSnapshot>;
   writeGlobalAgentInstructions?: (content: string) => Promise<GlobalAgentInstructionsSnapshot>;
+  writeGlobalRtkInstructions?: (content: string) => Promise<{ path: string; content: string }>;
 };
 
 export function getGlobalAgentInstructionsByteLength(content: string): number {
@@ -637,10 +709,6 @@ function GlobalAgentInstructionsPanel() {
     void load();
   }, []);
 
-  const byteLength = getGlobalAgentInstructionsByteLength(content);
-  const maxBytes = snapshot?.maxBytes ?? 256 * 1024;
-  const tooLarge = byteLength > maxBytes;
-
   return (
     <div className="py-3.5">
       <div className="mb-3 flex items-start justify-between gap-4">
@@ -666,7 +734,7 @@ function GlobalAgentInstructionsPanel() {
           <button
             type="button"
             onClick={save}
-            disabled={loading || saving || tooLarge}
+            disabled={loading || saving}
             className="flex items-center gap-1.5 rounded-md bg-fg px-3 py-1.5 text-app-12 text-bg transition-colors hover:opacity-90 disabled:opacity-30"
           >
             {saving ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
@@ -688,21 +756,26 @@ function GlobalAgentInstructionsPanel() {
         className="min-h-[240px] w-full resize-y rounded-lg border border-border bg-surface px-3 py-3 font-mono text-app-13 leading-5 text-fg outline-none transition-colors placeholder:text-subtle focus:border-border-strong disabled:opacity-50"
       />
 
-      <div className="mt-2 flex items-center justify-between gap-4 text-app-12">
-        <div className={error ? "text-danger" : message ? "text-success" : "text-subtle"}>
-          {error ??
-            message ??
-            (snapshot?.exists
-              ? "Editing ~/.agents/AGENTS.md"
-              : "Save to create ~/.agents/AGENTS.md")}
-        </div>
-        <div className={tooLarge ? "text-danger" : "text-subtle"}>
-          {formatGlobalAgentInstructionsSize(byteLength)} /{" "}
-          {formatGlobalAgentInstructionsSize(maxBytes)}
-        </div>
+      <div className="mt-2 text-app-12 text-subtle">
+        {error ??
+          message ??
+          (snapshot?.exists ? "Editing ~/.agents/AGENTS.md" : "Save to create ~/.agents/AGENTS.md")}
       </div>
     </div>
   );
+}
+
+export async function writeGlobalRtkInstructions(
+  settingsApi: GlobalAgentInstructionsApi,
+  content: string,
+): Promise<{ path: string; content: string }> {
+  if (typeof settingsApi.writeGlobalRtkInstructions !== "function") {
+    throw new Error(
+      "Global RTK instructions support is not loaded. Restart Carrent and try again.",
+    );
+  }
+
+  return settingsApi.writeGlobalRtkInstructions(content);
 }
 
 export async function readGlobalAgentInstructions(
@@ -749,7 +822,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export function SettingsPage() {
   const { setActiveThreadId } = useWorkspace();
-  const { autoDetectRuntimes, rtkEnabled, theme, fontSize, updateSetting } = useSettings();
+  const { autoDetectRuntimes, theme, fontSize, updateSetting } = useSettings();
   const [searchParams] = useSearchParams();
   const activeTabId = resolveSettingsTabId(searchParams.get("tab"));
   const activeTab = SETTINGS_TABS.find((tab) => tab.id === activeTabId) ?? SETTINGS_TABS[0];
@@ -782,13 +855,7 @@ export function SettingsPage() {
                   enabled={autoDetectRuntimes}
                   onChange={(value) => updateSetting("autoDetectRuntimes", value)}
                 />
-                <Toggle
-                  label="RTK token optimization"
-                  description="Ask all runtimes to use RTK for local development commands when available"
-                  enabled={rtkEnabled}
-                  onChange={(value) => updateSetting("rtkEnabled", value)}
-                />
-                {rtkEnabled ? <RtkStatsPanel /> : null}
+                <RtkCheckPanel />
               </Section>
             ) : null}
 

@@ -95,6 +95,10 @@ declare global {
           exists: boolean;
           maxBytes: number;
         }>;
+        writeGlobalRtkInstructions: (content: string) => Promise<{
+          path: string;
+          content: string;
+        }>;
       };
       git: {
         branches: (projectPath: string) => Promise<GitBranchInfo>;

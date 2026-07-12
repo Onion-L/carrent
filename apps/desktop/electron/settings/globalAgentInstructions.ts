@@ -15,6 +15,10 @@ export function getGlobalAgentInstructionsPath(homeDir = homedir()): string {
   return path.join(homeDir, ".agents", "AGENTS.md");
 }
 
+export function getGlobalRtkInstructionsPath(homeDir = homedir()): string {
+  return path.join(homeDir, ".agents", "RTK.md");
+}
+
 export async function readGlobalAgentInstructions(
   homeDir = homedir(),
 ): Promise<GlobalAgentInstructionsSnapshot> {
@@ -63,5 +67,19 @@ export async function writeGlobalAgentInstructions(
     content,
     exists: true,
     maxBytes: GLOBAL_AGENT_INSTRUCTIONS_MAX_BYTES,
+  };
+}
+
+export async function writeGlobalRtkInstructions(
+  content: string,
+  homeDir = homedir(),
+): Promise<{ path: string; content: string }> {
+  const filePath = getGlobalRtkInstructionsPath(homeDir);
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, content, "utf8");
+
+  return {
+    path: filePath,
+    content,
   };
 }

@@ -15,7 +15,6 @@ export type FontSize = number;
 
 export type Settings = {
   autoDetectRuntimes: boolean;
-  rtkEnabled: boolean;
   theme: Theme;
   fontSize: FontSize;
   runtimeEnabledById: Partial<Record<RuntimeId, boolean>>;
@@ -29,7 +28,6 @@ const THEME_TRANSITION_MS = 260;
 
 const defaultSettings: Settings = {
   autoDetectRuntimes: true,
-  rtkEnabled: false,
   theme: "dark",
   fontSize: 14,
   runtimeEnabledById: {},
@@ -80,8 +78,6 @@ function loadSettings(): Settings {
     const fontSize = normalizeFontSize(parsed.fontSize, defaultSettings.fontSize);
     return {
       autoDetectRuntimes: parsed.autoDetectRuntimes ?? defaultSettings.autoDetectRuntimes,
-      rtkEnabled:
-        typeof parsed.rtkEnabled === "boolean" ? parsed.rtkEnabled : defaultSettings.rtkEnabled,
       theme,
       fontSize,
       runtimeEnabledById: normalizeRuntimeEnabledById(parsed.runtimeEnabledById),

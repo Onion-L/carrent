@@ -5,8 +5,10 @@ import path from "node:path";
 import {
   GLOBAL_AGENT_INSTRUCTIONS_MAX_BYTES,
   getGlobalAgentInstructionsPath,
+  getGlobalRtkInstructionsPath,
   readGlobalAgentInstructions,
   writeGlobalAgentInstructions,
+  writeGlobalRtkInstructions,
 } from "./globalAgentInstructions";
 
 describe("global agent instructions", () => {
@@ -56,6 +58,23 @@ describe("global agent instructions", () => {
         .catch((error) => {
           expect((error as Error).message).toContain("256KB");
         });
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("global RTK instructions", () => {
+  it("creates ~/.agents/RTK.md when saving", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "carrent-rtk-home-"));
+
+    try {
+      const result = await writeGlobalRtkInstructions("# RTK\n", homeDir);
+      const filePath = getGlobalRtkInstructionsPath(homeDir);
+
+      expect(result.path).toBe(filePath);
+      expect(result.content).toBe("# RTK\n");
+      expect(await readFile(filePath, "utf8")).toBe("# RTK\n");
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }

@@ -109,6 +109,11 @@ const carrent = {
         exists: boolean;
         maxBytes: number;
       }>,
+    writeGlobalRtkInstructions: (content: string) =>
+      ipcRenderer.invoke("settings:global-rtk-instructions:write", content) as Promise<{
+        path: string;
+        content: string;
+      }>,
   },
   git: {
     branches: (projectPath: string) =>

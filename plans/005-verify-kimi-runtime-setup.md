@@ -99,15 +99,15 @@ function getRuntimeStatusLabel(runtime: RuntimeRecord) {
 
 ## Commands you will need
 
-| Purpose | Command | Expected on success |
-| --- | --- | --- |
-| Focused renderer tests | `bun test apps/desktop/src/renderer/routes/SettingsPage.test.ts apps/desktop/src/renderer/lib/runtimeModelsCache.test.ts` | all selected tests pass |
-| Existing runtime contract | `bun test apps/desktop/electron/runtime/runtimeModelLister.test.ts apps/desktop/electron/runtime/runtimeIpc.test.ts` | all selected tests pass |
-| Full tests | `bun test` | all tests pass |
-| Typecheck | `bun run typecheck` | exit 0, no errors |
-| Lint | `bun run lint` | exit 0, no findings |
-| Build | `bun run build` | exit 0 for every workspace |
-| Diff hygiene | `git diff --check` | exit 0, no whitespace errors |
+| Purpose                   | Command                                                                                                                   | Expected on success          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| Focused renderer tests    | `bun test apps/desktop/src/renderer/routes/SettingsPage.test.ts apps/desktop/src/renderer/lib/runtimeModelsCache.test.ts` | all selected tests pass      |
+| Existing runtime contract | `bun test apps/desktop/electron/runtime/runtimeModelLister.test.ts apps/desktop/electron/runtime/runtimeIpc.test.ts`      | all selected tests pass      |
+| Full tests                | `bun test`                                                                                                                | all tests pass               |
+| Typecheck                 | `bun run typecheck`                                                                                                       | exit 0, no errors            |
+| Lint                      | `bun run lint`                                                                                                            | exit 0, no findings          |
+| Build                     | `bun run build`                                                                                                           | exit 0 for every workspace   |
+| Diff hygiene              | `git diff --check`                                                                                                        | exit 0, no whitespace errors |
 
 ## Scope
 

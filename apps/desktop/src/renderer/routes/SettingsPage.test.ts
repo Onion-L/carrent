@@ -6,6 +6,7 @@ import {
   readGlobalAgentInstructions,
   readRtkGainStats,
   writeGlobalAgentInstructions,
+  writeGlobalRtkInstructions,
 } from "./SettingsPage";
 
 describe("canCheckKimiConnection", () => {
@@ -87,6 +88,14 @@ describe("global agent instructions helpers", () => {
       .catch((error) => {
         expect((error as Error).message).toContain("Restart Carrent");
       });
+
+    await writeGlobalRtkInstructions({}, "")
+      .then(() => {
+        throw new Error("Expected write to fail.");
+      })
+      .catch((error) => {
+        expect((error as Error).message).toContain("Restart Carrent");
+      });
   });
 
   it("forwards reads and writes to the preload API", async () => {
@@ -116,5 +125,22 @@ describe("global agent instructions helpers", () => {
       ),
     ).toEqual({ ...snapshot, content: "- simple\n" });
     expect(writes).toEqual(["- simple\n"]);
+  });
+
+  it("forwards RTK writes to the preload API", async () => {
+    const writes: string[] = [];
+
+    expect(
+      await writeGlobalRtkInstructions(
+        {
+          writeGlobalRtkInstructions: async (content) => {
+            writes.push(content);
+            return { path: "/Users/test/.agents/RTK.md", content };
+          },
+        },
+        "# RTK\n",
+      ),
+    ).toEqual({ path: "/Users/test/.agents/RTK.md", content: "# RTK\n" });
+    expect(writes).toEqual(["# RTK\n"]);
   });
 });

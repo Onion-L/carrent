@@ -1149,6 +1149,83 @@ describe("createChatSessionManager", () => {
     expect(shellEvents[2].shell.output).toContain("[output truncated]");
   });
 
+  it("preserves Kimi thinking around shell activity", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "Inspect first" },
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "tool_call",
+            toolCallId: "tool-shell-1",
+            title: "Bash",
+            kind: "execute",
+            status: "pending",
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tool-shell-1",
+            title: "Running: pwd",
+            kind: "execute",
+            status: "completed",
+            rawInput: { command: "pwd" },
+            rawOutput: "/tmp",
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "Verify result" },
+          });
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Done" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-kimi-thinking-shell", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    const activity = emitted
+      .filter((event) => event.type === "reasoning" || event.type === "shell")
+      .map((event) =>
+        event.type === "reasoning"
+          ? `${event.reasoning.id}:${event.reasoning.status}:${event.reasoning.content}`
+          : `${event.shell.id}:${event.shell.status}:${event.shell.command}`,
+      );
+
+    expect(activity).toEqual([
+      "kimi-thinking-1:running:Inspect first",
+      "kimi-thinking-1:completed:Inspect first",
+      "tool-shell-1:running:Bash",
+      "tool-shell-1:completed:pwd",
+      "kimi-thinking-2:running:Verify result",
+      "kimi-thinking-2:completed:Verify result",
+    ]);
+  });
+
   it("normalizes Kimi ACP file activity into reasoning events", async () => {
     const emitted: ChatRunEvent[] = [];
     const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {

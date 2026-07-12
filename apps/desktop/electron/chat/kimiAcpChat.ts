@@ -351,6 +351,7 @@ class KimiAcpRun {
   private sessionId: string | null = null;
   private finalText = "";
   private reasoningText = "";
+  private reasoningSegmentIndex = 0;
   private terminal = false;
   private stoppedByUser = false;
   private stopFallbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -459,18 +460,7 @@ class KimiAcpRun {
         return;
       }
 
-      if (this.reasoningText) {
-        this.emit({
-          type: "reasoning",
-          runId: this.options.runId,
-          requestKey: this.options.request.requestKey,
-          reasoning: {
-            id: "kimi-thinking",
-            content: this.reasoningText,
-            status: "completed",
-          },
-        });
-      }
+      this.completeReasoningSegment();
 
       await this.persistCompletedSession();
 
@@ -868,13 +858,16 @@ class KimiAcpRun {
     }
 
     if (updateType === "agent_thought_chunk" && text) {
+      if (!this.reasoningText) {
+        this.reasoningSegmentIndex += 1;
+      }
       this.reasoningText += text;
       this.emit({
         type: "reasoning",
         runId: this.options.runId,
         requestKey: this.options.request.requestKey,
         reasoning: {
-          id: "kimi-thinking",
+          id: `kimi-thinking-${this.reasoningSegmentIndex}`,
           content: this.reasoningText,
           status: "running",
         },
@@ -890,6 +883,9 @@ class KimiAcpRun {
   private handleToolUpdate(update: JsonObject) {
     const id = readString(update.toolCallId) ?? "kimi-tool";
     const existing = this.toolStates.get(id);
+    if (!existing) {
+      this.completeReasoningSegment();
+    }
     const rawInput = readObject(update.rawInput);
     const content = readTextContent(update.content);
     const parsedContent = parseJsonObject(content);
@@ -937,6 +933,24 @@ class KimiAcpRun {
           normalizeToolStatus(readString(update.status)) === "running" ? "running" : "completed",
       },
     });
+  }
+
+  private completeReasoningSegment() {
+    if (!this.reasoningText) {
+      return;
+    }
+
+    this.emit({
+      type: "reasoning",
+      runId: this.options.runId,
+      requestKey: this.options.request.requestKey,
+      reasoning: {
+        id: `kimi-thinking-${this.reasoningSegmentIndex}`,
+        content: this.reasoningText,
+        status: "completed",
+      },
+    });
+    this.reasoningText = "";
   }
 
   private emitThreadLifecycle() {

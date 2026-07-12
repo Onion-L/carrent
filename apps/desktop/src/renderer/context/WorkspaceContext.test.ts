@@ -367,4 +367,56 @@ describe("applyMessagePartUpdate", () => {
       ],
     });
   });
+
+  it("preserves reasoning and shell activity order", () => {
+    const message = makeMessage({
+      role: "assistant",
+      content: "",
+      parts: [],
+    });
+
+    const withFirstReasoning = applyMessagePartUpdate(message, {
+      kind: "upsert-reasoning",
+      reasoning: {
+        type: "reasoning",
+        id: "kimi-thinking-1",
+        content: "Inspect first",
+        status: "completed",
+      },
+    });
+    const withShell = applyMessagePartUpdate(withFirstReasoning, {
+      kind: "upsert-shell",
+      shell: {
+        type: "shell",
+        id: "tool-shell-1",
+        command: "pwd",
+        output: "",
+        status: "running",
+      },
+    });
+    const withCompletedShell = applyMessagePartUpdate(withShell, {
+      kind: "upsert-shell",
+      shell: {
+        type: "shell",
+        id: "tool-shell-1",
+        command: "pwd",
+        output: "/tmp",
+        status: "completed",
+      },
+    });
+
+    expect(
+      applyMessagePartUpdate(withCompletedShell, {
+        kind: "upsert-reasoning",
+        reasoning: {
+          type: "reasoning",
+          id: "kimi-thinking-2",
+          content: "Verify result",
+          status: "running",
+        },
+      }),
+    ).toMatchObject({
+      parts: [{ id: "kimi-thinking-1" }, { id: "tool-shell-1" }, { id: "kimi-thinking-2" }],
+    });
+  });
 });

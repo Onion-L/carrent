@@ -8,7 +8,9 @@ import {
   MessageTimeline,
   type UserMessageEditDraft,
 } from "../components/chat/MessageTimeline";
+import { WorkspaceDiffViewer } from "../components/chat/WorkspaceDiffViewer";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { WorkspaceDiffProvider, useWorkspaceDiff } from "../context/WorkspaceDiffContext";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
 
@@ -24,7 +26,7 @@ export function resolveThreadRouteData(
   return getThreadRouteData(projectId, threadId);
 }
 
-export function ThreadPage() {
+function ThreadPageContent() {
   const { projectId, threadId } = useParams();
   const [submitRequest, setSubmitRequest] = useState<ComposerSubmitRequest | undefined>();
   const {
@@ -35,6 +37,7 @@ export function ThreadPage() {
     setThreadRuntimeModelId,
   } = useWorkspace();
   const routeData = resolveThreadRouteData(getThreadRouteData, projectId, threadId);
+  const { state: diffState, closeDiff } = useWorkspaceDiff();
 
   useEffect(() => {
     setActiveThreadId(routeData?.thread.id ?? null);
@@ -77,24 +80,42 @@ export function ThreadPage() {
   ) : null;
 
   return (
-    <div className="flex h-full w-full flex-col">
-      <ChatHeader title={routeData?.thread.title ?? "Thread not found"} />
-      {routeData && isEmptyThread ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
-          <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
-            <EmptyThreadPrompt />
-            {composer}
+    <div className="flex h-full w-full">
+      <div className="flex h-full min-w-0 flex-1 flex-col">
+        <ChatHeader title={routeData?.thread.title ?? "Thread not found"} />
+        {routeData && isEmptyThread ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
+            <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
+              <EmptyThreadPrompt />
+              {composer}
+            </div>
           </div>
-        </div>
-      ) : (
-        <>
-          <MessageTimeline
-            messages={routeData?.messages ?? []}
-            onSubmitUserEdit={handleSubmitUserEdit}
-          />
-          {composer}
-        </>
+        ) : (
+          <>
+            <MessageTimeline
+              messages={routeData?.messages ?? []}
+              onSubmitUserEdit={handleSubmitUserEdit}
+            />
+            {composer}
+          </>
+        )}
+      </div>
+
+      {diffState.open && (
+        <WorkspaceDiffViewer
+          snapshot={diffState.snapshot}
+          files={diffState.files}
+          onClose={closeDiff}
+        />
       )}
     </div>
+  );
+}
+
+export function ThreadPage() {
+  return (
+    <WorkspaceDiffProvider>
+      <ThreadPageContent />
+    </WorkspaceDiffProvider>
   );
 }

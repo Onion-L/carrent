@@ -8,7 +8,9 @@ import {
   MessageTimeline,
   type UserMessageEditDraft,
 } from "../components/chat/MessageTimeline";
+import { WorkspaceDiffViewer } from "../components/chat/WorkspaceDiffViewer";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { WorkspaceDiffProvider, useWorkspaceDiff } from "../context/WorkspaceDiffContext";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
 
@@ -23,7 +25,7 @@ export function resolveChatRouteData(
   return getChatRouteData(threadId);
 }
 
-export function ChatPage() {
+function ChatPageContent() {
   const { threadId } = useParams();
   const [submitRequest, setSubmitRequest] = useState<ComposerSubmitRequest | undefined>();
   const {
@@ -34,6 +36,7 @@ export function ChatPage() {
     setChatRuntimeModelId,
   } = useWorkspace();
   const routeData = resolveChatRouteData(getChatRouteData, threadId);
+  const { state: diffState, closeDiff } = useWorkspaceDiff();
 
   useEffect(() => {
     setActiveThreadId(routeData?.thread.id ?? null);
@@ -69,24 +72,42 @@ export function ChatPage() {
   ) : null;
 
   return (
-    <div className="flex h-full w-full flex-col">
-      <ChatHeader title={routeData?.thread.title ?? "Chat not found"} />
-      {routeData && isEmptyThread ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
-          <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
-            <EmptyThreadPrompt />
-            {composer}
+    <div className="flex h-full w-full">
+      <div className="flex h-full min-w-0 flex-1 flex-col">
+        <ChatHeader title={routeData?.thread.title ?? "Chat not found"} />
+        {routeData && isEmptyThread ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
+            <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
+              <EmptyThreadPrompt />
+              {composer}
+            </div>
           </div>
-        </div>
-      ) : (
-        <>
-          <MessageTimeline
-            messages={routeData?.messages ?? []}
-            onSubmitUserEdit={handleSubmitUserEdit}
-          />
-          {composer}
-        </>
+        ) : (
+          <>
+            <MessageTimeline
+              messages={routeData?.messages ?? []}
+              onSubmitUserEdit={handleSubmitUserEdit}
+            />
+            {composer}
+          </>
+        )}
+      </div>
+
+      {diffState.open && (
+        <WorkspaceDiffViewer
+          snapshot={diffState.snapshot}
+          files={diffState.files}
+          onClose={closeDiff}
+        />
       )}
     </div>
+  );
+}
+
+export function ChatPage() {
+  return (
+    <WorkspaceDiffProvider>
+      <ChatPageContent />
+    </WorkspaceDiffProvider>
   );
 }

@@ -17,6 +17,7 @@ import {
   getRuntimeSelectionLabel,
   getSkillSlashTrigger,
   getChatHistoryMode,
+  mergeComposerDraftContent,
   normalizeGitBranchInfo,
   replaceSkillSlashTrigger,
   supportsRuntimeModelSelection,
@@ -40,6 +41,35 @@ const piModels = [
     source: "cli" as const,
   },
 ];
+
+describe("mergeComposerDraftContent", () => {
+  const incoming = "Follow up on this workspace diff review.\n\nSelected changes:\n- Entire file";
+
+  it("uses the incoming draft when the Composer is empty", () => {
+    expect(mergeComposerDraftContent("", incoming)).toBe(incoming);
+  });
+
+  it("replaces whitespace-only Composer content", () => {
+    expect(mergeComposerDraftContent(" \n\t ", incoming)).toBe(incoming);
+  });
+
+  it("preserves existing content with exactly two separating newlines", () => {
+    expect(mergeComposerDraftContent("Existing request", incoming)).toBe(
+      `Existing request\n\n${incoming}`,
+    );
+  });
+
+  it("preserves trailing whitespace without adding conditional blank lines", () => {
+    expect(mergeComposerDraftContent("Existing request  \n", incoming)).toBe(
+      `Existing request  \n\n\n${incoming}`,
+    );
+  });
+
+  it("keeps incoming multiline content unchanged", () => {
+    expect(mergeComposerDraftContent("", incoming)).toBe(incoming);
+    expect(mergeComposerDraftContent("", incoming).split("\n")).toEqual(incoming.split("\n"));
+  });
+});
 
 describe("supportsRuntimeModelSelection", () => {
   it("supports model selection for Kimi and pi runtimes", () => {
@@ -551,7 +581,11 @@ describe("skill slash helpers", () => {
 
 describe("createWorkspaceDiffCapture", () => {
   it("does not capture for General chat", async () => {
-    const workspaceDiff = async () => ({ state: "clean" as const, baseRevision: "abc", capturedAt: "now" });
+    const workspaceDiff = async () => ({
+      state: "clean" as const,
+      baseRevision: "abc",
+      capturedAt: "now",
+    });
     const append = () => {
       throw new Error("should not append");
     };
@@ -574,7 +608,11 @@ describe("createWorkspaceDiffCapture", () => {
       mode: "thread",
       projectPath: "/repo",
       threadId: "t1",
-      workspaceDiff: async () => ({ state: "clean" as const, baseRevision: "abc", capturedAt: "now" }),
+      workspaceDiff: async () => ({
+        state: "clean" as const,
+        baseRevision: "abc",
+        capturedAt: "now",
+      }),
       appendWorkspaceDiffMessage: append,
       showToast: () => {},
     });

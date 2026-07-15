@@ -2,16 +2,24 @@ import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
+  buildWorkspaceDiffFollowUp,
   classifyDiffLine,
   extractFilePathFromHeader,
+  splitFileBlockIntoHunks,
   splitPatchIntoFileBlocks,
   WorkspaceDiffContent,
   type WorkspaceDiffSnapshot,
 } from "./WorkspaceDiffViewer";
 import type { ChangedFile } from "../../mock/uiShellData";
 
-function renderContent(snapshot: WorkspaceDiffSnapshot, files: ChangedFile[]): string {
-  return renderToStaticMarkup(<WorkspaceDiffContent snapshot={snapshot} files={files} />);
+function renderContent(
+  snapshot: WorkspaceDiffSnapshot,
+  files: ChangedFile[],
+  onCreateFollowUp?: (content: string) => void,
+): string {
+  return renderToStaticMarkup(
+    <WorkspaceDiffContent snapshot={snapshot} files={files} onCreateFollowUp={onCreateFollowUp} />,
+  );
 }
 
 describe("classifyDiffLine", () => {
@@ -188,6 +196,74 @@ describe("WorkspaceDiffContent", () => {
     expect(html).toContain(">+</span>new</div>");
     expect(html).not.toContain(">+</span>b</div>");
   });
+
+  it("stays read-only without the follow-up callback", () => {
+    const snapshot: WorkspaceDiffSnapshot = {
+      baseRevision: "abcdef1234567890",
+      capturedAt: "2024-01-01T00:00:00.000Z",
+      patch: ["diff --git a/file.txt b/file.txt", "@@ -1 +1 @@", "-old", "+new"].join("\n"),
+      truncated: false,
+    };
+    const files: ChangedFile[] = [
+      { path: "file.txt", additions: 1, deletions: 1, binary: false, untracked: false },
+    ];
+
+    const html = renderContent(snapshot, files);
+    expect(html).not.toContain('type="checkbox"');
+    expect(html).not.toContain("What should change?");
+    expect(html).not.toContain("Add follow-up");
+    expect(html).toContain(
+      "Snapshot against HEAD after the run; may include pre-existing or external changes.",
+    );
+  });
+
+  it("renders review controls with the action initially disabled", () => {
+    const snapshot: WorkspaceDiffSnapshot = {
+      baseRevision: "abcdef1234567890",
+      capturedAt: "2024-01-01T00:00:00.000Z",
+      patch: ["diff --git a/file.txt b/file.txt", "@@ -1 +1 @@", "-old", "+new"].join("\n"),
+      truncated: false,
+    };
+    const files: ChangedFile[] = [
+      { path: "file.txt", additions: 1, deletions: 1, binary: false, untracked: false },
+    ];
+
+    const html = renderContent(snapshot, files, () => {});
+    expect(html).toContain('aria-label="Select entire file file.txt"');
+    expect(html).toContain('aria-label="Select hunk @@ -1 +1 @@ in file.txt"');
+    expect(html).toContain('placeholder="What should change?"');
+    expect(html).toContain("Add follow-up");
+    expect(html).toContain('disabled=""');
+  });
+
+  it("renders whole-file controls for binary, omitted, and summary-only files", () => {
+    const snapshot: WorkspaceDiffSnapshot = {
+      baseRevision: "abcdef1234567890",
+      capturedAt: "2024-01-01T00:00:00.000Z",
+      patch: ["diff --git a/visible.txt b/visible.txt", "@@ -1 +1 @@", "-old", "+new"].join("\n"),
+      truncated: true,
+    };
+    const files: ChangedFile[] = [
+      { path: "visible.txt", additions: 1, deletions: 1, binary: false, untracked: false },
+      { path: "image.png", additions: 0, deletions: 0, binary: true, untracked: false },
+      {
+        path: "huge.txt",
+        additions: 10,
+        deletions: 0,
+        binary: false,
+        untracked: false,
+        omitted: true,
+      },
+      { path: "summary.txt", additions: 2, deletions: 1, binary: false, untracked: false },
+    ];
+
+    const html = renderContent(snapshot, files, () => {});
+    expect(html).toContain("Files without visible diff");
+    expect(html).toContain('aria-label="Select entire file image.png"');
+    expect(html).toContain('aria-label="Select entire file huge.txt"');
+    expect(html).toContain('aria-label="Select entire file summary.txt"');
+    expect(html).toContain("Diff truncated and some files omitted.");
+  });
 });
 
 describe("extractFilePathFromHeader", () => {
@@ -258,5 +334,120 @@ describe("splitPatchIntoFileBlocks", () => {
     expect(blocks).toHaveLength(2);
     expect(blocks[0].path).toBe("one.txt");
     expect(blocks[1].path).toBe("two.txt");
+  });
+});
+
+describe("splitFileBlockIntoHunks", () => {
+  it("returns hunks in patch order and excludes pre-hunk headers", () => {
+    const hunks = splitFileBlockIntoHunks({
+      path: "src/file.ts",
+      lines: [
+        "diff --git a/src/file.ts b/src/file.ts",
+        "index 123..456 100644",
+        "@@ -1,2 +1,2 @@",
+        "-old one",
+        "+new one",
+        "@@ -10 +10,2 @@",
+        " context",
+        "+added",
+      ],
+    });
+
+    expect(hunks).toEqual([
+      {
+        header: "@@ -1,2 +1,2 @@",
+        lines: ["@@ -1,2 +1,2 @@", "-old one", "+new one"],
+      },
+      {
+        header: "@@ -10 +10,2 @@",
+        lines: ["@@ -10 +10,2 @@", " context", "+added"],
+      },
+    ]);
+  });
+
+  it("returns no hunks when a block has no hunk header", () => {
+    expect(
+      splitFileBlockIntoHunks({
+        path: "image.png",
+        lines: ["diff --git a/image.png b/image.png", "Binary files differ"],
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("buildWorkspaceDiffFollowUp", () => {
+  const snapshot: WorkspaceDiffSnapshot = {
+    baseRevision: "abcdef1234567890abcdef1234567890abcdef12",
+    capturedAt: "2026-07-16T08:30:45.123Z",
+    patch: "-secret old line\n+secret new line",
+    truncated: true,
+  };
+
+  it("formats mixed targets in the provided order with full snapshot metadata", () => {
+    expect(
+      buildWorkspaceDiffFollowUp({
+        snapshot,
+        reviewNote: "  Check the edge case.  ",
+        targets: [
+          { path: "src/file.ts", scope: "file" },
+          { path: "src/other.ts", scope: "hunk", header: "@@ -10,2 +10,3 @@" },
+        ],
+      }),
+    ).toBe(
+      [
+        "Follow up on this workspace diff review.",
+        "",
+        "Review note:",
+        "Check the edge case.",
+        "",
+        "Snapshot:",
+        "- Base revision: abcdef1234567890abcdef1234567890abcdef12",
+        "- Captured at: 2026-07-16T08:30:45.123Z",
+        "- This may include pre-existing or external changes.",
+        "",
+        "Selected changes:",
+        '- Entire file: "src/file.ts"',
+        '- Hunk in "src/other.ts": "@@ -10,2 +10,3 @@"',
+        "",
+        "Inspect the current workspace before editing because it may have changed since this snapshot.",
+      ].join("\n"),
+    );
+  });
+
+  it("uses JSON escaping for paths and hunk headers", () => {
+    const content = buildWorkspaceDiffFollowUp({
+      snapshot,
+      reviewNote: "Review escaping",
+      targets: [
+        { path: 'src/quo"te\\file.ts', scope: "file" },
+        { path: "src/other.ts", scope: "hunk", header: '@@ \\ "quoted" @@' },
+      ],
+    });
+
+    expect(content).toContain(`- Entire file: ${JSON.stringify('src/quo"te\\file.ts')}`);
+    expect(content).toContain(
+      `- Hunk in ${JSON.stringify("src/other.ts")}: ${JSON.stringify('@@ \\ "quoted" @@')}`,
+    );
+  });
+
+  it("preserves internal note newlines while trimming only the outside", () => {
+    const content = buildWorkspaceDiffFollowUp({
+      snapshot,
+      reviewNote: "\n  First line\n\nSecond line  \n",
+      targets: [{ path: "src/file.ts", scope: "file" }],
+    });
+
+    expect(content).toContain("Review note:\nFirst line\n\nSecond line");
+  });
+
+  it("never includes patch bodies or diff line content", () => {
+    const content = buildWorkspaceDiffFollowUp({
+      snapshot,
+      reviewNote: "Review this",
+      targets: [{ path: "src/file.ts", scope: "hunk", header: "@@ -1 +1 @@" }],
+    });
+
+    expect(content).not.toContain("secret old line");
+    expect(content).not.toContain("secret new line");
   });
 });

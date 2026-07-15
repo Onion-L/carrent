@@ -163,6 +163,19 @@ export type ComposerSubmitRequest = {
   requestId: number;
 };
 
+export type ComposerDraftRequest = {
+  content: string;
+  requestId: number;
+};
+
+export function mergeComposerDraftContent(current: string, incoming: string): string {
+  if (!current.trim()) {
+    return incoming;
+  }
+
+  return `${current}\n\n${incoming}`;
+}
+
 type ComposerProps =
   | {
       mode: "thread";
@@ -174,6 +187,7 @@ type ComposerProps =
       runtimeModelId?: string;
       runtimeMode: RuntimeMode;
       submitRequest?: ComposerSubmitRequest;
+      draftRequest?: ComposerDraftRequest;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
@@ -187,6 +201,7 @@ type ComposerProps =
       runtimeModelId?: string;
       runtimeMode: RuntimeMode;
       submitRequest?: ComposerSubmitRequest;
+      draftRequest?: ComposerDraftRequest;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
@@ -677,6 +692,7 @@ export function Composer(props: ComposerProps) {
   const flushTypewriterRef = useRef<VoidFunction | null>(null);
   const wasSendingRef = useRef(false);
   const lastSubmitRequestIdRef = useRef<number | null>(null);
+  const lastDraftRequestIdRef = useRef<number | null>(null);
   const projectId = props.mode === "chat" ? null : props.projectId;
   const project = projectId ? (projects.find((item) => item.id === projectId) ?? null) : null;
   const threadId = props.threadId;
@@ -1498,6 +1514,28 @@ export function Composer(props: ComposerProps) {
       attachments: props.submitRequest.attachments,
     });
   }, [props.submitRequest?.requestId, props.submitRequest?.content]);
+
+  useEffect(() => {
+    const draftRequest = props.draftRequest;
+    if (!draftRequest || lastDraftRequestIdRef.current === draftRequest.requestId) {
+      return;
+    }
+
+    lastDraftRequestIdRef.current = draftRequest.requestId;
+    setInput((current) => mergeComposerDraftContent(current, draftRequest.content));
+
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        return;
+      }
+
+      const end = textarea.value.length;
+      textarea.focus();
+      textarea.setSelectionRange(end, end);
+      setTextareaCursor(end);
+    });
+  }, [props.draftRequest?.requestId, props.draftRequest?.content]);
 
   const updateTextareaCursor = () => {
     const textarea = textareaRef.current;

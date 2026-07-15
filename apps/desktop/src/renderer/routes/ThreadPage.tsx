@@ -1,8 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import { ChatHeader } from "../components/chat/ChatHeader";
-import { Composer, type ComposerSubmitRequest } from "../components/chat/Composer";
+import {
+  Composer,
+  type ComposerDraftRequest,
+  type ComposerSubmitRequest,
+} from "../components/chat/Composer";
 import {
   EmptyThreadPrompt,
   MessageTimeline,
@@ -29,6 +33,8 @@ export function resolveThreadRouteData(
 function ThreadPageContent() {
   const { projectId, threadId } = useParams();
   const [submitRequest, setSubmitRequest] = useState<ComposerSubmitRequest | undefined>();
+  const [draftRequest, setDraftRequest] = useState<ComposerDraftRequest | undefined>();
+  const draftRequestIdRef = useRef(0);
   const {
     getThreadRouteData,
     setActiveThreadId,
@@ -45,6 +51,7 @@ function ThreadPageContent() {
 
   useEffect(() => {
     setSubmitRequest(undefined);
+    setDraftRequest(undefined);
   }, [routeData?.thread.id]);
 
   const handleSubmitUserEdit = (draft: UserMessageEditDraft) => {
@@ -67,6 +74,7 @@ function ThreadPageContent() {
       runtimeModelId={routeData.thread.runtimeModelId}
       runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
       submitRequest={submitRequest}
+      draftRequest={draftRequest}
       onRuntimeIdChange={(runtimeId) =>
         setThreadRuntimeId(routeData.project.id, routeData.thread.id, runtimeId)
       }
@@ -106,6 +114,11 @@ function ThreadPageContent() {
           snapshot={diffState.snapshot}
           files={diffState.files}
           onClose={closeDiff}
+          onCreateFollowUp={(content) => {
+            draftRequestIdRef.current += 1;
+            setDraftRequest({ content, requestId: draftRequestIdRef.current });
+            closeDiff();
+          }}
         />
       )}
     </div>

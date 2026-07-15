@@ -173,7 +173,7 @@ export function mergeComposerDraftContent(current: string, incoming: string): st
     return incoming;
   }
 
-  return `${current}\n\n${incoming}`;
+  return `${current.trimEnd()}\n\n${incoming}`;
 }
 
 type ComposerProps =

@@ -52,6 +52,7 @@ function ThreadPageContent() {
   useEffect(() => {
     setSubmitRequest(undefined);
     setDraftRequest(undefined);
+    closeDiff();
   }, [routeData?.thread.id]);
 
   const handleSubmitUserEdit = (draft: UserMessageEditDraft) => {
@@ -65,6 +66,7 @@ function ThreadPageContent() {
   const isEmptyThread = routeData?.messages.length === 0;
   const composer = routeData ? (
     <Composer
+      key={routeData.thread.id}
       mode="thread"
       placement={isEmptyThread ? "centered" : "default"}
       projectId={routeData.project.id}

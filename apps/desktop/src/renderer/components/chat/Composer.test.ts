@@ -59,9 +59,9 @@ describe("mergeComposerDraftContent", () => {
     );
   });
 
-  it("preserves trailing whitespace without adding conditional blank lines", () => {
+  it("removes trailing whitespace before adding exactly one blank line", () => {
     expect(mergeComposerDraftContent("Existing request  \n", incoming)).toBe(
-      `Existing request  \n\n\n${incoming}`,
+      `Existing request\n\n${incoming}`,
     );
   });
 

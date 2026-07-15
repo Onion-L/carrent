@@ -138,6 +138,17 @@ export function buildWorkspaceDiffFollowUp({
   reviewNote: string;
   targets: WorkspaceDiffReviewTarget[];
 }): string {
+  const trimmedReviewNote = reviewNote.trim();
+  if (!trimmedReviewNote) {
+    throw new Error("A review note is required.");
+  }
+  if (targets.length === 0) {
+    throw new Error("At least one review target is required.");
+  }
+  if (targets.some((target) => target.path === "unknown")) {
+    throw new Error("Unknown diff paths cannot be reviewed.");
+  }
+
   const selectedChanges = targets.map((target) => {
     if (target.scope === "file") {
       return `- Entire file: ${JSON.stringify(target.path)}`;
@@ -150,7 +161,7 @@ export function buildWorkspaceDiffFollowUp({
     "Follow up on this workspace diff review.",
     "",
     "Review note:",
-    reviewNote.trim(),
+    trimmedReviewNote,
     "",
     "Snapshot:",
     `- Base revision: ${snapshot.baseRevision}`,
@@ -162,6 +173,79 @@ export function buildWorkspaceDiffFollowUp({
     "",
     "Inspect the current workspace before editing because it may have changed since this snapshot.",
   ].join("\n");
+}
+
+export function buildOrderedWorkspaceDiffReviewTargets({
+  files,
+  blocks,
+  isFileSelected,
+  isHunkSelected,
+}: {
+  files: ChangedFile[];
+  blocks: DiffFileBlock[];
+  isFileSelected: (path: string) => boolean;
+  isHunkSelected: (path: string, header: string) => boolean;
+}): WorkspaceDiffReviewTarget[] {
+  const targets: WorkspaceDiffReviewTarget[] = [];
+  const processedPaths = new Set<string>();
+  const addedHunks = new Set<string>();
+
+  const appendPath = (path: string) => {
+    if (path === "unknown" || processedPaths.has(path)) {
+      return;
+    }
+    processedPaths.add(path);
+
+    if (isFileSelected(path)) {
+      targets.push({ path, scope: "file" });
+      return;
+    }
+
+    for (const block of blocks) {
+      if (block.path !== path) {
+        continue;
+      }
+      for (const hunk of splitFileBlockIntoHunks(block)) {
+        const key = getHunkSelectionKey(path, hunk.header);
+        if (isHunkSelected(path, hunk.header) && !addedHunks.has(key)) {
+          targets.push({ path, scope: "hunk", header: hunk.header });
+          addedHunks.add(key);
+        }
+      }
+    }
+  };
+
+  for (const file of files) {
+    if (!file.isFolder) {
+      appendPath(file.path);
+    }
+  }
+  for (const block of blocks) {
+    appendPath(block.path);
+  }
+
+  return targets;
+}
+
+export function getSelectedHunkSummary({
+  path,
+  hunks,
+  isSelected,
+}: {
+  path: string;
+  hunks: DiffHunk[];
+  isSelected: (path: string, header: string) => boolean;
+}): string | null {
+  const selected = new Set(
+    hunks
+      .filter((hunk) => isSelected(path, hunk.header))
+      .map((hunk) => getHunkSelectionKey(path, hunk.header)),
+  );
+  if (selected.size === 0) {
+    return null;
+  }
+
+  return `${selected.size} hunk${selected.size === 1 ? "" : "s"} selected`;
 }
 
 function DiffLine({ line }: { line: string }) {
@@ -226,23 +310,32 @@ function FileDiffBlock({
   const deletions = file?.deletions ?? 0;
   const hunks = useMemo(() => splitFileBlockIntoHunks(block), [block]);
   const firstHunkIndex = block.lines.findIndex((line) => line.startsWith("@@"));
-  const selectable = reviewEnabled && block.path !== "unknown" && !!file && !file.isFolder;
+  const selectable =
+    reviewEnabled && block.path !== "unknown" && !file?.isFolder && !file?.binary && !file?.omitted;
+  const selectedHunkSummary = getSelectedHunkSummary({
+    path: block.path,
+    hunks,
+    isSelected: (path, header) => selectedHunkKeys.has(getHunkSelectionKey(path, header)),
+  });
 
   return (
     <div className="mb-3 overflow-hidden rounded-lg border border-border last:mb-0">
       <div className="flex items-center bg-surface">
         {selectable ? (
-          <input
-            type="checkbox"
-            checked={fileSelected}
-            onChange={(event) => onFileSelectionChange(block.path, event.target.checked)}
-            aria-label={`Select entire file ${block.path}`}
-            className="ml-3 h-4 w-4 shrink-0 accent-fg outline-none focus-visible:ring-2 focus-visible:ring-fg"
-          />
+          <label className="ml-2 flex h-6 w-6 shrink-0 items-center justify-center">
+            <input
+              type="checkbox"
+              checked={fileSelected}
+              onChange={(event) => onFileSelectionChange(block.path, event.target.checked)}
+              aria-label={`Select entire file ${block.path}`}
+              className="h-4 w-4 accent-fg outline-none focus-visible:ring-2 focus-visible:ring-fg"
+            />
+          </label>
         ) : null}
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}
+          aria-expanded={expanded}
           className="flex min-w-0 flex-1 items-center justify-between gap-3 px-3 py-2 text-left transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg"
         >
           <div className="flex min-w-0 items-center gap-2">
@@ -256,6 +349,7 @@ function FileDiffBlock({
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-2 text-app-12">
+            {selectedHunkSummary ? <span className="text-muted">{selectedHunkSummary}</span> : null}
             {file?.binary ? (
               <span className="text-subtle">Binary</span>
             ) : (
@@ -281,15 +375,17 @@ function FileDiffBlock({
               <div key={`${index}-${hunk.header}`}>
                 {selectable ? (
                   <div className="flex min-w-0 items-start gap-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedHunkKeys.has(key)}
-                      onChange={(event) =>
-                        onHunkSelectionChange(block.path, hunk.header, event.target.checked)
-                      }
-                      aria-label={`Select hunk ${hunk.header} in ${block.path}`}
-                      className="mt-0.5 h-4 w-4 shrink-0 accent-fg outline-none focus-visible:ring-2 focus-visible:ring-fg"
-                    />
+                    <label className="flex h-6 w-6 shrink-0 items-center justify-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedHunkKeys.has(key)}
+                        onChange={(event) =>
+                          onHunkSelectionChange(block.path, hunk.header, event.target.checked)
+                        }
+                        aria-label={`Select hunk ${hunk.header} in ${block.path}`}
+                        className="h-4 w-4 accent-fg outline-none focus-visible:ring-2 focus-visible:ring-fg"
+                      />
+                    </label>
                     <div className="min-w-0">
                       <DiffLine line={hunk.header} />
                     </div>
@@ -413,37 +509,6 @@ export function WorkspaceDiffContent({
     });
   };
 
-  const buildSelectedTargets = (): WorkspaceDiffReviewTarget[] => {
-    const targets: WorkspaceDiffReviewTarget[] = [];
-    const added = new Set<string>();
-
-    for (const file of files) {
-      if (file.isFolder || added.has(file.path)) {
-        continue;
-      }
-      if (selectedFilePaths.has(file.path)) {
-        targets.push({ path: file.path, scope: "file" });
-        added.add(file.path);
-        continue;
-      }
-
-      for (const block of blocks) {
-        if (block.path !== file.path) {
-          continue;
-        }
-        for (const hunk of splitFileBlockIntoHunks(block)) {
-          const key = getHunkSelectionKey(file.path, hunk.header);
-          if (selectedHunkKeys.has(key) && !added.has(key)) {
-            targets.push({ path: file.path, scope: "hunk", header: hunk.header });
-            added.add(key);
-          }
-        }
-      }
-    }
-
-    return targets;
-  };
-
   const canCreateFollowUp =
     !!onCreateFollowUp &&
     reviewNote.trim().length > 0 &&
@@ -511,21 +576,23 @@ export function WorkspaceDiffContent({
                   key={file.path}
                   className="flex min-h-9 items-center gap-2 px-3 py-2 text-app-12 text-fg"
                 >
-                  {onCreateFollowUp ? (
-                    <input
-                      type="checkbox"
-                      checked={selectedFilePaths.has(file.path)}
-                      onChange={(event) =>
-                        handleFileSelectionChange(file.path, event.target.checked)
-                      }
-                      aria-label={`Select entire file ${file.path}`}
-                      className="h-4 w-4 shrink-0 accent-fg outline-none focus-visible:ring-2 focus-visible:ring-fg"
-                    />
+                  {onCreateFollowUp && file.path !== "unknown" ? (
+                    <label className="flex h-6 w-6 shrink-0 items-center justify-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedFilePaths.has(file.path)}
+                        onChange={(event) =>
+                          handleFileSelectionChange(file.path, event.target.checked)
+                        }
+                        aria-label={`Select entire file ${file.path}`}
+                        className="h-4 w-4 accent-fg outline-none focus-visible:ring-2 focus-visible:ring-fg"
+                      />
+                    </label>
                   ) : null}
                   <span className="min-w-0 flex-1 truncate font-mono" title={file.path}>
                     {file.path}
                   </span>
-                  <span className="shrink-0 text-subtle">
+                  <span className="shrink-0 text-muted">
                     {file.binary ? "Binary" : file.omitted ? "Omitted" : "Summary only"}
                   </span>
                 </div>
@@ -549,7 +616,13 @@ export function WorkspaceDiffContent({
               type="button"
               disabled={!canCreateFollowUp}
               onClick={() => {
-                const targets = buildSelectedTargets();
+                const targets = buildOrderedWorkspaceDiffReviewTargets({
+                  files,
+                  blocks,
+                  isFileSelected: (path) => selectedFilePaths.has(path),
+                  isHunkSelected: (path, header) =>
+                    selectedHunkKeys.has(getHunkSelectionKey(path, header)),
+                });
                 if (targets.length === 0 || !reviewNote.trim()) {
                   return;
                 }
@@ -596,7 +669,6 @@ export function WorkspaceDiffViewer({
     <div
       className="flex h-full w-[32rem] min-w-0 shrink-0 flex-col border-l border-border bg-bg"
       role="dialog"
-      aria-modal="true"
       aria-label="Workspace diff"
     >
       <div
@@ -618,6 +690,7 @@ export function WorkspaceDiffViewer({
 
       <div className="min-h-0 flex-1 overflow-hidden">
         <WorkspaceDiffContent
+          key={`${snapshot.baseRevision}\u0000${snapshot.capturedAt}`}
           snapshot={snapshot}
           files={files}
           onCreateFollowUp={onCreateFollowUp}

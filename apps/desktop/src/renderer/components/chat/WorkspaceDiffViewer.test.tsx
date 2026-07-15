@@ -2,12 +2,15 @@ import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
+  buildOrderedWorkspaceDiffReviewTargets,
   buildWorkspaceDiffFollowUp,
   classifyDiffLine,
   extractFilePathFromHeader,
+  getSelectedHunkSummary,
   splitFileBlockIntoHunks,
   splitPatchIntoFileBlocks,
   WorkspaceDiffContent,
+  WorkspaceDiffViewer,
   type WorkspaceDiffSnapshot,
 } from "./WorkspaceDiffViewer";
 import type { ChangedFile } from "../../mock/uiShellData";
@@ -20,6 +23,16 @@ function renderContent(
   return renderToStaticMarkup(
     <WorkspaceDiffContent snapshot={snapshot} files={files} onCreateFollowUp={onCreateFollowUp} />,
   );
+}
+
+function getThrownMessage(callback: () => unknown): string {
+  try {
+    callback();
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  throw new Error("Expected callback to throw.");
 }
 
 describe("classifyDiffLine", () => {
@@ -195,6 +208,8 @@ describe("WorkspaceDiffContent", () => {
     expect(html).toContain("second.txt");
     expect(html).toContain(">+</span>new</div>");
     expect(html).not.toContain(">+</span>b</div>");
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('aria-expanded="false"');
   });
 
   it("stays read-only without the follow-up callback", () => {
@@ -263,6 +278,50 @@ describe("WorkspaceDiffContent", () => {
     expect(html).toContain('aria-label="Select entire file huge.txt"');
     expect(html).toContain('aria-label="Select entire file summary.txt"');
     expect(html).toContain("Diff truncated and some files omitted.");
+  });
+
+  it("keeps known patch paths selectable when they are absent from the summary", () => {
+    const snapshot: WorkspaceDiffSnapshot = {
+      baseRevision: "abcdef1234567890",
+      capturedAt: "2024-01-01T00:00:00.000Z",
+      patch: [
+        "@@ -1 +1 @@",
+        "-unparsed old",
+        "+unparsed new",
+        "diff --git a/unlisted.txt b/unlisted.txt",
+        "@@ -1 +1 @@",
+        "-old",
+        "+new",
+      ].join("\n"),
+      truncated: true,
+    };
+    const files: ChangedFile[] = [
+      { path: "unknown", additions: 1, deletions: 1, binary: false, untracked: false },
+    ];
+
+    const html = renderContent(snapshot, files, () => {});
+    expect(html).toContain('aria-label="Select entire file unlisted.txt"');
+    expect(html).not.toContain('aria-label="Select entire file unknown"');
+  });
+});
+
+describe("WorkspaceDiffViewer", () => {
+  it("renders as a non-modal side pane", () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceDiffViewer
+        snapshot={{
+          baseRevision: "abcdef1234567890",
+          capturedAt: "2024-01-01T00:00:00.000Z",
+          patch: "",
+          truncated: false,
+        }}
+        files={[]}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(html).toContain('role="dialog"');
+    expect(html).not.toContain("aria-modal");
   });
 });
 
@@ -338,6 +397,20 @@ describe("splitPatchIntoFileBlocks", () => {
 });
 
 describe("splitFileBlockIntoHunks", () => {
+  it("returns one hunk with its complete line range", () => {
+    expect(
+      splitFileBlockIntoHunks({
+        path: "src/one.ts",
+        lines: ["diff --git a/src/one.ts b/src/one.ts", "@@ -1 +1,2 @@", " old", "+new"],
+      }),
+    ).toEqual([
+      {
+        header: "@@ -1 +1,2 @@",
+        lines: ["@@ -1 +1,2 @@", " old", "+new"],
+      },
+    ]);
+  });
+
   it("returns hunks in patch order and excludes pre-hunk headers", () => {
     const hunks = splitFileBlockIntoHunks({
       path: "src/file.ts",
@@ -449,5 +522,111 @@ describe("buildWorkspaceDiffFollowUp", () => {
 
     expect(content).not.toContain("secret old line");
     expect(content).not.toContain("secret new line");
+  });
+
+  it("rejects an empty trimmed note", () => {
+    expect(
+      getThrownMessage(() =>
+        buildWorkspaceDiffFollowUp({
+          snapshot,
+          reviewNote: " \n\t ",
+          targets: [{ path: "src/file.ts", scope: "file" }],
+        }),
+      ),
+    ).toBe("A review note is required.");
+  });
+
+  it("rejects an empty target list", () => {
+    expect(
+      getThrownMessage(() =>
+        buildWorkspaceDiffFollowUp({
+          snapshot,
+          reviewNote: "Review this",
+          targets: [],
+        }),
+      ),
+    ).toBe("At least one review target is required.");
+  });
+
+  it("rejects the unknown path sentinel", () => {
+    expect(
+      getThrownMessage(() =>
+        buildWorkspaceDiffFollowUp({
+          snapshot,
+          reviewNote: "Review this",
+          targets: [{ path: "unknown", scope: "file" }],
+        }),
+      ),
+    ).toBe("Unknown diff paths cannot be reviewed.");
+  });
+});
+
+describe("buildOrderedWorkspaceDiffReviewTargets", () => {
+  it("orders summary paths first, then unmatched known blocks in patch order", () => {
+    const files: ChangedFile[] = [
+      { path: "summary-b.ts", additions: 1, deletions: 0, binary: false, untracked: false },
+      { path: "summary-a.ts", additions: 1, deletions: 0, binary: false, untracked: false },
+      { path: "unknown", additions: 1, deletions: 0, binary: false, untracked: false },
+    ];
+    const blocks = [
+      { path: "unmatched-c.ts", lines: ["@@ -1 +1 @@", "+c"] },
+      { path: "summary-a.ts", lines: ["@@ -2 +2 @@", "+a"] },
+      { path: "unmatched-d.ts", lines: ["@@ -3 +3 @@", "+d"] },
+      { path: "unknown", lines: ["@@ -4 +4 @@", "+unknown"] },
+    ];
+    const selectedFiles = new Set(["summary-b.ts", "unmatched-d.ts", "unknown"]);
+    const selectedHunks = new Set([
+      "summary-a.ts\u0000@@ -2 +2 @@",
+      "unmatched-c.ts\u0000@@ -1 +1 @@",
+      "unknown\u0000@@ -4 +4 @@",
+    ]);
+
+    expect(
+      buildOrderedWorkspaceDiffReviewTargets({
+        files,
+        blocks,
+        isFileSelected: (path) => selectedFiles.has(path),
+        isHunkSelected: (path, header) => selectedHunks.has(`${path}\u0000${header}`),
+      }),
+    ).toEqual([
+      { path: "summary-b.ts", scope: "file" },
+      { path: "summary-a.ts", scope: "hunk", header: "@@ -2 +2 @@" },
+      { path: "unmatched-c.ts", scope: "hunk", header: "@@ -1 +1 @@" },
+      { path: "unmatched-d.ts", scope: "file" },
+    ]);
+  });
+});
+
+describe("getSelectedHunkSummary", () => {
+  const hunks = [
+    { header: "@@ -1 +1 @@", lines: ["@@ -1 +1 @@"] },
+    { header: "@@ -3 +3 @@", lines: ["@@ -3 +3 @@"] },
+  ];
+
+  it("returns compact singular and plural collapsed-file status", () => {
+    expect(
+      getSelectedHunkSummary({
+        path: "src/file.ts",
+        hunks,
+        isSelected: (_path, header) => header === "@@ -1 +1 @@",
+      }),
+    ).toBe("1 hunk selected");
+    expect(
+      getSelectedHunkSummary({
+        path: "src/file.ts",
+        hunks,
+        isSelected: () => true,
+      }),
+    ).toBe("2 hunks selected");
+  });
+
+  it("returns no status when no hunks are selected", () => {
+    expect(
+      getSelectedHunkSummary({
+        path: "src/file.ts",
+        hunks,
+        isSelected: () => false,
+      }),
+    ).toBe(null);
   });
 });

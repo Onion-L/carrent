@@ -32,8 +32,12 @@ export function resolveThreadRouteData(
 
 function ThreadPageContent() {
   const { projectId, threadId } = useParams();
-  const [submitRequest, setSubmitRequest] = useState<ComposerSubmitRequest | undefined>();
-  const [draftRequest, setDraftRequest] = useState<ComposerDraftRequest | undefined>();
+  const [submitRequest, setSubmitRequest] = useState<
+    { threadId: string; request: ComposerSubmitRequest } | undefined
+  >();
+  const [draftRequest, setDraftRequest] = useState<
+    { threadId: string; request: ComposerDraftRequest } | undefined
+  >();
   const draftRequestIdRef = useRef(0);
   const {
     getThreadRouteData,
@@ -56,11 +60,18 @@ function ThreadPageContent() {
   }, [routeData?.thread.id]);
 
   const handleSubmitUserEdit = (draft: UserMessageEditDraft) => {
+    if (!routeData) {
+      return;
+    }
+
     setSubmitRequest({
-      messageId: draft.messageId,
-      content: draft.content,
-      attachments: draft.attachments,
-      requestId: Date.now(),
+      threadId: routeData.thread.id,
+      request: {
+        messageId: draft.messageId,
+        content: draft.content,
+        attachments: draft.attachments,
+        requestId: Date.now(),
+      },
     });
   };
   const isEmptyThread = routeData?.messages.length === 0;
@@ -75,8 +86,12 @@ function ThreadPageContent() {
       runtimeId={routeData.thread.runtimeId ?? DEFAULT_RUNTIME_ID}
       runtimeModelId={routeData.thread.runtimeModelId}
       runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
-      submitRequest={submitRequest}
-      draftRequest={draftRequest}
+      submitRequest={
+        submitRequest?.threadId === routeData.thread.id ? submitRequest.request : undefined
+      }
+      draftRequest={
+        draftRequest?.threadId === routeData.thread.id ? draftRequest.request : undefined
+      }
       onRuntimeIdChange={(runtimeId) =>
         setThreadRuntimeId(routeData.project.id, routeData.thread.id, runtimeId)
       }
@@ -116,11 +131,18 @@ function ThreadPageContent() {
           snapshot={diffState.snapshot}
           files={diffState.files}
           onClose={closeDiff}
-          onCreateFollowUp={(content) => {
-            draftRequestIdRef.current += 1;
-            setDraftRequest({ content, requestId: draftRequestIdRef.current });
-            closeDiff();
-          }}
+          onCreateFollowUp={
+            routeData
+              ? (content) => {
+                  draftRequestIdRef.current += 1;
+                  setDraftRequest({
+                    threadId: routeData.thread.id,
+                    request: { content, requestId: draftRequestIdRef.current },
+                  });
+                  closeDiff();
+                }
+              : undefined
+          }
         />
       )}
     </div>

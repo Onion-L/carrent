@@ -8,6 +8,7 @@ import {
   GitBranch,
   Image,
   Lock,
+  ListChecks,
   Pencil,
   Plus,
   RefreshCw,
@@ -48,10 +49,7 @@ import type { Message } from "../../mock/uiShellData";
 import type { GitWorkspaceDiffResult } from "../../../../electron/git/gitIpc";
 import { type ChatReasoningEventPayload, type ChatShellEventPayload } from "../../../shared/chat";
 import type { SkillRecord } from "../../../shared/skills";
-import type {
-  ChatPermissionDecision,
-  ChatPermissionRequest,
-} from "../../../shared/chatPermissions";
+import type { ChatPermissionRequest } from "../../../shared/chatPermissions";
 import {
   DEFAULT_RUNTIME_MODE,
   getRuntimeModeLabel,
@@ -70,6 +68,9 @@ import { useSkills } from "../../hooks/useSkills";
 import { useMcpServer } from "../../hooks/useMcpServer";
 import { getChatRuntimeOptions, isChatRuntimeAvailable } from "../../lib/runtimeSelection";
 import { useToast } from "../toast/ToastContext";
+
+export const PLAN_REVIEW_FOLLOW_UP_TEXT =
+  "Does this plan look good? Reply naturally to start execution or describe what you want changed.";
 
 function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: string }) {
   switch (mode) {
@@ -176,6 +177,22 @@ export function mergeComposerDraftContent(current: string, incoming: string): st
   return `${current.trimEnd()}\n\n${incoming}`;
 }
 
+export function getMessageTranscriptContent(message: Message) {
+  if (
+    message.type === "changed_files" ||
+    !message.parts?.some((part) => part.type === "plan_review")
+  ) {
+    return message.content ?? "";
+  }
+
+  return message.parts
+    .flatMap((part) =>
+      part.type === "text" || part.type === "plan_review" ? [part.content] : [],
+    )
+    .filter((content) => content.trim().length > 0)
+    .join("\n\n");
+}
+
 type ComposerProps =
   | {
       mode: "thread";
@@ -186,11 +203,13 @@ type ComposerProps =
       runtimeId: RuntimeId;
       runtimeModelId?: string;
       runtimeMode: RuntimeMode;
+      planMode: boolean;
       submitRequest?: ComposerSubmitRequest;
       draftRequest?: ComposerDraftRequest;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
+      onPlanModeChange?: (enabled: boolean) => void;
     }
   | {
       mode: "chat";
@@ -200,11 +219,13 @@ type ComposerProps =
       runtimeId: RuntimeId;
       runtimeModelId?: string;
       runtimeMode: RuntimeMode;
+      planMode: boolean;
       submitRequest?: ComposerSubmitRequest;
       draftRequest?: ComposerDraftRequest;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
+      onPlanModeChange?: (enabled: boolean) => void;
     };
 
 type AttachmentStoreBridge = {
@@ -517,8 +538,16 @@ export function getActionablePermissionsForThread({
   threadId: string;
 }) {
   return pendingPermissions.filter(
-    (permission) => permission.threadId === threadId && permission.provider === "kimi",
+    (permission) =>
+      permission.threadId === threadId && permission.provider === "kimi" && !permission.planReview,
   );
+}
+
+export function getPermissionOption(
+  permission: ChatPermissionRequest,
+  kind: "allow_once" | "reject_once",
+) {
+  return permission.options.find((option) => option.kind === kind) ?? null;
 }
 
 export function getPermissionDetail(permission: ChatPermissionRequest) {
@@ -558,6 +587,46 @@ export function getSkillSlashTrigger(
     end: nextWhitespace ? cursor + nextWhitespace.index : input.length,
     query,
   };
+}
+
+export function parseLeadingPlanCommand(input: string) {
+  const match = /^\s*\/plan(?=$|\s)(?:[ \t]+)?([\s\S]*)$/u.exec(input);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    task: (match[1] ?? "").trimStart(),
+  };
+}
+
+export function getPlanSubmissionState(
+  input: string,
+  runtimeId: RuntimeId,
+  currentPlanMode: boolean,
+) {
+  const command = runtimeId === "kimi" ? parseLeadingPlanCommand(input) : null;
+  return {
+    command,
+    task: command?.task ?? input,
+    planMode: runtimeId === "kimi" && (currentPlanMode || command !== null),
+    attachOnly: command !== null && command.task.trim().length === 0,
+  };
+}
+
+export function shouldShowPlanSlashSuggestion(
+  runtimeId: RuntimeId,
+  input: string,
+  trigger: SkillSlashTrigger | null,
+) {
+  if (runtimeId !== "kimi" || !trigger) {
+    return false;
+  }
+
+  return (
+    input.slice(0, trigger.start).trim().length === 0 &&
+    "plan".startsWith(trigger.query.trim().toLowerCase())
+  );
 }
 
 function normalizeSkillQuery(value: string) {
@@ -720,6 +789,7 @@ export function Composer(props: ComposerProps) {
         runtimeModelId: props.runtimeModelId,
       }),
       runtimeMode: props.runtimeMode,
+      planMode: false,
       transcript: [],
       message: "",
     });
@@ -790,11 +860,16 @@ export function Composer(props: ComposerProps) {
         : [],
     [localMcpSkillsDisabled, skillTrigger, skills],
   );
-  const showSkillMenu =
+  const showPlanSuggestion =
+    dismissedSkillInput !== input &&
+    shouldShowPlanSlashSuggestion(props.runtimeId, input, skillTrigger);
+  const showSkills =
     !!skillTrigger &&
     !localMcpSkillsDisabled &&
     dismissedSkillInput !== input &&
     (skillsLoading || !!skillsError || filteredSkills.length > 0 || skillTrigger.query.length > 0);
+  const showSlashMenu = showPlanSuggestion || showSkills;
+  const slashMenuItemCount = (showPlanSuggestion ? 1 : 0) + filteredSkills.length;
 
   const effectiveAttachedSkills = localMcpSkillsDisabled ? [] : attachedSkills;
   const hasSendableContent =
@@ -1028,10 +1103,10 @@ export function Composer(props: ComposerProps) {
 
   useEffect(() => {
     setSelectedSkillIndex(0);
-  }, [skillTrigger?.query, filteredSkills.length]);
+  }, [skillTrigger?.query, filteredSkills.length, showPlanSuggestion]);
 
   useEffect(() => {
-    if (!showSkillMenu) {
+    if (!showSlashMenu) {
       return;
     }
 
@@ -1039,7 +1114,7 @@ export function Composer(props: ComposerProps) {
     if (selectedButton) {
       selectedButton.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
-  }, [selectedSkillIndex, showSkillMenu]);
+  }, [selectedSkillIndex, showSlashMenu]);
 
   useEffect(() => {
     if (!showRuntimePicker || !cascadingRuntimeId) {
@@ -1211,7 +1286,14 @@ export function Composer(props: ComposerProps) {
     const isExternalSubmit = externalSubmit !== undefined;
     const currentPendingAttachments = externalSubmit ? [] : pendingAttachments;
     const currentAttachedSkills = externalSubmit ? [] : effectiveAttachedSkills;
-    const currentInput = externalSubmit ? externalSubmit.content.trim() : input.trim();
+    const planSubmission = getPlanSubmissionState(input, props.runtimeId, props.planMode);
+    const planCommand = externalSubmit ? null : planSubmission.command;
+    const effectivePlanMode = externalSubmit
+      ? props.runtimeId === "kimi" && props.planMode
+      : planSubmission.planMode;
+    const currentInput = externalSubmit
+      ? externalSubmit.content.trim()
+      : planSubmission.task.trim();
     const hasCurrentSendableContent =
       !!currentInput || currentAttachedSkills.length > 0 || currentPendingAttachments.length > 0;
     const canSendCurrent =
@@ -1219,7 +1301,18 @@ export function Composer(props: ComposerProps) {
         ? hasCurrentSendableContent
         : hasCurrentSendableContent && !!project) && isSelectedRuntimeAvailable;
 
+    if (planCommand && planSubmission.attachOnly) {
+      props.onPlanModeChange?.(true);
+      setInput("");
+      setTextareaCursor(0);
+      return true;
+    }
+
     if (!canSendCurrent || isThreadSending) return false;
+
+    if (planCommand) {
+      props.onPlanModeChange?.(true);
+    }
 
     if (props.mode === "thread") {
       promoteDraftThread(props.projectId, props.threadId);
@@ -1384,7 +1477,7 @@ export function Composer(props: ComposerProps) {
       .slice(-6)
       .map((m) => ({
         role: m.role,
-        content: m.content ?? "",
+        content: getMessageTranscriptContent(m),
       }));
 
     const sendStarted = await send(
@@ -1404,6 +1497,7 @@ export function Composer(props: ComposerProps) {
           runtimeModelId: props.runtimeModelId,
         }),
         runtimeMode: props.runtimeMode,
+        planMode: effectivePlanMode,
         transcript,
         message: messageText,
         attachments: attachmentMetadata,
@@ -1426,6 +1520,43 @@ export function Composer(props: ComposerProps) {
         },
         onPermissionRequested: (permission) => {
           markThreadActivity(threadId, Date.parse(permission.createdAt));
+          if (permission.planReview) {
+            updateMessageParts(assistantMsg.id, {
+              kind: "upsert-plan-review",
+              review: {
+                type: "plan_review",
+                id: `plan-review-${permission.id}`,
+                permissionId: permission.id,
+                content: permission.planReview.content,
+                status: "pending",
+                options: permission.options,
+              },
+            });
+            updateLocalMessageTextPart(assistantMsg.id, PLAN_REVIEW_FOLLOW_UP_TEXT);
+          }
+        },
+        onPermissionResolved: (resolution) => {
+          const status =
+            resolution.optionId === "plan_revise"
+              ? "revision-requested"
+              : resolution.optionId === "plan_reject_and_exit"
+                ? "rejected"
+                : "approved";
+          updateMessageParts(assistantMsg.id, {
+            kind: "resolve-plan-review",
+            permissionId: resolution.permissionId,
+            status,
+            selectedOptionId: resolution.optionId,
+            selectedOptionName: resolution.optionName,
+          });
+        },
+        onPermissionsInterrupted: (permissions) => {
+          if (permissions.some((permission) => permission.planReview)) {
+            updateMessageParts(assistantMsg.id, { kind: "interrupt-plan-reviews" });
+          }
+        },
+        onPlanModeChanged: (enabled) => {
+          props.onPlanModeChange?.(enabled);
         },
         onComplete: (text) => {
           if (!receivedTextRef.current || text.startsWith(receivedTextRef.current)) {
@@ -1578,18 +1709,40 @@ export function Composer(props: ComposerProps) {
     });
   };
 
+  const handlePlanInsert = () => {
+    if (!skillTrigger) {
+      return;
+    }
+
+    const beforeTrigger = input.slice(0, skillTrigger.start).replace(/\s+$/u, "");
+    const afterTrigger = input.slice(skillTrigger.end).replace(/^\s+/u, "");
+    const separator = beforeTrigger && afterTrigger ? " " : "";
+    const nextInput = `${beforeTrigger}${separator}${afterTrigger}`;
+    const nextCursor = beforeTrigger.length + (separator ? 1 : 0);
+    props.onPlanModeChange?.(true);
+    setInput(nextInput);
+    setDismissedSkillInput(null);
+    setTextareaCursor(nextCursor);
+
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        return;
+      }
+      textarea.focus();
+      textarea.setSelectionRange(nextCursor, nextCursor);
+    });
+  };
+
   const handleRemoveSkill = (skill: SkillRecord) => {
     setAttachedSkills((prev) => prev.filter((s) => s.path !== skill.path));
   };
 
-  const handlePermissionResponse = (
-    permission: ChatPermissionRequest,
-    decision: ChatPermissionDecision,
-  ) => {
+  const handlePermissionResponse = (permission: ChatPermissionRequest, optionId: string) => {
     void respondToPermission({
       runId: permission.runId,
       permissionId: permission.id,
-      decision,
+      optionId,
     });
   };
   const isCenteredPlacement = props.placement === "centered";
@@ -1597,26 +1750,57 @@ export function Composer(props: ComposerProps) {
   return (
     <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"} onPaste={handlePaste}>
       <div className="relative mx-auto w-full max-w-[48rem]">
-        {showSkillMenu ? (
+        {showSlashMenu ? (
           <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border-strong bg-surface shadow-[0_18px_60px_rgb(0_0_0/0.28)]">
-            <div className="px-3 py-2 text-app-12 font-medium text-muted">Skills</div>
             <div className="max-h-80 overflow-y-auto p-1">
-              {skillsLoading ? (
+              {showPlanSuggestion ? (
+                <div className="mb-1 rounded-lg bg-bg/45">
+                  <button
+                    ref={(element) => {
+                      if (element) {
+                        skillItemRefs.current.set(0, element);
+                      } else {
+                        skillItemRefs.current.delete(0);
+                      }
+                    }}
+                    type="button"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      handlePlanInsert();
+                    }}
+                    onMouseEnter={() => setSelectedSkillIndex(0)}
+                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition ${
+                      selectedSkillIndex === 0 ? "bg-surface-hover" : "hover:bg-surface-raised"
+                    }`}
+                  >
+                    <ListChecks className="h-4 w-4 shrink-0 text-muted" />
+                    <span className="min-w-0 flex-1 truncate text-app-13 font-medium text-fg">
+                      Plan mode
+                    </span>
+                    <span className="shrink-0 text-app-12 text-subtle">Enable plan mode</span>
+                  </button>
+                </div>
+              ) : null}
+              {showSkills ? (
+                <div className="px-3 pb-1 pt-2 text-app-12 font-medium text-muted">Skills</div>
+              ) : null}
+              {showSkills && skillsLoading ? (
                 <div className="px-3 py-2 text-app-12 text-subtle">Loading skills...</div>
-              ) : skillsError ? (
+              ) : showSkills && skillsError ? (
                 <div className="px-3 py-2 text-app-12 text-danger">{skillsError}</div>
-              ) : filteredSkills.length > 0 ? (
+              ) : showSkills && filteredSkills.length > 0 ? (
                 filteredSkills.map((skill, index) => {
-                  const isSelected = index === selectedSkillIndex;
+                  const menuIndex = index + (showPlanSuggestion ? 1 : 0);
+                  const isSelected = menuIndex === selectedSkillIndex;
 
                   return (
                     <button
                       key={skill.path}
                       ref={(element) => {
                         if (element) {
-                          skillItemRefs.current.set(index, element);
+                          skillItemRefs.current.set(menuIndex, element);
                         } else {
-                          skillItemRefs.current.delete(index);
+                          skillItemRefs.current.delete(menuIndex);
                         }
                       }}
                       type="button"
@@ -1624,7 +1808,7 @@ export function Composer(props: ComposerProps) {
                         event.preventDefault();
                         handleSkillInsert(skill);
                       }}
-                      onMouseEnter={() => setSelectedSkillIndex(index)}
+                      onMouseEnter={() => setSelectedSkillIndex(menuIndex)}
                       className={`flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left transition ${
                         isSelected ? "bg-surface-hover" : "hover:bg-surface-raised"
                       }`}
@@ -1642,9 +1826,9 @@ export function Composer(props: ComposerProps) {
                     </button>
                   );
                 })
-              ) : (
+              ) : !showPlanSuggestion ? (
                 <div className="px-3 py-2 text-app-12 text-subtle">No skills found.</div>
-              )}
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -1652,35 +1836,48 @@ export function Composer(props: ComposerProps) {
           {threadPermissions.length > 0 ? (
             <div className="mb-2 space-y-2">
               {threadPermissions.map((permission) => (
-                <div
-                  key={permission.id}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-border-strong bg-bg/45 px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-app-12 font-medium text-fg">
-                      {permission.title}
+                <div key={permission.id}>
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-border-strong bg-bg/45 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-app-12 font-medium text-fg">
+                        {permission.title}
+                      </div>
+                      <div className="truncate text-app-11 text-subtle">
+                        {getPermissionDetail(permission)}
+                      </div>
                     </div>
-                    <div className="truncate text-app-11 text-subtle">
-                      {getPermissionDetail(permission)}
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {getPermissionOption(permission, "reject_once") ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handlePermissionResponse(
+                              permission,
+                              getPermissionOption(permission, "reject_once")!.optionId,
+                            )
+                          }
+                          className="flex h-7 w-7 items-center justify-center rounded-full border border-border-strong text-muted transition hover:bg-surface-hover hover:text-fg active:scale-95"
+                          title="Deny"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                      {getPermissionOption(permission, "allow_once") ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handlePermissionResponse(
+                              permission,
+                              getPermissionOption(permission, "allow_once")!.optionId,
+                            )
+                          }
+                          className="flex h-7 w-7 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 active:scale-95"
+                          title="Approve"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
                     </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => handlePermissionResponse(permission, "denied")}
-                      className="flex h-7 w-7 items-center justify-center rounded-full border border-border-strong text-muted transition hover:bg-surface-hover hover:text-fg active:scale-95"
-                      title="Deny"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handlePermissionResponse(permission, "approved")}
-                      className="flex h-7 w-7 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 active:scale-95"
-                      title="Approve"
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                    </button>
                   </div>
                 </div>
               ))}
@@ -1802,11 +1999,11 @@ export function Composer(props: ComposerProps) {
             className="min-h-12 w-full resize-none bg-transparent text-app-15 leading-6 text-fg placeholder:text-subtle outline-none"
             rows={1}
             onKeyDown={(e) => {
-              if (showSkillMenu) {
+              if (showSlashMenu) {
                 if (e.key === "ArrowDown") {
                   e.preventDefault();
                   setSelectedSkillIndex((index) =>
-                    filteredSkills.length === 0 ? 0 : (index + 1) % filteredSkills.length,
+                    slashMenuItemCount === 0 ? 0 : (index + 1) % slashMenuItemCount,
                   );
                   return;
                 }
@@ -1814,16 +2011,21 @@ export function Composer(props: ComposerProps) {
                 if (e.key === "ArrowUp") {
                   e.preventDefault();
                   setSelectedSkillIndex((index) =>
-                    filteredSkills.length === 0
+                    slashMenuItemCount === 0
                       ? 0
-                      : (index - 1 + filteredSkills.length) % filteredSkills.length,
+                      : (index - 1 + slashMenuItemCount) % slashMenuItemCount,
                   );
                   return;
                 }
 
-                if ((e.key === "Enter" || e.key === "Tab") && filteredSkills.length > 0) {
+                if ((e.key === "Enter" || e.key === "Tab") && slashMenuItemCount > 0) {
                   e.preventDefault();
-                  handleSkillInsert(filteredSkills[selectedSkillIndex] ?? filteredSkills[0]);
+                  if (showPlanSuggestion && selectedSkillIndex === 0) {
+                    handlePlanInsert();
+                  } else {
+                    const skillIndex = selectedSkillIndex - (showPlanSuggestion ? 1 : 0);
+                    handleSkillInsert(filteredSkills[skillIndex] ?? filteredSkills[0]);
+                  }
                   return;
                 }
 
@@ -2141,6 +2343,27 @@ export function Composer(props: ComposerProps) {
                     </div>
                   )}
                 </div>
+              ) : null}
+              {props.runtimeId === "kimi" && props.planMode && props.onPlanModeChange ? (
+                <span className="flex items-center gap-1.5 rounded-md bg-surface-hover px-2 py-1 text-app-12 text-fg">
+                  <ListChecks className="h-3.5 w-3.5" />
+                  <span>Plan</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isThreadSending) {
+                        props.onPlanModeChange?.(false);
+                      }
+                    }}
+                    disabled={isThreadSending}
+                    className="flex h-4 w-4 items-center justify-center rounded-full text-muted transition hover:bg-surface-raised hover:text-fg disabled:opacity-40"
+                    title={
+                      isThreadSending ? "Locked while runtime is running" : "Disable plan mode"
+                    }
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
               ) : null}
               <input
                 ref={fileInputRef}

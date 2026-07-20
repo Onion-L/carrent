@@ -64,7 +64,14 @@ describe("normalizeWorkspaceSnapshot", () => {
 
     expect(normalizeWorkspaceSnapshot(snapshot)).toEqual({
       ...snapshot,
-      chats: [{ ...snapshot.chats[0], runtimeId: "kimi", runtimeMode: "approval-required" }],
+      chats: [
+        {
+          ...snapshot.chats[0],
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
     });
   });
 
@@ -132,6 +139,96 @@ describe("normalizeWorkspaceSnapshot", () => {
 
     expect(snapshot?.chats[0].runtimeId).toBe("kimi");
     expect(snapshot?.chats[0].runtimeMode).toBe("approval-required");
+    expect(snapshot?.chats[0].planMode).toBe(false);
+  });
+
+  it("preserves enabled Plan mode for project threads and chats", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [
+        {
+          id: "p1",
+          name: "P1",
+          path: "/tmp/p1",
+          threads: [{ id: "t1", title: "Thread", updatedAt: "now", planMode: true }],
+        },
+      ],
+      chats: [{ id: "c1", title: "Chat", updatedAt: "now", planMode: true }],
+      messages: [],
+      activeThreadId: null,
+    });
+
+    expect(snapshot?.projects[0].threads[0].planMode).toBe(true);
+    expect(snapshot?.chats[0].planMode).toBe(true);
+  });
+
+  it("restores pending Plan Reviews as interrupted", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          content: "",
+          parts: [
+            {
+              type: "plan_review",
+              id: "review-1",
+              permissionId: "permission-1",
+              content: "# Plan\n\n- Implement",
+              status: "pending",
+              options: [
+                { optionId: "plan_approve", name: "Approve", kind: "allow_once" },
+                { optionId: "plan_revise", name: "Revise", kind: "reject_once" },
+              ],
+            },
+          ],
+        },
+      ],
+      activeThreadId: null,
+    });
+
+    expect(snapshot?.messages[0]).toMatchObject({
+      parts: [{ type: "plan_review", status: "interrupted" }],
+    });
+  });
+
+  it("drops malformed Plan Reviews without dropping the message", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          content: "Answer",
+          parts: [
+            { type: "text", content: "Answer" },
+            {
+              type: "plan_review",
+              id: "review-1",
+              permissionId: "permission-1",
+              content: "# Plan",
+              status: "pending",
+              options: [{ optionId: "bad", name: "Bad", kind: "unsupported" }],
+            },
+          ],
+        },
+      ],
+      activeThreadId: null,
+    });
+
+    expect(snapshot?.messages[0]).toMatchObject({
+      content: "Answer",
+      parts: [{ type: "text", content: "Answer" }],
+    });
   });
 
   it("preserves legacy runtime ids during normalization", () => {

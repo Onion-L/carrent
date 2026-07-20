@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
-import { readFile, realpath } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -12,7 +13,9 @@ import type {
 import {
   CHAT_PERMISSION_TIMEOUT_MS,
   buildPermissionExpiry,
+  isChatPermissionOptionKind,
   type ChatPermissionAction,
+  type ChatPermissionOption,
   type ChatPermissionRequest,
   type ChatPermissionResponse,
 } from "../../src/shared/chatPermissions";
@@ -24,6 +27,7 @@ type JsonRpcId = string | number;
 type JsonObject = Record<string, unknown>;
 
 const MAX_TOOL_OUTPUT_LENGTH = 12_000;
+const MAX_TEXT_FILE_WRITE_BYTES = 4 * 1024 * 1024;
 const STOP_FALLBACK_MS = 5_000;
 
 export type KimiAcpTransport = {
@@ -161,6 +165,7 @@ export function startKimiAcpChatRun(options: {
   onDone?: () => void;
   requestTimeoutMs?: number;
   bridgeFactory?: CarrentBridgeFactory | null;
+  kimiSessionsRoot?: string;
 }): KimiAcpRunHandle {
   const runner = new KimiAcpRun(options);
   void runner.start();
@@ -356,12 +361,13 @@ class KimiAcpRun {
   private stoppedByUser = false;
   private stopFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   private bridge: CarrentBridgeHandle | null = null;
+  private lastPlanMode: boolean | null = null;
+  private presentedPlanReview = false;
   private pendingPermissions = new Map<
     string,
     {
       acpRequestId: JsonRpcId;
-      approveOptionId: string;
-      rejectOptionId: string;
+      options: ChatPermissionOption[];
     }
   >();
   private toolStates = new Map<
@@ -387,6 +393,7 @@ class KimiAcpRun {
       onDone?: () => void;
       requestTimeoutMs?: number;
       bridgeFactory?: CarrentBridgeFactory | null;
+      kimiSessionsRoot?: string;
     },
   ) {
     this.transport = options.transportFactory({ cwd: options.cwd });
@@ -421,7 +428,7 @@ class KimiAcpRun {
       await this.request("initialize", {
         protocolVersion: 1,
         clientCapabilities: {
-          fs: { readTextFile: true, writeTextFile: false },
+          fs: { readTextFile: true, writeTextFile: true },
           terminal: false,
         },
       });
@@ -455,7 +462,7 @@ class KimiAcpRun {
         return;
       }
 
-      if (!this.finalText.trim()) {
+      if (!this.finalText.trim() && !this.presentedPlanReview) {
         this.fail("Received empty response from Kimi Code.");
         return;
       }
@@ -586,7 +593,9 @@ class KimiAcpRun {
   }
 
   private async configureRuntimeMode(configOptions: unknown) {
-    const selectedMode = getKimiModeValue(this.options.request.runtimeMode);
+    const selectedMode = this.options.request.planMode
+      ? "plan"
+      : getKimiModeValue(this.options.request.runtimeMode);
     const modeConfig = findModeConfigOption(configOptions);
 
     if (!modeConfig) {
@@ -595,7 +604,9 @@ class KimiAcpRun {
       }
 
       throw new Error(
-        `Kimi Code did not expose a mode configuration option. Use Approval required or update Kimi Code.`,
+        this.options.request.planMode
+          ? "Kimi Code did not expose Plan Mode. Update Kimi Code or remove Plan mode."
+          : "Kimi Code did not expose a mode configuration option. Use Approval required or update Kimi Code.",
       );
     }
 
@@ -606,7 +617,9 @@ class KimiAcpRun {
     const supportedValues = readConfigOptionValues(modeConfig.options);
     if (!supportedValues.includes(selectedMode)) {
       throw new Error(
-        `Kimi Code does not list mode "${selectedMode}". Use a supported runtime permission mode.`,
+        selectedMode === "plan"
+          ? "Kimi Code does not list Plan Mode. Update Kimi Code or remove Plan mode."
+          : `Kimi Code does not list mode "${selectedMode}". Use a supported runtime permission mode.`,
       );
     }
 
@@ -653,16 +666,19 @@ class KimiAcpRun {
       return;
     }
 
-    const optionId =
-      response.decision === "approved"
-        ? pendingPermission.approveOptionId
-        : pendingPermission.rejectOptionId;
+    const selectedOption = pendingPermission.options.find(
+      (option) => option.optionId === response.optionId,
+    );
+    if (!selectedOption) {
+      this.emitPermissionFailed(response.permissionId, "Permission option is no longer available.");
+      return;
+    }
 
     try {
       this.respond(pendingPermission.acpRequestId, {
         outcome: {
           outcome: "selected",
-          optionId,
+          optionId: selectedOption.optionId,
         },
       });
     } catch (error) {
@@ -678,7 +694,9 @@ class KimiAcpRun {
       runId: this.options.runId,
       requestKey: this.options.request.requestKey,
       permissionId: response.permissionId,
-      decision: response.decision,
+      optionId: selectedOption.optionId,
+      optionName: selectedOption.name,
+      optionKind: selectedOption.kind,
     });
   }
 
@@ -746,6 +764,11 @@ class KimiAcpRun {
         return;
       }
 
+      if (method === "fs/write_text_file") {
+        await this.respond(id, await this.handleWriteTextFile(message.params));
+        return;
+      }
+
       if (method === "session/request_permission") {
         await this.handlePermissionRequest(id, message.params);
         return;
@@ -766,20 +789,9 @@ class KimiAcpRun {
   private async handlePermissionRequest(id: JsonRpcId, params: unknown) {
     const payload = readObject(params);
     const options = readPermissionOptions(payload?.options);
-    const approveOptionId = findPermissionOption(options, {
-      kinds: ["allow_once"],
-      names: [],
-    });
-    const rejectOptionId = findPermissionOption(options, {
-      kinds: ["reject_once"],
-      names: [],
-    });
-
-    if (!approveOptionId || !rejectOptionId) {
+    if (options.length === 0) {
       await this.respond(id, { outcome: { outcome: "cancelled" } });
-      this.fail(
-        "Kimi requested permission, but Carrent could not map the ACP options to one-time approve/deny.",
-      );
+      this.fail("Kimi requested permission without any supported response options.");
       return;
     }
 
@@ -788,12 +800,20 @@ class KimiAcpRun {
       runId: this.options.runId,
       request: this.options.request,
       params,
+      permissionOptions: options,
     });
+    const conversationOption = permission.planReview
+      ? findPlanConversationOption(permission.options)
+      : null;
+    if (permission.planReview && !conversationOption) {
+      await this.respond(id, { outcome: { outcome: "cancelled" } });
+      this.fail("Kimi Plan Review did not include an option to return to the conversation.");
+      return;
+    }
 
     this.pendingPermissions.set(permission.id, {
       acpRequestId: id,
-      approveOptionId,
-      rejectOptionId,
+      options,
     });
     this.emit({
       type: "permission-requested",
@@ -801,6 +821,15 @@ class KimiAcpRun {
       requestKey: this.options.request.requestKey,
       permission,
     });
+
+    if (conversationOption) {
+      this.presentedPlanReview = true;
+      this.respondToPermission({
+        runId: this.options.runId,
+        permissionId: permission.id,
+        optionId: conversationOption.optionId,
+      });
+    }
   }
 
   private async handleReadTextFile(params: unknown) {
@@ -810,26 +839,80 @@ class KimiAcpRun {
       throw new Error("Kimi ACP requested a file without a path.");
     }
 
-    const resolved = path.resolve(this.options.cwd, requestedPath);
-    const workspaceRealPath = await realpath(this.options.cwd);
-    const targetRealPath = await realpath(resolved);
-    const relative = path.relative(workspaceRealPath, targetRealPath);
-    if (relative.startsWith("..") || path.isAbsolute(relative)) {
-      throw new Error(`Refusing to read outside workspace: ${requestedPath}`);
+    const target = await this.resolveTextFileTarget(requestedPath, "read");
+
+    if (target.kind === "workspace") {
+      this.emit({
+        type: "reasoning",
+        runId: this.options.runId,
+        requestKey: this.options.request.requestKey,
+        reasoning: {
+          id: `kimi-fs-read-${target.path}`,
+          content: `Read ${target.relativePath || path.basename(target.path)}`,
+          status: "completed",
+        },
+      });
     }
 
-    this.emit({
-      type: "reasoning",
-      runId: this.options.runId,
-      requestKey: this.options.request.requestKey,
-      reasoning: {
-        id: `kimi-fs-read-${targetRealPath}`,
-        content: `Read ${relative || path.basename(targetRealPath)}`,
-        status: "completed",
-      },
+    return { content: await readFile(target.path, "utf8") };
+  }
+
+  private async handleWriteTextFile(params: unknown) {
+    const payload = readObject(params);
+    const requestedPath = readString(payload?.path);
+    const content = typeof payload?.content === "string" ? payload.content : null;
+    if (!requestedPath || content === null) {
+      throw new Error("Kimi ACP requested an invalid text-file write.");
+    }
+    if (Buffer.byteLength(content, "utf8") > MAX_TEXT_FILE_WRITE_BYTES) {
+      throw new Error("Kimi ACP text-file write is too large.");
+    }
+
+    const target = await this.resolveTextFileTarget(requestedPath, "write");
+    await mkdir(path.dirname(target.path), { recursive: true });
+    await writeFile(target.path, content, "utf8");
+    return {};
+  }
+
+  private async resolveTextFileTarget(requestedPath: string, access: "read" | "write") {
+    const resolvedPath = path.resolve(this.options.cwd, requestedPath);
+    const workspacePath = path.resolve(this.options.cwd);
+    const workspaceRealPath = await realpath(this.options.cwd);
+    const workspaceRelative = path.relative(workspacePath, resolvedPath);
+    const isLexicallyInWorkspace = isContainedRelativePath(workspaceRelative);
+
+    if (isLexicallyInWorkspace) {
+      const targetPath = await resolveContainedTextFilePath({
+        targetPath: resolvedPath,
+        rootRealPath: workspaceRealPath,
+        access,
+        refusalMessage: `Refusing to ${access} outside workspace: ${requestedPath}`,
+      });
+      return {
+        kind: "workspace" as const,
+        path: targetPath,
+        relativePath: workspaceRelative,
+      };
+    }
+
+    const sessionsRoot = this.options.kimiSessionsRoot ?? getKimiSessionsRoot();
+    if (!this.sessionId || !isCurrentKimiPlanPath(resolvedPath, this.sessionId, sessionsRoot)) {
+      throw new Error(`Refusing to ${access} outside workspace: ${requestedPath}`);
+    }
+
+    const sessionsRootRealPath = await realpath(sessionsRoot);
+    const targetPath = await resolveContainedTextFilePath({
+      targetPath: resolvedPath,
+      rootRealPath: sessionsRootRealPath,
+      access,
+      refusalMessage: `Refusing to ${access} outside Kimi plan storage: ${requestedPath}`,
     });
 
-    return { content: await readFile(targetRealPath, "utf8") };
+    return {
+      kind: "plan" as const,
+      path: targetPath,
+      relativePath: "",
+    };
   }
 
   private respond(id: JsonRpcId, result: unknown) {
@@ -846,7 +929,19 @@ class KimiAcpRun {
     const updateType = readString(update?.sessionUpdate);
     const text = readTextContent(update?.content);
 
+    if (updateType === "config_option_update") {
+      const modeConfig = findModeConfigOption(update?.configOptions);
+      const currentMode = readString(modeConfig?.currentValue);
+      if (currentMode) {
+        this.emitPlanModeChanged(currentMode === "plan");
+      }
+      return;
+    }
+
     if (updateType === "agent_message_chunk" && text) {
+      if (this.presentedPlanReview) {
+        return;
+      }
       this.finalText += text;
       this.emit({
         type: "delta",
@@ -906,6 +1001,21 @@ class KimiAcpRun {
       "";
 
     this.toolStates.set(id, { title, kind, command, filePath });
+    const status = normalizeToolStatus(readString(update.status));
+    const output = getToolOutput(update, content);
+
+    if (status !== "running") {
+      if (title === "EnterPlanMode" && output.includes("Plan mode is now active")) {
+        this.emitPlanModeChanged(true);
+      }
+      if (title === "ExitPlanMode") {
+        if (output.includes("Plan mode deactivated")) {
+          this.emitPlanModeChanged(false);
+        } else if (output.includes("Plan mode remains active")) {
+          this.emitPlanModeChanged(true);
+        }
+      }
+    }
 
     if (isShellTool(title, kind)) {
       this.emit({
@@ -915,8 +1025,8 @@ class KimiAcpRun {
         shell: {
           id,
           command,
-          output: truncateToolOutput(getToolOutput(update, content)),
-          status: normalizeToolStatus(readString(update.status)),
+          output: truncateToolOutput(output),
+          status,
         },
       });
       return;
@@ -929,9 +1039,21 @@ class KimiAcpRun {
       reasoning: {
         id: `kimi-tool-${id}`,
         content: describeToolActivity(title, kind, filePath),
-        status:
-          normalizeToolStatus(readString(update.status)) === "running" ? "running" : "completed",
+        status: status === "running" ? "running" : "completed",
       },
+    });
+  }
+
+  private emitPlanModeChanged(enabled: boolean) {
+    if (this.lastPlanMode === enabled) {
+      return;
+    }
+    this.lastPlanMode = enabled;
+    this.emit({
+      type: "plan-mode-changed",
+      runId: this.options.runId,
+      requestKey: this.options.request.requestKey,
+      enabled,
     });
   }
 
@@ -968,6 +1090,7 @@ class KimiAcpRun {
           runtimeId: this.options.request.runtimeId,
           runtimeModelId: this.options.request.runtimeModelId,
           runtimeMode: this.options.request.runtimeMode,
+          planMode: this.options.request.planMode,
         },
       });
     }
@@ -1057,33 +1180,22 @@ function readString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function readPermissionOptions(value: unknown): JsonObject[] {
+function readPermissionOptions(value: unknown): ChatPermissionOption[] {
   if (!Array.isArray(value)) {
     return [];
   }
 
-  return value.flatMap((item) => {
+  const options = value.flatMap((item) => {
     const option = readObject(item);
-    return option ? [option] : [];
+    const optionId = readString(option?.optionId);
+    const name = readString(option?.name);
+    const kind = readString(option?.kind);
+    if (!optionId || !name || !isChatPermissionOptionKind(kind)) {
+      return [];
+    }
+    return [{ optionId, name, kind }];
   });
-}
-
-function findPermissionOption(
-  options: JsonObject[],
-  filters: { kinds: string[]; names: string[] },
-) {
-  const byKind = options.find((option) => {
-    const kind = readString(option.kind)?.toLowerCase();
-    return kind ? filters.kinds.includes(kind) : false;
-  });
-  const byName =
-    byKind ??
-    options.find((option) => {
-      const name = readString(option.name)?.toLowerCase();
-      return name ? filters.names.some((needle) => name.includes(needle)) : false;
-    });
-
-  return readString(byName?.optionId);
+  return options.length === value.length ? options : [];
 }
 
 function readConfigOptions(value: unknown): JsonObject[] {
@@ -1230,6 +1342,7 @@ function buildKimiPermissionRequest(options: {
   runId: string;
   request: ChatTurnRequest;
   params: unknown;
+  permissionOptions: ChatPermissionOption[];
 }): ChatPermissionRequest {
   const payload = readObject(options.params);
   const toolCall = readObject(payload?.toolCall);
@@ -1251,6 +1364,7 @@ function buildKimiPermissionRequest(options: {
   const createdAt = new Date().toISOString();
   const displayTitle =
     action === "shell" && command ? `Run command: ${command}` : `Kimi permission: ${title}`;
+  const planReview = buildKimiPlanReview(title, toolCall?.content, options.permissionOptions);
 
   return {
     id: `kimi-permission-${options.runId}-${String(options.id)}`,
@@ -1259,14 +1373,143 @@ function buildKimiPermissionRequest(options: {
     threadId: options.request.threadId,
     provider: "kimi",
     action,
-    title: displayTitle,
-    description: content || undefined,
+    title: planReview ? "Review plan" : displayTitle,
+    description: planReview ? undefined : content || undefined,
     command,
     filePath,
     toolName: title,
+    options: options.permissionOptions,
+    ...(planReview ? { planReview } : {}),
     createdAt,
     expiresAt: buildPermissionExpiry(createdAt, CHAT_PERMISSION_TIMEOUT_MS),
   };
+}
+
+function buildKimiPlanReview(title: string, content: unknown, options: ChatPermissionOption[]) {
+  if (title !== "ExitPlanMode" || !options.some((option) => option.optionId.startsWith("plan_"))) {
+    return null;
+  }
+
+  const planContent = readTextBlocks(content).find(
+    (text) => !text.startsWith("Requesting approval to"),
+  );
+  const plan = planContent?.replace(/^Plan saved to: [^\n]+\n\n/u, "").trim();
+  if (!plan) {
+    throw new Error("Kimi Plan Review did not include a plan.");
+  }
+
+  return { content: plan };
+}
+
+function findPlanConversationOption(options: ChatPermissionOption[]) {
+  return (
+    options.find((option) => option.optionId === "plan_reject_and_exit") ??
+    options.find(
+      (option) =>
+        option.kind === "reject_once" && option.name.trim().toLowerCase() === "reject and exit",
+    ) ??
+    null
+  );
+}
+
+function readTextBlocks(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    const text = readTextContent(value);
+    return text ? [text] : [];
+  }
+
+  return value.flatMap((item) => {
+    const text = readTextContent(item);
+    return text ? [text] : [];
+  });
+}
+
+function getKimiSessionsRoot() {
+  return path.join(os.homedir(), ".kimi-code", "sessions");
+}
+
+function isCurrentKimiPlanPath(targetPath: string, sessionId: string, sessionsRoot: string) {
+  const relative = path.relative(sessionsRoot, targetPath);
+  if (!isContainedRelativePath(relative)) {
+    return false;
+  }
+
+  const segments = relative.split(path.sep);
+  const sessionIndex = segments.indexOf(sessionId);
+  const tail = sessionIndex >= 0 ? segments.slice(sessionIndex + 1) : [];
+  return (
+    sessionIndex > 0 &&
+    tail.length === 4 &&
+    tail[0] === "agents" &&
+    tail[1].length > 0 &&
+    tail[2] === "plans" &&
+    tail[3].endsWith(".md") &&
+    tail[3] !== ".md"
+  );
+}
+
+async function resolveContainedTextFilePath(options: {
+  targetPath: string;
+  rootRealPath: string;
+  access: "read" | "write";
+  refusalMessage: string;
+}) {
+  if (options.access === "read") {
+    const targetRealPath = await realpath(options.targetPath);
+    if (!isContainedRelativePath(path.relative(options.rootRealPath, targetRealPath))) {
+      throw new Error(options.refusalMessage);
+    }
+    return targetRealPath;
+  }
+
+  try {
+    const targetRealPath = await realpath(options.targetPath);
+    if (!isContainedRelativePath(path.relative(options.rootRealPath, targetRealPath))) {
+      throw new Error(options.refusalMessage);
+    }
+    return targetRealPath;
+  } catch (error) {
+    if (readObject(error)?.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const existingAncestor = await findExistingAncestor(path.dirname(options.targetPath));
+  const ancestorRealPath = await realpath(existingAncestor);
+  if (!isContainedRelativePath(path.relative(options.rootRealPath, ancestorRealPath))) {
+    throw new Error(options.refusalMessage);
+  }
+  return options.targetPath;
+}
+
+function isContainedRelativePath(relativePath: string) {
+  return (
+    relativePath === "" ||
+    (!relativePath.startsWith(`..${path.sep}`) &&
+      relativePath !== ".." &&
+      !path.isAbsolute(relativePath))
+  );
+}
+
+async function findExistingAncestor(targetPath: string): Promise<string> {
+  let current = targetPath;
+  while (true) {
+    try {
+      await realpath(current);
+      return current;
+    } catch (error) {
+      const code = readObject(error)?.code;
+      if (code !== "ENOENT") {
+        throw error;
+      }
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      throw new Error(`No existing parent for ${targetPath}`);
+    }
+    current = parent;
+  }
 }
 
 function inferPermissionAction(

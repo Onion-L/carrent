@@ -1133,6 +1133,7 @@ export function createChatSessionManager(options: {
           runtimeId: request.runtimeId,
           runtimeModelId: request.runtimeModelId,
           runtimeMode: request.runtimeMode,
+          planMode: request.planMode,
         },
       });
     }

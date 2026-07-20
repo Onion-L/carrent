@@ -1,6 +1,16 @@
 export type ChatPermissionAction = "edit" | "write" | "shell" | "read" | "network" | "unknown";
 
-export type ChatPermissionDecision = "approved" | "denied";
+export type ChatPermissionOptionKind = "allow_once" | "allow_always" | "reject_once";
+
+export type ChatPermissionOption = {
+  optionId: string;
+  name: string;
+  kind: ChatPermissionOptionKind;
+};
+
+export type ChatPlanReview = {
+  content: string;
+};
 
 export type ChatPermissionRequest = {
   id: string;
@@ -14,6 +24,8 @@ export type ChatPermissionRequest = {
   command?: string;
   filePath?: string;
   toolName?: string;
+  options: ChatPermissionOption[];
+  planReview?: ChatPlanReview;
   createdAt: string;
   expiresAt: string;
 };
@@ -21,13 +33,13 @@ export type ChatPermissionRequest = {
 export type ChatPermissionResponse = {
   permissionId: string;
   runId: string;
-  decision: ChatPermissionDecision;
+  optionId: string;
 };
 
 export const CHAT_PERMISSION_TIMEOUT_MS = 60_000;
 
-export function isChatPermissionDecision(value: unknown): value is ChatPermissionDecision {
-  return value === "approved" || value === "denied";
+export function isChatPermissionOptionKind(value: unknown): value is ChatPermissionOptionKind {
+  return value === "allow_once" || value === "allow_always" || value === "reject_once";
 }
 
 export function buildPermissionExpiry(createdAt: string, timeoutMs = CHAT_PERMISSION_TIMEOUT_MS) {

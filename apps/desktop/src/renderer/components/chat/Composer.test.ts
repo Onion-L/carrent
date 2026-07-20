@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  PLAN_REVIEW_FOLLOW_UP_TEXT,
   getCascadingPanelPosition,
   getActionablePermissionsForThread,
   buildSkillReference,
@@ -12,7 +13,9 @@ import {
   getGitBridge,
   getGitToastMessage,
   getDisplayRuntimeModel,
+  getMessageTranscriptContent,
   getPermissionDetail,
+  getPlanSubmissionState,
   getRuntimeModelIdForSend,
   getRuntimeSelectionLabel,
   getSkillSlashTrigger,
@@ -20,6 +23,7 @@ import {
   mergeComposerDraftContent,
   normalizeGitBranchInfo,
   replaceSkillSlashTrigger,
+  shouldShowPlanSlashSuggestion,
   supportsRuntimeModelSelection,
   shouldSubmitComposerOnKeyDown,
   storeImageAttachmentFile,
@@ -460,6 +464,10 @@ describe("getActionablePermissionsForThread", () => {
     action: "shell",
     title: "Run command: pwd",
     command: "pwd",
+    options: [
+      { optionId: "approve_once", name: "Approve once", kind: "allow_once" },
+      { optionId: "reject", name: "Reject", kind: "reject_once" },
+    ],
     createdAt: "2026-01-01T00:00:00.000Z",
     expiresAt: "2026-01-01T00:01:00.000Z",
   };
@@ -498,6 +506,7 @@ describe("getPermissionDetail", () => {
         title: "Run command",
         command: "pwd",
         description: "fallback",
+        options: [],
         createdAt: "2026-01-01T00:00:00.000Z",
         expiresAt: "2026-01-01T00:01:00.000Z",
       }),
@@ -575,6 +584,102 @@ describe("skill slash helpers", () => {
     );
     expect(replaceSkillSlashTrigger("please /grill now", trigger!, skills[0])).toBe(
       "please [$grilling](/Users/test/.agents/skills/grilling/SKILL.md) now",
+    );
+  });
+});
+
+describe("plan slash helpers", () => {
+  it("asks for a natural-language response after showing a plan", () => {
+    expect(PLAN_REVIEW_FOLLOW_UP_TEXT).toContain("Reply naturally");
+    expect(PLAN_REVIEW_FOLLOW_UP_TEXT).not.toContain("button");
+  });
+
+  it("includes Plan Review content in fresh-session transcripts", () => {
+    expect(
+      getMessageTranscriptContent({
+        id: "assistant-plan",
+        role: "assistant",
+        timestamp: "12:00",
+        threadId: "thread-1",
+        content: PLAN_REVIEW_FOLLOW_UP_TEXT,
+        parts: [
+          {
+            type: "reasoning",
+            id: "reasoning-1",
+            content: "Preparing the plan",
+            status: "completed",
+          },
+          {
+            type: "plan_review",
+            id: "plan-review-1",
+            permissionId: "permission-1",
+            content: "# Plan\n\n- Implement the feature",
+            status: "rejected",
+            options: [],
+          },
+          { type: "text", content: PLAN_REVIEW_FOLLOW_UP_TEXT },
+        ],
+      }),
+    ).toBe(`# Plan\n\n- Implement the feature\n\n${PLAN_REVIEW_FOLLOW_UP_TEXT}`);
+  });
+
+  it("keeps ordinary transcript content unchanged", () => {
+    expect(
+      getMessageTranscriptContent({
+        id: "assistant-text",
+        role: "assistant",
+        timestamp: "12:00",
+        threadId: "thread-1",
+        content: "Done",
+        parts: [{ type: "text", content: "Done" }],
+      }),
+    ).toBe("Done");
+  });
+
+  it("attaches Plan mode without sending a bare command", () => {
+    expect(getPlanSubmissionState("/plan", "kimi", false)).toEqual({
+      command: { task: "" },
+      task: "",
+      planMode: true,
+      attachOnly: true,
+    });
+    expect(getPlanSubmissionState("  /plan  ", "kimi", false).attachOnly).toBe(true);
+  });
+
+  it("strips the command and preserves multiline task text", () => {
+    expect(getPlanSubmissionState("/plan  inspect first\nthen implement", "kimi", false)).toEqual({
+      command: { task: "inspect first\nthen implement" },
+      task: "inspect first\nthen implement",
+      planMode: true,
+      attachOnly: false,
+    });
+  });
+
+  it("does not parse non-leading or similar commands", () => {
+    expect(getPlanSubmissionState("please use /plan", "kimi", false).command).toBe(null);
+    expect(getPlanSubmissionState("/planner task", "kimi", false).command).toBe(null);
+    expect(getPlanSubmissionState("/plan task", "codex", false).command).toBe(null);
+  });
+
+  it("keeps an already attached marker active for normal input", () => {
+    expect(getPlanSubmissionState("implement it", "kimi", true)).toMatchObject({
+      command: null,
+      task: "implement it",
+      planMode: true,
+      attachOnly: false,
+    });
+  });
+
+  it("shows the suggestion only for a leading Kimi slash token", () => {
+    expect(shouldShowPlanSlashSuggestion("kimi", "/pl", getSkillSlashTrigger("/pl"))).toBe(true);
+    expect(shouldShowPlanSlashSuggestion("kimi", "  /plan", getSkillSlashTrigger("  /plan"))).toBe(
+      true,
+    );
+    expect(
+      shouldShowPlanSlashSuggestion("kimi", "use /plan", getSkillSlashTrigger("use /plan")),
+    ).toBe(false);
+    expect(shouldShowPlanSlashSuggestion("codex", "/plan", getSkillSlashTrigger("/plan"))).toBe(
+      false,
     );
   });
 });

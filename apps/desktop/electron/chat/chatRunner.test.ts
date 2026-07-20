@@ -18,6 +18,7 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
     threadId: "thread-1",
     runtimeId: "codex",
     runtimeMode: "approval-required",
+    planMode: false,
     transcript: [],
     message: "Hello",
     ...overrides,

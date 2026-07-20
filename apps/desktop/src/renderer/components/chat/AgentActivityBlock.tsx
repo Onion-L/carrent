@@ -4,7 +4,13 @@ import type { MessagePart } from "../../mock/uiShellData";
 
 export type ReasoningPart = Extract<MessagePart, { type: "reasoning" }>;
 export type ShellPart = Extract<MessagePart, { type: "shell" }>;
+export type CommentaryPart = {
+  type: "commentary";
+  id: string;
+  content: string;
+};
 export type AgentActivityStep = ReasoningPart | ShellPart;
+export type AgentActivityItem = AgentActivityStep | CommentaryPart;
 export type AgentActivityStatus = "running" | "completed" | "failed" | "cancelled";
 
 const SHELL_COMMAND_COLLAPSE_THRESHOLD = 80;
@@ -134,6 +140,14 @@ function ReasoningStepItem({ step }: { step: ReasoningPart }) {
   );
 }
 
+function CommentaryItem({ item }: { item: CommentaryPart }) {
+  return (
+    <p className="whitespace-pre-wrap break-words text-app-14 font-medium leading-6 text-muted">
+      {item.content}
+    </p>
+  );
+}
+
 function ShellStepItem({ step }: { step: ShellPart }) {
   const [expanded, setExpanded] = useState(false);
   const meta = getStepStatusMeta(step);
@@ -181,28 +195,32 @@ function ShellStepItem({ step }: { step: ShellPart }) {
   );
 }
 
-function StepItem({ step }: { step: AgentActivityStep }) {
-  if (step.type === "reasoning") {
-    return <ReasoningStepItem step={step} />;
+function ActivityItem({ item }: { item: AgentActivityItem }) {
+  if (item.type === "commentary") {
+    return <CommentaryItem item={item} />;
   }
-  return <ShellStepItem step={step} />;
+  if (item.type === "reasoning") {
+    return <ReasoningStepItem step={item} />;
+  }
+  return <ShellStepItem step={item} />;
 }
 
 export function AgentActivityBlock({
-  steps,
+  items,
   status: explicitStatus,
   startedAt,
   finishedAt,
   duration,
   hasFinalAnswerStarted = false,
 }: {
-  steps: AgentActivityStep[];
+  items: AgentActivityItem[];
   status?: AgentActivityStatus;
   startedAt?: number;
   finishedAt?: number;
   duration?: string;
   hasFinalAnswerStarted?: boolean;
 }) {
+  const steps = items.filter((item): item is AgentActivityStep => item.type !== "commentary");
   const resolvedStatus = explicitStatus ?? inferAgentActivityStatus(steps);
   const [now, setNow] = useState(() => Date.now());
   const [expanded, setExpanded] = useState(() =>
@@ -255,8 +273,8 @@ export function AgentActivityBlock({
       </button>
       {expanded && (
         <div className="mt-2 space-y-3 border-l border-border pl-5">
-          {steps.map((step) => (
-            <StepItem key={step.id} step={step} />
+          {items.map((item) => (
+            <ActivityItem key={item.id} item={item} />
           ))}
         </div>
       )}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -22,6 +22,7 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
     threadId: "thread-1",
     runtimeId: "kimi",
     runtimeMode: "approval-required",
+    planMode: false,
     transcript: [],
     message: "Hello",
     ...overrides,
@@ -799,5 +800,404 @@ describe("startKimiAcpChatRun", () => {
       type: "completed",
       text: "Recovered",
     });
+  });
+
+  it("shows a native Plan Review and returns control to the conversation", async () => {
+    const emitted: ChatRunEvent[] = [];
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, {
+          sessionId: "session-plan",
+          configOptions: [
+            {
+              id: "mode",
+              currentValue: "default",
+              options: [
+                { value: "default", name: "Default" },
+                { value: "plan", name: "Plan" },
+              ],
+            },
+          ],
+        });
+        return;
+      }
+
+      if (message.method === "session/set_config_option") {
+        respondAcp(fakeTransport, message, {});
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-plan",
+            update: {
+              sessionUpdate: "config_option_update",
+              configOptions: [{ id: "mode", currentValue: "plan", options: [] }],
+            },
+          },
+        });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        queueMicrotask(() => {
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            id: "permission-plan",
+            method: "session/request_permission",
+            params: {
+              sessionId: "session-plan",
+              options: [
+                { optionId: "plan_opt_0", name: "Approach A", kind: "allow_once" },
+                { optionId: "plan_opt_1", name: "Approach B", kind: "allow_once" },
+                { optionId: "plan_revise", name: "Revise", kind: "reject_once" },
+                {
+                  optionId: "plan_reject_and_exit",
+                  name: "Reject and Exit",
+                  kind: "reject_once",
+                },
+              ],
+              toolCall: {
+                toolCallId: "tool-exit-plan",
+                title: "ExitPlanMode",
+                content: [
+                  {
+                    type: "content",
+                    content: { type: "text", text: "Requesting approval to exit Plan mode" },
+                  },
+                  {
+                    type: "content",
+                    content: {
+                      type: "text",
+                      text: "Plan saved to: /Users/test/.kimi-code/plan.md\n\n# Plan\n\n- Implement it",
+                    },
+                  },
+                ],
+              },
+            },
+          });
+        });
+        return;
+      }
+
+      if (message.id === "permission-plan" && "result" in message) {
+        queueMicrotask(() => {
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-plan",
+              update: {
+                sessionUpdate: "tool_call_update",
+                toolCallId: "tool-exit-plan",
+                title: "ExitPlanMode",
+                status: "completed",
+                rawOutput: "Plan mode deactivated. All tools are now available.",
+              },
+            },
+          });
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-plan",
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "The plan was rejected." },
+              },
+            },
+          });
+          if (promptRequest) {
+            respondAcp(fakeTransport, promptRequest, { stopReason: "end_turn" });
+          }
+        });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-plan-review",
+      request: makeRequest({ planMode: true, message: "Implement the feature" }),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+
+    expect(
+      transport.sent.find((message) => message.method === "session/set_config_option"),
+    ).toMatchObject({
+      params: { sessionId: "session-plan", configId: "mode", value: "plan" },
+    });
+    const permission = emitted.find(
+      (event): event is Extract<ChatRunEvent, { type: "permission-requested" }> =>
+        event.type === "permission-requested",
+    )!;
+    expect(permission.permission.planReview).toEqual({ content: "# Plan\n\n- Implement it" });
+    expect(permission.permission.options.map((option) => option.optionId)).toEqual([
+      "plan_opt_0",
+      "plan_opt_1",
+      "plan_revise",
+      "plan_reject_and_exit",
+    ]);
+
+    expect(transport.sent.find((message) => message.id === "permission-plan")?.result).toEqual({
+      outcome: { outcome: "selected", optionId: "plan_reject_and_exit" },
+    });
+    expect(emitted.find((event) => event.type === "permission-resolved")).toMatchObject({
+      type: "permission-resolved",
+      optionId: "plan_reject_and_exit",
+      optionName: "Reject and Exit",
+      optionKind: "reject_once",
+    });
+    expect(
+      emitted.filter((event) => event.type === "plan-mode-changed").map((event) => event.enabled),
+    ).toEqual([true, false]);
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "",
+    });
+    expect(emitted.some((event) => event.type === "delta")).toBe(false);
+  });
+
+  it("syncs Kimi-initiated EnterPlanMode tool results", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-enter-plan" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-enter-plan",
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "tool-enter-plan",
+              title: "EnterPlanMode",
+              status: "completed",
+              rawOutput: "Plan mode is now active. Focus on planning.",
+            },
+          },
+        });
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-enter-plan",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Planning" },
+            },
+          },
+        });
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-enter-plan",
+      request: makeRequest(),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "plan-mode-changed")).toMatchObject({
+      type: "plan-mode-changed",
+      enabled: true,
+    });
+  });
+
+  it("reads and writes only the current session Plan file", async () => {
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-plan-project-"));
+    const sessionsRoot = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-sessions-"));
+    const sessionId = "session-files";
+    const planPath = path.join(
+      sessionsRoot,
+      "workspace-key",
+      sessionId,
+      "agents",
+      "main",
+      "plans",
+      "feature.md",
+    );
+    await mkdir(path.dirname(planPath), { recursive: true });
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "write-plan",
+          method: "fs/write_text_file",
+          params: { sessionId, path: planPath, content: "# Plan\n\n- Step" },
+        });
+        return;
+      }
+      if (message.id === "write-plan" && "result" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-plan",
+          method: "fs/read_text_file",
+          params: { sessionId, path: planPath },
+        });
+        return;
+      }
+      if (message.id === "read-plan" && "result" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Plan saved" },
+            },
+          },
+        });
+        if (promptRequest) {
+          respondAcp(fakeTransport, promptRequest, { stopReason: "end_turn" });
+        }
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-plan-files",
+      request: makeRequest({
+        workspace: { kind: "project", projectId: "p1", projectPath: projectDir },
+      }),
+      cwd: projectDir,
+      emit: () => {},
+      transportFactory: () => transport,
+      kimiSessionsRoot: sessionsRoot,
+    });
+    await waitForAsyncEvents();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(
+      (transport.sent[0].params as { clientCapabilities?: unknown }).clientCapabilities,
+    ).toMatchObject({ fs: { readTextFile: true, writeTextFile: true } });
+    expect(await readFile(planPath, "utf8")).toBe("# Plan\n\n- Step");
+    expect(transport.sent.find((message) => message.id === "read-plan")?.result).toEqual({
+      content: "# Plan\n\n- Step",
+    });
+  });
+
+  it("rejects other-session and symlinked Plan file writes", async () => {
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-plan-project-"));
+    const sessionsRoot = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-sessions-"));
+    const sessionId = "session-current";
+    const otherPlanPath = path.join(
+      sessionsRoot,
+      "workspace-key",
+      "session-other",
+      "agents",
+      "main",
+      "plans",
+      "other.md",
+    );
+    const currentPlanPath = path.join(
+      sessionsRoot,
+      "workspace-key",
+      sessionId,
+      "agents",
+      "main",
+      "plans",
+      "current.md",
+    );
+    const outsidePath = path.join(projectDir, "outside.md");
+    await mkdir(path.dirname(currentPlanPath), { recursive: true });
+    await writeFile(outsidePath, "unchanged");
+    await symlink(outsidePath, currentPlanPath);
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "write-other-session",
+          method: "fs/write_text_file",
+          params: { sessionId, path: otherPlanPath, content: "blocked" },
+        });
+        return;
+      }
+      if (message.id === "write-other-session" && "error" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "write-symlink",
+          method: "fs/write_text_file",
+          params: { sessionId, path: currentPlanPath, content: "blocked" },
+        });
+        return;
+      }
+      if (message.id === "write-symlink" && "error" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Blocked" },
+            },
+          },
+        });
+        if (promptRequest) {
+          respondAcp(fakeTransport, promptRequest, { stopReason: "end_turn" });
+        }
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-plan-file-boundary",
+      request: makeRequest({
+        workspace: { kind: "project", projectId: "p1", projectPath: projectDir },
+      }),
+      cwd: projectDir,
+      emit: () => {},
+      transportFactory: () => transport,
+      kimiSessionsRoot: sessionsRoot,
+    });
+    await waitForAsyncEvents();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(
+      transport.sent.find((message) => message.id === "write-other-session")?.error,
+    ).toMatchObject({
+      code: -32000,
+    });
+    expect(transport.sent.find((message) => message.id === "write-symlink")?.error).toMatchObject({
+      code: -32000,
+    });
+    expect(await readFile(outsidePath, "utf8")).toBe("unchanged");
   });
 });

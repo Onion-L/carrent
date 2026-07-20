@@ -1,6 +1,7 @@
 import type { RuntimeMode } from "../../shared/runtimeMode";
 import type { RuntimeId } from "../../shared/runtimes";
 import type { ImageAttachmentMetadata } from "../../shared/chat";
+import type { ChatPermissionOption } from "../../shared/chatPermissions";
 
 export type { ImageAttachmentMetadata };
 
@@ -12,6 +13,7 @@ export type ThreadRecord = {
   runtimeId?: RuntimeId;
   runtimeModelId?: string;
   runtimeMode?: RuntimeMode;
+  planMode?: boolean;
   pinned?: boolean;
   active?: boolean;
   draft?: boolean;
@@ -104,6 +106,16 @@ export type MessagePart =
       output: string;
       status: "running" | "completed" | "failed";
       exitCode?: number | null;
+    }
+  | {
+      type: "plan_review";
+      id: string;
+      permissionId: string;
+      content: string;
+      status: "pending" | "approved" | "revision-requested" | "rejected" | "interrupted";
+      options: ChatPermissionOption[];
+      selectedOptionId?: string;
+      selectedOptionName?: string;
     };
 
 type TextMessage = MessageBase & {

@@ -12,6 +12,7 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
     threadId: "thread-1",
     runtimeId: "kimi",
     runtimeMode: "approval-required",
+    planMode: false,
     transcript: [],
     message: "Hello",
     ...overrides,
@@ -328,7 +329,7 @@ describe("registerChatIpc", () => {
     });
   });
 
-  it("chat:permission-response forwards decisions to the session manager", async () => {
+  it("chat:permission-response forwards selected options to the session manager", async () => {
     const handlers = new Map<string, Function>();
 
     registerChatIpc(
@@ -353,7 +354,7 @@ describe("registerChatIpc", () => {
       {
         runId: "run-1",
         permissionId: "perm-1",
-        decision: "approved",
+        optionId: "approve_once",
       },
     );
 
@@ -361,7 +362,7 @@ describe("registerChatIpc", () => {
       {
         runId: "run-1",
         permissionId: "perm-1",
-        decision: "approved",
+        optionId: "approve_once",
       },
     ]);
   });

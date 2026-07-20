@@ -17,6 +17,8 @@ import {
   setChatThreadRuntimeId,
   setChatThreadRuntimeMode,
   setChatThreadRuntimeModelId,
+  setChatThreadPlanMode,
+  setThreadPlanModeInProjects,
   setThreadRuntimeIdInProjects,
   setThreadRuntimeModeInProjects,
   setThreadRuntimeModelIdInProjects,
@@ -309,6 +311,11 @@ describe("workspaceState", () => {
     expect(result.thread?.runtimeMode).toBe(DEFAULT_RUNTIME_MODE);
   });
 
+  it("creates project threads with Plan mode disabled", () => {
+    const result = createThreadInProjects([makeProject({ id: "p1" }, [])], "p1", "New");
+    expect(result.thread?.planMode).toBe(false);
+  });
+
   it("creates project threads with the default runtime", () => {
     const result = createThreadInProjects([makeProject({ id: "p1" }, [])], "p1", "New");
     expect(result.thread?.runtimeId).toBe(DEFAULT_RUNTIME_ID);
@@ -328,6 +335,10 @@ describe("workspaceState", () => {
     expect(createChatThread("Ideas")?.runtimeMode).toBe(DEFAULT_RUNTIME_MODE);
   });
 
+  it("creates chat threads with Plan mode disabled", () => {
+    expect(createChatThread("Ideas")?.planMode).toBe(false);
+  });
+
   it("creates chat threads with the default runtime", () => {
     expect(createChatThread("Ideas")?.runtimeId).toBe(DEFAULT_RUNTIME_ID);
   });
@@ -340,6 +351,12 @@ describe("workspaceState", () => {
     const projects = [makeProject({ id: "p1" }, [makeThread({ id: "t1" })])];
     const updated = setThreadRuntimeModeInProjects(projects, "p1", "t1", "auto-accept-edits");
     expect(updated[0].threads[0].runtimeMode).toBe("auto-accept-edits");
+  });
+
+  it("sets Plan mode on a project thread", () => {
+    const projects = [makeProject({ id: "p1" }, [makeThread({ id: "t1", planMode: false })])];
+    const updated = setThreadPlanModeInProjects(projects, "p1", "t1", true);
+    expect(updated[0].threads[0].planMode).toBe(true);
   });
 
   it("sets runtime on a project thread", () => {
@@ -357,6 +374,11 @@ describe("workspaceState", () => {
   it("sets runtime mode on a chat thread", () => {
     const updated = setChatThreadRuntimeMode([makeThread({ id: "c1" })], "c1", "full-access");
     expect(updated[0].runtimeMode).toBe("full-access");
+  });
+
+  it("sets Plan mode on a chat thread", () => {
+    const updated = setChatThreadPlanMode([makeThread({ id: "c1", planMode: false })], "c1", true);
+    expect(updated[0].planMode).toBe(true);
   });
 
   it("sets runtime on a chat thread", () => {

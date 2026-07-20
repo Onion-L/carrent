@@ -24,10 +24,12 @@ import {
   renameThreadInProjects,
   resolveChatThreadRouteData,
   setChatThreadRuntimeMode,
+  setChatThreadPlanMode,
   setChatThreadRuntimeModelId,
   setChatThreadRuntimeId,
   setThreadRuntimeIdInProjects,
   setThreadRuntimeModeInProjects,
+  setThreadPlanModeInProjects,
   setThreadRuntimeModelIdInProjects,
   toggleChatThreadPin,
   toggleThreadPinInProjects,
@@ -109,6 +111,7 @@ export type WorkspaceContextValue = {
     threadId: string,
     runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
   ) => void;
+  setThreadPlanMode: (projectId: string, threadId: string, planMode: boolean) => void;
   setThreadRuntimeId: (projectId: string, threadId: string, runtimeId: RuntimeId) => void;
   setThreadRuntimeModelId: (
     projectId: string,
@@ -119,6 +122,7 @@ export type WorkspaceContextValue = {
     threadId: string,
     runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
   ) => void;
+  setChatPlanMode: (threadId: string, planMode: boolean) => void;
   setChatRuntimeId: (threadId: string, runtimeId: RuntimeId) => void;
   setChatRuntimeModelId: (threadId: string, runtimeModelId: string | undefined) => void;
 };
@@ -132,7 +136,19 @@ export type MessagePartUpdate =
   | {
       kind: "upsert-shell";
       shell: Extract<MessagePart, { type: "shell" }>;
-    };
+    }
+  | {
+      kind: "upsert-plan-review";
+      review: Extract<MessagePart, { type: "plan_review" }>;
+    }
+  | {
+      kind: "resolve-plan-review";
+      permissionId: string;
+      status: Extract<MessagePart, { type: "plan_review" }>["status"];
+      selectedOptionId?: string;
+      selectedOptionName?: string;
+    }
+  | { kind: "interrupt-plan-reviews" };
 
 const WorkspaceContext = createContext<WorkspaceContextValue>({
   projects: [],
@@ -182,9 +198,11 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   updateMessageRunStatus: () => {},
   updateMessageParts: () => {},
   setThreadRuntimeMode: () => {},
+  setThreadPlanMode: () => {},
   setThreadRuntimeId: () => {},
   setThreadRuntimeModelId: () => {},
   setChatRuntimeMode: () => {},
+  setChatPlanMode: () => {},
   setChatRuntimeId: () => {},
   setChatRuntimeModelId: () => {},
 });
@@ -402,6 +420,51 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
     return {
       ...message,
       parts,
+    };
+  }
+
+  if (update.kind === "upsert-plan-review") {
+    const reviewIndex = parts.findIndex(
+      (part) =>
+        part.type === "plan_review" &&
+        (part.id === update.review.id || part.permissionId === update.review.permissionId),
+    );
+    if (reviewIndex >= 0) {
+      parts[reviewIndex] = update.review;
+    } else {
+      parts.push(update.review);
+    }
+
+    return {
+      ...message,
+      parts,
+    };
+  }
+
+  if (update.kind === "resolve-plan-review") {
+    return {
+      ...message,
+      parts: parts.map((part) =>
+        part.type === "plan_review" && part.permissionId === update.permissionId
+          ? {
+              ...part,
+              status: update.status,
+              selectedOptionId: update.selectedOptionId,
+              selectedOptionName: update.selectedOptionName,
+            }
+          : part,
+      ),
+    };
+  }
+
+  if (update.kind === "interrupt-plan-reviews") {
+    return {
+      ...message,
+      parts: parts.map((part) =>
+        part.type === "plan_review" && part.status === "pending"
+          ? { ...part, status: "interrupted" }
+          : part,
+      ),
     };
   }
 
@@ -632,6 +695,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setProjects((prev) => setThreadRuntimeModeInProjects(prev, projectId, threadId, runtimeMode));
   };
 
+  const setThreadPlanMode = (projectId: string, threadId: string, planMode: boolean) => {
+    setProjects((prev) => setThreadPlanModeInProjects(prev, projectId, threadId, planMode));
+  };
+
   const setThreadRuntimeId = (projectId: string, threadId: string, runtimeId: RuntimeId) => {
     setProjects((prev) => setThreadRuntimeIdInProjects(prev, projectId, threadId, runtimeId));
   };
@@ -651,6 +718,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
   ) => {
     setChats((prev) => setChatThreadRuntimeMode(prev, threadId, runtimeMode));
+  };
+
+  const setChatPlanMode = (threadId: string, planMode: boolean) => {
+    setChats((prev) => setChatThreadPlanMode(prev, threadId, planMode));
   };
 
   const setChatRuntimeId = (threadId: string, runtimeId: RuntimeId) => {
@@ -763,9 +834,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         updateMessageRunStatus,
         updateMessageParts,
         setThreadRuntimeMode,
+        setThreadPlanMode,
         setThreadRuntimeId,
         setThreadRuntimeModelId,
         setChatRuntimeMode,
+        setChatPlanMode,
         setChatRuntimeId,
         setChatRuntimeModelId,
       }}

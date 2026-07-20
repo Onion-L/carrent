@@ -39,7 +39,14 @@ describe("buildChangedFilesMessage", () => {
           { path: "a.txt", additions: 1, deletions: 2, binary: false, untracked: false },
           { path: "b.bin", additions: 0, deletions: 0, binary: true, untracked: false },
           { path: "c.txt", additions: 3, deletions: 0, binary: false, untracked: true },
-          { path: "d.txt", additions: 0, deletions: 0, binary: false, untracked: true, omitted: true },
+          {
+            path: "d.txt",
+            additions: 0,
+            deletions: 0,
+            binary: false,
+            untracked: true,
+            omitted: true,
+          },
         ],
         patch: "diff --git a/a.txt b/a.txt\n...",
         truncated: true,
@@ -459,6 +466,42 @@ describe("applyMessagePartUpdate", () => {
       }),
     ).toMatchObject({
       parts: [{ id: "kimi-thinking-1" }, { id: "tool-shell-1" }, { id: "kimi-thinking-2" }],
+    });
+  });
+
+  it("upserts, resolves, and interrupts Plan Reviews", () => {
+    const message = makeMessage({ role: "assistant", content: "", parts: [] });
+    const review = {
+      type: "plan_review" as const,
+      id: "review-1",
+      permissionId: "permission-1",
+      content: "# Plan",
+      status: "pending" as const,
+      options: [{ optionId: "plan_approve", name: "Approve", kind: "allow_once" as const }],
+    };
+
+    const pending = applyMessagePartUpdate(message, { kind: "upsert-plan-review", review });
+    const resolved = applyMessagePartUpdate(pending, {
+      kind: "resolve-plan-review",
+      permissionId: "permission-1",
+      status: "approved",
+      selectedOptionId: "plan_approve",
+      selectedOptionName: "Approve",
+    });
+    expect(resolved).toMatchObject({
+      parts: [
+        {
+          type: "plan_review",
+          status: "approved",
+          selectedOptionId: "plan_approve",
+          selectedOptionName: "Approve",
+        },
+      ],
+    });
+
+    const interrupted = applyMessagePartUpdate(pending, { kind: "interrupt-plan-reviews" });
+    expect(interrupted).toMatchObject({
+      parts: [{ type: "plan_review", status: "interrupted" }],
     });
   });
 });

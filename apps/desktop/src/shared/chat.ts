@@ -1,6 +1,6 @@
 import { DEFAULT_RUNTIME_ID, type RuntimeId } from "./runtimes";
 import type { RuntimeMode } from "./runtimeMode";
-import type { ChatPermissionDecision, ChatPermissionRequest } from "./chatPermissions";
+import type { ChatPermissionOptionKind, ChatPermissionRequest } from "./chatPermissions";
 
 export const DEFAULT_CHAT_RUNTIME_ID: RuntimeId = DEFAULT_RUNTIME_ID;
 
@@ -46,6 +46,7 @@ export interface ChatTurnRequest {
   runtimeId: RuntimeId;
   runtimeModelId?: string;
   runtimeMode: RuntimeMode;
+  planMode: boolean;
   transcript: Array<{
     role: "user" | "assistant";
     content: string;
@@ -90,6 +91,7 @@ export type ChatRunEvent =
         runtimeId?: RuntimeId;
         runtimeModelId?: string;
         runtimeMode?: RuntimeMode;
+        planMode?: boolean;
       };
     })
   | (ChatRunEventBase & {
@@ -113,7 +115,13 @@ export type ChatRunEvent =
   | (ChatRunEventBase & {
       type: "permission-resolved";
       permissionId: string;
-      decision: ChatPermissionDecision;
+      optionId: string;
+      optionName: string;
+      optionKind: ChatPermissionOptionKind;
+    })
+  | (ChatRunEventBase & {
+      type: "plan-mode-changed";
+      enabled: boolean;
     })
   | (ChatRunEventBase & {
       type: "permission-failed";

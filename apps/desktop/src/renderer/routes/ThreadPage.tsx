@@ -42,6 +42,7 @@ function ThreadPageContent() {
   const {
     getThreadRouteData,
     setActiveThreadId,
+    setThreadPlanMode,
     setThreadRuntimeMode,
     setThreadRuntimeId,
     setThreadRuntimeModelId,
@@ -86,6 +87,7 @@ function ThreadPageContent() {
       runtimeId={routeData.thread.runtimeId ?? DEFAULT_RUNTIME_ID}
       runtimeModelId={routeData.thread.runtimeModelId}
       runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
+      planMode={routeData.thread.planMode === true}
       submitRequest={
         submitRequest?.threadId === routeData.thread.id ? submitRequest.request : undefined
       }
@@ -100,6 +102,9 @@ function ThreadPageContent() {
       }
       onRuntimeModeChange={(mode) =>
         setThreadRuntimeMode(routeData.project.id, routeData.thread.id, mode)
+      }
+      onPlanModeChange={(enabled) =>
+        setThreadPlanMode(routeData.project.id, routeData.thread.id, enabled)
       }
     />
   ) : null;

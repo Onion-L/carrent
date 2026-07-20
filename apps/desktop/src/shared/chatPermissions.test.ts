@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   CHAT_PERMISSION_TIMEOUT_MS,
   buildPermissionExpiry,
-  isChatPermissionDecision,
+  isChatPermissionOptionKind,
 } from "./chatPermissions";
 
 describe("chatPermissions", () => {
@@ -11,10 +11,11 @@ describe("chatPermissions", () => {
     expect(CHAT_PERMISSION_TIMEOUT_MS).toBe(60_000);
   });
 
-  it("validates permission decisions", () => {
-    expect(isChatPermissionDecision("approved")).toBe(true);
-    expect(isChatPermissionDecision("denied")).toBe(true);
-    expect(isChatPermissionDecision("other")).toBe(false);
+  it("validates permission option kinds", () => {
+    expect(isChatPermissionOptionKind("allow_once")).toBe(true);
+    expect(isChatPermissionOptionKind("allow_always")).toBe(true);
+    expect(isChatPermissionOptionKind("reject_once")).toBe(true);
+    expect(isChatPermissionOptionKind("approved")).toBe(false);
   });
 
   it("builds an expiry timestamp from a start time", () => {

@@ -152,6 +152,7 @@ export function createThreadInProjects(
     runtimeId,
     runtimeModelId,
     runtimeMode: DEFAULT_RUNTIME_MODE,
+    planMode: false,
   };
   if (draft) {
     thread.draft = true;
@@ -258,6 +259,7 @@ export function createChatThread(
     runtimeId,
     runtimeModelId,
     runtimeMode: DEFAULT_RUNTIME_MODE,
+    planMode: false,
   };
 }
 
@@ -313,6 +315,24 @@ export function setThreadRuntimeModeInProjects(
   );
 }
 
+export function setThreadPlanModeInProjects(
+  projects: ProjectRecord[],
+  projectId: string,
+  threadId: string,
+  planMode: boolean,
+) {
+  return projects.map((project) =>
+    project.id === projectId
+      ? {
+          ...project,
+          threads: project.threads.map((thread) =>
+            thread.id === threadId ? { ...thread, planMode } : thread,
+          ),
+        }
+      : project,
+  );
+}
+
 export function setThreadRuntimeIdInProjects(
   projects: ProjectRecord[],
   projectId: string,
@@ -355,6 +375,10 @@ export function setChatThreadRuntimeMode(
   runtimeMode: RuntimeMode,
 ) {
   return chats.map((thread) => (thread.id === threadId ? { ...thread, runtimeMode } : thread));
+}
+
+export function setChatThreadPlanMode(chats: ThreadRecord[], threadId: string, planMode: boolean) {
+  return chats.map((thread) => (thread.id === threadId ? { ...thread, planMode } : thread));
 }
 
 export function setChatThreadRuntimeId(

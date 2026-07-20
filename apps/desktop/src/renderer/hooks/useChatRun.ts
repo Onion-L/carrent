@@ -13,6 +13,14 @@ export type ChatRunCallbacks = {
   onReasoning?: (reasoning: ChatReasoningEventPayload) => void;
   onShell?: (shell: ChatShellEventPayload) => void;
   onPermissionRequested?: (permission: ChatPermissionRequest) => void;
+  onPermissionResolved?: (resolution: {
+    permissionId: string;
+    optionId: string;
+    optionName: string;
+    optionKind: import("../../shared/chatPermissions").ChatPermissionOptionKind;
+  }) => void;
+  onPermissionsInterrupted?: (permissions: ChatPermissionRequest[]) => void;
+  onPlanModeChanged?: (enabled: boolean) => void;
   onComplete?: (text: string) => void;
   onError?: (error: string) => void;
   onStop?: () => void;
@@ -69,6 +77,23 @@ export function createChatRunCoordinator() {
     requestKeyByThreadId.delete(run.threadId);
     if (run.runId) {
       requestKeyByRunId.delete(run.runId);
+    }
+  };
+
+  const clearPermissionsForRun = (
+    run: PendingChatRun,
+    runId: string,
+    notifyInterrupted: boolean,
+  ) => {
+    const removed: ChatPermissionRequest[] = [];
+    pendingPermissionById.forEach((permission, id) => {
+      if (permission.runId === runId) {
+        pendingPermissionById.delete(id);
+        removed.push(permission);
+      }
+    });
+    if (notifyInterrupted && removed.length > 0) {
+      run.callbacks.onPermissionsInterrupted?.(removed);
     }
   };
 
@@ -150,12 +175,7 @@ export function createChatRunCoordinator() {
       // permission-failed when run is not found still shows error to user
       if (event.type === "permission-failed") {
         if (run) {
-          // Clear permissions for this run before ending
-          pendingPermissionById.forEach((perm, id) => {
-            if (perm.runId === event.runId) {
-              pendingPermissionById.delete(id);
-            }
-          });
+          clearPermissionsForRun(run, event.runId, true);
           run.callbacks.onError?.(event.error);
           finishPendingRun(run);
         }
@@ -197,25 +217,20 @@ export function createChatRunCoordinator() {
         return;
       }
 
+      if (event.type === "plan-mode-changed") {
+        run.callbacks.onPlanModeChanged?.(event.enabled);
+        return;
+      }
+
       if (event.type === "completed") {
-        // Only clear permissions for this specific run
-        pendingPermissionById.forEach((perm, id) => {
-          if (perm.runId === event.runId) {
-            pendingPermissionById.delete(id);
-          }
-        });
+        clearPermissionsForRun(run, event.runId, true);
         run.callbacks.onComplete?.(event.text);
         finishPendingRun(run);
         return;
       }
 
       if (event.type === "failed") {
-        // Only clear permissions for this specific run
-        pendingPermissionById.forEach((perm, id) => {
-          if (perm.runId === event.runId) {
-            pendingPermissionById.delete(id);
-          }
-        });
+        clearPermissionsForRun(run, event.runId, true);
         run.callbacks.onError?.(event.error);
         clearPending(run);
         updateSnapshot(event.error);
@@ -224,12 +239,7 @@ export function createChatRunCoordinator() {
       }
 
       if (event.type === "stopped") {
-        // Only clear permissions for this specific run
-        pendingPermissionById.forEach((perm, id) => {
-          if (perm.runId === event.runId) {
-            pendingPermissionById.delete(id);
-          }
-        });
+        clearPermissionsForRun(run, event.runId, true);
         run.callbacks.onStop?.();
         finishPendingRun(run);
         return;
@@ -244,6 +254,12 @@ export function createChatRunCoordinator() {
       }
 
       if (event.type === "permission-resolved") {
+        run.callbacks.onPermissionResolved?.({
+          permissionId: event.permissionId,
+          optionId: event.optionId,
+          optionName: event.optionName,
+          optionKind: event.optionKind,
+        });
         pendingPermissionById.delete(event.permissionId);
         updateSnapshot();
         emit();

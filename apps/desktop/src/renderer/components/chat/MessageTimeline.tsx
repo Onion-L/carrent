@@ -5,10 +5,11 @@ import {
   type MessagePart,
   type ImageAttachmentMetadata,
 } from "../../mock/uiShellData";
-import { AgentActivityBlock } from "./AgentActivityBlock";
+import { AgentActivityBlock, type AgentActivityItem } from "./AgentActivityBlock";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachmentLightbox";
 import { MarkdownContent } from "./MarkdownContent";
+import { PlanReviewBlock } from "./PlanReviewBlock";
 
 type UserMessageSegment =
   | { type: "text"; content: string }
@@ -344,21 +345,80 @@ function UserMessage({
 
 type ActivityPart = Extract<MessagePart, { type: "reasoning" | "shell" }>;
 
+function isRawThoughtPart(part: ActivityPart) {
+  return part.type === "reasoning" && part.id.startsWith("kimi-thinking-");
+}
+
+export function getAssistantMessagePresentation(
+  parts: MessagePart[],
+  runStatus: Message["runStatus"],
+) {
+  const hasPlanReview = parts.some((part) => part.type === "plan_review");
+  const answerCanStart = runStatus !== "running" || hasPlanReview;
+  const lastActivityIndex = parts.reduce(
+    (lastIndex, part, index) =>
+      part.type === "reasoning" || part.type === "shell" ? index : lastIndex,
+    -1,
+  );
+  const finalTextIndexes = new Set<number>();
+
+  if (answerCanStart) {
+    parts.forEach((part, index) => {
+      if (part.type === "text" && index > lastActivityIndex) {
+        finalTextIndexes.add(index);
+      }
+    });
+  }
+
+  const activityItems: AgentActivityItem[] = [];
+  const answerParts: string[] = [];
+
+  parts.forEach((part, index) => {
+    if (part.type === "text") {
+      if (finalTextIndexes.has(index)) {
+        answerParts.push(part.content);
+      } else if (part.content) {
+        activityItems.push({
+          type: "commentary",
+          id: `commentary-${index}`,
+          content: part.content,
+        });
+      }
+      return;
+    }
+
+    if ((part.type === "reasoning" || part.type === "shell") && !isRawThoughtPart(part)) {
+      activityItems.push(part);
+    }
+  });
+
+  return {
+    activityItems,
+    answerText: answerParts.join("\n"),
+  };
+}
+
 function AssistantMessage({ message, timestamp }: { message: Message; timestamp: string }) {
   const content = message.content ?? "";
   const parts = message.type !== "changed_files" ? message.parts : undefined;
   const hasParts = !!parts?.length;
-  const isStreaming = !hasParts && content === "";
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const activityParts =
-    parts?.filter(
-      (part): part is ActivityPart => part.type === "reasoning" || part.type === "shell",
-    ) ?? [];
   const textParts = parts?.filter((part) => part.type === "text") ?? [];
+  const planReviewParts = parts?.filter((part) => part.type === "plan_review") ?? [];
+  const presentation = parts
+    ? getAssistantMessagePresentation(parts, message.runStatus)
+    : { activityItems: [], answerText: content };
+  const isStreaming =
+    (!hasParts && content === "") ||
+    (message.runStatus === "running" &&
+      presentation.activityItems.length === 0 &&
+      !presentation.answerText &&
+      planReviewParts.length === 0);
 
-  const copyText = hasParts ? (textParts.map((p) => p.content).join("\n") ?? content) : content;
+  const copyText =
+    presentation.answerText || textParts.map((part) => part.content).join("\n") || content;
 
   const handleCopy = async () => {
     try {
@@ -390,19 +450,20 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
         </div>
       ) : hasParts ? (
         <div className="flex flex-col gap-4">
-          {activityParts.length > 0 && (
+          {presentation.activityItems.length > 0 && (
             <AgentActivityBlock
-              steps={activityParts}
+              items={presentation.activityItems}
               status={message.runStatus}
               startedAt={message.createdAt}
               finishedAt={message.runFinishedAt}
               duration={message.duration}
-              hasFinalAnswerStarted={textParts.some((part) => part.content.length > 0)}
+              hasFinalAnswerStarted={presentation.answerText.length > 0}
             />
           )}
-          {textParts.length > 0 && (
-            <MarkdownContent>{textParts.map((part) => part.content).join("\n")}</MarkdownContent>
-          )}
+          {planReviewParts.map((review) => (
+            <PlanReviewBlock key={review.id} review={review} />
+          ))}
+          {presentation.answerText && <MarkdownContent>{presentation.answerText}</MarkdownContent>}
         </div>
       ) : (
         <MarkdownContent>{content}</MarkdownContent>

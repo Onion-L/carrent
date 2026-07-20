@@ -6,12 +6,21 @@ import os from "node:os";
 import path from "node:path";
 import type { ChatRunEvent, ChatTurnRequest } from "../../src/shared/chat";
 import {
-  createChatSessionManager as createProductionChatSessionManager,
+  createChatSessionManager as createRawChatSessionManager,
   type ChatSessionManager,
 } from "./chatSessionManager";
 import type { KimiAcpTransport, KimiAcpTransportFactory } from "./kimiAcpChat";
 
 type JsonMessage = Record<string, unknown>;
+
+function createProductionChatSessionManager(
+  options: Parameters<typeof createRawChatSessionManager>[0],
+) {
+  return createRawChatSessionManager({
+    carrentBridgeFactory: async () => null,
+    ...options,
+  });
+}
 
 function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
@@ -23,6 +32,7 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
     threadId: "thread-1",
     runtimeId: "codex",
     runtimeMode: "approval-required",
+    planMode: false,
     transcript: [],
     message: "Hello",
     ...overrides,
@@ -1588,7 +1598,7 @@ describe("createChatSessionManager", () => {
     manager.respondToPermission({
       runId: "run-kimi-permission",
       permissionId: permissionRequested!.permission.id,
-      decision: "approved",
+      optionId: "approve_once",
     });
     await waitForAsyncEvents();
 
@@ -1605,7 +1615,9 @@ describe("createChatSessionManager", () => {
       type: "permission-resolved",
       runId: "run-kimi-permission",
       permissionId: permissionRequested!.permission.id,
-      decision: "approved",
+      optionId: "approve_once",
+      optionName: "Approve once",
+      optionKind: "allow_once",
     });
     expect(emitted.find((event) => event.type === "completed")).toMatchObject({
       type: "completed",
@@ -1707,7 +1719,7 @@ describe("createChatSessionManager", () => {
       manager.respondToPermission({
         runId: event.runId,
         permissionId: event.permission.id,
-        decision: "approved",
+        optionId: "approve_once",
       });
     }
     await waitForAsyncEvents();
@@ -1776,12 +1788,13 @@ describe("createChatSessionManager", () => {
       type: "failed",
       runId: "run-kimi-unsupported-permission",
     });
-    expect(failed?.error).toContain("approve/deny");
+    expect(failed?.error).toContain("supported response options");
     expect(transports[0]?.closed).toBe(true);
   });
 
-  it("does not treat session-wide Kimi ACP approval as a one-time approval", async () => {
+  it("round-trips session-wide Kimi ACP approval options", async () => {
     const emitted: ChatRunEvent[] = [];
+    let promptRequest: JsonMessage | null = null;
     const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
       if (message.method === "initialize") {
         respondAcp(transport, message, { protocolVersion: 1 });
@@ -1794,6 +1807,7 @@ describe("createChatSessionManager", () => {
       }
 
       if (message.method === "session/prompt") {
+        promptRequest = message;
         queueMicrotask(() => {
           transport.emitMessage({
             jsonrpc: "2.0",
@@ -1825,6 +1839,19 @@ describe("createChatSessionManager", () => {
             },
           });
         });
+        return;
+      }
+
+      if (message.id === "agent-permission-wide" && "result" in message) {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Allowed" },
+          });
+          if (promptRequest) {
+            respondAcp(transport, promptRequest, { stopReason: "end_turn" });
+          }
+        });
       }
     });
 
@@ -1839,13 +1866,34 @@ describe("createChatSessionManager", () => {
     manager.start("run-kimi-wide-permission", makeRequest({ runtimeId: "kimi" }));
     await waitForAsyncEvents();
 
-    expect(emitted.some((event) => event.type === "permission-requested")).toBe(false);
+    const permissionRequested = emitted.find(
+      (event): event is Extract<ChatRunEvent, { type: "permission-requested" }> =>
+        event.type === "permission-requested",
+    );
+    expect(permissionRequested?.permission.options).toEqual([
+      {
+        optionId: "approve_always",
+        name: "Approve for this session",
+        kind: "allow_always",
+      },
+      { optionId: "reject", name: "Reject", kind: "reject_once" },
+    ]);
+
+    manager.respondToPermission({
+      runId: "run-kimi-wide-permission",
+      permissionId: permissionRequested!.permission.id,
+      optionId: "approve_always",
+    });
+    await waitForAsyncEvents();
+
     expect(
       transports[0]?.sent.find((message) => message.id === "agent-permission-wide")?.result,
-    ).toEqual({ outcome: { outcome: "cancelled" } });
-    expect(emitted.find((event) => event.type === "failed")).toMatchObject({
-      type: "failed",
-      runId: "run-kimi-wide-permission",
+    ).toEqual({ outcome: { outcome: "selected", optionId: "approve_always" } });
+    expect(emitted.find((event) => event.type === "permission-resolved")).toMatchObject({
+      type: "permission-resolved",
+      optionId: "approve_always",
+      optionName: "Approve for this session",
+      optionKind: "allow_always",
     });
   });
 
@@ -3552,7 +3600,7 @@ describe("createChatSessionManager", () => {
     manager.respondToPermission({
       runId: "run-perm-unknown",
       permissionId: "perm-missing",
-      decision: "approved",
+      optionId: "approve_once",
     });
 
     const failed = emitted.find((e) => e.type === "permission-failed");
@@ -3582,7 +3630,7 @@ describe("createChatSessionManager", () => {
     manager.respondToPermission({
       runId: "run-nonexistent",
       permissionId: "perm-1",
-      decision: "denied",
+      optionId: "reject",
     });
 
     const failed = emitted.find((e) => e.type === "permission-failed");
@@ -3611,7 +3659,7 @@ describe("createChatSessionManager", () => {
     manager.respondToPermission({
       runId: "run-stop-cleanup",
       permissionId: "perm-any",
-      decision: "approved",
+      optionId: "approve_once",
     });
 
     const failed = emitted.find((e) => e.type === "permission-failed");

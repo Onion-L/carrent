@@ -206,6 +206,7 @@ describe("createChatRunCoordinator", () => {
         provider: "claude-code",
         action: "edit",
         title: "Edit demo.txt",
+        options: [],
         createdAt: "2026-01-01T00:00:00.000Z",
         expiresAt: "2026-01-01T00:01:00.000Z",
       } satisfies ChatPermissionRequest,
@@ -234,6 +235,7 @@ describe("createChatRunCoordinator", () => {
         provider: "claude-code",
         action: "edit",
         title: "Edit demo.txt",
+        options: [],
         createdAt: "2026-01-01T00:00:00.000Z",
         expiresAt: "2026-01-01T00:01:00.000Z",
       } satisfies ChatPermissionRequest,
@@ -244,11 +246,77 @@ describe("createChatRunCoordinator", () => {
       runId: "run-1",
       requestKey: "req-1",
       permissionId: "perm-1",
-      decision: "approved",
-    });
+      optionId: "approve_once",
+      optionName: "Approve once",
+      optionKind: "allow_once",
+    } satisfies ChatRunEvent);
 
     const snapshot = coordinator.getSnapshot();
     expect(snapshot.pendingPermissions).toHaveLength(0);
+  });
+
+  it("routes permission outcomes and Plan mode changes to the active request", () => {
+    const coordinator = createChatRunCoordinator();
+    const outcomes: string[] = [];
+    coordinator.beginRequest("req-1", "thread-1", {
+      onPermissionResolved: (resolution) =>
+        outcomes.push(`${resolution.optionId}:${resolution.optionKind}`),
+      onPlanModeChanged: (enabled) => outcomes.push(`plan:${enabled}`),
+    });
+
+    coordinator.handleEvent({
+      type: "permission-resolved",
+      runId: "run-1",
+      requestKey: "req-1",
+      permissionId: "perm-1",
+      optionId: "plan_revise",
+      optionName: "Revise",
+      optionKind: "reject_once",
+    } satisfies ChatRunEvent);
+    coordinator.handleEvent({
+      type: "plan-mode-changed",
+      runId: "run-1",
+      requestKey: "req-1",
+      enabled: false,
+    } satisfies ChatRunEvent);
+
+    expect(outcomes).toEqual(["plan_revise:reject_once", "plan:false"]);
+  });
+
+  it("reports pending Plan Reviews as interrupted when a run ends", () => {
+    const coordinator = createChatRunCoordinator();
+    const interrupted: string[] = [];
+    coordinator.beginRequest("req-1", "thread-1", {
+      onPermissionsInterrupted: (permissions) =>
+        interrupted.push(...permissions.map((permission) => permission.id)),
+    });
+
+    coordinator.handleEvent({
+      type: "permission-requested",
+      runId: "run-1",
+      requestKey: "req-1",
+      permission: {
+        id: "perm-plan",
+        runId: "run-1",
+        requestKey: "req-1",
+        threadId: "thread-1",
+        provider: "kimi",
+        action: "unknown",
+        title: "Review plan",
+        options: [{ optionId: "plan_approve", name: "Approve", kind: "allow_once" }],
+        planReview: { content: "# Plan" },
+        createdAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2026-01-01T00:01:00.000Z",
+      },
+    } satisfies ChatRunEvent);
+    coordinator.handleEvent({
+      type: "stopped",
+      runId: "run-1",
+      requestKey: "req-1",
+    } satisfies ChatRunEvent);
+
+    expect(interrupted).toEqual(["perm-plan"]);
+    expect(coordinator.getSnapshot().pendingPermissions).toEqual([]);
   });
 
   it("removes permission when permission-failed is received", () => {
@@ -271,6 +339,7 @@ describe("createChatRunCoordinator", () => {
         provider: "claude-code",
         action: "edit",
         title: "Edit demo.txt",
+        options: [],
         createdAt: "2026-01-01T00:00:00.000Z",
         expiresAt: "2026-01-01T00:01:00.000Z",
       } satisfies ChatPermissionRequest,

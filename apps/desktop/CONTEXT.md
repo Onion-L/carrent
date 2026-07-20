@@ -48,6 +48,14 @@ _Avoid_: Runtime error, diagnostics, onboarding
 The decision loop that turns a user request into model calls, tool use, file edits, shell commands, and follow-up reasoning.
 _Avoid_: Chat completion, single API call
 
+**Plan Mode**:
+A coding agent run posture that limits the agent to exploration and design until it presents a plan and returns control to the conversation.
+_Avoid_: Permission mode, read-only runtime
+
+**Plan Review**:
+A read-only plan presentation followed by a normal user reply. The next message tells the Runtime whether to execute, explain, or revise without Carrent-owned approval buttons or keyword matching.
+_Avoid_: Generic approval request, plan action card
+
 **Agent Activity**:
 The ordered activity trail produced during a coding agent run, including reasoning summaries, tool activity, file activity, and shell commands.
 _Avoid_: Tool log, reasoning block, execution log

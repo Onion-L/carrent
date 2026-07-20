@@ -2,16 +2,20 @@ import type {
   ChangedFile,
   ChangedFilesMessage,
   Message,
+  MessagePart,
   ProjectRecord,
   ThreadRecord,
 } from "../renderer/mock/uiShellData";
 import type { ImageAttachmentMetadata } from "./chat";
+import type { ChatPermissionOption } from "./chatPermissions";
 import { normalizeRuntimeMode } from "./runtimeMode";
 import { normalizeRuntimeId } from "./runtimes";
 
 export const WORKSPACE_SNAPSHOT_VERSION = 1;
 
 const MAX_PATCH_BYTES = 256 * 1024;
+const MAX_PLAN_REVIEW_BYTES = 256 * 1024;
+const MAX_PLAN_REVIEW_OPTIONS = 5;
 
 export type WorkspaceSnapshot = {
   version: typeof WORKSPACE_SNAPSHOT_VERSION;
@@ -82,20 +86,14 @@ function normalizeChangedFile(value: unknown): ChangedFile | null {
     file.isFolder = value.isFolder;
   }
 
-  if (
-    value.fileType === "swift" ||
-    value.fileType === "markdown" ||
-    value.fileType === "other"
-  ) {
+  if (value.fileType === "swift" || value.fileType === "markdown" || value.fileType === "other") {
     file.fileType = value.fileType;
   }
 
   return file;
 }
 
-function normalizeChangedFilesSnapshot(
-  value: unknown,
-): ChangedFilesMessage["snapshot"] | null {
+function normalizeChangedFilesSnapshot(value: unknown): ChangedFilesMessage["snapshot"] | null {
   if (!isRecord(value)) return null;
   if (typeof value.baseRevision !== "string") return null;
   if (typeof value.capturedAt !== "string") return null;
@@ -113,8 +111,68 @@ function normalizeChangedFilesSnapshot(
   };
 }
 
+function normalizePlanReviewPart(
+  value: unknown,
+): Extract<MessagePart, { type: "plan_review" }> | null {
+  if (!isRecord(value) || value.type !== "plan_review") return null;
+  if (typeof value.id !== "string" || typeof value.permissionId !== "string") return null;
+  if (typeof value.content !== "string") return null;
+  if (new TextEncoder().encode(value.content).length > MAX_PLAN_REVIEW_BYTES) return null;
+  if (!Array.isArray(value.options) || value.options.length > MAX_PLAN_REVIEW_OPTIONS) return null;
+
+  const options: ChatPermissionOption[] = value.options.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    if (typeof item.optionId !== "string" || typeof item.name !== "string") return [];
+    if (item.kind !== "allow_once" && item.kind !== "allow_always" && item.kind !== "reject_once") {
+      return [];
+    }
+    return [{ optionId: item.optionId, name: item.name, kind: item.kind }];
+  });
+  if (options.length !== value.options.length) return null;
+
+  const validStatus =
+    value.status === "pending" ||
+    value.status === "approved" ||
+    value.status === "revision-requested" ||
+    value.status === "rejected" ||
+    value.status === "interrupted";
+  if (!validStatus) return null;
+  const status: Extract<MessagePart, { type: "plan_review" }>["status"] =
+    value.status === "pending"
+      ? "interrupted"
+      : (value.status as Extract<MessagePart, { type: "plan_review" }>["status"]);
+
+  return {
+    type: "plan_review",
+    id: value.id,
+    permissionId: value.permissionId,
+    content: value.content,
+    status,
+    options,
+    ...(typeof value.selectedOptionId === "string"
+      ? { selectedOptionId: value.selectedOptionId }
+      : {}),
+    ...(typeof value.selectedOptionName === "string"
+      ? { selectedOptionName: value.selectedOptionName }
+      : {}),
+  };
+}
+
+function normalizeMessageParts(value: unknown): MessagePart[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  const parts = value.flatMap((item) => {
+    if (isRecord(item) && item.type === "plan_review") {
+      const normalized = normalizePlanReviewPart(item);
+      return normalized ? [normalized] : [];
+    }
+    return [item as MessagePart];
+  });
+  return parts.length > 0 ? parts : undefined;
+}
+
 function normalizeMessageRecord(message: Message): Message {
-  const record = message as Message & { attachments?: unknown };
+  const record = message as Message & { attachments?: unknown; parts?: unknown };
 
   if (record.type === "changed_files") {
     const changedFilesRecord = record as ChangedFilesMessage & { changedFiles?: unknown };
@@ -136,15 +194,19 @@ function normalizeMessageRecord(message: Message): Message {
     return normalized as Message;
   }
 
-  if (!Array.isArray(record.attachments)) {
-    return message;
-  }
+  const normalizedParts = normalizeMessageParts(record.parts);
+  const normalizedAttachments = Array.isArray(record.attachments)
+    ? record.attachments
+        .map((attachment) => normalizeImageAttachmentMetadata(attachment))
+        .filter((attachment): attachment is ImageAttachmentMetadata => attachment !== null)
+    : undefined;
+
+  const { parts: _parts, attachments: _attachments, ...rest } = record;
 
   return {
-    ...message,
-    attachments: record.attachments
-      .map((attachment) => normalizeImageAttachmentMetadata(attachment))
-      .filter((attachment): attachment is ImageAttachmentMetadata => attachment !== null),
+    ...rest,
+    ...(normalizedParts ? { parts: normalizedParts } : {}),
+    ...(normalizedAttachments ? { attachments: normalizedAttachments } : {}),
   } as Message;
 }
 
@@ -165,18 +227,25 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
       runtimeMode?: unknown;
       runtimeModelId?: unknown;
       lastActivityAt?: unknown;
+      planMode?: unknown;
     },
   ): ThreadRecord {
     const runtimeModelId = normalizeOptionalString(thread.runtimeModelId);
     const lastActivityAt = normalizeOptionalString(thread.lastActivityAt);
     const validLastActivityAt =
       lastActivityAt && !Number.isNaN(Date.parse(lastActivityAt)) ? lastActivityAt : undefined;
-    const { runtimeModelId: _runtimeModelId, lastActivityAt: _lastActivityAt, ...rest } = thread;
+    const {
+      runtimeModelId: _runtimeModelId,
+      lastActivityAt: _lastActivityAt,
+      planMode: _planMode,
+      ...rest
+    } = thread;
 
     return {
       ...(rest as Omit<ThreadRecord, "runtimeId" | "runtimeMode" | "runtimeModelId">),
       runtimeId: normalizeRuntimeId(thread.runtimeId),
       runtimeMode: normalizeRuntimeMode(thread.runtimeMode),
+      planMode: thread.planMode === true,
       ...(runtimeModelId ? { runtimeModelId } : {}),
       ...(validLastActivityAt ? { lastActivityAt: validLastActivityAt } : {}),
     };

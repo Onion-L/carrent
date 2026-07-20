@@ -60,6 +60,28 @@ export function parseDeleteThreadDataRequest(value: unknown): DeleteThreadDataRe
   };
 }
 
+export function parseChatPermissionResponse(value: unknown): ChatPermissionResponse {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid permission response.");
+  }
+  const response = value as Record<string, unknown>;
+  if (
+    typeof response.permissionId !== "string" ||
+    !response.permissionId.trim() ||
+    typeof response.runId !== "string" ||
+    !response.runId.trim() ||
+    typeof response.optionId !== "string" ||
+    !response.optionId.trim()
+  ) {
+    throw new Error("Invalid permission response.");
+  }
+  return {
+    permissionId: response.permissionId,
+    runId: response.runId,
+    optionId: response.optionId,
+  };
+}
+
 export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServices) {
   ipcMainLike.handle("chat:send", async (_event, request) => {
     const req = request as ChatTurnRequest;
@@ -86,7 +108,7 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
   });
 
   ipcMainLike.handle("chat:permission-response", async (_event, response) => {
-    services.sessionManager.respondToPermission(response as ChatPermissionResponse);
+    services.sessionManager.respondToPermission(parseChatPermissionResponse(response));
     return undefined;
   });
 

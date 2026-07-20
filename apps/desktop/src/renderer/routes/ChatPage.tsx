@@ -31,6 +31,7 @@ function ChatPageContent() {
   const {
     getChatRouteData,
     setActiveThreadId,
+    setChatPlanMode,
     setChatRuntimeMode,
     setChatRuntimeId,
     setChatRuntimeModelId,
@@ -64,10 +65,12 @@ function ChatPageContent() {
       runtimeId={routeData.thread.runtimeId ?? DEFAULT_RUNTIME_ID}
       runtimeModelId={routeData.thread.runtimeModelId}
       runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
+      planMode={routeData.thread.planMode === true}
       submitRequest={submitRequest}
       onRuntimeIdChange={(runtimeId) => setChatRuntimeId(routeData.thread.id, runtimeId)}
       onRuntimeModelIdChange={(modelId) => setChatRuntimeModelId(routeData.thread.id, modelId)}
       onRuntimeModeChange={(mode) => setChatRuntimeMode(routeData.thread.id, mode)}
+      onPlanModeChange={(enabled) => setChatPlanMode(routeData.thread.id, enabled)}
     />
   ) : null;
 

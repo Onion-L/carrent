@@ -1772,32 +1772,30 @@ export function Composer(props: ComposerProps) {
           <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border-strong bg-surface shadow-[0_18px_60px_rgb(0_0_0/0.28)]">
             <div className="max-h-80 overflow-y-auto p-1">
               {showPlanSuggestion ? (
-                <div className="mb-1 rounded-lg bg-bg/45">
-                  <button
-                    ref={(element) => {
-                      if (element) {
-                        skillItemRefs.current.set(0, element);
-                      } else {
-                        skillItemRefs.current.delete(0);
-                      }
-                    }}
-                    type="button"
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      handlePlanInsert();
-                    }}
-                    onMouseEnter={() => setSelectedSkillIndex(0)}
-                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition ${
-                      selectedSkillIndex === 0 ? "bg-surface-hover" : "hover:bg-surface-raised"
-                    }`}
-                  >
-                    <ListChecks className="h-4 w-4 shrink-0 text-muted" />
-                    <span className="min-w-0 flex-1 truncate text-app-13 font-medium text-fg">
-                      Plan mode
-                    </span>
-                    <span className="shrink-0 text-app-12 text-subtle">Enable plan mode</span>
-                  </button>
-                </div>
+                <button
+                  ref={(element) => {
+                    if (element) {
+                      skillItemRefs.current.set(0, element);
+                    } else {
+                      skillItemRefs.current.delete(0);
+                    }
+                  }}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    handlePlanInsert();
+                  }}
+                  onMouseEnter={() => setSelectedSkillIndex(0)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left transition ${
+                    selectedSkillIndex === 0 ? "bg-surface-hover" : "hover:bg-surface-raised"
+                  }`}
+                >
+                  <ListChecks className="h-4 w-4 shrink-0 text-muted" />
+                  <span className="min-w-0 flex-1 truncate text-app-13 font-medium text-fg">
+                    Plan mode
+                  </span>
+                  <span className="shrink-0 text-app-12 text-subtle">Enable plan mode</span>
+                </button>
               ) : null}
               {showSkills ? (
                 <div className="px-3 pb-1 pt-2 text-app-12 font-medium text-muted">Skills</div>

@@ -70,6 +70,10 @@ function getStepStatusMeta(step: AgentActivityStep) {
     return { icon: CircleDashed, className: "text-muted" };
   }
 
+  if (step.status === "cancelled") {
+    return { icon: XCircle, className: "text-muted" };
+  }
+
   if (step.type === "shell" && step.status === "failed") {
     return { icon: XCircle, className: "text-danger" };
   }

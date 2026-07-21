@@ -41,6 +41,7 @@ import {
   useDebouncedWorkspaceSave,
 } from "../hooks/useDebouncedWorkspaceSave";
 import type { RuntimeId } from "../../shared/runtimes";
+import { reconcileInterruptedRuns } from "../lib/interruptedRuns";
 import type { DeleteThreadDataRequest, ImageAttachmentMetadata } from "../../shared/chat";
 import type { GitWorkspaceDiffResult } from "../../../electron/git/gitIpc";
 
@@ -508,7 +509,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         if (snapshot) {
           setProjects(snapshot.projects);
           setChats(snapshot.chats ?? []);
-          setMessages(snapshot.messages);
+          setMessages(reconcileInterruptedRuns(snapshot.messages));
           setActiveThreadId(snapshot.activeThreadId);
         } else {
           setProjects(initialProjects);

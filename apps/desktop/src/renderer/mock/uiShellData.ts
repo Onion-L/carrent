@@ -97,14 +97,14 @@ export type MessagePart =
       type: "reasoning";
       id: string;
       content: string;
-      status: "running" | "completed";
+      status: "running" | "completed" | "cancelled";
     }
   | {
       type: "shell";
       id: string;
       command: string;
       output: string;
-      status: "running" | "completed" | "failed";
+      status: "running" | "completed" | "failed" | "cancelled";
       exitCode?: number | null;
     }
   | {

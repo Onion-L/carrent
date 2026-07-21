@@ -86,7 +86,7 @@ function SkillBadge({ name, path }: { name: string; path: string }) {
   return (
     <span
       title={path}
-      className="inline-flex max-w-full items-center gap-2 rounded-full bg-black/25 px-3 py-1 align-middle font-medium text-[#82bdff]"
+      className="inline-flex max-w-full items-center gap-1.5 align-middle font-medium text-skill-reference"
     >
       <Box className="h-4 w-4 shrink-0" strokeWidth={2} />
       <span className="truncate">${name}</span>

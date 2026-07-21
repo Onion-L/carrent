@@ -18,6 +18,7 @@ export default {
         brand: "rgb(var(--color-brand) / <alpha-value>)",
         "user-bubble": "rgb(var(--color-user-bubble) / <alpha-value>)",
         "user-bubble-fg": "rgb(var(--color-user-bubble-fg) / <alpha-value>)",
+        "skill-reference": "rgb(var(--color-skill-reference) / <alpha-value>)",
         "code-bg": "rgb(var(--color-code-bg) / <alpha-value>)",
         success: "rgb(var(--color-success) / <alpha-value>)",
         warning: "rgb(var(--color-warning) / <alpha-value>)",

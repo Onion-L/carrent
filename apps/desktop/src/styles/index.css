@@ -40,6 +40,7 @@
     --color-brand: 180 180 180;
     --color-user-bubble: 50 50 46;
     --color-user-bubble-fg: 238 238 238;
+    --color-skill-reference: 130 189 255;
     --color-code-bg: 12 12 11;
     --color-success: 70 170 110;
     --color-warning: 232 125 90;
@@ -67,6 +68,7 @@
     --color-brand: 80 80 80;
     --color-user-bubble: 235 235 235;
     --color-user-bubble-fg: 30 30 30;
+    --color-skill-reference: 42 112 186;
     --color-code-bg: 241 241 236;
     --color-success: 50 150 90;
     --color-warning: 210 110 70;

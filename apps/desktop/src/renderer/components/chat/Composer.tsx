@@ -422,6 +422,28 @@ export function shouldSubmitComposerOnKeyDown(event: ComposerKeyDownEvent) {
   );
 }
 
+export function shouldRemoveLastSkillOnBackspace({
+  key,
+  isComposing,
+  selectionStart,
+  selectionEnd,
+  attachedSkillCount,
+}: {
+  key: string;
+  isComposing: boolean;
+  selectionStart: number;
+  selectionEnd: number;
+  attachedSkillCount: number;
+}) {
+  return (
+    key === "Backspace" &&
+    !isComposing &&
+    selectionStart === 0 &&
+    selectionEnd === 0 &&
+    attachedSkillCount > 0
+  );
+}
+
 export function getCascadingPanelPosition(
   anchorRect: RectLike,
   viewport: ViewportSize,
@@ -1734,10 +1756,6 @@ export function Composer(props: ComposerProps) {
     });
   };
 
-  const handleRemoveSkill = (skill: SkillRecord) => {
-    setAttachedSkills((prev) => prev.filter((s) => s.path !== skill.path));
-  };
-
   const handlePermissionResponse = (permission: ChatPermissionRequest, optionId: string) => {
     void respondToPermission({
       runId: permission.runId,
@@ -1955,95 +1973,100 @@ export function Composer(props: ComposerProps) {
               </div>
             </div>
           ) : null}
-          {attachedSkills.length > 0 && (
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              {attachedSkills.map((skill) => (
-                <span
-                  key={skill.path}
-                  className={`inline-flex max-w-full items-center gap-1.5 rounded-full border border-border-strong bg-surface px-2 py-1 text-app-12 font-medium text-fg ${
-                    localMcpSkillsDisabled ? "opacity-50" : ""
-                  }`}
-                >
-                  <Box className="h-3.5 w-3.5 shrink-0 text-muted" />
-                  <span className="truncate">{formatSkillLabel(skill.name)}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveSkill(skill)}
-                    className="flex h-4 w-4 items-center justify-center rounded-full text-muted transition hover:bg-surface-hover hover:text-fg"
-                    title="Remove skill"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              setTextareaCursor(e.target.selectionStart);
-              setDismissedSkillInput(null);
-            }}
-            onFocus={(event) => {
-              setIsTextareaFocused(true);
-              setTextareaCursor(event.currentTarget.selectionStart);
-            }}
-            onBlur={() => {
-              setIsTextareaFocused(false);
-            }}
-            onClick={updateTextareaCursor}
-            onSelect={updateTextareaCursor}
-            placeholder="Message..."
-            className="min-h-12 w-full resize-none bg-transparent text-app-15 leading-6 text-fg placeholder:text-subtle outline-none"
-            rows={1}
-            onKeyDown={(e) => {
-              if (showSlashMenu) {
-                if (e.key === "ArrowDown") {
+          <div className="flex min-h-12 flex-wrap items-start gap-x-1.5 gap-y-1">
+            {attachedSkills.map((skill) => (
+              <span
+                key={skill.path}
+                title={skill.path}
+                className={`inline-flex h-6 max-w-full shrink-0 items-center gap-2 text-app-14 font-medium leading-6 text-skill-reference ${
+                  localMcpSkillsDisabled ? "opacity-50" : ""
+                }`}
+              >
+                <Box className="h-4 w-4 shrink-0" strokeWidth={2} />
+                <span className="truncate">{formatSkillLabel(skill.name)}</span>
+              </span>
+            ))}
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+                setTextareaCursor(e.target.selectionStart);
+                setDismissedSkillInput(null);
+              }}
+              onFocus={(event) => {
+                setIsTextareaFocused(true);
+                setTextareaCursor(event.currentTarget.selectionStart);
+              }}
+              onBlur={() => {
+                setIsTextareaFocused(false);
+              }}
+              onClick={updateTextareaCursor}
+              onSelect={updateTextareaCursor}
+              placeholder={attachedSkills.length > 0 ? "" : "Message..."}
+              className="min-h-12 min-w-32 flex-1 resize-none bg-transparent text-app-15 leading-6 text-fg placeholder:text-subtle outline-none"
+              rows={1}
+              onKeyDown={(e) => {
+                if (
+                  shouldRemoveLastSkillOnBackspace({
+                    key: e.key,
+                    isComposing: e.nativeEvent.isComposing,
+                    selectionStart: e.currentTarget.selectionStart,
+                    selectionEnd: e.currentTarget.selectionEnd,
+                    attachedSkillCount: attachedSkills.length,
+                  })
+                ) {
                   e.preventDefault();
-                  setSelectedSkillIndex((index) =>
-                    slashMenuItemCount === 0 ? 0 : (index + 1) % slashMenuItemCount,
-                  );
+                  setAttachedSkills((currentSkills) => currentSkills.slice(0, -1));
                   return;
                 }
 
-                if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setSelectedSkillIndex((index) =>
-                    slashMenuItemCount === 0
-                      ? 0
-                      : (index - 1 + slashMenuItemCount) % slashMenuItemCount,
-                  );
-                  return;
-                }
-
-                if ((e.key === "Enter" || e.key === "Tab") && slashMenuItemCount > 0) {
-                  e.preventDefault();
-                  if (showPlanSuggestion && selectedSkillIndex === 0) {
-                    handlePlanInsert();
-                  } else {
-                    const skillIndex = selectedSkillIndex - (showPlanSuggestion ? 1 : 0);
-                    handleSkillInsert(filteredSkills[skillIndex] ?? filteredSkills[0]);
+                if (showSlashMenu) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setSelectedSkillIndex((index) =>
+                      slashMenuItemCount === 0 ? 0 : (index + 1) % slashMenuItemCount,
+                    );
+                    return;
                   }
-                  return;
+
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setSelectedSkillIndex((index) =>
+                      slashMenuItemCount === 0
+                        ? 0
+                        : (index - 1 + slashMenuItemCount) % slashMenuItemCount,
+                    );
+                    return;
+                  }
+
+                  if ((e.key === "Enter" || e.key === "Tab") && slashMenuItemCount > 0) {
+                    e.preventDefault();
+                    if (showPlanSuggestion && selectedSkillIndex === 0) {
+                      handlePlanInsert();
+                    } else {
+                      const skillIndex = selectedSkillIndex - (showPlanSuggestion ? 1 : 0);
+                      handleSkillInsert(filteredSkills[skillIndex] ?? filteredSkills[0]);
+                    }
+                    return;
+                  }
+
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setDismissedSkillInput(input);
+                    return;
+                  }
                 }
 
-                if (e.key === "Escape") {
+                if (shouldSubmitComposerOnKeyDown(e)) {
                   e.preventDefault();
-                  setDismissedSkillInput(input);
-                  return;
+                  if (canSend && !isThreadSending) {
+                    void handleSend();
+                  }
                 }
-              }
-
-              if (shouldSubmitComposerOnKeyDown(e)) {
-                e.preventDefault();
-                if (canSend && !isThreadSending) {
-                  void handleSend();
-                }
-              }
-            }}
-          />
+              }}
+            />
+          </div>
           {attachmentError && <div className="mt-2 text-app-12 text-danger">{attachmentError}</div>}
           <div className="mt-3 flex items-end justify-between gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-1">

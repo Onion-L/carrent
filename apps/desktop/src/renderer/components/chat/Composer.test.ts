@@ -24,6 +24,7 @@ import {
   normalizeGitBranchInfo,
   replaceSkillSlashTrigger,
   shouldShowPlanSlashSuggestion,
+  shouldRemoveLastSkillOnBackspace,
   supportsRuntimeModelSelection,
   shouldSubmitComposerOnKeyDown,
   storeImageAttachmentFile,
@@ -142,6 +143,41 @@ describe("shouldSubmitComposerOnKeyDown", () => {
         key: "a",
         shiftKey: false,
         nativeEvent: {},
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldRemoveLastSkillOnBackspace", () => {
+  it("removes the last skill when the caret is at the start", () => {
+    expect(
+      shouldRemoveLastSkillOnBackspace({
+        key: "Backspace",
+        isComposing: false,
+        selectionStart: 0,
+        selectionEnd: 0,
+        attachedSkillCount: 1,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps skills while editing text or composing", () => {
+    expect(
+      shouldRemoveLastSkillOnBackspace({
+        key: "Backspace",
+        isComposing: false,
+        selectionStart: 1,
+        selectionEnd: 1,
+        attachedSkillCount: 1,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRemoveLastSkillOnBackspace({
+        key: "Backspace",
+        isComposing: true,
+        selectionStart: 0,
+        selectionEnd: 0,
+        attachedSkillCount: 1,
       }),
     ).toBe(false);
   });

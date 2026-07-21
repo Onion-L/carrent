@@ -228,7 +228,7 @@ describe("WorkspaceDiffContent", () => {
     expect(html).not.toContain("What should change?");
     expect(html).not.toContain("Add follow-up");
     expect(html).toContain(
-      "Snapshot against HEAD after the run; may include pre-existing or external changes.",
+      "Snapshot of workspace changes since this run started; may include external edits made while it ran.",
     );
   });
 
@@ -476,7 +476,7 @@ describe("buildWorkspaceDiffFollowUp", () => {
         "Snapshot:",
         "- Base revision: abcdef1234567890abcdef1234567890abcdef12",
         "- Captured at: 2026-07-16T08:30:45.123Z",
-        "- This may include pre-existing or external changes.",
+        "- This may include external changes made while the run was in progress.",
         "",
         "Selected changes:",
         '- Entire file: "src/file.ts"',

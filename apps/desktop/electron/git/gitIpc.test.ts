@@ -23,7 +23,26 @@ describe("registerGitIpc", () => {
     expect(handlers.has("git:branches")).toBe(true);
     expect(handlers.has("git:checkout")).toBe(true);
     expect(handlers.has("git:createBranch")).toBe(true);
+    expect(handlers.has("git:workspace-snapshot")).toBe(true);
     expect(handlers.has("git:workspace-diff")).toBe(true);
+  });
+
+  it("rejects git:workspace-snapshot when projectPath is missing", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>();
+
+    registerGitIpc({
+      handle: (channel, listener) => {
+        handlers.set(channel, listener);
+      },
+    });
+
+    const snapshotHandler = handlers.get("git:workspace-snapshot")!;
+    try {
+      await snapshotHandler({}, undefined);
+      expect(false).toBe(true);
+    } catch (error) {
+      expect((error as Error).message).toBe("Project path is required.");
+    }
   });
 
   it("rejects git:branches when projectPath is missing", async () => {
@@ -494,6 +513,153 @@ describe("git:workspace-diff", () => {
         expect(result.truncated).toBe(true);
       }
       expect(statusAfter).toBe(statusBefore);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("git:workspace-snapshot", () => {
+  function getHandlers() {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>();
+    registerGitIpc({
+      handle: (channel, listener) => {
+        handlers.set(channel, listener);
+      },
+    });
+    return handlers;
+  }
+
+  function initRepo(root: string, repo: string): void {
+    git(root, "init", repo);
+    git(repo, "config", "user.email", "test@example.com");
+    git(repo, "config", "user.name", "Test User");
+    writeFileSync(join(repo, "README.md"), "hello\n");
+    git(repo, "add", "README.md");
+    git(repo, "commit", "-m", "init");
+    git(repo, "branch", "-M", "main");
+  }
+
+  it("returns unavailable for a repository without HEAD", async () => {
+    const root = mkdtempSync(join(tmpdir(), "carrent-git-snap-"));
+    const repo = join(root, "repo");
+
+    try {
+      git(root, "init", repo);
+      const result = (await getHandlers().get("git:workspace-snapshot")!({}, repo)) as {
+        state: string;
+        reason?: string;
+      };
+
+      expect(result.state).toBe("unavailable");
+      expect(result.reason).toBe("no-head");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("scopes the diff to changes made after the baseline without touching the index", async () => {
+    const root = mkdtempSync(join(tmpdir(), "carrent-git-snap-"));
+    const repo = join(root, "repo");
+
+    try {
+      initRepo(root, repo);
+      // Pre-existing uncommitted state: a tracked edit, an untracked file that
+      // will change during the run, and one that stays untouched.
+      writeFileSync(join(repo, "README.md"), "hello\npre\n");
+      writeFileSync(join(repo, "old.txt"), "old v1\n");
+      writeFileSync(join(repo, "keep.txt"), "keep\n");
+
+      const statusBefore = execFileSync("git", ["status", "--porcelain=v1"], {
+        cwd: repo,
+        encoding: "utf8",
+      });
+      const snapshot = (await getHandlers().get("git:workspace-snapshot")!({}, repo)) as {
+        state: string;
+        baseRevision?: string;
+      };
+      const statusAfter = execFileSync("git", ["status", "--porcelain=v1"], {
+        cwd: repo,
+        encoding: "utf8",
+      });
+
+      expect(snapshot.state).toBe("ready");
+      expect(snapshot.baseRevision).toHaveLength(40);
+      expect(statusAfter).toBe(statusBefore);
+
+      // Changes made by the run.
+      writeFileSync(join(repo, "README.md"), "hello\npre\nrun\n");
+      writeFileSync(join(repo, "old.txt"), "old v1\nold v2\n");
+      writeFileSync(join(repo, "new.txt"), "fresh\n");
+
+      const result = (await getHandlers().get("git:workspace-diff")!(
+        {},
+        repo,
+        snapshot.baseRevision,
+      )) as GitWorkspaceDiffResult;
+
+      expect(result.state).toBe("ready");
+      if (result.state !== "ready") {
+        return;
+      }
+
+      const byPath = new Map(result.files.map((file) => [file.path, file]));
+      expect([...byPath.keys()].sort()).toEqual(["README.md", "new.txt", "old.txt"]);
+      expect(byPath.get("old.txt")).toMatchObject({ untracked: true });
+      expect(byPath.get("new.txt")).toMatchObject({ untracked: true, additions: 1 });
+
+      // Only the run delta is shown, never the pre-existing edits.
+      expect(result.patch).toContain("+run");
+      expect(result.patch).toContain("+old v2");
+      expect(result.patch).toContain("+fresh");
+      expect(result.patch).not.toContain("+pre");
+      expect(result.patch).not.toContain("keep.txt");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it("rejects a malformed base revision", async () => {
+    const root = mkdtempSync(join(tmpdir(), "carrent-git-snap-"));
+    const repo = join(root, "repo");
+
+    try {
+      initRepo(root, repo);
+      try {
+        await getHandlers().get("git:workspace-diff")!({}, repo, "--output=/tmp/pwned");
+        expect(false).toBe(true);
+      } catch (error) {
+        expect((error as Error).message).toBe("Invalid base revision.");
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns clean when run-time changes are reverted before capture", async () => {
+    const root = mkdtempSync(join(tmpdir(), "carrent-git-snap-"));
+    const repo = join(root, "repo");
+
+    try {
+      initRepo(root, repo);
+      writeFileSync(join(repo, "README.md"), "hello\npre\n");
+
+      const snapshot = (await getHandlers().get("git:workspace-snapshot")!({}, repo)) as {
+        state: string;
+        baseRevision?: string;
+      };
+      expect(snapshot.state).toBe("ready");
+
+      // The run edits a file and then reverts it before finishing.
+      writeFileSync(join(repo, "README.md"), "hello\npre\nrun\n");
+      writeFileSync(join(repo, "README.md"), "hello\npre\n");
+
+      const result = (await getHandlers().get("git:workspace-diff")!(
+        {},
+        repo,
+        snapshot.baseRevision,
+      )) as GitWorkspaceDiffResult;
+
+      expect(result.state).toBe("clean");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -13,7 +13,7 @@ import type {
   ProviderSessionSnapshot,
 } from "../src/shared/workspacePersistence";
 import type { RuntimeId } from "../src/shared/runtimes";
-import type { GitBranchInfo, GitWorkspaceDiffResult } from "./git/gitIpc";
+import type { GitBranchInfo, GitWorkspaceDiffResult, GitWorkspaceSnapshotResult } from "./git/gitIpc";
 import type { RtkGainStats } from "../src/shared/rtk";
 
 const carrent = {
@@ -122,8 +122,10 @@ const carrent = {
       ipcRenderer.invoke("git:checkout", projectPath, branch) as Promise<GitBranchInfo>,
     createBranch: (projectPath: string, branch: string) =>
       ipcRenderer.invoke("git:createBranch", projectPath, branch) as Promise<GitBranchInfo>,
-    workspaceDiff: (projectPath: string) =>
-      ipcRenderer.invoke("git:workspace-diff", projectPath) as Promise<GitWorkspaceDiffResult>,
+    workspaceSnapshot: (projectPath: string) =>
+      ipcRenderer.invoke("git:workspace-snapshot", projectPath) as Promise<GitWorkspaceSnapshotResult>,
+    workspaceDiff: (projectPath: string, baseRevision?: string) =>
+      ipcRenderer.invoke("git:workspace-diff", projectPath, baseRevision ?? null) as Promise<GitWorkspaceDiffResult>,
   },
 };
 

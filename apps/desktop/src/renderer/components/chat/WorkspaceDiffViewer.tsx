@@ -166,7 +166,7 @@ export function buildWorkspaceDiffFollowUp({
     "Snapshot:",
     `- Base revision: ${snapshot.baseRevision}`,
     `- Captured at: ${snapshot.capturedAt}`,
-    "- This may include pre-existing or external changes.",
+    "- This may include external changes made while the run was in progress.",
     "",
     "Selected changes:",
     ...selectedChanges,
@@ -530,7 +530,8 @@ export function WorkspaceDiffContent({
           <span className="text-danger">-{totalDeletions}</span>
         </div>
         <p className="mt-1 text-app-12 text-subtle">
-          Snapshot against HEAD after the run; may include pre-existing or external changes.
+          Snapshot of workspace changes since this run started; may include external edits made
+          while it ran.
         </p>
         {(snapshot.truncated || hasOmitted) && (
           <div className="mt-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-app-12 text-warning">

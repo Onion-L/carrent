@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
-import { lstatSync, realpathSync } from "node:fs";
-import { resolve, relative } from "node:path";
+import { lstatSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve, relative } from "node:path";
 
 export interface GitBranchWorktree {
   branch: string;
@@ -35,6 +36,16 @@ export type GitWorkspaceDiffResult =
       state: "clean";
       baseRevision: string;
       capturedAt: string;
+    }
+  | {
+      state: "unavailable";
+      reason: "not-git" | "no-head";
+    };
+
+export type GitWorkspaceSnapshotResult =
+  | {
+      state: "ready";
+      baseRevision: string;
     }
   | {
       state: "unavailable";
@@ -88,12 +99,20 @@ export function registerGitIpc(ipcMainLike: IpcMainLike): void {
     return getBranches(path);
   });
 
-  ipcMainLike.handle("git:workspace-diff", async (_event, projectPath) => {
+  ipcMainLike.handle("git:workspace-snapshot", async (_event, projectPath) => {
     const path = readString(projectPath);
     if (!path) {
       throw new Error("Project path is required.");
     }
-    return getWorkspaceDiff(path);
+    return captureWorkspaceSnapshot(path);
+  });
+
+  ipcMainLike.handle("git:workspace-diff", async (_event, projectPath, baseRevision) => {
+    const path = readString(projectPath);
+    if (!path) {
+      throw new Error("Project path is required.");
+    }
+    return getWorkspaceDiff(path, readString(baseRevision));
   });
 }
 
@@ -217,13 +236,19 @@ async function createBranch(cwd: string, branch: string): Promise<void> {
 function runGit(
   cwd: string,
   args: string[],
-  options: { maxBuffer?: number; timeout?: number } = {},
+  options: { maxBuffer?: number; timeout?: number; env?: NodeJS.ProcessEnv } = {},
 ): Promise<{ stdout: Buffer; stderr: Buffer }> {
   return new Promise((resolve, reject) => {
     execFile(
       "git",
       args,
-      { cwd, encoding: "buffer", timeout: options.timeout, maxBuffer: options.maxBuffer },
+      {
+        cwd,
+        encoding: "buffer",
+        timeout: options.timeout,
+        maxBuffer: options.maxBuffer,
+        env: options.env,
+      },
       (error, stdout, stderr) => {
         if (error) {
           reject(error);
@@ -284,19 +309,165 @@ function runGitPatch(
   });
 }
 
-async function getWorkspaceDiff(projectPath: string): Promise<GitWorkspaceDiffResult> {
+// Hashes the current worktree (tracked changes + non-ignored untracked
+// files) into a tree object, using a throwaway index so the user's real
+// index, refs, and worktree are never touched.
+async function snapshotWorktreeTree(repoRoot: string, pathspec: string): Promise<string> {
+  const indexPath = join(
+    tmpdir(),
+    `carrent-index-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  const env = { ...process.env, GIT_INDEX_FILE: indexPath };
+
+  try {
+    await runGit(repoRoot, ["read-tree", "HEAD"], { env, timeout: GIT_TIMEOUT_MS });
+    await runGit(repoRoot, ["add", "-A", "--", pathspec], { env, timeout: GIT_TIMEOUT_MS });
+    const { stdout } = await runGit(repoRoot, ["write-tree"], {
+      env,
+      timeout: GIT_TIMEOUT_MS,
+    });
+    return stdout.toString("utf8").trim();
+  } finally {
+    rmSync(indexPath, { force: true });
+    rmSync(`${indexPath}.lock`, { force: true });
+  }
+}
+
+// Captures the current worktree as a dangling commit. A later diff against
+// the returned revision shows only what changed after this snapshot.
+async function captureWorkspaceSnapshot(projectPath: string): Promise<GitWorkspaceSnapshotResult> {
   const repoRoot = await resolveRepoRoot(projectPath);
   if (!repoRoot) {
     return { state: "unavailable", reason: "not-git" };
   }
 
-  const baseRevision = await resolveHead(repoRoot);
-  if (!baseRevision) {
+  const head = await resolveHead(repoRoot);
+  if (!head) {
+    return { state: "unavailable", reason: "no-head" };
+  }
+
+  const pathspec = getRepoRelativePathspec(repoRoot, projectPath);
+  const tree = await snapshotWorktreeTree(repoRoot, pathspec);
+  const { stdout: commitOut } = await runGit(
+    repoRoot,
+    // Explicit ident: commit-tree fails on machines without a configured
+    // user.name/user.email, which would silently disable per-run diffs.
+    [
+      "-c",
+      "user.name=Carrent",
+      "-c",
+      "user.email=carrent@localhost",
+      "commit-tree",
+      tree,
+      "-p",
+      head,
+      "-m",
+      "Carrent workspace baseline",
+    ],
+    { timeout: GIT_TIMEOUT_MS },
+  );
+  return { state: "ready", baseRevision: commitOut.toString("utf8").trim() };
+}
+
+// Diffs the baseline snapshot against a fresh worktree snapshot. Comparing
+// two trees (instead of a commit against the live worktree) is the only way
+// untracked files participate: `git diff <commit>` treats every
+// untracked-but-snapshotted file as deleted.
+async function getWorkspaceDiffSinceSnapshot(
+  repoRoot: string,
+  pathspec: string,
+  base: string,
+  capturedAt: string,
+): Promise<GitWorkspaceDiffResult> {
+  const nowTree = await snapshotWorktreeTree(repoRoot, pathspec);
+
+  const [summary, patchResult, headTreeResult] = await Promise.all([
+    runGitDiff(
+      repoRoot,
+      [
+        "diff",
+        "--numstat",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-textconv",
+        "-z",
+        base,
+        nowTree,
+        "--",
+        pathspec,
+      ],
+      { timeout: GIT_TIMEOUT_MS, maxBuffer: MAX_DIFF_BUFFER_BYTES },
+    ),
+    runGitPatch(repoRoot, [
+      "diff",
+      "--no-color",
+      "--no-renames",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--unified=3",
+      base,
+      nowTree,
+      "--",
+      pathspec,
+    ]),
+    runGit(repoRoot, ["ls-tree", "-r", "--name-only", "-z", "HEAD", "--", pathspec], {
+      timeout: GIT_TIMEOUT_MS,
+      maxBuffer: MAX_DIFF_BUFFER_BYTES,
+    }),
+  ]);
+
+  const headPaths = new Set(parseNullSeparatedPaths(headTreeResult.stdout));
+  const allFiles = parseNumstatZ(summary.stdout);
+
+  if (allFiles.length === 0) {
+    return { state: "clean", baseRevision: base, capturedAt };
+  }
+
+  const files: GitWorkspaceDiffFile[] = allFiles.slice(0, MAX_SUMMARY_FILES).map((file) => ({
+    path: file.path,
+    additions: file.additions,
+    deletions: file.deletions,
+    binary: file.binary,
+    untracked: !headPaths.has(file.path),
+  }));
+  files.sort((a, b) => a.path.localeCompare(b.path));
+
+  const truncated = allFiles.length > MAX_SUMMARY_FILES || patchResult.truncated;
+  return {
+    state: "ready",
+    baseRevision: base,
+    capturedAt,
+    files,
+    patch: formatBoundedPatch(patchResult.stdout, truncated),
+    truncated,
+  };
+}
+
+async function getWorkspaceDiff(
+  projectPath: string,
+  baseRevision?: string | null,
+): Promise<GitWorkspaceDiffResult> {
+  const repoRoot = await resolveRepoRoot(projectPath);
+  if (!repoRoot) {
+    return { state: "unavailable", reason: "not-git" };
+  }
+
+  const head = await resolveHead(repoRoot);
+  if (!head) {
     return { state: "unavailable", reason: "no-head" };
   }
 
   const pathspec = getRepoRelativePathspec(repoRoot, projectPath);
   const capturedAt = new Date().toISOString();
+
+  if (baseRevision) {
+    // The renderer passes a commit-tree sha; reject anything else so a
+    // crafted value can't inject git options ahead of `--`.
+    if (!/^[0-9a-f]{40}$/i.test(baseRevision)) {
+      throw new Error("Invalid base revision.");
+    }
+    return getWorkspaceDiffSinceSnapshot(repoRoot, pathspec, baseRevision, capturedAt);
+  }
 
   const [trackedSummary, trackedPatchResult, untrackedResult] = await Promise.all([
     runGitDiff(
@@ -509,14 +680,14 @@ async function getWorkspaceDiff(projectPath: string): Promise<GitWorkspaceDiffRe
   files.sort((a, b) => a.path.localeCompare(b.path));
 
   if (files.length === 0) {
-    return { state: "clean", baseRevision, capturedAt };
+    return { state: "clean", baseRevision: head, capturedAt };
   }
 
   const patchText = formatBoundedPatch(combinedPatch, truncated);
 
   return {
     state: "ready",
-    baseRevision,
+    baseRevision: head,
     capturedAt,
     files,
     patch: patchText,

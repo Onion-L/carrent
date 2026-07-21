@@ -40,7 +40,6 @@ export function ThreadHistoryPane() {
   const { runningThreadIds, pendingPermissions } = useChatRun();
   const { runtimes } = useRuntimes();
   const defaultRuntimeId = getChatRuntimeOptions(runtimes)[0]?.id;
-  const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
@@ -69,7 +68,6 @@ export function ThreadHistoryPane() {
 
   useEffect(() => {
     setSearchQuery("");
-    setHoveredThreadId(null);
     setEditingThreadId(null);
     setEditingThreadTitle("");
   }, [selectedProject?.id]);
@@ -121,7 +119,6 @@ export function ThreadHistoryPane() {
 
   const commitThreadRename = (threadId: string) => {
     renameThread(selectedProject?.id ?? "", threadId, editingThreadTitle);
-    setHoveredThreadId(null);
     setEditingThreadId(null);
     setEditingThreadTitle("");
   };
@@ -148,7 +145,6 @@ export function ThreadHistoryPane() {
               value={searchQuery}
               onChange={(event) => {
                 setSearchQuery(event.target.value);
-                setHoveredThreadId(null);
               }}
               placeholder="Search threads"
               aria-label="Search threads"
@@ -159,7 +155,6 @@ export function ThreadHistoryPane() {
                 type="button"
                 onClick={() => {
                   setSearchQuery("");
-                  setHoveredThreadId(null);
                 }}
                 aria-label="Clear thread search"
                 title="Clear search"
@@ -189,7 +184,6 @@ export function ThreadHistoryPane() {
                 {projectThreads.map((thread) => {
                   const isActive = thread.id === activeThreadId;
                   const isEditing = editingThreadId === thread.id;
-                  const showActions = hoveredThreadId === thread.id && !isEditing;
                   const status = getThreadDisplayStatus({
                     threadId: thread.id,
                     runningThreadIds,
@@ -201,14 +195,7 @@ export function ThreadHistoryPane() {
                   const isRunActive = status === "running" || status === "approval";
 
                   return (
-                    <div
-                      key={thread.id}
-                      className="relative"
-                      onMouseEnter={() => setHoveredThreadId(thread.id)}
-                      onMouseLeave={() =>
-                        setHoveredThreadId((prev) => (prev === thread.id ? null : prev))
-                      }
-                    >
+                    <div key={thread.id} className="group relative">
                       <div
                         className={`flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-left transition ${
                           isActive
@@ -266,17 +253,17 @@ export function ThreadHistoryPane() {
                             <span className="min-w-0 flex-1 truncate text-app-13 font-medium">
                               {thread.title}
                             </span>
-                            {!showActions && statusMeta ? (
+                            {statusMeta ? (
                               <span
-                                className={`shrink-0 text-app-11 ${statusMeta.className}`}
+                                className={`shrink-0 text-app-11 group-hover:hidden ${statusMeta.className}`}
                                 title={statusMeta.label}
                               >
                                 {statusMeta.label}
                               </span>
                             ) : null}
-                            {!showActions && !statusMeta && activityAt !== null ? (
+                            {!statusMeta && activityAt !== null ? (
                               <span
-                                className="shrink-0 text-app-11 text-subtle"
+                                className="shrink-0 text-app-11 text-subtle group-hover:hidden"
                                 title={formatAbsoluteTime(activityAt)}
                               >
                                 {formatRelativeTime(activityAt, now)}
@@ -285,8 +272,8 @@ export function ThreadHistoryPane() {
                           </button>
                         )}
 
-                        {showActions && (
-                          <div className="flex shrink-0 items-center gap-0.5">
+                        {!isEditing && (
+                          <div className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();

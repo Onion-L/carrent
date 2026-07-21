@@ -413,6 +413,7 @@ describe("getGitBridge", () => {
           current: "carrent/feature",
           branches: ["main", "carrent/feature"],
         }),
+        workspaceSnapshot: async () => ({ state: "ready", baseRevision: "snap1" }),
         workspaceDiff: async () => ({ state: "clean", baseRevision: "abc", capturedAt: "now" }),
       },
     });
@@ -421,6 +422,10 @@ describe("getGitBridge", () => {
     expect(await git.createBranch!("/repo", "carrent/feature")).toEqual({
       current: "carrent/feature",
       branches: ["main", "carrent/feature"],
+    });
+    expect(await git.workspaceSnapshot("/repo")).toEqual({
+      state: "ready",
+      baseRevision: "snap1",
     });
     expect(await git.workspaceDiff("/repo")).toEqual({
       state: "clean",
@@ -434,6 +439,7 @@ describe("getGitBridge", () => {
       git: {
         branches: async () => ({ current: "main", branches: ["main"] }),
         checkout: async () => ({ current: "feature", branches: ["main", "feature"] }),
+        workspaceSnapshot: async () => ({ state: "ready", baseRevision: "snap1" }),
         workspaceDiff: async () => ({ state: "clean", baseRevision: "abc", capturedAt: "now" }),
       },
     });
@@ -733,6 +739,7 @@ describe("createWorkspaceDiffCapture", () => {
     const capture = createWorkspaceDiffCapture({
       mode: "chat",
       threadId: "t1",
+      captureBaseline: async () => null,
       workspaceDiff,
       appendWorkspaceDiffMessage: append,
       showToast: () => {},
@@ -749,6 +756,7 @@ describe("createWorkspaceDiffCapture", () => {
       mode: "thread",
       projectPath: "/repo",
       threadId: "t1",
+      captureBaseline: async () => null,
       workspaceDiff: async () => ({
         state: "clean" as const,
         baseRevision: "abc",
@@ -763,6 +771,7 @@ describe("createWorkspaceDiffCapture", () => {
       mode: "thread",
       projectPath: "/repo",
       threadId: "t1",
+      captureBaseline: async () => null,
       workspaceDiff: async () => ({ state: "unavailable" as const, reason: "no-head" as const }),
       appendWorkspaceDiffMessage: append,
       showToast: () => {},
@@ -778,6 +787,7 @@ describe("createWorkspaceDiffCapture", () => {
       mode: "thread",
       projectPath: "/repo",
       threadId: "t1",
+      captureBaseline: async () => null,
       workspaceDiff: async () => ({
         state: "ready" as const,
         baseRevision: "abc",
@@ -802,6 +812,7 @@ describe("createWorkspaceDiffCapture", () => {
       mode: "thread",
       projectPath: "/repo",
       threadId: "t1",
+      captureBaseline: async () => null,
       workspaceDiff: async () => {
         diffCalls++;
         return {
@@ -829,6 +840,7 @@ describe("createWorkspaceDiffCapture", () => {
       mode: "thread",
       projectPath: "/repo",
       threadId: "t1",
+      captureBaseline: async () => null,
       workspaceDiff: async () => {
         throw new Error("git failed");
       },
@@ -842,6 +854,51 @@ describe("createWorkspaceDiffCapture", () => {
     expect(toasts).toEqual([
       { message: "Run finished, but workspace diff could not be captured.", type: "error" },
     ]);
+  });
+
+  it("passes the send-time baseline revision to the workspace diff", async () => {
+    let receivedBase: string | undefined;
+    let baselineCalls = 0;
+    const capture = createWorkspaceDiffCapture({
+      mode: "thread",
+      projectPath: "/repo",
+      threadId: "t1",
+      captureBaseline: async () => {
+        baselineCalls++;
+        return "baseline-sha";
+      },
+      workspaceDiff: async (_projectPath, baseRevision) => {
+        receivedBase = baseRevision;
+        return { state: "clean" as const, baseRevision: "baseline-sha", capturedAt: "now" };
+      },
+      appendWorkspaceDiffMessage: () => {},
+      showToast: () => {},
+    });
+    capture();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(baselineCalls).toBe(1);
+    expect(receivedBase).toBe("baseline-sha");
+  });
+
+  it("falls back to a HEAD diff when the baseline snapshot fails", async () => {
+    let receivedBase: string | undefined = "unset";
+    const capture = createWorkspaceDiffCapture({
+      mode: "thread",
+      projectPath: "/repo",
+      threadId: "t1",
+      captureBaseline: async () => {
+        throw new Error("snapshot failed");
+      },
+      workspaceDiff: async (_projectPath, baseRevision) => {
+        receivedBase = baseRevision;
+        return { state: "clean" as const, baseRevision: "abc", capturedAt: "now" };
+      },
+      appendWorkspaceDiffMessage: () => {},
+      showToast: () => {},
+    });
+    capture();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(receivedBase).toBeUndefined();
   });
 });
 

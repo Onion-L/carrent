@@ -1,0 +1,62 @@
+import { describe, it, expect } from "bun:test";
+import {
+  enqueueChatMessage,
+  getQueuedMessages,
+  removeQueuedChatMessage,
+  shiftQueuedChatMessage,
+  unshiftQueuedChatMessage,
+  type QueuedChatMessage,
+} from "./chatMessageQueue";
+
+function makeItem(id: string, content = `msg ${id}`): QueuedChatMessage {
+  return { id, content };
+}
+
+describe("chatMessageQueue", () => {
+  it("enqueues and shifts in FIFO order", () => {
+    enqueueChatMessage("t1", makeItem("a"));
+    enqueueChatMessage("t1", makeItem("b"));
+
+    expect(getQueuedMessages("t1").map((item) => item.id)).toEqual(["a", "b"]);
+    expect(shiftQueuedChatMessage("t1")?.id).toBe("a");
+    expect(shiftQueuedChatMessage("t1")?.id).toBe("b");
+    expect(shiftQueuedChatMessage("t1")).toBe(null);
+    expect(getQueuedMessages("t1")).toEqual([]);
+  });
+
+  it("removes a specific item without disturbing order", () => {
+    enqueueChatMessage("t2", makeItem("a"));
+    enqueueChatMessage("t2", makeItem("b"));
+    enqueueChatMessage("t2", makeItem("c"));
+
+    removeQueuedChatMessage("t2", "b");
+
+    expect(getQueuedMessages("t2").map((item) => item.id)).toEqual(["a", "c"]);
+  });
+
+  it("keeps queues isolated per thread", () => {
+    enqueueChatMessage("t3", makeItem("a"));
+    enqueueChatMessage("t4", makeItem("b"));
+
+    expect(getQueuedMessages("t3").map((item) => item.id)).toEqual(["a"]);
+    expect(getQueuedMessages("t4").map((item) => item.id)).toEqual(["b"]);
+    expect(getQueuedMessages("unknown")).toEqual([]);
+
+    removeQueuedChatMessage("t3", "a");
+    removeQueuedChatMessage("t4", "b");
+  });
+
+  it("returns a stable empty reference for threads without a queue", () => {
+    expect(getQueuedMessages("nope")).toBe(getQueuedMessages("nope"));
+  });
+
+  it("unshifts an item back to the front", () => {
+    enqueueChatMessage("t5", makeItem("b"));
+    unshiftQueuedChatMessage("t5", makeItem("a"));
+
+    expect(getQueuedMessages("t5").map((item) => item.id)).toEqual(["a", "b"]);
+
+    removeQueuedChatMessage("t5", "a");
+    removeQueuedChatMessage("t5", "b");
+  });
+});

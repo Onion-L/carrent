@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Search,
   X,
+  Zap,
 } from "lucide-react";
 import {
   useCallback,
@@ -45,6 +46,14 @@ import {
 } from "./typewriter";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
+import {
+  enqueueChatMessage,
+  removeQueuedChatMessage,
+  shiftQueuedChatMessage,
+  unshiftQueuedChatMessage,
+  useQueuedMessages,
+  type QueuedChatMessage,
+} from "../../hooks/chatMessageQueue";
 import type { Message } from "../../mock/uiShellData";
 import type { GitWorkspaceDiffResult } from "../../../../electron/git/gitIpc";
 import { type ChatReasoningEventPayload, type ChatShellEventPayload } from "../../../shared/chat";
@@ -251,7 +260,8 @@ type GitBridge = {
   branches: (projectPath: string) => Promise<unknown>;
   checkout: (projectPath: string, branch: string) => Promise<unknown>;
   createBranch?: (projectPath: string, branch: string) => Promise<unknown>;
-  workspaceDiff: (projectPath: string) => Promise<unknown>;
+  workspaceSnapshot: (projectPath: string) => Promise<unknown>;
+  workspaceDiff: (projectPath: string, baseRevision?: string) => Promise<unknown>;
 };
 
 const CREATE_BRANCH_DEFAULT_NAME = "carrent/";
@@ -290,6 +300,7 @@ export function getGitBridge(carrent: unknown): GitBridge {
     git === null ||
     typeof (git as { branches?: unknown }).branches !== "function" ||
     typeof (git as { checkout?: unknown }).checkout !== "function" ||
+    typeof (git as { workspaceSnapshot?: unknown }).workspaceSnapshot !== "function" ||
     typeof (git as { workspaceDiff?: unknown }).workspaceDiff !== "function"
   ) {
     throw new Error("Git controls are unavailable. Restart Carrent and try again.");
@@ -331,7 +342,11 @@ export function createWorkspaceDiffCapture(options: {
   mode: "thread" | "chat";
   projectPath?: string;
   threadId: string;
-  workspaceDiff: (projectPath: string) => Promise<GitWorkspaceDiffResult>;
+  captureBaseline: (projectPath: string) => Promise<string | null>;
+  workspaceDiff: (
+    projectPath: string,
+    baseRevision?: string,
+  ) => Promise<GitWorkspaceDiffResult>;
   appendWorkspaceDiffMessage: (
     threadId: string,
     result: Extract<GitWorkspaceDiffResult, { state: "ready" }>,
@@ -339,6 +354,14 @@ export function createWorkspaceDiffCapture(options: {
   showToast: (message: string, type: "error") => void;
 }): () => void {
   let captured = false;
+  // Snapshots the worktree at send time so the diff captured after the run
+  // only contains what changed during this run, not every pre-existing
+  // uncommitted change. Baseline failures fall back to a HEAD diff.
+  const baselinePromise =
+    options.mode !== "chat" && options.projectPath
+      ? options.captureBaseline(options.projectPath).catch(() => null)
+      : null;
+
   return () => {
     if (options.mode === "chat" || !options.projectPath || captured) {
       return;
@@ -347,7 +370,8 @@ export function createWorkspaceDiffCapture(options: {
 
     void (async () => {
       try {
-        const result = await options.workspaceDiff(options.projectPath!);
+        const baseRevision = (await baselinePromise) ?? undefined;
+        const result = await options.workspaceDiff(options.projectPath!, baseRevision);
         if (result.state === "ready" && result.files.length > 0) {
           options.appendWorkspaceDiffMessage(options.threadId, result);
         }
@@ -784,9 +808,11 @@ export function Composer(props: ComposerProps) {
   const wasSendingRef = useRef(false);
   const lastSubmitRequestIdRef = useRef<number | null>(null);
   const lastDraftRequestIdRef = useRef<number | null>(null);
+  const steerItemRef = useRef<QueuedChatMessage | null>(null);
   const projectId = props.mode === "chat" ? null : props.projectId;
   const project = projectId ? (projects.find((item) => item.id === projectId) ?? null) : null;
   const threadId = props.threadId;
+  const queuedMessages = useQueuedMessages(threadId);
 
   const refreshKimiStatus = useCallback(async () => {
     if (props.runtimeId !== "kimi") {
@@ -1330,7 +1356,12 @@ export function Composer(props: ComposerProps) {
       return true;
     }
 
-    if (!canSendCurrent || isThreadSending) return false;
+    if (!canSendCurrent) return false;
+
+    // External submits (message edit resend) rewrite history; never let one
+    // through while a run is active — it would prune messages and then be
+    // rejected by the run coordinator, leaving a stuck placeholder.
+    if (isThreadSending && isExternalSubmit) return false;
 
     if (planCommand) {
       props.onPlanModeChange?.(true);
@@ -1361,6 +1392,22 @@ export function Composer(props: ComposerProps) {
     const attachmentMetadata: ImageAttachmentMetadata[] = externalSubmit
       ? metadataOnly(externalSubmit.attachments ?? [])
       : metadataOnly(currentPendingAttachments.map((pending) => pending.metadata!));
+
+    if (isThreadSending && !isExternalSubmit) {
+      enqueueChatMessage(threadId, {
+        id: `queued-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        content: messageText,
+        attachments: attachmentMetadata,
+      });
+      setInput("");
+      setAttachedSkills([]);
+      setPendingAttachments((prev) => {
+        prev.forEach((pending) => URL.revokeObjectURL(pending.previewUrl));
+        return [];
+      });
+      setAttachmentError(null);
+      return true;
+    }
 
     setAttachmentError(null);
 
@@ -1455,7 +1502,12 @@ export function Composer(props: ComposerProps) {
       mode: props.mode,
       projectPath: project?.path,
       threadId,
-      workspaceDiff: (projectPath) => window.carrent.git.workspaceDiff(projectPath),
+      captureBaseline: async (projectPath) => {
+        const snapshot = await window.carrent.git.workspaceSnapshot(projectPath);
+        return snapshot.state === "ready" ? snapshot.baseRevision : null;
+      },
+      workspaceDiff: (projectPath, baseRevision) =>
+        window.carrent.git.workspaceDiff(projectPath, baseRevision),
       appendWorkspaceDiffMessage,
       showToast,
     });
@@ -1501,6 +1553,18 @@ export function Composer(props: ComposerProps) {
         role: m.role,
         content: getMessageTranscriptContent(m),
       }));
+
+    const flushQueuedMessage = (item: QueuedChatMessage) => {
+      // The coordinator clears the finished run only after these callbacks
+      // return; sending synchronously would be rejected as a duplicate run.
+      setTimeout(() => {
+        void handleSend({ content: item.content, attachments: item.attachments }).then((sent) => {
+          if (!sent) {
+            unshiftQueuedChatMessage(threadId, item);
+          }
+        });
+      }, 0);
+    };
 
     const sendStarted = await send(
       {
@@ -1588,6 +1652,13 @@ export function Composer(props: ComposerProps) {
           markThreadActivity(threadId);
           startTypewriter(assistantMsg.id);
           captureWorkspaceDiff();
+          // A steer request that arrived just as the run finished wins over
+          // the regular queue.
+          const nextQueued = steerItemRef.current ?? shiftQueuedChatMessage(threadId);
+          steerItemRef.current = null;
+          if (nextQueued) {
+            flushQueuedMessage(nextQueued);
+          }
         },
         onError: (error) => {
           stopTypewriter();
@@ -1602,17 +1673,27 @@ export function Composer(props: ComposerProps) {
           activeAssistantMessageIdRef.current = null;
           flushTypewriterRef.current = null;
           captureWorkspaceDiff();
+          // A failed run must not swallow a steer request; put it back.
+          if (steerItemRef.current) {
+            unshiftQueuedChatMessage(threadId, steerItemRef.current);
+            steerItemRef.current = null;
+          }
         },
         onStop: () => {
           stopTypewriter();
-          const hasAnswerText = !!(receivedTextRef.current || visibleTextRef.current);
           flushPendingTypewriterText();
-          updateLocalMessageTextPart(assistantMsg.id, `${hasAnswerText ? "\n\n" : ""}[Stopped]`);
           updateMessageRunStatus(assistantMsg.id, "cancelled");
           markThreadActivity(threadId);
           activeAssistantMessageIdRef.current = null;
           flushTypewriterRef.current = null;
           captureWorkspaceDiff();
+          // A user-initiated stop only sends a pending steer message; the
+          // rest of the queue stays put until the next send or completion.
+          const steerItem = steerItemRef.current;
+          steerItemRef.current = null;
+          if (steerItem) {
+            flushQueuedMessage(steerItem);
+          }
         },
       },
     );
@@ -1654,6 +1735,34 @@ export function Composer(props: ComposerProps) {
 
     return true;
   };
+
+  const handleSteerQueuedMessage = (item: QueuedChatMessage) => {
+    if (!isThreadSending) {
+      removeQueuedChatMessage(threadId, item.id);
+      void handleSend({ content: item.content, attachments: item.attachments });
+      return;
+    }
+    // Ignore extra steer clicks while a steer-triggered stop is in flight.
+    if (steerItemRef.current) {
+      return;
+    }
+    removeQueuedChatMessage(threadId, item.id);
+    steerItemRef.current = item;
+    void stop(threadId);
+  };
+
+  useEffect(() => {
+    // A pending steer belongs to the thread it was created in. When the
+    // Composer switches threads (ChatPage reuses one instance) or unmounts,
+    // put the message back into that thread's queue instead of letting it
+    // leak into a different thread's run.
+    return () => {
+      if (steerItemRef.current) {
+        unshiftQueuedChatMessage(threadId, steerItemRef.current);
+        steerItemRef.current = null;
+      }
+    };
+  }, [threadId]);
 
   useEffect(() => {
     if (!props.submitRequest || lastSubmitRequestIdRef.current === props.submitRequest.requestId) {
@@ -1971,6 +2080,45 @@ export function Composer(props: ComposerProps) {
               </div>
             </div>
           ) : null}
+          {queuedMessages.length > 0 ? (
+            <div className="mb-2 space-y-1">
+              {queuedMessages.map((item, index) => (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-2 rounded-lg border border-border bg-bg/45 px-3 py-1.5"
+                >
+                  <span className="shrink-0 text-app-11 text-subtle">{index + 1}</span>
+                  <span className="min-w-0 flex-1 truncate text-app-12 text-muted">
+                    {item.content}
+                  </span>
+                  {item.attachments && item.attachments.length > 0 ? (
+                    <span className="flex shrink-0 items-center gap-1 text-app-11 text-subtle">
+                      <Image className="h-3 w-3" />
+                      {item.attachments.length}
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => handleSteerQueuedMessage(item)}
+                    className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-app-11 text-muted transition hover:bg-surface-hover hover:text-fg"
+                    title={isThreadSending ? "Stop the current run and send this now" : "Send now"}
+                  >
+                    <Zap className="h-3 w-3" />
+                    {isThreadSending ? "Steer" : "Send"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeQueuedChatMessage(threadId, item.id)}
+                    aria-label="Remove queued message"
+                    title="Remove"
+                    className="flex shrink-0 items-center justify-center rounded-md p-0.5 text-subtle transition hover:bg-surface-hover hover:text-fg"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="flex min-h-12 flex-wrap items-start gap-x-1.5 gap-y-1">
             {attachedSkills.map((skill) => (
               <span
@@ -2058,7 +2206,7 @@ export function Composer(props: ComposerProps) {
 
                 if (shouldSubmitComposerOnKeyDown(e)) {
                   e.preventDefault();
-                  if (canSend && !isThreadSending) {
+                  if (canSend) {
                     void handleSend();
                   }
                 }

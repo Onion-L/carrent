@@ -1,4 +1,4 @@
-import { ArrowDown, Box, Check, Copy, Pencil } from "lucide-react";
+import { ArrowDown, Box, Check, Copy, Pencil, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type Message,
@@ -411,7 +411,7 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
     ? getAssistantMessagePresentation(parts, message.runStatus)
     : { activityItems: [], answerText: content };
   const isStreaming =
-    (!hasParts && content === "") ||
+    (!hasParts && content === "" && !message.runStatus) ||
     (message.runStatus === "running" &&
       presentation.activityItems.length === 0 &&
       !presentation.answerText &&
@@ -468,6 +468,13 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
       ) : (
         <MarkdownContent>{content}</MarkdownContent>
       )}
+      {message.runStatus === "cancelled" &&
+      !(hasParts && presentation.activityItems.length > 0) ? (
+        <div className="flex items-center gap-1.5 text-app-12 text-subtle">
+          <XCircle className="h-3.5 w-3.5" />
+          <span>Stopped</span>
+        </div>
+      ) : null}
       <div className="flex items-center gap-2 opacity-70">
         <span className="text-app-11 text-subtle">{timestamp}</span>
         {hovered && (

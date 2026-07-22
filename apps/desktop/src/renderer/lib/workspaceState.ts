@@ -146,7 +146,7 @@ export function createThreadInProjects(
   }
 
   const thread: ThreadRecord = {
-    id: `thread-${Date.now()}`,
+    id: `thread-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     title: nextTitle,
     updatedAt: new Date().toISOString(),
     runtimeId,

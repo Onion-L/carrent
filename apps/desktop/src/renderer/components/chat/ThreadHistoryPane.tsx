@@ -1,4 +1,4 @@
-import { Pencil, Pin, Plus, Search, Trash2, X } from "lucide-react";
+import { Pencil, Pin, Search, SquarePen, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -8,7 +8,6 @@ import { useRuntimes } from "../../hooks/useRuntimes";
 import { formatAbsoluteTime, formatRelativeTime } from "../../lib/formatRelativeTime";
 import { buildProjectPath, buildThreadPath, getProjectIdFromPathname } from "../../lib/navigation";
 import {
-  filterProjectThreads,
   getThreadActivityTime,
   getThreadDisplayStatus,
   splitProjectThreads,
@@ -17,6 +16,7 @@ import {
 import { getChatRuntimeOptions } from "../../lib/runtimeSelection";
 import { findProjectIdForThread } from "../../lib/workspaceState";
 import { useToast } from "../toast/ToastContext";
+import { ThreadSearchDialog } from "./ThreadSearchDialog";
 
 const THREAD_STATUS_META: Record<ThreadDisplayStatus, { label: string; className: string }> = {
   running: { label: "Running", className: "text-success" },
@@ -40,7 +40,7 @@ export function ThreadHistoryPane() {
   const { runningThreadIds, pendingPermissions } = useChatRun();
   const { runtimes } = useRuntimes();
   const defaultRuntimeId = getChatRuntimeOptions(runtimes)[0]?.id;
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -61,13 +61,9 @@ export function ThreadHistoryPane() {
     () => (selectedProject ? splitProjectThreads(selectedProject.threads, messages).active : []),
     [messages, selectedProject],
   );
-  const projectThreads = useMemo(
-    () => filterProjectThreads(allProjectThreads, searchQuery),
-    [allProjectThreads, searchQuery],
-  );
 
   useEffect(() => {
-    setSearchQuery("");
+    setSearchOpen(false);
     setEditingThreadId(null);
     setEditingThreadTitle("");
   }, [selectedProject?.id]);
@@ -125,49 +121,45 @@ export function ThreadHistoryPane() {
 
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-bg">
-      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border/70 px-3">
-        <h2 className="min-w-0 truncate text-app-13 font-semibold text-fg">Threads</h2>
+      <div className="shrink-0 px-3 pb-1 pt-3">
+        {selectedProject ? (
+          <div className="min-w-0">
+            <div
+              className="truncate text-app-13 font-semibold text-fg"
+              title={selectedProject.name}
+            >
+              {selectedProject.name}
+            </div>
+            <div className="truncate text-app-11 text-subtle" title={selectedProject.path}>
+              {selectedProject.path}
+            </div>
+          </div>
+        ) : (
+          <h2 className="min-w-0 truncate text-app-13 font-semibold text-fg">Threads</h2>
+        )}
+      </div>
+
+      <div className="shrink-0 space-y-0.5 px-2 pb-1 pt-1">
         <button
           onClick={createThreadAndOpen}
           disabled={!selectedProject}
-          className="flex min-h-8 shrink-0 items-center justify-center gap-2 rounded-lg px-3 text-app-13 font-medium text-muted transition hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-app-13 text-muted transition hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <Plus className="h-3.5 w-3.5" />
-          New
+          <SquarePen className="h-4 w-4 shrink-0" />
+          New thread
         </button>
+        {selectedProject ? (
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-app-13 text-muted transition hover:bg-surface-hover hover:text-fg"
+          >
+            <Search className="h-4 w-4 shrink-0" />
+            Search
+          </button>
+        ) : null}
       </div>
 
-      {selectedProject && allProjectThreads.length > 0 ? (
-        <div className="shrink-0 border-b border-border/70 px-2 py-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-subtle" />
-            <input
-              value={searchQuery}
-              onChange={(event) => {
-                setSearchQuery(event.target.value);
-              }}
-              placeholder="Search threads"
-              aria-label="Search threads"
-              className="h-8 w-full rounded-md border border-border bg-surface pl-8 pr-8 text-app-12 text-fg outline-none transition placeholder:text-subtle focus:border-border-strong focus:ring-2 focus:ring-fg/10"
-            />
-            {searchQuery ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchQuery("");
-                }}
-                aria-label="Clear thread search"
-                title="Clear search"
-                className="absolute right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/25"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="min-h-0 flex-1 overflow-auto px-2 pb-3 pt-3">
+      <div className="min-h-0 flex-1 overflow-auto px-2 pb-3 pt-1">
         {!selectedProject ? (
           <div className="px-4 py-8 text-center text-app-13 text-subtle">Add a project first</div>
         ) : allProjectThreads.length === 0 ? (
@@ -175,13 +167,12 @@ export function ThreadHistoryPane() {
             <p className="text-app-13 text-muted">No threads yet</p>
             <p className="mt-1 text-app-12 text-subtle">Start a new thread in this project</p>
           </div>
-        ) : projectThreads.length === 0 ? (
-          <div className="px-4 py-8 text-center text-app-13 text-subtle">No matching threads</div>
         ) : (
           <div className="space-y-3">
             <section>
+              <div className="px-3 pb-1 pt-1 text-app-11 font-medium text-subtle">Threads</div>
               <div className="space-y-0.5">
-                {projectThreads.map((thread) => {
+                {allProjectThreads.map((thread) => {
                   const isActive = thread.id === activeThreadId;
                   const isEditing = editingThreadId === thread.id;
                   const status = getThreadDisplayStatus({
@@ -324,6 +315,18 @@ export function ThreadHistoryPane() {
           </div>
         )}
       </div>
+
+      {searchOpen && selectedProject ? (
+        <ThreadSearchDialog
+          threads={allProjectThreads}
+          onSelect={(threadId) => {
+            setActiveThreadId(threadId);
+            navigate(buildThreadPath(selectedProject.id, threadId));
+            setSearchOpen(false);
+          }}
+          onClose={() => setSearchOpen(false)}
+        />
+      ) : null}
     </aside>
   );
 }

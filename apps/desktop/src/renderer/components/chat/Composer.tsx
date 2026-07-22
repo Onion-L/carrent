@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   CircleAlert,
+  CornerDownRight,
   GitBranch,
   Image,
   Lock,
@@ -13,6 +14,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Trash2,
   X,
   Zap,
 } from "lucide-react";
@@ -48,9 +50,11 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import {
   enqueueChatMessage,
+  getQueuedMessages,
   removeQueuedChatMessage,
   shiftQueuedChatMessage,
   unshiftQueuedChatMessage,
+  updateQueuedChatMessage,
   useQueuedMessages,
   type QueuedChatMessage,
 } from "../../hooks/chatMessageQueue";
@@ -195,9 +199,7 @@ export function getMessageTranscriptContent(message: Message) {
   }
 
   return message.parts
-    .flatMap((part) =>
-      part.type === "text" || part.type === "plan_review" ? [part.content] : [],
-    )
+    .flatMap((part) => (part.type === "text" || part.type === "plan_review" ? [part.content] : []))
     .filter((content) => content.trim().length > 0)
     .join("\n\n");
 }
@@ -343,10 +345,7 @@ export function createWorkspaceDiffCapture(options: {
   projectPath?: string;
   threadId: string;
   captureBaseline: (projectPath: string) => Promise<string | null>;
-  workspaceDiff: (
-    projectPath: string,
-    baseRevision?: string,
-  ) => Promise<GitWorkspaceDiffResult>;
+  workspaceDiff: (projectPath: string, baseRevision?: string) => Promise<GitWorkspaceDiffResult>;
   appendWorkspaceDiffMessage: (
     threadId: string,
     result: Extract<GitWorkspaceDiffResult, { state: "ready" }>,
@@ -809,10 +808,33 @@ export function Composer(props: ComposerProps) {
   const lastSubmitRequestIdRef = useRef<number | null>(null);
   const lastDraftRequestIdRef = useRef<number | null>(null);
   const steerItemRef = useRef<QueuedChatMessage | null>(null);
+  const editingQueuedIdRef = useRef<string | null>(null);
   const projectId = props.mode === "chat" ? null : props.projectId;
   const project = projectId ? (projects.find((item) => item.id === projectId) ?? null) : null;
   const threadId = props.threadId;
   const queuedMessages = useQueuedMessages(threadId);
+  const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
+  const [editingQueuedText, setEditingQueuedText] = useState("");
+
+  const commitQueuedEdit = () => {
+    const queuedId = editingQueuedIdRef.current;
+    if (!queuedId) {
+      return;
+    }
+    const content = editingQueuedText.trim();
+    if (content) {
+      updateQueuedChatMessage(threadId, queuedId, content);
+    }
+    editingQueuedIdRef.current = null;
+    setEditingQueuedId(null);
+    setEditingQueuedText("");
+  };
+
+  const cancelQueuedEdit = () => {
+    editingQueuedIdRef.current = null;
+    setEditingQueuedId(null);
+    setEditingQueuedText("");
+  };
 
   const refreshKimiStatus = useCallback(async () => {
     if (props.runtimeId !== "kimi") {
@@ -1654,7 +1676,9 @@ export function Composer(props: ComposerProps) {
           captureWorkspaceDiff();
           // A steer request that arrived just as the run finished wins over
           // the regular queue.
-          const nextQueued = steerItemRef.current ?? shiftQueuedChatMessage(threadId);
+          const nextQueued =
+            steerItemRef.current ??
+            shiftQueuedChatMessage(threadId, { blockedId: editingQueuedIdRef.current });
           steerItemRef.current = null;
           if (nextQueued) {
             flushQueuedMessage(nextQueued);
@@ -1689,10 +1713,10 @@ export function Composer(props: ComposerProps) {
           captureWorkspaceDiff();
           // A user-initiated stop only sends a pending steer message; the
           // rest of the queue stays put until the next send or completion.
-          const steerItem = steerItemRef.current;
+          const nextQueued = steerItemRef.current;
           steerItemRef.current = null;
-          if (steerItem) {
-            flushQueuedMessage(steerItem);
+          if (nextQueued) {
+            flushQueuedMessage(nextQueued);
           }
         },
       },
@@ -1737,17 +1761,22 @@ export function Composer(props: ComposerProps) {
   };
 
   const handleSteerQueuedMessage = (item: QueuedChatMessage) => {
+    const queuedItem = getQueuedMessages(threadId).find((queued) => queued.id === item.id);
+    if (!queuedItem) {
+      return;
+    }
+
     if (!isThreadSending) {
-      removeQueuedChatMessage(threadId, item.id);
-      void handleSend({ content: item.content, attachments: item.attachments });
+      removeQueuedChatMessage(threadId, queuedItem.id);
+      void handleSend({ content: queuedItem.content, attachments: queuedItem.attachments });
       return;
     }
     // Ignore extra steer clicks while a steer-triggered stop is in flight.
     if (steerItemRef.current) {
       return;
     }
-    removeQueuedChatMessage(threadId, item.id);
-    steerItemRef.current = item;
+    removeQueuedChatMessage(threadId, queuedItem.id);
+    steerItemRef.current = queuedItem;
     void stop(threadId);
   };
 
@@ -2081,42 +2110,107 @@ export function Composer(props: ComposerProps) {
             </div>
           ) : null}
           {queuedMessages.length > 0 ? (
-            <div className="mb-2 space-y-1">
-              {queuedMessages.map((item, index) => (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-2 rounded-lg border border-border bg-bg/45 px-3 py-1.5"
-                >
-                  <span className="shrink-0 text-app-11 text-subtle">{index + 1}</span>
-                  <span className="min-w-0 flex-1 truncate text-app-12 text-muted">
-                    {item.content}
-                  </span>
-                  {item.attachments && item.attachments.length > 0 ? (
-                    <span className="flex shrink-0 items-center gap-1 text-app-11 text-subtle">
-                      <Image className="h-3 w-3" />
-                      {item.attachments.length}
-                    </span>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => handleSteerQueuedMessage(item)}
-                    className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-app-11 text-muted transition hover:bg-surface-hover hover:text-fg"
-                    title={isThreadSending ? "Stop the current run and send this now" : "Send now"}
+            <div className="mb-2 space-y-1.5">
+              {queuedMessages.map((item) => {
+                const isEditingQueued = editingQueuedId === item.id;
+                return (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-2.5 rounded-lg border border-border/70 bg-bg/45 px-2.5 py-1.5"
                   >
-                    <Zap className="h-3 w-3" />
-                    {isThreadSending ? "Steer" : "Send"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removeQueuedChatMessage(threadId, item.id)}
-                    aria-label="Remove queued message"
-                    title="Remove"
-                    className="flex shrink-0 items-center justify-center rounded-md p-0.5 text-subtle transition hover:bg-surface-hover hover:text-fg"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
+                    <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-subtle" />
+                    {isEditingQueued ? (
+                      <input
+                        autoFocus
+                        value={editingQueuedText}
+                        onChange={(event) => setEditingQueuedText(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            commitQueuedEdit();
+                          } else if (event.key === "Escape") {
+                            event.preventDefault();
+                            cancelQueuedEdit();
+                          }
+                        }}
+                        onBlur={commitQueuedEdit}
+                        aria-label="Edit queued message"
+                        className="h-6 min-w-0 flex-1 bg-transparent text-app-13 text-fg outline-none"
+                      />
+                    ) : (
+                      <span className="min-w-0 flex-1 truncate text-app-13 text-fg">
+                        {item.content}
+                      </span>
+                    )}
+                    {item.attachments && item.attachments.length > 0 ? (
+                      <span className="flex shrink-0 items-center gap-1 text-app-11 text-subtle">
+                        <Image className="h-3 w-3" />
+                        {item.attachments.length}
+                      </span>
+                    ) : null}
+                    {isEditingQueued ? (
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={commitQueuedEdit}
+                          aria-label="Save queued message"
+                          title="Save"
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={cancelQueuedEdit}
+                          aria-label="Cancel editing queued message"
+                          title="Cancel"
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSteerQueuedMessage(item)}
+                          className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-app-11 text-muted transition hover:bg-surface-hover hover:text-fg"
+                          title={
+                            isThreadSending ? "Stop the current run and send this now" : "Send now"
+                          }
+                        >
+                          <Zap className="h-3 w-3" />
+                          {isThreadSending ? "Steer" : "Send"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            editingQueuedIdRef.current = item.id;
+                            setEditingQueuedId(item.id);
+                            setEditingQueuedText(item.content);
+                          }}
+                          aria-label="Edit queued message"
+                          title="Edit"
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeQueuedChatMessage(threadId, item.id)}
+                          aria-label="Delete queued message"
+                          title="Delete"
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-danger"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : null}
           <div className="flex min-h-12 flex-wrap items-start gap-x-1.5 gap-y-1">

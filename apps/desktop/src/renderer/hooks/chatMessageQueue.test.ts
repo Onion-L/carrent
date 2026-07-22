@@ -5,6 +5,7 @@ import {
   removeQueuedChatMessage,
   shiftQueuedChatMessage,
   unshiftQueuedChatMessage,
+  updateQueuedChatMessage,
   type QueuedChatMessage,
 } from "./chatMessageQueue";
 
@@ -58,5 +59,32 @@ describe("chatMessageQueue", () => {
 
     removeQueuedChatMessage("t5", "a");
     removeQueuedChatMessage("t5", "b");
+  });
+
+  it("updates an item's content in place", () => {
+    enqueueChatMessage("t6", makeItem("a"));
+    enqueueChatMessage("t6", makeItem("b"));
+
+    updateQueuedChatMessage("t6", "b", "edited");
+    updateQueuedChatMessage("t6", "missing", "ignored");
+
+    expect(getQueuedMessages("t6")).toEqual([
+      { id: "a", content: "msg a" },
+      { id: "b", content: "edited" },
+    ]);
+
+    removeQueuedChatMessage("t6", "a");
+    removeQueuedChatMessage("t6", "b");
+  });
+
+  it("does not shift a blocked head item", () => {
+    enqueueChatMessage("t7", makeItem("a"));
+    enqueueChatMessage("t7", makeItem("b"));
+
+    expect(shiftQueuedChatMessage("t7", { blockedId: "a" })).toBe(null);
+    expect(getQueuedMessages("t7").map((item) => item.id)).toEqual(["a", "b"]);
+
+    removeQueuedChatMessage("t7", "a");
+    removeQueuedChatMessage("t7", "b");
   });
 });

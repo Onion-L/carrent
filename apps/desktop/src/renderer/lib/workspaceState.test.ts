@@ -311,6 +311,20 @@ describe("workspaceState", () => {
     expect(result.thread?.runtimeMode).toBe(DEFAULT_RUNTIME_MODE);
   });
 
+  it("generates distinct thread ids within the same millisecond", () => {
+    const originalNow = Date.now;
+    Date.now = () => 1000;
+    try {
+      const first = createThreadInProjects([makeProject({ id: "p1" }, [])], "p1", "A");
+      const second = createThreadInProjects([makeProject({ id: "p2" }, [])], "p2", "B");
+      expect(first.thread === null).toBe(false);
+      expect(second.thread === null).toBe(false);
+      expect(first.thread?.id).not.toBe(second.thread?.id);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
   it("creates project threads with Plan mode disabled", () => {
     const result = createThreadInProjects([makeProject({ id: "p1" }, [])], "p1", "New");
     expect(result.thread?.planMode).toBe(false);

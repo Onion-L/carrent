@@ -11,7 +11,15 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 
 import { useToast } from "../components/toast/ToastContext";
@@ -29,6 +37,212 @@ export function getWorkspaceNavItems() {
   return [];
 }
 
+type ProjectActionsProject = {
+  id: string;
+  name: string;
+  path: string;
+};
+
+type ProjectActionsMenuTriggerRect = Pick<
+  DOMRect,
+  "left" | "top" | "right" | "bottom" | "width" | "height"
+>;
+
+export type ProjectActionsMenuPosition = {
+  top: number;
+  left: number;
+};
+
+const PROJECT_ACTIONS_MENU_MARGIN = 8;
+
+export function getProjectActionsMenuPosition(
+  triggerRect: ProjectActionsMenuTriggerRect,
+  menuSize: { width: number; height: number },
+  viewport: { width: number; height: number },
+  margin = PROJECT_ACTIONS_MENU_MARGIN,
+): ProjectActionsMenuPosition {
+  const maxLeft = Math.max(margin, viewport.width - menuSize.width - margin);
+  const maxTop = Math.max(margin, viewport.height - menuSize.height - margin);
+  const rightLeft = triggerRect.right + margin;
+  const leftLeft = triggerRect.left - menuSize.width - margin;
+  const preferredLeft =
+    rightLeft + menuSize.width <= viewport.width - margin ? rightLeft : leftLeft;
+
+  return {
+    left: Math.min(Math.max(preferredLeft, margin), maxLeft),
+    top: Math.min(Math.max(triggerRect.top, margin), maxTop),
+  };
+}
+
+type ProjectActionsMenuProps = {
+  project: ProjectActionsProject;
+  onOpenInFinder: () => void;
+  onRename: () => void;
+  onCopyPath: () => void;
+  onDelete: () => void;
+  firstItemRef?: Ref<HTMLButtonElement>;
+};
+
+export function ProjectActionsMenu({
+  project,
+  onOpenInFinder,
+  onRename,
+  onCopyPath,
+  onDelete,
+  firstItemRef,
+}: ProjectActionsMenuProps) {
+  return (
+    <div
+      data-project-menu="true"
+      role="menu"
+      aria-label={`Project actions for ${project.name}`}
+      className="w-44 rounded-lg border border-border-strong bg-surface py-1 shadow-xl"
+    >
+      <button
+        ref={firstItemRef}
+        role="menuitem"
+        onClick={onOpenInFinder}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+      >
+        <ExternalLink className="h-3 w-3" />
+        Open in Finder
+      </button>
+      <button
+        role="menuitem"
+        onClick={onRename}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+      >
+        <Pencil className="h-3 w-3" />
+        Rename project
+      </button>
+      <button
+        role="menuitem"
+        onClick={onCopyPath}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+      >
+        <Link className="h-3 w-3" />
+        Copy path
+      </button>
+      <button
+        role="menuitem"
+        onClick={onDelete}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-danger transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-danger/25"
+      >
+        <Trash2 className="h-3 w-3 text-danger" />
+        Delete
+      </button>
+    </div>
+  );
+}
+
+type ProjectActionsTriggerProps = {
+  projectName: string;
+  collapsed: boolean;
+  menuOpen: boolean;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
+};
+
+export function ProjectActionsTrigger({
+  projectName,
+  collapsed,
+  menuOpen,
+  onClick,
+}: ProjectActionsTriggerProps) {
+  return (
+    <button
+      data-project-menu-trigger="true"
+      onClick={onClick}
+      className={
+        collapsed
+          ? `absolute right-0 top-0 flex h-5 w-5 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/25 ${
+              menuOpen
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+            }`
+          : "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/25"
+      }
+      aria-label={`Project actions for ${projectName}`}
+      title={`Project actions for ${projectName}`}
+    >
+      <MoreHorizontal className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+type RenameProjectDialogProps = {
+  projectName: string;
+  value: string;
+  onChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+};
+
+export function RenameProjectDialog({
+  projectName,
+  value,
+  onChange,
+  onCancel,
+  onSubmit,
+}: RenameProjectDialogProps) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-start bg-black/40 px-4 pt-16 sm:px-20 sm:pt-24"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Rename ${projectName}`}
+      onMouseDown={onCancel}
+    >
+      <form
+        className="w-full max-w-80 rounded-xl border border-border-strong bg-surface p-4 shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="min-w-0 truncate text-app-13 font-semibold text-fg">Rename project</h2>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/25"
+            aria-label="Close"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <label className="mt-4 block text-app-12 font-medium text-muted" htmlFor="rename-project">
+          Project name
+        </label>
+        <input
+          id="rename-project"
+          autoFocus
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="mt-1.5 w-full rounded-md border border-border-strong bg-bg px-2.5 py-2 text-app-13 text-fg outline-none focus-visible:ring-2 focus-visible:ring-fg/25"
+        />
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="min-h-8 rounded-md px-3 text-app-12 font-medium text-muted transition hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/25"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="min-h-8 rounded-md bg-fg px-3 text-app-12 font-medium text-bg transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/25"
+          >
+            Rename
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function getProjectInitial(name: string) {
   return name.trim().slice(0, 1).toUpperCase() || "P";
 }
@@ -43,27 +257,100 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingProjectName, setEditingProjectName] = useState("");
   const [isProjectDialogOpen, setIsProjectDialogOpen] = useState(false);
+  const [projectMenuAnchorRect, setProjectMenuAnchorRect] =
+    useState<ProjectActionsMenuTriggerRect | null>(null);
+  const [projectMenuPosition, setProjectMenuPosition] = useState<ProjectActionsMenuPosition | null>(
+    null,
+  );
+  const [renameDialogProject, setRenameDialogProject] = useState<ProjectActionsProject | null>(
+    null,
+  );
+  const projectMenuRef = useRef<HTMLDivElement>(null);
+  const projectMenuFirstItemRef = useRef<HTMLButtonElement>(null);
+  const projectMenuTriggerRef = useRef<HTMLButtonElement>(null);
 
   const activeProjectId = useMemo(
     () => getProjectIdFromPathname(location.pathname),
     [location.pathname],
   );
 
+  const closeProjectMenu = useCallback((returnFocus = false) => {
+    setOpenProjectMenuId(null);
+    setProjectMenuAnchorRect(null);
+    setProjectMenuPosition(null);
+    if (returnFocus) {
+      requestAnimationFrame(() => projectMenuTriggerRef.current?.focus());
+    }
+  }, []);
+
+  const updateProjectMenuPosition = useCallback(() => {
+    if (!collapsed || !openProjectMenuId || !projectMenuAnchorRect || !projectMenuRef.current) {
+      return;
+    }
+
+    const menuRect = projectMenuRef.current.getBoundingClientRect();
+    if (menuRect.width <= 0 || menuRect.height <= 0) {
+      return;
+    }
+
+    setProjectMenuPosition(
+      getProjectActionsMenuPosition(
+        projectMenuAnchorRect,
+        { width: menuRect.width, height: menuRect.height },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
+    );
+  }, [collapsed, openProjectMenuId, projectMenuAnchorRect]);
+
+  useLayoutEffect(() => {
+    updateProjectMenuPosition();
+  }, [updateProjectMenuPosition]);
+
   useEffect(() => {
     if (!openProjectMenuId) return;
 
-    const handleMouseDown = (e: MouseEvent) => {
+    const handlePointerDown = (e: PointerEvent) => {
       const target = e.target as Node;
       const inside =
         target instanceof Element &&
         target.closest('[data-project-menu="true"], [data-project-menu-trigger="true"]');
       if (!inside) {
-        setOpenProjectMenuId(null);
+        closeProjectMenu();
       }
     };
 
-    document.addEventListener("mousedown", handleMouseDown);
-    return () => document.removeEventListener("mousedown", handleMouseDown);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeProjectMenu(true);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [closeProjectMenu, openProjectMenuId]);
+
+  useEffect(() => {
+    if (!collapsed || !openProjectMenuId) return;
+
+    const handleWindowUpdate = () => updateProjectMenuPosition();
+    window.addEventListener("resize", handleWindowUpdate);
+    window.addEventListener("scroll", handleWindowUpdate, true);
+    return () => {
+      window.removeEventListener("resize", handleWindowUpdate);
+      window.removeEventListener("scroll", handleWindowUpdate, true);
+    };
+  }, [collapsed, openProjectMenuId, updateProjectMenuPosition]);
+
+  useEffect(() => {
+    if (!openProjectMenuId) return;
+
+    const frame = requestAnimationFrame(() => projectMenuFirstItemRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
   }, [openProjectMenuId]);
 
   useEffect(() => {
@@ -78,6 +365,25 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isProjectDialogOpen]);
+
+  const closeRenameDialog = () => {
+    setRenameDialogProject(null);
+    setEditingProjectName("");
+  };
+
+  useEffect(() => {
+    if (!renameDialogProject) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRenameDialog();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [renameDialogProject]);
 
   const handleNewProject = async () => {
     const result = await window.carrent.dialog.openDirectory();
@@ -96,6 +402,75 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
     renameProject(projectId, editingProjectName);
     setEditingProjectId(null);
     setEditingProjectName("");
+  };
+
+  const commitDialogProjectRename = () => {
+    if (renameDialogProject && renameProject(renameDialogProject.id, editingProjectName)) {
+      closeRenameDialog();
+    }
+  };
+
+  const handleProjectMenuToggle = (
+    project: ProjectActionsProject,
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    event.stopPropagation();
+    if (openProjectMenuId === project.id) {
+      closeProjectMenu();
+      return;
+    }
+
+    projectMenuTriggerRef.current = event.currentTarget;
+    setOpenProjectMenuId(project.id);
+    if (collapsed) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      setProjectMenuAnchorRect({
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      });
+      setProjectMenuPosition(null);
+    }
+  };
+
+  const handleOpenInFinder = (project: ProjectActionsProject) => {
+    void window.carrent.shell.openPath(project.path);
+    closeProjectMenu();
+  };
+
+  const handleRenameProject = (project: ProjectActionsProject) => {
+    closeProjectMenu();
+    setEditingProjectName(project.name);
+    if (collapsed) {
+      setRenameDialogProject(project);
+      return;
+    }
+
+    setEditingProjectId(project.id);
+  };
+
+  const handleCopyProjectPath = (project: ProjectActionsProject) => {
+    window.carrent.clipboard.writeText(project.path);
+    closeProjectMenu();
+    showToast("Path copied to clipboard", "success");
+  };
+
+  const handleDeleteProject = async (project: ProjectActionsProject) => {
+    if (window.confirm(`Delete "${project.name}"?`)) {
+      try {
+        await removeProject(project.id);
+        showToast("Project deleted", "success");
+        if (activeProjectId === project.id) {
+          navigate("/");
+        }
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "Failed to delete project.", "error");
+      }
+    }
+    closeProjectMenu();
   };
 
   return (
@@ -133,7 +508,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                 return (
                   <div
                     key={project.id}
-                    className="relative"
+                    className="group relative"
                     onMouseEnter={() => setHoveredProjectId(project.id)}
                     onMouseLeave={() =>
                       setHoveredProjectId((prev) => (prev === project.id ? null : prev))
@@ -195,87 +570,26 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                         </button>
                       )}
 
-                      {showActions && editingProjectId !== project.id && (
-                        <button
-                          data-project-menu-trigger="true"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenProjectMenuId(menuOpen ? null : project.id);
-                          }}
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
-                          aria-label="Project actions"
-                        >
-                          <MoreHorizontal className="h-3.5 w-3.5" />
-                        </button>
+                      {(collapsed || showActions) && editingProjectId !== project.id && (
+                        <ProjectActionsTrigger
+                          projectName={project.name}
+                          collapsed={collapsed}
+                          menuOpen={menuOpen}
+                          onClick={(event) => handleProjectMenuToggle(project, event)}
+                        />
                       )}
                     </div>
 
                     {menuOpen && !collapsed && (
-                      <div
-                        data-project-menu="true"
-                        className="absolute right-0 top-full z-20 mt-1 w-44 rounded-lg border border-border-strong bg-surface py-1 shadow-xl"
-                      >
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void window.carrent.shell.openPath(project.path);
-                            setOpenProjectMenuId(null);
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover"
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                          Open in Finder
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenProjectMenuId(null);
-                            setEditingProjectId(project.id);
-                            setEditingProjectName(project.name);
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover"
-                        >
-                          <Pencil className="h-3 w-3" />
-                          Rename project
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.carrent.clipboard.writeText(project.path);
-                            setOpenProjectMenuId(null);
-                            showToast("Path copied to clipboard", "success");
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover"
-                        >
-                          <Link className="h-3 w-3" />
-                          Copy location
-                        </button>
-                        <button
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            if (window.confirm(`Delete "${project.name}"?`)) {
-                              try {
-                                await removeProject(project.id);
-                                showToast("Project deleted", "success");
-                                if (activeProjectId === project.id) {
-                                  navigate("/");
-                                }
-                              } catch (error) {
-                                showToast(
-                                  error instanceof Error
-                                    ? error.message
-                                    : "Failed to delete project.",
-                                  "error",
-                                );
-                              }
-                            }
-                            setOpenProjectMenuId(null);
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-danger transition hover:bg-surface-hover"
-                        >
-                          <Trash2 className="h-3 w-3 text-danger" />
-                          Delete
-                        </button>
+                      <div className="absolute right-0 top-full z-20 mt-1">
+                        <ProjectActionsMenu
+                          project={project}
+                          onOpenInFinder={() => handleOpenInFinder(project)}
+                          onRename={() => handleRenameProject(project)}
+                          onCopyPath={() => handleCopyProjectPath(project)}
+                          onDelete={() => void handleDeleteProject(project)}
+                          firstItemRef={projectMenuFirstItemRef}
+                        />
                       </div>
                     )}
                   </div>
@@ -304,6 +618,35 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
           </NavLink>
         </div>
       </aside>
+
+      {collapsed &&
+        openProjectMenuId &&
+        projectMenuAnchorRect &&
+        (() => {
+          const project = projects.find((item) => item.id === openProjectMenuId);
+          if (!project) return null;
+
+          return (
+            <div
+              ref={projectMenuRef}
+              className="fixed z-40"
+              style={{
+                left: projectMenuPosition?.left ?? -10000,
+                top: projectMenuPosition?.top ?? -10000,
+                visibility: projectMenuPosition ? "visible" : "hidden",
+              }}
+            >
+              <ProjectActionsMenu
+                project={project}
+                onOpenInFinder={() => handleOpenInFinder(project)}
+                onRename={() => handleRenameProject(project)}
+                onCopyPath={() => handleCopyProjectPath(project)}
+                onDelete={() => void handleDeleteProject(project)}
+                firstItemRef={projectMenuFirstItemRef}
+              />
+            </div>
+          );
+        })()}
 
       {isProjectDialogOpen && (
         <div
@@ -363,6 +706,16 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
             </div>
           </div>
         </div>
+      )}
+
+      {renameDialogProject && (
+        <RenameProjectDialog
+          projectName={renameDialogProject.name}
+          value={editingProjectName}
+          onChange={setEditingProjectName}
+          onCancel={closeRenameDialog}
+          onSubmit={commitDialogProjectRename}
+        />
       )}
     </>
   );

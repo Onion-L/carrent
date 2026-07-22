@@ -36,9 +36,12 @@ export function removeQueuedChatMessage(threadId: string, id: string): void {
   emit();
 }
 
-export function shiftQueuedChatMessage(threadId: string): QueuedChatMessage | null {
+export function shiftQueuedChatMessage(
+  threadId: string,
+  options: { blockedId?: string | null } = {},
+): QueuedChatMessage | null {
   const [first, ...rest] = getQueuedMessages(threadId);
-  if (!first) {
+  if (!first || first.id === options.blockedId) {
     return null;
   }
   if (rest.length === 0) {
@@ -52,6 +55,18 @@ export function shiftQueuedChatMessage(threadId: string): QueuedChatMessage | nu
 
 export function unshiftQueuedChatMessage(threadId: string, item: QueuedChatMessage): void {
   queueByThreadId.set(threadId, [item, ...getQueuedMessages(threadId)]);
+  emit();
+}
+
+export function updateQueuedChatMessage(threadId: string, id: string, content: string): void {
+  const queue = getQueuedMessages(threadId);
+  if (!queue.some((item) => item.id === id)) {
+    return;
+  }
+  queueByThreadId.set(
+    threadId,
+    queue.map((item) => (item.id === id ? { ...item, content } : item)),
+  );
   emit();
 }
 

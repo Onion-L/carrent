@@ -6,7 +6,7 @@ import type {
   ChatShellEventPayload,
   ChatTurnRequest,
   ChatRunEvent,
-  ImageAttachment,
+  Attachment,
   DeleteThreadDataRequest,
 } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
@@ -663,7 +663,7 @@ export function createChatSessionManager(options: {
       return request;
     }
 
-    const attachments: ImageAttachment[] = request.attachments.map((attachment) => ({
+    const attachments: Attachment[] = request.attachments.map((attachment) => ({
       ...attachment,
       localPath: options.attachmentStore!.resolvePath(attachment.storageKey),
     }));
@@ -733,6 +733,7 @@ export function createChatSessionManager(options: {
             emit: options.emit,
             transportFactory,
             bridgeFactory,
+            attachmentStoreRoot: options.attachmentStore?.resolveRoot(),
             resumeSessionId,
             onInvalidSession: async (sessionId) => {
               if (runtimeSessions.get(requestSessionKey) === sessionId) {

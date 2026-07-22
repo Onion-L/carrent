@@ -7,9 +7,9 @@ import {
   CircleAlert,
   CornerDownRight,
   GitBranch,
-  Image,
   Lock,
   ListChecks,
+  Paperclip,
   Pencil,
   Plus,
   RefreshCw,
@@ -31,13 +31,17 @@ import {
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 
-import type { ImageAttachmentMetadata, KimiSessionStatus } from "../../../shared/chat";
+import type { AttachmentMetadata, KimiSessionStatus } from "../../../shared/chat";
 import {
+  FILE_ATTACHMENT_ICONS,
+  fileAttachmentIconKind,
+  formatAttachmentSize,
   metadataOnly,
   pendingAttachmentFromFile,
-  validateImageAttachments,
+  pendingImageAttachments,
+  validateAttachmentSelection,
   type PendingAttachment,
-} from "../../lib/imageAttachments";
+} from "../../lib/attachments";
 import { deriveThreadTitle } from "../../lib/threadTitle";
 import { ImageAttachmentLightbox, type LightboxItem } from "./ImageAttachmentLightbox";
 
@@ -173,7 +177,7 @@ function ContextUsageIndicator({
 export type ComposerSubmitRequest = {
   messageId: string;
   content: string;
-  attachments?: ImageAttachmentMetadata[];
+  attachments?: AttachmentMetadata[];
   requestId: number;
 };
 
@@ -244,7 +248,7 @@ type AttachmentStoreBridge = {
     name: string;
     mimeType: string;
     data: Uint8Array;
-  }) => Promise<ImageAttachmentMetadata>;
+  }) => Promise<AttachmentMetadata>;
 };
 
 type GitBranchInfo = {
@@ -274,16 +278,16 @@ function getAttachmentStoreBridge(attachments: unknown): AttachmentStoreBridge {
     attachments === null ||
     typeof (attachments as { store?: unknown }).store !== "function"
   ) {
-    throw new Error("Image attachments are unavailable. Restart Carrent and try again.");
+    throw new Error("Attachments are unavailable. Restart Carrent and try again.");
   }
 
   return attachments as AttachmentStoreBridge;
 }
 
-export async function storeImageAttachmentFile(
+export async function storeAttachmentFile(
   file: File,
   attachments: unknown,
-): Promise<ImageAttachmentMetadata> {
+): Promise<AttachmentMetadata> {
   const attachmentStore = getAttachmentStoreBridge(attachments);
   const data = new Uint8Array(await file.arrayBuffer());
   return attachmentStore.store({
@@ -291,6 +295,23 @@ export async function storeImageAttachmentFile(
     mimeType: file.type,
     data,
   });
+}
+
+export function canSubmitComposerContent(input: {
+  content: string;
+  attachedSkillCount: number;
+  attachmentCount: number;
+  isPreparingAttachments: boolean;
+  isExternalSubmit?: boolean;
+}): boolean {
+  if (input.isPreparingAttachments && !input.isExternalSubmit) {
+    return false;
+  }
+  return (
+    input.content.trim().length > 0 ||
+    input.attachedSkillCount > 0 ||
+    input.attachmentCount > 0
+  );
 }
 
 export function getGitBridge(carrent: unknown): GitBridge {
@@ -779,6 +800,7 @@ export function Composer(props: ComposerProps) {
     useState<CascadingPanelPosition | null>(null);
   const [showModePicker, setShowModePicker] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [isPreparingAttachments, setIsPreparingAttachments] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [lightboxAttachmentIndex, setLightboxAttachmentIndex] = useState<number | null>(null);
   const [kimiStatus, setKimiStatus] = useState<KimiSessionStatus | null>(null);
@@ -815,6 +837,21 @@ export function Composer(props: ComposerProps) {
   const queuedMessages = useQueuedMessages(threadId);
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
   const [editingQueuedText, setEditingQueuedText] = useState("");
+
+  const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
+  const isPreparingAttachmentsRef = useRef(false);
+  useEffect(() => {
+    pendingAttachmentsRef.current = pendingAttachments;
+  }, [pendingAttachments]);
+  useEffect(() => {
+    return () => {
+      pendingAttachmentsRef.current.forEach((pending) => {
+        if (pending.previewUrl) {
+          URL.revokeObjectURL(pending.previewUrl);
+        }
+      });
+    };
+  }, []);
 
   const commitQueuedEdit = () => {
     const queuedId = editingQueuedIdRef.current;
@@ -942,8 +979,12 @@ export function Composer(props: ComposerProps) {
   const slashMenuItemCount = (showPlanSuggestion ? 1 : 0) + filteredSkills.length;
 
   const effectiveAttachedSkills = localMcpSkillsDisabled ? [] : attachedSkills;
-  const hasSendableContent =
-    !!input.trim() || effectiveAttachedSkills.length > 0 || pendingAttachments.length > 0;
+  const hasSendableContent = canSubmitComposerContent({
+    content: input,
+    attachedSkillCount: effectiveAttachedSkills.length,
+    attachmentCount: pendingAttachments.length,
+    isPreparingAttachments,
+  });
   const canSend =
     (props.mode === "chat" ? hasSendableContent : hasSendableContent && !!project) &&
     isSelectedRuntimeAvailable;
@@ -1285,12 +1326,12 @@ export function Composer(props: ComposerProps) {
 
   const handleAddFiles = useCallback(
     async (files: FileList | null) => {
-      if (!files || files.length === 0) {
+      if (!files || files.length === 0 || isPreparingAttachmentsRef.current) {
         return;
       }
 
       const fileArray = Array.from(files);
-      const validation = validateImageAttachments([
+      const validation = validateAttachmentSelection([
         ...pendingAttachments.map((pending) => pending.file),
         ...fileArray,
       ]);
@@ -1301,17 +1342,23 @@ export function Composer(props: ComposerProps) {
       }
 
       setAttachmentError(null);
+      isPreparingAttachmentsRef.current = true;
+      setIsPreparingAttachments(true);
 
-      for (const file of fileArray) {
-        try {
-          const metadata = await storeImageAttachmentFile(file, window.carrent?.attachments);
+      let activeFileName = "files";
+      try {
+        for (const file of fileArray) {
+          activeFileName = file.name;
+          const metadata = await storeAttachmentFile(file, window.carrent?.attachments);
           const pendingAttachment = pendingAttachmentFromFile(file, metadata);
           setPendingAttachments((prev) => [...prev, pendingAttachment]);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          setAttachmentError(`Failed to attach ${file.name}: ${message}`);
-          return;
         }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setAttachmentError(`Failed to attach ${activeFileName}: ${message}`);
+      } finally {
+        isPreparingAttachmentsRef.current = false;
+        setIsPreparingAttachments(false);
       }
     },
     [pendingAttachments],
@@ -1320,7 +1367,7 @@ export function Composer(props: ComposerProps) {
   const handleRemovePendingAttachment = useCallback((id: string) => {
     setPendingAttachments((prev) => {
       const removed = prev.find((item) => item.id === id);
-      if (removed) {
+      if (removed?.previewUrl) {
         URL.revokeObjectURL(removed.previewUrl);
       }
       return prev.filter((item) => item.id !== id);
@@ -1334,15 +1381,8 @@ export function Composer(props: ComposerProps) {
         return;
       }
 
-      const imageFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
-      if (imageFiles.length === 0) {
-        return;
-      }
-
       event.preventDefault();
-      const dataTransfer = new DataTransfer();
-      imageFiles.forEach((file) => dataTransfer.items.add(file));
-      void handleAddFiles(dataTransfer.files);
+      void handleAddFiles(files);
     },
     [handleAddFiles],
   );
@@ -1350,7 +1390,7 @@ export function Composer(props: ComposerProps) {
   const handleSend = async (override?: {
     messageId?: string;
     content: string;
-    attachments?: ImageAttachmentMetadata[];
+    attachments?: AttachmentMetadata[];
   }) => {
     const externalSubmit = override;
     const isExternalSubmit = externalSubmit !== undefined;
@@ -1364,8 +1404,13 @@ export function Composer(props: ComposerProps) {
     const currentInput = externalSubmit
       ? externalSubmit.content.trim()
       : planSubmission.task.trim();
-    const hasCurrentSendableContent =
-      !!currentInput || currentAttachedSkills.length > 0 || currentPendingAttachments.length > 0;
+    const hasCurrentSendableContent = canSubmitComposerContent({
+      content: currentInput,
+      attachedSkillCount: currentAttachedSkills.length,
+      attachmentCount: externalSubmit?.attachments?.length ?? currentPendingAttachments.length,
+      isPreparingAttachments: isPreparingAttachmentsRef.current,
+      isExternalSubmit,
+    });
     const canSendCurrent =
       (props.mode === "chat"
         ? hasCurrentSendableContent
@@ -1393,7 +1438,7 @@ export function Composer(props: ComposerProps) {
       promoteDraftThread(props.projectId, props.threadId);
     }
 
-    const validation = validateImageAttachments(
+    const validation = validateAttachmentSelection(
       currentPendingAttachments.map((pending) => pending.file),
     );
     if (!validation.ok) {
@@ -1411,7 +1456,7 @@ export function Composer(props: ComposerProps) {
         ? `${currentAttachedSkills.map(buildSkillReference).join(" ")} `
         : "";
     const messageText = `${skillPrefix}${currentInput}`.trim();
-    const attachmentMetadata: ImageAttachmentMetadata[] = externalSubmit
+    const attachmentMetadata: AttachmentMetadata[] = externalSubmit
       ? metadataOnly(externalSubmit.attachments ?? [])
       : metadataOnly(currentPendingAttachments.map((pending) => pending.metadata!));
 
@@ -1424,7 +1469,11 @@ export function Composer(props: ComposerProps) {
       setInput("");
       setAttachedSkills([]);
       setPendingAttachments((prev) => {
-        prev.forEach((pending) => URL.revokeObjectURL(pending.previewUrl));
+        prev.forEach((pending) => {
+          if (pending.previewUrl) {
+            URL.revokeObjectURL(pending.previewUrl);
+          }
+        });
         return [];
       });
       setAttachmentError(null);
@@ -1436,7 +1485,7 @@ export function Composer(props: ComposerProps) {
     const appendLocalMessage = (
       role: "user" | "assistant",
       content: string,
-      attachments?: ImageAttachmentMetadata[],
+      attachments?: AttachmentMetadata[],
       runStatus?: Message["runStatus"],
     ) =>
       appendMessage({
@@ -1730,7 +1779,11 @@ export function Composer(props: ComposerProps) {
       setInput("");
       setAttachedSkills([]);
       setPendingAttachments((prev) => {
-        prev.forEach((pending) => URL.revokeObjectURL(pending.previewUrl));
+        prev.forEach((pending) => {
+          if (pending.previewUrl) {
+            URL.revokeObjectURL(pending.previewUrl);
+          }
+        });
         return [];
       });
     }
@@ -2039,39 +2092,80 @@ export function Composer(props: ComposerProps) {
           ) : null}
           {pendingAttachments.length > 0 && (
             <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
-              {pendingAttachments.map((attachment, index) => (
-                <div
-                  key={attachment.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setLightboxAttachmentIndex(index)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      setLightboxAttachmentIndex(index);
+              {pendingAttachments.map((attachment) => {
+                if (!attachment.previewUrl) {
+                  const FileIcon =
+                    FILE_ATTACHMENT_ICONS[fileAttachmentIconKind(attachment.file.name)];
+                  return (
+                    <div
+                      key={attachment.id}
+                      title={attachment.file.name}
+                      className="group relative flex h-16 w-48 shrink-0 items-center gap-2 rounded-lg border border-border-strong px-2.5"
+                    >
+                      <FileIcon className="h-4 w-4 shrink-0 text-muted" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-app-12 leading-5 text-fg">
+                          {attachment.file.name}
+                        </div>
+                        <div className="text-app-11 leading-4 text-subtle">
+                          {formatAttachmentSize(attachment.file.size)}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleRemovePendingAttachment(attachment.id);
+                        }}
+                        className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-bg/80 text-muted transition hover:text-fg"
+                        title="Remove"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    key={attachment.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() =>
+                      setLightboxAttachmentIndex(
+                        pendingImageAttachments(pendingAttachments).indexOf(attachment),
+                      )
                     }
-                  }}
-                  className="group relative shrink-0 cursor-pointer overflow-hidden rounded-lg border border-border-strong"
-                >
-                  <img
-                    src={attachment.previewUrl}
-                    alt={attachment.file.name}
-                    className="h-16 w-16 object-cover"
-                  />
-                  <span className="sr-only">{attachment.file.name}</span>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleRemovePendingAttachment(attachment.id);
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setLightboxAttachmentIndex(
+                          pendingImageAttachments(pendingAttachments).indexOf(attachment),
+                        );
+                      }
                     }}
-                    className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-bg/80 text-muted transition hover:text-fg"
-                    title="Remove"
+                    className="group relative shrink-0 cursor-pointer overflow-hidden rounded-lg border border-border-strong"
                   >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
+                    <img
+                      src={attachment.previewUrl}
+                      alt={attachment.file.name}
+                      className="h-16 w-16 object-cover"
+                    />
+                    <span className="sr-only">{attachment.file.name}</span>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleRemovePendingAttachment(attachment.id);
+                      }}
+                      className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-bg/80 text-muted transition hover:text-fg"
+                      title="Remove"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
           {localMcpSkillsDisabled ? (
@@ -2144,7 +2238,7 @@ export function Composer(props: ComposerProps) {
                     )}
                     {item.attachments && item.attachments.length > 0 ? (
                       <span className="flex shrink-0 items-center gap-1 text-app-11 text-subtle">
-                        <Image className="h-3 w-3" />
+                        <Paperclip className="h-3 w-3" />
                         {item.attachments.length}
                       </span>
                     ) : null}
@@ -2631,8 +2725,8 @@ export function Composer(props: ComposerProps) {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif"
                 multiple
+                disabled={isPreparingAttachments}
                 className="hidden"
                 onChange={(event) => {
                   void handleAddFiles(event.target.files);
@@ -2644,11 +2738,12 @@ export function Composer(props: ComposerProps) {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isThreadSending}
+                disabled={isThreadSending || isPreparingAttachments}
                 className="flex items-center gap-1.5 rounded-md px-2 py-1 text-app-12 text-muted transition hover:text-fg disabled:opacity-40"
-                title="Attach image"
+                title="Attach files"
+                aria-label="Attach files"
               >
-                <Image className="h-3.5 w-3.5" />
+                <Paperclip className="h-3.5 w-3.5" />
                 <span>Attach</span>
               </button>
             </div>
@@ -2681,11 +2776,11 @@ export function Composer(props: ComposerProps) {
           </div>
           {lightboxAttachmentIndex !== null && (
             <ImageAttachmentLightbox
-              items={pendingAttachments.map(
+              items={pendingImageAttachments(pendingAttachments).map(
                 (attachment): LightboxItem => ({
                   id: attachment.id,
                   name: attachment.file.name,
-                  url: attachment.previewUrl,
+                  url: attachment.previewUrl!,
                 }),
               )}
               initialIndex={lightboxAttachmentIndex}

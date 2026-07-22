@@ -179,6 +179,7 @@ describe("registerChatIpc", () => {
       attachments: [
         {
           id: "a1",
+          kind: "image" as const,
           name: "ui.png",
           mimeType: "image/png",
           size: 1024,
@@ -193,6 +194,136 @@ describe("registerChatIpc", () => {
     expect(result.runId).toBeString();
     expect(started).toHaveLength(1);
     expect(started[0].request.attachments).toEqual(request.attachments);
+  });
+
+  describe("chat:send attachment validation", () => {
+    function registerCapture() {
+      const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+      const started: { runId: string; request: ChatTurnRequest }[] = [];
+
+      registerChatIpc(
+        {
+          handle(channel, listener) {
+            handlers.set(channel, listener);
+          },
+        },
+        {
+          sessionManager: {
+            start: (runId, request) => {
+              started.push({ runId, request });
+            },
+            stop: () => {},
+            deleteThreadData: async () => {},
+            respondToPermission: () => {},
+            getStatus: async () => null,
+          },
+        },
+      );
+
+      return { handlers, started };
+    }
+
+    const validAttachment = {
+      id: "a1",
+      kind: "file" as const,
+      name: "main.ts",
+      mimeType: "text/plain",
+      size: 512,
+      storageKey: "a1.ts",
+    };
+
+    async function expectRejected(attachments: unknown) {
+      const { handlers, started } = registerCapture();
+
+      let error: unknown;
+      try {
+        await handlers.get("chat:send")?.({}, makeRequest({ attachments: attachments as never }));
+      } catch (caught) {
+        error = caught;
+      }
+
+      expect(error instanceof Error ? error.message : String(error)).toContain("Invalid");
+      expect(started).toHaveLength(0);
+    }
+
+    it("rejects more than 30 attachments", async () => {
+      await expectRejected(
+        Array.from({ length: 31 }, (_, index) => ({
+          ...validAttachment,
+          id: `a${index}`,
+          storageKey: `a${index}.ts`,
+        })),
+      );
+    });
+
+    it("rejects a single attachment over 10 MB", async () => {
+      await expectRejected([{ ...validAttachment, size: 10 * 1024 * 1024 + 1 }]);
+    });
+
+    it("rejects a total size over 100 MB", async () => {
+      await expectRejected(
+        Array.from({ length: 11 }, (_, index) => ({
+          ...validAttachment,
+          id: `a${index}`,
+          storageKey: `a${index}.ts`,
+          size: 10 * 1024 * 1024,
+        })),
+      );
+    });
+
+    it("rejects an invalid kind", async () => {
+      await expectRejected([{ ...validAttachment, kind: "document" }]);
+    });
+
+    it("rejects unsafe storage keys", async () => {
+      await expectRejected([{ ...validAttachment, storageKey: "../workspace.json" }]);
+      await expectRejected([{ ...validAttachment, storageKey: "a/b.ts" }]);
+    });
+
+    it("rejects a renderer-supplied localPath", async () => {
+      await expectRejected([{ ...validAttachment, localPath: "/tmp/evil" }]);
+    });
+
+    it("rejects empty or unbounded metadata fields", async () => {
+      await expectRejected([{ ...validAttachment, id: "" }]);
+      await expectRejected([{ ...validAttachment, name: "  " }]);
+      await expectRejected([{ ...validAttachment, mimeType: "" }]);
+      await expectRejected([{ ...validAttachment, size: Number.NaN }]);
+      await expectRejected([{ ...validAttachment, size: -1 }]);
+    });
+
+    it("sanitizes entries to the declared metadata fields", async () => {
+      const { handlers, started } = registerCapture();
+
+      await handlers.get("chat:send")?.(
+        {},
+        makeRequest({
+          attachments: [
+            {
+              ...validAttachment,
+              width: 640,
+              height: 480,
+              bytes: "raw",
+              extra: "dropped",
+            } as never,
+          ],
+        }),
+      );
+
+      expect(started).toHaveLength(1);
+      expect(started[0].request.attachments).toEqual([
+        {
+          id: "a1",
+          kind: "file",
+          name: "main.ts",
+          mimeType: "text/plain",
+          size: 512,
+          storageKey: "a1.ts",
+          width: 640,
+          height: 480,
+        },
+      ]);
+    });
   });
 
   it("rejects legacy runtimes before starting the session", async () => {

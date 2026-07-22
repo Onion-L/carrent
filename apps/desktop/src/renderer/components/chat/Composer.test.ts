@@ -5,6 +5,7 @@ import {
   getCascadingPanelPosition,
   getActionablePermissionsForThread,
   buildSkillReference,
+  canSubmitComposerContent,
   createWorkspaceDiffCapture,
   filterSkillsForQuery,
   formatKimiModelLabel,
@@ -27,7 +28,7 @@ import {
   shouldRemoveLastSkillOnBackspace,
   supportsRuntimeModelSelection,
   shouldSubmitComposerOnKeyDown,
-  storeImageAttachmentFile,
+  storeAttachmentFile,
 } from "./Composer";
 import type { ChatPermissionRequest } from "../../../shared/chatPermissions";
 import type { SkillRecord } from "../../../shared/skills";
@@ -145,6 +146,43 @@ describe("shouldSubmitComposerOnKeyDown", () => {
         nativeEvent: {},
       }),
     ).toBe(false);
+  });
+});
+
+describe("canSubmitComposerContent", () => {
+  it("allows an external attachment-only queued message", () => {
+    expect(
+      canSubmitComposerContent({
+        content: "",
+        attachedSkillCount: 0,
+        attachmentCount: 1,
+        isPreparingAttachments: false,
+        isExternalSubmit: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("blocks a local send while attachment storage is in flight", () => {
+    expect(
+      canSubmitComposerContent({
+        content: "send this with the file",
+        attachedSkillCount: 0,
+        attachmentCount: 0,
+        isPreparingAttachments: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not let unrelated local attachment preparation block an external submit", () => {
+    expect(
+      canSubmitComposerContent({
+        content: "queued message",
+        attachedSkillCount: 0,
+        attachmentCount: 0,
+        isPreparingAttachments: true,
+        isExternalSubmit: true,
+      }),
+    ).toBe(true);
   });
 });
 
@@ -902,17 +940,18 @@ describe("createWorkspaceDiffCapture", () => {
   });
 });
 
-describe("storeImageAttachmentFile", () => {
+describe("storeAttachmentFile", () => {
   it("reports a clear error when the preload attachment bridge is missing", async () => {
     const file = new File(["hello"], "test.png", { type: "image/png" });
 
     try {
-      await storeImageAttachmentFile(file, undefined);
-      throw new Error("Expected storeImageAttachmentFile to reject.");
+      await storeAttachmentFile(file, undefined);
+      throw new Error("Expected storeAttachmentFile to reject.");
     } catch (error) {
       expect(error instanceof Error).toBe(true);
       const message = error instanceof Error ? error.message : String(error);
-      expect(message).toBe("Image attachments are unavailable. Restart Carrent and try again.");
+      expect(message).toBe("Attachments are unavailable. Restart Carrent and try again.");
+      expect(message).not.toContain("Image attachments are unavailable");
     }
   });
 
@@ -920,11 +959,12 @@ describe("storeImageAttachmentFile", () => {
     const file = new File(["hello"], "test.png", { type: "image/png" });
     let stored: { name: string; mimeType: string; data: Uint8Array } | undefined;
 
-    const metadata = await storeImageAttachmentFile(file, {
+    const metadata = await storeAttachmentFile(file, {
       store: async (input: { name: string; mimeType: string; data: Uint8Array }) => {
         stored = input;
         return {
           id: "attachment-1",
+          kind: "image" as const,
           name: input.name,
           mimeType: input.mimeType,
           size: input.data.byteLength,
@@ -937,5 +977,30 @@ describe("storeImageAttachmentFile", () => {
     expect(stored?.mimeType).toBe("image/png");
     expect(Array.from(stored?.data ?? [])).toEqual([104, 101, 108, 108, 111]);
     expect(metadata.storageKey).toBe("attachment-1.png");
+  });
+
+  it("stores a UTF-8 file through the bridge and returns File Attachment metadata", async () => {
+    const file = new File(["const x = 1;\n"], "main.ts", { type: "text/plain" });
+    let stored: { name: string; mimeType: string; data: Uint8Array } | undefined;
+
+    const metadata = await storeAttachmentFile(file, {
+      store: async (input: { name: string; mimeType: string; data: Uint8Array }) => {
+        stored = input;
+        return {
+          id: "attachment-2",
+          kind: "file" as const,
+          name: input.name,
+          mimeType: input.mimeType,
+          size: input.data.byteLength,
+          storageKey: "attachment-2.ts",
+        };
+      },
+    });
+
+    expect(stored?.name).toBe("main.ts");
+    expect(stored?.mimeType).toContain("text/plain");
+    expect(Array.from(stored?.data ?? [])).toEqual(Array.from(new TextEncoder().encode("const x = 1;\n")));
+    expect(metadata.kind).toBe("file");
+    expect(metadata.storageKey).toBe("attachment-2.ts");
   });
 });

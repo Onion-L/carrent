@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createElement } from "react";
 
 import {
   buildUserMessageEditContent,
@@ -6,6 +8,7 @@ import {
   getUserMessageEditDraft,
   parseSkillReferenceSegments,
   splitLeadingSkillReferences,
+  UserMessageAttachmentList,
 } from "./MessageTimeline";
 import type { Message } from "../../mock/uiShellData";
 import { getPlanReviewStatusLabel } from "./PlanReviewBlock";
@@ -97,6 +100,94 @@ describe("getUserMessageEditDraft", () => {
     };
 
     expect(getUserMessageEditDraft(message)).toBe(null);
+  });
+
+  it("preserves mixed attachments in the edit draft", () => {
+    const attachments = [
+      {
+        id: "a1",
+        kind: "image" as const,
+        name: "screenshot.png",
+        mimeType: "image/png",
+        size: 1024,
+        storageKey: "a1.png",
+      },
+      {
+        id: "a2",
+        kind: "file" as const,
+        name: "main.ts",
+        mimeType: "text/plain",
+        size: 512,
+        storageKey: "a2.ts",
+      },
+    ];
+    const message: Message = {
+      id: "msg-1",
+      threadId: "thread-1",
+      role: "user",
+      content: "check these",
+      timestamp: "09:00",
+      type: "text",
+      attachments,
+    };
+
+    expect(getUserMessageEditDraft(message)?.attachments).toEqual(attachments);
+  });
+});
+
+describe("UserMessageAttachmentList", () => {
+  it("renders file rows and image thumbnails without app-data paths", () => {
+    const markup = renderToStaticMarkup(
+      createElement(UserMessageAttachmentList, {
+        attachments: [
+          {
+            id: "a1",
+            kind: "image" as const,
+            name: "screenshot.png",
+            mimeType: "image/png",
+            size: 1024,
+            storageKey: "a1.png",
+          },
+          {
+            id: "a2",
+            kind: "file" as const,
+            name: "main.ts",
+            mimeType: "text/plain",
+            size: 512,
+            storageKey: "a2.ts",
+          },
+        ],
+      }),
+    );
+
+    expect(markup).toContain("main.ts");
+    expect(markup).toContain("512 B");
+    expect(markup).toContain("screenshot.png");
+    expect(markup).not.toContain("a1.png");
+    expect(markup).not.toContain("a2.ts");
+    expect(markup).not.toContain("/tmp");
+  });
+
+  it("maps lightbox clicks to image-only indexes", () => {
+    const clicked: number[] = [];
+    const markup = renderToStaticMarkup(
+      createElement(UserMessageAttachmentList, {
+        attachments: [
+          {
+            id: "a1",
+            kind: "file" as const,
+            name: "notes.md",
+            mimeType: "text/plain",
+            size: 5,
+            storageKey: "a1.md",
+          },
+        ],
+        onImageClick: (index: number) => clicked.push(index),
+      }),
+    );
+
+    expect(clicked).toEqual([]);
+    expect(markup).toContain("notes.md");
   });
 });
 

@@ -3,8 +3,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type Message,
   type MessagePart,
-  type ImageAttachmentMetadata,
+  type AttachmentMetadata,
 } from "../../mock/uiShellData";
+import { isFileAttachment, isImageAttachment } from "../../../shared/attachment";
+import {
+  FILE_ATTACHMENT_ICONS,
+  fileAttachmentIconKind,
+  formatAttachmentSize,
+} from "../../lib/attachments";
 import { AgentActivityBlock, type AgentActivityItem } from "./AgentActivityBlock";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachmentLightbox";
@@ -18,7 +24,7 @@ type UserMessageSegment =
 export type UserMessageEditDraft = {
   messageId: string;
   content: string;
-  attachments?: ImageAttachmentMetadata[];
+  attachments?: AttachmentMetadata[];
 };
 
 const SKILL_REFERENCE_PATTERN = /\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\)/gu;
@@ -114,7 +120,7 @@ function StoredAttachmentThumbnail({
   attachment,
   onClick,
 }: {
-  attachment: ImageAttachmentMetadata;
+  attachment: AttachmentMetadata;
   onClick: () => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -150,7 +156,10 @@ function StoredAttachmentThumbnail({
 
   if (failed || !url) {
     return (
-      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border-strong bg-surface text-app-11 text-muted">
+      <div
+        title={attachment.name}
+        className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border-strong bg-surface text-app-11 text-muted"
+      >
         {failed ? "Missing" : "..."}
       </div>
     );
@@ -168,6 +177,56 @@ function StoredAttachmentThumbnail({
   );
 }
 
+function FileAttachmentRow({ attachment }: { attachment: AttachmentMetadata }) {
+  const FileIcon = FILE_ATTACHMENT_ICONS[fileAttachmentIconKind(attachment.name)];
+
+  return (
+    <div title={attachment.name} className="flex h-7 items-center gap-2">
+      <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted" />
+      <span className="min-w-0 truncate text-app-12 leading-5 text-user-bubble-fg">
+        {attachment.name}
+      </span>
+      <span className="shrink-0 text-app-11 leading-4 text-subtle">
+        {formatAttachmentSize(attachment.size)}
+      </span>
+    </div>
+  );
+}
+
+export function UserMessageAttachmentList({
+  attachments,
+  onImageClick,
+}: {
+  attachments: AttachmentMetadata[];
+  onImageClick?: (imageIndex: number) => void;
+}) {
+  const images = attachments.filter(isImageAttachment);
+  const files = attachments.filter(isFileAttachment);
+
+  return (
+    <>
+      {images.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto">
+          {images.map((attachment, index) => (
+            <StoredAttachmentThumbnail
+              key={attachment.id}
+              attachment={attachment}
+              onClick={() => onImageClick?.(index)}
+            />
+          ))}
+        </div>
+      )}
+      {files.length > 0 && (
+        <div className={`flex flex-col ${images.length > 0 ? "mt-2" : ""}`}>
+          {files.map((attachment) => (
+            <FileAttachmentRow key={attachment.id} attachment={attachment} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 function UserMessage({
   content,
   timestamp,
@@ -179,7 +238,7 @@ function UserMessage({
 }: {
   content: string;
   timestamp: string;
-  attachments?: ImageAttachmentMetadata[];
+  attachments?: AttachmentMetadata[];
   isEditing?: boolean;
   onEdit?: () => void;
   onCancelEdit?: () => void;
@@ -208,7 +267,7 @@ function UserMessage({
   };
 
   const lightboxItems: StoredLightboxItem[] =
-    attachments?.map((attachment) => ({
+    attachments?.filter(isImageAttachment).map((attachment) => ({
       id: attachment.id,
       name: attachment.name,
       storageKey: attachment.storageKey,
@@ -249,14 +308,8 @@ function UserMessage({
             />
           </div>
           {attachments && attachments.length > 0 && (
-            <div className="mt-2 flex gap-2 overflow-x-auto">
-              {attachments.map((attachment, index) => (
-                <StoredAttachmentThumbnail
-                  key={attachment.id}
-                  attachment={attachment}
-                  onClick={() => setLightboxIndex(index)}
-                />
-              ))}
+            <div className="mt-2">
+              <UserMessageAttachmentList attachments={attachments} onImageClick={setLightboxIndex} />
             </div>
           )}
           <div className="mt-5 flex justify-end gap-3">
@@ -298,14 +351,8 @@ function UserMessage({
         <div className="rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
           {content && <UserMessageContent content={content} />}
           {attachments && attachments.length > 0 && (
-            <div className={`flex gap-2 overflow-x-auto ${content ? "mt-2" : ""}`}>
-              {attachments.map((attachment, index) => (
-                <StoredAttachmentThumbnail
-                  key={attachment.id}
-                  attachment={attachment}
-                  onClick={() => setLightboxIndex(index)}
-                />
-              ))}
+            <div className={content ? "mt-2" : ""}>
+              <UserMessageAttachmentList attachments={attachments} onImageClick={setLightboxIndex} />
             </div>
           )}
         </div>

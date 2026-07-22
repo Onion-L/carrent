@@ -1,9 +1,19 @@
 import type {
+  AttachmentMetadata,
   ChatTurnRequest,
   DeleteThreadDataRequest,
   KimiSessionStatus,
 } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
+import {
+  MAX_ATTACHMENT_COUNT,
+  MAX_ATTACHMENT_ID_CHARS,
+  MAX_ATTACHMENT_MIME_TYPE_CHARS,
+  MAX_ATTACHMENT_NAME_BYTES,
+  MAX_SINGLE_ATTACHMENT_BYTES,
+  MAX_TOTAL_ATTACHMENT_BYTES,
+  assertValidAttachmentStorageKey,
+} from "../../src/shared/attachment";
 import { runtimeNameMap, type RuntimeId } from "../../src/shared/runtimes";
 import type { ChatSessionManager } from "./chatSessionManager";
 
@@ -60,6 +70,78 @@ export function parseDeleteThreadDataRequest(value: unknown): DeleteThreadDataRe
   };
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+export function parseChatTurnAttachments(value: unknown): AttachmentMetadata[] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!Array.isArray(value) || value.length > MAX_ATTACHMENT_COUNT) {
+    throw new Error("Invalid attachments.");
+  }
+
+  let totalSize = 0;
+  const attachments = value.map((entry): AttachmentMetadata => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error("Invalid attachment metadata.");
+    }
+    const record = entry as Record<string, unknown>;
+    if (record.localPath !== undefined) {
+      throw new Error("Invalid attachment metadata.");
+    }
+    if (record.kind !== "image" && record.kind !== "file") {
+      throw new Error("Invalid attachment metadata.");
+    }
+    if (
+      typeof record.id !== "string" ||
+      record.id.length === 0 ||
+      record.id.length > MAX_ATTACHMENT_ID_CHARS
+    ) {
+      throw new Error("Invalid attachment metadata.");
+    }
+    if (
+      typeof record.name !== "string" ||
+      record.name.trim().length === 0 ||
+      new TextEncoder().encode(record.name).length > MAX_ATTACHMENT_NAME_BYTES
+    ) {
+      throw new Error("Invalid attachment metadata.");
+    }
+    if (
+      typeof record.mimeType !== "string" ||
+      record.mimeType.length === 0 ||
+      record.mimeType.length > MAX_ATTACHMENT_MIME_TYPE_CHARS
+    ) {
+      throw new Error("Invalid attachment metadata.");
+    }
+    if (typeof record.storageKey !== "string") {
+      throw new Error("Invalid attachment metadata.");
+    }
+    assertValidAttachmentStorageKey(record.storageKey);
+    if (!isFiniteNumber(record.size) || record.size < 0 || record.size > MAX_SINGLE_ATTACHMENT_BYTES) {
+      throw new Error("Invalid attachment metadata.");
+    }
+    totalSize += record.size;
+    if (totalSize > MAX_TOTAL_ATTACHMENT_BYTES) {
+      throw new Error("Invalid attachments.");
+    }
+
+    return {
+      id: record.id,
+      kind: record.kind,
+      name: record.name,
+      mimeType: record.mimeType,
+      size: record.size,
+      storageKey: record.storageKey,
+      ...(isFiniteNumber(record.width) ? { width: record.width } : {}),
+      ...(isFiniteNumber(record.height) ? { height: record.height } : {}),
+    };
+  });
+
+  return attachments;
+}
+
 export function parseChatPermissionResponse(value: unknown): ChatPermissionResponse {
   if (!value || typeof value !== "object") {
     throw new Error("Invalid permission response.");
@@ -90,9 +172,16 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
       throw new Error(unavailableMessage);
     }
 
+    const sanitizedRequest: ChatTurnRequest = {
+      ...req,
+      attachments: parseChatTurnAttachments(
+        (request as { attachments?: unknown } | null)?.attachments,
+      ),
+    };
+
     const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-    services.sessionManager.start(runId, req);
+    services.sessionManager.start(runId, sanitizedRequest);
 
     return { runId };
   });

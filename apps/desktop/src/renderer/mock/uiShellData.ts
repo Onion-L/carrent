@@ -1,9 +1,9 @@
 import type { RuntimeMode } from "../../shared/runtimeMode";
 import type { RuntimeId } from "../../shared/runtimes";
-import type { ImageAttachmentMetadata } from "../../shared/chat";
+import type { AttachmentMetadata } from "../../shared/chat";
 import type { ChatPermissionOption } from "../../shared/chatPermissions";
 
-export type { ImageAttachmentMetadata };
+export type { AttachmentMetadata };
 
 export type ThreadRecord = {
   id: string;
@@ -122,7 +122,7 @@ type TextMessage = MessageBase & {
   type?: "text";
   content: string;
   parts?: MessagePart[];
-  attachments?: ImageAttachmentMetadata[];
+  attachments?: AttachmentMetadata[];
 };
 
 export type ChangedFilesMessage = Omit<MessageBase, "role"> & {

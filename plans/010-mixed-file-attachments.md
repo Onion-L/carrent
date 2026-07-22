@@ -25,6 +25,13 @@
 - **Depends on**: none, but preserve the uncommitted queue/composer work noted above
 - **Category**: direction
 - **Planned at**: commit `56b3117`, 2026-07-22
+- **Status**: DONE (implemented 2026-07-22 on top of `6224c98`; the formerly
+  uncommitted Composer/queue work had been committed in `6224c98` and is
+  preserved). All automated gates pass: `rtk bun test` (681 pass, 0 fail),
+  typecheck, lint, build, and `rtk git diff --check`. The Step 6 manual
+  desktop-app UI verification (mixed selection/paste, lightbox, themes, text
+  size, live Kimi read) was not performed by the executor and remains with the
+  operator.
 
 ## Why this matters
 

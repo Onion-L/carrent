@@ -3701,6 +3701,7 @@ describe("createChatSessionManager", () => {
           throw new Error("not used");
         },
         readAttachment: async () => new Uint8Array(),
+        resolveRoot: () => "/tmp/attachments",
         resolvePath: (key) => `/tmp/attachments/${key}`,
         deleteAttachments: async (keys) => {
           deletedAttachments.push(keys);

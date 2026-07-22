@@ -87,4 +87,31 @@ describe("chatMessageQueue", () => {
     removeQueuedChatMessage("t7", "a");
     removeQueuedChatMessage("t7", "b");
   });
+
+  it("retains mixed attachment metadata unchanged", () => {
+    const attachments = [
+      {
+        id: "a1",
+        kind: "image" as const,
+        name: "screenshot.png",
+        mimeType: "image/png",
+        size: 1024,
+        storageKey: "a1.png",
+      },
+      {
+        id: "a2",
+        kind: "file" as const,
+        name: "main.ts",
+        mimeType: "text/plain",
+        size: 512,
+        storageKey: "a2.ts",
+      },
+    ];
+
+    enqueueChatMessage("t8", { id: "a", content: "msg a", attachments });
+
+    expect(getQueuedMessages("t8")[0]?.attachments).toEqual(attachments);
+    expect(shiftQueuedChatMessage("t8")?.attachments).toEqual(attachments);
+    expect(getQueuedMessages("t8")).toEqual([]);
+  });
 });

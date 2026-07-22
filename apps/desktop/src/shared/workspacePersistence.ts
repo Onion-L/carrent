@@ -6,7 +6,8 @@ import type {
   ProjectRecord,
   ThreadRecord,
 } from "../renderer/mock/uiShellData";
-import type { ImageAttachmentMetadata } from "./chat";
+import type { AttachmentKind, AttachmentMetadata } from "./chat";
+import { isSupportedImageMimeType } from "./attachment";
 import type { ChatPermissionOption } from "./chatPermissions";
 import { normalizeRuntimeMode } from "./runtimeMode";
 import { normalizeRuntimeId } from "./runtimes";
@@ -43,7 +44,7 @@ function normalizeOptionalString(value: unknown) {
   return trimmed ? trimmed : undefined;
 }
 
-function normalizeImageAttachmentMetadata(value: unknown): ImageAttachmentMetadata | null {
+function normalizeAttachmentMetadata(value: unknown): AttachmentMetadata | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string") return null;
   if (typeof value.name !== "string") return null;
@@ -51,8 +52,19 @@ function normalizeImageAttachmentMetadata(value: unknown): ImageAttachmentMetada
   if (typeof value.size !== "number") return null;
   if (typeof value.storageKey !== "string") return null;
 
+  let kind: AttachmentKind;
+  if (value.kind === "image" || value.kind === "file") {
+    kind = value.kind;
+  } else if (isSupportedImageMimeType(value.mimeType)) {
+    // Legacy snapshots predate `kind`; only the original image types backfill.
+    kind = "image";
+  } else {
+    return null;
+  }
+
   return {
     id: value.id,
+    kind,
     name: value.name,
     mimeType: value.mimeType,
     size: value.size,
@@ -197,8 +209,8 @@ function normalizeMessageRecord(message: Message): Message {
   const normalizedParts = normalizeMessageParts(record.parts);
   const normalizedAttachments = Array.isArray(record.attachments)
     ? record.attachments
-        .map((attachment) => normalizeImageAttachmentMetadata(attachment))
-        .filter((attachment): attachment is ImageAttachmentMetadata => attachment !== null)
+        .map((attachment) => normalizeAttachmentMetadata(attachment))
+        .filter((attachment): attachment is AttachmentMetadata => attachment !== null)
     : undefined;
 
   const { parts: _parts, attachments: _attachments, ...rest } = record;

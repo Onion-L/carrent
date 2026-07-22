@@ -22,7 +22,7 @@ must read its plan fully, honor the STOP conditions, and update its status row.
 | 007  | Turn workspace diff review into an editable Thread follow-up       | P1       | M      | 006        | DONE   |
 | 008  | Add first-class Kimi Plan Mode and Plan Review                     | P1       | L      | -          | DONE   |
 | 009  | Expose project actions from the fixed project rail                 | P1       | M      | -          | TODO   |
-| 010  | Support mixed image and text File Attachments                      | P1       | L      | -          | TODO   |
+| 010  | Support mixed image and text File Attachments                      | P1       | L      | -          | DONE   |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)

@@ -42,7 +42,7 @@ import {
 } from "../hooks/useDebouncedWorkspaceSave";
 import type { RuntimeId } from "../../shared/runtimes";
 import { reconcileInterruptedRuns } from "../lib/interruptedRuns";
-import type { DeleteThreadDataRequest, ImageAttachmentMetadata } from "../../shared/chat";
+import type { DeleteThreadDataRequest, AttachmentMetadata } from "../../shared/chat";
 import type { GitWorkspaceDiffResult } from "../../../electron/git/gitIpc";
 
 type MessageRunStatus = NonNullable<Message["runStatus"]>;
@@ -96,7 +96,7 @@ export type WorkspaceContextValue = {
     threadId: string;
     role: "user" | "assistant";
     content: string;
-    attachments?: ImageAttachmentMetadata[];
+    attachments?: AttachmentMetadata[];
     runStatus?: MessageRunStatus;
   }) => Message;
   appendWorkspaceDiffMessage: (
@@ -741,7 +741,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     threadId: string;
     role: "user" | "assistant";
     content: string;
-    attachments?: ImageAttachmentMetadata[];
+    attachments?: AttachmentMetadata[];
     runStatus?: MessageRunStatus;
   }): Message => {
     const now = Date.now();

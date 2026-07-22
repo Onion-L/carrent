@@ -29,6 +29,7 @@ describe("createAttachmentStore", () => {
       const metadata = await store.storeAttachment({
         name: "screenshot.png",
         mimeType: "image/png",
+        kind: "image",
         data,
       });
 
@@ -41,6 +42,7 @@ describe("createAttachmentStore", () => {
       const resolved = store.resolvePath(metadata.storageKey);
       expect(resolved.startsWith(baseDir)).toBe(true);
       expect(resolved).toContain("attachments");
+      expect(store.resolveRoot()).toBe(join(baseDir, "attachments"));
     } finally {
       cleanup();
     }
@@ -54,6 +56,7 @@ describe("createAttachmentStore", () => {
       const metadata = await store.storeAttachment({
         name: "image.gif",
         mimeType: "image/gif",
+        kind: "image",
         data,
       });
 
@@ -105,6 +108,81 @@ describe("createAttachmentStore", () => {
     }
   });
 
+  it("stores a UTF-8 .ts File Attachment with exact bytes and .ts storage extension", async () => {
+    const { store, cleanup } = createTempStore();
+
+    try {
+      const data = new TextEncoder().encode("export const answer = 42;\n");
+      const metadata = await store.storeAttachment({
+        name: "answer.ts",
+        mimeType: "text/plain",
+        kind: "file",
+        data,
+      });
+
+      expect(metadata.kind).toBe("file");
+      expect(metadata.name).toBe("answer.ts");
+      expect(metadata.storageKey.endsWith(".ts")).toBe(true);
+
+      const read = await store.readAttachment(metadata.storageKey);
+      expect(read).toEqual(data);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("stores an extensionless UTF-8 file with .txt storage extension", async () => {
+    const { store, cleanup } = createTempStore();
+
+    try {
+      const metadata = await store.storeAttachment({
+        name: "Makefile",
+        mimeType: "text/plain",
+        kind: "file",
+        data: new TextEncoder().encode("all:\n\techo hi\n"),
+      });
+
+      expect(metadata.kind).toBe("file");
+      expect(metadata.storageKey.endsWith(".txt")).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("accepts a mixed image/file sequence through repeated store calls", async () => {
+    const { store, cleanup } = createTempStore();
+
+    try {
+      const image = await store.storeAttachment({
+        name: "screenshot.png",
+        mimeType: "image/png",
+        kind: "image",
+        data: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      });
+      const file = await store.storeAttachment({
+        name: "notes.md",
+        mimeType: "text/plain",
+        kind: "file",
+        data: new TextEncoder().encode("# notes\n"),
+      });
+
+      expect(image.kind).toBe("image");
+      expect(image.storageKey.endsWith(".png")).toBe(true);
+      expect(file.kind).toBe("file");
+      expect(file.storageKey.endsWith(".md")).toBe(true);
+      expect(image.storageKey).not.toBe(file.storageKey);
+
+      expect(await store.readAttachment(image.storageKey)).toEqual(
+        new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      );
+      expect(await store.readAttachment(file.storageKey)).toEqual(
+        new TextEncoder().encode("# notes\n"),
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
   it("deletes stored attachments and ignores duplicates", async () => {
     const { store, cleanup } = createTempStore();
 
@@ -112,6 +190,7 @@ describe("createAttachmentStore", () => {
       const metadata = await store.storeAttachment({
         name: "screenshot.png",
         mimeType: "image/png",
+        kind: "image",
         data: new Uint8Array([1, 2, 3]),
       });
 

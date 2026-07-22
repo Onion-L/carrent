@@ -3,7 +3,7 @@ import type {
   ChatTurnRequest,
   ChatRunEvent,
   DeleteThreadDataRequest,
-  ImageAttachmentMetadata,
+  AttachmentMetadata,
 } from "../src/shared/chat";
 import type { ChatPermissionResponse } from "../src/shared/chatPermissions";
 import type { SkillRecord } from "../src/shared/skills";
@@ -57,7 +57,7 @@ const carrent = {
   },
   attachments: {
     store: (input: { name: string; mimeType: string; data: Uint8Array }) =>
-      ipcRenderer.invoke("attachments:store", input) as Promise<ImageAttachmentMetadata>,
+      ipcRenderer.invoke("attachments:store", input) as Promise<AttachmentMetadata>,
     read: (storageKey: string) =>
       ipcRenderer.invoke("attachments:read", storageKey) as Promise<Uint8Array>,
   },

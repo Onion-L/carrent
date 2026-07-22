@@ -136,6 +136,7 @@ describe("buildChatPrompt", () => {
         attachments: [
           {
             id: "a1",
+            kind: "image" as const,
             name: "screenshot.png",
             mimeType: "image/png",
             size: 1024,
@@ -148,31 +149,93 @@ describe("buildChatPrompt", () => {
     expect(prompt).toContain("Inspect the attached images");
   });
 
-  it("includes image references for text-only runtimes", () => {
+  it("uses the generic attached-files default for file-only messages", () => {
+    const prompt = buildChatPrompt(
+      makeRequest({
+        message: "",
+        attachments: [
+          {
+            id: "a2",
+            kind: "file" as const,
+            name: "main.ts",
+            mimeType: "text/plain",
+            size: 512,
+            storageKey: "a2.ts",
+          },
+        ],
+      }),
+    );
+
+    expect(prompt).toContain("Inspect the attached files and summarize the relevant contents.");
+    expect(prompt).not.toContain("Inspect the attached images");
+  });
+
+  it("uses the generic attached-files default for mixed messages", () => {
+    const prompt = buildChatPrompt(
+      makeRequest({
+        message: "",
+        attachments: [
+          {
+            id: "a1",
+            kind: "image" as const,
+            name: "screenshot.png",
+            mimeType: "image/png",
+            size: 1024,
+            storageKey: "a1.png",
+          },
+          {
+            id: "a2",
+            kind: "file" as const,
+            name: "main.ts",
+            mimeType: "text/plain",
+            size: 512,
+            storageKey: "a2.ts",
+          },
+        ],
+      }),
+    );
+
+    expect(prompt).toContain("Inspect the attached files and summarize the relevant contents.");
+  });
+
+  it("lists image and file references for text-only runtimes", () => {
     const prompt = buildChatPrompt(
       makeRequest({
         message: "Check this",
         attachments: [
           {
             id: "a1",
+            kind: "image" as const,
             name: "screenshot.png",
             mimeType: "image/png",
             size: 1024,
             storageKey: "a1.png",
             localPath: "/tmp/attachments/a1.png",
           },
+          {
+            id: "a2",
+            kind: "file" as const,
+            name: "main.ts",
+            mimeType: "text/plain",
+            size: 512,
+            storageKey: "a2.ts",
+            localPath: "/tmp/attachments/a2.ts",
+          },
         ],
       }),
     );
 
-    expect(prompt).toContain("Attached images:");
+    expect(prompt).toContain("Attached files:");
     expect(prompt).toContain("screenshot.png");
     expect(prompt).toContain("/tmp/attachments/a1.png");
+    expect(prompt).toContain("main.ts");
+    expect(prompt).toContain("/tmp/attachments/a2.ts");
+    expect(prompt).not.toContain("Attached images:");
   });
 
-  it("does not include an image section when no attachments are present", () => {
+  it("does not include an attachment section when no attachments are present", () => {
     const prompt = buildChatPrompt(makeRequest({ message: "No images" }));
 
-    expect(prompt).not.toContain("Attached images:");
+    expect(prompt).not.toContain("Attached files:");
   });
 });

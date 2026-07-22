@@ -113,6 +113,7 @@ describe("buildKimiPromptParts", () => {
         attachments: [
           {
             id: "a1",
+            kind: "image" as const,
             name: "screen.png",
             mimeType: "image/png",
             size: 1024,
@@ -166,6 +167,7 @@ describe("buildKimiPromptParts", () => {
         attachments: [
           {
             id: "a1",
+            kind: "image" as const,
             name: "screen.png",
             mimeType: "image/png",
             size: 1024,
@@ -187,6 +189,125 @@ describe("buildKimiPromptParts", () => {
       data: Buffer.from("image bytes").toString("base64"),
       mimeType: "image/png",
       uri: `file://${imagePath}`,
+    });
+  });
+
+  it("emits one text part followed by image and resource-link parts in selection order", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-mixed-parts-"));
+    const filePath = path.join(dir, "a1.ts");
+    const imagePath = path.join(dir, "a2.png");
+    await writeFile(filePath, "const x = 1;\n");
+    await writeFile(imagePath, Buffer.from("image bytes"));
+
+    const parts = await buildKimiPromptParts(
+      makeRequest({
+        message: "Check these",
+        attachments: [
+          {
+            id: "a1",
+            kind: "file" as const,
+            name: "main.ts",
+            mimeType: "text/plain",
+            size: 512,
+            storageKey: "a1.ts",
+            localPath: filePath,
+          },
+          {
+            id: "a2",
+            kind: "image" as const,
+            name: "screen.png",
+            mimeType: "image/png",
+            size: 1024,
+            storageKey: "a2.png",
+            localPath: imagePath,
+          },
+        ],
+      }),
+    );
+
+    expect(parts).toEqual([
+      { type: "text", text: "Check these" },
+      {
+        type: "resource_link",
+        uri: `file://${filePath}`,
+        name: "main.ts",
+        mimeType: "text/plain",
+        size: 512,
+      },
+      {
+        type: "image",
+        data: Buffer.from("image bytes").toString("base64"),
+        mimeType: "image/png",
+        uri: `file://${imagePath}`,
+      },
+    ]);
+  });
+
+  it("uses the generic default prompt for file-only requests", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-file-default-"));
+    const filePath = path.join(dir, "a1.md");
+    await writeFile(filePath, "# notes\n");
+
+    const parts = await buildKimiPromptParts(
+      makeRequest({
+        message: "   ",
+        attachments: [
+          {
+            id: "a1",
+            kind: "file" as const,
+            name: "notes.md",
+            mimeType: "text/plain",
+            size: 8,
+            storageKey: "a1.md",
+            localPath: filePath,
+          },
+        ],
+      }),
+    );
+
+    expect(parts).toHaveLength(2);
+    expect(parts[0]).toEqual({
+      type: "text",
+      text: "Inspect the attached files and summarize the relevant contents.",
+    });
+    expect(parts[1]).toMatchObject({ type: "resource_link", name: "notes.md" });
+  });
+
+  it("appends file resource links without duplicating paths in transcript text", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-file-transcript-"));
+    const filePath = path.join(dir, "a1.ts");
+    await writeFile(filePath, "const x = 1;\n");
+
+    const parts = await buildKimiPromptParts(
+      makeRequest({
+        message: "   ",
+        transcript: [{ role: "user" as const, content: "Earlier" }],
+        attachments: [
+          {
+            id: "a1",
+            kind: "file" as const,
+            name: "main.ts",
+            mimeType: "text/plain",
+            size: 512,
+            storageKey: "a1.ts",
+            localPath: filePath,
+          },
+        ],
+      }),
+      { includeTranscript: true },
+    );
+
+    expect(parts).toHaveLength(2);
+    const text = (parts[0] as { text: string }).text;
+    expect(text).toContain("user: Earlier");
+    expect(text).not.toContain("Attached files:");
+    expect(text).not.toContain(filePath);
+    expect(parts[1]).toEqual({
+      type: "resource_link",
+      uri: `file://${filePath}`,
+      name: "main.ts",
+      mimeType: "text/plain",
+      size: 512,
     });
   });
 });
@@ -324,7 +445,7 @@ describe("startKimiAcpChatRun", () => {
         requestTimeoutMs: 7,
       });
 
-      for (let i = 0; i < 10; i += 1) {
+      for (let i = 0; i < 25; i += 1) {
         await Promise.resolve();
       }
 
@@ -1199,5 +1320,264 @@ describe("startKimiAcpChatRun", () => {
       code: -32000,
     });
     expect(await readFile(outsidePath, "utf8")).toBe("unchanged");
+  });
+
+  it("reads only the exact current File Attachment and names it in Agent Activity", async () => {
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-attach-project-"));
+    const attachmentsDir = path.join(projectDir, ".carrent", "attachments");
+    await mkdir(attachmentsDir, { recursive: true });
+    const configPath = path.join(attachmentsDir, "config.json");
+    const siblingPath = path.join(attachmentsDir, "sibling.txt");
+    const outsidePath = path.join(projectDir, "outside.txt");
+    const symlinkPath = path.join(attachmentsDir, "link.txt");
+    await writeFile(configPath, '{"ok":true}');
+    await writeFile(siblingPath, "sibling");
+    await writeFile(outsidePath, "outside");
+    await symlink(outsidePath, symlinkPath);
+
+    const emitted: ChatRunEvent[] = [];
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-config",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: configPath },
+        });
+        return;
+      }
+      if (message.id === "read-config" && "result" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-sibling",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: siblingPath },
+        });
+        return;
+      }
+      if (message.id === "read-sibling" && "error" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "write-config",
+          method: "fs/write_text_file",
+          params: { sessionId: "session-1", path: configPath, content: "hacked" },
+        });
+        return;
+      }
+      if (message.id === "write-config" && "error" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-symlink",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: symlinkPath },
+        });
+        return;
+      }
+      if (message.id === "read-symlink" && "error" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Done" },
+            },
+          },
+        });
+        if (promptRequest) {
+          respondAcp(fakeTransport, promptRequest, { stopReason: "end_turn" });
+        }
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-attachment-boundary",
+      request: makeRequest({
+        workspace: { kind: "project", projectId: "p1", projectPath: projectDir },
+        attachments: [
+          {
+            id: "a1",
+            kind: "file" as const,
+            name: "config.json",
+            mimeType: "text/plain",
+            size: 12,
+            storageKey: "a1.json",
+            localPath: configPath,
+          },
+        ],
+      }),
+      cwd: projectDir,
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+      attachmentStoreRoot: attachmentsDir,
+    });
+    await waitForAsyncEvents();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(transport.sent.find((message) => message.id === "read-config")?.result).toEqual({
+      content: '{"ok":true}',
+    });
+    expect(transport.sent.find((message) => message.id === "read-sibling")?.error).toMatchObject({
+      code: -32000,
+    });
+    expect(transport.sent.find((message) => message.id === "write-config")?.error).toMatchObject({
+      code: -32000,
+    });
+    expect(transport.sent.find((message) => message.id === "read-symlink")?.error).toMatchObject({
+      code: -32000,
+    });
+    expect(await readFile(configPath, "utf8")).toBe('{"ok":true}');
+
+    const readEvent = emitted.find(
+      (event) => event.type === "reasoning" && event.reasoning.content.startsWith("Read "),
+    );
+    expect(readEvent && readEvent.type === "reasoning" && readEvent.reasoning.content).toBe(
+      "Read config.json",
+    );
+    expect(JSON.stringify(emitted)).not.toContain(attachmentsDir);
+
+    const prompt = (promptRequest as Record<string, unknown> | null)?.params as {
+      prompt?: Array<Record<string, unknown>>;
+    };
+    expect(prompt.prompt?.[1]).toEqual({
+      type: "resource_link",
+      uri: `file://${configPath}`,
+      name: "config.json",
+      mimeType: "text/plain",
+      size: 12,
+    });
+  });
+
+  it("protects remembered attachment paths when the current request has no attachments", async () => {
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-attach-history-"));
+    const attachmentsDir = path.join(projectDir, ".carrent", "attachments");
+    const oldAttachmentPath = path.join(attachmentsDir, "old.txt");
+    await mkdir(attachmentsDir, { recursive: true });
+    await writeFile(oldAttachmentPath, "history snapshot");
+
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-old-attachment",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: oldAttachmentPath },
+        });
+        return;
+      }
+      if (message.id === "read-old-attachment" && "error" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "write-old-attachment",
+          method: "fs/write_text_file",
+          params: { sessionId: "session-1", path: oldAttachmentPath, content: "changed" },
+        });
+        return;
+      }
+      if (message.id === "write-old-attachment" && "error" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Done" },
+            },
+          },
+        });
+        if (promptRequest) {
+          respondAcp(fakeTransport, promptRequest, { stopReason: "end_turn" });
+        }
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-attachment-history-boundary",
+      request: makeRequest({
+        workspace: { kind: "project", projectId: "p1", projectPath: projectDir },
+        attachments: [],
+      }),
+      cwd: projectDir,
+      emit: () => {},
+      transportFactory: () => transport,
+      attachmentStoreRoot: attachmentsDir,
+    });
+    await waitForAsyncEvents();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(transport.sent.find((message) => message.id === "read-old-attachment")?.error).toMatchObject({
+      code: -32000,
+    });
+    expect(transport.sent.find((message) => message.id === "write-old-attachment")?.error).toMatchObject({
+      code: -32000,
+    });
+    expect(await readFile(oldAttachmentPath, "utf8")).toBe("history snapshot");
+  });
+
+  it("fails the run when a stored File Attachment is missing", async () => {
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-missing-project-"));
+    const missingPath = path.join(projectDir, "gone.txt");
+
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-attachment-missing",
+      request: makeRequest({
+        workspace: { kind: "project", projectId: "p1", projectPath: projectDir },
+        attachments: [
+          {
+            id: "a1",
+            kind: "file" as const,
+            name: "gone.txt",
+            mimeType: "text/plain",
+            size: 10,
+            storageKey: "a1.txt",
+            localPath: missingPath,
+          },
+        ],
+      }),
+      cwd: projectDir,
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const failed = emitted.find((event) => event.type === "failed");
+    expect(failed && failed.type === "failed" && failed.error).toContain(
+      "Attachment is unavailable: gone.txt",
+    );
+    expect(transport.sent.map((message) => message.method)).not.toContain("session/prompt");
   });
 });

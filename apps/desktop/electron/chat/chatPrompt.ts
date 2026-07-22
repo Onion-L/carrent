@@ -1,8 +1,10 @@
-import type { ChatTurnRequest, ImageAttachment } from "../../src/shared/chat";
+import type { ChatTurnRequest, Attachment } from "../../src/shared/chat";
 
 const MAX_TRANSCRIPT_MESSAGES = 6;
 const MAX_TRANSCRIPT_CHARS = 6000;
 export const DEFAULT_IMAGE_ONLY_PROMPT = "Inspect the attached images and describe what you see.";
+export const DEFAULT_FILE_ONLY_PROMPT =
+  "Inspect the attached files and summarize the relevant contents.";
 
 export function buildChatPrompt(
   request: ChatTurnRequest,
@@ -29,30 +31,34 @@ export function buildChatPrompt(
   const messageText = request.message.trim() || getDefaultMessage(request.attachments);
   parts.push(`user: ${messageText}`);
 
-  const textOnlyImageSection = buildTextOnlyImageSection(request.attachments);
-  if (textOnlyImageSection) {
+  const textOnlyAttachmentSection = buildTextOnlyAttachmentSection(request.attachments);
+  if (textOnlyAttachmentSection) {
     parts.push("");
-    parts.push(textOnlyImageSection);
+    parts.push(textOnlyAttachmentSection);
   }
 
   return parts.join("\n");
 }
 
 function getDefaultMessage(attachments: ChatTurnRequest["attachments"]): string {
-  if (attachments && attachments.length > 0) {
-    return DEFAULT_IMAGE_ONLY_PROMPT;
+  if (!attachments || attachments.length === 0) {
+    return "";
   }
 
-  return "";
+  return attachments.every((attachment) => attachment.kind === "image")
+    ? DEFAULT_IMAGE_ONLY_PROMPT
+    : DEFAULT_FILE_ONLY_PROMPT;
 }
 
-function buildTextOnlyImageSection(attachments: ChatTurnRequest["attachments"]): string | null {
+function buildTextOnlyAttachmentSection(
+  attachments: ChatTurnRequest["attachments"],
+): string | null {
   if (!attachments || attachments.length === 0) {
     return null;
   }
 
   const withPath = attachments.filter(
-    (attachment): attachment is ImageAttachment & { localPath: string } =>
+    (attachment): attachment is Attachment & { localPath: string } =>
       typeof attachment.localPath === "string",
   );
 
@@ -60,7 +66,7 @@ function buildTextOnlyImageSection(attachments: ChatTurnRequest["attachments"]):
     return null;
   }
 
-  const lines = ["Attached images:"];
+  const lines = ["Attached files:"];
   for (const attachment of withPath) {
     lines.push(`- ${attachment.name}: ${attachment.localPath}`);
   }

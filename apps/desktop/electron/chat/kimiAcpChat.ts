@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import type {
   ChatRunEvent,
   ChatTurnRequest,
-  ImageAttachment,
+  Attachment,
   KimiSessionStatus,
 } from "../../src/shared/chat";
 import {
@@ -21,7 +21,7 @@ import {
 } from "../../src/shared/chatPermissions";
 import type { RuntimeMode } from "../../src/shared/runtimeMode";
 import type { CarrentBridgeFactory, CarrentBridgeHandle } from "../bridge/carrentBridge";
-import { buildChatPrompt, DEFAULT_IMAGE_ONLY_PROMPT } from "./chatPrompt";
+import { buildChatPrompt, DEFAULT_FILE_ONLY_PROMPT, DEFAULT_IMAGE_ONLY_PROMPT } from "./chatPrompt";
 
 type JsonRpcId = string | number;
 type JsonObject = Record<string, unknown>;
@@ -166,6 +166,7 @@ export function startKimiAcpChatRun(options: {
   requestTimeoutMs?: number;
   bridgeFactory?: CarrentBridgeFactory | null;
   kimiSessionsRoot?: string;
+  attachmentStoreRoot?: string;
 }): KimiAcpRunHandle {
   const runner = new KimiAcpRun(options);
   void runner.start();
@@ -302,13 +303,17 @@ export async function buildKimiPromptParts(
   request: ChatTurnRequest,
   options?: { includeTranscript?: boolean },
 ): Promise<Array<Record<string, unknown>>> {
-  const imageAttachments = request.attachments?.filter(
-    (attachment): attachment is ImageAttachment & { localPath: string } =>
+  const storedAttachments = request.attachments?.filter(
+    (attachment): attachment is Attachment & { localPath: string } =>
       typeof attachment.localPath === "string",
   );
   const messageText =
     request.message.trim() ||
-    (imageAttachments && imageAttachments.length > 0 ? DEFAULT_IMAGE_ONLY_PROMPT : "");
+    (storedAttachments && storedAttachments.length > 0
+      ? storedAttachments.some((attachment) => attachment.kind === "file")
+        ? DEFAULT_FILE_ONLY_PROMPT
+        : DEFAULT_IMAGE_ONLY_PROMPT
+      : "");
   const parts: Array<Record<string, unknown>> = [];
 
   if (options?.includeTranscript === true && request.transcript.length > 0) {
@@ -325,7 +330,18 @@ export async function buildKimiPromptParts(
     parts.push({ type: "text", text: messageText });
   }
 
-  for (const attachment of imageAttachments ?? []) {
+  for (const attachment of storedAttachments ?? []) {
+    if (attachment.kind === "file") {
+      parts.push({
+        type: "resource_link",
+        uri: pathToFileURL(attachment.localPath).toString(),
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+      });
+      continue;
+    }
+
     const data = await readFile(attachment.localPath);
     parts.push({
       type: "image",
@@ -363,6 +379,11 @@ class KimiAcpRun {
   private bridge: CarrentBridgeHandle | null = null;
   private lastPlanMode: boolean | null = null;
   private presentedPlanReview = false;
+  // Canonical real path -> original display name for the current request's File
+  // Attachments. Exact-match read-only allowlist; never a directory grant.
+  private attachmentTargets: Map<string, string> | null = null;
+  private attachmentStorePath: string | null = null;
+  private attachmentStoreRealPath: string | null = null;
   private pendingPermissions = new Map<
     string,
     {
@@ -394,6 +415,7 @@ class KimiAcpRun {
       requestTimeoutMs?: number;
       bridgeFactory?: CarrentBridgeFactory | null;
       kimiSessionsRoot?: string;
+      attachmentStoreRoot?: string;
     },
   ) {
     this.transport = options.transportFactory({ cwd: options.cwd });
@@ -437,6 +459,7 @@ class KimiAcpRun {
       if (this.terminal) {
         return;
       }
+      await this.prepareAttachmentTargets();
       const { configOptions, resumed } = await this.openSession();
 
       await this.configureModel(configOptions);
@@ -481,6 +504,48 @@ class KimiAcpRun {
     } catch (error) {
       this.fail(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  private async prepareAttachmentTargets(): Promise<void> {
+    const storedAttachments = (this.options.request.attachments ?? []).filter(
+      (attachment): attachment is Attachment & { localPath: string } =>
+        typeof attachment.localPath === "string",
+    );
+    if (storedAttachments.length === 0 && !this.options.attachmentStoreRoot) {
+      return;
+    }
+
+    const attachmentStorePath = path.resolve(
+      this.options.attachmentStoreRoot ?? path.dirname(storedAttachments[0]!.localPath),
+    );
+    let attachmentStoreRealPath: string;
+    try {
+      attachmentStoreRealPath = await realpath(attachmentStorePath);
+    } catch {
+      if (storedAttachments.length > 0) {
+        throw new Error("Attachment storage is unavailable.");
+      }
+      attachmentStoreRealPath = await resolveCanonicalCandidatePath(attachmentStorePath);
+    }
+
+    const targets = new Map<string, string>();
+    for (const attachment of storedAttachments) {
+      let realPath: string;
+      try {
+        realPath = await realpath(attachment.localPath);
+      } catch {
+        throw new Error(`Attachment is unavailable: ${attachment.name}`);
+      }
+      if (!isContainedRelativePath(path.relative(attachmentStoreRealPath, realPath))) {
+        throw new Error(`Attachment is outside managed storage: ${attachment.name}`);
+      }
+      if (attachment.kind === "file") {
+        targets.set(realPath, attachment.name);
+      }
+    }
+    this.attachmentStorePath = attachmentStorePath;
+    this.attachmentStoreRealPath = attachmentStoreRealPath;
+    this.attachmentTargets = targets;
   }
 
   private async openSession(): Promise<{ configOptions: unknown; resumed: boolean }> {
@@ -854,6 +919,19 @@ class KimiAcpRun {
       });
     }
 
+    if (target.kind === "attachment") {
+      this.emit({
+        type: "reasoning",
+        runId: this.options.runId,
+        requestKey: this.options.request.requestKey,
+        reasoning: {
+          id: `kimi-fs-read-attachment-${target.name}`,
+          content: `Read ${target.name}`,
+          status: "completed",
+        },
+      });
+    }
+
     return { content: await readFile(target.path, "utf8") };
   }
 
@@ -876,6 +954,27 @@ class KimiAcpRun {
 
   private async resolveTextFileTarget(requestedPath: string, access: "read" | "write") {
     const resolvedPath = path.resolve(this.options.cwd, requestedPath);
+
+    if (this.attachmentStorePath && this.attachmentStoreRealPath && this.attachmentTargets) {
+      const candidateRealPath = await resolveCanonicalCandidatePath(resolvedPath);
+      const isInAttachmentStore =
+        isContainedRelativePath(path.relative(this.attachmentStorePath, resolvedPath)) ||
+        isContainedRelativePath(path.relative(this.attachmentStoreRealPath, candidateRealPath));
+
+      if (isInAttachmentStore) {
+        const attachmentName = this.attachmentTargets.get(candidateRealPath);
+        if (access === "read" && attachmentName !== undefined) {
+          return {
+            kind: "attachment" as const,
+            path: candidateRealPath,
+            relativePath: "",
+            name: attachmentName,
+          };
+        }
+        throw new Error(`Refusing to ${access} attachment storage: ${requestedPath}`);
+      }
+    }
+
     const workspacePath = path.resolve(this.options.cwd);
     const workspaceRealPath = await realpath(this.options.cwd);
     const workspaceRelative = path.relative(workspacePath, resolvedPath);
@@ -1480,6 +1579,20 @@ async function resolveContainedTextFilePath(options: {
     throw new Error(options.refusalMessage);
   }
   return options.targetPath;
+}
+
+async function resolveCanonicalCandidatePath(targetPath: string): Promise<string> {
+  try {
+    return await realpath(targetPath);
+  } catch (error) {
+    if (readObject(error)?.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const existingAncestor = await findExistingAncestor(path.dirname(targetPath));
+  const ancestorRealPath = await realpath(existingAncestor);
+  return path.resolve(ancestorRealPath, path.relative(existingAncestor, targetPath));
 }
 
 function isContainedRelativePath(relativePath: string) {

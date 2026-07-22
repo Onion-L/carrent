@@ -326,6 +326,7 @@ describe("normalizeWorkspaceSnapshot", () => {
           attachments: [
             {
               id: "a1",
+              kind: "image",
               name: "screenshot.png",
               mimeType: "image/png",
               size: 1024,
@@ -340,6 +341,117 @@ describe("normalizeWorkspaceSnapshot", () => {
     const normalized = normalizeWorkspaceSnapshot(snapshot);
     const userMessage = normalized!.messages[0] as { attachments?: unknown };
     expect(userMessage.attachments).toEqual(snapshot.messages[0].attachments);
+  });
+
+  it("round-trips mixed image and file attachment metadata", () => {
+    const snapshot = {
+      version: WORKSPACE_SNAPSHOT_VERSION,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          threadId: "t1",
+          content: "Look at these",
+          timestamp: "09:00",
+          attachments: [
+            {
+              id: "a1",
+              kind: "image",
+              name: "screenshot.png",
+              mimeType: "image/png",
+              size: 1024,
+              storageKey: "a1.png",
+            },
+            {
+              id: "a2",
+              kind: "file",
+              name: "main.ts",
+              mimeType: "text/plain",
+              size: 512,
+              storageKey: "a2.ts",
+            },
+          ],
+        },
+      ],
+      activeThreadId: null,
+    };
+
+    const normalized = normalizeWorkspaceSnapshot(snapshot);
+    const userMessage = normalized!.messages[0] as { attachments?: unknown };
+    expect(userMessage.attachments).toEqual(snapshot.messages[0].attachments);
+  });
+
+  it("backfills kind image for legacy image records without kind", () => {
+    const snapshot = {
+      version: WORKSPACE_SNAPSHOT_VERSION,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          threadId: "t1",
+          content: "",
+          timestamp: "09:00",
+          attachments: [
+            {
+              id: "a1",
+              name: "screenshot.png",
+              mimeType: "image/png",
+              size: 1024,
+              storageKey: "a1.png",
+            },
+          ],
+        },
+      ],
+      activeThreadId: null,
+    };
+
+    const normalized = normalizeWorkspaceSnapshot(snapshot);
+    const userMessage = normalized!.messages[0] as { attachments?: unknown[] };
+    expect(userMessage.attachments).toEqual([
+      {
+        id: "a1",
+        kind: "image",
+        name: "screenshot.png",
+        mimeType: "image/png",
+        size: 1024,
+        storageKey: "a1.png",
+      },
+    ]);
+  });
+
+  it("discards legacy non-image records without kind instead of guessing", () => {
+    const snapshot = {
+      version: WORKSPACE_SNAPSHOT_VERSION,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "user",
+          threadId: "t1",
+          content: "",
+          timestamp: "09:00",
+          attachments: [
+            {
+              id: "a2",
+              name: "main.ts",
+              mimeType: "text/plain",
+              size: 512,
+              storageKey: "a2.ts",
+            },
+          ],
+        },
+      ],
+      activeThreadId: null,
+    };
+
+    const normalized = normalizeWorkspaceSnapshot(snapshot);
+    const userMessage = normalized!.messages[0] as { attachments?: unknown[] };
+    expect(userMessage.attachments).toEqual([]);
   });
 
   it("accepts a changed_files message with a valid snapshot", () => {
@@ -503,6 +615,7 @@ describe("normalizeWorkspaceSnapshot", () => {
 
     expect(messageAttachment).toEqual({
       id: "a1",
+      kind: "image",
       name: "screenshot.png",
       mimeType: "image/png",
       size: 1024,

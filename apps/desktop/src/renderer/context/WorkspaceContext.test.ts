@@ -111,6 +111,7 @@ describe("mergeMessagesIntoWorkspace", () => {
         attachments: [
           {
             id: "a1",
+            kind: "image" as const,
             name: "screenshot.png",
             mimeType: "image/png",
             size: 1024,
@@ -129,8 +130,18 @@ describe("mergeMessagesIntoWorkspace", () => {
 describe("thread data deletion", () => {
   const attachment = (storageKey: string) => ({
     id: storageKey,
+    kind: "image" as const,
     name: storageKey,
     mimeType: "image/png",
+    size: 1,
+    storageKey,
+  });
+
+  const fileAttachment = (storageKey: string) => ({
+    id: storageKey,
+    kind: "file" as const,
+    name: storageKey,
+    mimeType: "text/plain",
     size: 1,
     storageKey,
   });
@@ -148,6 +159,22 @@ describe("thread data deletion", () => {
     expect(prepareThreadDataDeletion(messages, ["thread-1"])).toEqual({
       request: { threadIds: ["thread-1"], attachmentStorageKeys: ["one.png"] },
       remainingMessages: [makeMessage({ id: "keep", threadId: "thread-2" })],
+    });
+  });
+
+  it("collects File Attachment storage keys exactly like image keys", () => {
+    const messages = [
+      makeMessage({
+        id: "delete",
+        threadId: "thread-1",
+        attachments: [attachment("one.png"), fileAttachment("two.ts")],
+      }),
+      makeMessage({ id: "keep", threadId: "thread-2" }),
+    ];
+
+    expect(prepareThreadDataDeletion(messages, ["thread-1"]).request).toEqual({
+      threadIds: ["thread-1"],
+      attachmentStorageKeys: ["one.png", "two.ts"],
     });
   });
 

@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from "react";
-import type { ImageAttachmentMetadata } from "../../shared/chat";
+import type { AttachmentMetadata } from "../../shared/chat";
 
 export type QueuedChatMessage = {
   id: string;
   content: string;
-  attachments?: ImageAttachmentMetadata[];
+  attachments?: AttachmentMetadata[];
 };
 
 // Transient per-thread FIFO for messages composed while a run is active.

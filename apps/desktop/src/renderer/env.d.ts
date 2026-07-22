@@ -10,7 +10,7 @@ import type {
   ChatTurnRequest,
   ChatRunEvent,
   DeleteThreadDataRequest,
-  ImageAttachmentMetadata,
+  AttachmentMetadata,
   KimiSessionStatus,
 } from "../shared/chat";
 import type { ChatPermissionResponse } from "../shared/chatPermissions";
@@ -60,7 +60,7 @@ declare global {
           name: string;
           mimeType: string;
           data: Uint8Array;
-        }) => Promise<ImageAttachmentMetadata>;
+        }) => Promise<AttachmentMetadata>;
         read: (storageKey: string) => Promise<Uint8Array>;
       };
       skills: {

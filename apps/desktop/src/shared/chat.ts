@@ -8,8 +8,11 @@ export type ChatWorkspaceScope =
   | { kind: "project"; projectPath: string; projectId: string }
   | { kind: "chat" };
 
-export type ImageAttachmentMetadata = {
+export type AttachmentKind = "image" | "file";
+
+export type AttachmentMetadata = {
   id: string;
+  kind: AttachmentKind;
   name: string;
   mimeType: string;
   size: number;
@@ -18,7 +21,7 @@ export type ImageAttachmentMetadata = {
   height?: number;
 };
 
-export type ImageAttachment = ImageAttachmentMetadata & {
+export type Attachment = AttachmentMetadata & {
   localPath?: string;
 };
 
@@ -52,7 +55,7 @@ export interface ChatTurnRequest {
     content: string;
   }>;
   message: string;
-  attachments?: ImageAttachment[];
+  attachments?: Attachment[];
   historyMode?: "continue" | "replace";
 }
 

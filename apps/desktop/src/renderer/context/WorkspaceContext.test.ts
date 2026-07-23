@@ -281,6 +281,102 @@ describe("thread data deletion", () => {
       "shared by multiple threads",
     );
   });
+
+  it("collects draft and queue attachment keys owned by a deleted thread", () => {
+    const messages = [makeMessage({ id: "keep", threadId: "thread-2" })];
+    const threadWork = {
+      "thread-1": {
+        draft: {
+          content: "draft",
+          attachedSkillNames: [],
+          attachments: [attachment("draft.png")],
+        },
+        queuedMessages: [
+          { id: "q1", content: "queued", attachments: [fileAttachment("queued.ts")] },
+        ],
+      },
+    };
+
+    expect(prepareThreadDataDeletion(messages, ["thread-1"], threadWork).request).toEqual({
+      threadIds: ["thread-1"],
+      attachmentStorageKeys: ["draft.png", "queued.ts"],
+    });
+  });
+
+  it("keeps storage keys referenced only by a surviving thread's draft or queue", () => {
+    const messages = [
+      makeMessage({
+        id: "delete",
+        threadId: "thread-1",
+        attachments: [attachment("gone.png")],
+      }),
+    ];
+    const threadWork = {
+      "thread-2": {
+        draft: {
+          content: "surviving",
+          attachedSkillNames: [],
+          attachments: [attachment("kept.png")],
+        },
+        queuedMessages: [],
+      },
+    };
+
+    expect(prepareThreadDataDeletion(messages, ["thread-1"], threadWork).request).toEqual({
+      threadIds: ["thread-1"],
+      attachmentStorageKeys: ["gone.png"],
+    });
+  });
+
+  it("rejects deletion when a deleted thread's draft shares a key with a survivor", () => {
+    const messages = [
+      makeMessage({
+        id: "keep",
+        threadId: "thread-2",
+        attachments: [attachment("shared.png")],
+      }),
+    ];
+    const threadWork = {
+      "thread-1": {
+        draft: {
+          content: "deleted draft",
+          attachedSkillNames: [],
+          attachments: [attachment("shared.png")],
+        },
+        queuedMessages: [],
+      },
+    };
+
+    let error: unknown;
+    try {
+      prepareThreadDataDeletion(messages, ["thread-1"], threadWork);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error instanceof Error ? error.message : String(error)).toContain(
+      "shared by multiple threads",
+    );
+  });
+
+  it("treats a deleted thread's message and its own queue as one owner", () => {
+    const messages = [
+      makeMessage({
+        id: "delete",
+        threadId: "thread-1",
+        attachments: [attachment("same.png")],
+      }),
+    ];
+    const threadWork = {
+      "thread-1": {
+        queuedMessages: [{ id: "q1", content: "queued", attachments: [attachment("same.png")] }],
+      },
+    };
+
+    expect(prepareThreadDataDeletion(messages, ["thread-1"], threadWork).request).toEqual({
+      threadIds: ["thread-1"],
+      attachmentStorageKeys: ["same.png"],
+    });
+  });
 });
 
 describe("updateMessageAndPruneThreadAfter", () => {

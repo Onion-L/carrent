@@ -60,6 +60,20 @@ describe("pendingAttachmentFromFile", () => {
     expect(pending.previewUrl).toBeString();
     expect(pending.metadata).toEqual(metadata);
   });
+
+  it("falls back to the file type when legacy metadata has no kind", () => {
+    const file = makeFile("test.png", "image/png");
+    const legacyMetadata = {
+      id: "a1",
+      name: "test.png",
+      mimeType: "image/png",
+      size: 5,
+      storageKey: "a1.png",
+    } as unknown as Parameters<typeof pendingAttachmentFromFile>[1];
+    const pending = pendingAttachmentFromFile(file, legacyMetadata);
+
+    expect(pending.previewUrl).toBeString();
+  });
 });
 
 describe("pendingImageAttachments", () => {

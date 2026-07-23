@@ -39,6 +39,36 @@ describe("buildWorkspaceSnapshot", () => {
     expect(snapshot.messages).toHaveLength(1);
     expect(snapshot.activeThreadId).toBe("t1");
   });
+
+  it("includes Thread Work-in-Progress when provided", () => {
+    const threadWork = {
+      t1: {
+        draft: { content: "draft", attachedSkillNames: ["pdf"], attachments: [] },
+        queuedMessages: [{ id: "q1", content: "queued", requiresConfirmation: true }],
+      },
+    };
+
+    const snapshot = buildWorkspaceSnapshot({
+      projects: [],
+      chats: [],
+      messages: [],
+      activeThreadId: "t1",
+      threadWork,
+    });
+
+    expect(snapshot.threadWork).toEqual(threadWork);
+  });
+
+  it("omits Thread Work-in-Progress when not provided", () => {
+    const snapshot = buildWorkspaceSnapshot({
+      projects: [],
+      chats: [],
+      messages: [],
+      activeThreadId: null,
+    });
+
+    expect("threadWork" in snapshot).toBe(false);
+  });
 });
 
 describe("shouldPersistWorkspaceSnapshot", () => {

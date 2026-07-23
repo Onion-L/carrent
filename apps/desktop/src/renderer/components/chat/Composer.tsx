@@ -38,6 +38,7 @@ import {
   formatAttachmentSize,
   metadataOnly,
   pendingAttachmentFromFile,
+  pendingAttachmentFromMetadata,
   pendingImageAttachments,
   validateAttachmentSelection,
   type PendingAttachment,
@@ -53,14 +54,18 @@ import {
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import {
+  clearThreadDraft,
   enqueueChatMessage,
   getQueuedMessages,
+  getThreadDraft,
   removeQueuedChatMessage,
+  setThreadDraft,
   shiftQueuedChatMessage,
   unshiftQueuedChatMessage,
   updateQueuedChatMessage,
   useQueuedMessages,
   type QueuedChatMessage,
+  type ThreadWorkDraftSnapshot,
 } from "../../hooks/chatMessageQueue";
 import type { Message } from "../../mock/uiShellData";
 import type { GitWorkspaceDiffResult } from "../../../../electron/git/gitIpc";
@@ -308,10 +313,38 @@ export function canSubmitComposerContent(input: {
     return false;
   }
   return (
-    input.content.trim().length > 0 ||
-    input.attachedSkillCount > 0 ||
-    input.attachmentCount > 0
+    input.content.trim().length > 0 || input.attachedSkillCount > 0 || input.attachmentCount > 0
   );
+}
+
+// Resolves persisted draft Skill names against the current Skill Catalog.
+// Missing Skills are silently omitted so the text draft still loads.
+export function resolveDraftSkillRecords(
+  skills: SkillRecord[],
+  attachedSkillNames: string[],
+): SkillRecord[] {
+  return attachedSkillNames.flatMap((name) => {
+    const skill = skills.find((item) => item.name === name);
+    return skill ? [skill] : [];
+  });
+}
+
+// Builds the persistable draft for a Thread, or null when the Composer holds
+// nothing worth keeping. Only metadata is persisted for attachments — never
+// File instances or preview URLs.
+export function buildThreadDraftSnapshot(input: {
+  content: string;
+  attachedSkills: SkillRecord[];
+  pendingAttachments: PendingAttachment[];
+}): ThreadWorkDraftSnapshot | null {
+  const attachments = metadataOnly(
+    input.pendingAttachments.flatMap((pending) => (pending.metadata ? [pending.metadata] : [])),
+  );
+  const attachedSkillNames = input.attachedSkills.map((skill) => skill.name);
+  if (!input.content.trim() && attachedSkillNames.length === 0 && attachments.length === 0) {
+    return null;
+  }
+  return { content: input.content, attachedSkillNames, attachments };
 }
 
 export function getGitBridge(carrent: unknown): GitBridge {
@@ -785,7 +818,16 @@ export function Composer(props: ComposerProps) {
   const { skills, loading: skillsLoading, error: skillsError } = useSkills();
   const { status: mcpServerStatus } = useMcpServer();
   const { showToast } = useToast();
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => getThreadDraft(props.threadId)?.content ?? "");
+  const [pendingDraftSkillNames, setPendingDraftSkillNames] = useState<string[] | null>(() => {
+    const names = getThreadDraft(props.threadId)?.attachedSkillNames ?? [];
+    return names.length > 0 ? names : null;
+  });
+  const draftAttachmentsRef = useRef<AttachmentMetadata[] | null>(null);
+  if (draftAttachmentsRef.current === null) {
+    draftAttachmentsRef.current = getThreadDraft(props.threadId)?.attachments ?? [];
+  }
+  const draftRestoreCompleteRef = useRef(false);
   const [textareaCursor, setTextareaCursor] = useState(0);
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
@@ -1477,6 +1519,7 @@ export function Composer(props: ComposerProps) {
         return [];
       });
       setAttachmentError(null);
+      clearThreadDraft(threadId);
       return true;
     }
 
@@ -1786,6 +1829,7 @@ export function Composer(props: ComposerProps) {
         });
         return [];
       });
+      clearThreadDraft(threadId);
     }
 
     if (props.mode === "chat") {
@@ -1821,7 +1865,13 @@ export function Composer(props: ComposerProps) {
 
     if (!isThreadSending) {
       removeQueuedChatMessage(threadId, queuedItem.id);
-      void handleSend({ content: queuedItem.content, attachments: queuedItem.attachments });
+      void handleSend({ content: queuedItem.content, attachments: queuedItem.attachments }).then(
+        (sent) => {
+          if (!sent) {
+            unshiftQueuedChatMessage(threadId, queuedItem);
+          }
+        },
+      );
       return;
     }
     // Ignore extra steer clicks while a steer-triggered stop is in flight.
@@ -1845,6 +1895,81 @@ export function Composer(props: ComposerProps) {
       }
     };
   }, [threadId]);
+
+  useEffect(() => {
+    // Rebuild persisted draft attachments from the Attachment Store bytes.
+    // Missing/unreadable attachments are dropped one by one without blocking
+    // the text draft or Skill chips from loading.
+    const persisted = draftAttachmentsRef.current ?? [];
+    if (persisted.length === 0) {
+      draftRestoreCompleteRef.current = true;
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const restored: PendingAttachment[] = [];
+      const failed: string[] = [];
+      for (const metadata of persisted) {
+        try {
+          const data = await window.carrent.attachments.read(metadata.storageKey);
+          restored.push(pendingAttachmentFromMetadata(metadata, data));
+        } catch {
+          failed.push(metadata.name);
+        }
+      }
+      if (cancelled) {
+        restored.forEach((pending) => {
+          if (pending.previewUrl) {
+            URL.revokeObjectURL(pending.previewUrl);
+          }
+        });
+        return;
+      }
+      if (restored.length > 0) {
+        setPendingAttachments((prev) => [...prev, ...restored]);
+      }
+      if (failed.length > 0) {
+        setAttachmentError(`Some attachments could not be restored: ${failed.join(", ")}`);
+      }
+      draftRestoreCompleteRef.current = true;
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Resolve persisted Skill names once the catalog has loaded; names that
+    // no longer resolve are silently omitted.
+    if (pendingDraftSkillNames === null || skillsLoading) {
+      return;
+    }
+    setAttachedSkills(resolveDraftSkillRecords(skills, pendingDraftSkillNames));
+    setPendingDraftSkillNames(null);
+  }, [pendingDraftSkillNames, skills, skillsLoading]);
+
+  useEffect(() => {
+    // Debounce draft persistence; the workspace save path applies its own
+    // 500 ms debounce on top before anything hits disk.
+    if (!draftRestoreCompleteRef.current || pendingDraftSkillNames !== null) {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      const draft = buildThreadDraftSnapshot({
+        content: input,
+        attachedSkills,
+        pendingAttachments,
+      });
+      if (draft) {
+        setThreadDraft(threadId, draft);
+      } else {
+        clearThreadDraft(threadId);
+      }
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [threadId, input, attachedSkills, pendingAttachments, pendingDraftSkillNames]);
 
   useEffect(() => {
     if (!props.submitRequest || lastSubmitRequestIdRef.current === props.submitRequest.requestId) {
@@ -2240,6 +2365,14 @@ export function Composer(props: ComposerProps) {
                       <span className="flex shrink-0 items-center gap-1 text-app-11 text-subtle">
                         <Paperclip className="h-3 w-3" />
                         {item.attachments.length}
+                      </span>
+                    ) : null}
+                    {item.requiresConfirmation ? (
+                      <span
+                        aria-label="Restored queued message"
+                        className="shrink-0 text-app-11 text-subtle"
+                      >
+                        Restored
                       </span>
                     ) : null}
                     {isEditingQueued ? (

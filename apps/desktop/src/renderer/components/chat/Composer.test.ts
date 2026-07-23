@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   PLAN_REVIEW_FOLLOW_UP_TEXT,
+  buildThreadDraftSnapshot,
   getCascadingPanelPosition,
   getActionablePermissionsForThread,
   buildSkillReference,
@@ -24,12 +25,14 @@ import {
   mergeComposerDraftContent,
   normalizeGitBranchInfo,
   replaceSkillSlashTrigger,
+  resolveDraftSkillRecords,
   shouldShowPlanSlashSuggestion,
   shouldRemoveLastSkillOnBackspace,
   supportsRuntimeModelSelection,
   shouldSubmitComposerOnKeyDown,
   storeAttachmentFile,
 } from "./Composer";
+import { pendingAttachmentFromMetadata } from "../../lib/attachments";
 import type { ChatPermissionRequest } from "../../../shared/chatPermissions";
 import type { SkillRecord } from "../../../shared/skills";
 
@@ -999,8 +1002,156 @@ describe("storeAttachmentFile", () => {
 
     expect(stored?.name).toBe("main.ts");
     expect(stored?.mimeType).toContain("text/plain");
-    expect(Array.from(stored?.data ?? [])).toEqual(Array.from(new TextEncoder().encode("const x = 1;\n")));
+    expect(Array.from(stored?.data ?? [])).toEqual(
+      Array.from(new TextEncoder().encode("const x = 1;\n")),
+    );
     expect(metadata.kind).toBe("file");
     expect(metadata.storageKey).toBe("attachment-2.ts");
+  });
+});
+
+describe("thread draft persistence", () => {
+  const draftSkills: SkillRecord[] = [
+    {
+      name: "grilling",
+      description: "Interview the user relentlessly.",
+      path: "/Users/test/.agents/skills/grilling/SKILL.md",
+      source: "agents",
+    },
+    {
+      name: "pdf",
+      description: "Work with PDFs.",
+      path: "/Users/test/.agents/skills/pdf/SKILL.md",
+      source: "agents",
+    },
+  ];
+
+  const fileMetadata = {
+    id: "a2",
+    kind: "file" as const,
+    name: "main.ts",
+    mimeType: "text/plain",
+    size: 2,
+    storageKey: "a2.ts",
+  };
+
+  it("resolves persisted Skill names against the catalog, omitting missing ones", () => {
+    expect(resolveDraftSkillRecords(draftSkills, ["pdf", "gone", "grilling"])).toEqual([
+      draftSkills[1],
+      draftSkills[0],
+    ]);
+  });
+
+  it("returns an empty chip list when no persisted name resolves", () => {
+    expect(resolveDraftSkillRecords(draftSkills, ["gone"])).toEqual([]);
+    expect(resolveDraftSkillRecords([], ["pdf"])).toEqual([]);
+  });
+
+  it("builds a metadata-only draft from Composer state", () => {
+    const file = new File(["hi"], "main.ts", { type: "text/plain" });
+    const pending = {
+      id: "pending-1",
+      file,
+      metadata: { ...fileMetadata, localPath: "/tmp/app-data/a2.ts" },
+    };
+
+    const draft = buildThreadDraftSnapshot({
+      content: "Follow up",
+      attachedSkills: [draftSkills[0]],
+      pendingAttachments: [pending],
+    });
+
+    expect(draft).toEqual({
+      content: "Follow up",
+      attachedSkillNames: ["grilling"],
+      attachments: [fileMetadata],
+    });
+    expect(JSON.stringify(draft)).not.toContain("localPath");
+  });
+
+  it("returns null when the Composer is empty so a successful send clears the draft", () => {
+    expect(
+      buildThreadDraftSnapshot({ content: "  \n", attachedSkills: [], pendingAttachments: [] }),
+    ).toBe(null);
+  });
+
+  it("keeps non-empty Composer state as a draft after a rejected send", () => {
+    const draft = buildThreadDraftSnapshot({
+      content: "Unsent text",
+      attachedSkills: [],
+      pendingAttachments: [],
+    });
+
+    expect(draft?.content).toBe("Unsent text");
+  });
+
+  it("skips pending attachments whose bytes are not stored yet", () => {
+    const draft = buildThreadDraftSnapshot({
+      content: "hi",
+      attachedSkills: [],
+      pendingAttachments: [{ id: "pending-1", file: new File(["x"], "x.ts") }],
+    });
+
+    expect(draft?.attachments).toEqual([]);
+  });
+});
+
+describe("pendingAttachmentFromMetadata", () => {
+  it("reconstructs an Image Attachment File and preview URL from stored bytes", () => {
+    const metadata = {
+      id: "a1",
+      kind: "image" as const,
+      name: "screenshot.png",
+      mimeType: "image/png",
+      size: 2,
+      storageKey: "a1.png",
+    };
+    const data = new Uint8Array([0x89, 0x50]);
+
+    const pending = pendingAttachmentFromMetadata(metadata, data);
+
+    expect(pending.file.name).toBe("screenshot.png");
+    expect(pending.file.type).toBe("image/png");
+    expect(pending.file.size).toBe(2);
+    expect(pending.previewUrl).toBeDefined();
+    expect(pending.metadata).toEqual(metadata);
+    if (pending.previewUrl) {
+      URL.revokeObjectURL(pending.previewUrl);
+    }
+  });
+
+  it("reconstructs a File Attachment without a preview URL", () => {
+    const metadata = {
+      id: "a2",
+      kind: "file" as const,
+      name: "main.ts",
+      mimeType: "text/plain",
+      size: 11,
+      storageKey: "a2.ts",
+    };
+    const data = new TextEncoder().encode("const x = 1");
+
+    const pending = pendingAttachmentFromMetadata(metadata, data);
+
+    expect(pending.file.name).toBe("main.ts");
+    expect(pending.previewUrl).toBeUndefined();
+    expect(pending.metadata).toEqual(metadata);
+  });
+
+  it("preserves the original bytes in the reconstructed File", async () => {
+    const metadata = {
+      id: "a2",
+      kind: "file" as const,
+      name: "main.ts",
+      mimeType: "text/plain",
+      size: 11,
+      storageKey: "a2.ts",
+    };
+    const data = new TextEncoder().encode("const x = 1");
+
+    const pending = pendingAttachmentFromMetadata(metadata, data);
+    const roundTrip = new Uint8Array(await pending.file.arrayBuffer());
+
+    expect(Array.from(roundTrip)).toEqual(Array.from(data));
   });
 });

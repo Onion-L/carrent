@@ -23,13 +23,25 @@ export function pendingAttachmentFromFile(
   file: File,
   metadata?: AttachmentMetadata,
 ): PendingAttachment {
-  const isImage = metadata ? metadata.kind === "image" : isSupportedImageMimeType(file.type);
+  // Legacy metadata (pre-mixed-attachments main process) has no `kind`;
+  // fall back to the file's own MIME type in that case.
+  const isImage = metadata?.kind ? metadata.kind === "image" : isSupportedImageMimeType(file.type);
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     file,
     ...(isImage ? { previewUrl: URL.createObjectURL(file) } : {}),
     metadata,
   };
+}
+
+// Rebuilds a renderer pending attachment from persisted metadata plus the
+// bytes read back through the Attachment Store bridge.
+export function pendingAttachmentFromMetadata(
+  metadata: AttachmentMetadata,
+  data: Uint8Array,
+): PendingAttachment {
+  const file = new File([data as BlobPart], metadata.name, { type: metadata.mimeType });
+  return pendingAttachmentFromFile(file, metadata);
 }
 
 export function isPendingImageAttachment(attachment: PendingAttachment): boolean {

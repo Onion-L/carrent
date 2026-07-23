@@ -1,8 +1,15 @@
 import { describe, it, expect } from "bun:test";
 import {
+  clearThreadDraft,
   enqueueChatMessage,
   getQueuedMessages,
+  getThreadDraft,
+  getThreadWorkSnapshot,
+  getThreadWorkVersion,
+  hydrateThreadWork,
   removeQueuedChatMessage,
+  removeThreadWork,
+  setThreadDraft,
   shiftQueuedChatMessage,
   unshiftQueuedChatMessage,
   updateQueuedChatMessage,
@@ -113,5 +120,192 @@ describe("chatMessageQueue", () => {
     expect(getQueuedMessages("t8")[0]?.attachments).toEqual(attachments);
     expect(shiftQueuedChatMessage("t8")?.attachments).toEqual(attachments);
     expect(getQueuedMessages("t8")).toEqual([]);
+  });
+});
+
+describe("chatMessageQueue threadWork persistence", () => {
+  const draft = (content: string) => ({
+    content,
+    attachedSkillNames: ["pdf"],
+    attachments: [
+      {
+        id: "a1",
+        kind: "image" as const,
+        name: "screenshot.png",
+        mimeType: "image/png",
+        size: 1024,
+        storageKey: "a1.png",
+      },
+    ],
+  });
+
+  it("hydrates queues and drafts, replacing stale in-memory state", () => {
+    enqueueChatMessage("stale", makeItem("old"));
+    setThreadDraft("stale", draft("old draft"));
+
+    hydrateThreadWork({
+      t10: {
+        draft: draft("restored draft"),
+        queuedMessages: [{ id: "q1", content: "recovered" }],
+      },
+    });
+
+    expect(getQueuedMessages("stale")).toEqual([]);
+    expect(getThreadDraft("stale")).toBe(null);
+    expect(getQueuedMessages("t10")).toEqual([
+      { id: "q1", content: "recovered", requiresConfirmation: true },
+    ]);
+    expect(getThreadDraft("t10")).toEqual(draft("restored draft"));
+
+    removeThreadWork(["t10"]);
+  });
+
+  it("clears all state on an empty or missing snapshot load", () => {
+    enqueueChatMessage("t11", makeItem("a"));
+    setThreadDraft("t11", draft("draft"));
+
+    hydrateThreadWork(undefined);
+
+    expect(getQueuedMessages("t11")).toEqual([]);
+    expect(getThreadDraft("t11")).toBe(null);
+  });
+
+  it("round-trips hydrated work through the snapshot getter", () => {
+    hydrateThreadWork({
+      t12: {
+        draft: draft("keep me"),
+        queuedMessages: [{ id: "q1", content: "recovered" }],
+      },
+    });
+
+    expect(getThreadWorkSnapshot(["t12", "empty"])).toEqual({
+      t12: {
+        draft: draft("keep me"),
+        queuedMessages: [{ id: "q1", content: "recovered", requiresConfirmation: true }],
+      },
+    });
+
+    removeThreadWork(["t12"]);
+  });
+
+  it("returns a stable snapshot reference until the store changes", () => {
+    setThreadDraft("t13", draft("draft"));
+    const first = getThreadWorkSnapshot(["t13"]);
+    expect(getThreadWorkSnapshot(["t13"])).toBe(first);
+
+    setThreadDraft("t13", draft("changed"));
+    const second = getThreadWorkSnapshot(["t13"]);
+    expect(second).not.toBe(first);
+    expect(second["t13"]?.draft?.content).toBe("changed");
+
+    removeThreadWork(["t13"]);
+  });
+
+  it("returns copies so callers cannot mutate stored drafts", () => {
+    setThreadDraft("t14", draft("draft"));
+
+    const read = getThreadDraft("t14");
+    read?.attachedSkillNames.push("mutated");
+    read?.attachments.pop();
+
+    expect(getThreadDraft("t14")).toEqual(draft("draft"));
+
+    removeThreadWork(["t14"]);
+  });
+
+  it("sets, reads, and clears drafts per Thread", () => {
+    setThreadDraft("t15", draft("one"));
+    setThreadDraft("t16", draft("two"));
+
+    expect(getThreadDraft("t15")?.content).toBe("one");
+    expect(getThreadDraft("t16")?.content).toBe("two");
+
+    clearThreadDraft("t15");
+    expect(getThreadDraft("t15")).toBe(null);
+    expect(getThreadDraft("t16")?.content).toBe("two");
+
+    clearThreadDraft("t16");
+    clearThreadDraft("t16");
+    expect(getThreadDraft("t16")).toBe(null);
+  });
+
+  it("never auto-shifts a recovered head item but allows explicit removal", () => {
+    hydrateThreadWork({
+      t17: {
+        queuedMessages: [
+          { id: "recovered", content: "from disk" },
+          { id: "behind", content: "also from disk" },
+        ],
+      },
+    });
+
+    expect(shiftQueuedChatMessage("t17")).toBe(null);
+    expect(getQueuedMessages("t17").map((item) => item.id)).toEqual(["recovered", "behind"]);
+
+    removeQueuedChatMessage("t17", "recovered");
+    expect(getQueuedMessages("t17").map((item) => item.id)).toEqual(["behind"]);
+
+    removeThreadWork(["t17"]);
+  });
+
+  it("shifts live items queued after recovery once the recovered head is removed", () => {
+    hydrateThreadWork({
+      t18: { queuedMessages: [{ id: "recovered", content: "from disk" }] },
+    });
+    enqueueChatMessage("t18", makeItem("live"));
+
+    expect(shiftQueuedChatMessage("t18")).toBe(null);
+    removeQueuedChatMessage("t18", "recovered");
+    expect(shiftQueuedChatMessage("t18")?.id).toBe("live");
+    expect(getQueuedMessages("t18")).toEqual([]);
+  });
+
+  it("supports edit and unshift on recovered items", () => {
+    hydrateThreadWork({
+      t19: { queuedMessages: [{ id: "recovered", content: "from disk" }] },
+    });
+
+    updateQueuedChatMessage("t19", "recovered", "edited");
+    expect(getQueuedMessages("t19")[0]).toEqual({
+      id: "recovered",
+      content: "edited",
+      requiresConfirmation: true,
+    });
+
+    removeQueuedChatMessage("t19", "recovered");
+    unshiftQueuedChatMessage("t19", {
+      id: "recovered",
+      content: "edited",
+      requiresConfirmation: true,
+    });
+    expect(getQueuedMessages("t19").map((item) => item.id)).toEqual(["recovered"]);
+
+    removeThreadWork(["t19"]);
+  });
+
+  it("removeThreadWork clears both the queue and the draft", () => {
+    enqueueChatMessage("t20", makeItem("a"));
+    setThreadDraft("t20", draft("draft"));
+    setThreadDraft("t21", draft("keep"));
+
+    removeThreadWork(["t20"]);
+
+    expect(getQueuedMessages("t20")).toEqual([]);
+    expect(getThreadDraft("t20")).toBe(null);
+    expect(getThreadDraft("t21")?.content).toBe("keep");
+
+    removeThreadWork(["t21"]);
+  });
+
+  it("bumps the store version on queue and draft mutations", () => {
+    const before = getThreadWorkVersion();
+    setThreadDraft("t22", draft("draft"));
+    const afterDraft = getThreadWorkVersion();
+    enqueueChatMessage("t22", makeItem("a"));
+
+    expect(afterDraft).toBeGreaterThan(before);
+    expect(getThreadWorkVersion()).toBeGreaterThan(afterDraft);
+
+    removeThreadWork(["t22"]);
   });
 });

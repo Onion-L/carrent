@@ -623,3 +623,196 @@ describe("normalizeWorkspaceSnapshot", () => {
     });
   });
 });
+
+describe("normalizeWorkspaceSnapshot threadWork", () => {
+  const baseSnapshot = {
+    version: WORKSPACE_SNAPSHOT_VERSION,
+    projects: [],
+    chats: [],
+    messages: [],
+    activeThreadId: null,
+  };
+
+  const imageAttachment = {
+    id: "a1",
+    kind: "image",
+    name: "screenshot.png",
+    mimeType: "image/png",
+    size: 1024,
+    storageKey: "a1.png",
+  };
+
+  it("leaves snapshots without threadWork unchanged", () => {
+    const normalized = normalizeWorkspaceSnapshot(baseSnapshot);
+    expect(normalized).toEqual(baseSnapshot);
+    expect(normalized && "threadWork" in normalized).toBe(false);
+  });
+
+  it("round-trips a valid draft and queue", () => {
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      threadWork: {
+        "thread-1": {
+          draft: {
+            content: "Draft text",
+            attachedSkillNames: ["pdf"],
+            attachments: [imageAttachment],
+          },
+          queuedMessages: [
+            { id: "q1", content: "First", attachments: [imageAttachment] },
+            { id: "q2", content: "Second" },
+          ],
+        },
+      },
+    });
+
+    expect(normalized?.threadWork).toEqual({
+      "thread-1": {
+        draft: {
+          content: "Draft text",
+          attachedSkillNames: ["pdf"],
+          attachments: [imageAttachment],
+        },
+        queuedMessages: [
+          {
+            id: "q1",
+            content: "First",
+            attachments: [imageAttachment],
+            requiresConfirmation: true,
+          },
+          { id: "q2", content: "Second", requiresConfirmation: true },
+        ],
+      },
+    });
+  });
+
+  it("normalizes a missing queue to an empty list", () => {
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      threadWork: {
+        "thread-1": {
+          draft: { content: "Only a draft", attachedSkillNames: [], attachments: [] },
+        },
+      },
+    });
+
+    expect(normalized?.threadWork?.["thread-1"]).toEqual({
+      draft: { content: "Only a draft", attachedSkillNames: [], attachments: [] },
+      queuedMessages: [],
+    });
+  });
+
+  it("drops malformed Thread entries without rejecting the snapshot", () => {
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      threadWork: {
+        bad: "not-a-record",
+        "thread-1": {
+          draft: { content: "ok", attachedSkillNames: [], attachments: [] },
+          queuedMessages: [],
+        },
+      },
+    });
+
+    expect(normalized).not.toBe(null);
+    expect(normalized?.threadWork?.bad).toBeUndefined();
+    expect(normalized?.threadWork?.["thread-1"]?.draft?.content).toBe("ok");
+  });
+
+  it("drops a malformed threadWork field entirely", () => {
+    const normalized = normalizeWorkspaceSnapshot({ ...baseSnapshot, threadWork: "bad" });
+    expect(normalized?.threadWork).toEqual({});
+  });
+
+  it("drops a draft whose text exceeds 256 KiB but keeps the queue", () => {
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      threadWork: {
+        "thread-1": {
+          draft: {
+            content: "x".repeat(256 * 1024 + 1),
+            attachedSkillNames: [],
+            attachments: [],
+          },
+          queuedMessages: [{ id: "q1", content: "kept" }],
+        },
+      },
+    });
+
+    expect(normalized?.threadWork?.["thread-1"]?.draft).toBeUndefined();
+    expect(normalized?.threadWork?.["thread-1"]?.queuedMessages).toHaveLength(1);
+  });
+
+  it("drops queue items with oversized text or malformed fields", () => {
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      threadWork: {
+        "thread-1": {
+          queuedMessages: [
+            { id: "q1", content: "x".repeat(256 * 1024 + 1) },
+            { content: "missing id" },
+            { id: "q2", content: 42 },
+            { id: "q3", content: "kept" },
+          ],
+        },
+      },
+    });
+
+    expect(normalized?.threadWork?.["thread-1"]?.queuedMessages).toEqual([
+      { id: "q3", content: "kept", requiresConfirmation: true },
+    ]);
+  });
+
+  it("caps a Thread's queue at 50 items", () => {
+    const queuedMessages = Array.from({ length: 60 }, (_, index) => ({
+      id: `q${index}`,
+      content: `item ${index}`,
+    }));
+
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      threadWork: { "thread-1": { queuedMessages } },
+    });
+
+    const queue = normalized?.threadWork?.["thread-1"]?.queuedMessages ?? [];
+    expect(queue).toHaveLength(50);
+    expect(queue[0]?.id).toBe("q0");
+    expect(queue.at(-1)?.id).toBe("q49");
+  });
+
+  it("drops entries with invalid attachment metadata and rejects runtime-only fields", () => {
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      threadWork: {
+        "thread-1": {
+          draft: {
+            content: "kept",
+            attachedSkillNames: [],
+            attachments: [{ ...imageAttachment, localPath: "/tmp/a1.png", base64: "raw" }],
+          },
+          queuedMessages: [
+            { id: "q1", content: "bad attachment", attachments: [{ id: "a2" }] },
+            { id: "q2", content: "too many", attachments: Array(31).fill(imageAttachment) },
+          ],
+        },
+      },
+    });
+
+    const entry = normalized?.threadWork?.["thread-1"];
+    expect(entry?.draft?.attachments).toEqual([imageAttachment]);
+    expect(entry?.queuedMessages).toEqual([]);
+  });
+
+  it("keeps recovered queues isolated per Thread", () => {
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      threadWork: {
+        "thread-1": { queuedMessages: [{ id: "q1", content: "one" }] },
+        "thread-2": { queuedMessages: [{ id: "q2", content: "two" }] },
+      },
+    });
+
+    expect(normalized?.threadWork?.["thread-1"]?.queuedMessages[0]?.content).toBe("one");
+    expect(normalized?.threadWork?.["thread-2"]?.queuedMessages[0]?.content).toBe("two");
+  });
+});

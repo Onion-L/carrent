@@ -1,7 +1,18 @@
-import { Pencil, Pin, Search, SquarePen, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Copy, Folder, Pencil, Pin, Search, SquarePen, Trash2 } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 
+import { DEFAULT_RUNTIME_ID } from "../../../shared/runtimes";
+import type { ProviderSessionSnapshot } from "../../../shared/workspacePersistence";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import { useRuntimes } from "../../hooks/useRuntimes";
@@ -15,6 +26,7 @@ import {
 } from "../../lib/projectThreads";
 import { getChatRuntimeOptions } from "../../lib/runtimeSelection";
 import { findProjectIdForThread } from "../../lib/workspaceState";
+import type { ThreadRecord } from "../../mock/uiShellData";
 import { useToast } from "../toast/ToastContext";
 import { ThreadSearchDialog } from "./ThreadSearchDialog";
 
@@ -22,6 +34,92 @@ const THREAD_STATUS_META: Record<ThreadDisplayStatus, { label: string; className
   running: { label: "Running", className: "text-success" },
   approval: { label: "Approval", className: "font-medium text-warning" },
   failed: { label: "Failed", className: "font-medium text-danger" },
+};
+
+const THREAD_CONTEXT_MENU_MARGIN = 8;
+
+export function getThreadContextMenuPosition(
+  point: { x: number; y: number },
+  menuSize: { width: number; height: number },
+  viewport: { width: number; height: number },
+  margin = THREAD_CONTEXT_MENU_MARGIN,
+) {
+  return {
+    left: Math.min(
+      Math.max(point.x, margin),
+      Math.max(margin, viewport.width - menuSize.width - margin),
+    ),
+    top: Math.min(
+      Math.max(point.y, margin),
+      Math.max(margin, viewport.height - menuSize.height - margin),
+    ),
+  };
+}
+
+export function getThreadRuntimeSessionId(
+  snapshot: ProviderSessionSnapshot,
+  projectPath: string,
+  thread: ThreadRecord,
+) {
+  const runtimeId = thread.runtimeId ?? DEFAULT_RUNTIME_ID;
+  return snapshot.sessions[`${runtimeId}:project:${projectPath}:${thread.id}`] ?? null;
+}
+
+export function ThreadContextMenu({
+  threadTitle,
+  sessionId,
+  onCopyProjectPath,
+  onCopySessionId,
+  firstItemRef,
+}: {
+  threadTitle: string;
+  sessionId: string | null | undefined;
+  onCopyProjectPath: () => void;
+  onCopySessionId: () => void;
+  firstItemRef?: Ref<HTMLButtonElement>;
+}) {
+  const sessionTitle =
+    sessionId === undefined
+      ? "Loading session ID"
+      : sessionId === null
+        ? "No session ID available"
+        : undefined;
+
+  return (
+    <div
+      data-thread-context-menu="true"
+      role="menu"
+      aria-label={`Thread actions for ${threadTitle}`}
+      className="w-48 rounded-lg border border-border-strong bg-surface py-1 shadow-xl"
+    >
+      <button
+        ref={firstItemRef}
+        role="menuitem"
+        onClick={onCopyProjectPath}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+      >
+        <Folder className="h-3.5 w-3.5 shrink-0 text-muted" />
+        Copy project path
+      </button>
+      <button
+        role="menuitem"
+        onClick={onCopySessionId}
+        disabled={!sessionId}
+        title={sessionTitle}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25 disabled:cursor-not-allowed disabled:text-subtle disabled:hover:bg-transparent"
+      >
+        <Copy className="h-3.5 w-3.5 shrink-0 text-muted" />
+        Copy session ID
+      </button>
+    </div>
+  );
+}
+
+type ThreadContextMenuState = {
+  threadId: string;
+  x: number;
+  y: number;
+  sessionId: string | null | undefined;
 };
 
 export function ThreadHistoryPane() {
@@ -43,10 +141,18 @@ export function ThreadHistoryPane() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
+  const [threadContextMenu, setThreadContextMenu] = useState<ThreadContextMenuState | null>(null);
+  const [threadContextMenuPosition, setThreadContextMenuPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const { showToast } = useToast();
   const creatingRef = useRef(false);
   const cancelRenameRef = useRef(false);
+  const threadContextMenuRef = useRef<HTMLDivElement>(null);
+  const threadContextMenuFirstItemRef = useRef<HTMLButtonElement>(null);
+  const threadContextMenuTriggerRef = useRef<HTMLElement>(null);
 
   const routeProjectId = useMemo(
     () => getProjectIdFromPathname(location.pathname),
@@ -66,7 +172,68 @@ export function ThreadHistoryPane() {
     setSearchOpen(false);
     setEditingThreadId(null);
     setEditingThreadTitle("");
+    setThreadContextMenu(null);
+    setThreadContextMenuPosition(null);
   }, [selectedProject?.id]);
+
+  const closeThreadContextMenu = useCallback((returnFocus = false) => {
+    setThreadContextMenu(null);
+    setThreadContextMenuPosition(null);
+    if (returnFocus) {
+      window.requestAnimationFrame(() => threadContextMenuTriggerRef.current?.focus());
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!threadContextMenu || !threadContextMenuRef.current) {
+      return;
+    }
+
+    const menuRect = threadContextMenuRef.current.getBoundingClientRect();
+    setThreadContextMenuPosition(
+      getThreadContextMenuPosition(
+        { x: threadContextMenu.x, y: threadContextMenu.y },
+        { width: menuRect.width, height: menuRect.height },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
+    );
+  }, [threadContextMenu]);
+
+  useEffect(() => {
+    if (!threadContextMenu) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element) || !target.closest('[data-thread-context-menu="true"]')) {
+        closeThreadContextMenu();
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeThreadContextMenu(true);
+      }
+    };
+    const handleViewportChange = () => closeThreadContextMenu();
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("scroll", handleViewportChange, true);
+    const frame = window.requestAnimationFrame(() =>
+      threadContextMenuFirstItemRef.current?.focus(),
+    );
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [closeThreadContextMenu, threadContextMenu]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -118,6 +285,50 @@ export function ThreadHistoryPane() {
     setEditingThreadId(null);
     setEditingThreadTitle("");
   };
+
+  const openThreadContextMenu = (thread: ThreadRecord, event: React.MouseEvent<HTMLDivElement>) => {
+    if (!selectedProject) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const trigger = event.target instanceof Element ? event.target.closest("button") : null;
+    threadContextMenuTriggerRef.current = trigger instanceof HTMLElement ? trigger : null;
+    const triggerRect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX || triggerRect.left + 12;
+    const y = event.clientY || triggerRect.top + 12;
+    setThreadContextMenuPosition(null);
+    setThreadContextMenu({ threadId: thread.id, x, y, sessionId: undefined });
+
+    void window.carrent.providerSessions
+      .load()
+      .then((snapshot) => {
+        const sessionId = getThreadRuntimeSessionId(snapshot, selectedProject.path, thread);
+        setThreadContextMenu((current) =>
+          current?.threadId === thread.id ? { ...current, sessionId } : current,
+        );
+      })
+      .catch(() => {
+        setThreadContextMenu((current) =>
+          current?.threadId === thread.id ? { ...current, sessionId: null } : current,
+        );
+      });
+  };
+
+  const copyThreadContextValue = async (value: string, successMessage: string) => {
+    try {
+      await window.carrent.clipboard.writeText(value);
+      closeThreadContextMenu();
+      showToast(successMessage, "success");
+    } catch {
+      showToast("Failed to copy to clipboard", "error");
+    }
+  };
+
+  const contextMenuThread = threadContextMenu
+    ? allProjectThreads.find((thread) => thread.id === threadContextMenu.threadId)
+    : null;
 
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-bg">
@@ -186,7 +397,11 @@ export function ThreadHistoryPane() {
                   const isRunActive = status === "running" || status === "approval";
 
                   return (
-                    <div key={thread.id} className="group relative">
+                    <div
+                      key={thread.id}
+                      className="group relative"
+                      onContextMenu={(event) => openThreadContextMenu(thread, event)}
+                    >
                       <div
                         className={`flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-left transition ${
                           isActive
@@ -327,6 +542,35 @@ export function ThreadHistoryPane() {
           onClose={() => setSearchOpen(false)}
         />
       ) : null}
+
+      {threadContextMenu && contextMenuThread && selectedProject
+        ? createPortal(
+            <div
+              ref={threadContextMenuRef}
+              className="fixed z-50"
+              style={{
+                left: threadContextMenuPosition?.left ?? -10000,
+                top: threadContextMenuPosition?.top ?? -10000,
+                visibility: threadContextMenuPosition ? "visible" : "hidden",
+              }}
+            >
+              <ThreadContextMenu
+                threadTitle={contextMenuThread.title}
+                sessionId={threadContextMenu.sessionId}
+                firstItemRef={threadContextMenuFirstItemRef}
+                onCopyProjectPath={() =>
+                  void copyThreadContextValue(selectedProject.path, "Project path copied")
+                }
+                onCopySessionId={() => {
+                  if (threadContextMenu.sessionId) {
+                    void copyThreadContextValue(threadContextMenu.sessionId, "Session ID copied");
+                  }
+                }}
+              />
+            </div>,
+            document.body,
+          )
+        : null}
     </aside>
   );
 }

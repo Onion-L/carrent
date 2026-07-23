@@ -58,6 +58,7 @@ function ChatPageContent() {
   const isEmptyThread = routeData?.messages.length === 0;
   const composer = routeData ? (
     <Composer
+      key={routeData.thread.id}
       mode="chat"
       placement={isEmptyThread ? "centered" : "default"}
       threadId={routeData.thread.id}

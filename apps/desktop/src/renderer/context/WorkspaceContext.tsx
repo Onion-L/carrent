@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   initialActiveThreadId,
   messages as initialMessages,
@@ -40,9 +48,17 @@ import {
   buildWorkspaceSnapshot,
   useDebouncedWorkspaceSave,
 } from "../hooks/useDebouncedWorkspaceSave";
+import {
+  getThreadWorkSnapshot,
+  getThreadWorkVersion,
+  hydrateThreadWork,
+  removeThreadWork,
+  subscribeToThreadWork,
+} from "../hooks/chatMessageQueue";
 import type { RuntimeId } from "../../shared/runtimes";
 import { reconcileInterruptedRuns } from "../lib/interruptedRuns";
 import type { DeleteThreadDataRequest, AttachmentMetadata } from "../../shared/chat";
+import type { ThreadWorkSnapshot } from "../../shared/workspacePersistence";
 import type { GitWorkspaceDiffResult } from "../../../electron/git/gitIpc";
 
 type MessageRunStatus = NonNullable<Message["runStatus"]>;
@@ -302,6 +318,7 @@ export function removeMessagesForThreads(messages: Message[], requestedThreadIds
 export function prepareThreadDataDeletion(
   messages: Message[],
   requestedThreadIds: string[],
+  threadWork?: Record<string, ThreadWorkSnapshot>,
 ): { request: DeleteThreadDataRequest; remainingMessages: Message[] } {
   const threadIds = [...new Set(requestedThreadIds)];
   const deletedThreadIds = new Set(threadIds);
@@ -314,6 +331,21 @@ export function prepareThreadDataDeletion(
     for (const attachment of message.attachments ?? []) {
       const owners = attachmentOwners.get(attachment.storageKey) ?? new Set<string>();
       owners.add(message.threadId);
+      attachmentOwners.set(attachment.storageKey, owners);
+    }
+  }
+
+  // Drafts and queued messages own their attachments exactly like sent
+  // Messages; deleting a Thread must not drop a storage key still referenced
+  // by a surviving draft or queue.
+  for (const [threadId, work] of Object.entries(threadWork ?? {})) {
+    const wipAttachments = [
+      ...(work.draft?.attachments ?? []),
+      ...(work.queuedMessages ?? []).flatMap((item) => item.attachments ?? []),
+    ];
+    for (const attachment of wipAttachments) {
+      const owners = attachmentOwners.get(attachment.storageKey) ?? new Set<string>();
+      owners.add(threadId);
       attachmentOwners.set(attachment.storageKey, owners);
     }
   }
@@ -339,8 +371,9 @@ export async function deleteThreadMessagesAfterCleanup(
   messages: Message[],
   threadIds: string[],
   cleanup: (request: DeleteThreadDataRequest) => Promise<void>,
+  threadWork?: Record<string, ThreadWorkSnapshot>,
 ) {
-  const deletion = prepareThreadDataDeletion(messages, threadIds);
+  const deletion = prepareThreadDataDeletion(messages, threadIds, threadWork);
   await cleanup(deletion.request);
   return deletion.remainingMessages;
 }
@@ -506,6 +539,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       .load()
       .then((snapshot) => {
         if (cancelled) return;
+        // Apply persisted work-in-progress before the hydrated UI mounts so a
+        // Composer never initializes from an empty queue/draft store.
+        hydrateThreadWork(snapshot?.threadWork);
         if (snapshot) {
           setProjects(snapshot.projects);
           setChats(snapshot.chats ?? []);
@@ -521,6 +557,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       .catch((error) => {
         console.error("[workspace] failed to load", error);
         if (!cancelled) {
+          hydrateThreadWork(undefined);
           setProjects(initialProjects);
           setChats([]);
           setMessages(initialMessages);
@@ -538,8 +575,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const allThreadIds = useMemo(
+    () => [
+      ...projects.flatMap((project) => project.threads.map((thread) => thread.id)),
+      ...chats.map((chat) => chat.id),
+    ],
+    [projects, chats],
+  );
+  const threadWorkVersion = useSyncExternalStore(subscribeToThreadWork, getThreadWorkVersion);
+  const threadWork = useMemo(
+    () => getThreadWorkSnapshot(allThreadIds),
+    // threadWorkVersion re-runs this memo whenever a draft or queue changes.
+    [allThreadIds, threadWorkVersion],
+  );
+
   useDebouncedWorkspaceSave(
-    buildWorkspaceSnapshot({ projects, chats, messages, activeThreadId }),
+    buildWorkspaceSnapshot({ projects, chats, messages, activeThreadId, threadWork }),
     hasHydrated,
   );
 
@@ -556,7 +607,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         messages,
         threadIds,
         window.carrent.chat.deleteThreadData,
+        getThreadWorkSnapshot(allThreadIds),
       );
+      removeThreadWork(threadIds);
     }
     setProjects((prev) => prev.filter((project) => project.id !== projectId));
     if (threadIds.length > 0) {
@@ -669,7 +722,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       messages,
       [threadId],
       window.carrent.chat.deleteThreadData,
+      getThreadWorkSnapshot(allThreadIds),
     );
+    removeThreadWork([threadId]);
     setChats((prev) => deleteChatThread(prev, threadId));
     setMessages((prev) => removeMessagesForThreads(prev, [threadId]));
     setActiveThreadId((prev) => (prev === threadId ? null : prev));
@@ -681,7 +736,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       messages,
       [threadId],
       window.carrent.chat.deleteThreadData,
+      getThreadWorkSnapshot(allThreadIds),
     );
+    removeThreadWork([threadId]);
     setProjects((prev) => deleteThreadInProjects(prev, projectId, threadId).projects);
     setMessages((prev) => removeMessagesForThreads(prev, [threadId]));
     setActiveThreadId((prev) => (prev === threadId ? result.nextActiveThreadId : prev));

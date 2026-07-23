@@ -7,7 +7,7 @@ import type {
   ThreadRecord,
 } from "../renderer/mock/uiShellData";
 import type { AttachmentKind, AttachmentMetadata } from "./chat";
-import { isSupportedImageMimeType } from "./attachment";
+import { isSupportedImageMimeType, MAX_ATTACHMENT_COUNT } from "./attachment";
 import type { ChatPermissionOption } from "./chatPermissions";
 import { normalizeRuntimeMode } from "./runtimeMode";
 import { normalizeRuntimeId } from "./runtimes";
@@ -17,6 +17,26 @@ export const WORKSPACE_SNAPSHOT_VERSION = 1;
 const MAX_PATCH_BYTES = 256 * 1024;
 const MAX_PLAN_REVIEW_BYTES = 256 * 1024;
 const MAX_PLAN_REVIEW_OPTIONS = 5;
+const MAX_THREAD_WORK_TEXT_BYTES = 256 * 1024;
+const MAX_THREAD_WORK_QUEUE_ITEMS = 50;
+
+export type ThreadWorkDraftSnapshot = {
+  content: string;
+  attachedSkillNames: string[];
+  attachments: AttachmentMetadata[];
+};
+
+export type ThreadWorkQueuedMessage = {
+  id: string;
+  content: string;
+  attachments?: AttachmentMetadata[];
+  requiresConfirmation?: boolean;
+};
+
+export type ThreadWorkSnapshot = {
+  draft?: ThreadWorkDraftSnapshot;
+  queuedMessages: ThreadWorkQueuedMessage[];
+};
 
 export type WorkspaceSnapshot = {
   version: typeof WORKSPACE_SNAPSHOT_VERSION;
@@ -24,6 +44,7 @@ export type WorkspaceSnapshot = {
   chats: ThreadRecord[];
   messages: Message[];
   activeThreadId: string | null;
+  threadWork?: Record<string, ThreadWorkSnapshot>;
 };
 
 export type ProviderSessionSnapshot = {
@@ -222,6 +243,78 @@ function normalizeMessageRecord(message: Message): Message {
   } as Message;
 }
 
+function utf8ByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+function normalizeThreadWorkAttachments(value: unknown): AttachmentMetadata[] | null {
+  if (!Array.isArray(value) || value.length > MAX_ATTACHMENT_COUNT) return null;
+  const attachments = value.map((item) => normalizeAttachmentMetadata(item));
+  if (attachments.some((attachment) => attachment === null)) return null;
+  return attachments as AttachmentMetadata[];
+}
+
+function normalizeThreadWorkDraft(value: unknown): ThreadWorkDraftSnapshot | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.content !== "string") return null;
+  if (utf8ByteLength(value.content) > MAX_THREAD_WORK_TEXT_BYTES) return null;
+  if (!Array.isArray(value.attachedSkillNames)) return null;
+  if (!value.attachedSkillNames.every((name) => typeof name === "string")) return null;
+
+  const attachments = normalizeThreadWorkAttachments(value.attachments ?? []);
+  if (!attachments) return null;
+
+  return {
+    content: value.content,
+    attachedSkillNames: [...value.attachedSkillNames],
+    attachments,
+  };
+}
+
+function normalizeThreadWorkQueuedMessage(value: unknown): ThreadWorkQueuedMessage | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== "string") return null;
+  if (typeof value.content !== "string") return null;
+  if (utf8ByteLength(value.content) > MAX_THREAD_WORK_TEXT_BYTES) return null;
+
+  const attachments =
+    value.attachments === undefined ? undefined : normalizeThreadWorkAttachments(value.attachments);
+  if (attachments === null) return null;
+
+  // Every queue item recovered from disk requires an explicit Send/Steer; it
+  // must never auto-send after a restart.
+  return {
+    id: value.id,
+    content: value.content,
+    ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    requiresConfirmation: true,
+  };
+}
+
+function normalizeThreadWork(value: unknown): Record<string, ThreadWorkSnapshot> | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) return {};
+
+  const threadWork: Record<string, ThreadWorkSnapshot> = {};
+  for (const [threadId, entry] of Object.entries(value)) {
+    if (!isRecord(entry)) continue;
+
+    const draft = entry.draft === undefined ? null : normalizeThreadWorkDraft(entry.draft);
+    const queuedMessages = Array.isArray(entry.queuedMessages)
+      ? entry.queuedMessages
+          .map((item) => normalizeThreadWorkQueuedMessage(item))
+          .filter((item): item is ThreadWorkQueuedMessage => item !== null)
+          .slice(0, MAX_THREAD_WORK_QUEUE_ITEMS)
+      : [];
+
+    threadWork[threadId] = {
+      ...(draft ? { draft } : {}),
+      queuedMessages,
+    };
+  }
+  return threadWork;
+}
+
 export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | null {
   if (!isRecord(value)) return null;
   if (value.version !== WORKSPACE_SNAPSHOT_VERSION) return null;
@@ -263,6 +356,8 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
     };
   }
 
+  const threadWork = normalizeThreadWork(value.threadWork);
+
   return {
     ...snapshot,
     projects: snapshot.projects.map((project) => ({
@@ -271,6 +366,7 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
     })),
     chats: chats.map(normalizeThreadRecord),
     messages: snapshot.messages.map(normalizeMessageRecord),
+    ...(threadWork ? { threadWork } : {}),
   };
 }
 

@@ -12,3 +12,4 @@ coverage
 .worktrees/
 docs/superpowers
 .playwright-cli
+plans/

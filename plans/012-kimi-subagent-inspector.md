@@ -62,8 +62,10 @@ Implement this behavior exactly:
    the currently unused message-level `agentId` field.
 8. Persist completed, failed, interrupted, and detached tasks. On workspace
    hydration, convert persisted `running` tasks to `interrupted`.
-9. Add an icon-only Subagents control to `ChatHeader`, with a tooltip and
-   accessible name. It toggles a 20rem right side pane.
+9. Add an icon-only Subagents control to the window titlebar (via the
+   `DesktopHeaderActions` portal in `DesktopShell`), with a tooltip and
+   accessible name. It toggles a floating inspector card anchored top-right
+   below the titlebar, overlaying the timeline without displacing it.
 10. When a new running task id first appears in the active Thread, open the side
     pane automatically. If the user closes it, updates to that same task must
     not reopen it. A later new task may open it again.
@@ -287,10 +289,11 @@ dependency.
 - `apps/desktop/src/renderer/components/chat/Composer.test.ts`
 - `apps/desktop/src/renderer/components/chat/MessageTimeline.tsx`
 - `apps/desktop/src/renderer/components/chat/MessageTimeline.test.ts`
-- `apps/desktop/src/renderer/components/chat/ChatHeader.tsx`
-- `apps/desktop/src/renderer/components/chat/ChatHeader.test.tsx` (create)
 - `apps/desktop/src/renderer/components/chat/ThreadInspectorPane.tsx` (create)
 - `apps/desktop/src/renderer/components/chat/ThreadInspectorPane.test.tsx` (create)
+- `apps/desktop/src/renderer/components/DesktopHeaderActions.tsx` (create)
+- `apps/desktop/src/renderer/components/DesktopHeaderActions.test.tsx` (create)
+- `apps/desktop/src/renderer/components/DesktopShell.tsx` (titlebar slot only)
 - `apps/desktop/src/renderer/routes/ThreadPage.tsx`
 - `apps/desktop/src/renderer/routes/ThreadPage.test.ts`
 - `apps/desktop/src/renderer/routes/ChatPage.tsx`
@@ -515,8 +518,10 @@ existing `renderToStaticMarkup` tests. Keep these pure selectors exported too:
 - format duration from task timestamps without duplicating a second timer per
   row.
 
-The pane is a stable `w-[20rem] min-w-0 shrink-0` right sibling with a left
-hairline and canvas background. Use the shared `Card` only for the Environment
+The pane is a floating card: roughly `w-[24rem]`, absolutely anchored to the
+top-right below the titlebar inside the route's relative container, with
+rounded corners, a border, and a drop shadow. It overlays the timeline rather
+than taking layout space. Use the shared `Card` only for the Environment
 summary. Do not place task rows or detail sections inside nested cards.
 
 Environment for project Threads:
@@ -574,11 +579,20 @@ Test `ThreadInspectorContent` static rendering for:
 
 ### Step 5: Integrate one mutually exclusive right-pane state
 
-Extend `ChatHeader` with optional props for inspector state, task count, and a
-toggle callback. Position a Lucide Subagents/Users icon in the right side of
-the existing relative header while preserving the centered title. Hide the
+> **Final design decision (supersedes earlier side-pane wording)**: the
+> Subagents toggle lives in the window titlebar, portaled into the
+> `DesktopHeaderActions` slot in `DesktopShell`'s top-right via
+> `DesktopHeaderPortal`. It uses the Lucide `SlidersHorizontal` icon with
+> accessible name "Toggle thread tools card" and carries no count badge. The
+> inspector itself is a floating rounded card (`w-[24rem]`, border, shadow)
+> anchored `absolute bottom-3 right-3 top-3` inside the route's relative
+> container; it overlays the timeline and never displaces it. `ChatHeader`
+> stays untouched.
+
+Render the toggle from both `ThreadPage` and `ChatPage` through
+`DesktopHeaderPortal`, using the shared `ThreadInspectorToggle`. Hide the
 control only when the route has neither project Environment nor any Subagent
-Task. Add a compact numeric badge only when count is non-zero.
+Task.
 
 In both `ThreadPage` and `ChatPage`:
 
@@ -588,33 +602,36 @@ In both `ThreadPage` and `ChatPage`:
 4. track task ids seen for the current Thread;
 5. auto-open only when a new running id appears;
 6. pass project path only from `ThreadPage`;
-7. render exactly one right sibling:
+7. render exactly one right-side surface — Diff stays a layout sibling while
+   the inspector floats above the timeline:
 
 ```tsx
 {diffState.open ? (
   <WorkspaceDiffViewer ... />
 ) : inspectorOpen ? (
-  <ThreadInspectorPane ... />
+  <div className="absolute bottom-3 right-3 top-3 z-10 w-[24rem]">
+    <ThreadInspectorPane ... />
+  </div>
 ) : null}
 ```
 
 Do not close the inspector state when Diff opens. Closing Diff should reveal it
 again. Do not auto-open on every streaming status update. At the 1080px minimum
-window width, the timeline and Composer must remain usable with the 20rem pane
-open: all flex children need the existing `min-w-0` behavior and content must
+window width, the timeline and Composer must remain usable with the floating
+card open: it overlays content, so nothing reflows, and card content must
 truncate or wrap.
 
 Add:
 
-- `ChatHeader.test.tsx` static coverage for centered title, accessible toggle,
-  selected state, and count badge;
+- `ThreadInspectorPane.test.tsx` static coverage for the floating card
+  geometry and the accessible titlebar toggle (selected state, no badge);
 - pure route/helper tests for new-id auto-open behavior, same-id no-reopen,
   Thread reset, and Diff precedence;
 - ChatPage coverage proving project Environment is omitted;
 - ThreadPage coverage proving project path and messages reach the inspector.
 
 **Verify**:
-`rtk bun test apps/desktop/src/renderer/components/chat/ChatHeader.test.tsx apps/desktop/src/renderer/routes/ThreadPage.test.ts apps/desktop/src/renderer/routes/ChatPage.test.ts apps/desktop/src/renderer/components/chat/ThreadInspectorPane.test.tsx`
+`rtk bun test apps/desktop/src/renderer/routes/ThreadPage.test.ts apps/desktop/src/renderer/routes/ChatPage.test.ts apps/desktop/src/renderer/components/chat/ThreadInspectorPane.test.tsx`
 -> all selected tests pass.
 
 ### Step 6: Run full gates and inspect the desktop UI
@@ -655,7 +672,7 @@ hidden chain-of-thought text is visible.
 - Extend `MessageTimeline.test.ts` to prove task parts do not leak into the main
   transcript presentation.
 - Use `renderToStaticMarkup`, matching `ChangedFilesCard.test.tsx` and
-  `WorkspaceDiffViewer.test.tsx`, for the new pane and header rendering tests.
+  `WorkspaceDiffViewer.test.tsx`, for the new pane and toggle rendering tests.
 - Keep route behavior in exported pure helpers where React interaction tests
   would otherwise require a new DOM-test dependency.
 - Run CI-equivalent tests, typecheck, lint, build, and diff hygiene before

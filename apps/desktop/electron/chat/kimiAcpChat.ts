@@ -6,6 +6,8 @@ import { pathToFileURL } from "node:url";
 
 import type {
   ChatRunEvent,
+  ChatSubagentTaskPayload,
+  ChatSubagentTaskStatus,
   ChatTurnRequest,
   Attachment,
   KimiSessionStatus,
@@ -20,6 +22,7 @@ import {
   type ChatPermissionResponse,
 } from "../../src/shared/chatPermissions";
 import type { RuntimeMode } from "../../src/shared/runtimeMode";
+import { MAX_SUBAGENT_TASK_TEXT_LENGTH } from "../../src/shared/workspacePersistence";
 import type { CarrentBridgeFactory, CarrentBridgeHandle } from "../bridge/carrentBridge";
 import { buildChatPrompt, DEFAULT_FILE_ONLY_PROMPT, DEFAULT_IMAGE_ONLY_PROMPT } from "./chatPrompt";
 
@@ -398,6 +401,7 @@ class KimiAcpRun {
       kind: string;
       command: string;
       filePath: string;
+      subagentTask?: ChatSubagentTaskPayload;
     }
   >();
 
@@ -1099,9 +1103,17 @@ class KimiAcpRun {
       existing?.filePath ??
       "";
 
-    this.toolStates.set(id, { title, kind, command, filePath });
+    this.toolStates.set(id, {
+      title,
+      kind,
+      command,
+      filePath,
+      subagentTask: existing?.subagentTask,
+    });
     const status = normalizeToolStatus(readString(update.status));
     const output = getToolOutput(update, content);
+
+    this.handleSubagentTask(id, update, rawInput, title, status);
 
     if (status !== "running") {
       if (title === "EnterPlanMode" && output.includes("Plan mode is now active")) {
@@ -1140,6 +1152,91 @@ class KimiAcpRun {
         content: describeToolActivity(title, kind, filePath),
         status: status === "running" ? "running" : "completed",
       },
+    });
+  }
+
+  private handleSubagentTask(
+    id: string,
+    update: JsonObject,
+    rawInput: JsonObject | null,
+    title: string,
+    status: "running" | "completed" | "failed",
+  ) {
+    const state = this.toolStates.get(id);
+    if (!state) {
+      return;
+    }
+
+    let task = state.subagentTask;
+    if (!task) {
+      const start = matchKimiSubagentStart(title, rawInput);
+      if (!start) {
+        return;
+      }
+
+      task = {
+        id,
+        runtimeId: "kimi",
+        source: start.source,
+        agentType: start.agentType,
+        agentCount:
+          start.source === "agent-swarm" && start.agentCount > 0 ? start.agentCount : undefined,
+        description: truncateSubagentTaskText(start.description),
+        prompt:
+          start.source === "agent" && start.prompt
+            ? truncateSubagentTaskText(start.prompt)
+            : undefined,
+        background: start.background,
+        status: "running",
+        startedAt: Date.now(),
+      };
+      state.subagentTask = task;
+      this.emitSubagentTask(task);
+      if (status === "running") {
+        return;
+      }
+    }
+
+    const content = readTextContent(update.content);
+    const resultText = extractSubagentResultText(update, content);
+    const result = task.source === "agent" ? parseKimiAgentResult(resultText) : null;
+
+    let nextStatus: ChatSubagentTaskStatus = task.status;
+    if (status === "failed" || result?.status === "failed") {
+      nextStatus = "failed";
+    } else if (status === "completed") {
+      if (task.background && result?.status !== "completed") {
+        // Only a parsed completed result confirms a background call finished.
+        // A still-running or unparseable result detaches instead of being
+        // claimed completed; AgentSwarm results are never parsed.
+        nextStatus = "detached";
+      } else {
+        nextStatus = "completed";
+      }
+    }
+
+    const settles =
+      (nextStatus === "completed" || nextStatus === "failed" || nextStatus === "detached") &&
+      task.finishedAt === undefined;
+
+    task = {
+      ...task,
+      runtimeAgentId: result?.runtimeAgentId ?? task.runtimeAgentId,
+      agentType: result?.agentType ?? task.agentType,
+      summary: result?.summary ? truncateSubagentTaskText(result.summary) : task.summary,
+      status: nextStatus,
+      finishedAt: settles ? Date.now() : task.finishedAt,
+    };
+    state.subagentTask = task;
+    this.emitSubagentTask(task);
+  }
+
+  private emitSubagentTask(task: ChatSubagentTaskPayload) {
+    this.emit({
+      type: "subagent-task",
+      runId: this.options.runId,
+      requestKey: this.options.request.requestKey,
+      task,
     });
   }
 
@@ -1406,12 +1503,24 @@ function getToolOutput(update: JsonObject, content: string) {
   return "";
 }
 
+const TRUNCATED_OUTPUT_MARKER = "\n\n[output truncated]";
+
 function truncateToolOutput(output: string) {
   if (output.length <= MAX_TOOL_OUTPUT_LENGTH) {
     return output;
   }
 
-  return `${output.slice(0, MAX_TOOL_OUTPUT_LENGTH)}\n\n[output truncated]`;
+  return `${output.slice(0, MAX_TOOL_OUTPUT_LENGTH)}${TRUNCATED_OUTPUT_MARKER}`;
+}
+
+// Subagent task text is persisted, where the normalizer rejects fields longer
+// than MAX_SUBAGENT_TASK_TEXT_LENGTH, so the marker must fit inside the cap.
+function truncateSubagentTaskText(text: string) {
+  if (text.length <= MAX_SUBAGENT_TASK_TEXT_LENGTH) {
+    return text;
+  }
+
+  return `${text.slice(0, MAX_SUBAGENT_TASK_TEXT_LENGTH - TRUNCATED_OUTPUT_MARKER.length)}${TRUNCATED_OUTPUT_MARKER}`;
 }
 
 function parseJsonObject(value: string): JsonObject | null {
@@ -1424,6 +1533,157 @@ function parseJsonObject(value: string): JsonObject | null {
   } catch {
     return null;
   }
+}
+
+const KIMI_AGENT_TITLE_PATTERN = /^Launching [A-Za-z][A-Za-z0-9_-]* agent: /u;
+const KIMI_AGENT_SWARM_TITLE_PREFIX = "Launching agent swarm:";
+
+type KimiSubagentStart =
+  | {
+      source: "agent";
+      description: string;
+      prompt?: string;
+      agentType?: string;
+      background: boolean;
+    }
+  | {
+      source: "agent-swarm";
+      description: string;
+      agentType?: string;
+      agentCount: number;
+      background: boolean;
+    };
+
+function matchKimiSubagentStart(
+  title: string,
+  rawInput: JsonObject | null,
+): KimiSubagentStart | null {
+  if (!rawInput) {
+    return null;
+  }
+
+  if (title.startsWith(KIMI_AGENT_SWARM_TITLE_PREFIX)) {
+    const description = readString(rawInput.description);
+    if (!description) {
+      return null;
+    }
+
+    const items =
+      Array.isArray(rawInput.items) && rawInput.items.every((item) => typeof item === "string")
+        ? rawInput.items.length
+        : 0;
+    const resumeAgentIds = readObject(rawInput.resume_agent_ids);
+    const resumes =
+      resumeAgentIds && !Array.isArray(rawInput.resume_agent_ids)
+        ? Object.keys(resumeAgentIds).length
+        : 0;
+
+    return {
+      source: "agent-swarm",
+      description,
+      agentType: readString(rawInput.subagent_type) ?? undefined,
+      agentCount: items + resumes,
+      background: rawInput.run_in_background === true,
+    };
+  }
+
+  if (!KIMI_AGENT_TITLE_PATTERN.test(title)) {
+    return null;
+  }
+
+  const description = readString(rawInput.description);
+  const prompt = readString(rawInput.prompt);
+  const resume = readString(rawInput.resume);
+  const agentType = readString(rawInput.subagent_type);
+  if (!description || (!prompt && !resume && !agentType)) {
+    return null;
+  }
+
+  return {
+    source: "agent",
+    description,
+    prompt: prompt ?? undefined,
+    agentType: agentType ?? undefined,
+    background: rawInput.run_in_background === true,
+  };
+}
+
+function extractSubagentResultText(update: JsonObject, content: string) {
+  const rawOutput = readString(update.rawOutput);
+  if (rawOutput) {
+    return rawOutput;
+  }
+
+  const rawOutputObject = readObject(update.rawOutput);
+  const rawOutputText = readString(rawOutputObject?.output);
+  if (rawOutputText) {
+    return rawOutputText;
+  }
+
+  const parsedContent = parseJsonObject(content);
+  const parsedContentOutput = readString(parsedContent?.output);
+  if (parsedContentOutput) {
+    return parsedContentOutput;
+  }
+
+  const status = normalizeToolStatus(readString(update.status));
+  if (status === "failed" || status === "completed") {
+    return content;
+  }
+
+  return "";
+}
+
+function parseKimiAgentResult(text: string) {
+  let runtimeAgentId: string | undefined;
+  let agentType: string | undefined;
+  let status: string | undefined;
+  let summaryLines: string[] | null = null;
+  let recognized = false;
+
+  for (const line of text.split("\n")) {
+    if (summaryLines) {
+      summaryLines.push(line);
+      continue;
+    }
+
+    if (line.trim() === "[summary]") {
+      summaryLines = [];
+      recognized = true;
+      continue;
+    }
+
+    if (!line.trim()) {
+      continue;
+    }
+
+    const header = /^(agent_id|actual_subagent_type|status): (.+)$/u.exec(line);
+    if (!header) {
+      return null;
+    }
+
+    recognized = true;
+    const value = header[2].trim();
+    if (header[1] === "agent_id") {
+      runtimeAgentId = value;
+    } else if (header[1] === "actual_subagent_type") {
+      agentType = value;
+    } else {
+      status = value;
+    }
+  }
+
+  if (!recognized) {
+    return null;
+  }
+
+  const summary = summaryLines ? summaryLines.join("\n").trim() : "";
+  return {
+    runtimeAgentId,
+    agentType,
+    status,
+    summary: summary || undefined,
+  };
 }
 
 function commandFromTitle(title: string) {

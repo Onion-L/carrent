@@ -165,7 +165,12 @@ export type MessagePartUpdate =
       selectedOptionId?: string;
       selectedOptionName?: string;
     }
-  | { kind: "interrupt-plan-reviews" };
+  | { kind: "interrupt-plan-reviews" }
+  | {
+      kind: "upsert-subagent-task";
+      task: Extract<MessagePart, { type: "subagent_task" }>;
+    }
+  | { kind: "interrupt-subagent-tasks" };
 
 const WorkspaceContext = createContext<WorkspaceContextValue>({
   projects: [],
@@ -496,6 +501,33 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
       ...message,
       parts: parts.map((part) =>
         part.type === "plan_review" && part.status === "pending"
+          ? { ...part, status: "interrupted" }
+          : part,
+      ),
+    };
+  }
+
+  if (update.kind === "upsert-subagent-task") {
+    const taskIndex = parts.findIndex(
+      (part) => part.type === "subagent_task" && part.id === update.task.id,
+    );
+    if (taskIndex >= 0) {
+      parts[taskIndex] = update.task;
+    } else {
+      parts.push(update.task);
+    }
+
+    return {
+      ...message,
+      parts,
+    };
+  }
+
+  if (update.kind === "interrupt-subagent-tasks") {
+    return {
+      ...message,
+      parts: parts.map((part) =>
+        part.type === "subagent_task" && part.status === "running"
           ? { ...part, status: "interrupted" }
           : part,
       ),

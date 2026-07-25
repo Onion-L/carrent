@@ -1,6 +1,6 @@
 import type { RuntimeMode } from "../../shared/runtimeMode";
 import type { RuntimeId } from "../../shared/runtimes";
-import type { AttachmentMetadata } from "../../shared/chat";
+import type { AttachmentMetadata, ChatSubagentTaskPayload } from "../../shared/chat";
 import type { ChatPermissionOption } from "../../shared/chatPermissions";
 
 export type { AttachmentMetadata };
@@ -91,6 +91,8 @@ type MessageBase = {
   threadId: string;
 };
 
+export type SubagentTaskPart = { type: "subagent_task" } & ChatSubagentTaskPayload;
+
 export type MessagePart =
   | { type: "text"; content: string }
   | {
@@ -116,7 +118,8 @@ export type MessagePart =
       options: ChatPermissionOption[];
       selectedOptionId?: string;
       selectedOptionName?: string;
-    };
+    }
+  | SubagentTaskPart;
 
 type TextMessage = MessageBase & {
   type?: "text";

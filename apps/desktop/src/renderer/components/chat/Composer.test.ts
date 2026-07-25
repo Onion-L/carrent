@@ -719,6 +719,34 @@ describe("plan slash helpers", () => {
     ).toBe("Done");
   });
 
+  it("keeps Subagent Task details out of fresh-session transcripts", () => {
+    expect(
+      getMessageTranscriptContent({
+        id: "assistant-task",
+        role: "assistant",
+        timestamp: "12:00",
+        threadId: "thread-1",
+        content: "Done",
+        parts: [
+          { type: "text", content: "Done" },
+          {
+            type: "subagent_task",
+            id: "0:tool_agent",
+            runtimeId: "kimi",
+            source: "agent",
+            description: "Implement persistence",
+            prompt: "delegated prompt",
+            background: false,
+            status: "completed",
+            summary: "delegated summary",
+            startedAt: 1000,
+            finishedAt: 2000,
+          },
+        ],
+      }),
+    ).toBe("Done");
+  });
+
   it("attaches Plan mode without sending a bare command", () => {
     expect(getPlanSubmissionState("/plan", "kimi", false)).toEqual({
       command: { task: "" },

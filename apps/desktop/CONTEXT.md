@@ -72,6 +72,14 @@ _Avoid_: Thinking panel, separate summary, hidden chain of thought
 An agent activity item representing a capability the coding agent used during a run, such as reading a file, editing a file, updating a plan, or running a shell command.
 _Avoid_: Shell-only step, file log, action item
 
+**Subagent**:
+A runtime-owned child coding agent delegated work by another coding agent inside a Run.
+_Avoid_: Child thread, background run
+
+**Subagent Task**:
+One delegated invocation shown by Carrent. A resumed runtime agent can own several Subagent Tasks.
+_Avoid_: Provider session, agent session
+
 **Provider Profile**:
 Non-secret configuration that tells a runtime which provider, proxy, gateway, or model configuration to use for a run.
 _Avoid_: Runtime, API client, account

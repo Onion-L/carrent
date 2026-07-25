@@ -283,6 +283,37 @@ describe("assistant message presentation", () => {
       getAssistantMessagePresentation([{ type: "text", content: "Direct answer" }], "completed"),
     ).toEqual({ activityItems: [], answerText: "Direct answer" });
   });
+
+  it("ignores Subagent Task parts without changing Thinking or final-answer order", () => {
+    const parts = [
+      {
+        type: "reasoning" as const,
+        id: "kimi-tool-0:tool_agent",
+        content: "Launching coder agent: Implement persistence",
+        status: "completed" as const,
+      },
+      {
+        type: "subagent_task" as const,
+        id: "0:tool_agent",
+        runtimeId: "kimi" as const,
+        source: "agent" as const,
+        agentType: "coder",
+        description: "Implement persistence",
+        prompt: "delegated prompt",
+        background: false,
+        status: "completed" as const,
+        summary: "delegated summary",
+        startedAt: 1000,
+        finishedAt: 2000,
+      },
+      { type: "text" as const, content: "The project is ready." },
+    ];
+
+    expect(getAssistantMessagePresentation(parts, "completed")).toEqual({
+      activityItems: [parts[0]],
+      answerText: "The project is ready.",
+    });
+  });
 });
 
 describe("Plan Review presentation", () => {

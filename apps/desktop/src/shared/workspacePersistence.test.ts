@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+
+import type { MessagePart } from "../renderer/mock/uiShellData";
 import { WORKSPACE_SNAPSHOT_VERSION, normalizeWorkspaceSnapshot } from "./workspacePersistence";
 
 describe("normalizeWorkspaceSnapshot", () => {
@@ -814,5 +816,191 @@ describe("normalizeWorkspaceSnapshot threadWork", () => {
 
     expect(normalized?.threadWork?.["thread-1"]?.queuedMessages[0]?.content).toBe("one");
     expect(normalized?.threadWork?.["thread-2"]?.queuedMessages[0]?.content).toBe("two");
+  });
+});
+
+describe("normalizeWorkspaceSnapshot subagent tasks", () => {
+  const baseSnapshot = {
+    version: WORKSPACE_SNAPSHOT_VERSION,
+    projects: [],
+    chats: [],
+    activeThreadId: null,
+  };
+
+  const completedTask = {
+    type: "subagent_task",
+    id: "0:tool_agent",
+    runtimeId: "kimi",
+    source: "agent",
+    runtimeAgentId: "agent-0",
+    agentType: "coder",
+    description: "Implement persistence",
+    prompt: "Implement step 1 and report the result",
+    background: false,
+    status: "completed",
+    summary: "Implemented persistence and tests.",
+    startedAt: 1000,
+    finishedAt: 2000,
+  };
+
+  it("round-trips a valid Subagent Task part", () => {
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          content: "Done",
+          parts: [{ type: "text", content: "Done" }, completedTask],
+        },
+      ],
+    });
+
+    expect(normalized?.messages[0]).toMatchObject({
+      content: "Done",
+      parts: [{ type: "text", content: "Done" }, completedTask],
+    });
+  });
+
+  it("round-trips a valid AgentSwarm task with an agent count", () => {
+    const swarmTask = {
+      type: "subagent_task",
+      id: "0:tool_swarm",
+      runtimeId: "kimi",
+      source: "agent-swarm",
+      agentType: "explore",
+      agentCount: 5,
+      description: "Review modules",
+      background: false,
+      status: "detached",
+      startedAt: 1000,
+      finishedAt: 1500,
+    };
+
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          content: "",
+          parts: [swarmTask],
+        },
+      ],
+    });
+
+    expect(normalized?.messages[0]).toMatchObject({ parts: [swarmTask] });
+  });
+
+  it("round-trips an AgentSwarm task with no agent count", () => {
+    const swarmTask = {
+      type: "subagent_task",
+      id: "0:tool_swarm",
+      runtimeId: "kimi",
+      source: "agent-swarm",
+      description: "Review modules",
+      background: true,
+      status: "detached",
+      startedAt: 1000,
+      finishedAt: 1500,
+    };
+
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          content: "",
+          parts: [swarmTask],
+        },
+      ],
+    });
+
+    expect(normalized?.messages[0]).toMatchObject({ parts: [swarmTask] });
+    const message = (normalized?.messages ?? [])[0] as { parts?: MessagePart[] };
+    expect(message.parts?.[0]).toMatchObject({ type: "subagent_task", id: "0:tool_swarm" });
+    expect(Object.keys(message.parts?.[0] ?? {})).not.toContain("agentCount");
+  });
+
+  it("restores persisted running Subagent Tasks as interrupted", () => {
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          content: "",
+          parts: [{ ...completedTask, status: "running", finishedAt: undefined }],
+        },
+      ],
+    });
+
+    expect(normalized?.messages[0]).toMatchObject({
+      parts: [{ type: "subagent_task", status: "interrupted" }],
+    });
+  });
+
+  it("drops malformed Subagent Tasks without dropping the message", () => {
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          content: "Answer",
+          parts: [
+            { type: "text", content: "Answer" },
+            { ...completedTask, id: "bad-status", status: "exploded" },
+            { ...completedTask, id: "bad-time", finishedAt: 500 },
+            { ...completedTask, id: "bad-count", agentCount: 0 },
+            { ...completedTask, id: "bad-prompt", prompt: "x".repeat(12_001) },
+          ],
+        },
+      ],
+    });
+
+    expect(normalized?.messages[0]).toMatchObject({
+      content: "Answer",
+      parts: [{ type: "text", content: "Answer" }],
+    });
+  });
+
+  it("preserves Thread Work-in-Progress fields alongside Subagent Tasks", () => {
+    const normalized = normalizeWorkspaceSnapshot({
+      ...baseSnapshot,
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          content: "Done",
+          parts: [completedTask],
+        },
+      ],
+      threadWork: {
+        t1: {
+          draft: { content: "Draft text", attachedSkillNames: [], attachments: [] },
+          queuedMessages: [{ id: "q1", content: "First" }],
+        },
+      },
+    });
+
+    expect(normalized?.messages[0]).toMatchObject({ parts: [completedTask] });
+    expect(normalized?.threadWork?.t1).toMatchObject({
+      draft: { content: "Draft text" },
+      queuedMessages: [{ id: "q1", content: "First" }],
+    });
   });
 });

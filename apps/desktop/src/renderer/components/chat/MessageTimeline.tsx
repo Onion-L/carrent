@@ -434,6 +434,12 @@ export function getAssistantMessagePresentation(
       return;
     }
 
+    // Subagent Tasks live in the Thread inspector pane; they never appear in
+    // the chronological activity trail or the final answer text.
+    if (part.type === "subagent_task") {
+      return;
+    }
+
     if ((part.type === "reasoning" || part.type === "shell") && !isRawThoughtPart(part)) {
       activityItems.push(part);
     }

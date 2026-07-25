@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import { ChatHeader } from "../components/chat/ChatHeader";
@@ -8,11 +8,19 @@ import {
   MessageTimeline,
   type UserMessageEditDraft,
 } from "../components/chat/MessageTimeline";
+import {
+  ThreadInspectorPane,
+  collectSubagentTasks,
+  resolveRightPane,
+  shouldShowInspectorToggle,
+  updateSeenSubagentTasks,
+} from "../components/chat/ThreadInspectorPane";
 import { WorkspaceDiffViewer } from "../components/chat/WorkspaceDiffViewer";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { WorkspaceDiffProvider, useWorkspaceDiff } from "../context/WorkspaceDiffContext";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
+import type { Message } from "../mock/uiShellData";
 
 export function resolveChatRouteData(
   getChatRouteData: ReturnType<typeof useWorkspace>["getChatRouteData"],
@@ -23,6 +31,18 @@ export function resolveChatRouteData(
   }
 
   return getChatRouteData(threadId);
+}
+
+// General Chats have no project Git context, so the inspector input carries
+// messages only and the Environment section stays hidden.
+export function getChatInspectorInput(
+  routeData: ReturnType<typeof resolveChatRouteData>,
+): { messages: Message[] } | null {
+  if (!routeData) {
+    return null;
+  }
+
+  return { messages: routeData.messages };
 }
 
 function ChatPageContent() {
@@ -38,6 +58,14 @@ function ChatPageContent() {
   } = useWorkspace();
   const routeData = resolveChatRouteData(getChatRouteData, threadId);
   const { state: diffState, closeDiff } = useWorkspaceDiff();
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const seenTaskIdsRef = useRef<Set<string>>(new Set());
+  const inspectorInput = getChatInspectorInput(routeData);
+  const inspectorTasks = useMemo(
+    () => collectSubagentTasks(inspectorInput?.messages ?? []),
+    [inspectorInput?.messages],
+  );
 
   useEffect(() => {
     setActiveThreadId(routeData?.thread.id ?? null);
@@ -45,7 +73,23 @@ function ChatPageContent() {
 
   useEffect(() => {
     setSubmitRequest(undefined);
+    setSelectedTaskId(null);
+    setInspectorOpen(false);
+    seenTaskIdsRef.current = new Set();
   }, [routeData?.thread.id]);
+
+  // Open the inspector once for each newly seen running task; updates to an
+  // already-seen task never reopen it after the user closed it.
+  useEffect(() => {
+    const { seenTaskIds, shouldOpen } = updateSeenSubagentTasks({
+      tasks: inspectorTasks,
+      seenTaskIds: seenTaskIdsRef.current,
+    });
+    seenTaskIdsRef.current = seenTaskIds;
+    if (shouldOpen) {
+      setInspectorOpen(true);
+    }
+  }, [inspectorTasks]);
 
   const handleSubmitUserEdit = (draft: UserMessageEditDraft) => {
     setSubmitRequest({
@@ -75,10 +119,26 @@ function ChatPageContent() {
     />
   ) : null;
 
+  const rightPane = resolveRightPane({ diffOpen: diffState.open, inspectorOpen });
+
   return (
-    <div className="flex h-full w-full">
+    <div className="relative flex h-full w-full">
       <div className="flex h-full min-w-0 flex-1 flex-col">
-        <ChatHeader title={routeData?.thread.title ?? "Chat not found"} />
+        <ChatHeader
+          title={routeData?.thread.title ?? "Chat not found"}
+          inspector={
+            shouldShowInspectorToggle({
+              hasProjectEnvironment: false,
+              taskCount: inspectorTasks.length,
+            })
+              ? {
+                  open: inspectorOpen,
+                  taskCount: inspectorTasks.length,
+                  onToggle: () => setInspectorOpen((open) => !open),
+                }
+              : undefined
+          }
+        />
         {routeData && isEmptyThread ? (
           <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
             <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
@@ -97,13 +157,19 @@ function ChatPageContent() {
         )}
       </div>
 
-      {diffState.open && (
+      {rightPane === "diff" && diffState.open ? (
         <WorkspaceDiffViewer
           snapshot={diffState.snapshot}
           files={diffState.files}
           onClose={closeDiff}
         />
-      )}
+      ) : rightPane === "inspector" ? (
+        <ThreadInspectorPane
+          messages={inspectorInput?.messages ?? []}
+          selectedTaskId={selectedTaskId}
+          onSelectTask={setSelectedTaskId}
+        />
+      ) : null}
     </div>
   );
 }

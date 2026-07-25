@@ -82,6 +82,29 @@ export type ChatReasoningEventPayload = {
   status: ChatReasoningStatus;
 };
 
+export type ChatSubagentTaskStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "interrupted"
+  | "detached";
+
+export type ChatSubagentTaskPayload = {
+  id: string;
+  runtimeId: "kimi";
+  source: "agent" | "agent-swarm";
+  runtimeAgentId?: string;
+  agentType?: string;
+  agentCount?: number;
+  description: string;
+  prompt?: string;
+  background: boolean;
+  status: ChatSubagentTaskStatus;
+  summary?: string;
+  startedAt: number;
+  finishedAt?: number;
+};
+
 export type ChatRunEvent =
   | (ChatRunEventBase & {
       type: "thread-upserted";
@@ -104,6 +127,7 @@ export type ChatRunEvent =
   | (ChatRunEventBase & { type: "delta"; text: string })
   | (ChatRunEventBase & { type: "reasoning"; reasoning: ChatReasoningEventPayload })
   | (ChatRunEventBase & { type: "shell"; shell: ChatShellEventPayload })
+  | (ChatRunEventBase & { type: "subagent-task"; task: ChatSubagentTaskPayload })
   | (ChatRunEventBase & {
       type: "completed";
       text: string;

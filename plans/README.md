@@ -7,7 +7,9 @@ on 2026-07-16 against commit `99f4f84`. Plan 008 was generated on 2026-07-20
 against commit `c580eea`. Plan 009 was generated on 2026-07-21 against commit
 `56b3117`. Plan 010 was generated on 2026-07-22 against commit `56b3117`.
 Plan 011 was generated on 2026-07-23 against commit `f7bbbf1`. Plan 012 was
-generated on 2026-07-23 against commit `f7bbbf1`.
+generated on 2026-07-23 against commit `f7bbbf1`. Plan 013 was generated on
+2026-07-23 against commit `eb682ff`. Plan 014 was generated on 2026-07-25
+against commit `eb682ff`.
 Execute in the order below unless dependencies say otherwise. Each executor
 must read its plan fully, honor the STOP conditions, and update its status row.
 
@@ -26,7 +28,9 @@ must read its plan fully, honor the STOP conditions, and update its status row.
 | 009  | Expose project actions from the fixed project rail                 | P1       | M      | -          | TODO   |
 | 010  | Support mixed image and text File Attachments                      | P1       | L      | -          | DONE   |
 | 011  | Persist Thread Work-in-Progress across navigation and restarts      | P1       | M      | -          | DONE   |
-| 012  | Show inspectable Kimi Subagent Tasks in the Thread side pane        | P1       | L      | 011        | TODO   |
+| 012  | Show inspectable Kimi Subagent Tasks in the Thread side pane        | P1       | L      | 011        | DONE   |
+| 013  | Make the Composer input and transient states read as one surface     | P2       | S      | 012        | DONE   |
+| 014  | Show Subagent Tasks as timeline cards with per-subagent inputs        | P1       | M      | 012        | TODO   |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale)
@@ -73,6 +77,16 @@ REJECTED (with one-line rationale)
   right-side inspector without replacing Kimi ACP, reading Kimi private session
   files, or claiming to show child-agent transcript events that ACP does not
   publish.
+- Plan 013 follows Plan 012 because both currently touch `Composer.tsx`. It is a
+  local presentation pass over the Composer shell, queued messages, and Approval
+  Requests; it must preserve Plan 012's Subagent Task integration and must not
+  change queue or approval behavior.
+- Plan 014 builds on Plan 012's Subagent Task pipeline. It renders tasks as
+  clickable timeline cards and derives the swarm's concrete launch-ordered
+  prompts from `prompt_template`, `items`, and `resume_agent_ids` for the
+  inspector detail. It must not attempt
+  per-subagent outputs or per-subagent live status, which Kimi's ACP adapter
+  does not publish.
 
 ## Findings considered and rejected
 

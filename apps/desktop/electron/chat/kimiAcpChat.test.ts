@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { ChatRunEvent, ChatTurnRequest } from "../../src/shared/chat";
+import { MAX_SUBAGENT_TASK_TEXT_LENGTH } from "../../src/shared/workspacePersistence";
 import type { CarrentBridgeFactory, CarrentBridgeHandle } from "../bridge/carrentBridge";
 import {
   buildKimiPromptParts,
@@ -1527,10 +1528,14 @@ describe("startKimiAcpChatRun", () => {
     await waitForAsyncEvents();
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    expect(transport.sent.find((message) => message.id === "read-old-attachment")?.error).toMatchObject({
+    expect(
+      transport.sent.find((message) => message.id === "read-old-attachment")?.error,
+    ).toMatchObject({
       code: -32000,
     });
-    expect(transport.sent.find((message) => message.id === "write-old-attachment")?.error).toMatchObject({
+    expect(
+      transport.sent.find((message) => message.id === "write-old-attachment")?.error,
+    ).toMatchObject({
       code: -32000,
     });
     expect(await readFile(oldAttachmentPath, "utf8")).toBe("history snapshot");
@@ -1579,5 +1584,502 @@ describe("startKimiAcpChatRun", () => {
       "Attachment is unavailable: gone.txt",
     );
     expect(transport.sent.map((message) => message.method)).not.toContain("session/prompt");
+  });
+});
+
+describe("Kimi subagent tasks", () => {
+  function runSubagentSequence(updates: Array<Record<string, unknown>>) {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-subagent" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        for (const update of updates) {
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: { sessionId: "session-subagent", update },
+          });
+        }
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-subagent",
+      request: makeRequest(),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+
+    return emitted;
+  }
+
+  function subagentEvents(emitted: ChatRunEvent[]) {
+    return emitted.filter(
+      (event): event is Extract<ChatRunEvent, { type: "subagent-task" }> =>
+        event.type === "subagent-task",
+    );
+  }
+
+  const agentStart = {
+    sessionUpdate: "tool_call",
+    toolCallId: "0:tool_agent",
+    title: "Launching coder agent: Implement persistence",
+    kind: "other",
+    status: "in_progress",
+    rawInput: {
+      subagent_type: "coder",
+      description: "Implement persistence",
+      prompt: "Implement step 1 and report the result",
+    },
+  };
+
+  it("emits running then completed for a single Agent call with object rawOutput", async () => {
+    const emitted = runSubagentSequence([
+      agentStart,
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "0:tool_agent",
+        status: "completed",
+        rawOutput: {
+          output:
+            "agent_id: agent-0\nactual_subagent_type: coder\nstatus: completed\n\n[summary]\nImplemented persistence and tests.",
+        },
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    const tasks = subagentEvents(emitted);
+    expect(tasks).toHaveLength(2);
+    expect(tasks[0].task).toMatchObject({
+      id: "0:tool_agent",
+      runtimeId: "kimi",
+      source: "agent",
+      agentType: "coder",
+      description: "Implement persistence",
+      prompt: "Implement step 1 and report the result",
+      background: false,
+      status: "running",
+    });
+    expect(tasks[0].task.finishedAt).toBeUndefined();
+    expect(tasks[1].task).toMatchObject({
+      id: "0:tool_agent",
+      runtimeAgentId: "agent-0",
+      agentType: "coder",
+      status: "completed",
+      summary: "Implemented persistence and tests.",
+    });
+    expect(tasks[1].task.startedAt).toBe(tasks[0].task.startedAt);
+    expect(tasks[1].task.finishedAt).toBeGreaterThan(tasks[1].task.startedAt - 1);
+
+    // The generic Agent Activity mapping must keep running alongside the task events.
+    const reasoning = emitted.filter(
+      (event): event is Extract<ChatRunEvent, { type: "reasoning" }> =>
+        event.type === "reasoning" && event.reasoning.id === "kimi-tool-0:tool_agent",
+    );
+    expect(reasoning.map((event) => event.reasoning.status)).toEqual(["running", "completed"]);
+  });
+
+  it("recognizes a resume start without subagent_type", async () => {
+    const emitted = runSubagentSequence([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "0:tool_resume",
+        title: "Launching coder agent: Continue persistence",
+        kind: "other",
+        status: "in_progress",
+        rawInput: {
+          description: "Continue persistence",
+          prompt: "Keep going from where you stopped",
+          resume: "agent-0",
+        },
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    const tasks = subagentEvents(emitted);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].task).toMatchObject({
+      id: "0:tool_resume",
+      source: "agent",
+      description: "Continue persistence",
+      prompt: "Keep going from where you stopped",
+      status: "running",
+    });
+    expect(tasks[0].task.agentType).toBeUndefined();
+  });
+
+  it("marks the task failed when the Agent result fails", async () => {
+    const emitted = runSubagentSequence([
+      agentStart,
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "0:tool_agent",
+        status: "failed",
+        rawOutput: "agent_id: agent-0\nstatus: failed\n\n[summary]\nSubagent hit an error.",
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    const tasks = subagentEvents(emitted);
+    expect(tasks).toHaveLength(2);
+    expect(tasks[1].task.status).toBe("failed");
+    expect(tasks[1].task.summary).toBe("Subagent hit an error.");
+    expect(tasks[1].task.finishedAt).toBeDefined();
+  });
+
+  it("marks a still-running background result as detached", async () => {
+    const emitted = runSubagentSequence([
+      {
+        ...agentStart,
+        toolCallId: "0:tool_background",
+        rawInput: {
+          ...agentStart.rawInput,
+          run_in_background: true,
+        },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "0:tool_background",
+        status: "completed",
+        rawOutput: {
+          output: "agent_id: agent-2\nstatus: running\n\n[summary]\nStill working in background.",
+        },
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    const tasks = subagentEvents(emitted);
+    expect(tasks).toHaveLength(2);
+    expect(tasks[0].task.background).toBe(true);
+    expect(tasks[1].task).toMatchObject({
+      status: "detached",
+      runtimeAgentId: "agent-2",
+    });
+    expect(tasks[1].task.finishedAt).toBeDefined();
+  });
+
+  it("records the aggregate agent count for an AgentSwarm call", async () => {
+    const emitted = runSubagentSequence([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "0:tool_swarm",
+        title: "Launching agent swarm: Review modules",
+        kind: "other",
+        status: "in_progress",
+        rawInput: {
+          description: "Review modules",
+          subagent_type: "explore",
+          prompt_template: "Review {{item}}",
+          items: ["src/a.ts", "src/b.ts", "src/c.ts"],
+          resume_agent_ids: { "agent-1": "resume a", "agent-2": "resume b" },
+        },
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    const tasks = subagentEvents(emitted);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].task).toMatchObject({
+      id: "0:tool_swarm",
+      source: "agent-swarm",
+      agentType: "explore",
+      agentCount: 5,
+      description: "Review modules",
+      status: "running",
+    });
+  });
+
+  it("preserves one id and the original start time across repeated updates", async () => {
+    const emitted = runSubagentSequence([
+      agentStart,
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "0:tool_agent",
+        status: "in_progress",
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "0:tool_agent",
+        status: "completed",
+        rawOutput: "agent_id: agent-0\nstatus: completed\n\n[summary]\nDone.",
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    const tasks = subagentEvents(emitted);
+    expect(tasks.map((event) => event.task.status)).toEqual(["running", "running", "completed"]);
+    expect(new Set(tasks.map((event) => event.task.id)).size).toBe(1);
+    expect(tasks[1].task.startedAt).toBe(tasks[0].task.startedAt);
+    expect(tasks[2].task.startedAt).toBe(tasks[0].task.startedAt);
+    expect(tasks[2].task.description).toBe("Implement persistence");
+  });
+
+  it("falls back to generic reasoning only for malformed Agent-like input", async () => {
+    const emitted = runSubagentSequence([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "0:tool_malformed",
+        title: "Launching coder agent: Missing description",
+        kind: "other",
+        status: "in_progress",
+        rawInput: {
+          subagent_type: "coder",
+          prompt: 42,
+        },
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    expect(subagentEvents(emitted)).toHaveLength(0);
+    const reasoning = emitted.find(
+      (event): event is Extract<ChatRunEvent, { type: "reasoning" }> =>
+        event.type === "reasoning" && event.reasoning.id === "kimi-tool-0:tool_malformed",
+    );
+    expect(reasoning?.reasoning.content).toBe("Launching coder agent: Missing description");
+  });
+
+  it("completes without a summary when the result text is malformed", async () => {
+    const emitted = runSubagentSequence([
+      agentStart,
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "0:tool_agent",
+        status: "completed",
+        rawOutput: "totally unstructured blob",
+      },
+      {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Finished." },
+      },
+    ]);
+    await waitForAsyncEvents();
+    await waitForAsyncEvents();
+
+    const tasks = subagentEvents(emitted);
+    expect(tasks).toHaveLength(2);
+    expect(tasks[1].task.status).toBe("completed");
+    expect(tasks[1].task.summary).toBeUndefined();
+    expect(tasks[1].task.runtimeAgentId).toBeUndefined();
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Finished.",
+    });
+  });
+
+  it("leaves ordinary tools without subagent tasks", async () => {
+    const emitted = runSubagentSequence([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "0:tool_bash",
+        title: "Bash",
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: "ls" },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "0:tool_bash",
+        status: "completed",
+        rawOutput: "file.txt",
+      },
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "0:tool_read",
+        title: "Read",
+        kind: "read",
+        status: "completed",
+        rawInput: { path: "src/a.ts" },
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    expect(subagentEvents(emitted)).toHaveLength(0);
+    const shell = emitted.find(
+      (event): event is Extract<ChatRunEvent, { type: "shell" }> => event.type === "shell",
+    );
+    expect(shell?.shell.command).toBe("ls");
+    const readReasoning = emitted.find(
+      (event): event is Extract<ChatRunEvent, { type: "reasoning" }> =>
+        event.type === "reasoning" && event.reasoning.content === "Read src/a.ts",
+    );
+    expect(readReasoning).toBeDefined();
+  });
+
+  it("settles a background task as completed when its result completes", async () => {
+    const emitted = runSubagentSequence([
+      {
+        ...agentStart,
+        toolCallId: "0:tool_background",
+        rawInput: {
+          ...agentStart.rawInput,
+          run_in_background: true,
+        },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "0:tool_background",
+        status: "completed",
+        rawOutput: {
+          output: "agent_id: agent-2\nstatus: completed\n\n[summary]\nBackground work finished.",
+        },
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    const tasks = subagentEvents(emitted);
+    expect(tasks).toHaveLength(2);
+    expect(tasks[1].task).toMatchObject({
+      background: true,
+      status: "completed",
+      summary: "Background work finished.",
+    });
+    expect(tasks[1].task.finishedAt).toBeDefined();
+  });
+
+  it("detaches a background task when the result is unparseable", async () => {
+    const emitted = runSubagentSequence([
+      {
+        ...agentStart,
+        toolCallId: "0:tool_background",
+        rawInput: {
+          ...agentStart.rawInput,
+          run_in_background: true,
+        },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "0:tool_background",
+        status: "completed",
+        rawOutput: "totally unstructured blob",
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    const tasks = subagentEvents(emitted);
+    expect(tasks).toHaveLength(2);
+    // Without a parsed completed result, completion cannot be confirmed.
+    expect(tasks[1].task.status).toBe("detached");
+    expect(tasks[1].task.summary).toBeUndefined();
+    expect(tasks[1].task.finishedAt).toBeDefined();
+  });
+
+  it("detaches a background AgentSwarm whose result is never parsed", async () => {
+    const emitted = runSubagentSequence([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "0:tool_swarm",
+        title: "Launching agent swarm: Review modules",
+        kind: "other",
+        status: "in_progress",
+        rawInput: {
+          description: "Review modules",
+          items: ["src/a.ts"],
+          run_in_background: true,
+        },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "0:tool_swarm",
+        status: "completed",
+        rawOutput: "totally unstructured blob",
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    const tasks = subagentEvents(emitted);
+    expect(tasks).toHaveLength(2);
+    expect(tasks[1].task).toMatchObject({
+      source: "agent-swarm",
+      background: true,
+      status: "detached",
+    });
+    expect(tasks[1].task.finishedAt).toBeDefined();
+  });
+
+  it("settles a foreground AgentSwarm as completed on the outer status", async () => {
+    const emitted = runSubagentSequence([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "0:tool_swarm",
+        title: "Launching agent swarm: Review modules",
+        kind: "other",
+        status: "in_progress",
+        rawInput: {
+          description: "Review modules",
+          items: ["src/a.ts"],
+        },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "0:tool_swarm",
+        status: "completed",
+        rawOutput: "totally unstructured blob",
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    const tasks = subagentEvents(emitted);
+    expect(tasks).toHaveLength(2);
+    expect(tasks[1].task.status).toBe("completed");
+    expect(tasks[1].task.finishedAt).toBeDefined();
+  });
+
+  it("omits agentCount when a swarm call has no items or resumes", async () => {
+    const emitted = runSubagentSequence([
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "0:tool_swarm",
+        title: "Launching agent swarm: Review modules",
+        kind: "other",
+        status: "in_progress",
+        rawInput: {
+          description: "Review modules",
+        },
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    const tasks = subagentEvents(emitted);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].task.source).toBe("agent-swarm");
+    expect(tasks[0].task.agentCount).toBeUndefined();
+  });
+
+  it("caps persisted description, prompt, and summary at 12,000 characters", async () => {
+    const longText = "x".repeat(20_000);
+    const emitted = runSubagentSequence([
+      {
+        ...agentStart,
+        rawInput: {
+          ...agentStart.rawInput,
+          description: longText,
+          prompt: longText,
+        },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "0:tool_agent",
+        status: "completed",
+        rawOutput: `status: completed\n\n[summary]\n${longText}`,
+      },
+    ]);
+    await waitForAsyncEvents();
+
+    const tasks = subagentEvents(emitted);
+    expect(tasks).toHaveLength(2);
+    for (const text of [tasks[1].task.description, tasks[1].task.prompt, tasks[1].task.summary]) {
+      expect(text).toBeDefined();
+      expect(text!.length <= MAX_SUBAGENT_TASK_TEXT_LENGTH).toBe(true);
+      expect(text!).toContain("[output truncated]");
+    }
   });
 });

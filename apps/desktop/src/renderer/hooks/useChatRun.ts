@@ -4,6 +4,7 @@ import type {
   ChatReasoningEventPayload,
   ChatRunEvent,
   ChatShellEventPayload,
+  ChatSubagentTaskPayload,
   ChatTurnRequest,
 } from "../../shared/chat";
 import type { ChatPermissionRequest, ChatPermissionResponse } from "../../shared/chatPermissions";
@@ -12,6 +13,7 @@ export type ChatRunCallbacks = {
   onDelta?: (text: string) => void;
   onReasoning?: (reasoning: ChatReasoningEventPayload) => void;
   onShell?: (shell: ChatShellEventPayload) => void;
+  onSubagentTask?: (task: ChatSubagentTaskPayload) => void;
   onPermissionRequested?: (permission: ChatPermissionRequest) => void;
   onPermissionResolved?: (resolution: {
     permissionId: string;
@@ -214,6 +216,11 @@ export function createChatRunCoordinator() {
 
       if (event.type === "shell") {
         run.callbacks.onShell?.(event.shell);
+        return;
+      }
+
+      if (event.type === "subagent-task") {
+        run.callbacks.onSubagentTask?.(event.task);
         return;
       }
 

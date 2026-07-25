@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import { ChatHeader } from "../components/chat/ChatHeader";
@@ -12,11 +12,19 @@ import {
   MessageTimeline,
   type UserMessageEditDraft,
 } from "../components/chat/MessageTimeline";
+import {
+  ThreadInspectorPane,
+  collectSubagentTasks,
+  resolveRightPane,
+  shouldShowInspectorToggle,
+  updateSeenSubagentTasks,
+} from "../components/chat/ThreadInspectorPane";
 import { WorkspaceDiffViewer } from "../components/chat/WorkspaceDiffViewer";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { WorkspaceDiffProvider, useWorkspaceDiff } from "../context/WorkspaceDiffContext";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
+import type { Message } from "../mock/uiShellData";
 
 export function resolveThreadRouteData(
   getThreadRouteData: ReturnType<typeof useWorkspace>["getThreadRouteData"],
@@ -28,6 +36,16 @@ export function resolveThreadRouteData(
   }
 
   return getThreadRouteData(projectId, threadId);
+}
+
+export function getThreadInspectorInput(
+  routeData: ReturnType<typeof resolveThreadRouteData>,
+): { projectPath: string; messages: Message[] } | null {
+  if (!routeData) {
+    return null;
+  }
+
+  return { projectPath: routeData.project.path, messages: routeData.messages };
 }
 
 function ThreadPageContent() {
@@ -49,6 +67,14 @@ function ThreadPageContent() {
   } = useWorkspace();
   const routeData = resolveThreadRouteData(getThreadRouteData, projectId, threadId);
   const { state: diffState, closeDiff } = useWorkspaceDiff();
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const seenTaskIdsRef = useRef<Set<string>>(new Set());
+  const inspectorInput = getThreadInspectorInput(routeData);
+  const inspectorTasks = useMemo(
+    () => collectSubagentTasks(inspectorInput?.messages ?? []),
+    [inspectorInput?.messages],
+  );
 
   useEffect(() => {
     setActiveThreadId(routeData?.thread.id ?? null);
@@ -57,8 +83,24 @@ function ThreadPageContent() {
   useEffect(() => {
     setSubmitRequest(undefined);
     setDraftRequest(undefined);
+    setSelectedTaskId(null);
+    setInspectorOpen(false);
+    seenTaskIdsRef.current = new Set();
     closeDiff();
   }, [routeData?.thread.id]);
+
+  // Open the inspector once for each newly seen running task; updates to an
+  // already-seen task never reopen it after the user closed it.
+  useEffect(() => {
+    const { seenTaskIds, shouldOpen } = updateSeenSubagentTasks({
+      tasks: inspectorTasks,
+      seenTaskIds: seenTaskIdsRef.current,
+    });
+    seenTaskIdsRef.current = seenTaskIds;
+    if (shouldOpen) {
+      setInspectorOpen(true);
+    }
+  }, [inspectorTasks]);
 
   const handleSubmitUserEdit = (draft: UserMessageEditDraft) => {
     if (!routeData) {
@@ -109,10 +151,26 @@ function ThreadPageContent() {
     />
   ) : null;
 
+  const rightPane = resolveRightPane({ diffOpen: diffState.open, inspectorOpen });
+
   return (
-    <div className="flex h-full w-full">
+    <div className="relative flex h-full w-full">
       <div className="flex h-full min-w-0 flex-1 flex-col">
-        <ChatHeader title={routeData?.thread.title ?? "Thread not found"} />
+        <ChatHeader
+          title={routeData?.thread.title ?? "Thread not found"}
+          inspector={
+            shouldShowInspectorToggle({
+              hasProjectEnvironment: !!inspectorInput,
+              taskCount: inspectorTasks.length,
+            })
+              ? {
+                  open: inspectorOpen,
+                  taskCount: inspectorTasks.length,
+                  onToggle: () => setInspectorOpen((open) => !open),
+                }
+              : undefined
+          }
+        />
         {routeData && isEmptyThread ? (
           <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
             <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
@@ -131,7 +189,7 @@ function ThreadPageContent() {
         )}
       </div>
 
-      {diffState.open && (
+      {rightPane === "diff" && diffState.open ? (
         <WorkspaceDiffViewer
           snapshot={diffState.snapshot}
           files={diffState.files}
@@ -149,7 +207,14 @@ function ThreadPageContent() {
               : undefined
           }
         />
-      )}
+      ) : rightPane === "inspector" ? (
+        <ThreadInspectorPane
+          messages={inspectorInput?.messages ?? []}
+          projectPath={inspectorInput?.projectPath}
+          selectedTaskId={selectedTaskId}
+          onSelectTask={setSelectedTaskId}
+        />
+      ) : null}
     </div>
   );
 }

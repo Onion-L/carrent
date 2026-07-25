@@ -69,7 +69,11 @@ import {
 } from "../../hooks/chatMessageQueue";
 import type { Message } from "../../mock/uiShellData";
 import type { GitWorkspaceDiffResult } from "../../../../electron/git/gitIpc";
-import { type ChatReasoningEventPayload, type ChatShellEventPayload } from "../../../shared/chat";
+import {
+  type ChatReasoningEventPayload,
+  type ChatShellEventPayload,
+  type ChatSubagentTaskPayload,
+} from "../../../shared/chat";
 import type { SkillRecord } from "../../../shared/skills";
 import type { ChatPermissionRequest } from "../../../shared/chatPermissions";
 import {
@@ -1573,6 +1577,19 @@ export function Composer(props: ComposerProps) {
       });
     };
 
+    const updateLocalMessageSubagentTaskPart = (
+      messageId: string,
+      task: ChatSubagentTaskPayload,
+    ) => {
+      updateMessageParts(messageId, {
+        kind: "upsert-subagent-task",
+        task: {
+          type: "subagent_task",
+          ...task,
+        },
+      });
+    };
+
     const flushPendingTypewriterText = () => {
       const activeMessageId = activeAssistantMessageIdRef.current;
       if (!activeMessageId) {
@@ -1718,6 +1735,11 @@ export function Composer(props: ComposerProps) {
           flushPendingTypewriterText();
           updateLocalMessageShellPart(assistantMsg.id, shell);
         },
+        onSubagentTask: (task) => {
+          stopTypewriter();
+          flushPendingTypewriterText();
+          updateLocalMessageSubagentTaskPart(assistantMsg.id, task);
+        },
         onPermissionRequested: (permission) => {
           markThreadActivity(threadId, Date.parse(permission.createdAt));
           if (permission.planReview) {
@@ -1762,6 +1784,9 @@ export function Composer(props: ComposerProps) {
           if (!receivedTextRef.current || text.startsWith(receivedTextRef.current)) {
             receivedTextRef.current = text;
           }
+          // A foreground task can never outlive its parent Run; detached
+          // tasks keep their state.
+          updateMessageParts(assistantMsg.id, { kind: "interrupt-subagent-tasks" });
           updateMessageRunStatus(assistantMsg.id, "completed");
           markThreadActivity(threadId);
           startTypewriter(assistantMsg.id);
@@ -1784,6 +1809,7 @@ export function Composer(props: ComposerProps) {
             assistantMsg.id,
             `${hasAnswerText ? "\n\n" : ""}Error: ${error}`,
           );
+          updateMessageParts(assistantMsg.id, { kind: "interrupt-subagent-tasks" });
           updateMessageRunStatus(assistantMsg.id, "failed");
           markThreadActivity(threadId);
           activeAssistantMessageIdRef.current = null;
@@ -1798,6 +1824,7 @@ export function Composer(props: ComposerProps) {
         onStop: () => {
           stopTypewriter();
           flushPendingTypewriterText();
+          updateMessageParts(assistantMsg.id, { kind: "interrupt-subagent-tasks" });
           updateMessageRunStatus(assistantMsg.id, "cancelled");
           markThreadActivity(threadId);
           activeAssistantMessageIdRef.current = null;
@@ -2080,6 +2107,7 @@ export function Composer(props: ComposerProps) {
     });
   };
   const isCenteredPlacement = props.placement === "centered";
+  const hasAttachedStatusLayer = threadPermissions.length > 0 || queuedMessages.length > 0;
 
   return (
     <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"} onPaste={handlePaste}>
@@ -2164,57 +2192,165 @@ export function Composer(props: ComposerProps) {
             </div>
           </div>
         ) : null}
-        <div className="rounded-xl border border-border bg-surface-raised/90 p-3 shadow-[0_18px_60px_rgb(0_0_0/0.18)]">
-          {threadPermissions.length > 0 ? (
-            <div className="mb-2 space-y-2">
-              {threadPermissions.map((permission) => (
-                <div key={permission.id}>
-                  <div className="flex items-center justify-between gap-3 rounded-xl border border-border-strong bg-bg/45 px-3 py-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-app-12 font-medium text-fg">
-                        {permission.title}
-                      </div>
-                      <div className="truncate text-app-11 text-subtle">
-                        {getPermissionDetail(permission)}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      {getPermissionOption(permission, "reject_once") ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handlePermissionResponse(
-                              permission,
-                              getPermissionOption(permission, "reject_once")!.optionId,
-                            )
-                          }
-                          className="flex h-7 w-7 items-center justify-center rounded-full border border-border-strong text-muted transition hover:bg-surface-hover hover:text-fg active:scale-95"
-                          title="Deny"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      ) : null}
-                      {getPermissionOption(permission, "allow_once") ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handlePermissionResponse(
-                              permission,
-                              getPermissionOption(permission, "allow_once")!.optionId,
-                            )
-                          }
-                          className="flex h-7 w-7 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 active:scale-95"
-                          title="Approve"
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                        </button>
-                      ) : null}
-                    </div>
+        {hasAttachedStatusLayer ? (
+          <div className="-mb-px divide-y divide-border rounded-t-xl border border-border bg-bg/45 px-3 py-1">
+            {threadPermissions.map((permission) => (
+              <div key={permission.id} className="flex items-center gap-2.5 py-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-app-12 font-medium text-fg">{permission.title}</div>
+                  <div className="break-words text-app-11 text-subtle">
+                    {getPermissionDetail(permission)}
                   </div>
                 </div>
-              ))}
-            </div>
-          ) : null}
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {getPermissionOption(permission, "reject_once") ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handlePermissionResponse(
+                          permission,
+                          getPermissionOption(permission, "reject_once")!.optionId,
+                        )
+                      }
+                      aria-label={`Deny: ${permission.title}`}
+                      className="flex h-7 w-7 items-center justify-center rounded-full border border-border-strong text-muted transition hover:bg-surface-hover hover:text-fg active:scale-95"
+                      title="Deny"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                  {getPermissionOption(permission, "allow_once") ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handlePermissionResponse(
+                          permission,
+                          getPermissionOption(permission, "allow_once")!.optionId,
+                        )
+                      }
+                      aria-label={`Approve: ${permission.title}`}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 active:scale-95"
+                      title="Approve"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+            {queuedMessages.map((item) => {
+              const isEditingQueued = editingQueuedId === item.id;
+              return (
+                <div key={item.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 py-1.5">
+                  <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-subtle" />
+                  {isEditingQueued ? (
+                    <input
+                      autoFocus
+                      value={editingQueuedText}
+                      onChange={(event) => setEditingQueuedText(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          commitQueuedEdit();
+                        } else if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelQueuedEdit();
+                        }
+                      }}
+                      onBlur={commitQueuedEdit}
+                      aria-label="Edit queued message"
+                      className="h-6 min-w-0 flex-1 rounded-sm bg-transparent text-app-13 text-fg outline-none focus-visible:ring-2 focus-visible:ring-fg/25"
+                    />
+                  ) : (
+                    <span className="min-w-0 flex-1 truncate text-app-13 text-fg">
+                      {item.content}
+                    </span>
+                  )}
+                  {item.attachments && item.attachments.length > 0 ? (
+                    <span className="flex shrink-0 items-center gap-1 text-app-11 text-subtle">
+                      <Paperclip className="h-3 w-3" />
+                      {item.attachments.length}
+                    </span>
+                  ) : null}
+                  {item.requiresConfirmation ? (
+                    <span
+                      aria-label="Restored queued message"
+                      className="shrink-0 text-app-11 text-subtle"
+                    >
+                      Restored
+                    </span>
+                  ) : null}
+                  {isEditingQueued ? (
+                    <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                      <button
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={commitQueuedEdit}
+                        aria-label="Save queued message"
+                        title="Save"
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={cancelQueuedEdit}
+                        aria-label="Cancel editing queued message"
+                        title="Cancel"
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSteerQueuedMessage(item)}
+                        className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-app-11 text-muted transition hover:bg-surface-hover hover:text-fg"
+                        title={
+                          isThreadSending ? "Stop the current run and send this now" : "Send now"
+                        }
+                      >
+                        <Zap className="h-3 w-3" />
+                        {isThreadSending ? "Steer" : "Send"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          editingQueuedIdRef.current = item.id;
+                          setEditingQueuedId(item.id);
+                          setEditingQueuedText(item.content);
+                        }}
+                        aria-label="Edit queued message"
+                        title="Edit"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeQueuedChatMessage(threadId, item.id)}
+                        aria-label="Delete queued message"
+                        title="Delete"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-danger"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+        <div
+          className={`relative border border-border bg-surface-raised/90 p-3 shadow-[0_18px_60px_rgb(0_0_0/0.18)] transition-colors duration-200 focus-within:border-border-strong ${
+            hasAttachedStatusLayer ? "rounded-b-xl" : "rounded-xl"
+          }`}
+        >
           {pendingAttachments.length > 0 && (
             <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
               {pendingAttachments.map((attachment) => {
@@ -2328,119 +2464,7 @@ export function Composer(props: ComposerProps) {
               </div>
             </div>
           ) : null}
-          {queuedMessages.length > 0 ? (
-            <div className="mb-2 space-y-1.5">
-              {queuedMessages.map((item) => {
-                const isEditingQueued = editingQueuedId === item.id;
-                return (
-                  <div
-                    key={item.id}
-                    className="flex items-center gap-2.5 rounded-lg border border-border/70 bg-bg/45 px-2.5 py-1.5"
-                  >
-                    <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-subtle" />
-                    {isEditingQueued ? (
-                      <input
-                        autoFocus
-                        value={editingQueuedText}
-                        onChange={(event) => setEditingQueuedText(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            commitQueuedEdit();
-                          } else if (event.key === "Escape") {
-                            event.preventDefault();
-                            cancelQueuedEdit();
-                          }
-                        }}
-                        onBlur={commitQueuedEdit}
-                        aria-label="Edit queued message"
-                        className="h-6 min-w-0 flex-1 bg-transparent text-app-13 text-fg outline-none"
-                      />
-                    ) : (
-                      <span className="min-w-0 flex-1 truncate text-app-13 text-fg">
-                        {item.content}
-                      </span>
-                    )}
-                    {item.attachments && item.attachments.length > 0 ? (
-                      <span className="flex shrink-0 items-center gap-1 text-app-11 text-subtle">
-                        <Paperclip className="h-3 w-3" />
-                        {item.attachments.length}
-                      </span>
-                    ) : null}
-                    {item.requiresConfirmation ? (
-                      <span
-                        aria-label="Restored queued message"
-                        className="shrink-0 text-app-11 text-subtle"
-                      >
-                        Restored
-                      </span>
-                    ) : null}
-                    {isEditingQueued ? (
-                      <div className="flex shrink-0 items-center gap-0.5">
-                        <button
-                          type="button"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={commitQueuedEdit}
-                          aria-label="Save queued message"
-                          title="Save"
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={cancelQueuedEdit}
-                          aria-label="Cancel editing queued message"
-                          title="Cancel"
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex shrink-0 items-center gap-0.5">
-                        <button
-                          type="button"
-                          onClick={() => handleSteerQueuedMessage(item)}
-                          className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-app-11 text-muted transition hover:bg-surface-hover hover:text-fg"
-                          title={
-                            isThreadSending ? "Stop the current run and send this now" : "Send now"
-                          }
-                        >
-                          <Zap className="h-3 w-3" />
-                          {isThreadSending ? "Steer" : "Send"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            editingQueuedIdRef.current = item.id;
-                            setEditingQueuedId(item.id);
-                            setEditingQueuedText(item.content);
-                          }}
-                          aria-label="Edit queued message"
-                          title="Edit"
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeQueuedChatMessage(threadId, item.id)}
-                          aria-label="Delete queued message"
-                          title="Delete"
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-danger"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : null}
-          <div className="flex min-h-12 flex-wrap items-start gap-x-1.5 gap-y-1">
+          <div className="flex min-h-20 flex-wrap items-start gap-x-1.5 gap-y-1">
             {attachedSkills.map((skill) => (
               <span
                 key={skill.path}
@@ -2471,7 +2495,7 @@ export function Composer(props: ComposerProps) {
               onClick={updateTextareaCursor}
               onSelect={updateTextareaCursor}
               placeholder={attachedSkills.length > 0 ? "" : "Message..."}
-              className="min-h-12 min-w-32 flex-1 resize-none bg-transparent text-app-15 leading-6 text-fg placeholder:text-subtle outline-none"
+              className="min-h-20 min-w-32 flex-1 resize-none bg-transparent text-app-15 leading-6 text-fg placeholder:text-subtle outline-none"
               rows={1}
               onKeyDown={(e) => {
                 if (

@@ -17,6 +17,7 @@ export const WORKSPACE_SNAPSHOT_VERSION = 1;
 const MAX_PATCH_BYTES = 256 * 1024;
 const MAX_PLAN_REVIEW_BYTES = 256 * 1024;
 const MAX_PLAN_REVIEW_OPTIONS = 5;
+export const MAX_SUBAGENT_TASK_TEXT_LENGTH = 12_000;
 const MAX_THREAD_WORK_TEXT_BYTES = 256 * 1024;
 const MAX_THREAD_WORK_QUEUE_ITEMS = 50;
 
@@ -191,12 +192,93 @@ function normalizePlanReviewPart(
   };
 }
 
+function normalizeSubagentTaskPart(
+  value: unknown,
+): Extract<MessagePart, { type: "subagent_task" }> | null {
+  if (!isRecord(value) || value.type !== "subagent_task") return null;
+  if (typeof value.id !== "string" || !value.id) return null;
+  if (value.runtimeId !== "kimi") return null;
+  if (value.source !== "agent" && value.source !== "agent-swarm") return null;
+  if (typeof value.description !== "string") return null;
+  if (value.description.length > MAX_SUBAGENT_TASK_TEXT_LENGTH) return null;
+  if (typeof value.background !== "boolean") return null;
+  if (
+    value.status !== "running" &&
+    value.status !== "completed" &&
+    value.status !== "failed" &&
+    value.status !== "interrupted" &&
+    value.status !== "detached"
+  ) {
+    return null;
+  }
+  if (
+    typeof value.startedAt !== "number" ||
+    !Number.isFinite(value.startedAt) ||
+    value.startedAt < 0
+  ) {
+    return null;
+  }
+  if (
+    value.finishedAt !== undefined &&
+    (typeof value.finishedAt !== "number" ||
+      !Number.isFinite(value.finishedAt) ||
+      value.finishedAt < value.startedAt)
+  ) {
+    return null;
+  }
+  if (
+    value.agentCount !== undefined &&
+    (typeof value.agentCount !== "number" ||
+      !Number.isInteger(value.agentCount) ||
+      value.agentCount <= 0)
+  ) {
+    return null;
+  }
+
+  const optionalStrings = ["runtimeAgentId", "agentType", "prompt", "summary"] as const;
+  for (const key of optionalStrings) {
+    if (value[key] !== undefined && typeof value[key] !== "string") return null;
+  }
+  if (
+    (typeof value.prompt === "string" && value.prompt.length > MAX_SUBAGENT_TASK_TEXT_LENGTH) ||
+    (typeof value.summary === "string" && value.summary.length > MAX_SUBAGENT_TASK_TEXT_LENGTH)
+  ) {
+    return null;
+  }
+
+  const status: Extract<MessagePart, { type: "subagent_task" }>["status"] =
+    value.status === "running"
+      ? "interrupted"
+      : (value.status as Extract<MessagePart, { type: "subagent_task" }>["status"]);
+
+  return {
+    type: "subagent_task",
+    id: value.id,
+    runtimeId: "kimi",
+    source: value.source,
+    description: value.description,
+    background: value.background,
+    status,
+    startedAt: value.startedAt,
+    ...(typeof value.runtimeAgentId === "string" ? { runtimeAgentId: value.runtimeAgentId } : {}),
+    ...(typeof value.agentType === "string" ? { agentType: value.agentType } : {}),
+    ...(typeof value.agentCount === "number" ? { agentCount: value.agentCount } : {}),
+    ...(typeof value.prompt === "string" ? { prompt: value.prompt } : {}),
+    ...(typeof value.summary === "string" ? { summary: value.summary } : {}),
+    ...(typeof value.finishedAt === "number" ? { finishedAt: value.finishedAt } : {}),
+  };
+}
+
 function normalizeMessageParts(value: unknown): MessagePart[] | undefined {
   if (!Array.isArray(value)) return undefined;
 
   const parts = value.flatMap((item) => {
     if (isRecord(item) && item.type === "plan_review") {
       const normalized = normalizePlanReviewPart(item);
+      return normalized ? [normalized] : [];
+    }
+    if (isRecord(item) && item.type === "subagent_task") {
+      const normalized = normalizeSubagentTaskPart(item);
       return normalized ? [normalized] : [];
     }
     return [item as MessagePart];

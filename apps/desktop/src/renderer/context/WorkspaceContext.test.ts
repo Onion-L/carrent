@@ -627,4 +627,94 @@ describe("applyMessagePartUpdate", () => {
       parts: [{ type: "plan_review", status: "interrupted" }],
     });
   });
+
+  it("upserts Subagent Tasks by id while preserving insertion order", () => {
+    const message = makeMessage({ role: "assistant", content: "", parts: [] });
+    const task = {
+      type: "subagent_task" as const,
+      id: "0:tool_agent",
+      runtimeId: "kimi" as const,
+      source: "agent" as const,
+      agentType: "coder",
+      description: "Implement persistence",
+      prompt: "Implement step 1",
+      background: false,
+      status: "running" as const,
+      startedAt: 1000,
+    };
+
+    const withTask = applyMessagePartUpdate(message, { kind: "upsert-subagent-task", task });
+    const withReasoning = applyMessagePartUpdate(withTask, {
+      kind: "upsert-reasoning",
+      reasoning: {
+        type: "reasoning",
+        id: "reasoning-1",
+        content: "Working",
+        status: "running",
+      },
+    });
+    const updated = applyMessagePartUpdate(withReasoning, {
+      kind: "upsert-subagent-task",
+      task: {
+        ...task,
+        status: "completed",
+        runtimeAgentId: "agent-0",
+        summary: "Done.",
+        finishedAt: 2000,
+      },
+    });
+
+    expect(updated).toMatchObject({
+      content: "",
+      parts: [
+        {
+          type: "subagent_task",
+          id: "0:tool_agent",
+          status: "completed",
+          runtimeAgentId: "agent-0",
+          summary: "Done.",
+          startedAt: 1000,
+          finishedAt: 2000,
+        },
+        { type: "reasoning", id: "reasoning-1" },
+      ],
+    });
+  });
+
+  it("interrupts only running Subagent Tasks and keeps settled and detached tasks", () => {
+    const baseTask = {
+      type: "subagent_task" as const,
+      runtimeId: "kimi" as const,
+      source: "agent" as const,
+      description: "Task",
+      background: false,
+      startedAt: 1000,
+    };
+    const message = makeMessage({
+      role: "assistant",
+      content: "",
+      parts: [
+        { ...baseTask, id: "task-running", status: "running" as const },
+        {
+          ...baseTask,
+          id: "task-completed",
+          status: "completed" as const,
+          finishedAt: 2000,
+        },
+        { ...baseTask, id: "task-detached", status: "detached" as const, finishedAt: 2000 },
+        { ...baseTask, id: "task-failed", status: "failed" as const, finishedAt: 2000 },
+      ],
+    });
+
+    const interrupted = applyMessagePartUpdate(message, { kind: "interrupt-subagent-tasks" });
+
+    expect(interrupted).toMatchObject({
+      parts: [
+        { id: "task-running", status: "interrupted" },
+        { id: "task-completed", status: "completed" },
+        { id: "task-detached", status: "detached" },
+        { id: "task-failed", status: "failed" },
+      ],
+    });
+  });
 });

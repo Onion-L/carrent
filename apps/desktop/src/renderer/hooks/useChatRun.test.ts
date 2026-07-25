@@ -186,6 +186,61 @@ describe("createChatRunCoordinator", () => {
     expect(received).toEqual(["running:Need to inspect files"]);
   });
 
+  it("routes subagent-task events to the active request callback", () => {
+    const coordinator = createChatRunCoordinator();
+    const received: string[] = [];
+
+    coordinator.beginRequest("request-1", "thread-1", {
+      onSubagentTask: (task) => received.push(`${task.status}:${task.description}`),
+    });
+
+    coordinator.handleEvent({
+      type: "subagent-task",
+      runId: "run-1",
+      requestKey: "request-1",
+      task: {
+        id: "kimi-tool-1",
+        runtimeId: "kimi",
+        source: "agent",
+        agentType: "coder",
+        description: "Implement persistence",
+        prompt: "Implement step 1 and report the result",
+        background: false,
+        status: "running",
+        startedAt: 1000,
+      },
+    } satisfies ChatRunEvent);
+
+    expect(received).toEqual(["running:Implement persistence"]);
+  });
+
+  it("ignores subagent-task events from an unrelated run id", () => {
+    const coordinator = createChatRunCoordinator();
+    const received: string[] = [];
+
+    coordinator.beginRequest("request-1", "thread-1", {
+      onSubagentTask: (task) => received.push(task.description),
+    });
+
+    coordinator.handleEvent({
+      type: "subagent-task",
+      runId: "run-2",
+      requestKey: "request-2",
+      task: {
+        id: "kimi-tool-9",
+        runtimeId: "kimi",
+        source: "agent",
+        description: "Wrong run",
+        background: false,
+        status: "running",
+        startedAt: 1000,
+      },
+    } satisfies ChatRunEvent);
+
+    expect(received).toEqual([]);
+    expect(coordinator.getSnapshot().isSending).toBe(true);
+  });
+
   it("tracks pending permission requests by thread", () => {
     const coordinator = createChatRunCoordinator();
     const received: string[] = [];

@@ -5,6 +5,7 @@ import { SidebarNav } from "./SidebarNav";
 import { ThreadHistoryPane } from "./chat/ThreadHistoryPane";
 import { SettingsTabsPane } from "./settings/SettingsTabsPane";
 import { McpServerControl } from "./mcp/McpServerControl";
+import { DesktopHeaderActionsSlot } from "./DesktopHeaderActions";
 
 const LEFT_SIDEBAR_WIDTH = 58;
 const MIN_SECONDARY_PANE_WIDTH = 200;
@@ -79,7 +80,8 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
 
-          <div className="no-drag flex h-full items-center">
+          <div className="no-drag flex h-full items-center gap-1">
+            <DesktopHeaderActionsSlot />
             <McpServerControl />
           </div>
         </header>

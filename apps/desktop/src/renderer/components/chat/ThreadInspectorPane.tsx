@@ -10,6 +10,7 @@ import {
   GitBranch,
   Laptop,
   Loader2,
+  SlidersHorizontal,
   XCircle,
 } from "lucide-react";
 
@@ -130,8 +131,27 @@ const SUBAGENT_STATUS_LABEL: Record<SubagentTaskPart["status"], string> = {
 
 export const THREAD_INSPECTOR_TITLE = "Subagents";
 
-const INSPECTOR_PANE_CLASS =
-  "flex h-full w-[20rem] min-w-0 shrink-0 flex-col overflow-hidden border-l border-border bg-bg";
+// The inspector is a floating card anchored below the titlebar; it overlays
+// the timeline instead of taking layout space.
+const INSPECTOR_CARD_CLASS =
+  "flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-[0_12px_40px_rgb(0_0_0/0.18)]";
+
+export function ThreadInspectorToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label="Toggle thread tools card"
+      aria-pressed={open}
+      title="Environment and subagents"
+      className={`relative flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25 ${
+        open ? "text-fg" : "text-muted hover:text-fg"
+      }`}
+    >
+      <SlidersHorizontal className="h-4 w-4" />
+    </button>
+  );
+}
 
 function SubagentStatusIcon({ status }: { status: SubagentTaskPart["status"] }) {
   const className =
@@ -258,7 +278,7 @@ export function ThreadInspectorContent({
 
   if (selectedTask) {
     return (
-      <div className={INSPECTOR_PANE_CLASS} role="complementary" aria-label="Thread inspector">
+      <div className={INSPECTOR_CARD_CLASS} role="complementary" aria-label="Thread inspector">
         <SubagentTaskDetail task={selectedTask} onBack={() => onSelectTask(null)} />
       </div>
     );
@@ -269,7 +289,7 @@ export function ThreadInspectorContent({
   const canOpenDiff = !!latestChanges?.snapshot && !!onOpenDiff;
 
   return (
-    <div className={INSPECTOR_PANE_CLASS} role="complementary" aria-label="Thread inspector">
+    <div className={INSPECTOR_CARD_CLASS} role="complementary" aria-label="Thread inspector">
       {projectPath && (
         <section className="shrink-0 px-3 pb-1 pt-3">
           <h2 className="mb-2 px-1 text-app-13 font-medium text-muted">Environment</h2>

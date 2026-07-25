@@ -1497,6 +1497,14 @@ export function Composer(props: ComposerProps) {
       props.onPlanModeChange?.(true);
     }
 
+    // Clear the persisted draft before any state mutation below. Appending
+    // the user message flips an empty thread's Composer placement, which
+    // remounts this component; the remount may happen before the post-`send`
+    // cleanup runs, and a stale draft would resurrect the just-sent text
+    // into the new instance's input.
+    if (!isExternalSubmit) {
+      clearThreadDraft(threadId);
+    }
 
     if (props.mode === "thread") {
       promoteDraftThread(props.projectId, props.threadId);

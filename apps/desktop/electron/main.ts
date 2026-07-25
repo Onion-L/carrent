@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { ensureCliPaths } from "./runtime/processPath";
 import { registerRuntimeIpc } from "./runtime/runtimeIpc";
 import { registerChatIpc } from "./chat/chatIpc";
 import { createChatSessionManager, type ChatSessionManager } from "./chat/chatSessionManager";
@@ -75,6 +76,8 @@ let workspaceStore: WorkspaceStore | null = null;
 let chatSessionManager: ChatSessionManager | null = null;
 
 app.whenReady().then(async () => {
+  ensureCliPaths();
+
   const icon = resolveIconPath();
 
   if (process.platform === "darwin" && icon && !app.isPackaged) {

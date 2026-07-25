@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { Message, SubagentTaskPart } from "../../mock/uiShellData";
 import {
   ThreadInspectorContent,
+  ThreadInspectorToggle,
   collectSubagentTasks,
   formatSubagentTaskDuration,
   getChangedFilesTotals,
@@ -174,7 +175,7 @@ describe("ThreadInspectorContent", () => {
     expect(html).toContain(">Subagents</h2>");
   });
 
-  it("renders a flat 20rem right pane with a left hairline and canvas background", () => {
+  it("renders a floating rounded card with the Subagents title, icon, and counts", () => {
     const html = renderContent({
       messages: [makeAssistantMessage([makeTask()])],
     });
@@ -182,15 +183,27 @@ describe("ThreadInspectorContent", () => {
     expect(html).toContain(">Subagents</h2>");
     expect(html).toContain("lucide-bot");
     expect(html).toContain("1 active · 0 settled");
-    expect(html).toContain("w-[20rem]");
-    expect(html).toContain("min-w-0");
-    expect(html).toContain("shrink-0");
-    expect(html).toContain("border-l");
-    expect(html).toContain("bg-bg");
-    // No rounded card wrapper, shadow, or overlay positioning.
-    expect(html).not.toContain("rounded-lg");
-    expect(html).not.toContain("shadow");
+    expect(html).toContain("max-h-full");
+    expect(html).toContain("rounded-lg");
+    expect(html).toContain("border border-border bg-surface");
+    expect(html).toContain("shadow-[0_12px_40px_rgb(0_0_0/0.18)]");
+    // Overlay positioning belongs to the route wrapper, not the card.
     expect(html).not.toContain("absolute");
+    expect(html).not.toContain("border-l");
+  });
+
+  it("renders an accessible titlebar toggle without a count badge", () => {
+    const html = renderToStaticMarkup(<ThreadInspectorToggle open={false} onToggle={() => {}} />);
+
+    expect(html).toContain('aria-label="Toggle thread tools card"');
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).toContain('title="Environment and subagents"');
+    expect(html).toContain("lucide-sliders-horizontal");
+    expect(html).toContain("focus-visible:ring-2");
+    expect(html).not.toContain("rounded-full");
+
+    const open = renderToStaticMarkup(<ThreadInspectorToggle open={true} onToggle={() => {}} />);
+    expect(open).toContain('aria-pressed="true"');
   });
 
   it("does not duplicate the header toggle inside the card", () => {

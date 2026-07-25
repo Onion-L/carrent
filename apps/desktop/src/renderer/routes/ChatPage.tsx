@@ -10,12 +10,14 @@ import {
 } from "../components/chat/MessageTimeline";
 import {
   ThreadInspectorPane,
+  ThreadInspectorToggle,
   collectSubagentTasks,
   resolveRightPane,
   shouldShowInspectorToggle,
   updateSeenSubagentTasks,
 } from "../components/chat/ThreadInspectorPane";
 import { WorkspaceDiffViewer } from "../components/chat/WorkspaceDiffViewer";
+import { DesktopHeaderPortal } from "../components/DesktopHeaderActions";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { WorkspaceDiffProvider, useWorkspaceDiff } from "../context/WorkspaceDiffContext";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
@@ -123,22 +125,19 @@ function ChatPageContent() {
 
   return (
     <div className="relative flex h-full w-full">
+      {shouldShowInspectorToggle({
+        hasProjectEnvironment: false,
+        taskCount: inspectorTasks.length,
+      }) && (
+        <DesktopHeaderPortal>
+          <ThreadInspectorToggle
+            open={inspectorOpen}
+            onToggle={() => setInspectorOpen((open) => !open)}
+          />
+        </DesktopHeaderPortal>
+      )}
       <div className="flex h-full min-w-0 flex-1 flex-col">
-        <ChatHeader
-          title={routeData?.thread.title ?? "Chat not found"}
-          inspector={
-            shouldShowInspectorToggle({
-              hasProjectEnvironment: false,
-              taskCount: inspectorTasks.length,
-            })
-              ? {
-                  open: inspectorOpen,
-                  taskCount: inspectorTasks.length,
-                  onToggle: () => setInspectorOpen((open) => !open),
-                }
-              : undefined
-          }
-        />
+        <ChatHeader title={routeData?.thread.title ?? "Chat not found"} />
         {routeData && isEmptyThread ? (
           <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
             <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
@@ -164,11 +163,13 @@ function ChatPageContent() {
           onClose={closeDiff}
         />
       ) : rightPane === "inspector" ? (
-        <ThreadInspectorPane
-          messages={inspectorInput?.messages ?? []}
-          selectedTaskId={selectedTaskId}
-          onSelectTask={setSelectedTaskId}
-        />
+        <div className="absolute bottom-3 right-3 top-3 z-10 w-[24rem]">
+          <ThreadInspectorPane
+            messages={inspectorInput?.messages ?? []}
+            selectedTaskId={selectedTaskId}
+            onSelectTask={setSelectedTaskId}
+          />
+        </div>
       ) : null}
     </div>
   );

@@ -14,6 +14,7 @@ import type {
   KimiSessionStatus,
 } from "../shared/chat";
 import type { ChatPermissionResponse } from "../shared/chatPermissions";
+import type { ChatQuestionResponse } from "../shared/chatQuestions";
 import type { SkillRecord } from "../shared/skills";
 import type { McpServerStatus } from "../shared/mcpServer";
 import type {
@@ -52,6 +53,7 @@ declare global {
         stop: (runId: string) => Promise<void>;
         deleteThreadData: (request: DeleteThreadDataRequest) => Promise<void>;
         respondToPermission: (response: ChatPermissionResponse) => Promise<void>;
+        respondToQuestion: (response: ChatQuestionResponse) => Promise<void>;
         getKimiStatus: (request: ChatTurnRequest) => Promise<KimiSessionStatus | null>;
         onEvent: (listener: (event: ChatRunEvent) => void) => VoidFunction;
       };

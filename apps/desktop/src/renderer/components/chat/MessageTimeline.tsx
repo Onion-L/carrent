@@ -1,10 +1,6 @@
 import { ArrowDown, Box, Check, Copy, Pencil, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  type Message,
-  type MessagePart,
-  type AttachmentMetadata,
-} from "../../mock/uiShellData";
+import { type Message, type MessagePart, type AttachmentMetadata } from "../../mock/uiShellData";
 import { isFileAttachment, isImageAttachment } from "../../../shared/attachment";
 import {
   FILE_ATTACHMENT_ICONS,
@@ -16,6 +12,7 @@ import { ChangedFilesCard } from "./ChangedFilesCard";
 import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachmentLightbox";
 import { MarkdownContent } from "./MarkdownContent";
 import { PlanReviewBlock } from "./PlanReviewBlock";
+import { QuestionBlock } from "./QuestionBlock";
 
 type UserMessageSegment =
   | { type: "text"; content: string }
@@ -309,7 +306,10 @@ function UserMessage({
           </div>
           {attachments && attachments.length > 0 && (
             <div className="mt-2">
-              <UserMessageAttachmentList attachments={attachments} onImageClick={setLightboxIndex} />
+              <UserMessageAttachmentList
+                attachments={attachments}
+                onImageClick={setLightboxIndex}
+              />
             </div>
           )}
           <div className="mt-5 flex justify-end gap-3">
@@ -352,7 +352,10 @@ function UserMessage({
           {content && <UserMessageContent content={content} />}
           {attachments && attachments.length > 0 && (
             <div className={content ? "mt-2" : ""}>
-              <UserMessageAttachmentList attachments={attachments} onImageClick={setLightboxIndex} />
+              <UserMessageAttachmentList
+                attachments={attachments}
+                onImageClick={setLightboxIndex}
+              />
             </div>
           )}
         </div>
@@ -460,6 +463,13 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
 
   const textParts = parts?.filter((part) => part.type === "text") ?? [];
   const planReviewParts = parts?.filter((part) => part.type === "plan_review") ?? [];
+  // Pending questions already have the live Composer panel; only settled or
+  // interrupted records render in the timeline.
+  const questionParts =
+    parts?.filter(
+      (part): part is Extract<MessagePart, { type: "question" }> =>
+        part.type === "question" && part.status !== "pending",
+    ) ?? [];
   const presentation = parts
     ? getAssistantMessagePresentation(parts, message.runStatus)
     : { activityItems: [], answerText: content };
@@ -468,7 +478,8 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
     (message.runStatus === "running" &&
       presentation.activityItems.length === 0 &&
       !presentation.answerText &&
-      planReviewParts.length === 0);
+      planReviewParts.length === 0 &&
+      questionParts.length === 0);
 
   const copyText =
     presentation.answerText || textParts.map((part) => part.content).join("\n") || content;
@@ -516,13 +527,15 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
           {planReviewParts.map((review) => (
             <PlanReviewBlock key={review.id} review={review} />
           ))}
+          {questionParts.map((part) => (
+            <QuestionBlock key={part.id} part={part} />
+          ))}
           {presentation.answerText && <MarkdownContent>{presentation.answerText}</MarkdownContent>}
         </div>
       ) : (
         <MarkdownContent>{content}</MarkdownContent>
       )}
-      {message.runStatus === "cancelled" &&
-      !(hasParts && presentation.activityItems.length > 0) ? (
+      {message.runStatus === "cancelled" && !(hasParts && presentation.activityItems.length > 0) ? (
         <div className="flex items-center gap-1.5 text-app-12 text-subtle">
           <XCircle className="h-3.5 w-3.5" />
           <span>Stopped</span>

@@ -119,6 +119,20 @@ export type MessagePart =
       selectedOptionId?: string;
       selectedOptionName?: string;
     }
+  | {
+      // Compact history record of a structured question. Only the data needed
+      // to render the outcome is stored: the asked questions (header + text)
+      // and, once answered, the final answer labels/custom text per question.
+      // Unselected options never persist. Actionable state lives only in the
+      // chat Run coordinator's pendingQuestions; a persisted "pending" record
+      // hydrates as "interrupted".
+      type: "question";
+      id: string;
+      questionId: string;
+      status: "pending" | "answered" | "skipped" | "interrupted";
+      questions: Array<{ header: string; question: string }>;
+      answers?: Array<{ questionIndex: number; labels: string[]; customText?: string }>;
+    }
   | SubagentTaskPart;
 
 type TextMessage = MessageBase & {

@@ -1,9 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
 import os from "node:os";
 
 import type { SkillRecord } from "../../src/shared/skills";
+import {
+  errorMessage,
+  readObject,
+  readString,
+  startMcpHttpServer,
+  toolError,
+  toolResult,
+  type JsonObject,
+} from "./mcpHttpServer";
 import {
   listInstalledSkills,
   listSkillResources,
@@ -14,9 +21,6 @@ import {
   type SkillReadResult,
   type SkillResourceReadResult,
 } from "../skills/skillCatalog";
-
-type JsonRpcId = string | number | null;
-type JsonObject = Record<string, unknown>;
 
 export type CarrentBridgeMcpServerDescriptor = {
   id: string;
@@ -58,10 +62,7 @@ export type SkillCatalogBridgeService = {
 };
 
 const DEFAULT_AUDIT_LIMIT = 1_000;
-const MAX_REQUEST_BODY_BYTES = 1 * 1024 * 1024;
 const defaultAuditEntries: CarrentBridgeAuditEntry[] = [];
-
-class RequestBodyTooLargeError extends Error {}
 
 export function getCarrentBridgeAuditEntries() {
   return [...defaultAuditEntries];
@@ -110,8 +111,6 @@ function createDefaultSkillCatalogService(homeDir = os.homedir()): SkillCatalogB
 }
 
 class CarrentBridgeServer {
-  private server: Server | null = null;
-
   constructor(
     private readonly options: {
       runId?: string;
@@ -123,138 +122,25 @@ class CarrentBridgeServer {
   ) {}
 
   async start(): Promise<CarrentBridgeHandle> {
-    this.server = createServer((request, response) => {
-      void this.handleHttpRequest(request, response);
+    const server = await startMcpHttpServer({
+      serverName: "carrent_bridge",
+      token: this.options.token,
+      tools: TOOL_DEFINITIONS,
+      handleToolCall: (params) => this.handleToolCall(params),
+      unsupportedMethodMessage: (method) => `Unsupported Carrent Bridge method: ${method}`,
+      noPortErrorMessage: "Carrent Bridge did not receive a local port.",
     });
-
-    await new Promise<void>((resolve, reject) => {
-      this.server!.once("error", reject);
-      this.server!.listen(0, "127.0.0.1", () => {
-        this.server!.off("error", reject);
-        resolve();
-      });
-    });
-
-    const address = this.server.address() as AddressInfo | null;
-    if (!address) {
-      throw new Error("Carrent Bridge did not receive a local port.");
-    }
-
-    const url = `http://127.0.0.1:${address.port}/mcp?token=${encodeURIComponent(
-      this.options.token,
-    )}`;
 
     return {
       mcpServer: {
         id: "carrent_bridge",
         name: "carrent_bridge",
         type: "http",
-        url,
+        url: server.url,
         headers: [],
       },
-      close: () => this.close(),
+      close: () => server.close(),
     };
-  }
-
-  private async close() {
-    const server = this.server;
-    this.server = null;
-    if (!server || !server.listening) {
-      return;
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
-    });
-  }
-
-  private async handleHttpRequest(request: IncomingMessage, response: ServerResponse) {
-    try {
-      const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
-      if (request.method !== "POST" || requestUrl.pathname !== "/mcp") {
-        sendText(response, 404, "Not found");
-        return;
-      }
-
-      if (requestUrl.searchParams.get("token") !== this.options.token) {
-        sendText(response, 401, "Unauthorized");
-        return;
-      }
-
-      const message = JSON.parse(await readRequestBody(request)) as unknown;
-      const result = Array.isArray(message)
-        ? await Promise.all(message.map((item) => this.handleJsonRpc(item)))
-        : await this.handleJsonRpc(message);
-
-      if (result === null || (Array.isArray(result) && result.length === 0)) {
-        response.writeHead(204);
-        response.end();
-        return;
-      }
-
-      sendJson(response, 200, result);
-    } catch (error) {
-      if (error instanceof RequestBodyTooLargeError) {
-        sendText(response, 413, "Payload too large");
-        return;
-      }
-
-      sendJson(response, 200, jsonRpcError(null, -32700, errorMessage(error)));
-    }
-  }
-
-  private async handleJsonRpc(message: unknown): Promise<JsonObject | null> {
-    const request = readObject(message);
-    const id = readJsonRpcId(request?.id);
-    const method = readString(request?.method);
-    if (!request || !method) {
-      return jsonRpcError(id, -32600, "Invalid JSON-RPC request.");
-    }
-
-    try {
-      if (method === "initialize") {
-        return {
-          jsonrpc: "2.0",
-          id,
-          result: {
-            protocolVersion:
-              readString(readObject(request.params)?.protocolVersion) ?? "2024-11-05",
-            capabilities: { tools: {} },
-            serverInfo: { name: "carrent_bridge", version: "0.1.0" },
-          },
-        };
-      }
-
-      if (method === "notifications/initialized") {
-        return null;
-      }
-
-      if (method === "tools/list") {
-        return {
-          jsonrpc: "2.0",
-          id,
-          result: { tools: TOOL_DEFINITIONS },
-        };
-      }
-
-      if (method === "tools/call") {
-        return {
-          jsonrpc: "2.0",
-          id,
-          result: await this.handleToolCall(request.params),
-        };
-      }
-
-      return jsonRpcError(id, -32601, `Unsupported Carrent Bridge method: ${method}`);
-    } catch (error) {
-      return jsonRpcError(id, -32000, errorMessage(error));
-    }
   }
 
   private async handleToolCall(params: unknown) {
@@ -416,122 +302,4 @@ function formatSkillResourceRead(result: SkillResourceReadResult) {
     resource: result.resource,
     content: result.content,
   };
-}
-
-function toolResult(value: unknown) {
-  return {
-    content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
-    structuredContent: value,
-  };
-}
-
-function toolError(code: string, message: string) {
-  return {
-    isError: true,
-    content: [{ type: "text", text: JSON.stringify({ error: { code, message } }, null, 2) }],
-    structuredContent: { error: { code, message } },
-  };
-}
-
-async function readRequestBody(request: IncomingMessage) {
-  const contentLength = request.headers["content-length"];
-  if (
-    typeof contentLength === "string" &&
-    /^\d+$/.test(contentLength) &&
-    Number(contentLength) > MAX_REQUEST_BODY_BYTES
-  ) {
-    await drainRequest(request);
-    throw new RequestBodyTooLargeError();
-  }
-
-  return new Promise<string>((resolve, reject) => {
-    let chunks: Buffer[] = [];
-    let receivedBytes = 0;
-    let tooLarge = false;
-
-    const cleanup = () => {
-      request.off("data", onData);
-      request.off("end", onEnd);
-      request.off("error", onError);
-    };
-    const onData = (chunk: Buffer | string) => {
-      if (tooLarge) {
-        return;
-      }
-
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      receivedBytes += buffer.byteLength;
-      if (receivedBytes > MAX_REQUEST_BODY_BYTES) {
-        tooLarge = true;
-        chunks = [];
-        return;
-      }
-
-      chunks.push(buffer);
-    };
-    const onEnd = () => {
-      cleanup();
-      if (tooLarge) {
-        reject(new RequestBodyTooLargeError());
-        return;
-      }
-
-      resolve(Buffer.concat(chunks, receivedBytes).toString("utf8"));
-    };
-    const onError = (error: Error) => {
-      cleanup();
-      reject(tooLarge ? new RequestBodyTooLargeError() : error);
-    };
-
-    request.on("data", onData);
-    request.on("end", onEnd);
-    request.on("error", onError);
-  });
-}
-
-function drainRequest(request: IncomingMessage) {
-  return new Promise<void>((resolve) => {
-    const finish = () => {
-      request.off("end", finish);
-      request.off("error", finish);
-      resolve();
-    };
-    request.once("end", finish);
-    request.once("error", finish);
-    request.resume();
-  });
-}
-
-function sendJson(response: ServerResponse, statusCode: number, value: unknown) {
-  response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
-  response.end(JSON.stringify(value));
-}
-
-function sendText(response: ServerResponse, statusCode: number, value: string) {
-  response.writeHead(statusCode, { "content-type": "text/plain; charset=utf-8" });
-  response.end(value);
-}
-
-function jsonRpcError(id: JsonRpcId, code: number, message: string) {
-  return {
-    jsonrpc: "2.0",
-    id,
-    error: { code, message },
-  };
-}
-
-function readObject(value: unknown): JsonObject | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : null;
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function readJsonRpcId(value: unknown): JsonRpcId {
-  return typeof value === "string" || typeof value === "number" || value === null ? value : null;
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
 }

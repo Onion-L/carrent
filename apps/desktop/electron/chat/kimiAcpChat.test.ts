@@ -12,6 +12,11 @@ import {
   startKimiAcpChatRun,
   type KimiAcpTransport,
 } from "./kimiAcpChat";
+import {
+  startQuestionMcpServer,
+  type QuestionMcpServerFactory,
+  type QuestionMcpServerHandle,
+} from "./questionMcpServer";
 
 function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
@@ -68,6 +73,10 @@ function createFakeCarrentBridgeFactory() {
 class FakeKimiAcpTransport implements KimiAcpTransport {
   readonly sent: Array<Record<string, unknown>> = [];
   private readonly messageListeners: Array<(message: Record<string, unknown>) => void> = [];
+  private readonly errorListeners: Array<(error: Error) => void> = [];
+  private readonly closeListeners: Array<
+    (details: { code: number | null; signal: NodeJS.Signals | null; stderr: string }) => void
+  > = [];
 
   constructor(
     private readonly onSend: (
@@ -87,12 +96,30 @@ class FakeKimiAcpTransport implements KimiAcpTransport {
     this.messageListeners.push(listener);
   }
 
-  onError() {}
+  onError(listener: (error: Error) => void) {
+    this.errorListeners.push(listener);
+  }
 
-  onClose() {}
+  onClose(
+    listener: (details: {
+      code: number | null;
+      signal: NodeJS.Signals | null;
+      stderr: string;
+    }) => void,
+  ) {
+    this.closeListeners.push(listener);
+  }
 
   emitMessage(message: Record<string, unknown>) {
     this.messageListeners.forEach((listener) => listener(message));
+  }
+
+  emitError(error: Error) {
+    this.errorListeners.forEach((listener) => listener(error));
+  }
+
+  emitClose(details: { code: number | null; signal: NodeJS.Signals | null; stderr: string }) {
+    this.closeListeners.forEach((listener) => listener(details));
   }
 }
 
@@ -394,6 +421,34 @@ describe("startKimiAcpChatRun", () => {
     });
 
     expect(status).toBe(null);
+  });
+
+  it("does not attach MCP servers to non-Run status checks", async () => {
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/resume") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    await getKimiSessionStatus({
+      sessionId: "session-1",
+      cwd: "/Users/onion/workbench/carrent",
+      transportFactory: () => transport,
+    });
+
+    const resumeParams = transport.sent.find((message) => message.method === "session/resume")
+      ?.params as { mcpServers?: unknown[] } | undefined;
+    expect(resumeParams?.mcpServers).toEqual([]);
   });
 
   it("does not install a Carrent-side runtime timeout for session/prompt", async () => {
@@ -2081,5 +2136,1661 @@ describe("Kimi subagent tasks", () => {
       expect(text!.length <= MAX_SUBAGENT_TASK_TEXT_LENGTH).toBe(true);
       expect(text!).toContain("[output truncated]");
     }
+  });
+});
+
+describe("native ACP structured questions", () => {
+  const askUserQuestionToolCall = {
+    toolCallId: "tool-ask-user-question",
+    title: "AskUserQuestion",
+    kind: "other",
+    status: "pending",
+    rawInput: {
+      questions: [
+        {
+          header: "Language",
+          question: "Which language should the new module use?",
+          options: [
+            { label: "TypeScript", description: "Use TypeScript for the new module" },
+            { label: "JavaScript" },
+          ],
+          multi_select: false,
+        },
+      ],
+    },
+  };
+
+  const questionPermissionOptions = [
+    { optionId: "opt_ts", name: "TypeScript", kind: "allow_once" },
+    { optionId: "opt_js", name: "JavaScript", kind: "allow_once" },
+    { optionId: "opt_dismiss", name: "Dismiss", kind: "reject_once" },
+  ];
+
+  function createQuestionTransport(questionParams: Record<string, unknown>) {
+    return new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-question" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            id: "question-1",
+            method: "session/request_permission",
+            params: {
+              sessionId: "session-question",
+              ...questionParams,
+            },
+          });
+        });
+      }
+    });
+  }
+
+  function startQuestionRun(
+    transport: FakeKimiAcpTransport,
+    emitted: ChatRunEvent[],
+    runId = "run-kimi-question",
+  ) {
+    return startKimiAcpChatRun({
+      runId,
+      request: makeRequest(),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+  }
+
+  it("classifies a native AskUserQuestion request as a structured question, not an Approval Request", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = createQuestionTransport({
+      options: questionPermissionOptions,
+      toolCall: askUserQuestionToolCall,
+    });
+
+    startQuestionRun(transport, emitted);
+    await waitForAsyncEvents();
+
+    expect(emitted.some((event) => event.type === "permission-requested")).toBe(false);
+    const requested = emitted.find(
+      (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+        event.type === "question-requested",
+    )!;
+    expect(requested).toBeDefined();
+    expect(requested.question).toMatchObject({
+      id: "kimi-question-run-kimi-question-question-1",
+      runId: "run-kimi-question",
+      threadId: "thread-1",
+      provider: "kimi",
+      source: "native-acp",
+      skipOptionId: "opt_dismiss",
+    });
+    expect(requested.question.questions).toEqual([
+      {
+        header: "Language",
+        question: "Which language should the new module use?",
+        options: [
+          { optionId: "opt_ts", label: "TypeScript" },
+          { optionId: "opt_js", label: "JavaScript" },
+          { optionId: "opt_dismiss", label: "Dismiss" },
+        ],
+        multiSelect: false,
+      },
+    ]);
+  });
+
+  it("returns the selected upstream ACP option id when the question is submitted", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = createQuestionTransport({
+      options: questionPermissionOptions,
+      toolCall: askUserQuestionToolCall,
+    });
+
+    const handle = startQuestionRun(transport, emitted);
+    await waitForAsyncEvents();
+
+    handle.respondToQuestion({
+      questionId: "kimi-question-run-kimi-question-question-1",
+      runId: "run-kimi-question",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["opt_js"] }],
+    });
+    await waitForAsyncEvents();
+
+    expect(transport.sent.find((message) => message.id === "question-1")?.result).toEqual({
+      outcome: { outcome: "selected", optionId: "opt_js" },
+    });
+    expect(emitted.find((event) => event.type === "question-resolved")).toMatchObject({
+      type: "question-resolved",
+      runId: "run-kimi-question",
+      questionId: "kimi-question-run-kimi-question-question-1",
+      outcome: "answered",
+      optionId: "opt_js",
+      optionLabel: "JavaScript",
+    });
+  });
+
+  it("skip selects the dismiss option Kimi forwarded without stopping the run", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = createQuestionTransport({
+      options: questionPermissionOptions,
+      toolCall: askUserQuestionToolCall,
+    });
+
+    const handle = startQuestionRun(transport, emitted);
+    await waitForAsyncEvents();
+
+    handle.respondToQuestion({
+      questionId: "kimi-question-run-kimi-question-question-1",
+      runId: "run-kimi-question",
+      action: "skip",
+    });
+    await waitForAsyncEvents();
+
+    expect(transport.sent.find((message) => message.id === "question-1")?.result).toEqual({
+      outcome: { outcome: "selected", optionId: "opt_dismiss" },
+    });
+    expect(emitted.find((event) => event.type === "question-resolved")).toMatchObject({
+      type: "question-resolved",
+      questionId: "kimi-question-run-kimi-question-question-1",
+      outcome: "skipped",
+      optionId: "opt_dismiss",
+      optionLabel: "Dismiss",
+    });
+    expect(emitted.some((event) => event.type === "stopped")).toBe(false);
+  });
+
+  it("skip cancels the ACP request when Kimi forwarded no dismiss option", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = createQuestionTransport({
+      options: questionPermissionOptions.filter((option) => option.kind !== "reject_once"),
+      toolCall: askUserQuestionToolCall,
+    });
+
+    const handle = startQuestionRun(transport, emitted);
+    await waitForAsyncEvents();
+
+    const requested = emitted.find(
+      (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+        event.type === "question-requested",
+    )!;
+    expect(requested.question.skipOptionId).toBeUndefined();
+
+    handle.respondToQuestion({
+      questionId: "kimi-question-run-kimi-question-question-1",
+      runId: "run-kimi-question",
+      action: "skip",
+    });
+    await waitForAsyncEvents();
+
+    expect(transport.sent.find((message) => message.id === "question-1")?.result).toEqual({
+      outcome: { outcome: "cancelled" },
+    });
+    expect(emitted.find((event) => event.type === "question-resolved")).toMatchObject({
+      type: "question-resolved",
+      questionId: "kimi-question-run-kimi-question-question-1",
+      outcome: "skipped",
+    });
+  });
+
+  it("cancels and reports a question failure when the payload has no question text", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = createQuestionTransport({
+      options: questionPermissionOptions,
+      toolCall: {
+        ...askUserQuestionToolCall,
+        rawInput: { questions: [{ header: "Language", multi_select: false }] },
+      },
+    });
+
+    startQuestionRun(transport, emitted);
+    await waitForAsyncEvents();
+
+    expect(emitted.some((event) => event.type === "question-requested")).toBe(false);
+    expect(emitted.some((event) => event.type === "permission-requested")).toBe(false);
+    expect(transport.sent.find((message) => message.id === "question-1")?.result).toEqual({
+      outcome: { outcome: "cancelled" },
+    });
+    expect(emitted.find((event) => event.type === "question-failed")).toMatchObject({
+      type: "question-failed",
+      runId: "run-kimi-question",
+      questionId: "kimi-question-run-kimi-question-question-1",
+      error: "Kimi question request did not include a supported question.",
+    });
+    // The Run survives a malformed question payload.
+    expect(emitted.some((event) => event.type === "failed")).toBe(false);
+    expect(emitted.some((event) => event.type === "stopped")).toBe(false);
+  });
+
+  it("cancels and reports a question failure when the payload has no usable options", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = createQuestionTransport({
+      options: [{ optionId: "", name: "TypeScript", kind: "allow_once" }],
+      toolCall: askUserQuestionToolCall,
+    });
+
+    startQuestionRun(transport, emitted);
+    await waitForAsyncEvents();
+
+    expect(emitted.some((event) => event.type === "question-requested")).toBe(false);
+    expect(emitted.some((event) => event.type === "permission-requested")).toBe(false);
+    expect(transport.sent.find((message) => message.id === "question-1")?.result).toEqual({
+      outcome: { outcome: "cancelled" },
+    });
+    expect(emitted.find((event) => event.type === "question-failed")).toMatchObject({
+      type: "question-failed",
+      runId: "run-kimi-question",
+      questionId: "kimi-question-run-kimi-question-question-1",
+    });
+    // The Run survives a malformed question payload.
+    expect(emitted.some((event) => event.type === "failed")).toBe(false);
+    expect(emitted.some((event) => event.type === "stopped")).toBe(false);
+  });
+
+  it("rejects an answer that does not match a forwarded option", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = createQuestionTransport({
+      options: questionPermissionOptions,
+      toolCall: askUserQuestionToolCall,
+    });
+
+    const handle = startQuestionRun(transport, emitted);
+    await waitForAsyncEvents();
+
+    handle.respondToQuestion({
+      questionId: "kimi-question-run-kimi-question-question-1",
+      runId: "run-kimi-question",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["opt_fabricated"] }],
+    });
+    await waitForAsyncEvents();
+
+    expect(transport.sent.some((message) => message.id === "question-1")).toBe(false);
+    expect(emitted.find((event) => event.type === "question-failed")).toMatchObject({
+      type: "question-failed",
+      runId: "run-kimi-question",
+      questionId: "kimi-question-run-kimi-question-question-1",
+    });
+    expect(emitted.some((event) => event.type === "question-resolved")).toBe(false);
+  });
+
+  it("rejects an Other custom-text answer for a native ACP question", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = createQuestionTransport({
+      options: questionPermissionOptions,
+      toolCall: askUserQuestionToolCall,
+    });
+
+    const handle = startQuestionRun(transport, emitted);
+    await waitForAsyncEvents();
+
+    handle.respondToQuestion({
+      questionId: "kimi-question-run-kimi-question-question-1",
+      runId: "run-kimi-question",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["other"], customText: "Use Python instead" }],
+    });
+    await waitForAsyncEvents();
+
+    expect(transport.sent.some((message) => message.id === "question-1")).toBe(false);
+    expect(emitted.find((event) => event.type === "question-failed")).toMatchObject({
+      type: "question-failed",
+      questionId: "kimi-question-run-kimi-question-question-1",
+    });
+    expect(emitted.some((event) => event.type === "question-resolved")).toBe(false);
+  });
+
+  it("rejects a response for an unknown question", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = createQuestionTransport({
+      options: questionPermissionOptions,
+      toolCall: askUserQuestionToolCall,
+    });
+
+    const handle = startQuestionRun(transport, emitted);
+    await waitForAsyncEvents();
+
+    handle.respondToQuestion({
+      questionId: "kimi-question-run-kimi-question-stale",
+      runId: "run-kimi-question",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["opt_ts"] }],
+    });
+    await waitForAsyncEvents();
+
+    expect(transport.sent.some((message) => message.id === "question-1")).toBe(false);
+    expect(emitted.find((event) => event.type === "question-failed")).toMatchObject({
+      type: "question-failed",
+      questionId: "kimi-question-run-kimi-question-stale",
+    });
+  });
+
+  it("ignores a response with a wrong run id and keeps the question pending", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = createQuestionTransport({
+      options: questionPermissionOptions,
+      toolCall: askUserQuestionToolCall,
+    });
+
+    const handle = startQuestionRun(transport, emitted);
+    await waitForAsyncEvents();
+
+    handle.respondToQuestion({
+      questionId: "kimi-question-run-kimi-question-question-1",
+      runId: "run-other",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["opt_ts"] }],
+    });
+    await waitForAsyncEvents();
+
+    expect(transport.sent.some((message) => message.id === "question-1")).toBe(false);
+    expect(emitted.some((event) => event.type === "question-resolved")).toBe(false);
+
+    // The real run can still answer its own question.
+    handle.respondToQuestion({
+      questionId: "kimi-question-run-kimi-question-question-1",
+      runId: "run-kimi-question",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["opt_ts"] }],
+    });
+    await waitForAsyncEvents();
+
+    expect(transport.sent.find((message) => message.id === "question-1")?.result).toEqual({
+      outcome: { outcome: "selected", optionId: "opt_ts" },
+    });
+  });
+
+  it("rejects a duplicate response after the first resolution", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = createQuestionTransport({
+      options: questionPermissionOptions,
+      toolCall: askUserQuestionToolCall,
+    });
+
+    const handle = startQuestionRun(transport, emitted);
+    await waitForAsyncEvents();
+
+    const answer = {
+      questionId: "kimi-question-run-kimi-question-question-1",
+      runId: "run-kimi-question",
+      action: "submit" as const,
+      answers: [{ questionIndex: 0, optionIds: ["opt_js"] }],
+    };
+    handle.respondToQuestion(answer);
+    await waitForAsyncEvents();
+    handle.respondToQuestion(answer);
+    await waitForAsyncEvents();
+
+    // No second ACP response and no second resolution.
+    expect(transport.sent.filter((message) => message.id === "question-1")).toHaveLength(1);
+    expect(emitted.filter((event) => event.type === "question-resolved")).toHaveLength(1);
+    expect(emitted.find((event) => event.type === "question-failed")).toMatchObject({
+      type: "question-failed",
+      questionId: "kimi-question-run-kimi-question-question-1",
+    });
+  });
+
+  it("interrupts a pending native ACP question when the run stops and rejects late responses", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = createQuestionTransport({
+      options: questionPermissionOptions,
+      toolCall: askUserQuestionToolCall,
+    });
+
+    const handle = startQuestionRun(transport, emitted);
+    await waitForAsyncEvents();
+
+    handle.stop();
+    const promptRequest = transport.sent.find((message) => message.method === "session/prompt")!;
+    respondAcp(transport, promptRequest, { stopReason: "cancelled" });
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "stopped")).toBeDefined();
+
+    handle.respondToQuestion({
+      questionId: "kimi-question-run-kimi-question-question-1",
+      runId: "run-kimi-question",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["opt_ts"] }],
+    });
+    await waitForAsyncEvents();
+
+    expect(transport.sent.some((message) => message.id === "question-1")).toBe(false);
+    expect(emitted.some((event) => event.type === "question-resolved")).toBe(false);
+  });
+});
+
+describe("Run-scoped MCP questions", () => {
+  const mcpQuestionInput = {
+    questions: [
+      {
+        header: "Language",
+        question: "Which language should the new module use?",
+        options: [
+          { label: "TypeScript", description: "Use TypeScript for the new module" },
+          { label: "JavaScript" },
+        ],
+        multi_select: false,
+      },
+    ],
+  };
+
+  function createFakeQuestionServerFactory() {
+    const handles: Array<QuestionMcpServerHandle & { closed: boolean }> = [];
+    const factory: QuestionMcpServerFactory = async () => {
+      const handle: QuestionMcpServerHandle & { closed: boolean } = {
+        closed: false,
+        mcpServer: {
+          id: "carrent_session",
+          name: "carrent_session",
+          type: "http",
+          url: `http://127.0.0.1/${handles.length}/mcp?token=question-test`,
+          headers: [],
+        },
+        async close() {
+          handle.closed = true;
+        },
+      };
+      handles.push(handle);
+      return handle;
+    };
+
+    return { factory, handles };
+  }
+
+  function createMcpSessionTransport() {
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new" || message.method === "session/resume") {
+        respondAcp(fakeTransport, message, {
+          sessionId: "session-mcp-question",
+          configOptions: [
+            {
+              id: "mode",
+              currentValue: "default",
+              options: [
+                { value: "default", name: "Default" },
+                { value: "plan", name: "Plan" },
+                { value: "yolo", name: "YOLO" },
+                { value: "auto", name: "Auto" },
+              ],
+            },
+          ],
+        });
+        return;
+      }
+
+      if (message.method === "session/set_config_option") {
+        respondAcp(fakeTransport, message, {});
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        return;
+      }
+
+      if (message.method === "session/cancel" && promptRequest) {
+        respondAcp(fakeTransport, promptRequest, { stopReason: "cancelled" });
+      }
+    });
+
+    return {
+      transport,
+      sessionParams: () =>
+        transport.sent.find(
+          (message) => message.method === "session/new" || message.method === "session/resume",
+        )?.params as { mcpServers?: Array<{ name: string; url: string }> } | undefined,
+      promptParams: () => promptRequest?.params as { prompt?: unknown } | undefined,
+      finishRun: () => {
+        transport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-mcp-question",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Done" },
+            },
+          },
+        });
+        respondAcp(transport, promptRequest!, { stopReason: "end_turn" });
+      },
+    };
+  }
+
+  async function waitFor<T>(read: () => T | null | undefined): Promise<T> {
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      const value = read();
+      if (value) {
+        return value;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error("Timed out waiting for the expected condition.");
+  }
+
+  async function callAskUserQuestion(url: string, args: unknown) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "mcp-question-1",
+        method: "tools/call",
+        params: { name: "ask_user_question", arguments: args },
+      }),
+    });
+    return (await response.json()) as Record<string, unknown>;
+  }
+
+  function startMcpQuestionRun(
+    transport: FakeKimiAcpTransport,
+    emitted: ChatRunEvent[],
+    overrides: {
+      runId?: string;
+      bridgeFactory?: CarrentBridgeFactory | null;
+      questionServerFactory?: QuestionMcpServerFactory | null;
+      resumeSessionId?: string;
+      requestOverrides?: Partial<ChatTurnRequest>;
+    } = {},
+  ) {
+    return startKimiAcpChatRun({
+      runId: overrides.runId ?? "run-kimi-mcp-question",
+      request: makeRequest(overrides.requestOverrides),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+      bridgeFactory: overrides.bridgeFactory,
+      questionServerFactory: overrides.questionServerFactory,
+      resumeSessionId: overrides.resumeSessionId,
+    });
+  }
+
+  it("passes carrent_session alongside Carrent Bridge to new sessions and closes it on completion", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const bridge = createFakeCarrentBridgeFactory();
+    const questionServer = createFakeQuestionServerFactory();
+    const session = createMcpSessionTransport();
+
+    startMcpQuestionRun(session.transport, emitted, {
+      bridgeFactory: bridge.factory,
+      questionServerFactory: questionServer.factory,
+    });
+    await waitForAsyncEvents();
+
+    expect(session.sessionParams()?.mcpServers).toEqual([
+      bridge.handles[0]!.mcpServer,
+      questionServer.handles[0]!.mcpServer,
+    ]);
+
+    session.finishRun();
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "completed")).toBeDefined();
+    expect(questionServer.handles[0]?.closed).toBe(true);
+  });
+
+  it("passes carrent_session to resumed sessions", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const questionServer = createFakeQuestionServerFactory();
+    const session = createMcpSessionTransport();
+
+    startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: questionServer.factory,
+      resumeSessionId: "session-previous",
+    });
+    await waitForAsyncEvents();
+
+    expect(session.sessionParams()?.mcpServers).toEqual([questionServer.handles[0]!.mcpServer]);
+  });
+
+  it("starts the question server even when the Carrent Bridge is unavailable", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const questionServer = createFakeQuestionServerFactory();
+    const session = createMcpSessionTransport();
+
+    startMcpQuestionRun(session.transport, emitted, {
+      bridgeFactory: async () => null,
+      questionServerFactory: questionServer.factory,
+    });
+    await waitForAsyncEvents();
+
+    expect(session.sessionParams()?.mcpServers).toEqual([questionServer.handles[0]!.mcpServer]);
+
+    session.finishRun();
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "completed")).toBeDefined();
+  });
+
+  it("closes the question server when the run is stopped", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const questionServer = createFakeQuestionServerFactory();
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: questionServer.factory,
+    });
+    await waitForAsyncEvents();
+
+    handle.stop();
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "stopped")).toBeDefined();
+    expect(questionServer.handles[0]?.closed).toBe(true);
+  });
+
+  it("answers a real MCP ask_user_question call with the selected option label", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    const pendingResponse = callAskUserQuestion(serverUrl, mcpQuestionInput);
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+
+    expect(requested.question).toMatchObject({
+      runId: "run-kimi-mcp-question",
+      threadId: "thread-1",
+      provider: "kimi",
+      source: "mcp",
+    });
+    expect(requested.question.questions).toEqual([
+      {
+        header: "Language",
+        question: "Which language should the new module use?",
+        options: [
+          {
+            optionId: "mcp-q1-opt-1",
+            label: "TypeScript",
+            description: "Use TypeScript for the new module",
+          },
+          { optionId: "mcp-q1-opt-2", label: "JavaScript" },
+        ],
+        multiSelect: false,
+      },
+    ]);
+
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["mcp-q1-opt-2"] }],
+    });
+
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      structuredContent: {
+        answers: { "Which language should the new module use?": "JavaScript" },
+      },
+    });
+    expect(emitted.find((event) => event.type === "question-resolved")).toMatchObject({
+      type: "question-resolved",
+      outcome: "answered",
+      optionId: "mcp-q1-opt-2",
+      optionLabel: "JavaScript",
+    });
+
+    session.finishRun();
+    await waitForAsyncEvents();
+    expect(emitted.find((event) => event.type === "completed")).toBeDefined();
+  });
+
+  it("returns the Other custom text and no predefined selection for a single-select Other answer", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    const pendingResponse = callAskUserQuestion(serverUrl, mcpQuestionInput);
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["other"], customText: "Use Python instead" }],
+    });
+
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      structuredContent: {
+        answers: { "Which language should the new module use?": "Use Python instead" },
+      },
+    });
+    expect(emitted.find((event) => event.type === "question-resolved")).toMatchObject({
+      type: "question-resolved",
+      outcome: "answered",
+      optionId: "other",
+      optionLabel: "Use Python instead",
+    });
+
+    session.finishRun();
+    await waitForAsyncEvents();
+  });
+
+  it("presents multiple questions with full fidelity and returns one answers entry per question", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    const pendingResponse = callAskUserQuestion(serverUrl, {
+      questions: [
+        mcpQuestionInput.questions[0],
+        {
+          header: "Features",
+          question: "Which features should the module include?",
+          options: [
+            { label: "Logging", description: "Structured logs" },
+            { label: "Metrics" },
+            { label: "Tracing" },
+          ],
+          multi_select: true,
+        },
+      ],
+    });
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+
+    expect(requested.question.questions).toEqual([
+      {
+        header: "Language",
+        question: "Which language should the new module use?",
+        options: [
+          {
+            optionId: "mcp-q1-opt-1",
+            label: "TypeScript",
+            description: "Use TypeScript for the new module",
+          },
+          { optionId: "mcp-q1-opt-2", label: "JavaScript" },
+        ],
+        multiSelect: false,
+      },
+      {
+        header: "Features",
+        question: "Which features should the module include?",
+        options: [
+          { optionId: "mcp-q2-opt-1", label: "Logging", description: "Structured logs" },
+          { optionId: "mcp-q2-opt-2", label: "Metrics" },
+          { optionId: "mcp-q2-opt-3", label: "Tracing" },
+        ],
+        multiSelect: true,
+      },
+    ]);
+
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "submit",
+      answers: [
+        { questionIndex: 0, optionIds: ["mcp-q1-opt-1"] },
+        { questionIndex: 1, optionIds: ["mcp-q2-opt-1", "mcp-q2-opt-3"] },
+      ],
+    });
+
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      structuredContent: {
+        answers: {
+          "Which language should the new module use?": "TypeScript",
+          "Which features should the module include?": "Logging, Tracing",
+        },
+      },
+    });
+    expect(emitted.find((event) => event.type === "question-resolved")).toMatchObject({
+      type: "question-resolved",
+      outcome: "answered",
+    });
+
+    session.finishRun();
+    await waitForAsyncEvents();
+    expect(emitted.find((event) => event.type === "completed")).toBeDefined();
+  });
+
+  it("combines predefined multi-select labels with the Other custom text", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    const pendingResponse = callAskUserQuestion(serverUrl, {
+      questions: [
+        {
+          header: "Features",
+          question: "Which features should the module include?",
+          options: [{ label: "Logging" }, { label: "Metrics" }],
+          multi_select: true,
+        },
+      ],
+    });
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "submit",
+      answers: [
+        {
+          questionIndex: 0,
+          optionIds: ["mcp-q1-opt-1", "other"],
+          customText: "Coverage reports",
+        },
+      ],
+    });
+
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      structuredContent: {
+        answers: { "Which features should the module include?": "Logging, Coverage reports" },
+      },
+    });
+
+    session.finishRun();
+    await waitForAsyncEvents();
+  });
+
+  it("rejects a submit that omits a question and keeps the request pending", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    let httpSettled = false;
+    const pendingResponse = callAskUserQuestion(serverUrl, {
+      questions: [
+        mcpQuestionInput.questions[0],
+        {
+          header: "Features",
+          question: "Which features should the module include?",
+          options: [{ label: "Logging" }, { label: "Metrics" }],
+          multi_select: true,
+        },
+      ],
+    }).then((value) => {
+      httpSettled = true;
+      return value;
+    });
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["mcp-q1-opt-1"] }],
+    });
+    await waitFor(() => emitted.find((event) => event.type === "question-failed"));
+
+    expect(httpSettled).toBe(false);
+    expect(emitted.some((event) => event.type === "question-resolved")).toBe(false);
+
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "skip",
+    });
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      structuredContent: { answers: {} },
+    });
+
+    session.finishRun();
+    await waitForAsyncEvents();
+  });
+
+  it("rejects multiple selections on a single-select question and keeps the request pending", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    let httpSettled = false;
+    const pendingResponse = callAskUserQuestion(serverUrl, mcpQuestionInput).then((value) => {
+      httpSettled = true;
+      return value;
+    });
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "submit",
+      answers: [
+        {
+          questionIndex: 0,
+          optionIds: ["mcp-q1-opt-1", "other"],
+          customText: "Use Python",
+        },
+      ],
+    });
+    await waitFor(() => emitted.find((event) => event.type === "question-failed"));
+
+    expect(httpSettled).toBe(false);
+    expect(emitted.some((event) => event.type === "question-resolved")).toBe(false);
+
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "skip",
+    });
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      structuredContent: { answers: {} },
+    });
+
+    session.finishRun();
+    await waitForAsyncEvents();
+  });
+
+  it("rejects two predefined selections on a single-select question and keeps the request pending", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    let httpSettled = false;
+    const pendingResponse = callAskUserQuestion(serverUrl, mcpQuestionInput).then((value) => {
+      httpSettled = true;
+      return value;
+    });
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["mcp-q1-opt-1", "mcp-q1-opt-2"] }],
+    });
+    await waitFor(() => emitted.find((event) => event.type === "question-failed"));
+
+    expect(httpSettled).toBe(false);
+    expect(emitted.some((event) => event.type === "question-resolved")).toBe(false);
+
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "skip",
+    });
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      structuredContent: { answers: {} },
+    });
+
+    session.finishRun();
+    await waitForAsyncEvents();
+  });
+
+  it("returns empty answers with Kimi's dismissal note when the user skips", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    const pendingResponse = callAskUserQuestion(serverUrl, mcpQuestionInput);
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "skip",
+    });
+
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      structuredContent: {
+        answers: {},
+        note: "User dismissed the question without answering.",
+      },
+    });
+    expect(emitted.find((event) => event.type === "question-resolved")).toMatchObject({
+      type: "question-resolved",
+      outcome: "skipped",
+    });
+    expect(emitted.some((event) => event.type === "stopped")).toBe(false);
+
+    session.finishRun();
+    await waitForAsyncEvents();
+  });
+
+  it("answers a second concurrent tool call with a structured question_already_pending error", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    const firstResponse = callAskUserQuestion(serverUrl, mcpQuestionInput);
+    await waitFor(() => emitted.find((event) => event.type === "question-requested"));
+
+    const secondResponse = await callAskUserQuestion(serverUrl, mcpQuestionInput);
+    expect(secondResponse.result).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: "question_already_pending" } },
+    });
+
+    session.finishRun();
+    await waitForAsyncEvents();
+    await firstResponse;
+  });
+
+  it("flushes the pending MCP call and closes the question server when the run stops mid-question", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    const pendingResponse = callAskUserQuestion(serverUrl, mcpQuestionInput);
+    await waitFor(() => emitted.find((event) => event.type === "question-requested"));
+
+    handle.stop();
+    await waitFor(() => emitted.find((event) => event.type === "stopped"));
+
+    // Stop interrupts the question and releases the waiting HTTP connection.
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: "server_closed" } },
+    });
+    expect(emitted.some((event) => event.type === "question-resolved")).toBe(false);
+  });
+
+  it("flushes the pending MCP call when the transport closes mid-question", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    const pendingResponse = callAskUserQuestion(serverUrl, mcpQuestionInput);
+    await waitFor(() => emitted.find((event) => event.type === "question-requested"));
+
+    session.transport.emitClose({ code: 1, signal: null, stderr: "kimi crashed" });
+    await waitFor(() => emitted.find((event) => event.type === "failed"));
+
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: "server_closed" } },
+    });
+  });
+
+  it("closes the question server when startup fails after the server started", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const questionServer = createFakeQuestionServerFactory();
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: message.id,
+          error: { code: -32000, message: "session storage unavailable" },
+        });
+      }
+    });
+
+    startMcpQuestionRun(transport, emitted, {
+      questionServerFactory: questionServer.factory,
+    });
+    await waitFor(() => emitted.find((event) => event.type === "failed"));
+
+    expect(questionServer.handles).toHaveLength(1);
+    expect(questionServer.handles[0]?.closed).toBe(true);
+  });
+
+  it("rejects a late response after the run terminated without settling the call twice", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    const pendingResponse = callAskUserQuestion(serverUrl, mcpQuestionInput);
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+
+    handle.stop();
+    await waitFor(() => emitted.find((event) => event.type === "stopped"));
+
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["mcp-q1-opt-1"] }],
+    });
+    await waitForAsyncEvents();
+
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: "server_closed" } },
+    });
+    expect(emitted.some((event) => event.type === "question-resolved")).toBe(false);
+  });
+
+  it("rejects a duplicate response after the first resolution", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    const pendingResponse = callAskUserQuestion(serverUrl, mcpQuestionInput);
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+
+    const answer = {
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "submit" as const,
+      answers: [{ questionIndex: 0, optionIds: ["mcp-q1-opt-2"] }],
+    };
+    handle.respondToQuestion(answer);
+    await waitFor(() => emitted.find((event) => event.type === "question-resolved"));
+
+    handle.respondToQuestion(answer);
+    await waitFor(() => emitted.find((event) => event.type === "question-failed"));
+
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      structuredContent: {
+        answers: { "Which language should the new module use?": "JavaScript" },
+      },
+    });
+    expect(emitted.filter((event) => event.type === "question-resolved")).toHaveLength(1);
+
+    session.finishRun();
+    await waitForAsyncEvents();
+  });
+
+  it("cancels a native ACP question that arrives while an MCP question is pending", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    const pendingResponse = callAskUserQuestion(serverUrl, mcpQuestionInput);
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+
+    session.transport.emitMessage({
+      jsonrpc: "2.0",
+      id: "question-acp-1",
+      method: "session/request_permission",
+      params: {
+        sessionId: "session-mcp-question",
+        options: [
+          { optionId: "opt_ts", name: "TypeScript", kind: "allow_once" },
+          { optionId: "opt_js", name: "JavaScript", kind: "allow_once" },
+        ],
+        toolCall: {
+          toolCallId: "tool-ask-user-question",
+          title: "AskUserQuestion",
+          kind: "other",
+          status: "pending",
+          rawInput: mcpQuestionInput,
+        },
+      },
+    });
+    await waitForAsyncEvents();
+
+    // The second request is cancelled upstream and never reaches the panel.
+    expect(
+      session.transport.sent.find((message) => message.id === "question-acp-1")?.result,
+    ).toEqual({ outcome: { outcome: "cancelled" } });
+    expect(emitted.filter((event) => event.type === "question-requested")).toHaveLength(1);
+
+    // The active MCP question still resolves normally.
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "skip",
+    });
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({ structuredContent: { answers: {} } });
+
+    session.finishRun();
+    await waitForAsyncEvents();
+  });
+
+  it("rejects an MCP call with question_already_pending while a native ACP question is pending", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const session = createMcpSessionTransport();
+
+    const handle = startMcpQuestionRun(session.transport, emitted, {
+      questionServerFactory: (options) => startQuestionMcpServer(options),
+    });
+    const serverUrl = await waitFor(
+      () =>
+        session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+          ?.url,
+    );
+
+    session.transport.emitMessage({
+      jsonrpc: "2.0",
+      id: "question-acp-1",
+      method: "session/request_permission",
+      params: {
+        sessionId: "session-mcp-question",
+        options: [
+          { optionId: "opt_ts", name: "TypeScript", kind: "allow_once" },
+          { optionId: "opt_js", name: "JavaScript", kind: "allow_once" },
+          { optionId: "opt_dismiss", name: "Dismiss", kind: "reject_once" },
+        ],
+        toolCall: {
+          toolCallId: "tool-ask-user-question",
+          title: "AskUserQuestion",
+          kind: "other",
+          status: "pending",
+          rawInput: mcpQuestionInput,
+        },
+      },
+    });
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+    expect(requested.question.source).toBe("native-acp");
+
+    const mcpResponse = await callAskUserQuestion(serverUrl, mcpQuestionInput);
+    expect(mcpResponse.result).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: "question_already_pending" } },
+    });
+
+    // The native ACP question still resolves normally.
+    handle.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-kimi-mcp-question",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["opt_js"] }],
+    });
+    await waitForAsyncEvents();
+    expect(
+      session.transport.sent.find((message) => message.id === "question-acp-1")?.result,
+    ).toEqual({ outcome: { outcome: "selected", optionId: "opt_js" } });
+
+    session.finishRun();
+    await waitForAsyncEvents();
+  });
+
+  describe("question server mode gating", () => {
+    async function sessionDescriptorSet(
+      requestOverrides: Partial<ChatTurnRequest>,
+      resume = false,
+    ) {
+      const emitted: ChatRunEvent[] = [];
+      const questionServer = createFakeQuestionServerFactory();
+      const session = createMcpSessionTransport();
+
+      startMcpQuestionRun(session.transport, emitted, {
+        questionServerFactory: questionServer.factory,
+        requestOverrides,
+        resumeSessionId: resume ? "session-previous" : undefined,
+      });
+      await waitForAsyncEvents();
+
+      return { session, questionServer };
+    }
+
+    it("starts the question server for Approval required, Auto-accept edits, and Plan mode runs", async () => {
+      const supportedModes: Array<Partial<ChatTurnRequest>> = [
+        { runtimeMode: "approval-required" },
+        { runtimeMode: "auto-accept-edits" },
+        { runtimeMode: "approval-required", planMode: true },
+        { runtimeMode: "full-access", planMode: true },
+      ];
+
+      for (const requestOverrides of supportedModes) {
+        const { session, questionServer } = await sessionDescriptorSet(requestOverrides);
+        expect(questionServer.handles).toHaveLength(1);
+        expect(session.sessionParams()?.mcpServers).toEqual([questionServer.handles[0]!.mcpServer]);
+      }
+    });
+
+    it("omits carrent_session for Auto runs and never starts the question server", async () => {
+      const emitted: ChatRunEvent[] = [];
+      const bridge = createFakeCarrentBridgeFactory();
+      const questionServer = createFakeQuestionServerFactory();
+      const session = createMcpSessionTransport();
+
+      startMcpQuestionRun(session.transport, emitted, {
+        bridgeFactory: bridge.factory,
+        questionServerFactory: questionServer.factory,
+        requestOverrides: { runtimeMode: "full-access" },
+      });
+      await waitForAsyncEvents();
+
+      // The global Carrent Bridge is orthogonal and still attached.
+      expect(questionServer.handles).toHaveLength(0);
+      expect(session.sessionParams()?.mcpServers).toEqual([bridge.handles[0]!.mcpServer]);
+
+      // Prompt neutrality: mode gating never alters the user prompt.
+      session.finishRun();
+      await waitForAsyncEvents();
+      expect(session.promptParams()?.prompt).toEqual([{ type: "text", text: "Hello" }]);
+    });
+
+    it("omits carrent_session for resumed Auto sessions", async () => {
+      const { session, questionServer } = await sessionDescriptorSet(
+        { runtimeMode: "full-access" },
+        true,
+      );
+
+      expect(questionServer.handles).toHaveLength(0);
+      expect(session.sessionParams()?.mcpServers).toEqual([]);
+    });
+  });
+
+  describe("question diagnostics", () => {
+    function captureQuestionLogs() {
+      const originalInfo = console.info;
+      const lines: string[] = [];
+      console.info = (...args: unknown[]) => {
+        lines.push(args.join(" "));
+      };
+      return {
+        lines: () => lines.filter((line) => line.includes("[chat:question]")),
+        restore: () => {
+          console.info = originalInfo;
+        },
+      };
+    }
+
+    it("logs the MCP question lifecycle without free-text answers", async () => {
+      const logs = captureQuestionLogs();
+      const emitted: ChatRunEvent[] = [];
+      const session = createMcpSessionTransport();
+
+      try {
+        const handle = startMcpQuestionRun(session.transport, emitted, {
+          questionServerFactory: (options) => startQuestionMcpServer(options),
+        });
+        const serverUrl = await waitFor(
+          () =>
+            session.sessionParams()?.mcpServers?.find((server) => server.name === "carrent_session")
+              ?.url,
+        );
+
+        const pendingResponse = callAskUserQuestion(serverUrl, mcpQuestionInput);
+        const requested = await waitFor(() =>
+          emitted.find(
+            (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+              event.type === "question-requested",
+          ),
+        );
+
+        handle.respondToQuestion({
+          questionId: requested.question.id,
+          runId: "run-kimi-mcp-question",
+          action: "submit",
+          answers: [{ questionIndex: 0, optionIds: ["other"], customText: "Use Python instead" }],
+        });
+        await pendingResponse;
+
+        const lines = logs.lines();
+        expect(
+          lines.some((line) => line.includes("requested") && line.includes("source=mcp")),
+        ).toBe(true);
+        expect(
+          lines.some((line) => line.includes("resolved") && line.includes("outcome=answered")),
+        ).toBe(true);
+        expect(lines.some((line) => line.includes("Use Python instead"))).toBe(false);
+
+        session.finishRun();
+        await waitForAsyncEvents();
+      } finally {
+        logs.restore();
+      }
+    });
+
+    it("distinguishes the native ACP path and logs interruptions and rejections", async () => {
+      const logs = captureQuestionLogs();
+      const emitted: ChatRunEvent[] = [];
+      const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+        if (message.method === "initialize") {
+          respondAcp(fakeTransport, message, { protocolVersion: 1 });
+          return;
+        }
+
+        if (message.method === "session/new") {
+          respondAcp(fakeTransport, message, { sessionId: "session-question" });
+          return;
+        }
+
+        if (message.method === "session/prompt") {
+          queueMicrotask(() => {
+            fakeTransport.emitMessage({
+              jsonrpc: "2.0",
+              id: "question-1",
+              method: "session/request_permission",
+              params: {
+                sessionId: "session-question",
+                options: [
+                  { optionId: "opt_ts", name: "TypeScript", kind: "allow_once" },
+                  { optionId: "opt_js", name: "JavaScript", kind: "allow_once" },
+                ],
+                toolCall: {
+                  toolCallId: "tool-ask-user-question",
+                  title: "AskUserQuestion",
+                  kind: "other",
+                  status: "pending",
+                  rawInput: {
+                    questions: [
+                      {
+                        header: "Language",
+                        question: "Which language should the new module use?",
+                        options: [{ label: "TypeScript" }, { label: "JavaScript" }],
+                        multi_select: false,
+                      },
+                    ],
+                  },
+                },
+              },
+            });
+          });
+        }
+      });
+
+      try {
+        const handle = startKimiAcpChatRun({
+          runId: "run-kimi-question",
+          request: makeRequest(),
+          cwd: "/Users/onion/workbench/carrent",
+          emit: (event) => emitted.push(event),
+          transportFactory: () => transport,
+        });
+        await waitFor(() => emitted.find((event) => event.type === "question-requested"));
+
+        // A stale response id is rejected, then stopping interrupts the question.
+        handle.respondToQuestion({
+          questionId: "kimi-question-run-kimi-question-stale",
+          runId: "run-kimi-question",
+          action: "skip",
+        });
+        await waitForAsyncEvents();
+        handle.stop();
+        const promptRequest = transport.sent.find(
+          (message) => message.method === "session/prompt",
+        )!;
+        respondAcp(transport, promptRequest, { stopReason: "cancelled" });
+        await waitFor(() => emitted.find((event) => event.type === "stopped"));
+
+        const lines = logs.lines();
+        expect(
+          lines.some((line) => line.includes("requested") && line.includes("source=native-acp")),
+        ).toBe(true);
+        expect(lines.some((line) => line.includes("response_rejected"))).toBe(true);
+        expect(
+          lines.some((line) => line.includes("interrupted") && line.includes("source=native-acp")),
+        ).toBe(true);
+      } finally {
+        logs.restore();
+      }
+    });
   });
 });

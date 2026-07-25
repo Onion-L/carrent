@@ -1,6 +1,6 @@
 import type { Message, ThreadRecord } from "../mock/uiShellData";
 
-export type ThreadDisplayStatus = "running" | "approval" | "failed";
+export type ThreadDisplayStatus = "running" | "approval" | "question" | "failed";
 
 function parseTimestamp(value: string | undefined) {
   if (!value) {
@@ -33,15 +33,22 @@ export function getThreadDisplayStatus({
   threadId,
   runningThreadIds,
   pendingApprovals,
+  pendingQuestions,
   messages,
 }: {
   threadId: string;
   runningThreadIds: string[];
   pendingApprovals: Array<{ threadId: string }>;
+  pendingQuestions: Array<{ threadId: string }>;
   messages: Message[];
 }): ThreadDisplayStatus | null {
+  // Approvals and structured questions share the attention tier: both block
+  // the Run on user input and outrank a plain running or failed state.
   if (pendingApprovals.some((approval) => approval.threadId === threadId)) {
     return "approval";
+  }
+  if (pendingQuestions.some((question) => question.threadId === threadId)) {
+    return "question";
   }
   if (runningThreadIds.includes(threadId)) {
     return "running";

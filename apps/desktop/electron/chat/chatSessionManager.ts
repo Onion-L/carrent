@@ -10,6 +10,7 @@ import type {
   DeleteThreadDataRequest,
 } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
+import type { ChatQuestionResponse } from "../../src/shared/chatQuestions";
 import { buildChatPrompt } from "./chatPrompt";
 import { getRuntimeCommand, getRuntimeCommandUnavailableMessage } from "./chatRunner";
 import {
@@ -20,6 +21,7 @@ import {
   type KimiAcpRunHandle,
 } from "./kimiAcpChat";
 import { startCarrentBridge, type CarrentBridgeFactory } from "../bridge/carrentBridge";
+import { startQuestionMcpServer, type QuestionMcpServerFactory } from "./questionMcpServer";
 import { getClaudeRuntimeModeArgs, getCodexRuntimeModeArgs } from "../../src/shared/runtimeMode";
 import { extractClaudePermissionRequest } from "./providerPermissionProtocol";
 import type { AttachmentStore } from "../attachments/attachmentStore";
@@ -49,8 +51,10 @@ export type SpawnFn = (
 export interface ChatSessionManager {
   start: (runId: string, request: ChatTurnRequest) => void;
   stop: (runId: string) => void;
+  shutdown: () => void;
   deleteThreadData: (request: DeleteThreadDataRequest) => Promise<void>;
   respondToPermission: (response: ChatPermissionResponse) => void;
+  respondToQuestion: (response: ChatQuestionResponse) => void;
   getStatus: (
     request: ChatTurnRequest,
   ) => Promise<import("../../src/shared/chat").KimiSessionStatus | null>;
@@ -648,6 +652,7 @@ export function createChatSessionManager(options: {
   allowLegacyRuntimeCommands?: boolean;
   kimiAcpTransportFactory?: KimiAcpTransportFactory;
   carrentBridgeFactory?: CarrentBridgeFactory;
+  questionMcpServerFactory?: QuestionMcpServerFactory;
   attachmentStore?: AttachmentStore;
 }): ChatSessionManager {
   const sessions = new Map<string, ChatSession>();
@@ -726,6 +731,12 @@ export function createChatSessionManager(options: {
           const bridgeFactory =
             options.carrentBridgeFactory ??
             ((bridgeOptions) => startCarrentBridge({ runId: bridgeOptions.runId }));
+          // The Run-scoped question server is an internal interaction surface:
+          // it starts for every Kimi Run regardless of the Local MCP Server
+          // preference that gates the Carrent Bridge.
+          const questionServerFactory: QuestionMcpServerFactory =
+            options.questionMcpServerFactory ??
+            ((questionOptions) => startQuestionMcpServer(questionOptions));
           const handle = startKimiAcpChatRun({
             runId,
             request: requestWithAttachments,
@@ -733,6 +744,7 @@ export function createChatSessionManager(options: {
             emit: options.emit,
             transportFactory,
             bridgeFactory,
+            questionServerFactory,
             attachmentStoreRoot: options.attachmentStore?.resolveRoot(),
             resumeSessionId,
             onInvalidSession: async (sessionId) => {
@@ -1167,6 +1179,24 @@ export function createChatSessionManager(options: {
     }
   }
 
+  // App shutdown ends every live run immediately so Run-scoped question
+  // servers flush their pending MCP calls and close before the process exits.
+  function shutdown() {
+    for (const runId of pendingKimiRuns.keys()) {
+      stoppedPendingKimiRuns.add(runId);
+    }
+    for (const [, kimiSession] of kimiSessions) {
+      kimiSession.handle.shutdown();
+    }
+    kimiSessions.clear();
+    for (const [, session] of sessions) {
+      session.stoppedByUser = true;
+      clearTimeout(session.timeoutHandle);
+      session.child.kill("SIGTERM");
+    }
+    sessions.clear();
+  }
+
   async function deleteThreadData(request: DeleteThreadDataRequest) {
     const threadIds = [...new Set(request.threadIds)];
     if (threadIds.length === 0) {
@@ -1247,6 +1277,21 @@ export function createChatSessionManager(options: {
     });
   }
 
+  function respondToQuestion(response: ChatQuestionResponse) {
+    const kimiSession = kimiSessions.get(response.runId);
+    if (kimiSession) {
+      kimiSession.handle.respondToQuestion(response);
+      return;
+    }
+
+    options.emit({
+      type: "question-failed",
+      runId: response.runId,
+      questionId: response.questionId,
+      error: "Question request not found. The run may have already ended.",
+    });
+  }
+
   async function getStatus(request: ChatTurnRequest) {
     if (request.runtimeId !== "kimi" || deletedThreadIds.has(request.threadId)) {
       return null;
@@ -1274,5 +1319,13 @@ export function createChatSessionManager(options: {
     }
   }
 
-  return { start, stop, deleteThreadData, respondToPermission, getStatus };
+  return {
+    start,
+    stop,
+    shutdown,
+    deleteThreadData,
+    respondToPermission,
+    respondToQuestion,
+    getStatus,
+  };
 }

@@ -167,6 +167,17 @@ export type MessagePartUpdate =
     }
   | { kind: "interrupt-plan-reviews" }
   | {
+      kind: "upsert-question";
+      question: Extract<MessagePart, { type: "question" }>;
+    }
+  | {
+      kind: "resolve-question";
+      questionId: string;
+      status: "answered" | "skipped";
+      answers?: Extract<MessagePart, { type: "question" }>["answers"];
+    }
+  | { kind: "interrupt-questions" }
+  | {
       kind: "upsert-subagent-task";
       task: Extract<MessagePart, { type: "subagent_task" }>;
     }
@@ -501,6 +512,50 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
       ...message,
       parts: parts.map((part) =>
         part.type === "plan_review" && part.status === "pending"
+          ? { ...part, status: "interrupted" }
+          : part,
+      ),
+    };
+  }
+
+  if (update.kind === "upsert-question") {
+    const questionIndex = parts.findIndex(
+      (part) =>
+        part.type === "question" &&
+        (part.id === update.question.id || part.questionId === update.question.questionId),
+    );
+    if (questionIndex >= 0) {
+      parts[questionIndex] = update.question;
+    } else {
+      parts.push(update.question);
+    }
+
+    return {
+      ...message,
+      parts,
+    };
+  }
+
+  if (update.kind === "resolve-question") {
+    return {
+      ...message,
+      parts: parts.map((part) =>
+        part.type === "question" && part.questionId === update.questionId
+          ? {
+              ...part,
+              status: update.status,
+              ...(update.answers ? { answers: update.answers } : {}),
+            }
+          : part,
+      ),
+    };
+  }
+
+  if (update.kind === "interrupt-questions") {
+    return {
+      ...message,
+      parts: parts.map((part) =>
+        part.type === "question" && part.status === "pending"
           ? { ...part, status: "interrupted" }
           : part,
       ),

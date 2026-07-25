@@ -6,6 +6,7 @@ import type {
   AttachmentMetadata,
 } from "../src/shared/chat";
 import type { ChatPermissionResponse } from "../src/shared/chatPermissions";
+import type { ChatQuestionResponse } from "../src/shared/chatQuestions";
 import type { SkillRecord } from "../src/shared/skills";
 import type { McpServerStatus } from "../src/shared/mcpServer";
 import type {
@@ -45,6 +46,8 @@ const carrent = {
       ipcRenderer.invoke("chat:delete-thread-data", request) as Promise<void>,
     respondToPermission: (response: ChatPermissionResponse) =>
       ipcRenderer.invoke("chat:permission-response", response) as Promise<void>,
+    respondToQuestion: (response: ChatQuestionResponse) =>
+      ipcRenderer.invoke("chat:question-response", response) as Promise<void>,
     getKimiStatus: (request: ChatTurnRequest) =>
       ipcRenderer.invoke("chat:kimi-status", request) as Promise<
         import("../src/shared/chat").KimiSessionStatus | null

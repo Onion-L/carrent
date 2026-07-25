@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import type { ChatRunEvent } from "../../shared/chat";
 import type { ChatPermissionRequest } from "../../shared/chatPermissions";
+import type { ChatQuestionRequest } from "../../shared/chatQuestions";
 import { createChatRunCoordinator } from "./useChatRun";
 
 describe("createChatRunCoordinator", () => {
@@ -413,5 +414,238 @@ describe("createChatRunCoordinator", () => {
     expect(snapshot.lastError).toContain("not supported");
     expect(snapshot.isSending).toBe(false);
     expect(received).toEqual(["Interactive approvals not supported"]);
+  });
+
+  function makeQuestionEvent(overrides: Partial<ChatQuestionRequest> = {}): ChatQuestionRequest {
+    return {
+      id: "kimi-question-run-1-7",
+      runId: "run-1",
+      requestKey: "req-1",
+      threadId: "thread-1",
+      provider: "kimi",
+      source: "native-acp",
+      questions: [
+        {
+          header: "Language",
+          question: "Which language should the new module use?",
+          options: [
+            { optionId: "opt_ts", label: "TypeScript" },
+            { optionId: "opt_js", label: "JavaScript" },
+          ],
+          multiSelect: false,
+        },
+      ],
+      skipOptionId: "opt_dismiss",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      ...overrides,
+    };
+  }
+
+  it("tracks a pending question in the snapshot when one is requested", () => {
+    const coordinator = createChatRunCoordinator();
+    coordinator.beginRequest("req-1", "thread-1", {});
+    coordinator.attachRunId("req-1", "run-1");
+
+    coordinator.handleEvent({
+      type: "question-requested",
+      runId: "run-1",
+      requestKey: "req-1",
+      question: makeQuestionEvent(),
+    } satisfies ChatRunEvent);
+
+    const snapshot = coordinator.getSnapshot();
+    expect(snapshot.pendingQuestions).toHaveLength(1);
+    expect(snapshot.pendingQuestions[0]).toMatchObject({
+      id: "kimi-question-run-1-7",
+      runId: "run-1",
+      threadId: "thread-1",
+      source: "native-acp",
+    });
+  });
+
+  it("removes the pending question when it is resolved", () => {
+    const coordinator = createChatRunCoordinator();
+    coordinator.beginRequest("req-1", "thread-1", {});
+    coordinator.attachRunId("req-1", "run-1");
+
+    coordinator.handleEvent({
+      type: "question-requested",
+      runId: "run-1",
+      requestKey: "req-1",
+      question: makeQuestionEvent(),
+    } satisfies ChatRunEvent);
+    coordinator.handleEvent({
+      type: "question-resolved",
+      runId: "run-1",
+      requestKey: "req-1",
+      questionId: "kimi-question-run-1-7",
+      outcome: "answered",
+      optionId: "opt_ts",
+      optionLabel: "TypeScript",
+    } satisfies ChatRunEvent);
+
+    expect(coordinator.getSnapshot().pendingQuestions).toHaveLength(0);
+    expect(coordinator.getSnapshot().isSending).toBe(true);
+  });
+
+  it("clears pending questions when the run ends", () => {
+    const coordinator = createChatRunCoordinator();
+    coordinator.beginRequest("req-1", "thread-1", {});
+    coordinator.attachRunId("req-1", "run-1");
+
+    coordinator.handleEvent({
+      type: "question-requested",
+      runId: "run-1",
+      requestKey: "req-1",
+      question: makeQuestionEvent(),
+    } satisfies ChatRunEvent);
+    coordinator.handleEvent({
+      type: "stopped",
+      runId: "run-1",
+      requestKey: "req-1",
+    } satisfies ChatRunEvent);
+
+    const snapshot = coordinator.getSnapshot();
+    expect(snapshot.pendingQuestions).toHaveLength(0);
+    expect(snapshot.isSending).toBe(false);
+  });
+
+  it("surfaces a question failure without ending the run", () => {
+    const coordinator = createChatRunCoordinator();
+    coordinator.beginRequest("req-1", "thread-1", {});
+    coordinator.attachRunId("req-1", "run-1");
+
+    coordinator.handleEvent({
+      type: "question-requested",
+      runId: "run-1",
+      requestKey: "req-1",
+      question: makeQuestionEvent(),
+    } satisfies ChatRunEvent);
+    coordinator.handleEvent({
+      type: "question-failed",
+      runId: "run-1",
+      requestKey: "req-1",
+      questionId: "kimi-question-run-1-7",
+      error: "Question option is no longer available.",
+    } satisfies ChatRunEvent);
+
+    const snapshot = coordinator.getSnapshot();
+    expect(snapshot.pendingQuestions).toHaveLength(1);
+    expect(snapshot.lastError).toBe("Question option is no longer available.");
+    expect(snapshot.isSending).toBe(true);
+  });
+
+  it("ignores a question failure for a question that is not pending", () => {
+    const coordinator = createChatRunCoordinator();
+    coordinator.beginRequest("req-1", "thread-1", {});
+    coordinator.attachRunId("req-1", "run-1");
+
+    coordinator.handleEvent({
+      type: "question-requested",
+      runId: "run-1",
+      requestKey: "req-1",
+      question: makeQuestionEvent(),
+    } satisfies ChatRunEvent);
+    coordinator.handleEvent({
+      type: "question-failed",
+      runId: "run-1",
+      requestKey: "req-1",
+      questionId: "kimi-question-run-2-1",
+      error: "Question request not found. The run may have already ended.",
+    } satisfies ChatRunEvent);
+
+    const snapshot = coordinator.getSnapshot();
+    expect(snapshot.pendingQuestions).toHaveLength(1);
+    expect(snapshot.lastError).toBe(null);
+    expect(snapshot.isSending).toBe(true);
+  });
+
+  it("routes question requests and resolutions to the active request callbacks", () => {
+    const coordinator = createChatRunCoordinator();
+    const received: string[] = [];
+    coordinator.beginRequest("req-1", "thread-1", {
+      onQuestionRequested: (question) => received.push(`requested:${question.id}`),
+      onQuestionResolved: ({ question, outcome }) =>
+        received.push(`resolved:${question.id}:${outcome}`),
+    });
+    coordinator.attachRunId("req-1", "run-1");
+
+    coordinator.handleEvent({
+      type: "question-requested",
+      runId: "run-1",
+      requestKey: "req-1",
+      question: makeQuestionEvent(),
+    } satisfies ChatRunEvent);
+    coordinator.handleEvent({
+      type: "question-resolved",
+      runId: "run-1",
+      requestKey: "req-1",
+      questionId: "kimi-question-run-1-7",
+      outcome: "answered",
+    } satisfies ChatRunEvent);
+
+    expect(received).toEqual([
+      "requested:kimi-question-run-1-7",
+      "resolved:kimi-question-run-1-7:answered",
+    ]);
+    expect(coordinator.getSnapshot().pendingQuestions).toHaveLength(0);
+  });
+
+  it("reports pending questions as interrupted when a run ends", () => {
+    const coordinator = createChatRunCoordinator();
+    const interrupted: string[] = [];
+    coordinator.beginRequest("req-1", "thread-1", {
+      onQuestionsInterrupted: (questions) =>
+        interrupted.push(...questions.map((question) => question.id)),
+    });
+    coordinator.attachRunId("req-1", "run-1");
+
+    coordinator.handleEvent({
+      type: "question-requested",
+      runId: "run-1",
+      requestKey: "req-1",
+      question: makeQuestionEvent(),
+    } satisfies ChatRunEvent);
+    coordinator.handleEvent({
+      type: "stopped",
+      runId: "run-1",
+      requestKey: "req-1",
+    } satisfies ChatRunEvent);
+
+    expect(interrupted).toEqual(["kimi-question-run-1-7"]);
+    expect(coordinator.getSnapshot().pendingQuestions).toEqual([]);
+  });
+
+  it("keeps a pending question attached to its thread while another thread runs", () => {
+    const coordinator = createChatRunCoordinator();
+    coordinator.beginRequest("req-1", "thread-1", {});
+    coordinator.attachRunId("req-1", "run-1");
+
+    coordinator.handleEvent({
+      type: "question-requested",
+      runId: "run-1",
+      requestKey: "req-1",
+      question: makeQuestionEvent(),
+    } satisfies ChatRunEvent);
+
+    // The user navigates to another Thread and starts a Run there; the
+    // question stays attached to thread-1 instead of moving or cancelling.
+    coordinator.beginRequest("req-2", "thread-2", {});
+    coordinator.attachRunId("req-2", "run-2");
+
+    const snapshot = coordinator.getSnapshot();
+    expect(snapshot.pendingQuestions).toHaveLength(1);
+    expect(snapshot.pendingQuestions[0].threadId).toBe("thread-1");
+
+    coordinator.handleEvent({
+      type: "question-resolved",
+      runId: "run-1",
+      requestKey: "req-1",
+      questionId: "kimi-question-run-1-7",
+      outcome: "skipped",
+    } satisfies ChatRunEvent);
+
+    expect(coordinator.getSnapshot().pendingQuestions).toHaveLength(0);
+    expect(coordinator.getSnapshot().runningThreadIds).toEqual(["thread-1", "thread-2"]);
   });
 });

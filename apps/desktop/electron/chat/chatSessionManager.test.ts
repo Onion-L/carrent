@@ -10,6 +10,7 @@ import {
   type ChatSessionManager,
 } from "./chatSessionManager";
 import type { KimiAcpTransport, KimiAcpTransportFactory } from "./kimiAcpChat";
+import { startQuestionMcpServer } from "./questionMcpServer";
 
 type JsonMessage = Record<string, unknown>;
 
@@ -18,6 +19,7 @@ function createProductionChatSessionManager(
 ) {
   return createRawChatSessionManager({
     carrentBridgeFactory: async () => null,
+    questionMcpServerFactory: async () => null,
     ...options,
   });
 }
@@ -459,6 +461,202 @@ describe("createChatSessionManager", () => {
     ]);
   });
 
+  it("starts a carrent_session question server by default for Kimi runs", async () => {
+    const emitted: ChatRunEvent[] = [];
+    let promptMessage: JsonMessage | null = null;
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        promptMessage = message;
+      }
+    });
+
+    const manager = createRawChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      carrentBridgeFactory: async () => null,
+    });
+
+    manager.start("run-kimi-question-server", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    const sessionNew = transports[0]?.sent.find((message) => message.method === "session/new");
+    const mcpServers = (
+      sessionNew!.params as {
+        mcpServers?: Array<{ name: string; type: string; url: string }>;
+      }
+    ).mcpServers;
+    expect(mcpServers).toHaveLength(1);
+    expect(mcpServers![0]).toMatchObject({ name: "carrent_session", type: "http" });
+    expect(/^http:\/\/127\.0\.0\.1:\d+\/mcp\?token=/u.test(mcpServers![0]!.url)).toBe(true);
+
+    // The default factory starts a real loopback MCP server for the run.
+    const response = await fetch(mcpServers![0]!.url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+    expect(response.status).toBe(200);
+
+    emitAcpUpdate(transports[0]!, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "Done" },
+    });
+    respondAcp(transports[0]!, promptMessage!, { stopReason: "end_turn" });
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "completed")).toBeDefined();
+
+    // Completion closes the Run-scoped server.
+    let closed = false;
+    for (let attempt = 0; attempt < 50 && !closed; attempt += 1) {
+      try {
+        await fetch(mcpServers![0]!.url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "initialize", params: {} }),
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      } catch {
+        closed = true;
+      }
+    }
+    expect(closed).toBe(true);
+  });
+
+  it("keeps the carrent_session question server when the Local MCP Server is disabled", async () => {
+    const emitted: ChatRunEvent[] = [];
+    let promptMessage: JsonMessage | null = null;
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        promptMessage = message;
+      }
+    });
+
+    // A disabled Local MCP Server surfaces as the bridge factory returning no
+    // handle; the Run-scoped question server is not part of that preference.
+    const manager = createRawChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      carrentBridgeFactory: async () => null,
+    });
+
+    manager.start("run-kimi-question-no-local-mcp", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    const sessionNew = transports[0]?.sent.find((message) => message.method === "session/new");
+    const mcpServers = (
+      sessionNew!.params as {
+        mcpServers?: Array<{ name: string; type: string }>;
+      }
+    ).mcpServers;
+    expect(mcpServers).toHaveLength(1);
+    expect(mcpServers![0]).toMatchObject({ name: "carrent_session", type: "http" });
+
+    emitAcpUpdate(transports[0]!, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "Done" },
+    });
+    respondAcp(transports[0]!, promptMessage!, { stopReason: "end_turn" });
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "completed")).toBeDefined();
+  });
+
+  it("does not start a carrent_session question server for Kimi Auto runs", async () => {
+    const emitted: ChatRunEvent[] = [];
+    let promptMessage: JsonMessage | null = null;
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, {
+          sessionId: "session-1",
+          configOptions: [
+            {
+              id: "mode",
+              currentValue: "default",
+              options: [
+                { value: "default", name: "Default" },
+                { value: "auto", name: "Auto" },
+              ],
+            },
+          ],
+        });
+        return;
+      }
+
+      if (message.method === "session/set_config_option") {
+        respondAcp(transport, message, {});
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        promptMessage = message;
+      }
+    });
+
+    const manager = createRawChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      carrentBridgeFactory: async () => null,
+    });
+
+    manager.start(
+      "run-kimi-auto-no-question-server",
+      makeRequest({ runtimeId: "kimi", runtimeMode: "full-access" }),
+    );
+    await waitForAsyncEvents();
+
+    const sessionNew = transports[0]?.sent.find((message) => message.method === "session/new");
+    const mcpServers = (
+      sessionNew!.params as {
+        mcpServers?: Array<{ name: string; type: string }>;
+      }
+    ).mcpServers;
+    expect(mcpServers).toEqual([]);
+
+    emitAcpUpdate(transports[0]!, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "Done" },
+    });
+    respondAcp(transports[0]!, promptMessage!, { stopReason: "end_turn" });
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "completed")).toBeDefined();
+  });
+
   it("passes a selected Kimi model through ACP before prompting", async () => {
     const emitted: ChatRunEvent[] = [];
     const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
@@ -616,7 +814,7 @@ describe("createChatSessionManager", () => {
       makeRequest({
         runtimeId: "kimi",
         runtimeModelId: "kimi-code/kimi-for-coding-deep",
-        runtimeMode: "auto-accept-edits",
+        runtimeMode: "full-access",
       }),
     );
     await waitForAsyncEvents();
@@ -708,7 +906,7 @@ describe("createChatSessionManager", () => {
     });
   });
 
-  it("maps full-access runtime mode to Kimi ACP yolo mode before prompting", async () => {
+  it("maps auto-accept-edits runtime mode to Kimi ACP yolo mode before prompting", async () => {
     const emitted: ChatRunEvent[] = [];
     const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
       if (message.method === "initialize") {
@@ -776,7 +974,7 @@ describe("createChatSessionManager", () => {
       "run-kimi-mode",
       makeRequest({
         runtimeId: "kimi",
-        runtimeMode: "full-access",
+        runtimeMode: "auto-accept-edits",
       }),
     );
     await waitForAsyncEvents();
@@ -3813,5 +4011,229 @@ describe("createChatSessionManager", () => {
 
     expect(persisted.size).toBe(0);
     expect(deletedProviderThreads).toEqual([["thread-1"], ["thread-1"]]);
+  });
+});
+
+describe("question lifecycle and shutdown", () => {
+  const mcpQuestionInput = {
+    questions: [
+      {
+        header: "Language",
+        question: "Which language should the new module use?",
+        options: [{ label: "TypeScript" }, { label: "JavaScript" }],
+        multi_select: false,
+      },
+    ],
+  };
+
+  async function waitFor<T>(read: () => T | null | undefined): Promise<T> {
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      const value = read();
+      if (value) {
+        return value;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error("Timed out waiting for the expected condition.");
+  }
+
+  function createKimiQuestionManager(emitted: ChatRunEvent[]) {
+    const promptMessages = new Map<FakeKimiAcpTransport, JsonMessage>();
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        promptMessages.set(transport, message);
+        return;
+      }
+
+      if (message.method === "session/cancel" && promptMessages.has(transport)) {
+        respondAcp(transport, promptMessages.get(transport)!, { stopReason: "cancelled" });
+      }
+    });
+
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      questionMcpServerFactory: (questionOptions) => startQuestionMcpServer(questionOptions),
+    });
+
+    return { manager, transports };
+  }
+
+  function questionServerUrl(transport: FakeKimiAcpTransport) {
+    const sessionNew = transport.sent.find((message) => message.method === "session/new");
+    const mcpServers = (
+      sessionNew?.params as { mcpServers?: Array<{ name: string; url: string }> } | undefined
+    )?.mcpServers;
+    return mcpServers?.find((server) => server.name === "carrent_session")?.url;
+  }
+
+  async function callAskUserQuestion(url: string) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "mcp-question-1",
+        method: "tools/call",
+        params: { name: "ask_user_question", arguments: mcpQuestionInput },
+      }),
+    });
+    return (await response.json()) as Record<string, unknown>;
+  }
+
+  it("emits question-failed for a response whose run has no live run", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { manager } = createKimiQuestionManager(emitted);
+
+    manager.respondToQuestion({ questionId: "q-stale", runId: "run-gone", action: "skip" });
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "question-failed")).toMatchObject({
+      type: "question-failed",
+      runId: "run-gone",
+      questionId: "q-stale",
+    });
+  });
+
+  it("rejects a response addressed to a different run without resolving the pending question", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { manager, transports } = createKimiQuestionManager(emitted);
+
+    manager.start("run-a", makeRequest({ runtimeId: "kimi", threadId: "thread-1" }));
+    manager.start("run-b", makeRequest({ runtimeId: "kimi", threadId: "thread-2" }));
+    await waitFor(() => (transports.length === 2 ? transports : null));
+
+    transports[0]!.emitMessage({
+      jsonrpc: "2.0",
+      id: "question-1",
+      method: "session/request_permission",
+      params: {
+        sessionId: "session-1",
+        options: [
+          { optionId: "opt_ts", name: "TypeScript", kind: "allow_once" },
+          { optionId: "opt_js", name: "JavaScript", kind: "allow_once" },
+        ],
+        toolCall: {
+          toolCallId: "tool-ask-user-question",
+          title: "AskUserQuestion",
+          kind: "other",
+          status: "pending",
+          rawInput: mcpQuestionInput,
+        },
+      },
+    });
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+    expect(requested.runId).toBe("run-a");
+
+    // The response names run-b but run-a's question id: it must not resolve.
+    manager.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-b",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["opt_js"] }],
+    });
+    await waitForAsyncEvents();
+
+    expect(emitted.some((event) => event.type === "question-resolved")).toBe(false);
+    expect(transports[0]!.sent.some((message) => message.id === "question-1")).toBe(false);
+
+    // run-a can still answer its own question.
+    manager.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-a",
+      action: "submit",
+      answers: [{ questionIndex: 0, optionIds: ["opt_js"] }],
+    });
+    await waitForAsyncEvents();
+
+    expect(transports[0]!.sent.find((message) => message.id === "question-1")?.result).toEqual({
+      outcome: { outcome: "selected", optionId: "opt_js" },
+    });
+    expect(emitted.find((event) => event.type === "question-resolved")).toMatchObject({
+      runId: "run-a",
+      outcome: "answered",
+    });
+  });
+
+  it("interrupts a pending question and rejects late responses when its thread is deleted", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { manager, transports } = createKimiQuestionManager(emitted);
+
+    manager.start("run-question", makeRequest({ runtimeId: "kimi" }));
+    const serverUrl = await waitFor(() => questionServerUrl(transports[0]!));
+
+    const pendingResponse = callAskUserQuestion(serverUrl);
+    const requested = await waitFor(() =>
+      emitted.find(
+        (event): event is Extract<ChatRunEvent, { type: "question-requested" }> =>
+          event.type === "question-requested",
+      ),
+    );
+
+    await manager.deleteThreadData({ threadIds: ["thread-1"], attachmentStorageKeys: [] });
+    await waitFor(() => emitted.find((event) => event.type === "stopped"));
+
+    // Deletion interrupts the question and releases the waiting HTTP connection.
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: "server_closed" } },
+    });
+
+    manager.respondToQuestion({
+      questionId: requested.question.id,
+      runId: "run-question",
+      action: "skip",
+    });
+    await waitForAsyncEvents();
+
+    expect(emitted.some((event) => event.type === "question-resolved")).toBe(false);
+    expect(emitted.find((event) => event.type === "question-failed")).toMatchObject({
+      runId: "run-question",
+      questionId: requested.question.id,
+    });
+  });
+
+  it("flushes pending question calls and closes transports on shutdown", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const { manager, transports } = createKimiQuestionManager(emitted);
+
+    manager.start("run-shutdown", makeRequest({ runtimeId: "kimi" }));
+    const serverUrl = await waitFor(() => questionServerUrl(transports[0]!));
+
+    const pendingResponse = callAskUserQuestion(serverUrl);
+    await waitFor(() => emitted.find((event) => event.type === "question-requested"));
+
+    manager.shutdown();
+    await waitForAsyncEvents();
+
+    const response = await pendingResponse;
+    expect(response.result).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: "server_closed" } },
+    });
+    expect(transports[0]!.closed).toBe(true);
+    expect(emitted.find((event) => event.type === "stopped")).toMatchObject({
+      runId: "run-shutdown",
+    });
   });
 });

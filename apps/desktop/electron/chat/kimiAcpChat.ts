@@ -21,10 +21,29 @@ import {
   type ChatPermissionRequest,
   type ChatPermissionResponse,
 } from "../../src/shared/chatPermissions";
+import {
+  CHAT_QUESTION_OTHER_OPTION_ID,
+  type ChatQuestionItem,
+  type ChatQuestionRequest,
+  type ChatQuestionResponse,
+  type ChatQuestionSource,
+} from "../../src/shared/chatQuestions";
 import type { RuntimeMode } from "../../src/shared/runtimeMode";
 import { MAX_SUBAGENT_TASK_TEXT_LENGTH } from "../../src/shared/workspacePersistence";
-import type { CarrentBridgeFactory, CarrentBridgeHandle } from "../bridge/carrentBridge";
+import type {
+  CarrentBridgeFactory,
+  CarrentBridgeHandle,
+  CarrentBridgeMcpServerDescriptor,
+} from "../bridge/carrentBridge";
 import { buildChatPrompt, DEFAULT_FILE_ONLY_PROMPT, DEFAULT_IMAGE_ONLY_PROMPT } from "./chatPrompt";
+import {
+  QUESTION_DISMISSED_NOTE,
+  QuestionAlreadyPendingError,
+  type QuestionMcpServerFactory,
+  type QuestionMcpServerHandle,
+  type SessionQuestionInput,
+  type SessionQuestionToolResult,
+} from "./questionMcpServer";
 
 type JsonRpcId = string | number;
 type JsonObject = Record<string, unknown>;
@@ -61,8 +80,25 @@ export type SpawnAcpProcess = (
 
 export type KimiAcpRunHandle = {
   stop: () => void;
+  shutdown: () => void;
   respondToPermission: (response: ChatPermissionResponse) => void;
+  respondToQuestion: (response: ChatQuestionResponse) => void;
 };
+
+// A pending question resolves either an upstream ACP permission request or a
+// Run-scoped MCP ask_user_question call waiting on its HTTP response.
+type PendingQuestion =
+  | {
+      source: "native-acp";
+      acpRequestId: JsonRpcId;
+      options: ChatPermissionOption[];
+      skipOptionId: string | null;
+    }
+  | {
+      source: "mcp";
+      items: ChatQuestionItem[];
+      resolve: (result: SessionQuestionToolResult) => void;
+    };
 
 export function createKimiAcpProcessTransportFactory(
   spawn: SpawnAcpProcess,
@@ -168,6 +204,7 @@ export function startKimiAcpChatRun(options: {
   onDone?: () => void;
   requestTimeoutMs?: number;
   bridgeFactory?: CarrentBridgeFactory | null;
+  questionServerFactory?: QuestionMcpServerFactory | null;
   kimiSessionsRoot?: string;
   attachmentStoreRoot?: string;
 }): KimiAcpRunHandle {
@@ -175,7 +212,9 @@ export function startKimiAcpChatRun(options: {
   void runner.start();
   return {
     stop: () => runner.stop(),
+    shutdown: () => runner.shutdown(),
     respondToPermission: (response) => runner.respondToPermission(response),
+    respondToQuestion: (response) => runner.respondToQuestion(response),
   };
 }
 
@@ -394,6 +433,9 @@ class KimiAcpRun {
       options: ChatPermissionOption[];
     }
   >();
+  private pendingQuestions = new Map<string, PendingQuestion>();
+  private questionServer: QuestionMcpServerHandle | null = null;
+  private mcpQuestionCounter = 0;
   private toolStates = new Map<
     string,
     {
@@ -418,6 +460,7 @@ class KimiAcpRun {
       onDone?: () => void;
       requestTimeoutMs?: number;
       bridgeFactory?: CarrentBridgeFactory | null;
+      questionServerFactory?: QuestionMcpServerFactory | null;
       kimiSessionsRoot?: string;
       attachmentStoreRoot?: string;
     },
@@ -460,6 +503,10 @@ class KimiAcpRun {
       });
 
       await this.startBridge();
+      if (this.terminal) {
+        return;
+      }
+      await this.startQuestionServer();
       if (this.terminal) {
         return;
       }
@@ -607,7 +654,93 @@ class KimiAcpRun {
   }
 
   private getMcpServers() {
-    return this.bridge ? [this.bridge.mcpServer] : [];
+    return [this.bridge?.mcpServer, this.questionServer?.mcpServer].filter(
+      (server): server is CarrentBridgeMcpServerDescriptor => server !== undefined,
+    );
+  }
+
+  private async startQuestionServer() {
+    if (!this.options.questionServerFactory || !this.shouldStartQuestionServer()) {
+      return;
+    }
+
+    const handle = await this.options.questionServerFactory({
+      onAskUserQuestion: (input) => this.askUserQuestion(input),
+    });
+    if (!handle) {
+      return;
+    }
+    if (this.terminal) {
+      await handle.close().catch(() => {
+        // Best-effort cleanup; the run has already reached a terminal state.
+      });
+      return;
+    }
+
+    this.questionServer = handle;
+  }
+
+  // Structured questions are only available where Kimi permits interactive
+  // input: default, Plan, and YOLO runs. Kimi Auto (full-access without
+  // Plan mode) runs unattended, so it gets no question server. The decision
+  // uses the run's configured Carrent mode and Plan flag, not the negotiated
+  // ACP mode, because the server starts before the session is configured.
+  private shouldStartQuestionServer() {
+    if (this.options.request.planMode) {
+      return true;
+    }
+    return this.options.request.runtimeMode !== "full-access";
+  }
+
+  private askUserQuestion(input: SessionQuestionInput): Promise<SessionQuestionToolResult> {
+    if (this.terminal) {
+      return Promise.reject(new Error("The run has already ended."));
+    }
+    if (this.pendingQuestions.size > 0) {
+      this.logQuestion("already_pending_rejected", {
+        source: "mcp",
+        runId: this.options.runId,
+        activeQuestionId: this.pendingQuestions.keys().next().value!,
+      });
+      return Promise.reject(new QuestionAlreadyPendingError());
+    }
+
+    this.mcpQuestionCounter += 1;
+    const questionId = `kimi-question-${this.options.runId}-mcp-${this.mcpQuestionCounter}`;
+    // Option ids are prefixed per question so drafts for different questions in
+    // one request never collide.
+    const items: ChatQuestionItem[] = input.questions.map((question, questionIndex) => ({
+      header: question.header,
+      question: question.question,
+      options: question.options.map((option, optionIndex) => ({
+        optionId: `mcp-q${questionIndex + 1}-opt-${optionIndex + 1}`,
+        label: option.label,
+        ...(option.description ? { description: option.description } : {}),
+      })),
+      multiSelect: question.multiSelect,
+    }));
+
+    return new Promise((resolve) => {
+      this.pendingQuestions.set(questionId, { source: "mcp", items, resolve });
+      this.logQuestion("requested", {
+        source: "mcp",
+        runId: this.options.runId,
+        questionId,
+        questions: items.length,
+      });
+      this.emit({
+        type: "question-requested",
+        runId: this.options.runId,
+        requestKey: this.options.request.requestKey,
+        question: buildChatQuestionRequest({
+          id: questionId,
+          runId: this.options.runId,
+          request: this.options.request,
+          source: "mcp",
+          questions: items,
+        }),
+      });
+    });
   }
 
   private async forgetInvalidSession(sessionId: string) {
@@ -721,6 +854,17 @@ class KimiAcpRun {
     this.completeStopped();
   }
 
+  // App shutdown ends the run immediately: no session/cancel grace period, but
+  // the same terminal cleanup (question server flush, transport close).
+  shutdown() {
+    if (this.terminal) {
+      return;
+    }
+
+    this.stoppedByUser = true;
+    this.completeStopped();
+  }
+
   respondToPermission(response: ChatPermissionResponse) {
     if (response.runId !== this.options.runId) {
       return;
@@ -766,6 +910,252 @@ class KimiAcpRun {
       optionId: selectedOption.optionId,
       optionName: selectedOption.name,
       optionKind: selectedOption.kind,
+    });
+  }
+
+  respondToQuestion(response: ChatQuestionResponse) {
+    if (response.runId !== this.options.runId) {
+      this.logQuestion("response_rejected", {
+        runId: response.runId,
+        questionId: response.questionId,
+        reason: "wrong_run",
+      });
+      return;
+    }
+
+    const pendingQuestion = this.pendingQuestions.get(response.questionId);
+    if (!pendingQuestion) {
+      this.logQuestion("response_rejected", {
+        runId: response.runId,
+        questionId: response.questionId,
+        reason: "not_found",
+      });
+      this.emitQuestionFailed(
+        response.questionId,
+        "Question request not found. The run may have already ended.",
+      );
+      return;
+    }
+
+    if (pendingQuestion.source === "mcp") {
+      this.respondToMcpQuestion(response, pendingQuestion);
+      return;
+    }
+
+    const submitAnswer =
+      response.action === "submit"
+        ? response.answers.length === 1 &&
+          response.answers[0]!.questionIndex === 0 &&
+          response.answers[0]!.optionIds.length === 1
+          ? response.answers[0]!
+          : null
+        : null;
+
+    if (response.action === "submit" && (!submitAnswer || submitAnswer.customText !== undefined)) {
+      this.emitQuestionFailed(
+        response.questionId,
+        "Native Kimi ACP questions support exactly one predefined answer.",
+      );
+      return;
+    }
+
+    if (response.action === "skip") {
+      const skipOption = pendingQuestion.options.find(
+        (option) => option.optionId === pendingQuestion.skipOptionId,
+      );
+      try {
+        this.respond(
+          pendingQuestion.acpRequestId,
+          skipOption
+            ? { outcome: { outcome: "selected", optionId: skipOption.optionId } }
+            : { outcome: { outcome: "cancelled" } },
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.emitQuestionFailed(response.questionId, message);
+        this.fail(message);
+        return;
+      }
+
+      this.pendingQuestions.delete(response.questionId);
+      this.logQuestion("resolved", {
+        source: "native-acp",
+        runId: this.options.runId,
+        questionId: response.questionId,
+        outcome: "skipped",
+      });
+      this.emit({
+        type: "question-resolved",
+        runId: this.options.runId,
+        requestKey: this.options.request.requestKey,
+        questionId: response.questionId,
+        outcome: "skipped",
+        ...(skipOption ? { optionId: skipOption.optionId, optionLabel: skipOption.name } : {}),
+      });
+      return;
+    }
+
+    const selectedOption = pendingQuestion.options.find(
+      (option) => option.optionId === submitAnswer!.optionIds[0],
+    );
+    if (!selectedOption) {
+      this.emitQuestionFailed(response.questionId, "Question option is no longer available.");
+      return;
+    }
+
+    try {
+      this.respond(pendingQuestion.acpRequestId, {
+        outcome: {
+          outcome: "selected",
+          optionId: selectedOption.optionId,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitQuestionFailed(response.questionId, message);
+      this.fail(message);
+      return;
+    }
+
+    this.pendingQuestions.delete(response.questionId);
+    this.logQuestion("resolved", {
+      source: "native-acp",
+      runId: this.options.runId,
+      questionId: response.questionId,
+      outcome: "answered",
+    });
+    this.emit({
+      type: "question-resolved",
+      runId: this.options.runId,
+      requestKey: this.options.request.requestKey,
+      questionId: response.questionId,
+      outcome: "answered",
+      optionId: selectedOption.optionId,
+      optionLabel: selectedOption.name,
+    });
+  }
+
+  private respondToMcpQuestion(
+    response: ChatQuestionResponse,
+    pendingQuestion: Extract<PendingQuestion, { source: "mcp" }>,
+  ) {
+    const items = pendingQuestion.items;
+
+    if (response.action === "skip") {
+      pendingQuestion.resolve({ answers: {}, note: QUESTION_DISMISSED_NOTE });
+      this.pendingQuestions.delete(response.questionId);
+      this.logQuestion("resolved", {
+        source: "mcp",
+        runId: this.options.runId,
+        questionId: response.questionId,
+        outcome: "skipped",
+      });
+      this.emit({
+        type: "question-resolved",
+        runId: this.options.runId,
+        requestKey: this.options.request.requestKey,
+        questionId: response.questionId,
+        outcome: "skipped",
+      });
+      return;
+    }
+
+    // Re-derive the Kimi answers object defensively; the renderer already
+    // enforces selection and Other-text rules.
+    const answersByIndex = new Map<number, (typeof response.answers)[number]>();
+    for (const answer of response.answers) {
+      if (
+        !Number.isInteger(answer.questionIndex) ||
+        answer.questionIndex < 0 ||
+        answer.questionIndex >= items.length ||
+        answersByIndex.has(answer.questionIndex)
+      ) {
+        this.emitQuestionFailed(
+          response.questionId,
+          "Question answers do not match the pending questions.",
+        );
+        return;
+      }
+      answersByIndex.set(answer.questionIndex, answer);
+    }
+
+    if (answersByIndex.size !== items.length) {
+      this.emitQuestionFailed(response.questionId, "Every question requires an answer.");
+      return;
+    }
+
+    const answers: Record<string, string> = {};
+    for (const [index, item] of items.entries()) {
+      const answer = answersByIndex.get(index)!;
+      // Single-select questions accept exactly one selection; Other is only
+      // valid on its own. Multi-select may combine Other with predefined
+      // choices.
+      if (!item.multiSelect && answer.optionIds.length !== 1) {
+        this.emitQuestionFailed(
+          response.questionId,
+          "Single-select questions require exactly one selected option.",
+        );
+        return;
+      }
+
+      const parts: string[] = [];
+      for (const optionId of answer.optionIds) {
+        if (optionId === CHAT_QUESTION_OTHER_OPTION_ID) {
+          continue;
+        }
+        const option = item.options.find((candidate) => candidate.optionId === optionId);
+        if (!option) {
+          this.emitQuestionFailed(response.questionId, "Question option is no longer available.");
+          return;
+        }
+        parts.push(option.label);
+      }
+
+      const hasOther = answer.optionIds.includes(CHAT_QUESTION_OTHER_OPTION_ID);
+      const customText = answer.customText?.trim();
+      if (hasOther) {
+        if (!customText) {
+          this.emitQuestionFailed(response.questionId, "The Other answer requires custom text.");
+          return;
+        }
+        parts.push(customText);
+      }
+
+      if (parts.length === 0) {
+        this.emitQuestionFailed(response.questionId, "Every question requires an answer.");
+        return;
+      }
+
+      answers[item.question] = parts.join(", ");
+    }
+
+    pendingQuestion.resolve({ answers });
+    this.pendingQuestions.delete(response.questionId);
+    this.logQuestion("resolved", {
+      source: "mcp",
+      runId: this.options.runId,
+      questionId: response.questionId,
+      outcome: "answered",
+    });
+
+    // Keep the single-question summary fields for the common case; a
+    // multi-question resolution has no single selected option to report.
+    const onlyAnswer = response.answers.length === 1 ? response.answers[0]! : null;
+    const summary =
+      items.length === 1 && onlyAnswer && onlyAnswer.optionIds.length === 1
+        ? {
+            optionId: onlyAnswer.optionIds[0]!,
+            optionLabel: answers[items[0]!.question]!,
+          }
+        : {};
+
+    this.emit({
+      type: "question-resolved",
+      runId: this.options.runId,
+      requestKey: this.options.request.requestKey,
+      questionId: response.questionId,
+      outcome: "answered",
+      ...summary,
     });
   }
 
@@ -860,7 +1250,21 @@ class KimiAcpRun {
     const options = readPermissionOptions(payload?.options);
     if (options.length === 0) {
       await this.respond(id, { outcome: { outcome: "cancelled" } });
+      if (isKimiQuestionToolCall(payload)) {
+        // A malformed question request must not terminate the Run; the agent
+        // gets the cancellation and can recover.
+        this.emitQuestionFailed(
+          `kimi-question-${this.options.runId}-${String(id)}`,
+          "Kimi question request did not include any supported response options.",
+        );
+        return;
+      }
       this.fail("Kimi requested permission without any supported response options.");
+      return;
+    }
+
+    if (isKimiQuestionToolCall(payload)) {
+      await this.handleQuestionRequest(id, params, options);
       return;
     }
 
@@ -899,6 +1303,61 @@ class KimiAcpRun {
         optionId: conversationOption.optionId,
       });
     }
+  }
+
+  private async handleQuestionRequest(
+    id: JsonRpcId,
+    params: unknown,
+    options: ChatPermissionOption[],
+  ) {
+    // One pending question per Run across both entry points: cancel the second
+    // native ACP request upstream without touching the active panel.
+    if (this.pendingQuestions.size > 0) {
+      await this.respond(id, { outcome: { outcome: "cancelled" } });
+      this.logQuestion("already_pending_rejected", {
+        source: "native-acp",
+        runId: this.options.runId,
+        activeQuestionId: this.pendingQuestions.keys().next().value!,
+      });
+      return;
+    }
+
+    const question = buildKimiQuestionRequest({
+      id,
+      runId: this.options.runId,
+      request: this.options.request,
+      params,
+      permissionOptions: options,
+    });
+    if (!question) {
+      await this.respond(id, { outcome: { outcome: "cancelled" } });
+      // A malformed question request must not terminate the Run; the agent
+      // gets the cancellation and can recover.
+      this.emitQuestionFailed(
+        `kimi-question-${this.options.runId}-${String(id)}`,
+        "Kimi question request did not include a supported question.",
+      );
+      return;
+    }
+
+    this.pendingQuestions.set(question.id, {
+      source: "native-acp",
+      acpRequestId: id,
+      options,
+      skipOptionId: question.skipOptionId ?? null,
+    });
+    this.logQuestion("requested", {
+      source: "native-acp",
+      runId: this.options.runId,
+      questionId: question.id,
+      questions: question.questions.length,
+    });
+    this.emit({
+      type: "question-requested",
+      runId: this.options.runId,
+      requestKey: this.options.request.requestKey,
+      question,
+    });
   }
 
   private async handleReadTextFile(params: unknown) {
@@ -1305,6 +1764,15 @@ class KimiAcpRun {
     }
   }
 
+  // Diagnostic lifecycle log: ids, sources, outcomes, and counts only — never
+  // free-text answer contents.
+  private logQuestion(action: string, details: Record<string, string | number>) {
+    const suffix = Object.entries(details)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(" ");
+    console.info(`[chat:question] ${action}${suffix ? ` ${suffix}` : ""}`);
+  }
+
   private fail(error: string) {
     this.complete({
       type: "failed",
@@ -1320,6 +1788,16 @@ class KimiAcpRun {
       runId: this.options.runId,
       requestKey: this.options.request.requestKey,
       permissionId,
+      error,
+    });
+  }
+
+  private emitQuestionFailed(questionId: string, error: string) {
+    this.emit({
+      type: "question-failed",
+      runId: this.options.runId,
+      requestKey: this.options.request.requestKey,
+      questionId,
       error,
     });
   }
@@ -1349,7 +1827,17 @@ class KimiAcpRun {
     });
     this.pending.clear();
     this.pendingPermissions.clear();
+    this.pendingQuestions.forEach((question, questionId) => {
+      this.logQuestion("interrupted", {
+        source: question.source,
+        runId: this.options.runId,
+        questionId,
+        reason: event.type,
+      });
+    });
+    this.pendingQuestions.clear();
     this.closeBridge();
+    this.closeQuestionServer();
     this.options.emit(event);
     this.transport.close();
     this.options.onDone?.();
@@ -1363,6 +1851,18 @@ class KimiAcpRun {
     }
 
     void bridge.close().catch(() => {
+      // Best-effort cleanup; the run has already reached a terminal state.
+    });
+  }
+
+  private closeQuestionServer() {
+    const questionServer = this.questionServer;
+    this.questionServer = null;
+    if (!questionServer) {
+      return;
+    }
+
+    void questionServer.close().catch(() => {
       // Best-effort cleanup; the run has already reached a terminal state.
     });
   }
@@ -1442,9 +1942,9 @@ function getKimiModeValue(mode: RuntimeMode) {
     case "approval-required":
       return "default";
     case "auto-accept-edits":
-      return "auto";
-    case "full-access":
       return "yolo";
+    case "full-access":
+      return "auto";
   }
 }
 
@@ -1694,6 +2194,79 @@ function commandFromTitle(title: string) {
 function commandFromText(text: string) {
   const match = /Running:\s*([^\n]+)/u.exec(text);
   return match?.[1]?.trim() ?? null;
+}
+
+const KIMI_QUESTION_TOOL_TITLE = "AskUserQuestion";
+
+function isKimiQuestionToolCall(payload: JsonObject | null): boolean {
+  const toolCall = readObject(payload?.toolCall);
+  return readString(toolCall?.title) === KIMI_QUESTION_TOOL_TITLE;
+}
+
+// Kimi's ACP adapter degrades AskUserQuestion to the first question as a
+// single-select permission request. Only the data Kimi actually forwarded is
+// surfaced; dropped questions, descriptions, and Other content are never
+// reconstructed.
+function buildChatQuestionRequest(options: {
+  id: string;
+  runId: string;
+  request: ChatTurnRequest;
+  source: ChatQuestionSource;
+  questions: ChatQuestionItem[];
+  skipOptionId?: string;
+}): ChatQuestionRequest {
+  return {
+    id: options.id,
+    runId: options.runId,
+    requestKey: options.request.requestKey,
+    threadId: options.request.threadId,
+    provider: "kimi",
+    source: options.source,
+    questions: options.questions,
+    ...(options.skipOptionId ? { skipOptionId: options.skipOptionId } : {}),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function buildKimiQuestionRequest(options: {
+  id: JsonRpcId;
+  runId: string;
+  request: ChatTurnRequest;
+  params: unknown;
+  permissionOptions: ChatPermissionOption[];
+}): ChatQuestionRequest | null {
+  const payload = readObject(options.params);
+  const toolCall = readObject(payload?.toolCall);
+  const rawInput = readObject(toolCall?.rawInput);
+  const firstQuestion = Array.isArray(rawInput?.questions)
+    ? readObject(rawInput.questions[0])
+    : null;
+  const questionText = firstQuestion ? readString(firstQuestion.question) : null;
+  if (!questionText) {
+    return null;
+  }
+
+  const header = (firstQuestion ? readString(firstQuestion.header) : null) ?? "Question";
+  const skipOption = options.permissionOptions.find((option) => option.kind === "reject_once");
+
+  return buildChatQuestionRequest({
+    id: `kimi-question-${options.runId}-${String(options.id)}`,
+    runId: options.runId,
+    request: options.request,
+    source: "native-acp",
+    questions: [
+      {
+        header,
+        question: questionText,
+        options: options.permissionOptions.map((option) => ({
+          optionId: option.optionId,
+          label: option.name,
+        })),
+        multiSelect: false,
+      },
+    ],
+    ...(skipOption ? { skipOptionId: skipOption.optionId } : {}),
+  });
 }
 
 function buildKimiPermissionRequest(options: {

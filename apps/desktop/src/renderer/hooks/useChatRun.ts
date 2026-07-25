@@ -8,6 +8,7 @@ import type {
   ChatTurnRequest,
 } from "../../shared/chat";
 import type { ChatPermissionRequest, ChatPermissionResponse } from "../../shared/chatPermissions";
+import type { ChatQuestionRequest, ChatQuestionResponse } from "../../shared/chatQuestions";
 
 export type ChatRunCallbacks = {
   onDelta?: (text: string) => void;
@@ -22,6 +23,12 @@ export type ChatRunCallbacks = {
     optionKind: import("../../shared/chatPermissions").ChatPermissionOptionKind;
   }) => void;
   onPermissionsInterrupted?: (permissions: ChatPermissionRequest[]) => void;
+  onQuestionRequested?: (question: ChatQuestionRequest) => void;
+  onQuestionResolved?: (resolution: {
+    question: ChatQuestionRequest;
+    outcome: "answered" | "skipped";
+  }) => void;
+  onQuestionsInterrupted?: (questions: ChatQuestionRequest[]) => void;
   onPlanModeChanged?: (enabled: boolean) => void;
   onComplete?: (text: string) => void;
   onError?: (error: string) => void;
@@ -34,6 +41,7 @@ type ChatRunSnapshot = {
   activeThreadId: string | null;
   runningThreadIds: string[];
   pendingPermissions: ChatPermissionRequest[];
+  pendingQuestions: ChatQuestionRequest[];
 };
 
 type ChatRunStoreListener = () => void;
@@ -52,12 +60,14 @@ export function createChatRunCoordinator() {
     activeThreadId: null,
     runningThreadIds: [],
     pendingPermissions: [],
+    pendingQuestions: [],
   };
   const pendingByRequestKey = new Map<string, PendingChatRun>();
   const requestKeyByRunId = new Map<string, string>();
   const requestKeyByThreadId = new Map<string, string>();
   const listeners = new Set<ChatRunStoreListener>();
   const pendingPermissionById = new Map<string, ChatPermissionRequest>();
+  const pendingQuestionById = new Map<string, ChatQuestionRequest>();
 
   const updateSnapshot = (lastError = snapshot.lastError) => {
     const runningThreadIds = [...requestKeyByThreadId.keys()];
@@ -67,6 +77,7 @@ export function createChatRunCoordinator() {
       activeThreadId: runningThreadIds[0] ?? null,
       runningThreadIds,
       pendingPermissions: [...pendingPermissionById.values()],
+      pendingQuestions: [...pendingQuestionById.values()],
     };
   };
 
@@ -96,6 +107,19 @@ export function createChatRunCoordinator() {
     });
     if (notifyInterrupted && removed.length > 0) {
       run.callbacks.onPermissionsInterrupted?.(removed);
+    }
+  };
+
+  const clearQuestionsForRun = (run: PendingChatRun, runId: string, notifyInterrupted: boolean) => {
+    const removed: ChatQuestionRequest[] = [];
+    pendingQuestionById.forEach((question, id) => {
+      if (question.runId === runId) {
+        pendingQuestionById.delete(id);
+        removed.push(question);
+      }
+    });
+    if (notifyInterrupted && removed.length > 0) {
+      run.callbacks.onQuestionsInterrupted?.(removed);
     }
   };
 
@@ -178,6 +202,7 @@ export function createChatRunCoordinator() {
       if (event.type === "permission-failed") {
         if (run) {
           clearPermissionsForRun(run, event.runId, true);
+          clearQuestionsForRun(run, event.runId, true);
           run.callbacks.onError?.(event.error);
           finishPendingRun(run);
         }
@@ -231,6 +256,7 @@ export function createChatRunCoordinator() {
 
       if (event.type === "completed") {
         clearPermissionsForRun(run, event.runId, true);
+        clearQuestionsForRun(run, event.runId, true);
         run.callbacks.onComplete?.(event.text);
         finishPendingRun(run);
         return;
@@ -238,6 +264,7 @@ export function createChatRunCoordinator() {
 
       if (event.type === "failed") {
         clearPermissionsForRun(run, event.runId, true);
+        clearQuestionsForRun(run, event.runId, true);
         run.callbacks.onError?.(event.error);
         clearPending(run);
         updateSnapshot(event.error);
@@ -247,6 +274,7 @@ export function createChatRunCoordinator() {
 
       if (event.type === "stopped") {
         clearPermissionsForRun(run, event.runId, true);
+        clearQuestionsForRun(run, event.runId, true);
         run.callbacks.onStop?.();
         finishPendingRun(run);
         return;
@@ -269,6 +297,35 @@ export function createChatRunCoordinator() {
         });
         pendingPermissionById.delete(event.permissionId);
         updateSnapshot();
+        emit();
+        return;
+      }
+
+      if (event.type === "question-requested") {
+        pendingQuestionById.set(event.question.id, event.question);
+        run.callbacks.onQuestionRequested?.(event.question);
+        updateSnapshot();
+        emit();
+        return;
+      }
+
+      if (event.type === "question-resolved") {
+        const question = pendingQuestionById.get(event.questionId);
+        if (question) {
+          // The full request travels with the resolution so history records
+          // never depend on the event's single-question option fields.
+          run.callbacks.onQuestionResolved?.({ question, outcome: event.outcome });
+        }
+        pendingQuestionById.delete(event.questionId);
+        updateSnapshot();
+        emit();
+        return;
+      }
+
+      if (event.type === "question-failed") {
+        // Only surface failures for a question this coordinator is tracking;
+        // stale or wrong-run failures must not pollute unrelated threads.
+        updateSnapshot(pendingQuestionById.has(event.questionId) ? event.error : undefined);
         emit();
         return;
       }
@@ -336,14 +393,20 @@ export function useChatRun() {
     await window.carrent.chat.respondToPermission(response);
   }, []);
 
+  const respondToQuestion = useCallback(async (response: ChatQuestionResponse) => {
+    await window.carrent.chat.respondToQuestion(response);
+  }, []);
+
   return {
     isSending: snapshot.isSending,
     lastError: snapshot.lastError,
     activeThreadId: snapshot.activeThreadId,
     runningThreadIds: snapshot.runningThreadIds,
     pendingPermissions: snapshot.pendingPermissions,
+    pendingQuestions: snapshot.pendingQuestions,
     send,
     stop,
     respondToPermission,
+    respondToQuestion,
   };
 }

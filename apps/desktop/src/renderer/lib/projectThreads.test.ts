@@ -112,6 +112,7 @@ describe("splitProjectThreads", () => {
         threadId: "thread-1",
         runningThreadIds: ["thread-1"],
         pendingApprovals: [{ threadId: "thread-1" }],
+        pendingQuestions: [],
         messages: [failedMessage],
       }),
     ).toBe("approval");
@@ -120,6 +121,7 @@ describe("splitProjectThreads", () => {
         threadId: "thread-1",
         runningThreadIds: ["thread-1"],
         pendingApprovals: [],
+        pendingQuestions: [],
         messages: [failedMessage],
       }),
     ).toBe("running");
@@ -128,9 +130,61 @@ describe("splitProjectThreads", () => {
         threadId: "thread-1",
         runningThreadIds: [],
         pendingApprovals: [],
+        pendingQuestions: [],
         messages: [failedMessage],
       }),
     ).toBe("failed");
+  });
+
+  it("shows a waiting question with the same attention precedence as approval", () => {
+    const failedMessage = {
+      id: "message-1",
+      role: "assistant",
+      threadId: "thread-1",
+      content: "Error",
+      timestamp: "09:00",
+      runStatus: "failed",
+    } satisfies Message;
+
+    // A pending question outranks a live run and a persisted failure.
+    expect(
+      getThreadDisplayStatus({
+        threadId: "thread-1",
+        runningThreadIds: ["thread-1"],
+        pendingApprovals: [],
+        pendingQuestions: [{ threadId: "thread-1" }],
+        messages: [failedMessage],
+      }),
+    ).toBe("question");
+    expect(
+      getThreadDisplayStatus({
+        threadId: "thread-1",
+        runningThreadIds: [],
+        pendingApprovals: [],
+        pendingQuestions: [{ threadId: "thread-1" }],
+        messages: [failedMessage],
+      }),
+    ).toBe("question");
+    // Approval and question share the attention tier; approval wins ties.
+    expect(
+      getThreadDisplayStatus({
+        threadId: "thread-1",
+        runningThreadIds: ["thread-1"],
+        pendingApprovals: [{ threadId: "thread-1" }],
+        pendingQuestions: [{ threadId: "thread-1" }],
+        messages: [failedMessage],
+      }),
+    ).toBe("approval");
+    // A question owned by another thread does not leak into this one.
+    expect(
+      getThreadDisplayStatus({
+        threadId: "thread-1",
+        runningThreadIds: ["thread-1"],
+        pendingApprovals: [],
+        pendingQuestions: [{ threadId: "thread-2" }],
+        messages: [failedMessage],
+      }),
+    ).toBe("running");
   });
 
   it("clears failed display state when a newer assistant run succeeds", () => {
@@ -158,6 +212,7 @@ describe("splitProjectThreads", () => {
         threadId: "thread-1",
         runningThreadIds: [],
         pendingApprovals: [],
+        pendingQuestions: [],
         messages,
       }),
     ).toBe(null);
@@ -180,6 +235,7 @@ describe("splitProjectThreads", () => {
         threadId: "thread-1",
         runningThreadIds: [],
         pendingApprovals: [],
+        pendingQuestions: [],
         messages,
       }),
     ).toBe(null);

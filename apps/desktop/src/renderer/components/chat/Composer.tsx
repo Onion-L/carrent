@@ -53,6 +53,12 @@ import {
 } from "./typewriter";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
+import { QuestionPanel, getPendingQuestionForThread } from "./QuestionPanel";
+import {
+  buildQuestionAnswerRecords,
+  clearQuestionDraftState,
+  getQuestionDraftState,
+} from "../../lib/questionDrafts";
 import {
   clearThreadDraft,
   enqueueChatMessage,
@@ -817,7 +823,14 @@ export function Composer(props: ComposerProps) {
     upsertThread,
     promoteDraftThread,
   } = useWorkspace();
-  const { runningThreadIds, pendingPermissions, respondToPermission, send, stop } = useChatRun();
+  const {
+    runningThreadIds,
+    pendingPermissions,
+    pendingQuestions,
+    respondToPermission,
+    send,
+    stop,
+  } = useChatRun();
   const { runtimes, loading: runtimesLoading, refresh: refreshRuntimes } = useRuntimes();
   const { skills, loading: skillsLoading, error: skillsError } = useSkills();
   const { status: mcpServerStatus } = useMcpServer();
@@ -1038,6 +1051,10 @@ export function Composer(props: ComposerProps) {
   const threadPermissions = useMemo(
     () => getActionablePermissionsForThread({ pendingPermissions, threadId }),
     [pendingPermissions, threadId],
+  );
+  const threadQuestion = useMemo(
+    () => getPendingQuestionForThread({ pendingQuestions, threadId }),
+    [pendingQuestions, threadId],
   );
   const showCascadingPanel =
     showRuntimePicker && !!cascadingModelRuntimeId && !!props.onRuntimeModelIdChange;
@@ -1480,6 +1497,7 @@ export function Composer(props: ComposerProps) {
       props.onPlanModeChange?.(true);
     }
 
+
     if (props.mode === "thread") {
       promoteDraftThread(props.projectId, props.threadId);
     }
@@ -1776,6 +1794,40 @@ export function Composer(props: ComposerProps) {
           if (permissions.some((permission) => permission.planReview)) {
             updateMessageParts(assistantMsg.id, { kind: "interrupt-plan-reviews" });
           }
+        },
+        onQuestionRequested: (question) => {
+          markThreadActivity(threadId, Date.parse(question.createdAt));
+          updateMessageParts(assistantMsg.id, {
+            kind: "upsert-question",
+            question: {
+              type: "question",
+              id: `question-${question.id}`,
+              questionId: question.id,
+              status: "pending",
+              questions: question.questions.map(({ header, question: text }) => ({
+                header,
+                question: text,
+              })),
+            },
+          });
+        },
+        onQuestionResolved: ({ question, outcome }) => {
+          // The final answer comes from the draft store, not the resolution
+          // event, so multi-question and Other answers are recorded fully.
+          const draftState = getQuestionDraftState(question.id);
+          updateMessageParts(assistantMsg.id, {
+            kind: "resolve-question",
+            questionId: question.id,
+            status: outcome === "answered" ? "answered" : "skipped",
+            ...(outcome === "answered" && draftState
+              ? { answers: buildQuestionAnswerRecords(question, draftState.drafts) }
+              : {}),
+          });
+          clearQuestionDraftState(question.id);
+        },
+        onQuestionsInterrupted: (questions) => {
+          updateMessageParts(assistantMsg.id, { kind: "interrupt-questions" });
+          questions.forEach((question) => clearQuestionDraftState(question.id));
         },
         onPlanModeChanged: (enabled) => {
           props.onPlanModeChange?.(enabled);
@@ -2108,6 +2160,19 @@ export function Composer(props: ComposerProps) {
   };
   const isCenteredPlacement = props.placement === "centered";
   const hasAttachedStatusLayer = threadPermissions.length > 0 || queuedMessages.length > 0;
+
+  // A pending structured question fully replaces the Composer surface (text
+  // input, attachments, Skill and Runtime controls, queued-message controls)
+  // until it is submitted, skipped, or the Run stops.
+  if (threadQuestion) {
+    return (
+      <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"}>
+        <div className="relative mx-auto w-full max-w-[48rem]">
+          <QuestionPanel key={threadQuestion.id} question={threadQuestion} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"} onPaste={handlePaste}>

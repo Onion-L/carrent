@@ -35,6 +35,8 @@ describe("registerChatIpc", () => {
           stop: () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
           getStatus: async () => null,
         },
       },
@@ -44,6 +46,7 @@ describe("registerChatIpc", () => {
       "chat:delete-thread-data",
       "chat:kimi-status",
       "chat:permission-response",
+      "chat:question-response",
       "chat:send",
       "chat:stop",
     ]);
@@ -63,6 +66,8 @@ describe("registerChatIpc", () => {
             deleted.push(request);
           },
           respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
           getStatus: async () => null,
         },
       },
@@ -92,6 +97,8 @@ describe("registerChatIpc", () => {
             deleted.push(request);
           },
           respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
           getStatus: async () => null,
         },
       },
@@ -139,6 +146,8 @@ describe("registerChatIpc", () => {
           stop: () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
           getStatus: async () => null,
         },
       },
@@ -170,6 +179,8 @@ describe("registerChatIpc", () => {
           stop: () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
           getStatus: async () => null,
         },
       },
@@ -215,6 +226,8 @@ describe("registerChatIpc", () => {
             stop: () => {},
             deleteThreadData: async () => {},
             respondToPermission: () => {},
+            respondToQuestion: () => {},
+            shutdown: () => {},
             getStatus: async () => null,
           },
         },
@@ -344,6 +357,8 @@ describe("registerChatIpc", () => {
           stop: () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
           getStatus: async () => null,
         },
       },
@@ -378,6 +393,8 @@ describe("registerChatIpc", () => {
           },
           deleteThreadData: async () => {},
           respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
           getStatus: async () => null,
         },
       },
@@ -402,6 +419,8 @@ describe("registerChatIpc", () => {
           stop: () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
           getStatus: async () => ({
             model: "kimi-code/kimi-for-coding",
             used: 1000,
@@ -435,6 +454,8 @@ describe("registerChatIpc", () => {
           stop: () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
           getStatus: async (request) => {
             requested.push(request);
             return {
@@ -473,6 +494,8 @@ describe("registerChatIpc", () => {
           stop: () => {},
           deleteThreadData: async () => {},
           respondToPermission: (response) => responses.push(response),
+          respondToQuestion: () => {},
+          shutdown: () => {},
           getStatus: async () => null,
         },
       },
@@ -496,5 +519,215 @@ describe("registerChatIpc", () => {
         optionId: "approve_once",
       },
     ]);
+  });
+
+  it("chat:question-response forwards a submit answer to the session manager", async () => {
+    const handlers = new Map<string, Function>();
+    const responses: unknown[] = [];
+
+    registerChatIpc(
+      {
+        handle: (channel, listener) => handlers.set(channel, listener),
+      },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: (response) => responses.push(response),
+          shutdown: () => {},
+          getStatus: async () => null,
+        },
+      },
+    );
+
+    await handlers.get("chat:question-response")?.(
+      {},
+      {
+        runId: "run-1",
+        questionId: "kimi-question-run-1-7",
+        action: "submit",
+        answers: [
+          { questionIndex: 0, optionIds: ["opt_ts"] },
+          { questionIndex: 1, optionIds: ["opt_logging", "opt_tracing"] },
+        ],
+      },
+    );
+
+    expect(responses).toEqual([
+      {
+        runId: "run-1",
+        questionId: "kimi-question-run-1-7",
+        action: "submit",
+        answers: [
+          { questionIndex: 0, optionIds: ["opt_ts"] },
+          { questionIndex: 1, optionIds: ["opt_logging", "opt_tracing"] },
+        ],
+      },
+    ]);
+  });
+
+  it("chat:question-response forwards an Other submit with custom text", async () => {
+    const handlers = new Map<string, Function>();
+    const responses: unknown[] = [];
+
+    registerChatIpc(
+      {
+        handle: (channel, listener) => handlers.set(channel, listener),
+      },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: (response) => responses.push(response),
+          shutdown: () => {},
+          getStatus: async () => null,
+        },
+      },
+    );
+
+    await handlers.get("chat:question-response")?.(
+      {},
+      {
+        runId: "run-1",
+        questionId: "kimi-question-run-1-7",
+        action: "submit",
+        answers: [{ questionIndex: 0, optionIds: ["other"], customText: "Use Python instead" }],
+      },
+    );
+
+    expect(responses).toEqual([
+      {
+        runId: "run-1",
+        questionId: "kimi-question-run-1-7",
+        action: "submit",
+        answers: [{ questionIndex: 0, optionIds: ["other"], customText: "Use Python instead" }],
+      },
+    ]);
+  });
+
+  it("chat:question-response forwards a skip to the session manager", async () => {
+    const handlers = new Map<string, Function>();
+    const responses: unknown[] = [];
+
+    registerChatIpc(
+      {
+        handle: (channel, listener) => handlers.set(channel, listener),
+      },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: (response) => responses.push(response),
+          shutdown: () => {},
+          getStatus: async () => null,
+        },
+      },
+    );
+
+    await handlers.get("chat:question-response")?.(
+      {},
+      {
+        runId: "run-1",
+        questionId: "kimi-question-run-1-7",
+        action: "skip",
+      },
+    );
+
+    expect(responses).toEqual([
+      {
+        runId: "run-1",
+        questionId: "kimi-question-run-1-7",
+        action: "skip",
+      },
+    ]);
+  });
+
+  it("chat:question-response rejects malformed responses", async () => {
+    const handlers = new Map<string, Function>();
+    const responses: unknown[] = [];
+
+    registerChatIpc(
+      {
+        handle: (channel, listener) => handlers.set(channel, listener),
+      },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: (response) => responses.push(response),
+          shutdown: () => {},
+          getStatus: async () => null,
+        },
+      },
+    );
+
+    const handler = handlers.get("chat:question-response")!;
+    const malformed: unknown[] = [
+      null,
+      "skip",
+      { runId: "run-1", action: "skip" },
+      { questionId: "q-1", action: "skip" },
+      { runId: " ", questionId: "q-1", action: "skip" },
+      { runId: "run-1", questionId: "q-1", action: "answer" },
+      { runId: "run-1", questionId: "q-1", action: "submit" },
+      { runId: "run-1", questionId: "q-1", action: "submit", answers: [] },
+      { runId: "run-1", questionId: "q-1", action: "submit", answers: "opt_ts" },
+      {
+        runId: "run-1",
+        questionId: "q-1",
+        action: "submit",
+        answers: [{ questionIndex: "0", optionIds: ["opt_ts"] }],
+      },
+      {
+        runId: "run-1",
+        questionId: "q-1",
+        action: "submit",
+        answers: [{ questionIndex: -1, optionIds: ["opt_ts"] }],
+      },
+      {
+        runId: "run-1",
+        questionId: "q-1",
+        action: "submit",
+        answers: [{ questionIndex: 0, optionIds: [] }],
+      },
+      {
+        runId: "run-1",
+        questionId: "q-1",
+        action: "submit",
+        answers: [{ questionIndex: 0, optionIds: [""] }],
+      },
+      {
+        runId: "run-1",
+        questionId: "q-1",
+        action: "submit",
+        answers: [{ questionIndex: 0, optionIds: ["other"], customText: 7 }],
+      },
+      {
+        runId: "run-1",
+        questionId: "q-1",
+        action: "submit",
+        answers: [{ questionIndex: 0, optionIds: ["other"], customText: "  " }],
+      },
+    ];
+
+    for (const value of malformed) {
+      let thrown: unknown = null;
+      try {
+        await handler({}, value);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown instanceof Error).toBe(true);
+      expect((thrown as Error).message).toBe("Invalid question response.");
+    }
+    expect(responses).toEqual([]);
   });
 });

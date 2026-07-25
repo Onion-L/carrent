@@ -233,6 +233,130 @@ describe("normalizeWorkspaceSnapshot", () => {
     });
   });
 
+  it("round-trips settled question records", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          content: "",
+          parts: [
+            {
+              type: "question",
+              id: "question-q-1",
+              questionId: "q-1",
+              status: "answered",
+              questions: [
+                { header: "Language", question: "Which language should the module use?" },
+                { header: "Features", question: "Which features should it include?" },
+              ],
+              answers: [
+                { questionIndex: 0, labels: ["TypeScript"] },
+                { questionIndex: 1, labels: ["Logging", "Other"], customText: "Coverage" },
+              ],
+            },
+            {
+              type: "question",
+              id: "question-q-2",
+              questionId: "q-2",
+              status: "skipped",
+              questions: [{ header: "Scope", question: "Refactor the tests too?" }],
+            },
+          ],
+        },
+      ],
+      activeThreadId: null,
+    });
+
+    expect(snapshot?.messages[0]).toMatchObject({
+      parts: [
+        {
+          type: "question",
+          questionId: "q-1",
+          status: "answered",
+          questions: [
+            { header: "Language", question: "Which language should the module use?" },
+            { header: "Features", question: "Which features should it include?" },
+          ],
+          answers: [
+            { questionIndex: 0, labels: ["TypeScript"] },
+            { questionIndex: 1, labels: ["Logging", "Other"], customText: "Coverage" },
+          ],
+        },
+        { type: "question", questionId: "q-2", status: "skipped" },
+      ],
+    });
+  });
+
+  it("restores pending question records as interrupted so they never look actionable", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          content: "",
+          parts: [
+            {
+              type: "question",
+              id: "question-q-1",
+              questionId: "q-1",
+              status: "pending",
+              questions: [{ header: "Language", question: "Which language?" }],
+            },
+          ],
+        },
+      ],
+      activeThreadId: null,
+    });
+
+    expect(snapshot?.messages[0]).toMatchObject({
+      parts: [{ type: "question", status: "interrupted" }],
+    });
+  });
+
+  it("drops malformed question records without dropping the message", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          content: "Answer",
+          parts: [
+            { type: "text", content: "Answer" },
+            {
+              type: "question",
+              id: "question-q-1",
+              questionId: "q-1",
+              status: "answered",
+              questions: [{ header: "Language" }],
+            },
+          ],
+        },
+      ],
+      activeThreadId: null,
+    });
+
+    expect(snapshot?.messages[0]).toMatchObject({
+      content: "Answer",
+      parts: [{ type: "text", content: "Answer" }],
+    });
+  });
+
   it("preserves legacy runtime ids during normalization", () => {
     const snapshot = normalizeWorkspaceSnapshot({
       version: 1,

@@ -17,6 +17,8 @@ export const WORKSPACE_SNAPSHOT_VERSION = 1;
 const MAX_PATCH_BYTES = 256 * 1024;
 const MAX_PLAN_REVIEW_BYTES = 256 * 1024;
 const MAX_PLAN_REVIEW_OPTIONS = 5;
+const MAX_QUESTION_ITEMS = 10;
+const MAX_QUESTION_TEXT_BYTES = 8 * 1024;
 export const MAX_SUBAGENT_TASK_TEXT_LENGTH = 12_000;
 const MAX_THREAD_WORK_TEXT_BYTES = 256 * 1024;
 const MAX_THREAD_WORK_QUEUE_ITEMS = 50;
@@ -192,6 +194,79 @@ function normalizePlanReviewPart(
   };
 }
 
+function normalizeQuestionPart(value: unknown): Extract<MessagePart, { type: "question" }> | null {
+  if (!isRecord(value) || value.type !== "question") return null;
+  if (typeof value.id !== "string" || typeof value.questionId !== "string") return null;
+  if (!Array.isArray(value.questions) || value.questions.length > MAX_QUESTION_ITEMS) return null;
+
+  const questions = value.questions.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    if (typeof item.header !== "string" || typeof item.question !== "string") return [];
+    if (
+      new TextEncoder().encode(item.header).length > MAX_QUESTION_TEXT_BYTES ||
+      new TextEncoder().encode(item.question).length > MAX_QUESTION_TEXT_BYTES
+    ) {
+      return [];
+    }
+    return [{ header: item.header, question: item.question }];
+  });
+  if (questions.length !== value.questions.length) return null;
+
+  const validStatus =
+    value.status === "pending" ||
+    value.status === "answered" ||
+    value.status === "skipped" ||
+    value.status === "interrupted";
+  if (!validStatus) return null;
+  const status: Extract<MessagePart, { type: "question" }>["status"] =
+    value.status === "pending"
+      ? "interrupted"
+      : (value.status as Extract<MessagePart, { type: "question" }>["status"]);
+
+  let answers: Extract<MessagePart, { type: "question" }>["answers"];
+  if (value.answers !== undefined) {
+    if (!Array.isArray(value.answers)) return null;
+    const normalized = value.answers.flatMap((item) => {
+      if (!isRecord(item)) return [];
+      if (
+        typeof item.questionIndex !== "number" ||
+        !Number.isInteger(item.questionIndex) ||
+        item.questionIndex < 0 ||
+        !Array.isArray(item.labels) ||
+        item.labels.length > MAX_QUESTION_ITEMS ||
+        item.labels.some((label) => typeof label !== "string")
+      ) {
+        return [];
+      }
+      if (
+        item.customText !== undefined &&
+        (typeof item.customText !== "string" ||
+          new TextEncoder().encode(item.customText).length > MAX_QUESTION_TEXT_BYTES)
+      ) {
+        return [];
+      }
+      return [
+        {
+          questionIndex: item.questionIndex,
+          labels: item.labels as string[],
+          ...(typeof item.customText === "string" ? { customText: item.customText } : {}),
+        },
+      ];
+    });
+    if (normalized.length !== value.answers.length) return null;
+    answers = normalized;
+  }
+
+  return {
+    type: "question",
+    id: value.id,
+    questionId: value.questionId,
+    status,
+    questions,
+    ...(answers ? { answers } : {}),
+  };
+}
+
 function normalizeSubagentTaskPart(
   value: unknown,
 ): Extract<MessagePart, { type: "subagent_task" }> | null {
@@ -275,6 +350,10 @@ function normalizeMessageParts(value: unknown): MessagePart[] | undefined {
   const parts = value.flatMap((item) => {
     if (isRecord(item) && item.type === "plan_review") {
       const normalized = normalizePlanReviewPart(item);
+      return normalized ? [normalized] : [];
+    }
+    if (isRecord(item) && item.type === "question") {
+      const normalized = normalizeQuestionPart(item);
       return normalized ? [normalized] : [];
     }
     if (isRecord(item) && item.type === "subagent_task") {

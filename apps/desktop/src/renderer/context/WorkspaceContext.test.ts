@@ -628,6 +628,66 @@ describe("applyMessagePartUpdate", () => {
     });
   });
 
+  it("upserts, resolves, and interrupts structured questions", () => {
+    const message = makeMessage({ role: "assistant", content: "", parts: [] });
+    const question = {
+      type: "question" as const,
+      id: "question-q-1",
+      questionId: "q-1",
+      status: "pending" as const,
+      questions: [{ header: "Language", question: "Which language should the module use?" }],
+    };
+
+    const pending = applyMessagePartUpdate(message, { kind: "upsert-question", question });
+    expect(pending).toMatchObject({
+      parts: [{ type: "question", questionId: "q-1", status: "pending" }],
+    });
+
+    // A repeated upsert for the same request replaces instead of duplicating.
+    const reUpserted = applyMessagePartUpdate(pending, { kind: "upsert-question", question });
+    expect(reUpserted.type !== "changed_files" && reUpserted.parts).toHaveLength(1);
+
+    const resolved = applyMessagePartUpdate(pending, {
+      kind: "resolve-question",
+      questionId: "q-1",
+      status: "answered",
+      answers: [{ questionIndex: 0, labels: ["TypeScript"] }],
+    });
+    expect(resolved).toMatchObject({
+      parts: [
+        {
+          type: "question",
+          status: "answered",
+          answers: [{ questionIndex: 0, labels: ["TypeScript"] }],
+        },
+      ],
+    });
+
+    const skipped = applyMessagePartUpdate(pending, {
+      kind: "resolve-question",
+      questionId: "q-1",
+      status: "skipped",
+    });
+    expect(skipped).toMatchObject({
+      parts: [{ type: "question", status: "skipped" }],
+    });
+    expect(
+      skipped.type !== "changed_files" &&
+        skipped.parts?.[0]?.type === "question" &&
+        skipped.parts[0].answers,
+    ).toBeUndefined();
+
+    const interrupted = applyMessagePartUpdate(pending, { kind: "interrupt-questions" });
+    expect(interrupted).toMatchObject({
+      parts: [{ type: "question", status: "interrupted" }],
+    });
+    // Settled records are never re-interrupted.
+    const settled = applyMessagePartUpdate(resolved, { kind: "interrupt-questions" });
+    expect(settled).toMatchObject({
+      parts: [{ type: "question", status: "answered" }],
+    });
+  });
+
   it("upserts Subagent Tasks by id while preserving insertion order", () => {
     const message = makeMessage({ role: "assistant", content: "", parts: [] });
     const task = {

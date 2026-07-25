@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { registerRuntimeIpc } from "./runtime/runtimeIpc";
 import { registerChatIpc } from "./chat/chatIpc";
-import { createChatSessionManager } from "./chat/chatSessionManager";
+import { createChatSessionManager, type ChatSessionManager } from "./chat/chatSessionManager";
 import { createPersistentProviderSessionStore } from "./chat/providerSessionStore";
 import { createWorkspaceStore } from "./workspace/workspaceStore";
 import { getLastWorkspaceSnapshot, registerWorkspaceIpc } from "./workspace/workspaceIpc";
@@ -72,6 +72,7 @@ function createWindow(icon: string | undefined) {
 }
 
 let workspaceStore: WorkspaceStore | null = null;
+let chatSessionManager: ChatSessionManager | null = null;
 
 app.whenReady().then(async () => {
   const icon = resolveIconPath();
@@ -122,17 +123,17 @@ app.whenReady().then(async () => {
 
   const providerSessionsSnapshot = await store.loadProviderSessions();
 
-  registerChatIpc(ipcMain, {
-    sessionManager: createChatSessionManager({
-      emit: emitChatEvent as (event: { type: string }) => void,
-      spawn,
-      providerSessions: createPersistentProviderSessionStore(store, providerSessionsSnapshot),
-      attachmentStore,
-      carrentBridgeFactory: async () => {
-        return bridgeManager.getRuntimeHandle();
-      },
-    }),
+  const sessionManager = createChatSessionManager({
+    emit: emitChatEvent as (event: { type: string }) => void,
+    spawn,
+    providerSessions: createPersistentProviderSessionStore(store, providerSessionsSnapshot),
+    attachmentStore,
+    carrentBridgeFactory: async () => {
+      return bridgeManager.getRuntimeHandle();
+    },
   });
+  chatSessionManager = sessionManager;
+  registerChatIpc(ipcMain, { sessionManager });
   createWindow(icon);
 
   app.on("activate", () => {
@@ -150,6 +151,8 @@ const workspaceShutdown = createWorkspaceShutdown({
 });
 
 app.on("before-quit", (event) => {
+  // End live runs first so pending question MCP calls flush before quit.
+  chatSessionManager?.shutdown();
   void workspaceShutdown.beforeQuit(event);
 });
 

@@ -33,6 +33,7 @@ import { ThreadSearchDialog } from "./ThreadSearchDialog";
 const THREAD_STATUS_META: Record<ThreadDisplayStatus, { label: string; className: string }> = {
   running: { label: "Running", className: "text-success" },
   approval: { label: "Approval", className: "font-medium text-warning" },
+  question: { label: "Question", className: "font-medium text-warning" },
   failed: { label: "Failed", className: "font-medium text-danger" },
 };
 
@@ -135,7 +136,7 @@ export function ThreadHistoryPane() {
     createThread,
     renameThread,
   } = useWorkspace();
-  const { runningThreadIds, pendingPermissions } = useChatRun();
+  const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
   const { runtimes } = useRuntimes();
   const defaultRuntimeId = getChatRuntimeOptions(runtimes)[0]?.id;
   const [searchOpen, setSearchOpen] = useState(false);
@@ -390,11 +391,13 @@ export function ThreadHistoryPane() {
                     threadId: thread.id,
                     runningThreadIds,
                     pendingApprovals: pendingPermissions,
+                    pendingQuestions,
                     messages,
                   });
                   const statusMeta = status ? THREAD_STATUS_META[status] : null;
                   const activityAt = getThreadActivityTime(thread, messages);
-                  const isRunActive = status === "running" || status === "approval";
+                  const isRunActive =
+                    status === "running" || status === "approval" || status === "question";
 
                   return (
                     <div

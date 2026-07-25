@@ -5,6 +5,7 @@ import type {
   KimiSessionStatus,
 } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
+import type { ChatQuestionAnswer, ChatQuestionResponse } from "../../src/shared/chatQuestions";
 import {
   MAX_ATTACHMENT_COUNT,
   MAX_ATTACHMENT_ID_CHARS,
@@ -119,7 +120,11 @@ export function parseChatTurnAttachments(value: unknown): AttachmentMetadata[] |
       throw new Error("Invalid attachment metadata.");
     }
     assertValidAttachmentStorageKey(record.storageKey);
-    if (!isFiniteNumber(record.size) || record.size < 0 || record.size > MAX_SINGLE_ATTACHMENT_BYTES) {
+    if (
+      !isFiniteNumber(record.size) ||
+      record.size < 0 ||
+      record.size > MAX_SINGLE_ATTACHMENT_BYTES
+    ) {
       throw new Error("Invalid attachment metadata.");
     }
     totalSize += record.size;
@@ -164,6 +169,64 @@ export function parseChatPermissionResponse(value: unknown): ChatPermissionRespo
   };
 }
 
+export function parseChatQuestionResponse(value: unknown): ChatQuestionResponse {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid question response.");
+  }
+  const response = value as Record<string, unknown>;
+  if (
+    typeof response.questionId !== "string" ||
+    !response.questionId.trim() ||
+    typeof response.runId !== "string" ||
+    !response.runId.trim()
+  ) {
+    throw new Error("Invalid question response.");
+  }
+  if (response.action === "skip") {
+    return {
+      questionId: response.questionId,
+      runId: response.runId,
+      action: "skip",
+    };
+  }
+  if (response.action !== "submit" || !Array.isArray(response.answers)) {
+    throw new Error("Invalid question response.");
+  }
+
+  const answers = response.answers.map((entry): ChatQuestionAnswer => {
+    const answer = (entry ?? null) as Record<string, unknown> | null;
+    if (
+      !answer ||
+      typeof answer !== "object" ||
+      !Number.isInteger(answer.questionIndex) ||
+      (answer.questionIndex as number) < 0 ||
+      !Array.isArray(answer.optionIds) ||
+      answer.optionIds.length === 0 ||
+      answer.optionIds.some((optionId) => typeof optionId !== "string" || !optionId.trim()) ||
+      (answer.customText !== undefined &&
+        (typeof answer.customText !== "string" || !answer.customText.trim()))
+    ) {
+      throw new Error("Invalid question response.");
+    }
+    return {
+      questionIndex: answer.questionIndex as number,
+      optionIds: answer.optionIds as string[],
+      ...(typeof answer.customText === "string" ? { customText: answer.customText } : {}),
+    };
+  });
+
+  if (answers.length === 0) {
+    throw new Error("Invalid question response.");
+  }
+
+  return {
+    questionId: response.questionId,
+    runId: response.runId,
+    action: "submit",
+    answers,
+  };
+}
+
 export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServices) {
   ipcMainLike.handle("chat:send", async (_event, request) => {
     const req = request as ChatTurnRequest;
@@ -198,6 +261,11 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
 
   ipcMainLike.handle("chat:permission-response", async (_event, response) => {
     services.sessionManager.respondToPermission(parseChatPermissionResponse(response));
+    return undefined;
+  });
+
+  ipcMainLike.handle("chat:question-response", async (_event, response) => {
+    services.sessionManager.respondToQuestion(parseChatQuestionResponse(response));
     return undefined;
   });
 

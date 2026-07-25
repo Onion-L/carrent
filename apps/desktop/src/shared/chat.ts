@@ -1,6 +1,7 @@
 import { DEFAULT_RUNTIME_ID, type RuntimeId } from "./runtimes";
 import type { RuntimeMode } from "./runtimeMode";
 import type { ChatPermissionOptionKind, ChatPermissionRequest } from "./chatPermissions";
+import type { ChatQuestionRequest } from "./chatQuestions";
 
 export const DEFAULT_CHAT_RUNTIME_ID: RuntimeId = DEFAULT_RUNTIME_ID;
 
@@ -153,5 +154,21 @@ export type ChatRunEvent =
   | (ChatRunEventBase & {
       type: "permission-failed";
       permissionId: string;
+      error: string;
+    })
+  | (ChatRunEventBase & {
+      type: "question-requested";
+      question: ChatQuestionRequest;
+    })
+  | (ChatRunEventBase & {
+      type: "question-resolved";
+      questionId: string;
+      outcome: "answered" | "skipped";
+      optionId?: string;
+      optionLabel?: string;
+    })
+  | (ChatRunEventBase & {
+      type: "question-failed";
+      questionId: string;
       error: string;
     });

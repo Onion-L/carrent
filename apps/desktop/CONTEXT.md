@@ -52,6 +52,10 @@ _Avoid_: Chat completion, single API call
 A coding agent run posture that limits the agent to exploration and design until it presents a plan and returns control to the conversation.
 _Avoid_: Permission mode, read-only runtime
 
+**Goal Mode**:
+A Runtime-owned autonomous lifecycle that pursues one durable objective across multiple agent turns until it completes, pauses, or becomes blocked.
+_Avoid_: Long Run, Carrent workflow, background task
+
 **Plan Review**:
 A read-only plan presentation followed by a normal user reply. The next message tells the Runtime whether to execute, explain, or revise without Carrent-owned approval buttons or keyword matching.
 _Avoid_: Generic approval request, plan action card
@@ -97,8 +101,12 @@ A Carrent-owned capability surface that lets a runtime discover and request Carr
 _Avoid_: Kimi Bridge, prompt-injected skills
 
 **Local MCP Server**:
-The user-controlled built-in Carrent MCP server that exposes Carrent-owned capabilities, including skills, to runtimes and MCP clients for the current desktop app. Turning it off disables those local MCP capabilities.
+The user-controlled built-in Carrent MCP server that exposes Carrent-owned capabilities, including skills, to runtimes and MCP clients for the current desktop app. Turning it off disables those local MCP capabilities. The internal Run Interaction Server is not part of this surface and remains available when it is off.
 _Avoid_: MCP marketplace, plugin server, third-party server list
+
+**Run Interaction Server**:
+The internal, Run-scoped MCP server (`carrent_session`) that lets a coding agent ask the user structured questions during a live Run. It is not user-controlled, not globally installable, and independent of the Local MCP Server preference.
+_Avoid_: Local MCP Server, global MCP server, user setting
 
 **Skill Catalog**:
 The set of installed skills Carrent can present to users and expose to runtimes through the Carrent Bridge.

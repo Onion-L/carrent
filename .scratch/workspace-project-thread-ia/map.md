@@ -26,10 +26,11 @@ Label: wayfinder:map
 - [决定 Workspace 导入与导出边界](./issues/09-decide-workspace-import-export.md) — 目标版本不提供 Workspace 导入、导出、备份或恢复能力，手工复制 app data 也不属于受支持路径。
 - [决定 Workspace 多窗口打开语义](./issues/10-decide-multi-window-semantics.md) — 目标版本采用唯一 Main Window，固定重复启动、深链接、设置、退出和重启恢复规则，并排除跨窗口状态与 Run 控制冲突。
 - [决定各层空状态、缺失与恢复体验](./issues/11-decide-empty-missing-and-recovery-states.md) — 采用状态就地替换并保留有效层级上下文，固定首次使用、空结果、目录不可用、目标缺失、加载失败与位置恢复的动作和落点。
+- [决定三层持久化损坏与版本不匹配的恢复体验](./issues/12-decide-persistence-corruption-recovery.md) — 按 App State、Runtime Session 与附件隔离故障，固定全局阻塞、局部降级、诊断、重试与完整重置边界。
 
 ## Not yet specified
 
-- 所有产品行为确定后，交给 `/to-spec` 前需要固定的验收行为矩阵与最高层测试边界。
+- 无。
 
 ## Out of scope
 

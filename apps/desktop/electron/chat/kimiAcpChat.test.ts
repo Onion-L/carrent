@@ -408,33 +408,44 @@ describe("startKimiAcpChatRun", () => {
         return;
       }
       if (message.method === "session/prompt") {
-        for (const update of [
-          {
-            sessionUpdate: "tool_call",
-            toolCallId: "tool-todo-list",
-            title: "TodoList",
-            kind: "other",
-            status: "in_progress",
-          },
-          {
-            sessionUpdate: "plan",
-            entries: [{ content: "Implement the checklist", status: "in_progress" }],
-          },
-          {
-            sessionUpdate: "tool_call_update",
-            toolCallId: "tool-todo-list",
-            title: "TodoList",
-            kind: "other",
-            status: "completed",
-          },
-        ]) {
+        setTimeout(() => {
           fakeTransport.emitMessage({
             jsonrpc: "2.0",
             method: "session/update",
-            params: { sessionId: "session-checklist", update },
+            params: {
+              sessionId: "session-checklist",
+              update: {
+                sessionUpdate: "tool_call",
+                toolCallId: "tool-todo-list",
+                title: "TodoList",
+                kind: "other",
+                status: "in_progress",
+              },
+            },
           });
-        }
-        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+          setTimeout(() => {
+            for (const update of [
+              {
+                sessionUpdate: "plan",
+                entries: [{ content: "Implement the checklist", status: "in_progress" }],
+              },
+              {
+                sessionUpdate: "tool_call_update",
+                toolCallId: "tool-todo-list",
+                title: "TodoList",
+                kind: "other",
+                status: "completed",
+              },
+            ]) {
+              fakeTransport.emitMessage({
+                jsonrpc: "2.0",
+                method: "session/update",
+                params: { sessionId: "session-checklist", update },
+              });
+            }
+            respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+          }, 0);
+        }, 0);
       }
     });
 
@@ -445,7 +456,7 @@ describe("startKimiAcpChatRun", () => {
       emit: (event) => emitted.push(event),
       transportFactory: () => transport,
     });
-    await waitForAsyncEvents();
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(emitted.filter((event) => event.type === "checklist")).toHaveLength(1);
     expect(

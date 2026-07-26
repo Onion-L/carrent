@@ -4,16 +4,32 @@ The Carrent desktop app is the product context for project-scoped coding agent c
 
 ## Language
 
+**Workspace**:
+A durable, user-visible top-level Carrent object with a stable identity and name that defines a long-lived organizational context.
+_Avoid_: Project directory, working directory, app state snapshot, window
+
+**App State Snapshot**:
+The app-owned persisted representation used to restore Carrent state across launches.
+_Avoid_: Workspace
+
+**Project Working Directory**:
+The local filesystem directory used as the coding agent's working directory for project-scoped runs.
+_Avoid_: Workspace, Project
+
+**Project**:
+A durable Carrent object with a stable identity that references a Project Working Directory without owning or relocating it. It does not require a Git repository and remains the same object when its directory is moved, renamed, or temporarily unavailable.
+_Avoid_: Workspace, Project Working Directory, repository
+
 **Coding Agent**:
 An agent that can work inside a local project by reading files, editing files, running shell commands, and continuing work across a thread.
 _Avoid_: Chat agent, chatbot, model
 
 **Thread**:
-A project-scoped conversation that preserves user messages, agent activity, runtime selection, and continuity across runs.
+A Carrent-owned conversation that belongs to exactly one Project at a time. Carrent preserves its user-visible history across runs and Runtime changes.
 _Avoid_: Session, chat
 
 **Runtime Session**:
-A runtime-owned continuity handle associated with a Carrent thread so later runs can resume the coding agent's context.
+A replaceable, Runtime-specific continuity handle associated with a Carrent Thread so later Runs can resume that Runtime's internal context. It does not own the Thread's identity or user-visible history.
 _Avoid_: Thread, Carrent session
 
 **Run**:

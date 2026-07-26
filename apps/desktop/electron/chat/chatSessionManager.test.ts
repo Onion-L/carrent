@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import type { ChildProcess } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -1140,8 +1140,13 @@ describe("createChatSessionManager", () => {
 
   it("answers Kimi ACP fs/read_text_file requests from the project workspace", async () => {
     const emitted: ChatRunEvent[] = [];
-    const workspacePath = process.cwd();
+    // realpath: macOS tmpdir is a /var -> /private/var symlink, and the fs
+    // handler resolves symlinks before emitting paths.
+    const workspacePath = await realpath(
+      await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-workspace-")),
+    );
     const packagePath = path.join(workspacePath, "package.json");
+    await writeFile(packagePath, '{\n  "name": "@carrent/desktop"\n}\n', "utf8");
     const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
       if (message.method === "initialize") {
         respondAcp(transport, message, { protocolVersion: 1 });

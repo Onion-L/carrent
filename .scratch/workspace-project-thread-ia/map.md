@@ -10,8 +10,6 @@ Label: wayfinder:map
 
 - 范围是 Carrent Desktop App。每次处理决策票前先读 `CONTEXT-MAP.md`、`apps/desktop/CONTEXT.md` 和相关 `docs/adr/`。
 - 决策阶段使用 `/grilling` 与 `/domain-modeling`；交互模型需要具体化时使用 `/prototype`。本地图默认只产出决策，不实现代码。
-- 当前领域词汇把 Thread 定义为 Project-scoped conversation，但现有产品状态仍包含 projectless General Chat。这是待解决的模型冲突，不是既定方向。
-- 当前代码中的 `workspace` 同时指应用级持久化快照、Runtime 的项目目录/cwd；新的产品层级 Workspace 尚未有正式领域定义。在“定义 Workspace、Project、Thread 的领域边界与不变量”解决前，讨论时必须明确所指含义。
 - 当前持久化模型是单个隐式 workspace snapshot，包含 Projects、projectless Chats、Messages 与 activeThreadId；当前导航主要使用 `/project/:projectId`、`/thread/:projectId/:threadId` 和 `/chat/:threadId`。
 - 一次会话最多解决一张非 Research 决策票。解决结果只写入对应票的 `## Answer`，地图只追加一行摘要链接。
 
@@ -19,6 +17,7 @@ Label: wayfinder:map
 
 - [定义 Workspace、Project、Thread 的领域边界与不变量](./issues/01-define-domain-boundaries.md) — 固定三层对象的独立身份与上下文边界，并将 Carrent Thread 与 Runtime Session、产品 Workspace 与现有 workspace 用法分离。
 - [决定三层包含关系与例外项](./issues/02-decide-containment-and-exceptions.md) — Workspace 与 Project 采用多对多关联，Thread 固定归属一个 Workspace-Project 组合，目标模型取消 projectless General Chat。
+- [决定各层承载的信息、状态与默认值](./issues/03-assign-level-responsibilities.md) — 固定三层及 Workspace-Project Association 的信息职责，以 Thread/Run 作为状态来源，并采用 Association 初始化、Thread 固化的运行配置规则。
 
 ## Not yet specified
 

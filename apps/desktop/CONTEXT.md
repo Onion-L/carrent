@@ -17,15 +17,19 @@ The local filesystem directory used as the coding agent's working directory for 
 _Avoid_: Workspace, Project
 
 **Project**:
-A durable Carrent object with a stable identity that references one Project Working Directory without owning or relocating it. A Project is associated with one or more Workspaces and may be shared by them; importing the same Project Working Directory into another Workspace reuses the Project, while separate directory clones are separate Projects. It does not require a Git repository and remains the same object when its directory is moved, renamed, or temporarily unavailable.
+A durable Carrent object with a stable identity and shared, user-editable name that references one Project Working Directory without owning or relocating it. Its default name is the directory name. A Project is associated with one or more Workspaces and may be shared by them; importing the same Project Working Directory into another Workspace reuses the Project, while separate directory clones are separate Projects. It does not require a Git repository and remains the same object when its directory is moved, renamed, or temporarily unavailable.
 _Avoid_: Workspace, Project Working Directory, repository
+
+**Workspace-Project Association**:
+The relationship that makes one Project available inside one Workspace. It stores Workspace-specific presentation, including an optional display alias, and defaults for that Project without changing the Project's identity or affecting the same Project in other Workspaces.
+_Avoid_: Project copy, Project ownership, nested Project
 
 **Coding Agent**:
 An agent that can work inside a local project by reading files, editing files, running shell commands, and continuing work across a thread.
 _Avoid_: Chat agent, chatbot, model
 
 **Thread**:
-A Carrent-owned conversation that belongs to exactly one Workspace and one Project whose association already exists. Both relationships are fixed when the Thread is created. Carrent preserves its user-visible history across runs and Runtime changes; projectless General Chat is not a Thread in the target model.
+A Carrent-owned conversation with an automatically generated, user-editable title that belongs to exactly one Workspace and one Project whose association already exists. Both relationships are fixed when the Thread is created. Carrent preserves its user-visible history across runs and Runtime changes; projectless General Chat is not a Thread in the target model.
 _Avoid_: Session, chat
 
 **Runtime Session**:

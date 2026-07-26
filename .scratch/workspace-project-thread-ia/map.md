@@ -20,10 +20,10 @@ Label: wayfinder:map
 - [决定各层承载的信息、状态与默认值](./issues/03-assign-level-responsibilities.md) — 固定三层及 Workspace-Project Association 的信息职责，以 Thread/Run 作为状态来源，并采用 Association 初始化、Thread 固化的运行配置规则。
 - [用低保真原型决定三层导航模型](./issues/04-prototype-navigation-model.md) — 采用 Workspace 切换栏、当前 Workspace 的 Project/Thread 分组导航与内容区三栏模型，并固定位置恢复、历史和深链接回退规则。
 - [决定三层对象的创建、移动与移除语义](./issues/05-decide-lifecycle-operations.md) — 固定创建与重命名入口、Thread Draft 与归档规则、级联删除边界、目录重新定位及运行中阻塞和删除后落点。
+- [决定跨层发现与注意力管理](./issues/06-decide-cross-level-discovery.md) — 采用全局待处理与分层标题搜索，Running 和置顶留在 Thread 所属 Project 分组，并固定排序、路径和跨 Workspace 跳转规则。
 
 ## Not yet specified
 
-- 层级职责与跨层发现方式明确后，各层的空状态、首次使用、缺失路径、加载失败和恢复体验。
 - 存量迁移策略确定后，版本回退、部分迁移失败、损坏数据和旧 Runtime Session 映射的精确恢复策略。
 - 所有产品行为确定后，交给 `/to-spec` 前需要固定的验收行为矩阵与最高层测试边界。
 

@@ -5,7 +5,7 @@ The Carrent desktop app is the product context for project-scoped coding agent c
 ## Language
 
 **Workspace**:
-A durable, user-visible top-level Carrent object with a stable identity and name that defines a long-lived work context. A Workspace groups zero or more Projects through non-exclusive associations, scopes its own Threads, and cannot contain another Workspace.
+A durable, user-visible top-level Carrent object with a stable identity and non-empty, case-insensitively unique name that defines a long-lived work context. A Workspace groups zero or more Projects through non-exclusive associations, scopes its own Threads, and cannot contain another Workspace. Deleting it permanently removes its scoped Threads, Thread Drafts, and Associations after a confirmation, but is blocked while any of those Threads has a live Run.
 _Avoid_: Project directory, working directory, app state snapshot, window
 
 **App State Snapshot**:
@@ -17,12 +17,16 @@ The local filesystem directory used as the coding agent's working directory for 
 _Avoid_: Workspace, Project
 
 **Project**:
-A durable Carrent object with a stable identity and shared, user-editable name that references one Project Working Directory without owning or relocating it. Its default name is the directory name. A Project is associated with one or more Workspaces and may be shared by them; importing the same Project Working Directory into another Workspace reuses the Project, while separate directory clones are separate Projects. It does not require a Git repository and remains the same object when its directory is moved, renamed, or temporarily unavailable.
+A durable Carrent object with a stable identity and shared, user-editable name that references one Project Working Directory without owning or relocating it. Its default name is the directory name. A Project is associated with one or more Workspaces and may be shared by them; importing the same Project Working Directory into another Workspace reuses the Project, while separate directory clones are separate Projects. It has no global deletion operation; removing its final Association removes its Carrent record. It does not require a Git repository and remains the same object when its directory is moved, renamed, or temporarily unavailable. Carrent detects whether the recorded path is available but never searches for, guesses, or automatically adopts a replacement; only an explicit user relocation can change the directory reference, and not while any Thread for that Project has a live Run.
 _Avoid_: Workspace, Project Working Directory, repository
 
 **Workspace-Project Association**:
-The relationship that makes one Project available inside one Workspace. It stores Workspace-specific presentation, including an optional display alias, and defaults for that Project without changing the Project's identity or affecting the same Project in other Workspaces.
+The relationship that makes one Project available inside one Workspace. It stores Workspace-specific presentation, including an optional display alias used by in-Workspace rename actions, and defaults for that Project without changing the Project's identity or affecting the same Project in other Workspaces. Clearing the alias restores the shared Project name. Removing it permanently deletes the Threads and Thread Draft scoped to that Workspace-Project pair after a confirmation, but is blocked while any affected Thread has a live Run.
 _Avoid_: Project copy, Project ownership, nested Project
+
+**Thread Draft**:
+A recoverable composition that is scoped to exactly one existing Workspace-Project Association but has not yet become a Thread. It stores unsent content, attachments, and selected run configuration; each Association has at most one. Sending its first message creates a Thread fixed to the same Workspace and Project. A Thread Draft is excluded from Thread lists, search, recent activity, and archives. It never blocks removal of its Association or Workspace; either operation discards the draft and its unsent attachment snapshots.
+_Avoid_: Draft Thread, projectless Thread, empty Thread
 
 **Coding Agent**:
 An agent that can work inside a local project by reading files, editing files, running shell commands, and continuing work across a thread.
@@ -32,8 +36,16 @@ _Avoid_: Chat agent, chatbot, model
 A Carrent-owned conversation with an automatically generated, user-editable title that belongs to exactly one Workspace and one Project whose association already exists. Both relationships are fixed when the Thread is created. Carrent preserves its user-visible history across runs and Runtime changes; projectless General Chat is not a Thread in the target model.
 _Avoid_: Session, chat
 
+**Archived Thread**:
+A losslessly suspended Thread removed from normal navigation and active attention views. It preserves its identity, title, history, attachments, draft, run configuration, Runtime Sessions, rewind data, and pin state, but cannot start a Run while archived. Only an idle Thread with no queued messages can be archived; restoring it returns it to its original Workspace and Project without changing its Thread Activity Time. Archiving is reversible and applies only to Threads; Workspaces, Projects, and Workspace-Project Associations do not have an archived lifecycle state.
+_Avoid_: Deleted Thread, hidden Project, archived Workspace
+
+**Permanent Thread Deletion**:
+The irreversible removal of a Thread and all Carrent-owned data attached to it, including messages, attachment snapshots, drafts, queued work, Run Checklists, Runtime Session mappings, and rewind data. A single active Thread can reach this operation only through the archive area; deleting a Workspace also applies it to every Thread scoped by that Workspace. It never reverses Run Changes or modifies project files, Git branches, commits, the index, or stashes, and it succeeds atomically or leaves the containing operation intact.
+_Avoid_: Thread Rewind, project cleanup, archive
+
 **Runtime Session**:
-A replaceable, Runtime-specific continuity handle associated with a Carrent Thread so later Runs can resume that Runtime's internal context. It does not own the Thread's identity or user-visible history.
+A replaceable, Runtime-specific continuity handle associated with a Carrent Thread so later Runs can resume that Runtime's internal context. It does not own the Thread's identity or user-visible history, and is detached when its Thread is permanently deleted or rewound, or when the owning Project is explicitly relocated to another directory path.
 _Avoid_: Thread, Carrent session
 
 **Run**:
@@ -165,7 +177,7 @@ A condition detected before restoration where reversing Run Changes would overwr
 _Avoid_: Git conflict, partial rewind
 
 **Rewind Barrier**:
-A run whose project state could not be recorded reliably, preventing a complete Thread Rewind across that point while leaving normal work unaffected.
+A run whose project state could not be recorded reliably, or whose recorded rewind data cannot be validated after a Project directory relocation, preventing a complete Thread Rewind across that point while leaving normal work unaffected.
 _Avoid_: Failed run, context-only rewind
 
 **File Attachment**:

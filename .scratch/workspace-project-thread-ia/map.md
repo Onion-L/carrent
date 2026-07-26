@@ -19,11 +19,11 @@ Label: wayfinder:map
 - [决定三层包含关系与例外项](./issues/02-decide-containment-and-exceptions.md) — Workspace 与 Project 采用多对多关联，Thread 固定归属一个 Workspace-Project 组合，目标模型取消 projectless General Chat。
 - [决定各层承载的信息、状态与默认值](./issues/03-assign-level-responsibilities.md) — 固定三层及 Workspace-Project Association 的信息职责，以 Thread/Run 作为状态来源，并采用 Association 初始化、Thread 固化的运行配置规则。
 - [用低保真原型决定三层导航模型](./issues/04-prototype-navigation-model.md) — 采用 Workspace 切换栏、当前 Workspace 的 Project/Thread 分组导航与内容区三栏模型，并固定位置恢复、历史和深链接回退规则。
+- [决定三层对象的创建、移动与移除语义](./issues/05-decide-lifecycle-operations.md) — 固定创建与重命名入口、Thread Draft 与归档规则、级联删除边界、目录重新定位及运行中阻塞和删除后落点。
 
 ## Not yet specified
 
 - 层级职责与跨层发现方式明确后，各层的空状态、首次使用、缺失路径、加载失败和恢复体验。
-- 目标数据模型确定后，是否需要 Workspace 导入/导出、复制、模板化或多窗口同时打开，以及这些能力各自的语义。
 - 存量迁移策略确定后，版本回退、部分迁移失败、损坏数据和旧 Runtime Session 映射的精确恢复策略。
 - 所有产品行为确定后，交给 `/to-spec` 前需要固定的验收行为矩阵与最高层测试边界。
 

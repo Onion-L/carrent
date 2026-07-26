@@ -5,7 +5,7 @@ The Carrent desktop app is the product context for project-scoped coding agent c
 ## Language
 
 **Workspace**:
-A durable, user-visible top-level Carrent object with a stable identity and name that defines a long-lived organizational context.
+A durable, user-visible top-level Carrent object with a stable identity and name that defines a long-lived work context. A Workspace groups zero or more Projects through non-exclusive associations, scopes its own Threads, and cannot contain another Workspace.
 _Avoid_: Project directory, working directory, app state snapshot, window
 
 **App State Snapshot**:
@@ -17,7 +17,7 @@ The local filesystem directory used as the coding agent's working directory for 
 _Avoid_: Workspace, Project
 
 **Project**:
-A durable Carrent object with a stable identity that references a Project Working Directory without owning or relocating it. It does not require a Git repository and remains the same object when its directory is moved, renamed, or temporarily unavailable.
+A durable Carrent object with a stable identity that references one Project Working Directory without owning or relocating it. A Project is associated with one or more Workspaces and may be shared by them; importing the same Project Working Directory into another Workspace reuses the Project, while separate directory clones are separate Projects. It does not require a Git repository and remains the same object when its directory is moved, renamed, or temporarily unavailable.
 _Avoid_: Workspace, Project Working Directory, repository
 
 **Coding Agent**:
@@ -25,7 +25,7 @@ An agent that can work inside a local project by reading files, editing files, r
 _Avoid_: Chat agent, chatbot, model
 
 **Thread**:
-A Carrent-owned conversation that belongs to exactly one Project at a time. Carrent preserves its user-visible history across runs and Runtime changes.
+A Carrent-owned conversation that belongs to exactly one Workspace and one Project whose association already exists. Both relationships are fixed when the Thread is created. Carrent preserves its user-visible history across runs and Runtime changes; projectless General Chat is not a Thread in the target model.
 _Avoid_: Session, chat
 
 **Runtime Session**:

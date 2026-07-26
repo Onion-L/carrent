@@ -18,6 +18,7 @@ Label: wayfinder:map
 ## Decisions so far
 
 - [定义 Workspace、Project、Thread 的领域边界与不变量](./issues/01-define-domain-boundaries.md) — 固定三层对象的独立身份与上下文边界，并将 Carrent Thread 与 Runtime Session、产品 Workspace 与现有 workspace 用法分离。
+- [决定三层包含关系与例外项](./issues/02-decide-containment-and-exceptions.md) — Workspace 与 Project 采用多对多关联，Thread 固定归属一个 Workspace-Project 组合，目标模型取消 projectless General Chat。
 
 ## Not yet specified
 

@@ -29,6 +29,7 @@ const checklist: ThreadRunChecklist = {
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 let chatEventListener: ((event: ChatRunEvent) => void) | null = null;
+let nextRunId = "run-next";
 
 async function renderChecklist(
   value: ThreadRunChecklist,
@@ -50,6 +51,7 @@ afterEach(async () => {
   root = null;
   container = null;
   chatEventListener = null;
+  nextRunId = "run-next";
 });
 
 function ComposerHarness({ threadId }: { threadId: string }) {
@@ -99,7 +101,7 @@ async function renderComposer(threadId: string, snapshot: WorkspaceSnapshot) {
       getStatus: async () => ({ enabled: true, running: false }),
     },
     chat: {
-      send: async () => ({ runId: "run-next" }),
+      send: async () => ({ runId: nextRunId }),
       stop: async () => {},
       deleteThreadData: async () => {},
       respondToPermission: async () => {},
@@ -147,6 +149,27 @@ async function rerenderComposer(threadId: string) {
   });
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 35));
+  });
+}
+
+async function submitComposerMessage(message: string, runId: string) {
+  nextRunId = runId;
+  const textarea = container!.querySelector("textarea")!;
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    "value",
+  )!.set!;
+  await act(async () => {
+    textarea.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+    valueSetter.call(textarea, message);
+    textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
+    textarea.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "k" }));
+  });
+  const sendButton = container!.querySelector<SVGElement>(".lucide-arrow-up")?.closest("button");
+  expect(sendButton?.disabled).toBe(false);
+  await act(async () => {
+    sendButton!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
@@ -276,11 +299,75 @@ describe("RunChecklist", () => {
       });
     });
     expect(container!.textContent).toContain("New Run step");
-    expect(container!.querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
+    const checklistButton = container!.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    expect(checklistButton.getAttribute("aria-expanded")).toBe("true");
+
+    await act(async () => checklistButton.click());
+    expect(checklistButton.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => {
+      chatEventListener?.({
+        type: "checklist",
+        runId: "run-next",
+        threadId: "thread-1",
+        runtimeId: "kimi",
+        checklist: {
+          entries: [
+            { content: "Replacement complete", status: "completed" },
+            { content: "Replacement pending", status: "pending" },
+          ],
+        },
+      });
+    });
+    expect(checklistButton.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => checklistButton.click());
+    expect(container!.textContent).not.toContain("New Run step");
+    expect(container!.textContent).toContain("Replacement complete");
+    expect(container!.textContent).toContain("Replacement pending");
 
     await act(async () => {
       chatEventListener?.({ type: "stopped", runId: "run-next" });
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    expect(container!.textContent).toContain("Run cancelled");
+    expect(container!.textContent).toContain("Replacement pending");
+
+    await submitComposerMessage("Fail the next Run", "run-failed");
+    await act(async () => {
+      chatEventListener?.({ type: "started", runId: "run-failed", threadId: "thread-1" });
+      chatEventListener?.({
+        type: "checklist",
+        runId: "run-failed",
+        threadId: "thread-1",
+        runtimeId: "kimi",
+        checklist: { entries: [{ content: "Failed Run step", status: "in_progress" }] },
+      });
+      chatEventListener?.({ type: "failed", runId: "run-failed", error: "Failed" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container!.textContent).toContain("Run failed");
+    expect(container!.textContent).toContain("Failed Run step");
+
+    await submitComposerMessage("Complete the next Run", "run-completed");
+    await act(async () => {
+      chatEventListener?.({ type: "started", runId: "run-completed", threadId: "thread-1" });
+      chatEventListener?.({
+        type: "checklist",
+        runId: "run-completed",
+        threadId: "thread-1",
+        runtimeId: "kimi",
+        checklist: { entries: [{ content: "Completed Run step", status: "completed" }] },
+      });
+      chatEventListener?.({
+        type: "completed",
+        runId: "run-completed",
+        text: "Done",
+        finishedAt: "now",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container!.textContent).toContain("Run completed");
+    expect(container!.textContent).toContain("Completed Run step");
   });
 });

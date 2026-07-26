@@ -419,6 +419,7 @@ class KimiAcpRun {
   private reasoningSegmentIndex = 0;
   private hasChecklistSnapshot = false;
   private pendingTodoListActivity: ChatReasoningEventPayload[] = [];
+  private pendingTodoListFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private terminal = false;
   private stoppedByUser = false;
   private stopFallbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1539,8 +1540,10 @@ class KimiAcpRun {
     if (updateType === "plan") {
       const entries = normalizeRunChecklistEntries(update?.entries);
       if (entries) {
-        this.hasChecklistSnapshot = true;
-        this.pendingTodoListActivity = [];
+        this.hasChecklistSnapshot = entries.length > 0;
+        if (this.hasChecklistSnapshot) {
+          this.discardPendingTodoListActivity();
+        }
         this.emit({
           type: "checklist",
           runId: this.options.runId,
@@ -1617,6 +1620,7 @@ class KimiAcpRun {
     if (title === "TodoList") {
       if (!this.hasChecklistSnapshot) {
         this.pendingTodoListActivity.push(reasoning);
+        this.schedulePendingTodoListFlush();
       }
       return;
     }
@@ -1790,6 +1794,7 @@ class KimiAcpRun {
 
   private emit(event: ChatRunEvent) {
     if (!this.terminal) {
+      this.flushPendingTodoListActivity();
       this.options.emit(event);
     }
   }
@@ -1875,6 +1880,10 @@ class KimiAcpRun {
   }
 
   private flushPendingTodoListActivity() {
+    if (this.pendingTodoListFlushTimer) {
+      clearTimeout(this.pendingTodoListFlushTimer);
+      this.pendingTodoListFlushTimer = null;
+    }
     if (this.hasChecklistSnapshot) {
       this.pendingTodoListActivity = [];
       return;
@@ -1889,6 +1898,24 @@ class KimiAcpRun {
       });
     });
     this.pendingTodoListActivity = [];
+  }
+
+  private discardPendingTodoListActivity() {
+    if (this.pendingTodoListFlushTimer) {
+      clearTimeout(this.pendingTodoListFlushTimer);
+      this.pendingTodoListFlushTimer = null;
+    }
+    this.pendingTodoListActivity = [];
+  }
+
+  private schedulePendingTodoListFlush() {
+    if (this.pendingTodoListFlushTimer) {
+      return;
+    }
+    this.pendingTodoListFlushTimer = setTimeout(() => {
+      this.pendingTodoListFlushTimer = null;
+      this.flushPendingTodoListActivity();
+    }, 0);
   }
 
   private closeBridge() {

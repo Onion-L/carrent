@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Run-scoped MCP single question
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] The advertised MCP schema accepts one to four uniquely worded questions and two to four uniquely labeled options per question.
 - [ ] Each question preserves its header, option labels, option descriptions, and `multi_select` setting.
@@ -16,4 +16,3 @@
 - [ ] Next and Submit remain disabled until the current or complete question set has valid selections and non-empty selected `Other` text.
 - [ ] Final submission returns one Kimi-compatible `answers` entry per question; multi-select values contain the selected labels and custom answer without losing either.
 - [ ] Component and Run-boundary tests cover multiple questions, multi-select, option descriptions, navigation, validation, combined `Other`, and final answer formatting.
-

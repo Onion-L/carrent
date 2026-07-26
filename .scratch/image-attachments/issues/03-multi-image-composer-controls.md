@@ -1,6 +1,6 @@
 # Multi-image composer controls
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 

@@ -1,6 +1,6 @@
 # Single Image Attachment tracer bullet
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 

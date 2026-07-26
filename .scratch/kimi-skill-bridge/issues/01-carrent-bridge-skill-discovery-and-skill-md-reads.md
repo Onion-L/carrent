@@ -1,6 +1,6 @@
 # Carrent Bridge exposes skill discovery and SKILL.md reads
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 

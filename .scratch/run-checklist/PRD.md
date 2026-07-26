@@ -1,6 +1,6 @@
 # Run Checklist PRD
 
-Status: ready-for-agent
+Status: done
 
 ## Problem Statement
 

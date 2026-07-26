@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Kimi ACP `plan` updates produce a Runtime-neutral Run Checklist snapshot bound to the originating Run and Thread.
 - [ ] Valid entries preserve Runtime order and map to pending, in-progress, and completed states without parsing reasoning, final answers, Plan Review content, or generic tool output.

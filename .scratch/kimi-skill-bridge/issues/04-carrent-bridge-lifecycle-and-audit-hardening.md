@@ -1,6 +1,6 @@
 # Carrent Bridge run lifecycle is cleaned up and auditable
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 

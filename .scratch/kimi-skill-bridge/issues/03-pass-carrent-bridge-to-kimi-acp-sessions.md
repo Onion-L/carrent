@@ -1,6 +1,6 @@
 # Kimi ACP sessions receive Carrent Bridge
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 

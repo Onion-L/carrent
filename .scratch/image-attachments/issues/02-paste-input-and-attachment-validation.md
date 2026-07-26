@@ -1,6 +1,6 @@
 # Paste input and attachment validation
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 

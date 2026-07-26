@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Run-scoped MCP single question
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] A Run can own at most one pending question request, including across the native ACP and full MCP entry points.
 - [ ] A second request receives a structured `question_already_pending` error and cannot replace the active panel.
@@ -15,4 +15,3 @@
 - [ ] Temporary MCP servers close on completion, failure, stop, startup failure, and shutdown without leaking ports or pending promises.
 - [ ] Diagnostic events distinguish the MCP and native ACP paths without recording free-text answers.
 - [ ] Run-boundary and IPC tests cover every terminal path, concurrent calls, late responses, duplicate responses, and cleanup.
-

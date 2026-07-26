@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Apply Thread and Run lifecycle to Run Checklist.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Workspace persistence round-trips valid Checklist entries, owning Run and Runtime identity, panel-level Run outcome, and expanded state.
 - [ ] Restoration works for both project Threads and project-less Threads.

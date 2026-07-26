@@ -1,6 +1,6 @@
 # Carrent Bridge supports safe skill resources
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 

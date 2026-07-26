@@ -1,6 +1,6 @@
 # Image-only and runtime prompt behavior
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 

@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] A real-shaped Kimi ACP question request is classified as a structured question rather than an Approval Request.
 - [ ] The shared question contract is transport-neutral and binds the request to Carrent-owned Run and Thread identifiers.
@@ -14,4 +14,3 @@
 - [ ] Skip dismisses the question without stopping the Run, while Stop uses normal Run cancellation.
 - [ ] Unsupported or malformed native question payloads fail safely without fabricating dropped questions, multi-select behavior, descriptions, or `Other` content.
 - [ ] Tests drive the behavior from a fake ACP request through the Renderer response and assert the final ACP response.
-

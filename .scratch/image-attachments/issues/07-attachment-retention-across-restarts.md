@@ -1,6 +1,6 @@
 # Attachment retention across restarts
 
-Status: ready-for-agent
+Status: done
 
 ## Parent
 

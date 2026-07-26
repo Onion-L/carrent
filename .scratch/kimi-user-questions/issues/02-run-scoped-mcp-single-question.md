@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Native ACP single-choice question
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] A supported Kimi Run receives an authenticated loopback `carrent_session` HTTP MCP descriptor in addition to any enabled global Carrent Bridge descriptor.
 - [ ] The temporary server exposes only `ask_user_question`, with a description directing Kimi to prefer it over the built-in `AskUserQuestion` in Carrent.
@@ -15,4 +15,3 @@
 - [ ] A single-select `Other` answer returns the user's non-empty custom text and excludes predefined selections.
 - [ ] Skip returns an empty `answers` object with a dismissal note compatible with Kimi behavior.
 - [ ] The temporary server closes on normal Run completion, and the public Run test proves the HTTP round trip without a real Kimi process.
-

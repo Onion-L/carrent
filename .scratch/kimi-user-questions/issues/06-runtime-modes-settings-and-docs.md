@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Run-scoped MCP single question
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Kimi default, Plan, and YOLO Runs receive the Run-scoped interaction MCP server.
 - [ ] Kimi Auto Runs do not start or advertise the interaction server.

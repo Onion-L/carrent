@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Multi-question and multi-select interaction
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] The user can leave a Thread with a pending question without cancelling or moving the request.
 - [ ] The originating Thread shows a waiting-for-answer Thread Status with the same attention precedence as waiting for approval.
@@ -15,4 +15,3 @@
 - [ ] Settled question records round-trip through workspace persistence.
 - [ ] Persisted pending records hydrate as interrupted and never become actionable without a live Run.
 - [ ] Tests cover Thread navigation, status precedence, compact rendering, skip/interruption rendering, and persistence normalization.
-

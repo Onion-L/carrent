@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Show live Run Checklist from Kimi ACP.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] A completed Run retains its last Checklist snapshot without inferring completion for unfinished items.
 - [ ] A failed Run retains its last item states and displays the failed outcome at the panel level.

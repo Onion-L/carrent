@@ -149,6 +149,7 @@ function ChatPageContent() {
           <>
             <MessageTimeline
               messages={routeData?.messages ?? []}
+              threadId={routeData?.thread.id}
               onSubmitUserEdit={handleSubmitUserEdit}
             />
             {composer}

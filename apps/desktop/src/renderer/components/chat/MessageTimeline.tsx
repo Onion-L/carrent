@@ -627,14 +627,28 @@ function EmptyState() {
 
 export function MessageTimeline({
   messages,
+  threadId,
   onSubmitUserEdit,
 }: {
   messages: Message[];
+  threadId?: string;
   onSubmitUserEdit?: (draft: UserMessageEditDraft) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const initialScrollThreadRef = useRef<string | null>(null);
+
+  // Entering a thread pins the view to the latest message. Without this the
+  // scroll container starts at the top and the near-bottom effect below can
+  // never engage, forcing a manual scroll through the whole history.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || threadId === undefined || messages.length === 0) return;
+    if (initialScrollThreadRef.current === threadId) return;
+    initialScrollThreadRef.current = threadId;
+    el.scrollTo({ top: el.scrollHeight });
+  }, [threadId, messages]);
 
   useEffect(() => {
     if (editingMessageId && !messages.some((message) => message.id === editingMessageId)) {

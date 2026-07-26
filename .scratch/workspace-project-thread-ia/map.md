@@ -22,7 +22,10 @@ Label: wayfinder:map
 - [决定三层对象的创建、移动与移除语义](./issues/05-decide-lifecycle-operations.md) — 固定创建与重命名入口、Thread Draft 与归档规则、级联删除边界、目录重新定位及运行中阻塞和删除后落点。
 - [决定跨层发现与注意力管理](./issues/06-decide-cross-level-discovery.md) — 采用全局待处理与分层标题搜索，Running 和置顶留在 Thread 所属 Project 分组，并固定排序、路径和跨 Workspace 跳转规则。
 - [决定存量数据迁移与兼容边界](./issues/07-decide-migration-and-compatibility.md) — 未发布阶段采用已知旧 schema 的受限自动重置，不兼容旧数据与路由，并固定未知版本保护和 Runtime Session 隔离规则。
+- [决定主要屏幕、窗格组合与窄窗口行为](./issues/08-decide-screen-and-pane-behavior.md) — 复用现有三栏 DesktopShell、尺寸和手动折叠规则，仅替换三层导航语义，不增加自动响应式降级。
 - [决定 Workspace 导入与导出边界](./issues/09-decide-workspace-import-export.md) — 目标版本不提供 Workspace 导入、导出、备份或恢复能力，手工复制 app data 也不属于受支持路径。
+- [决定 Workspace 多窗口打开语义](./issues/10-decide-multi-window-semantics.md) — 目标版本采用唯一 Main Window，固定重复启动、深链接、设置、退出和重启恢复规则，并排除跨窗口状态与 Run 控制冲突。
+- [决定各层空状态、缺失与恢复体验](./issues/11-decide-empty-missing-and-recovery-states.md) — 采用状态就地替换并保留有效层级上下文，固定首次使用、空结果、目录不可用、目标缺失、加载失败与位置恢复的动作和落点。
 
 ## Not yet specified
 

@@ -55,6 +55,7 @@ import {
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import { QuestionPanel, getPendingQuestionForThread } from "./QuestionPanel";
+import { RunChecklist } from "./RunChecklist";
 import {
   buildQuestionAnswerRecords,
   clearQuestionDraftState,
@@ -834,6 +835,7 @@ export function Composer(props: ComposerProps) {
     updateMessageAndPruneAfter,
     updateMessageRunStatus,
     updateMessageParts,
+    updateRunChecklist,
     markThreadActivity,
     upsertChat,
     upsertThread,
@@ -909,6 +911,11 @@ export function Composer(props: ComposerProps) {
   const projectId = props.mode === "chat" ? null : props.projectId;
   const project = projectId ? (projects.find((item) => item.id === projectId) ?? null) : null;
   const threadId = props.threadId;
+  const thread =
+    props.mode === "chat"
+      ? (chats.find((item) => item.id === threadId) ?? null)
+      : (project?.threads.find((item) => item.id === threadId) ?? null);
+  const runChecklist = thread?.runChecklist;
   const queuedMessages = useQueuedMessages(threadId);
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
   const [editingQueuedText, setEditingQueuedText] = useState("");
@@ -1767,6 +1774,9 @@ export function Composer(props: ComposerProps) {
         historyMode: getChatHistoryMode(!!externalSubmit?.messageId),
       },
       {
+        onStarted: (runId) => {
+          updateRunChecklist(threadId, { kind: "started", runId });
+        },
         onDelta: (text) => {
           receivedTextRef.current += text;
           startTypewriter(assistantMsg.id);
@@ -1785,6 +1795,14 @@ export function Composer(props: ComposerProps) {
           stopTypewriter();
           flushPendingTypewriterText();
           updateLocalMessageSubagentTaskPart(assistantMsg.id, task);
+        },
+        onChecklist: (checklist, owner) => {
+          updateRunChecklist(owner.threadId, {
+            kind: "snapshot",
+            runId: owner.runId,
+            runtimeId: owner.runtimeId,
+            entries: checklist.entries,
+          });
         },
         onPermissionRequested: (permission) => {
           markThreadActivity(threadId, Date.parse(permission.createdAt));
@@ -1860,8 +1878,9 @@ export function Composer(props: ComposerProps) {
         onPlanModeChanged: (enabled) => {
           props.onPlanModeChange?.(enabled);
         },
-        onComplete: (text, writtenFiles) => {
+        onComplete: (text, runId, writtenFiles) => {
           runWrittenFilesRef.current = writtenFiles ?? [];
+          updateRunChecklist(threadId, { kind: "outcome", runId, outcome: "completed" });
           if (!receivedTextRef.current || text.startsWith(receivedTextRef.current)) {
             receivedTextRef.current = text;
           }
@@ -1882,8 +1901,11 @@ export function Composer(props: ComposerProps) {
             flushQueuedMessage(nextQueued);
           }
         },
-        onError: (error, writtenFiles) => {
+        onError: (error, runId, writtenFiles) => {
           runWrittenFilesRef.current = writtenFiles ?? [];
+          if (runId) {
+            updateRunChecklist(threadId, { kind: "outcome", runId, outcome: "failed" });
+          }
           stopTypewriter();
           flushPendingTypewriterText();
           updateMessageParts(assistantMsg.id, { kind: "interrupt-subagent-tasks" });
@@ -1902,8 +1924,9 @@ export function Composer(props: ComposerProps) {
             steerItemRef.current = null;
           }
         },
-        onStop: (writtenFiles) => {
+        onStop: (runId, writtenFiles) => {
           runWrittenFilesRef.current = writtenFiles ?? [];
+          updateRunChecklist(threadId, { kind: "outcome", runId, outcome: "cancelled" });
           stopTypewriter();
           flushPendingTypewriterText();
           updateMessageParts(assistantMsg.id, { kind: "interrupt-subagent-tasks" });
@@ -2190,6 +2213,12 @@ export function Composer(props: ComposerProps) {
   };
   const isCenteredPlacement = props.placement === "centered";
   const hasAttachedStatusLayer = threadPermissions.length > 0 || queuedMessages.length > 0;
+  const runChecklistPanel = runChecklist ? (
+    <RunChecklist
+      checklist={runChecklist}
+      onExpandedChange={(expanded) => updateRunChecklist(threadId, { kind: "expanded", expanded })}
+    />
+  ) : null;
 
   // A pending structured question fully replaces the Composer surface (text
   // input, attachments, Skill and Runtime controls, queued-message controls)
@@ -2198,6 +2227,7 @@ export function Composer(props: ComposerProps) {
     return (
       <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"}>
         <div className="relative mx-auto w-full max-w-[48rem]">
+          {runChecklistPanel}
           <QuestionPanel key={threadQuestion.id} question={threadQuestion} />
         </div>
       </div>
@@ -2207,6 +2237,7 @@ export function Composer(props: ComposerProps) {
   return (
     <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"} onPaste={handlePaste}>
       <div className="relative mx-auto w-full max-w-[48rem]">
+        {runChecklistPanel}
         {showSlashMenu ? (
           <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border-strong bg-surface shadow-[0_18px_60px_rgb(0_0_0/0.28)]">
             <div className="max-h-80 overflow-y-auto p-1">

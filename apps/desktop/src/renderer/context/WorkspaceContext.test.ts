@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import type { Message, ProjectRecord } from "../mock/uiShellData";
 import {
+  applyRunChecklistUpdate,
   applyMessagePartUpdate,
   buildChangedFilesMessage,
   collectProjectThreadIds,
@@ -25,6 +26,110 @@ function makeMessage(overrides: Partial<TextMessage> = {}): TextMessage {
     ...overrides,
   };
 }
+
+describe("applyRunChecklistUpdate", () => {
+  const thread: ProjectRecord["threads"][number] = {
+    id: "thread-1",
+    title: "Checklist",
+    updatedAt: "now",
+  };
+
+  it("auto-expands the first snapshot and fully replaces later entries", () => {
+    const first = applyRunChecklistUpdate(thread, {
+      kind: "snapshot",
+      runId: "run-1",
+      runtimeId: "kimi",
+      entries: [{ content: "Inspect", status: "in_progress" }],
+    });
+    const collapsed = applyRunChecklistUpdate(first, { kind: "expanded", expanded: false });
+    const replaced = applyRunChecklistUpdate(collapsed, {
+      kind: "snapshot",
+      runId: "run-1",
+      runtimeId: "kimi",
+      entries: [
+        { content: "Implement", status: "completed" },
+        { content: "Verify", status: "in_progress" },
+      ],
+    });
+
+    expect(first.runChecklist?.expanded).toBe(true);
+    expect(replaced.runChecklist).toMatchObject({
+      runId: "run-1",
+      outcome: "running",
+      expanded: false,
+      entries: [
+        { content: "Implement", status: "completed" },
+        { content: "Verify", status: "in_progress" },
+      ],
+    });
+  });
+
+  it("retains reported item states at terminal outcomes and clears on the next Run", () => {
+    const active = applyRunChecklistUpdate(thread, {
+      kind: "snapshot",
+      runId: "run-1",
+      runtimeId: "kimi",
+      entries: [
+        { content: "Implement", status: "in_progress" },
+        { content: "Verify", status: "pending" },
+      ],
+    });
+    const failed = applyRunChecklistUpdate(active, {
+      kind: "outcome",
+      runId: "run-1",
+      outcome: "failed",
+    });
+    const cleared = applyRunChecklistUpdate(failed, { kind: "started", runId: "run-2" });
+
+    expect(failed.runChecklist).toMatchObject({
+      outcome: "failed",
+      entries: [
+        { content: "Implement", status: "in_progress" },
+        { content: "Verify", status: "pending" },
+      ],
+    });
+    expect(cleared.runChecklist).toBeUndefined();
+  });
+
+  it("records completed, failed, and cancelled outcomes without changing entries", () => {
+    const active = applyRunChecklistUpdate(thread, {
+      kind: "snapshot",
+      runId: "run-1",
+      runtimeId: "kimi",
+      entries: [{ content: "Implement", status: "in_progress" }],
+    });
+
+    for (const outcome of ["completed", "failed", "cancelled"] as const) {
+      const settled = applyRunChecklistUpdate(active, {
+        kind: "outcome",
+        runId: "run-1",
+        outcome,
+      });
+      expect(settled.runChecklist).toMatchObject({
+        outcome,
+        entries: [{ content: "Implement", status: "in_progress" }],
+      });
+    }
+  });
+
+  it("uses a structured empty snapshot to clear the current Checklist", () => {
+    const active = applyRunChecklistUpdate(thread, {
+      kind: "snapshot",
+      runId: "run-1",
+      runtimeId: "kimi",
+      entries: [{ content: "Implement", status: "in_progress" }],
+    });
+
+    expect(
+      applyRunChecklistUpdate(active, {
+        kind: "snapshot",
+        runId: "run-1",
+        runtimeId: "kimi",
+        entries: [],
+      }).runChecklist,
+    ).toBeUndefined();
+  });
+});
 
 describe("buildChangedFilesMessage", () => {
   it("creates a changed_files message preserving snapshot fields and flags", () => {

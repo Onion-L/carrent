@@ -60,8 +60,62 @@ import { reconcileInterruptedRuns } from "../lib/interruptedRuns";
 import type { DeleteThreadDataRequest, AttachmentMetadata } from "../../shared/chat";
 import type { ThreadWorkSnapshot } from "../../shared/workspacePersistence";
 import type { GitWorkspaceDiffResult } from "../../../electron/git/gitIpc";
+import type { RunChecklistEntry, RunChecklistOutcome } from "../../shared/runChecklist";
 
 type MessageRunStatus = NonNullable<Message["runStatus"]>;
+
+export type RunChecklistUpdate =
+  | { kind: "started"; runId: string }
+  | {
+      kind: "snapshot";
+      runId: string;
+      runtimeId: RuntimeId;
+      entries: RunChecklistEntry[];
+    }
+  | { kind: "outcome"; runId: string; outcome: Exclude<RunChecklistOutcome, "running"> }
+  | { kind: "expanded"; expanded: boolean };
+
+export function applyRunChecklistUpdate(
+  thread: ThreadRecord,
+  update: RunChecklistUpdate,
+): ThreadRecord {
+  if (update.kind === "started" || (update.kind === "snapshot" && update.entries.length === 0)) {
+    const { runChecklist: _runChecklist, ...threadWithoutChecklist } = thread;
+    return threadWithoutChecklist;
+  }
+
+  if (update.kind === "snapshot") {
+    return {
+      ...thread,
+      runChecklist: {
+        runId: update.runId,
+        runtimeId: update.runtimeId,
+        entries: update.entries,
+        outcome: "running",
+        expanded: thread.runChecklist?.runId === update.runId ? thread.runChecklist.expanded : true,
+      },
+    };
+  }
+
+  if (!thread.runChecklist) {
+    return thread;
+  }
+
+  if (update.kind === "outcome") {
+    if (thread.runChecklist.runId !== update.runId) {
+      return thread;
+    }
+    return {
+      ...thread,
+      runChecklist: { ...thread.runChecklist, outcome: update.outcome },
+    };
+  }
+
+  return {
+    ...thread,
+    runChecklist: { ...thread.runChecklist, expanded: update.expanded },
+  };
+}
 
 export type WorkspaceContextValue = {
   projects: ProjectRecord[];
@@ -123,6 +177,7 @@ export type WorkspaceContextValue = {
   updateMessageAndPruneAfter: (id: string, content: string) => void;
   updateMessageRunStatus: (id: string, status: MessageRunStatus) => void;
   updateMessageParts: (id: string, update: MessagePartUpdate) => void;
+  updateRunChecklist: (threadId: string, update: RunChecklistUpdate) => void;
   setThreadRuntimeMode: (
     projectId: string,
     threadId: string,
@@ -234,6 +289,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   updateMessageAndPruneAfter: () => {},
   updateMessageRunStatus: () => {},
   updateMessageParts: () => {},
+  updateRunChecklist: () => {},
   setThreadRuntimeMode: () => {},
   setThreadPlanMode: () => {},
   setThreadRuntimeId: () => {},
@@ -964,6 +1020,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const updateRunChecklist = (threadId: string, update: RunChecklistUpdate) => {
+    setProjects((prev) =>
+      prev.map((project) => ({
+        ...project,
+        threads: project.threads.map((thread) =>
+          thread.id === threadId ? applyRunChecklistUpdate(thread, update) : thread,
+        ),
+      })),
+    );
+    setChats((prev) =>
+      prev.map((thread) =>
+        thread.id === threadId ? applyRunChecklistUpdate(thread, update) : thread,
+      ),
+    );
+  };
+
   return (
     <WorkspaceContext.Provider
       value={{
@@ -998,6 +1070,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         updateMessageAndPruneAfter,
         updateMessageRunStatus,
         updateMessageParts,
+        updateRunChecklist,
         setThreadRuntimeMode,
         setThreadPlanMode,
         setThreadRuntimeId,

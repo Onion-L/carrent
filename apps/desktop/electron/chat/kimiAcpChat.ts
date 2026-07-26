@@ -5,6 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type {
+  ChatReasoningEventPayload,
   ChatRunEvent,
   ChatSubagentTaskPayload,
   ChatSubagentTaskStatus,
@@ -29,6 +30,7 @@ import {
   type ChatQuestionSource,
 } from "../../src/shared/chatQuestions";
 import type { RuntimeMode } from "../../src/shared/runtimeMode";
+import { normalizeRunChecklistEntries } from "../../src/shared/runChecklist";
 import { MAX_SUBAGENT_TASK_TEXT_LENGTH } from "../../src/shared/workspacePersistence";
 import type {
   CarrentBridgeFactory,
@@ -415,6 +417,8 @@ class KimiAcpRun {
   private finalText = "";
   private reasoningText = "";
   private reasoningSegmentIndex = 0;
+  private hasChecklistSnapshot = false;
+  private pendingTodoListActivity: ChatReasoningEventPayload[] = [];
   private terminal = false;
   private stoppedByUser = false;
   private writtenFiles = new Set<string>();
@@ -1555,6 +1559,25 @@ class KimiAcpRun {
       return;
     }
 
+    if (updateType === "plan") {
+      const entries = normalizeRunChecklistEntries(update?.entries);
+      if (entries) {
+        this.hasChecklistSnapshot = entries.length > 0;
+        if (this.hasChecklistSnapshot) {
+          this.pendingTodoListActivity = [];
+        }
+        this.emit({
+          type: "checklist",
+          runId: this.options.runId,
+          requestKey: this.options.request.requestKey,
+          threadId: this.options.request.threadId,
+          runtimeId: this.options.request.runtimeId,
+          checklist: { entries },
+        });
+      }
+      return;
+    }
+
     if ((updateType === "tool_call" || updateType === "tool_call_update") && update) {
       this.handleToolUpdate(update);
     }
@@ -1610,6 +1633,22 @@ class KimiAcpRun {
       }
     }
 
+    const reasoning: ChatReasoningEventPayload = {
+      id: `kimi-tool-${id}`,
+      content: describeToolActivity(title, kind, filePath),
+      status: status === "running" ? "running" : "completed",
+    };
+
+    if (title === "TodoList") {
+      if (!this.hasChecklistSnapshot) {
+        this.pendingTodoListActivity.push(reasoning);
+        if (status !== "running") {
+          this.flushPendingTodoListActivity();
+        }
+      }
+      return;
+    }
+
     if (isShellTool(title, kind)) {
       this.emit({
         type: "shell",
@@ -1629,11 +1668,7 @@ class KimiAcpRun {
       type: "reasoning",
       runId: this.options.runId,
       requestKey: this.options.request.requestKey,
-      reasoning: {
-        id: `kimi-tool-${id}`,
-        content: describeToolActivity(title, kind, filePath),
-        status: status === "running" ? "running" : "completed",
-      },
+      reasoning,
     });
   }
 
@@ -1783,6 +1818,7 @@ class KimiAcpRun {
 
   private emit(event: ChatRunEvent) {
     if (!this.terminal) {
+      this.flushPendingTodoListActivity();
       this.options.emit(event);
     }
   }
@@ -1840,6 +1876,7 @@ class KimiAcpRun {
       return;
     }
 
+    this.flushPendingTodoListActivity();
     this.terminal = true;
     if (this.stopFallbackTimer) {
       clearTimeout(this.stopFallbackTimer);
@@ -1866,6 +1903,23 @@ class KimiAcpRun {
     this.options.emit(event);
     this.transport.close();
     this.options.onDone?.();
+  }
+
+  private flushPendingTodoListActivity() {
+    if (this.hasChecklistSnapshot) {
+      this.pendingTodoListActivity = [];
+      return;
+    }
+
+    this.pendingTodoListActivity.forEach((reasoning) => {
+      this.options.emit({
+        type: "reasoning",
+        runId: this.options.runId,
+        requestKey: this.options.request.requestKey,
+        reasoning,
+      });
+    });
+    this.pendingTodoListActivity = [];
   }
 
   private closeBridge() {

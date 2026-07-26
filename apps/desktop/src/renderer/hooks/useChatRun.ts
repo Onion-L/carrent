@@ -7,14 +7,24 @@ import type {
   ChatSubagentTaskPayload,
   ChatTurnRequest,
 } from "../../shared/chat";
+import type { RunChecklistSnapshot } from "../../shared/runChecklist";
 import type { ChatPermissionRequest, ChatPermissionResponse } from "../../shared/chatPermissions";
 import type { ChatQuestionRequest, ChatQuestionResponse } from "../../shared/chatQuestions";
 
 export type ChatRunCallbacks = {
+  onStarted?: (runId: string) => void;
   onDelta?: (text: string) => void;
   onReasoning?: (reasoning: ChatReasoningEventPayload) => void;
   onShell?: (shell: ChatShellEventPayload) => void;
   onSubagentTask?: (task: ChatSubagentTaskPayload) => void;
+  onChecklist?: (
+    checklist: RunChecklistSnapshot,
+    owner: {
+      runId: string;
+      threadId: string;
+      runtimeId: import("../../shared/runtimes").RuntimeId;
+    },
+  ) => void;
   onPermissionRequested?: (permission: ChatPermissionRequest) => void;
   onPermissionResolved?: (resolution: {
     permissionId: string;
@@ -30,9 +40,9 @@ export type ChatRunCallbacks = {
   }) => void;
   onQuestionsInterrupted?: (questions: ChatQuestionRequest[]) => void;
   onPlanModeChanged?: (enabled: boolean) => void;
-  onComplete?: (text: string, writtenFiles?: string[]) => void;
-  onError?: (error: string, writtenFiles?: string[]) => void;
-  onStop?: (writtenFiles?: string[]) => void;
+  onComplete?: (text: string, runId: string, writtenFiles?: string[]) => void;
+  onError?: (error: string, runId?: string, writtenFiles?: string[]) => void;
+  onStop?: (runId: string, writtenFiles?: string[]) => void;
 };
 
 type ChatRunSnapshot = {
@@ -196,6 +206,9 @@ export function createChatRunCoordinator() {
     },
     handleEvent(event: ChatRunEvent) {
       const run = getRunForEvent(event);
+      if (run?.runId && run.runId !== event.runId) {
+        return;
+      }
 
       // permission-failed for an active run is a terminal error: show to user and end run
       // permission-failed when run is not found still shows error to user
@@ -203,7 +216,7 @@ export function createChatRunCoordinator() {
         if (run) {
           clearPermissionsForRun(run, event.runId, true);
           clearQuestionsForRun(run, event.runId, true);
-          run.callbacks.onError?.(event.error);
+          run.callbacks.onError?.(event.error, event.runId);
           finishPendingRun(run);
         }
         // Show error to user even if run is not found (may have already ended)
@@ -229,6 +242,13 @@ export function createChatRunCoordinator() {
         requestKeyByRunId.set(event.runId, run.requestKey);
       }
 
+      if (event.type === "started") {
+        if (event.threadId === run.threadId) {
+          run.callbacks.onStarted?.(event.runId);
+        }
+        return;
+      }
+
       if (event.type === "delta") {
         run.callbacks.onDelta?.(event.text);
         return;
@@ -249,6 +269,17 @@ export function createChatRunCoordinator() {
         return;
       }
 
+      if (event.type === "checklist") {
+        if (event.threadId === run.threadId) {
+          run.callbacks.onChecklist?.(event.checklist, {
+            runId: event.runId,
+            threadId: event.threadId,
+            runtimeId: event.runtimeId,
+          });
+        }
+        return;
+      }
+
       if (event.type === "plan-mode-changed") {
         run.callbacks.onPlanModeChanged?.(event.enabled);
         return;
@@ -257,7 +288,7 @@ export function createChatRunCoordinator() {
       if (event.type === "completed") {
         clearPermissionsForRun(run, event.runId, true);
         clearQuestionsForRun(run, event.runId, true);
-        run.callbacks.onComplete?.(event.text, event.writtenFiles);
+        run.callbacks.onComplete?.(event.text, event.runId, event.writtenFiles);
         finishPendingRun(run);
         return;
       }
@@ -265,7 +296,7 @@ export function createChatRunCoordinator() {
       if (event.type === "failed") {
         clearPermissionsForRun(run, event.runId, true);
         clearQuestionsForRun(run, event.runId, true);
-        run.callbacks.onError?.(event.error, event.writtenFiles);
+        run.callbacks.onError?.(event.error, event.runId, event.writtenFiles);
         clearPending(run);
         updateSnapshot(event.error);
         emit();
@@ -275,7 +306,7 @@ export function createChatRunCoordinator() {
       if (event.type === "stopped") {
         clearPermissionsForRun(run, event.runId, true);
         clearQuestionsForRun(run, event.runId, true);
-        run.callbacks.onStop?.(event.writtenFiles);
+        run.callbacks.onStop?.(event.runId, event.writtenFiles);
         finishPendingRun(run);
         return;
       }

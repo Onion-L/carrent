@@ -341,6 +341,198 @@ describe("buildKimiPromptParts", () => {
 });
 
 describe("startKimiAcpChatRun", () => {
+  it("maps an ACP plan update to an ordered Run Checklist snapshot", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-checklist" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-checklist",
+            update: {
+              sessionUpdate: "plan",
+              entries: [
+                { content: "Inspect the existing flow", status: "completed", priority: "medium" },
+                { content: "Implement the checklist", status: "in_progress", priority: "medium" },
+                { content: "Run verification", status: "pending", priority: "medium" },
+              ],
+            },
+          },
+        });
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-checklist",
+      request: makeRequest(),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "checklist")).toEqual({
+      type: "checklist",
+      runId: "run-kimi-checklist",
+      threadId: "thread-1",
+      runtimeId: "kimi",
+      checklist: {
+        entries: [
+          { content: "Inspect the existing flow", status: "completed" },
+          { content: "Implement the checklist", status: "in_progress" },
+          { content: "Run verification", status: "pending" },
+        ],
+      },
+    });
+  });
+
+  it("omits TodoList activity when the Run Checklist carries the same progress", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-checklist" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        for (const update of [
+          {
+            sessionUpdate: "tool_call",
+            toolCallId: "tool-todo-list",
+            title: "TodoList",
+            kind: "other",
+            status: "in_progress",
+          },
+          {
+            sessionUpdate: "plan",
+            entries: [{ content: "Implement the checklist", status: "in_progress" }],
+          },
+          {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tool-todo-list",
+            title: "TodoList",
+            kind: "other",
+            status: "completed",
+          },
+        ]) {
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: { sessionId: "session-checklist", update },
+          });
+        }
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-checklist",
+      request: makeRequest(),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+
+    expect(emitted.filter((event) => event.type === "checklist")).toHaveLength(1);
+    expect(
+      emitted.some(
+        (event) => event.type === "reasoning" && event.reasoning.id === "kimi-tool-tool-todo-list",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts empty Plan Mode snapshots and ignores malformed replacements atomically", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, {
+          sessionId: "session-plan-checklist",
+          configOptions: [
+            {
+              id: "mode",
+              currentValue: "default",
+              options: [
+                { value: "default", name: "Default" },
+                { value: "plan", name: "Plan" },
+              ],
+            },
+          ],
+        });
+        return;
+      }
+      if (message.method === "session/set_config_option") {
+        respondAcp(fakeTransport, message, {});
+        return;
+      }
+      if (message.method === "session/prompt") {
+        for (const entries of [
+          [{ content: "Valid snapshot", status: "in_progress" }],
+          [
+            { content: "Valid first item", status: "completed" },
+            { content: "Invalid second item", status: "blocked" },
+          ],
+          [{ content: "x".repeat(8 * 1024 + 1), status: "pending" }],
+          [],
+        ]) {
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-plan-checklist",
+              update: { sessionUpdate: "plan", entries },
+            },
+          });
+        }
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-plan-checklist",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Done" },
+            },
+          },
+        });
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-plan-checklist",
+      request: makeRequest({ planMode: true }),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+
+    expect(
+      emitted
+        .filter((event) => event.type === "checklist")
+        .map((event) => (event.type === "checklist" ? event.checklist.entries : null)),
+    ).toEqual([[{ content: "Valid snapshot", status: "in_progress" }], []]);
+    expect(emitted.find((event) => event.type === "failed")).toBeUndefined();
+  });
+
   it("returns parsed session status from a /status prompt", async () => {
     const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
       if (message.method === "initialize") {

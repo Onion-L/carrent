@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import type { MessagePart } from "../renderer/mock/uiShellData";
 import { WORKSPACE_SNAPSHOT_VERSION, normalizeWorkspaceSnapshot } from "./workspacePersistence";
+import { MAX_RUN_CHECKLIST_ITEM_BYTES, MAX_RUN_CHECKLIST_ITEMS } from "./runChecklist";
 
 describe("normalizeWorkspaceSnapshot", () => {
   it("accepts a valid current snapshot", () => {
@@ -162,6 +163,104 @@ describe("normalizeWorkspaceSnapshot", () => {
 
     expect(snapshot?.projects[0].threads[0].planMode).toBe(true);
     expect(snapshot?.chats[0].planMode).toBe(true);
+  });
+
+  it("round-trips retained Run Checklists for project Threads and project-less Threads", () => {
+    const projectChecklist = {
+      runId: "run-project",
+      runtimeId: "kimi",
+      outcome: "failed",
+      expanded: false,
+      entries: [
+        { content: "Inspect", status: "completed" },
+        { content: "Implement", status: "in_progress" },
+      ],
+    };
+    const chatChecklist = {
+      runId: "run-chat",
+      runtimeId: "codex",
+      outcome: "completed",
+      expanded: true,
+      entries: [{ content: "Verify", status: "completed" }],
+    };
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [
+        {
+          id: "p1",
+          name: "P1",
+          path: "/tmp/p1",
+          threads: [
+            { id: "t1", title: "Thread", updatedAt: "now", runChecklist: projectChecklist },
+          ],
+        },
+      ],
+      chats: [{ id: "c1", title: "Chat", updatedAt: "now", runChecklist: chatChecklist }],
+      messages: [],
+      activeThreadId: "t1",
+    });
+
+    expect(snapshot?.projects[0].threads[0].runChecklist).toEqual(projectChecklist);
+    expect(snapshot?.chats[0].runChecklist).toEqual(chatChecklist);
+  });
+
+  it("rejects malformed and oversized persisted Run Checklists atomically", () => {
+    const makeThread = (id: string, runChecklist: unknown) => ({
+      id,
+      title: id,
+      updatedAt: "now",
+      runChecklist,
+    });
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [
+        {
+          id: "p1",
+          name: "P1",
+          path: "/tmp/p1",
+          threads: [
+            makeThread("unknown-state", {
+              runId: "run-1",
+              runtimeId: "kimi",
+              outcome: "running",
+              expanded: true,
+              entries: [
+                { content: "Valid first item", status: "completed" },
+                { content: "Invalid second item", status: "blocked" },
+              ],
+            }),
+            makeThread("oversized-content", {
+              runId: "run-2",
+              runtimeId: "kimi",
+              outcome: "running",
+              expanded: true,
+              entries: [
+                { content: "x".repeat(MAX_RUN_CHECKLIST_ITEM_BYTES + 1), status: "pending" },
+              ],
+            }),
+            makeThread("too-many-items", {
+              runId: "run-3",
+              runtimeId: "kimi",
+              outcome: "running",
+              expanded: true,
+              entries: Array.from({ length: MAX_RUN_CHECKLIST_ITEMS + 1 }, (_, index) => ({
+                content: `Item ${index}`,
+                status: "pending",
+              })),
+            }),
+          ],
+        },
+      ],
+      chats: [],
+      messages: [],
+      activeThreadId: null,
+    });
+
+    expect(snapshot?.projects[0].threads.map((thread) => thread.runChecklist)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
   });
 
   it("restores pending Plan Reviews as interrupted", () => {

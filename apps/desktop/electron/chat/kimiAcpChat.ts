@@ -29,6 +29,7 @@ import {
   type ChatQuestionSource,
 } from "../../src/shared/chatQuestions";
 import type { RuntimeMode } from "../../src/shared/runtimeMode";
+import { normalizeRunChecklistEntries } from "../../src/shared/runChecklist";
 import { MAX_SUBAGENT_TASK_TEXT_LENGTH } from "../../src/shared/workspacePersistence";
 import type {
   CarrentBridgeFactory,
@@ -1532,6 +1533,21 @@ class KimiAcpRun {
       return;
     }
 
+    if (updateType === "plan") {
+      const entries = normalizeRunChecklistEntries(update?.entries);
+      if (entries) {
+        this.emit({
+          type: "checklist",
+          runId: this.options.runId,
+          requestKey: this.options.request.requestKey,
+          threadId: this.options.request.threadId,
+          runtimeId: this.options.request.runtimeId,
+          checklist: { entries },
+        });
+      }
+      return;
+    }
+
     if ((updateType === "tool_call" || updateType === "tool_call_update") && update) {
       this.handleToolUpdate(update);
     }
@@ -1585,6 +1601,10 @@ class KimiAcpRun {
           this.emitPlanModeChanged(true);
         }
       }
+    }
+
+    if (title === "TodoList") {
+      return;
     }
 
     if (isShellTool(title, kind)) {

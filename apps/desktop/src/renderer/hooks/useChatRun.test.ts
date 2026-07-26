@@ -215,6 +215,92 @@ describe("createChatRunCoordinator", () => {
     expect(received).toEqual(["running:Implement persistence"]);
   });
 
+  it("routes Run Checklist lifecycle events to the active request", () => {
+    const coordinator = createChatRunCoordinator();
+    const received: string[] = [];
+
+    coordinator.beginRequest("request-1", "thread-1", {
+      onStarted: (runId) => received.push(`started:${runId}`),
+      onChecklist: (checklist) =>
+        received.push(`${checklist.entries[0]?.status}:${checklist.entries[0]?.content}`),
+      onComplete: (_text, runId) => received.push(`completed:${runId}`),
+    });
+
+    coordinator.handleEvent({
+      type: "started",
+      runId: "run-1",
+      requestKey: "request-1",
+      threadId: "thread-1",
+    } satisfies ChatRunEvent);
+    coordinator.handleEvent({
+      type: "checklist",
+      runId: "run-1",
+      requestKey: "request-1",
+      threadId: "thread-1",
+      runtimeId: "kimi",
+      checklist: {
+        entries: [{ content: "Implement persistence", status: "in_progress" }],
+      },
+    } satisfies ChatRunEvent);
+    coordinator.handleEvent({
+      type: "completed",
+      runId: "run-1",
+      requestKey: "request-1",
+      text: "done",
+      finishedAt: "2026-01-01T00:00:00.000Z",
+    } satisfies ChatRunEvent);
+
+    expect(received).toEqual([
+      "started:run-1",
+      "in_progress:Implement persistence",
+      "completed:run-1",
+    ]);
+  });
+
+  it("ignores a previous Run Checklist event after the next Run starts", () => {
+    const coordinator = createChatRunCoordinator();
+    const received: string[] = [];
+
+    coordinator.beginRequest("request-1", "thread-1", {
+      onChecklist: (checklist) => received.push(checklist.entries[0]?.content ?? "empty"),
+    });
+    coordinator.handleEvent({
+      type: "completed",
+      runId: "run-1",
+      requestKey: "request-1",
+      text: "done",
+      finishedAt: "2026-01-01T00:00:00.000Z",
+    } satisfies ChatRunEvent);
+
+    coordinator.beginRequest("request-2", "thread-1", {
+      onChecklist: (checklist) => received.push(checklist.entries[0]?.content ?? "empty"),
+    });
+    coordinator.handleEvent({
+      type: "started",
+      runId: "run-2",
+      requestKey: "request-2",
+      threadId: "thread-1",
+    } satisfies ChatRunEvent);
+    coordinator.handleEvent({
+      type: "checklist",
+      runId: "run-1",
+      requestKey: "request-1",
+      threadId: "thread-1",
+      runtimeId: "kimi",
+      checklist: { entries: [{ content: "Stale", status: "in_progress" }] },
+    } satisfies ChatRunEvent);
+    coordinator.handleEvent({
+      type: "checklist",
+      runId: "run-2",
+      requestKey: "request-2",
+      threadId: "thread-1",
+      runtimeId: "kimi",
+      checklist: { entries: [{ content: "Current", status: "in_progress" }] },
+    } satisfies ChatRunEvent);
+
+    expect(received).toEqual(["Current"]);
+  });
+
   it("ignores subagent-task events from an unrelated run id", () => {
     const coordinator = createChatRunCoordinator();
     const received: string[] = [];
@@ -377,9 +463,13 @@ describe("createChatRunCoordinator", () => {
 
   it("removes permission when permission-failed is received", () => {
     const received: string[] = [];
+    const failedRunIds: Array<string | undefined> = [];
     const coordinator = createChatRunCoordinator();
     coordinator.beginRequest("req-1", "thread-1", {
-      onError: (error) => received.push(error),
+      onError: (error, runId) => {
+        received.push(error);
+        failedRunIds.push(runId);
+      },
     });
     coordinator.attachRunId("req-1", "run-1");
 
@@ -414,6 +504,7 @@ describe("createChatRunCoordinator", () => {
     expect(snapshot.lastError).toContain("not supported");
     expect(snapshot.isSending).toBe(false);
     expect(received).toEqual(["Interactive approvals not supported"]);
+    expect(failedRunIds).toEqual(["run-1"]);
   });
 
   function makeQuestionEvent(overrides: Partial<ChatQuestionRequest> = {}): ChatQuestionRequest {

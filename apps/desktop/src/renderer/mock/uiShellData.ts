@@ -2,6 +2,7 @@ import type { RuntimeMode } from "../../shared/runtimeMode";
 import type { RuntimeId } from "../../shared/runtimes";
 import type { AttachmentMetadata, ChatSubagentTaskPayload } from "../../shared/chat";
 import type { ChatPermissionOption } from "../../shared/chatPermissions";
+import type { ThreadRunChecklist } from "../../shared/runChecklist";
 
 export type { AttachmentMetadata };
 
@@ -17,6 +18,7 @@ export type ThreadRecord = {
   pinned?: boolean;
   active?: boolean;
   draft?: boolean;
+  runChecklist?: ThreadRunChecklist;
 };
 
 export type ProjectRecord = {

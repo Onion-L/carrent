@@ -11,6 +11,12 @@ import { isSupportedImageMimeType, MAX_ATTACHMENT_COUNT } from "./attachment";
 import type { ChatPermissionOption } from "./chatPermissions";
 import { normalizeRuntimeMode } from "./runtimeMode";
 import { normalizeRuntimeId } from "./runtimes";
+import { runtimeIds } from "./runtimes";
+import {
+  normalizeRunChecklistEntries,
+  type RunChecklistOutcome,
+  type ThreadRunChecklist,
+} from "./runChecklist";
 
 export const WORKSPACE_SNAPSHOT_VERSION = 1;
 
@@ -66,6 +72,31 @@ function normalizeOptionalString(value: unknown) {
 
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function normalizeThreadRunChecklist(value: unknown): ThreadRunChecklist | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.runId !== "string" || !value.runId.trim()) return null;
+  if (!runtimeIds.includes(value.runtimeId as ThreadRunChecklist["runtimeId"])) return null;
+  if (typeof value.expanded !== "boolean") return null;
+  if (
+    value.outcome !== "running" &&
+    value.outcome !== "completed" &&
+    value.outcome !== "failed" &&
+    value.outcome !== "cancelled"
+  ) {
+    return null;
+  }
+  const entries = normalizeRunChecklistEntries(value.entries);
+  if (!entries || entries.length === 0) return null;
+
+  return {
+    runId: value.runId,
+    runtimeId: value.runtimeId as ThreadRunChecklist["runtimeId"],
+    outcome: value.outcome as RunChecklistOutcome,
+    expanded: value.expanded,
+    entries,
+  };
 }
 
 function normalizeAttachmentMetadata(value: unknown): AttachmentMetadata | null {
@@ -494,16 +525,19 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
       runtimeModelId?: unknown;
       lastActivityAt?: unknown;
       planMode?: unknown;
+      runChecklist?: unknown;
     },
   ): ThreadRecord {
     const runtimeModelId = normalizeOptionalString(thread.runtimeModelId);
     const lastActivityAt = normalizeOptionalString(thread.lastActivityAt);
     const validLastActivityAt =
       lastActivityAt && !Number.isNaN(Date.parse(lastActivityAt)) ? lastActivityAt : undefined;
+    const runChecklist = normalizeThreadRunChecklist(thread.runChecklist);
     const {
       runtimeModelId: _runtimeModelId,
       lastActivityAt: _lastActivityAt,
       planMode: _planMode,
+      runChecklist: _runChecklist,
       ...rest
     } = thread;
 
@@ -514,6 +548,7 @@ export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | 
       planMode: thread.planMode === true,
       ...(runtimeModelId ? { runtimeModelId } : {}),
       ...(validLastActivityAt ? { lastActivityAt: validLastActivityAt } : {}),
+      ...(runChecklist ? { runChecklist } : {}),
     };
   }
 

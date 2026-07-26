@@ -2,6 +2,7 @@ import { DEFAULT_RUNTIME_ID, type RuntimeId } from "./runtimes";
 import type { RuntimeMode } from "./runtimeMode";
 import type { ChatPermissionOptionKind, ChatPermissionRequest } from "./chatPermissions";
 import type { ChatQuestionRequest } from "./chatQuestions";
+import type { RunChecklistSnapshot } from "./runChecklist";
 
 export const DEFAULT_CHAT_RUNTIME_ID: RuntimeId = DEFAULT_RUNTIME_ID;
 
@@ -129,6 +130,12 @@ export type ChatRunEvent =
   | (ChatRunEventBase & { type: "reasoning"; reasoning: ChatReasoningEventPayload })
   | (ChatRunEventBase & { type: "shell"; shell: ChatShellEventPayload })
   | (ChatRunEventBase & { type: "subagent-task"; task: ChatSubagentTaskPayload })
+  | (ChatRunEventBase & {
+      type: "checklist";
+      threadId: string;
+      runtimeId: RuntimeId;
+      checklist: RunChecklistSnapshot;
+    })
   | (ChatRunEventBase & {
       type: "completed";
       text: string;

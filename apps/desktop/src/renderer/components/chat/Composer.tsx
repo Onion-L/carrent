@@ -2957,7 +2957,7 @@ export function Composer(props: ComposerProps) {
                       className="h-3 w-3"
                     />
                     <span className="min-w-0 truncate">
-                      {getRuntimeModeLabel(props.runtimeMode ?? DEFAULT_RUNTIME_MODE)}
+                      {getRuntimeModeLabel(props.runtimeMode ?? DEFAULT_RUNTIME_MODE, props.runtimeId)}
                     </span>
                     <ChevronDown className="h-3 w-3" />
                   </button>
@@ -2978,7 +2978,7 @@ export function Composer(props: ComposerProps) {
                         >
                           <RuntimeModeIcon mode={mode} className="h-3 w-3" />
                           <span>
-                            {getRuntimeModeLabel(mode)}
+                            {getRuntimeModeLabel(mode, props.runtimeId)}
                             {mode === "full-access" ? " (danger)" : ""}
                           </span>
                         </button>

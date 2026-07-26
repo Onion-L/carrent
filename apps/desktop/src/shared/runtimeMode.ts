@@ -1,3 +1,5 @@
+import type { RuntimeId } from "./runtimes";
+
 export type RuntimeMode = "approval-required" | "auto-accept-edits" | "full-access";
 
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "approval-required";
@@ -10,7 +12,19 @@ export function normalizeRuntimeMode(value: unknown): RuntimeMode {
   return isRuntimeMode(value) ? value : DEFAULT_RUNTIME_MODE;
 }
 
-export function getRuntimeModeLabel(mode: RuntimeMode) {
+export function getRuntimeModeLabel(mode: RuntimeMode, runtimeId?: RuntimeId) {
+  // Kimi uses its native permission-mode names so the picker matches what the
+  // CLI/ACP actually negotiates.
+  if (runtimeId === "kimi") {
+    switch (mode) {
+      case "approval-required":
+        return "Approval required";
+      case "auto-accept-edits":
+        return "Auto";
+      case "full-access":
+        return "Yolo";
+    }
+  }
   switch (mode) {
     case "approval-required":
       return "Approval required";

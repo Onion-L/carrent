@@ -27,4 +27,10 @@ describe("runtimeMode", () => {
     expect(getRuntimeModeLabel("approval-required")).toContain("Approval");
     expect(getRuntimeModeLabel("full-access")).toContain("Full");
   });
+
+  it("uses Kimi's native mode names for the Kimi runtime", () => {
+    expect(getRuntimeModeLabel("approval-required", "kimi")).toBe("Approval required");
+    expect(getRuntimeModeLabel("auto-accept-edits", "kimi")).toBe("Auto");
+    expect(getRuntimeModeLabel("full-access", "kimi")).toBe("Yolo");
+  });
 });

@@ -2191,6 +2191,12 @@ export function Composer(props: ComposerProps) {
   };
   const isCenteredPlacement = props.placement === "centered";
   const hasAttachedStatusLayer = threadPermissions.length > 0 || queuedMessages.length > 0;
+  const runChecklistPanel = runChecklist ? (
+    <RunChecklist
+      checklist={runChecklist}
+      onExpandedChange={(expanded) => updateRunChecklist(threadId, { kind: "expanded", expanded })}
+    />
+  ) : null;
 
   // A pending structured question fully replaces the Composer surface (text
   // input, attachments, Skill and Runtime controls, queued-message controls)
@@ -2199,14 +2205,7 @@ export function Composer(props: ComposerProps) {
     return (
       <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"}>
         <div className="relative mx-auto w-full max-w-[48rem]">
-          {runChecklist ? (
-            <RunChecklist
-              checklist={runChecklist}
-              onExpandedChange={(expanded) =>
-                updateRunChecklist(threadId, { kind: "expanded", expanded })
-              }
-            />
-          ) : null}
+          {runChecklistPanel}
           <QuestionPanel key={threadQuestion.id} question={threadQuestion} />
         </div>
       </div>
@@ -2216,14 +2215,7 @@ export function Composer(props: ComposerProps) {
   return (
     <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"} onPaste={handlePaste}>
       <div className="relative mx-auto w-full max-w-[48rem]">
-        {runChecklist ? (
-          <RunChecklist
-            checklist={runChecklist}
-            onExpandedChange={(expanded) =>
-              updateRunChecklist(threadId, { kind: "expanded", expanded })
-            }
-          />
-        ) : null}
+        {runChecklistPanel}
         {showSlashMenu ? (
           <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border-strong bg-surface shadow-[0_18px_60px_rgb(0_0_0/0.28)]">
             <div className="max-h-80 overflow-y-auto p-1">

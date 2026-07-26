@@ -375,7 +375,7 @@ describe("startKimiAcpChatRun", () => {
     startKimiAcpChatRun({
       runId: "run-kimi-checklist",
       request: makeRequest(),
-      cwd: "/Users/onion/workbench/carrent",
+      cwd: "/test/project",
       emit: (event) => emitted.push(event),
       transportFactory: () => transport,
     });
@@ -441,7 +441,7 @@ describe("startKimiAcpChatRun", () => {
     startKimiAcpChatRun({
       runId: "run-kimi-checklist",
       request: makeRequest(),
-      cwd: "/Users/onion/workbench/carrent",
+      cwd: "/test/project",
       emit: (event) => emitted.push(event),
       transportFactory: () => transport,
     });
@@ -519,7 +519,7 @@ describe("startKimiAcpChatRun", () => {
     startKimiAcpChatRun({
       runId: "run-kimi-plan-checklist",
       request: makeRequest({ planMode: true }),
-      cwd: "/Users/onion/workbench/carrent",
+      cwd: "/test/project",
       emit: (event) => emitted.push(event),
       transportFactory: () => transport,
     });
@@ -531,6 +531,72 @@ describe("startKimiAcpChatRun", () => {
         .map((event) => (event.type === "checklist" ? event.checklist.entries : null)),
     ).toEqual([[{ content: "Valid snapshot", status: "in_progress" }], []]);
     expect(emitted.find((event) => event.type === "failed")).toBeUndefined();
+  });
+
+  it("preserves TodoList activity when no valid Run Checklist snapshot is available", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-invalid-checklist" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        for (const update of [
+          {
+            sessionUpdate: "tool_call",
+            toolCallId: "tool-todo-list",
+            title: "TodoList",
+            kind: "other",
+            status: "in_progress",
+          },
+          {
+            sessionUpdate: "plan",
+            entries: [{ content: "Invalid snapshot", status: "blocked" }],
+          },
+          {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tool-todo-list",
+            title: "TodoList",
+            kind: "other",
+            status: "completed",
+          },
+          {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Done" },
+          },
+        ]) {
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: { sessionId: "session-invalid-checklist", update },
+          });
+        }
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-invalid-checklist",
+      request: makeRequest(),
+      cwd: "/test/project",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+
+    expect(emitted.filter((event) => event.type === "checklist")).toHaveLength(0);
+    expect(
+      emitted
+        .filter(
+          (event) =>
+            event.type === "reasoning" && event.reasoning.id === "kimi-tool-tool-todo-list",
+        )
+        .map((event) => (event.type === "reasoning" ? event.reasoning.status : null)),
+    ).toEqual(["running", "completed"]);
   });
 
   it("returns parsed session status from a /status prompt", async () => {

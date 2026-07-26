@@ -301,6 +301,39 @@ describe("createChatRunCoordinator", () => {
     expect(received).toEqual(["Current"]);
   });
 
+  it("rejects a mismatched run id even when the request key matches", () => {
+    const coordinator = createChatRunCoordinator();
+    const received: string[] = [];
+    coordinator.beginRequest("request-1", "thread-1", {
+      onChecklist: (checklist) => received.push(checklist.entries[0]?.content ?? "empty"),
+    });
+    coordinator.handleEvent({
+      type: "started",
+      runId: "run-current",
+      requestKey: "request-1",
+      threadId: "thread-1",
+    } satisfies ChatRunEvent);
+
+    coordinator.handleEvent({
+      type: "checklist",
+      runId: "run-stale",
+      requestKey: "request-1",
+      threadId: "thread-1",
+      runtimeId: "kimi",
+      checklist: { entries: [{ content: "Stale", status: "in_progress" }] },
+    } satisfies ChatRunEvent);
+    coordinator.handleEvent({
+      type: "checklist",
+      runId: "run-current",
+      requestKey: "request-1",
+      threadId: "thread-1",
+      runtimeId: "kimi",
+      checklist: { entries: [{ content: "Current", status: "in_progress" }] },
+    } satisfies ChatRunEvent);
+
+    expect(received).toEqual(["Current"]);
+  });
+
   it("ignores subagent-task events from an unrelated run id", () => {
     const coordinator = createChatRunCoordinator();
     const received: string[] = [];

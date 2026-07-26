@@ -5,6 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type {
+  ChatReasoningEventPayload,
   ChatRunEvent,
   ChatSubagentTaskPayload,
   ChatSubagentTaskStatus,
@@ -416,6 +417,8 @@ class KimiAcpRun {
   private finalText = "";
   private reasoningText = "";
   private reasoningSegmentIndex = 0;
+  private hasChecklistSnapshot = false;
+  private pendingTodoListActivity: ChatReasoningEventPayload[] = [];
   private terminal = false;
   private stoppedByUser = false;
   private stopFallbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1536,6 +1539,8 @@ class KimiAcpRun {
     if (updateType === "plan") {
       const entries = normalizeRunChecklistEntries(update?.entries);
       if (entries) {
+        this.hasChecklistSnapshot = true;
+        this.pendingTodoListActivity = [];
         this.emit({
           type: "checklist",
           runId: this.options.runId,
@@ -1603,7 +1608,16 @@ class KimiAcpRun {
       }
     }
 
+    const reasoning: ChatReasoningEventPayload = {
+      id: `kimi-tool-${id}`,
+      content: describeToolActivity(title, kind, filePath),
+      status: status === "running" ? "running" : "completed",
+    };
+
     if (title === "TodoList") {
+      if (!this.hasChecklistSnapshot) {
+        this.pendingTodoListActivity.push(reasoning);
+      }
       return;
     }
 
@@ -1626,11 +1640,7 @@ class KimiAcpRun {
       type: "reasoning",
       runId: this.options.runId,
       requestKey: this.options.request.requestKey,
-      reasoning: {
-        id: `kimi-tool-${id}`,
-        content: describeToolActivity(title, kind, filePath),
-        status: status === "running" ? "running" : "completed",
-      },
+      reasoning,
     });
   }
 
@@ -1835,6 +1845,7 @@ class KimiAcpRun {
       return;
     }
 
+    this.flushPendingTodoListActivity();
     this.terminal = true;
     if (this.stopFallbackTimer) {
       clearTimeout(this.stopFallbackTimer);
@@ -1861,6 +1872,23 @@ class KimiAcpRun {
     this.options.emit(event);
     this.transport.close();
     this.options.onDone?.();
+  }
+
+  private flushPendingTodoListActivity() {
+    if (this.hasChecklistSnapshot) {
+      this.pendingTodoListActivity = [];
+      return;
+    }
+
+    this.pendingTodoListActivity.forEach((reasoning) => {
+      this.options.emit({
+        type: "reasoning",
+        runId: this.options.runId,
+        requestKey: this.options.request.requestKey,
+        reasoning,
+      });
+    });
+    this.pendingTodoListActivity = [];
   }
 
   private closeBridge() {

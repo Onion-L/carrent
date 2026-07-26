@@ -206,6 +206,9 @@ export function createChatRunCoordinator() {
     },
     handleEvent(event: ChatRunEvent) {
       const run = getRunForEvent(event);
+      if (run?.runId && run.runId !== event.runId) {
+        return;
+      }
 
       // permission-failed for an active run is a terminal error: show to user and end run
       // permission-failed when run is not found still shows error to user

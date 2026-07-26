@@ -811,6 +811,7 @@ describe("createWorkspaceDiffCapture", () => {
       captureBaseline: async () => null,
       workspaceDiff,
       appendWorkspaceDiffMessage: append,
+      getRunWritePaths: () => [],
       showToast: () => {},
     });
     capture();
@@ -832,6 +833,7 @@ describe("createWorkspaceDiffCapture", () => {
         capturedAt: "now",
       }),
       appendWorkspaceDiffMessage: append,
+      getRunWritePaths: () => [],
       showToast: () => {},
     });
     captureClean();
@@ -843,6 +845,7 @@ describe("createWorkspaceDiffCapture", () => {
       captureBaseline: async () => null,
       workspaceDiff: async () => ({ state: "unavailable" as const, reason: "no-head" as const }),
       appendWorkspaceDiffMessage: append,
+      getRunWritePaths: () => [],
       showToast: () => {},
     });
     captureUnavailable();
@@ -861,6 +864,7 @@ describe("createWorkspaceDiffCapture", () => {
         state: "ready" as const,
         baseRevision: "abc",
         capturedAt: "now",
+        projectRelativeRoot: ".",
         files: [{ path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false }],
         patch: "diff",
         truncated: false,
@@ -868,6 +872,7 @@ describe("createWorkspaceDiffCapture", () => {
       appendWorkspaceDiffMessage: (threadId, result) => {
         appended = { threadId, result: { state: result.state } };
       },
+      getRunWritePaths: () => ["a.txt"],
       showToast: () => {},
     });
     capture();
@@ -888,12 +893,14 @@ describe("createWorkspaceDiffCapture", () => {
           state: "ready" as const,
           baseRevision: "abc",
           capturedAt: "now",
+          projectRelativeRoot: ".",
           files: [{ path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false }],
           patch: "diff",
           truncated: false,
         };
       },
       appendWorkspaceDiffMessage: () => {},
+      getRunWritePaths: () => ["a.txt"],
       showToast: () => {},
     });
     capture();
@@ -914,6 +921,7 @@ describe("createWorkspaceDiffCapture", () => {
         throw new Error("git failed");
       },
       appendWorkspaceDiffMessage: () => {},
+      getRunWritePaths: () => [],
       showToast: (message, type) => {
         toasts.push({ message, type });
       },
@@ -941,6 +949,7 @@ describe("createWorkspaceDiffCapture", () => {
         return { state: "clean" as const, baseRevision: "baseline-sha", capturedAt: "now" };
       },
       appendWorkspaceDiffMessage: () => {},
+      getRunWritePaths: () => [],
       showToast: () => {},
     });
     capture();
@@ -963,11 +972,117 @@ describe("createWorkspaceDiffCapture", () => {
         return { state: "clean" as const, baseRevision: "abc", capturedAt: "now" };
       },
       appendWorkspaceDiffMessage: () => {},
+      getRunWritePaths: () => [],
       showToast: () => {},
     });
     capture();
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(receivedBase).toBeUndefined();
+  });
+
+  it("does not append when the run wrote no tracked files", async () => {
+    const append = () => {
+      throw new Error("should not append");
+    };
+    const capture = createWorkspaceDiffCapture({
+      mode: "thread",
+      projectPath: "/repo",
+      threadId: "t1",
+      captureBaseline: async () => null,
+      workspaceDiff: async () => ({
+        state: "ready" as const,
+        baseRevision: "abc",
+        capturedAt: "now",
+        projectRelativeRoot: ".",
+        files: [{ path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false }],
+        patch: "diff",
+        truncated: false,
+      }),
+      appendWorkspaceDiffMessage: append,
+      getRunWritePaths: () => [],
+      showToast: () => {},
+    });
+    capture();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+
+  it("matches project-relative run paths inside a nested repository project", async () => {
+    let appended: string[] | null = null;
+    const capture = createWorkspaceDiffCapture({
+      mode: "thread",
+      projectPath: "/repo/packages/app",
+      threadId: "t1",
+      captureBaseline: async () => null,
+      workspaceDiff: async () => ({
+        state: "ready" as const,
+        baseRevision: "abc",
+        capturedAt: "now",
+        projectRelativeRoot: "packages/app",
+        files: [
+          {
+            path: "packages/app/src/a.ts",
+            additions: 2,
+            deletions: 1,
+            binary: false,
+            untracked: false,
+          },
+        ],
+        patch: "diff",
+        truncated: false,
+      }),
+      appendWorkspaceDiffMessage: (_threadId, result) => {
+        appended = result.files.map((file) => file.path);
+      },
+      getRunWritePaths: () => ["src/a.ts"],
+      showToast: () => {},
+    });
+    capture();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(appended).toEqual(["packages/app/src/a.ts"]);
+  });
+
+  it("removes unrelated file blocks from the captured patch", async () => {
+    let appendedPatch: string | null = null;
+    const capture = createWorkspaceDiffCapture({
+      mode: "thread",
+      projectPath: "/repo",
+      threadId: "t1",
+      captureBaseline: async () => null,
+      workspaceDiff: async () => ({
+        state: "ready" as const,
+        baseRevision: "abc",
+        capturedAt: "now",
+        projectRelativeRoot: ".",
+        files: [
+          { path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false },
+          { path: "other.txt", additions: 1, deletions: 0, binary: false, untracked: false },
+        ],
+        patch: [
+          "diff --git a/a.txt b/a.txt",
+          "--- a/a.txt",
+          "+++ b/a.txt",
+          "@@ -0,0 +1 @@",
+          "+owned",
+          "diff --git a/other.txt b/other.txt",
+          "--- a/other.txt",
+          "+++ b/other.txt",
+          "@@ -0,0 +1 @@",
+          "+unrelated",
+        ].join("\n"),
+        truncated: false,
+      }),
+      appendWorkspaceDiffMessage: (_threadId, result) => {
+        appendedPatch = result.patch;
+      },
+      getRunWritePaths: () => ["a.txt"],
+      showToast: () => {},
+    });
+    capture();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(appendedPatch).toContain("+owned");
+    expect(appendedPatch).not.toContain("other.txt");
+    expect(appendedPatch).not.toContain("+unrelated");
   });
 });
 

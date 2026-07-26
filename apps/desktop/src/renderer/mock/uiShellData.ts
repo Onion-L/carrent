@@ -133,7 +133,8 @@ export type MessagePart =
       questions: Array<{ header: string; question: string }>;
       answers?: Array<{ questionIndex: number; labels: string[]; customText?: string }>;
     }
-  | SubagentTaskPart;
+  | SubagentTaskPart
+  | { type: "error"; id: string; message: string };
 
 type TextMessage = MessageBase & {
   type?: "text";

@@ -28,6 +28,7 @@ export type GitWorkspaceDiffResult =
       state: "ready";
       baseRevision: string;
       capturedAt: string;
+      projectRelativeRoot: string;
       files: GitWorkspaceDiffFile[];
       patch: string;
       truncated: boolean;
@@ -437,6 +438,7 @@ async function getWorkspaceDiffSinceSnapshot(
     state: "ready",
     baseRevision: base,
     capturedAt,
+    projectRelativeRoot: normalizeGitPath(pathspec),
     files,
     patch: formatBoundedPatch(patchResult.stdout, truncated),
     truncated,
@@ -689,6 +691,7 @@ async function getWorkspaceDiff(
     state: "ready",
     baseRevision: head,
     capturedAt,
+    projectRelativeRoot: normalizeGitPath(pathspec),
     files,
     patch: patchText,
     truncated,
@@ -741,6 +744,10 @@ function getRepoRelativePathspec(repoRoot: string, projectPath: string): string 
   }
   const relativePath = relative(resolvedRoot, resolvedProject);
   return relativePath || ".";
+}
+
+function normalizeGitPath(filePath: string): string {
+  return filePath.split("\\").join("/");
 }
 
 function parseNumstatZ(buffer: Buffer): Array<{

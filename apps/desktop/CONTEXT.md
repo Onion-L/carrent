@@ -20,6 +20,14 @@ _Avoid_: Thread, Carrent session
 One execution of a coding agent in a thread, beginning with a user request and ending in completion, failure, or cancellation.
 _Avoid_: Thread, runtime session, message
 
+**Run Checklist**:
+A coding agent-produced, mutable checklist of intended work and each item's current state. Each thread keeps its latest checklist across navigation and app restarts until that thread's next run begins; it communicates current progress, not permanent history, chronological activity, or a plan awaiting review.
+_Avoid_: Todo list, ACP Plan, Plan Review, Agent Activity
+
+**Run Changes**:
+The project file changes associated with one run, regardless of whether the run completes, fails, or is cancelled, and independent of unrelated changes made later by the user or another thread.
+_Avoid_: Workspace snapshot, Git diff
+
 **Thread Status**:
 The single attention state shown for a thread. Waiting for approval takes precedence over running, which takes precedence over failed; waiting and running exist only while a run is live, and an interrupted run without an explicit failure returns to idle. A failed result remains visible until the thread's next run begins, while an idle thread without a failure has no status.
 _Avoid_: Runtime status, message status
@@ -128,9 +136,17 @@ _Avoid_: Preview image, uploaded file, file attachment
 A user-added resource, such as an image, file, or pasted text, that becomes available to the coding agent for the current thread. Adding the resource is the user's authorization for Carrent and the selected runtime to read it in that thread.
 _Avoid_: Upload, project file, workspace file
 
-**User Message Edit**:
-An interaction that turns an existing user message bubble into an inline editor so the user can revise the text, cancel, or submit the revised text. Submitting updates that same user message and discards later messages in the same thread before starting the replacement run.
-_Avoid_: Retry, message rewrite
+**Thread Rewind**:
+An interaction that returns a thread to the boundary immediately before a chosen run, reverses that run's and later runs' Run Changes, removes the chosen request and later history from the thread, and returns that request as an unsent draft. All Runtime Sessions for the thread are detached so discarded context cannot be resumed.
+_Avoid_: Session rollback, undo, user message edit
+
+**Rewind Conflict**:
+A condition detected before restoration where reversing Run Changes would overwrite unrelated project file changes. A Thread Rewind with any such conflict leaves both the thread and project files unchanged.
+_Avoid_: Git conflict, partial rewind
+
+**Rewind Barrier**:
+A run whose project state could not be recorded reliably, preventing a complete Thread Rewind across that point while leaving normal work unaffected.
+_Avoid_: Failed run, context-only rewind
 
 **File Attachment**:
 A local file added to a thread as a thread attachment, whether it is inside or outside the active project. Carrent stores a snapshot of single-file attachments so the thread can keep using them if the original file changes, moves, or disappears; folders are represented as additional local directories instead.

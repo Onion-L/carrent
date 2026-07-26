@@ -12,6 +12,7 @@ import {
 } from "./MessageTimeline";
 import type { Message } from "../../mock/uiShellData";
 import { getPlanReviewStatusLabel } from "./PlanReviewBlock";
+import { ErrorBlock } from "./ErrorBlock";
 
 describe("parseSkillReferenceSegments", () => {
   it("keeps plain text unchanged", () => {
@@ -314,6 +315,29 @@ describe("assistant message presentation", () => {
       answerText: "The project is ready.",
     });
   });
+
+  it("ignores error parts without changing activity or answer output", () => {
+    const parts = [
+      {
+        type: "shell" as const,
+        id: "shell-1",
+        command: "pwd",
+        output: "/tmp",
+        status: "completed" as const,
+      },
+      { type: "text" as const, content: "Partial answer" },
+      {
+        type: "error" as const,
+        id: "error-1",
+        message: "Kimi Code declined the request (provider refusal).",
+      },
+    ];
+
+    expect(getAssistantMessagePresentation(parts, "failed")).toEqual({
+      activityItems: [parts[0]],
+      answerText: "Partial answer",
+    });
+  });
 });
 
 describe("Plan Review presentation", () => {
@@ -338,5 +362,22 @@ describe("Plan Review presentation", () => {
   it("keeps the plan presentation conversational after resolution", () => {
     expect(getPlanReviewStatusLabel(review)).toBe("Plan");
     expect(getPlanReviewStatusLabel({ ...review, status: "rejected" })).toBe("Plan");
+  });
+});
+
+describe("ErrorBlock", () => {
+  it("renders the error message in a danger-styled card", () => {
+    const markup = renderToStaticMarkup(
+      createElement(ErrorBlock, {
+        part: {
+          type: "error",
+          id: "error-1",
+          message: "Kimi Code declined the request (provider refusal).",
+        },
+      }),
+    );
+
+    expect(markup).toContain("Kimi Code declined the request (provider refusal).");
+    expect(markup).toContain("text-danger");
   });
 });

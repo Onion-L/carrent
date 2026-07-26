@@ -68,16 +68,20 @@ type ClaudeStreamState = {
   reasoningStatus: "running" | "completed" | null;
   sessionId: string | null;
   shellCommands: Map<string, string>;
+  writtenFiles: Set<string>;
+  projectPath: string;
 };
 
 type CodexStreamState = {
   buffer: string;
   text: string;
+  writtenFiles: Set<string>;
+  projectPath: string;
 };
 
 const MAX_SHELL_OUTPUT_LENGTH = 12_000;
 
-function createClaudeStreamState(): ClaudeStreamState {
+function createClaudeStreamState(projectPath: string): ClaudeStreamState {
   return {
     buffer: "",
     text: "",
@@ -86,14 +90,26 @@ function createClaudeStreamState(): ClaudeStreamState {
     reasoningStatus: null,
     sessionId: null,
     shellCommands: new Map(),
+    writtenFiles: new Set(),
+    projectPath,
   };
 }
 
-function createCodexStreamState(): CodexStreamState {
+function createCodexStreamState(projectPath: string): CodexStreamState {
   return {
     buffer: "",
     text: "",
+    writtenFiles: new Set(),
+    projectPath,
   };
+}
+
+function normalizeRunWrittenFile(projectPath: string, reportedPath: string): string | null {
+  const relativePath = path.relative(projectPath, path.resolve(projectPath, reportedPath));
+  if (!relativePath || relativePath === ".." || relativePath.startsWith(`..${path.sep}`)) {
+    return null;
+  }
+  return relativePath.split(path.sep).join("/");
 }
 
 function truncateShellOutput(output: string) {
@@ -318,6 +334,30 @@ function extractClaudeBashToolUse(
   });
 }
 
+const CLAUDE_FILE_EDIT_TOOL_NAMES = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+
+function collectClaudeFileEditToolUse(state: ClaudeStreamState, payload: unknown) {
+  const envelope = readObject(payload);
+  const message = readObject(envelope?.message);
+  const content = message?.content;
+  if (envelope?.type !== "assistant" || !Array.isArray(content)) {
+    return;
+  }
+
+  for (const item of content) {
+    const block = readObject(item);
+    if (block?.type !== "tool_use" || !CLAUDE_FILE_EDIT_TOOL_NAMES.has(String(block.name))) {
+      continue;
+    }
+
+    const filePath = readString(readObject(block.input)?.file_path);
+    const relativePath = filePath ? normalizeRunWrittenFile(state.projectPath, filePath) : null;
+    if (relativePath) {
+      state.writtenFiles.add(relativePath);
+    }
+  }
+}
+
 function extractClaudeToolResult(
   state: ClaudeStreamState,
   payload: unknown,
@@ -477,6 +517,10 @@ function consumeClaudeStreamChunk(
         onShell(shell);
       }
 
+      // Record which files this run actually edited so the workspace diff
+      // card can ignore changes made by another thread or the user.
+      collectClaudeFileEditToolUse(state, payload);
+
       for (const shell of extractClaudeToolResult(state, payload)) {
         onShell(shell);
       }
@@ -535,6 +579,23 @@ function consumeCodexStreamChunk(
       const shell = extractCodexShellEvent(payload);
       if (shell) {
         onShell(shell);
+        continue;
+      }
+
+      // Best-effort: record files this run changed so the workspace diff card
+      // can ignore changes made by another thread or the user. Items without
+      // a usable changes list are skipped silently.
+      const item = readObject(readObject(payload)?.item);
+      if (item?.type === "file_change" && Array.isArray(item.changes)) {
+        for (const change of item.changes) {
+          const changePath = readString(readObject(change)?.path);
+          const relativePath = changePath
+            ? normalizeRunWrittenFile(state.projectPath, changePath)
+            : null;
+          if (relativePath) {
+            state.writtenFiles.add(relativePath);
+          }
+        }
         continue;
       }
 
@@ -869,14 +930,19 @@ export function createChatSessionManager(options: {
       }
     }, TIMEOUT_MS);
 
+    const projectPath = resolveRequestCwd(request);
     const child = options.spawn(command, args, {
-      cwd: resolveRequestCwd(request),
+      cwd: projectPath,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
     const claudeStreamState =
-      request.runtimeId === "claude-code" ? createClaudeStreamState() : null;
-    const codexStreamState = request.runtimeId === "codex" ? createCodexStreamState() : null;
+      request.runtimeId === "claude-code" ? createClaudeStreamState(projectPath) : null;
+    const codexStreamState =
+      request.runtimeId === "codex" ? createCodexStreamState(projectPath) : null;
+    const currentWrittenFiles = () => [
+      ...((claudeStreamState ?? codexStreamState)?.writtenFiles ?? []),
+    ];
 
     const session: ChatSession = {
       runId,
@@ -1042,7 +1108,12 @@ export function createChatSessionManager(options: {
       }
 
       if (session.stoppedByUser) {
-        options.emit({ type: "stopped", runId, requestKey: request.requestKey });
+        options.emit({
+          type: "stopped",
+          runId,
+          requestKey: request.requestKey,
+          writtenFiles: currentWrittenFiles(),
+        });
         return;
       }
 
@@ -1052,6 +1123,7 @@ export function createChatSessionManager(options: {
           runId,
           requestKey: request.requestKey,
           error: "Command timed out. Try again or simplify your request.",
+          writtenFiles: currentWrittenFiles(),
         });
         return;
       }
@@ -1075,7 +1147,13 @@ export function createChatSessionManager(options: {
         const error = stderr
           ? `Runtime returned an error: ${stderr}`
           : `Runtime exited with code ${code}`;
-        options.emit({ type: "failed", runId, requestKey: request.requestKey, error });
+        options.emit({
+          type: "failed",
+          runId,
+          requestKey: request.requestKey,
+          error,
+          writtenFiles: currentWrittenFiles(),
+        });
         return;
       }
 
@@ -1090,6 +1168,7 @@ export function createChatSessionManager(options: {
           runId,
           requestKey: request.requestKey,
           error: "Received empty response from runtime.",
+          writtenFiles: currentWrittenFiles(),
         });
         return;
       }
@@ -1109,6 +1188,7 @@ export function createChatSessionManager(options: {
         requestKey: request.requestKey,
         text,
         finishedAt: new Date().toISOString(),
+        writtenFiles: currentWrittenFiles(),
       });
     });
 
@@ -1125,6 +1205,7 @@ export function createChatSessionManager(options: {
         runId,
         requestKey: request.requestKey,
         error: normalized,
+        writtenFiles: currentWrittenFiles(),
       });
     });
 

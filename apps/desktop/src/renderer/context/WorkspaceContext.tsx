@@ -181,7 +181,11 @@ export type MessagePartUpdate =
       kind: "upsert-subagent-task";
       task: Extract<MessagePart, { type: "subagent_task" }>;
     }
-  | { kind: "interrupt-subagent-tasks" };
+  | { kind: "interrupt-subagent-tasks" }
+  | {
+      kind: "upsert-error";
+      error: Extract<MessagePart, { type: "error" }>;
+    };
 
 const WorkspaceContext = createContext<WorkspaceContextValue>({
   projects: [],
@@ -586,6 +590,22 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
           ? { ...part, status: "interrupted" }
           : part,
       ),
+    };
+  }
+
+  if (update.kind === "upsert-error") {
+    const errorIndex = parts.findIndex(
+      (part) => part.type === "error" && part.id === update.error.id,
+    );
+    if (errorIndex >= 0) {
+      parts[errorIndex] = update.error;
+    } else {
+      parts.push(update.error);
+    }
+
+    return {
+      ...message,
+      parts,
     };
   }
 

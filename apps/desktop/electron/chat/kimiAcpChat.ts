@@ -417,6 +417,7 @@ class KimiAcpRun {
   private reasoningSegmentIndex = 0;
   private terminal = false;
   private stoppedByUser = false;
+  private writtenFiles = new Set<string>();
   private stopFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   private bridge: CarrentBridgeHandle | null = null;
   private lastPlanMode: boolean | null = null;
@@ -531,8 +532,26 @@ class KimiAcpRun {
 
       const promptResult = readObject(await promptPromise);
       const stopReason = readString(promptResult?.stopReason);
+      // Kimi currently disguises provider failures (e.g. a 403 from exhausted
+      // quota) as "end_turn" — a known upstream issue — so only the values the
+      // protocol can actually distinguish are handled explicitly here.
       if (stopReason === "cancelled" || this.stoppedByUser) {
         this.completeStopped();
+        return;
+      }
+
+      if (stopReason === "refusal") {
+        this.fail("Kimi Code declined the request (provider refusal).");
+        return;
+      }
+
+      if (
+        stopReason &&
+        stopReason !== "end_turn" &&
+        stopReason !== "max_tokens" &&
+        stopReason !== "max_turn_requests"
+      ) {
+        this.fail(`Kimi Code ended the run unexpectedly (stop reason: ${stopReason}).`);
         return;
       }
 
@@ -551,6 +570,7 @@ class KimiAcpRun {
         requestKey: this.options.request.requestKey,
         text: this.finalText.trim(),
         finishedAt: new Date().toISOString(),
+        writtenFiles: [...this.writtenFiles],
       });
     } catch (error) {
       this.fail(error instanceof Error ? error.message : String(error));
@@ -1412,6 +1432,9 @@ class KimiAcpRun {
     const target = await this.resolveTextFileTarget(requestedPath, "write");
     await mkdir(path.dirname(target.path), { recursive: true });
     await writeFile(target.path, content, "utf8");
+    if (target.kind === "workspace" && target.relativePath) {
+      this.writtenFiles.add(target.relativePath.split(path.sep).join("/"));
+    }
     return {};
   }
 
@@ -1779,6 +1802,7 @@ class KimiAcpRun {
       runId: this.options.runId,
       requestKey: this.options.request.requestKey,
       error,
+      writtenFiles: [...this.writtenFiles],
     });
   }
 
@@ -1807,6 +1831,7 @@ class KimiAcpRun {
       type: "stopped",
       runId: this.options.runId,
       requestKey: this.options.request.requestKey,
+      writtenFiles: [...this.writtenFiles],
     });
   }
 

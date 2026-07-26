@@ -30,9 +30,9 @@ export type ChatRunCallbacks = {
   }) => void;
   onQuestionsInterrupted?: (questions: ChatQuestionRequest[]) => void;
   onPlanModeChanged?: (enabled: boolean) => void;
-  onComplete?: (text: string) => void;
-  onError?: (error: string) => void;
-  onStop?: () => void;
+  onComplete?: (text: string, writtenFiles?: string[]) => void;
+  onError?: (error: string, writtenFiles?: string[]) => void;
+  onStop?: (writtenFiles?: string[]) => void;
 };
 
 type ChatRunSnapshot = {
@@ -257,7 +257,7 @@ export function createChatRunCoordinator() {
       if (event.type === "completed") {
         clearPermissionsForRun(run, event.runId, true);
         clearQuestionsForRun(run, event.runId, true);
-        run.callbacks.onComplete?.(event.text);
+        run.callbacks.onComplete?.(event.text, event.writtenFiles);
         finishPendingRun(run);
         return;
       }
@@ -265,7 +265,7 @@ export function createChatRunCoordinator() {
       if (event.type === "failed") {
         clearPermissionsForRun(run, event.runId, true);
         clearQuestionsForRun(run, event.runId, true);
-        run.callbacks.onError?.(event.error);
+        run.callbacks.onError?.(event.error, event.writtenFiles);
         clearPending(run);
         updateSnapshot(event.error);
         emit();
@@ -275,7 +275,7 @@ export function createChatRunCoordinator() {
       if (event.type === "stopped") {
         clearPermissionsForRun(run, event.runId, true);
         clearQuestionsForRun(run, event.runId, true);
-        run.callbacks.onStop?.();
+        run.callbacks.onStop?.(event.writtenFiles);
         finishPendingRun(run);
         return;
       }

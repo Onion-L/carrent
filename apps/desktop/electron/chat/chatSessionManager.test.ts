@@ -1065,6 +1065,7 @@ describe("createChatSessionManager", () => {
         type: "failed",
         runId: "run-kimi-fail",
         error: "login required",
+        writtenFiles: [],
       },
     ]);
   });
@@ -1132,6 +1133,7 @@ describe("createChatSessionManager", () => {
         type: "failed",
         runId: "run-kimi-prompt-fail",
         error: "prompt failed",
+        writtenFiles: [],
       },
     ]);
   });
@@ -1194,7 +1196,9 @@ describe("createChatSessionManager", () => {
 
     const readResponse = transports[0]?.sent.find((message) => message.id === "agent-read-1");
     expect(readResponse).toBeDefined();
-    expect((readResponse!.result as { content?: string }).content).toContain('"name": "carrent"');
+    expect((readResponse!.result as { content?: string }).content).toContain(
+      '"name": "@carrent/desktop"',
+    );
     expect(emitted.find((event) => event.type === "reasoning")).toMatchObject({
       type: "reasoning",
       reasoning: {
@@ -2966,6 +2970,66 @@ describe("createChatSessionManager", () => {
     expect(eventTypes.indexOf("delta")).toBeGreaterThan(-1);
     expect(eventTypes.indexOf("completed")).toBeGreaterThan(-1);
     expect(eventTypes.indexOf("delta")).toBeLessThan(eventTypes.indexOf("completed"));
+  });
+
+  it("reports claude Edit/Write tool_use paths as writtenFiles on completed", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start("run-claude-written-files", makeRequest({ runtimeId: "claude-code" }));
+    mockChild.stdout.emit(
+      "data",
+      Buffer.from(
+        [
+          '{"type":"system","subtype":"init","session_id":"sess-written"}',
+          '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_1","name":"Edit","input":{"file_path":"/Users/onion/workbench/timbre/apps/desktop/a.ts"}}]}}',
+          '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_2","name":"Write","input":{"file_path":"apps/desktop/b.ts"}}]}}',
+          '{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Done"}}}',
+        ].join("\n") + "\n",
+      ),
+    );
+    mockChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      writtenFiles: ["apps/desktop/a.ts", "apps/desktop/b.ts"],
+    });
+  });
+
+  it("reports codex file_change item paths as writtenFiles on completed", async () => {
+    const mockChild = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+
+    const manager = createChatSessionManager({
+      emit: (evt) => emitted.push(evt),
+      spawn: () => mockChild,
+    });
+
+    manager.start("run-codex-written-files", makeRequest({ runtimeId: "codex" }));
+    mockChild.stdout.emit(
+      "data",
+      Buffer.from(
+        [
+          '{"type":"item.completed","item":{"id":"fc_1","type":"file_change","changes":[{"path":"apps/desktop/a.ts","kind":"update"}]}}',
+          '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Done"}}',
+        ].join("\n") + "\n",
+      ),
+    );
+    mockChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      writtenFiles: ["apps/desktop/a.ts"],
+    });
   });
 
   it("emits claude thinking deltas as reasoning events", async () => {

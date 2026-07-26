@@ -45,6 +45,7 @@ import {
 } from "../../lib/attachments";
 import { deriveThreadTitle } from "../../lib/threadTitle";
 import { ImageAttachmentLightbox, type LightboxItem } from "./ImageAttachmentLightbox";
+import { splitPatchIntoFileBlocks } from "./WorkspaceDiffViewer";
 
 import {
   TYPEWRITER_INTERVAL_MS,
@@ -414,6 +415,7 @@ export function createWorkspaceDiffCapture(options: {
     threadId: string,
     result: Extract<GitWorkspaceDiffResult, { state: "ready" }>,
   ) => void;
+  getRunWritePaths: () => readonly string[];
   showToast: (message: string, type: "error") => void;
 }): () => void {
   let captured = false;
@@ -436,7 +438,21 @@ export function createWorkspaceDiffCapture(options: {
         const baseRevision = (await baselinePromise) ?? undefined;
         const result = await options.workspaceDiff(options.projectPath!, baseRevision);
         if (result.state === "ready" && result.files.length > 0) {
-          options.appendWorkspaceDiffMessage(options.threadId, result);
+          const projectRoot = result.projectRelativeRoot === "." ? "" : result.projectRelativeRoot;
+          const repoWritePaths = new Set(
+            options
+              .getRunWritePaths()
+              .map((writePath) => (projectRoot ? `${projectRoot}/${writePath}` : writePath)),
+          );
+          const files = result.files.filter((file) => repoWritePaths.has(file.path));
+          if (files.length > 0) {
+            const filePaths = new Set(files.map((file) => file.path));
+            const patch = splitPatchIntoFileBlocks(result.patch)
+              .filter((block) => filePaths.has(block.path))
+              .map((block) => block.lines.join("\n"))
+              .join("\n");
+            options.appendWorkspaceDiffMessage(options.threadId, { ...result, files, patch });
+          }
         }
       } catch {
         console.error("[workspace-diff] capture failed");
@@ -1655,6 +1671,9 @@ export function Composer(props: ComposerProps) {
       }, TYPEWRITER_INTERVAL_MS);
     };
 
+    // Files this run reported as written; set by the terminal callbacks
+    // before the diff capture reads it.
+    const runWrittenFilesRef = { current: [] as string[] };
     const captureWorkspaceDiff = createWorkspaceDiffCapture({
       mode: props.mode,
       projectPath: project?.path,
@@ -1666,6 +1685,7 @@ export function Composer(props: ComposerProps) {
       workspaceDiff: (projectPath, baseRevision) =>
         window.carrent.git.workspaceDiff(projectPath, baseRevision),
       appendWorkspaceDiffMessage,
+      getRunWritePaths: () => runWrittenFilesRef.current,
       showToast,
     });
 
@@ -1840,7 +1860,8 @@ export function Composer(props: ComposerProps) {
         onPlanModeChanged: (enabled) => {
           props.onPlanModeChange?.(enabled);
         },
-        onComplete: (text) => {
+        onComplete: (text, writtenFiles) => {
+          runWrittenFilesRef.current = writtenFiles ?? [];
           if (!receivedTextRef.current || text.startsWith(receivedTextRef.current)) {
             receivedTextRef.current = text;
           }
@@ -1861,15 +1882,15 @@ export function Composer(props: ComposerProps) {
             flushQueuedMessage(nextQueued);
           }
         },
-        onError: (error) => {
+        onError: (error, writtenFiles) => {
+          runWrittenFilesRef.current = writtenFiles ?? [];
           stopTypewriter();
-          const hasAnswerText = !!(receivedTextRef.current || visibleTextRef.current);
           flushPendingTypewriterText();
-          updateLocalMessageTextPart(
-            assistantMsg.id,
-            `${hasAnswerText ? "\n\n" : ""}Error: ${error}`,
-          );
           updateMessageParts(assistantMsg.id, { kind: "interrupt-subagent-tasks" });
+          updateMessageParts(assistantMsg.id, {
+            kind: "upsert-error",
+            error: { type: "error", id: `error-${assistantMsg.id}`, message: error },
+          });
           updateMessageRunStatus(assistantMsg.id, "failed");
           markThreadActivity(threadId);
           activeAssistantMessageIdRef.current = null;
@@ -1881,7 +1902,8 @@ export function Composer(props: ComposerProps) {
             steerItemRef.current = null;
           }
         },
-        onStop: () => {
+        onStop: (writtenFiles) => {
+          runWrittenFilesRef.current = writtenFiles ?? [];
           stopTypewriter();
           flushPendingTypewriterText();
           updateMessageParts(assistantMsg.id, { kind: "interrupt-subagent-tasks" });

@@ -9,6 +9,7 @@ import {
 } from "../../lib/attachments";
 import { AgentActivityBlock, type AgentActivityItem } from "./AgentActivityBlock";
 import { ChangedFilesCard } from "./ChangedFilesCard";
+import { ErrorBlock } from "./ErrorBlock";
 import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachmentLightbox";
 import { MarkdownContent } from "./MarkdownContent";
 import { PlanReviewBlock } from "./PlanReviewBlock";
@@ -470,6 +471,10 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
       (part): part is Extract<MessagePart, { type: "question" }> =>
         part.type === "question" && part.status !== "pending",
     ) ?? [];
+  const errorParts =
+    parts?.filter(
+      (part): part is Extract<MessagePart, { type: "error" }> => part.type === "error",
+    ) ?? [];
   const presentation = parts
     ? getAssistantMessagePresentation(parts, message.runStatus)
     : { activityItems: [], answerText: content };
@@ -531,6 +536,9 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
             <QuestionBlock key={part.id} part={part} />
           ))}
           {presentation.answerText && <MarkdownContent>{presentation.answerText}</MarkdownContent>}
+          {errorParts.map((part) => (
+            <ErrorBlock key={part.id} part={part} />
+          ))}
         </div>
       ) : (
         <MarkdownContent>{content}</MarkdownContent>

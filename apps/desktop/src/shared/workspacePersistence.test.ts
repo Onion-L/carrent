@@ -357,6 +357,44 @@ describe("normalizeWorkspaceSnapshot", () => {
     });
   });
 
+  it("round-trips error parts", () => {
+    const snapshot = normalizeWorkspaceSnapshot({
+      version: 1,
+      projects: [],
+      chats: [],
+      messages: [
+        {
+          id: "m1",
+          role: "assistant",
+          threadId: "t1",
+          timestamp: "09:00",
+          content: "Answer",
+          parts: [
+            { type: "text", content: "Answer" },
+            {
+              type: "error",
+              id: "error-m1",
+              message: "Kimi Code declined the request (provider refusal).",
+            },
+          ],
+        },
+      ],
+      activeThreadId: null,
+    });
+
+    expect(snapshot?.messages[0]).toMatchObject({
+      content: "Answer",
+      parts: [
+        { type: "text", content: "Answer" },
+        {
+          type: "error",
+          id: "error-m1",
+          message: "Kimi Code declined the request (provider refusal).",
+        },
+      ],
+    });
+  });
+
   it("preserves legacy runtime ids during normalization", () => {
     const snapshot = normalizeWorkspaceSnapshot({
       version: 1,

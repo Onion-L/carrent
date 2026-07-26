@@ -133,9 +133,10 @@ export type ChatRunEvent =
       type: "completed";
       text: string;
       finishedAt: string;
+      writtenFiles?: string[];
     })
-  | (ChatRunEventBase & { type: "failed"; error: string })
-  | (ChatRunEventBase & { type: "stopped" })
+  | (ChatRunEventBase & { type: "failed"; error: string; writtenFiles?: string[] })
+  | (ChatRunEventBase & { type: "stopped"; writtenFiles?: string[] })
   | (ChatRunEventBase & {
       type: "permission-requested";
       permission: ChatPermissionRequest;

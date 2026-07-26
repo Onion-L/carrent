@@ -4,11 +4,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync, mkdirSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import {
-  parseGitWorktreeList,
-  registerGitIpc,
-  type GitWorkspaceDiffResult,
-} from "./gitIpc";
+import { parseGitWorktreeList, registerGitIpc, type GitWorkspaceDiffResult } from "./gitIpc";
 
 describe("registerGitIpc", () => {
   it("registers git handlers", () => {
@@ -357,6 +353,41 @@ describe("git:workspace-diff", () => {
         expect(result.files).toHaveLength(1);
         expect(result.files[0].path).toBe("file with spaces.txt");
         expect(result.patch).toContain("file with spaces.txt");
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports the project root relative to the repository", async () => {
+    const root = mkdtempSync(join(tmpdir(), "carrent-git-diff-"));
+    const repo = join(root, "repo");
+    const project = join(repo, "packages", "app");
+
+    try {
+      initRepo(root, repo);
+      mkdirSync(join(project, "src"), { recursive: true });
+      writeFileSync(join(project, "src", "index.ts"), "export const value = 1;\n");
+      git(repo, "add", "packages/app/src/index.ts");
+      git(repo, "commit", "-m", "add nested project");
+      const handlers = getHandlers();
+      const snapshot = (await handlers.get("git:workspace-snapshot")!({}, project)) as {
+        state: string;
+        baseRevision?: string;
+      };
+      expect(snapshot.state).toBe("ready");
+      writeFileSync(join(project, "src", "index.ts"), "export const value = 2;\n");
+
+      const result = (await handlers.get("git:workspace-diff")!(
+        {},
+        project,
+        snapshot.baseRevision,
+      )) as GitWorkspaceDiffResult;
+
+      expect(result.state).toBe("ready");
+      if (result.state === "ready") {
+        expect(result.projectRelativeRoot).toBe("packages/app");
+        expect(result.files[0]?.path).toBe("packages/app/src/index.ts");
       }
     } finally {
       rmSync(root, { recursive: true, force: true });

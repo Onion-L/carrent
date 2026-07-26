@@ -35,6 +35,7 @@ describe("buildChangedFilesMessage", () => {
         state: "ready",
         baseRevision: "abc123",
         capturedAt: "2024-01-01T00:00:00.000Z",
+        projectRelativeRoot: ".",
         files: [
           { path: "a.txt", additions: 1, deletions: 2, binary: false, untracked: false },
           { path: "b.bin", additions: 0, deletions: 0, binary: true, untracked: false },
@@ -774,6 +775,32 @@ describe("applyMessagePartUpdate", () => {
         { id: "task-completed", status: "completed" },
         { id: "task-detached", status: "detached" },
         { id: "task-failed", status: "failed" },
+      ],
+    });
+  });
+
+  it("upserts error parts by id without mutating message content", () => {
+    const message = makeMessage({
+      role: "assistant",
+      content: "Done",
+      parts: [{ type: "text", content: "Done" }],
+    });
+
+    const withError = applyMessagePartUpdate(message, {
+      kind: "upsert-error",
+      error: { type: "error", id: "error-1", message: "First failure" },
+    });
+
+    expect(
+      applyMessagePartUpdate(withError, {
+        kind: "upsert-error",
+        error: { type: "error", id: "error-1", message: "Updated failure" },
+      }),
+    ).toMatchObject({
+      content: "Done",
+      parts: [
+        { type: "text", content: "Done" },
+        { type: "error", id: "error-1", message: "Updated failure" },
       ],
     });
   });

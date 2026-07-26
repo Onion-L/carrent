@@ -717,6 +717,125 @@ describe("startKimiAcpChatRun", () => {
     expect(bridge.handles[0]?.closed).toBe(true);
   });
 
+  it("fails the run when Kimi ACP declines the request (provider refusal)", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        respondAcp(fakeTransport, message, { stopReason: "refusal" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-refusal",
+      request: makeRequest({ runtimeId: "kimi" }),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+      bridgeFactory: async () => null,
+    });
+
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "completed")).toBeUndefined();
+    expect(emitted.find((event) => event.type === "failed")).toMatchObject({
+      type: "failed",
+      error: "Kimi Code declined the request (provider refusal).",
+    });
+  });
+
+  it("fails the run when Kimi ACP ends with an unknown stop reason", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        respondAcp(fakeTransport, message, { stopReason: "error" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-unknown-stop",
+      request: makeRequest({ runtimeId: "kimi" }),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+      bridgeFactory: async () => null,
+    });
+
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "completed")).toBeUndefined();
+    expect(emitted.find((event) => event.type === "failed")).toMatchObject({
+      type: "failed",
+      error: "Kimi Code ended the run unexpectedly (stop reason: error).",
+    });
+  });
+
+  it("completes the run when Kimi ACP stops at max_tokens with streamed text", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Truncated answer" },
+            },
+          },
+        });
+        respondAcp(fakeTransport, message, { stopReason: "max_tokens" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-max-tokens",
+      request: makeRequest({ runtimeId: "kimi" }),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+      bridgeFactory: async () => null,
+    });
+
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "failed")).toBeUndefined();
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Truncated answer",
+    });
+  });
+
   it("closes Carrent Bridge when a Kimi ACP run is stopped", async () => {
     const emitted: ChatRunEvent[] = [];
     const bridge = createFakeCarrentBridgeFactory();
@@ -805,6 +924,7 @@ describe("startKimiAcpChatRun", () => {
       {
         type: "stopped",
         runId: "run-kimi-bridge-pending-stop",
+        writtenFiles: [],
       },
     ]);
     expect(bridgeHandle.closed).toBe(true);
@@ -838,6 +958,7 @@ describe("startKimiAcpChatRun", () => {
         type: "failed",
         runId: "run-kimi-bridge-start-fail",
         error: "bridge failed",
+        writtenFiles: [],
       },
     ]);
   });
@@ -1278,6 +1399,110 @@ describe("startKimiAcpChatRun", () => {
     expect(await readFile(planPath, "utf8")).toBe("# Plan\n\n- Step");
     expect(transport.sent.find((message) => message.id === "read-plan")?.result).toEqual({
       content: "# Plan\n\n- Step",
+    });
+  });
+
+  it("reports workspace files written during the run on the completed event", async () => {
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-written-files-"));
+    const workspaceFile = path.join(projectDir, "notes", "result.md");
+    const emitted: ChatRunEvent[] = [];
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-written" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "write-workspace",
+          method: "fs/write_text_file",
+          params: { sessionId: "session-written", path: workspaceFile, content: "# Result" },
+        });
+        return;
+      }
+      if (message.id === "write-workspace" && "result" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-written",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Wrote it" },
+            },
+          },
+        });
+        if (promptRequest) {
+          respondAcp(fakeTransport, promptRequest, { stopReason: "end_turn" });
+        }
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-written-files",
+      request: makeRequest({
+        workspace: { kind: "project", projectId: "p1", projectPath: projectDir },
+      }),
+      cwd: projectDir,
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(await readFile(workspaceFile, "utf8")).toBe("# Result");
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      writtenFiles: ["notes/result.md"],
+    });
+  });
+
+  it("reports an empty writtenFiles list for read-only runs", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-readonly" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-readonly",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Done" },
+            },
+          },
+        });
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-readonly",
+      request: makeRequest({ runtimeId: "kimi" }),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Done",
+      writtenFiles: [],
     });
   });
 

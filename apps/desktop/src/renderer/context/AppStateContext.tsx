@@ -9,11 +9,13 @@ import {
 } from "react";
 
 import {
-  APP_STATE_SNAPSHOT_VERSION,
+  createEmptyAppStateSnapshot,
   getProjectWorkingDirectoryIdentity,
   normalizeAppStateSnapshot,
   normalizeProjectWorkingDirectory,
   type AppProjectRecord,
+  type AppStateDiagnostic,
+  type AppStateLoadResult,
   type AppStateSnapshot,
   type AppThreadMessageRecord,
   type AppThreadPromotionIntentRecord,
@@ -64,8 +66,31 @@ type CascadeCleanup = (
   snapshots: ThreadDeletionAppStateSnapshots,
 ) => Promise<void>;
 
+function createRecoveryResult(
+  stage: AppStateDiagnostic["stage"],
+  summary: string,
+  diagnostics: AppStateDiagnostic[] = [],
+): AppStateLoadResult {
+  return {
+    status: "recovery-required",
+    diagnostics: [
+      ...diagnostics,
+      {
+        appVersion: "unknown",
+        subsystem: "app-state",
+        stage,
+        summary,
+        dataPath: "unknown",
+        occurredAt: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
 type AppStateContextValue = {
   hasHydrated: boolean;
+  recoveryDiagnostics: AppStateDiagnostic[] | null;
+  recoveryNotice: "legacy-reset" | "full-reset" | null;
   workspaces: WorkspaceRecord[];
   projects: AppProjectRecord[];
   associations: WorkspaceProjectAssociationRecord[];
@@ -77,6 +102,9 @@ type AppStateContextValue = {
   lastThreadIdByWorkspace: Record<string, string>;
   activeWorkspaceId: string | null;
   projectDirectoryStatusById: Record<string, ProjectDirectoryStatus>;
+  rereadAppState: () => Promise<boolean>;
+  fullResetAppState: () => Promise<boolean>;
+  clearRecoveryNotice: () => void;
   createWorkspace: (name: string) => Promise<WorkspaceMutationResult>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceMutationResult>;
   selectWorkspace: (workspaceId: string) => Promise<boolean>;
@@ -145,19 +173,7 @@ type AppStateContextValue = {
   deleteWorkspace: (workspaceId: string, cleanup: CascadeCleanup) => Promise<boolean>;
 };
 
-const EMPTY_APP_STATE: AppStateSnapshot = {
-  version: APP_STATE_SNAPSHOT_VERSION,
-  workspaces: [],
-  projects: [],
-  associations: [],
-  threads: [],
-  threadDrafts: [],
-  threadMessages: [],
-  threadRuns: [],
-  threadPromotionIntents: [],
-  lastThreadIdByWorkspace: {},
-  activeWorkspaceId: null,
-};
+const EMPTY_APP_STATE = createEmptyAppStateSnapshot();
 
 const AppStateContext = createContext<AppStateContextValue | null>(null);
 
@@ -214,26 +230,57 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const mutatingThreadIdsRef = useRef(new Set<string>());
   const startingRunThreadIdsRef = useRef(new Set<string>());
   const [hasHydrated, setHasHydrated] = useState(false);
+  const [recoveryDiagnostics, setRecoveryDiagnostics] = useState<AppStateDiagnostic[] | null>(null);
+  const [recoveryNotice, setRecoveryNotice] = useState<"legacy-reset" | "full-reset" | null>(null);
   const [projectDirectoryStatusById, setProjectDirectoryStatusById] = useState<
     Record<string, ProjectDirectoryStatus>
   >({});
+
+  const applyLoadResult = useCallback((result: AppStateLoadResult) => {
+    if (result.status === "recovery-required") {
+      snapshotRef.current = EMPTY_APP_STATE;
+      setSnapshot(EMPTY_APP_STATE);
+      setRecoveryDiagnostics(result.diagnostics);
+      return false;
+    }
+    const normalized = normalizeAppStateSnapshot(result.snapshot);
+    if (!normalized) {
+      setRecoveryDiagnostics([
+        {
+          appVersion: "unknown",
+          subsystem: "app-state",
+          stage: "validate",
+          summary: "The App State response failed Renderer validation.",
+          dataPath: "unknown",
+          occurredAt: new Date().toISOString(),
+        },
+      ]);
+      return false;
+    }
+    snapshotRef.current = normalized;
+    setSnapshot(normalized);
+    setRecoveryDiagnostics(null);
+    setRecoveryNotice(result.notice ?? null);
+    return true;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
     window.carrent.appState
       .load()
-      .then((loaded) => {
-        if (cancelled) return;
-        const normalized = normalizeAppStateSnapshot(loaded) ?? EMPTY_APP_STATE;
-        snapshotRef.current = normalized;
-        setSnapshot(normalized);
+      .then((result) => {
+        if (!cancelled) applyLoadResult(result);
       })
       .catch((error) => {
         console.error("[app-state] failed to load", error);
         if (!cancelled) {
-          snapshotRef.current = EMPTY_APP_STATE;
-          setSnapshot(EMPTY_APP_STATE);
+          applyLoadResult(
+            createRecoveryResult(
+              "read",
+              error instanceof Error ? error.message : "App State could not be read.",
+            ),
+          );
         }
       })
       .finally(() => {
@@ -243,7 +290,35 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyLoadResult]);
+
+  const rereadAppState = useCallback(async () => {
+    try {
+      return applyLoadResult(await window.carrent.appState.reread());
+    } catch (error) {
+      return applyLoadResult(
+        createRecoveryResult(
+          "read",
+          error instanceof Error ? error.message : "App State could not be re-read.",
+          recoveryDiagnostics ?? [],
+        ),
+      );
+    }
+  }, [applyLoadResult, recoveryDiagnostics]);
+
+  const fullResetAppState = useCallback(async () => {
+    try {
+      return applyLoadResult(await window.carrent.appState.fullReset());
+    } catch (error) {
+      return applyLoadResult(
+        createRecoveryResult(
+          "reset-write",
+          error instanceof Error ? error.message : "App State reset failed.",
+          recoveryDiagnostics ?? [],
+        ),
+      );
+    }
+  }, [applyLoadResult, recoveryDiagnostics]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1127,6 +1202,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     <AppStateContext.Provider
       value={{
         hasHydrated,
+        recoveryDiagnostics,
+        recoveryNotice,
         workspaces: snapshot.workspaces,
         projects: snapshot.projects,
         associations: snapshot.associations,
@@ -1138,6 +1215,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         lastThreadIdByWorkspace: snapshot.lastThreadIdByWorkspace ?? {},
         activeWorkspaceId: snapshot.activeWorkspaceId,
         projectDirectoryStatusById,
+        rereadAppState,
+        fullResetAppState,
+        clearRecoveryNotice: () => setRecoveryNotice(null),
         createWorkspace,
         renameWorkspace,
         selectWorkspace,

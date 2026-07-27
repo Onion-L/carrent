@@ -13,6 +13,7 @@ import type { SkillRecord } from "../src/shared/skills";
 import type { McpServerStatus } from "../src/shared/mcpServer";
 import type {
   AppStateSnapshot,
+  AppStateLoadResult,
   WorkspaceSnapshot,
   ProviderSessionSnapshot,
   ProjectRelocationResult,
@@ -106,7 +107,9 @@ const carrent = {
     writeText: (text: string) => ipcRenderer.invoke("clipboard:write-text", text),
   },
   appState: {
-    load: () => ipcRenderer.invoke("app-state:load") as Promise<AppStateSnapshot | null>,
+    load: () => ipcRenderer.invoke("app-state:load") as Promise<AppStateLoadResult>,
+    reread: () => ipcRenderer.invoke("app-state:reread") as Promise<AppStateLoadResult>,
+    fullReset: () => ipcRenderer.invoke("app-state:full-reset") as Promise<AppStateLoadResult>,
     save: (snapshot: AppStateSnapshot) => ipcRenderer.invoke("app-state:save", snapshot),
   },
   workspace: {

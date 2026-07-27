@@ -5,13 +5,14 @@ import {
   APP_STATE_SNAPSHOT_VERSION,
   WORKSPACE_SNAPSHOT_VERSION,
   normalizeAppStateSnapshot,
+  normalizePersistedAppStateSnapshot,
   normalizeProviderSessionSnapshot,
   normalizeWorkspaceSnapshot,
 } from "./workspacePersistence";
 import { MAX_RUN_CHECKLIST_ITEM_BYTES, MAX_RUN_CHECKLIST_ITEMS } from "./runChecklist";
 
 describe("normalizeAppStateSnapshot", () => {
-  it("round-trips per-Workspace last Thread locations including stale recovery targets", () => {
+  it("round-trips valid per-Workspace last Thread locations", () => {
     const snapshot = {
       version: APP_STATE_SNAPSHOT_VERSION,
       workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
@@ -47,8 +48,108 @@ describe("normalizeAppStateSnapshot", () => {
       normalizeAppStateSnapshot({
         ...snapshot,
         lastThreadIdByWorkspace: { "workspace-1": "missing-thread" },
-      })?.lastThreadIdByWorkspace,
-    ).toEqual({ "workspace-1": "missing-thread" });
+      }),
+    ).toEqual({ ...snapshot, lastThreadIdByWorkspace: {} });
+  });
+
+  it("drops unusable persisted Thread navigation recovery state", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Archived",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
+          archived: true,
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      threadDrafts: [],
+      threadMessages: [],
+      threadRuns: [],
+      threadPromotionIntents: [],
+      activeWorkspaceId: "workspace-1",
+    };
+
+    expect(normalizePersistedAppStateSnapshot(snapshot)).toEqual({
+      ...snapshot,
+      lastThreadIdByWorkspace: {},
+    });
+    expect(
+      normalizePersistedAppStateSnapshot({
+        ...snapshot,
+        lastThreadIdByWorkspace: { "workspace-1": "thread-1", missing: 42 },
+      }),
+    ).toEqual({ ...snapshot, lastThreadIdByWorkspace: {} });
+    expect(
+      normalizePersistedAppStateSnapshot({
+        ...snapshot,
+        lastThreadIdByWorkspace: "invalid",
+      }),
+    ).toEqual({ ...snapshot, lastThreadIdByWorkspace: {} });
+  });
+
+  it("drops a remembered Thread owned by another Workspace", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [
+        { id: "workspace-1", name: "Personal", order: 0 },
+        { id: "workspace-2", name: "Client", order: 1 },
+      ],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+        {
+          workspaceId: "workspace-2",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-2",
+          projectId: "project-1",
+          title: "Client Thread",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
+      activeWorkspaceId: "workspace-1",
+    };
+
+    expect(normalizeAppStateSnapshot(snapshot)).toEqual({
+      ...snapshot,
+      lastThreadIdByWorkspace: {},
+    });
   });
 
   it("round-trips Projects and Workspace-Project Associations", () => {
@@ -404,6 +505,61 @@ describe("normalizeAppStateSnapshot", () => {
         activeWorkspaceId: "workspace-1",
       }),
     ).toBe(null);
+  });
+
+  it("rejects persisted App State attachments without an explicit kind", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Attachment schema",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      threadDrafts: [],
+      threadMessages: [
+        {
+          id: "message-1",
+          threadId: "thread-1",
+          role: "user",
+          content: "Inspect this image",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          attachments: [
+            {
+              id: "attachment-1",
+              name: "screen.png",
+              mimeType: "image/png",
+              size: 10,
+              storageKey: "attachment-1.png",
+            },
+          ],
+        },
+      ],
+      threadRuns: [],
+      threadPromotionIntents: [],
+      lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
+      activeWorkspaceId: "workspace-1",
+    };
+
+    expect(normalizePersistedAppStateSnapshot(snapshot)).toBe(null);
   });
 });
 

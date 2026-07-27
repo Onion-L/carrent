@@ -65,6 +65,7 @@ export interface ChatSessionManager {
   detachRuntimeSessions?: (threadIds: string[]) => Promise<RuntimeSessionDetachmentReceipt>;
   restoreRuntimeSessions?: (receipt: RuntimeSessionDetachmentReceipt) => Promise<void>;
   completeRuntimeSessionDetachment?: (receipt: RuntimeSessionDetachmentReceipt) => void;
+  resetRuntimeSessions?: () => void;
   respondToPermission: (response: ChatPermissionResponse) => void;
   respondToQuestion: (response: ChatQuestionResponse) => void;
   getStatus: (
@@ -1613,6 +1614,10 @@ export function createChatSessionManager(options: {
     }
   }
 
+  function resetRuntimeSessions() {
+    runtimeSessions.clear();
+  }
+
   return {
     start,
     stop,
@@ -1625,6 +1630,7 @@ export function createChatSessionManager(options: {
     detachRuntimeSessions,
     restoreRuntimeSessions,
     completeRuntimeSessionDetachment,
+    resetRuntimeSessions,
     respondToPermission,
     respondToQuestion,
     getStatus,

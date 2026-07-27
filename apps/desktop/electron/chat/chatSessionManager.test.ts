@@ -2224,6 +2224,53 @@ describe("createChatSessionManager", () => {
     expect(emitted.filter((event) => event.type === "failed")).toHaveLength(0);
   });
 
+  it("starts a fresh Runtime Session after in-memory mappings are reset", async () => {
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(transport, message, {
+          sessionId: `session-${transports.indexOf(transport) + 1}`,
+        });
+        return;
+      }
+      if (message.method === "session/resume") {
+        respondAcp(transport, message, { configOptions: [] });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Done" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+    });
+
+    manager.start("run-before-reset", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+    manager.resetRuntimeSessions?.();
+    manager.start("run-after-reset", makeRequest({ runtimeId: "kimi", message: "After reset" }));
+    await waitForAsyncEvents();
+
+    expect(
+      transports[1]?.sent
+        .filter((message) => typeof message.method === "string")
+        .map((message) => message.method),
+    ).toEqual(["initialize", "session/new", "session/prompt"]);
+  });
+
   it("keys Kimi sessions only by runtime and globally unique thread id", async () => {
     const storedSessions = new Map<string, string>();
     const sessionWrites: Array<{ key: string; sessionId: string }> = [];

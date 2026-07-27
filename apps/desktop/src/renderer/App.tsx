@@ -14,10 +14,29 @@ import { AppStateProvider, useAppState } from "./context/AppStateContext";
 import { FirstUsePage } from "./routes/FirstUsePage";
 import { WorkspaceOverviewPage } from "./routes/WorkspaceOverviewPage";
 import { ProjectOverviewPage } from "./routes/ProjectOverviewPage";
+import { AppStateRecoveryPage } from "./routes/AppStateRecoveryPage";
 import { useToast } from "./components/toast/ToastContext";
 import { getWorkspaceRestorePath, resolveThreeLevelRoute } from "./lib/navigation";
 
 const LEGACY_ROUTE_PATTERN = /^\/(?:project\/[^/]+|thread\/[^/]+\/[^/]+|chat\/[^/]+)$/u;
+
+function AppStateNotice() {
+  const { recoveryNotice, clearRecoveryNotice } = useAppState();
+  const { showToast } = useToast();
+
+  useEffect(() => {
+    if (!recoveryNotice) return;
+    showToast(
+      recoveryNotice === "legacy-reset"
+        ? "Old development data was reset."
+        : "Carrent data was reset.",
+      "info",
+    );
+    clearRecoveryNotice();
+  }, [clearRecoveryNotice, recoveryNotice, showToast]);
+
+  return null;
+}
 
 function MainWindowNavigation() {
   const navigate = useNavigate();
@@ -128,6 +147,7 @@ function AppRoutes() {
   if (workspaces.length === 0) {
     return (
       <ToastProvider>
+        <AppStateNotice />
         <MainWindowNavigation />
         <NavigationCoordinator />
         <FirstUsePage />
@@ -137,6 +157,7 @@ function AppRoutes() {
 
   return (
     <ToastProvider>
+      <AppStateNotice />
       <MainWindowNavigation />
       <NavigationCoordinator />
       <DesktopShell>
@@ -164,16 +185,34 @@ function AppRoutes() {
   );
 }
 
+function AppContent() {
+  const { hasHydrated, recoveryDiagnostics } = useAppState();
+
+  if (!hasHydrated) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-bg">
+        <span className="text-app-14 text-subtle">Loading App State...</span>
+      </div>
+    );
+  }
+
+  if (recoveryDiagnostics) return <AppStateRecoveryPage />;
+
+  return (
+    <WorkspaceProvider>
+      <SettingsProvider>
+        <RuntimeModelsProvider>
+          <AppRoutes />
+        </RuntimeModelsProvider>
+      </SettingsProvider>
+    </WorkspaceProvider>
+  );
+}
+
 export default function App() {
   return (
     <AppStateProvider>
-      <WorkspaceProvider>
-        <SettingsProvider>
-          <RuntimeModelsProvider>
-            <AppRoutes />
-          </RuntimeModelsProvider>
-        </SettingsProvider>
-      </WorkspaceProvider>
+      <AppContent />
     </AppStateProvider>
   );
 }

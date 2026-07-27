@@ -175,9 +175,7 @@ describe("createPersistentProviderSessionStore", () => {
     const removed = await store.deleteThreads?.(["thread-a"]);
     await store.restoreThreads?.(removed ?? {});
 
-    expect(saved.at(-1)).toEqual(
-      snapshot({ [key]: "session-a", "kimi:thread-b": "session-b" }),
-    );
+    expect(saved.at(-1)).toEqual(snapshot({ [key]: "session-a", "kimi:thread-b": "session-b" }));
     expect(store.get(key)).toBe("session-a");
   });
 
@@ -200,5 +198,24 @@ describe("createPersistentProviderSessionStore", () => {
     }
     expect(error instanceof Error ? error.message : String(error)).toBe("disk full");
     expect(store.get(key)).toBe("session-old");
+  });
+
+  it("reinitializes loaded sessions after a Full Reset", async () => {
+    const saved: ProviderSessionSnapshot[] = [];
+    const store = createPersistentProviderSessionStore(
+      {
+        saveProviderSessions: async (nextSnapshot) => {
+          saved.push(nextSnapshot);
+        },
+      },
+      snapshot({ "kimi:thread-a": "session-old" }),
+    );
+
+    await store.reinitialize(snapshot());
+    await store.set("kimi:thread-b", "session-new");
+
+    expect(store.get("kimi:thread-a")).toBeUndefined();
+    expect(store.get("kimi:thread-b")).toBe("session-new");
+    expect(saved).toEqual([snapshot({ "kimi:thread-b": "session-new" })]);
   });
 });

@@ -92,7 +92,9 @@ declare global {
         writeText: (text: string) => Promise<void>;
       };
       appState: {
-        load: () => Promise<AppStateSnapshot | null>;
+        load: () => Promise<import("../shared/workspacePersistence").AppStateLoadResult>;
+        reread: () => Promise<import("../shared/workspacePersistence").AppStateLoadResult>;
+        fullReset: () => Promise<import("../shared/workspacePersistence").AppStateLoadResult>;
         save: (snapshot: AppStateSnapshot) => Promise<void>;
       };
       workspace: {

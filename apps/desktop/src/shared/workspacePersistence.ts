@@ -25,6 +25,36 @@ import {
 export const WORKSPACE_SNAPSHOT_VERSION = 1;
 export const APP_STATE_SNAPSHOT_VERSION = 1;
 
+export type AppStateRecoveryStage =
+  | "read"
+  | "parse"
+  | "schema-version"
+  | "validate"
+  | "legacy-detection"
+  | "reset-stage"
+  | "reset-write"
+  | "reset-cleanup";
+
+export type AppStateDiagnostic = {
+  appVersion: string;
+  subsystem: "app-state";
+  stage: AppStateRecoveryStage;
+  summary: string;
+  dataPath: string;
+  occurredAt: string;
+};
+
+export type AppStateLoadResult =
+  | {
+      status: "ready";
+      snapshot: AppStateSnapshot;
+      notice?: "legacy-reset" | "full-reset";
+    }
+  | {
+      status: "recovery-required";
+      diagnostics: AppStateDiagnostic[];
+    };
+
 export type WorkspaceRecord = {
   id: string;
   name: string;
@@ -129,6 +159,22 @@ export type AppStateSnapshot = {
   activeWorkspaceId: string | null;
 };
 
+export function createEmptyAppStateSnapshot(): AppStateSnapshot {
+  return {
+    version: APP_STATE_SNAPSHOT_VERSION,
+    workspaces: [],
+    projects: [],
+    associations: [],
+    threads: [],
+    threadDrafts: [],
+    threadMessages: [],
+    threadRuns: [],
+    threadPromotionIntents: [],
+    lastThreadIdByWorkspace: {},
+    activeWorkspaceId: null,
+  };
+}
+
 const MAX_PATCH_BYTES = 256 * 1024;
 const MAX_PLAN_REVIEW_BYTES = 256 * 1024;
 const MAX_PLAN_REVIEW_OPTIONS = 5;
@@ -216,6 +262,17 @@ export function getProjectWorkingDirectoryIdentity(workingDirectory: string): st
 }
 
 export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | null {
+  return normalizeAppStateSnapshotWithAttachmentPolicy(value, true);
+}
+
+export function normalizeAppStateSnapshotForWrite(value: unknown): AppStateSnapshot | null {
+  return normalizeAppStateSnapshotWithAttachmentPolicy(value, false);
+}
+
+function normalizeAppStateSnapshotWithAttachmentPolicy(
+  value: unknown,
+  allowLegacyAttachmentKindInference: boolean,
+): AppStateSnapshot | null {
   if (!isRecord(value)) return null;
   if (value.version !== APP_STATE_SNAPSHOT_VERSION) return null;
   if (!Array.isArray(value.workspaces)) return null;
@@ -226,9 +283,6 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
   if (value.threadMessages !== undefined && !Array.isArray(value.threadMessages)) return null;
   if (value.threadRuns !== undefined && !Array.isArray(value.threadRuns)) return null;
   if (value.threadPromotionIntents !== undefined && !Array.isArray(value.threadPromotionIntents)) {
-    return null;
-  }
-  if (value.lastThreadIdByWorkspace !== undefined && !isRecord(value.lastThreadIdByWorkspace)) {
     return null;
   }
   if (typeof value.activeWorkspaceId !== "string" && value.activeWorkspaceId !== null) {
@@ -415,8 +469,21 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
   }
 
   const lastThreadIdByWorkspace: Record<string, string> = {};
-  for (const [workspaceId, threadId] of Object.entries(value.lastThreadIdByWorkspace ?? {})) {
-    if (!ids.has(workspaceId) || typeof threadId !== "string" || !threadId) return null;
+  const persistedLastThreadIds = isRecord(value.lastThreadIdByWorkspace)
+    ? value.lastThreadIdByWorkspace
+    : {};
+  for (const [workspaceId, threadId] of Object.entries(persistedLastThreadIds)) {
+    const thread = threads.find((item) => item.id === threadId);
+    if (
+      !ids.has(workspaceId) ||
+      typeof threadId !== "string" ||
+      !threadId ||
+      !thread ||
+      thread.workspaceId !== workspaceId ||
+      thread.archived
+    ) {
+      continue;
+    }
     lastThreadIdByWorkspace[workspaceId] = threadId;
   }
 
@@ -453,7 +520,9 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
     ) {
       return null;
     }
-    const attachments = draft.attachments.map(normalizeAttachmentMetadata);
+    const attachments = draft.attachments.map((attachment) =>
+      normalizeAttachmentMetadata(attachment, allowLegacyAttachmentKindInference),
+    );
     if (attachments.some((attachment) => !attachment)) return null;
     const runtimeModelId = normalizePersistedModelId(draft.runtimeModelId);
     if (draft.runtimeModelId !== undefined && !runtimeModelId) return null;
@@ -495,7 +564,9 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
     ) {
       return null;
     }
-    const attachments = message.attachments.map(normalizeAttachmentMetadata);
+    const attachments = message.attachments.map((attachment) =>
+      normalizeAttachmentMetadata(attachment, allowLegacyAttachmentKindInference),
+    );
     if (attachments.some((attachment) => !attachment)) return null;
 
     messageIds.add(message.id);
@@ -585,7 +656,9 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
     ) {
       return null;
     }
-    const attachments = intent.attachments.map(normalizeAttachmentMetadata);
+    const attachments = intent.attachments.map((attachment) =>
+      normalizeAttachmentMetadata(attachment, allowLegacyAttachmentKindInference),
+    );
     if (attachments.some((attachment) => !attachment)) return null;
     const runtimeModelId = normalizePersistedModelId(intent.runtimeModelId);
     if (intent.runtimeModelId !== undefined && !runtimeModelId) return null;
@@ -624,6 +697,18 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
     ...(value.lastThreadIdByWorkspace !== undefined ? { lastThreadIdByWorkspace } : {}),
     activeWorkspaceId: value.activeWorkspaceId,
   };
+}
+
+export function normalizePersistedAppStateSnapshot(value: unknown): AppStateSnapshot | null {
+  if (!isRecord(value)) return null;
+  if (!Array.isArray(value.projects) || !Array.isArray(value.associations)) return null;
+  if (!Array.isArray(value.threads) || !Array.isArray(value.threadDrafts)) return null;
+  if (!Array.isArray(value.threadMessages) || !Array.isArray(value.threadRuns)) return null;
+  if (!Array.isArray(value.threadPromotionIntents)) return null;
+  return normalizeAppStateSnapshotForWrite({
+    ...value,
+    lastThreadIdByWorkspace: value.lastThreadIdByWorkspace ?? {},
+  });
 }
 
 function isIsoTimestamp(value: unknown): value is string {
@@ -673,24 +758,24 @@ function normalizeThreadRunChecklist(value: unknown): ThreadRunChecklist | null 
   };
 }
 
-function normalizeAttachmentMetadata(value: unknown): AttachmentMetadata | null {
+function normalizeAttachmentMetadata(
+  value: unknown,
+  allowLegacyKindInference = true,
+): AttachmentMetadata | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string") return null;
   if (typeof value.name !== "string") return null;
   if (typeof value.mimeType !== "string") return null;
   if (typeof value.size !== "number") return null;
   if (typeof value.storageKey !== "string") return null;
-  if (
-    value.sha256 !== undefined &&
-    !isValidAttachmentSha256(value.sha256)
-  ) {
+  if (value.sha256 !== undefined && !isValidAttachmentSha256(value.sha256)) {
     return null;
   }
 
   let kind: AttachmentKind;
   if (value.kind === "image" || value.kind === "file") {
     kind = value.kind;
-  } else if (isSupportedImageMimeType(value.mimeType)) {
+  } else if (allowLegacyKindInference && isSupportedImageMimeType(value.mimeType)) {
     // Legacy snapshots predate `kind`; only the original image types backfill.
     kind = "image";
   } else {

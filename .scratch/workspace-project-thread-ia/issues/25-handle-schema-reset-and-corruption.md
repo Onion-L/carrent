@@ -4,7 +4,7 @@
 
 **Blocked by:** 17 — 添加跨 Workspace 待处理视图；18 — 添加分层 Thread 搜索；20 — 添加 Association 与 Workspace 级联移除；22 — 处理 Project 目录不可用与重新定位；23 — 处理附件缺失与孤立数据；24 — 固定 Main Window 与重启生命周期
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 目标 App State 使用一个显式支持的 schema，并完整验证 Workspace、Project、Association、Thread 及所有持久化交叉引用。
 - [ ] 持久化层区分从未初始化/成功重置与已建立状态意外缺失；前者进入首次使用，后者进入全局损坏恢复。

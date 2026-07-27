@@ -14,6 +14,7 @@ import {
 } from "react-router-dom";
 
 import type {
+  AppStateLoadResult,
   AppStateSnapshot,
   ProjectRelocationRequest,
   WorkspaceSnapshot,
@@ -34,6 +35,20 @@ const legacySnapshot: WorkspaceSnapshot = {
   chats: [],
   messages: [],
   activeThreadId: null,
+};
+
+const emptyAppState: AppStateSnapshot = {
+  version: 1,
+  workspaces: [],
+  projects: [],
+  associations: [],
+  threads: [],
+  threadDrafts: [],
+  threadMessages: [],
+  threadRuns: [],
+  threadPromotionIntents: [],
+  lastThreadIdByWorkspace: {},
+  activeWorkspaceId: null,
 };
 
 let container: HTMLDivElement | null = null;
@@ -102,7 +117,13 @@ function installBridge(
   };
   window.carrent = {
     appState: {
-      load: async () => appState,
+      load: async () => ({ status: "ready", snapshot: appState ?? emptyAppState }),
+      reread: async () => ({ status: "ready", snapshot: appState ?? emptyAppState }),
+      fullReset: async () => ({
+        status: "ready",
+        snapshot: emptyAppState,
+        notice: "full-reset",
+      }),
       save: saveAppState,
     },
     dialog: {
@@ -112,6 +133,9 @@ function installBridge(
           ? { canceled: false, filePaths: [selected] }
           : { canceled: true, filePaths: [] };
       },
+    },
+    clipboard: {
+      writeText: async () => {},
     },
     workspace: {
       load: async () => {
@@ -243,6 +267,48 @@ function installBridge(
   } as unknown as Window["carrent"];
 }
 
+async function mountInstalledBridge(initialEntry = "/") {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+
+  await act(async () => {
+    root!.render(
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <App />
+        <NavigationProbe />
+      </MemoryRouter>,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+async function renderRecoveryApp(
+  loadResults: AppStateLoadResult[],
+  resetResult: AppStateLoadResult,
+  clipboardWrites: string[],
+  initialEntry = "/",
+) {
+  const saved: AppStateSnapshot[] = [];
+  installBridge(null, saved);
+  let current = loadResults.shift()!;
+  window.carrent.appState = {
+    load: async () => current,
+    reread: async () => {
+      current = loadResults.shift() ?? current;
+      return current;
+    },
+    fullReset: async () => resetResult,
+    save: async (snapshot) => {
+      saved.push(structuredClone(snapshot));
+    },
+  };
+  window.carrent.clipboard.writeText = async (text) => {
+    clipboardWrites.push(text);
+  };
+  await mountInstalledBridge(initialEntry);
+}
+
 async function renderApp(
   appState: AppStateSnapshot | null,
   initialEntry = "/",
@@ -290,19 +356,7 @@ async function renderApp(
     projectDirectoryAvailable,
     projectRelocationRequests,
   );
-  container = document.createElement("div");
-  document.body.appendChild(container);
-  root = createRoot(container);
-
-  await act(async () => {
-    root!.render(
-      <MemoryRouter initialEntries={[initialEntry]}>
-        <App />
-        <NavigationProbe />
-      </MemoryRouter>,
-    );
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+  await mountInstalledBridge(initialEntry);
 
   return saved;
 }
@@ -370,6 +424,105 @@ afterEach(async () => {
 });
 
 describe("Workspace App State foundation", () => {
+  const recoveryResult: AppStateLoadResult = {
+    status: "recovery-required",
+    diagnostics: [
+      {
+        appVersion: "0.0.0",
+        subsystem: "app-state",
+        stage: "validate",
+        summary: "App State records or references are invalid.",
+        dataPath: "/tmp/carrent/app-state.json",
+        occurredAt: "2026-07-27T08:00:00.000Z",
+      },
+    ],
+  };
+
+  it("blocks the normal app and copies sanitized diagnostics for corrupt App State", async () => {
+    const clipboardWrites: string[] = [];
+    await renderRecoveryApp([recoveryResult], recoveryResult, clipboardWrites);
+
+    expect(container!.textContent).toContain("Carrent data could not be loaded");
+    expect(container!.textContent).toContain("Re-read");
+    expect(container!.textContent).toContain("Copy diagnostics");
+    expect(container!.textContent).toContain("Full reset");
+    expect(container!.textContent).not.toContain("Create your first Workspace");
+    expect(container!.querySelector("nav")).toBe(null);
+
+    await click(buttonNamed("Copy diagnostics"));
+    expect(clipboardWrites).toHaveLength(1);
+    expect(clipboardWrites[0]).toContain('"stage": "validate"');
+    expect(clipboardWrites[0]).not.toContain("workspaces");
+    expect(clipboardWrites[0]).not.toContain("messages");
+  });
+
+  it("re-reads App State and restores the saved route with replacement", async () => {
+    const ready: AppStateLoadResult = {
+      status: "ready",
+      snapshot: {
+        ...emptyAppState,
+        workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+        activeWorkspaceId: "workspace-1",
+      },
+    };
+    await renderRecoveryApp([recoveryResult, ready], recoveryResult, []);
+
+    await click(buttonNamed("Re-read"));
+
+    expect(container!.textContent).toContain("Personal");
+    expect(currentPathname).toBe("/workspace/workspace-1");
+    expect(currentNavigationType).toBe("REPLACE");
+  });
+
+  it("requires confirmation before a full reset and returns to first use", async () => {
+    const resetResult: AppStateLoadResult = {
+      status: "ready",
+      snapshot: emptyAppState,
+      notice: "full-reset",
+    };
+    await renderRecoveryApp([recoveryResult], resetResult, []);
+
+    await click(buttonNamed("Full reset"));
+    const dialog = container!.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("Project Working Directories");
+    expect(dialog.textContent).toContain("project files");
+    expect(dialog.textContent).toContain("Git state");
+    expect(dialog.textContent).toContain("private refs");
+    expect(dialog.textContent).toContain("legacy projectless chat data");
+    expect(container!.textContent).not.toContain("Create your first Workspace");
+
+    await click(buttonNamed("Permanently reset Carrent data"));
+    expect(container!.textContent).toContain("Create your first Workspace");
+    expect(container!.textContent).toContain("Carrent data was reset.");
+  });
+
+  it("stays blocked and shows the appended diagnostic when Full Reset fails", async () => {
+    const resetFailure: AppStateLoadResult = {
+      status: "recovery-required",
+      diagnostics: [
+        ...recoveryResult.diagnostics,
+        {
+          appVersion: "0.0.0",
+          subsystem: "app-state",
+          stage: "reset-write",
+          summary: "Full Reset failed: disk full.",
+          dataPath: "/tmp/carrent/app-state.json",
+          occurredAt: "2026-07-27T08:01:00.000Z",
+        },
+      ],
+    };
+    await renderRecoveryApp([recoveryResult], resetFailure, []);
+
+    await click(buttonNamed("Full reset"));
+    await click(buttonNamed("Permanently reset Carrent data"));
+
+    expect(container!.querySelector('[role="dialog"]')).toBe(null);
+    expect(container!.textContent).toContain("Carrent data could not be loaded");
+    expect(container!.textContent).toContain("Full Reset failed: disk full.");
+    expect(container!.textContent).not.toContain("Create your first Workspace");
+    expect(container!.querySelector("nav")).toBe(null);
+  });
+
   it("creates the first Workspace from the global first-use state", async () => {
     const saved = await renderApp(null);
 
@@ -1089,7 +1242,7 @@ describe("three-level navigation", () => {
     expect(container!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
   });
 
-  it("falls back from a stale startup Thread to the active Workspace overview", async () => {
+  it("falls back to the Workspace overview when the saved Thread reference is stale", async () => {
     const state = navigationState();
     state.lastThreadIdByWorkspace = { "workspace-1": "missing-thread" };
 
@@ -1098,8 +1251,7 @@ describe("three-level navigation", () => {
     expect(currentPathname).toBe("/workspace/workspace-1");
     expect(currentNavigationType).toBe("REPLACE");
     expect(container!.querySelector("h1")?.textContent).toBe("Personal");
-    expect(container!.textContent).toContain("The last Thread could not be restored.");
-    buttonNamed("Dismiss toast");
+    expect(container!.textContent).not.toContain("Carrent data could not be loaded");
   });
 
   it("replaces a missing Thread with its Project overview and one dismissible notice", async () => {
@@ -2148,7 +2300,11 @@ describe("Archived Thread lifecycle", () => {
           planMode: false,
         },
       ],
-      lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
+      lastThreadIdByWorkspace: archivedThreadIds.includes("thread-1")
+        ? archivedThreadIds.includes("thread-2")
+          ? {}
+          : { "workspace-1": "thread-2" }
+        : { "workspace-1": "thread-1" },
       activeWorkspaceId: "workspace-1",
     };
   }

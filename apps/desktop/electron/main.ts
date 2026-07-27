@@ -12,7 +12,10 @@ import {
   createThreadDeletionTransactionManager,
   recoverThreadDeletionTransaction,
 } from "./chat/threadDeletionTransaction";
-import { createPersistentProviderSessionStore } from "./chat/providerSessionStore";
+import {
+  createPersistentProviderSessionStore,
+  type PersistentProviderSessionStore,
+} from "./chat/providerSessionStore";
 import { createWorkspaceStore } from "./workspace/workspaceStore";
 import {
   getLastWorkspaceSnapshot,
@@ -41,6 +44,11 @@ import { registerSettingsIpc } from "./settings/settingsIpc";
 import { registerDialogIpc } from "./dialog/dialogIpc";
 import { spawn } from "node:child_process";
 import { createMainWindowLifecycle } from "./mainWindowLifecycle";
+import {
+  createAppStateIpcGate,
+  loadProviderSessionsForAppState,
+} from "./workspace/appStateIpcGate";
+import { createAppStateLifecycle } from "./workspace/appStateLifecycle";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -146,12 +154,17 @@ if (!hasSingleInstanceLock) {
       app.dock?.setIcon(icon);
     }
 
-    registerRuntimeIpc(ipcMain);
-
     const userDataPath = app.getPath("userData");
-    const store = createWorkspaceStore(userDataPath);
+    const store = createWorkspaceStore(userDataPath, { appVersion: app.getVersion() });
+    const appStateInitialization = await store.initializeAppState();
+    const appStateIpcGate = createAppStateIpcGate(ipcMain, {
+      status: "recovery-required",
+      diagnostics: [],
+    });
+    const guardedIpcMain = appStateIpcGate.ipcMain;
+    let providerSessionStore: PersistentProviderSessionStore | null = null;
     workspaceStore = store;
-    registerWorkspaceIpc(ipcMain, store);
+    registerRuntimeIpc(guardedIpcMain);
 
     const attachmentStore = createAttachmentStore(userDataPath);
     if (
@@ -167,35 +180,61 @@ if (!hasSingleInstanceLock) {
       rollbackDeletion: attachmentStore.rollbackDeletion,
     };
     const threadDeletionJournalStore = createThreadDeletionJournalStore(userDataPath);
-    await recoverThreadDeletionTransaction({
-      journalStore: threadDeletionJournalStore,
-      workspaceStore: store,
-      attachmentStore: transactionAttachmentStore,
-    });
-    await reconcileAttachmentsAfterValidStateLoad({
-      appState: await store.loadAppStateSnapshot(),
-      workspace: await store.loadWorkspaceSnapshot(),
-      deleteOrphanedAttachments: attachmentStore.deleteOrphanedAttachments,
-    });
-    registerAttachmentIpc(ipcMain, { attachmentStore });
-    registerSkillIpc(ipcMain);
-    registerGitIpc(ipcMain);
-    registerSettingsIpc(ipcMain);
+    registerAttachmentIpc(guardedIpcMain, { attachmentStore });
+    registerSkillIpc(guardedIpcMain);
+    registerGitIpc(guardedIpcMain);
+    registerSettingsIpc(guardedIpcMain);
 
     const bridgeManager = createCarrentBridgeManager({
       preferenceStore: createMcpServerPreferenceStore(app.getPath("userData")),
     });
-    registerMcpServerIpc(ipcMain, bridgeManager);
-    await bridgeManager.initialize();
+    registerMcpServerIpc(guardedIpcMain, bridgeManager);
 
-    registerDialogIpc(ipcMain, () => dialog.showOpenDialog({ properties: ["openDirectory"] }));
+    const appStateLifecycle = createAppStateLifecycle({
+      recoverThreadDeletion: () =>
+        recoverThreadDeletionTransaction({
+          journalStore: threadDeletionJournalStore,
+          workspaceStore: store,
+          attachmentStore: transactionAttachmentStore,
+        }),
+      reloadAppState: () => store.initializeAppState(),
+      reconcileAttachments: async (snapshot) => {
+        await reconcileAttachmentsAfterValidStateLoad({
+          appState: snapshot,
+          workspace: await store.loadWorkspaceSnapshot(),
+          deleteOrphanedAttachments: attachmentStore.deleteOrphanedAttachments,
+        });
+      },
+      reloadProviderSessions: async () => {
+        const snapshot = await store.loadProviderSessions();
+        await providerSessionStore?.reinitialize(snapshot);
+      },
+      clearProviderSessions: async () => {
+        await providerSessionStore?.reinitialize({ version: 1, sessions: {} });
+      },
+      resetRuntimeSessions: () => {
+        chatSessionManager?.resetRuntimeSessions?.();
+      },
+      initializeMcpBridge: () => bridgeManager.initialize(),
+      updateIpcGate: (result) => appStateIpcGate.update(result),
+    });
+    const startupAppStateResult = await appStateLifecycle.apply(appStateInitialization, "startup");
+    registerWorkspaceIpc(guardedIpcMain, store, startupAppStateResult, (result, source) =>
+      appStateLifecycle.apply(result, source),
+    );
 
-    ipcMain.handle("shell:open-path", async (_event, filePath: string) => {
+    registerDialogIpc(guardedIpcMain, () =>
+      dialog.showOpenDialog({ properties: ["openDirectory"] }),
+    );
+
+    guardedIpcMain.handle("shell:open-path", async (_event, filePath) => {
+      if (typeof filePath !== "string") throw new Error("Invalid file path.");
       const result = await shell.openPath(filePath);
       return result;
     });
 
-    ipcMain.handle("clipboard:write-text", async (_event, text: string) => {
+    guardedIpcMain.handle("clipboard:write-text", async (_event, text) => {
+      if (typeof text !== "string") throw new Error("Invalid clipboard text.");
       clipboard.writeText(text);
     });
 
@@ -203,12 +242,16 @@ if (!hasSingleInstanceLock) {
       mainWindow?.webContents.send("chat:event", event);
     };
 
-    const providerSessionsSnapshot = await store.loadProviderSessions();
+    const providerSessionsSnapshot = await loadProviderSessionsForAppState(
+      store,
+      startupAppStateResult,
+    );
 
+    providerSessionStore = createPersistentProviderSessionStore(store, providerSessionsSnapshot);
     const sessionManager = createChatSessionManager({
       emit: emitChatEvent as (event: { type: string }) => void,
       spawn,
-      providerSessions: createPersistentProviderSessionStore(store, providerSessionsSnapshot),
+      providerSessions: providerSessionStore,
       attachmentStore,
       carrentBridgeFactory: async () => {
         return bridgeManager.getRuntimeHandle();
@@ -235,7 +278,7 @@ if (!hasSingleInstanceLock) {
       },
       onActiveChange: setWorkspaceTransactionActive,
     });
-    registerProjectDirectoryIpc(ipcMain, { relocationManager: projectRelocationManager });
+    registerProjectDirectoryIpc(guardedIpcMain, { relocationManager: projectRelocationManager });
     chatSessionManager = sessionManager;
     const threadDeletionManager = createThreadDeletionTransactionManager({
       journalStore: threadDeletionJournalStore,
@@ -249,7 +292,7 @@ if (!hasSingleInstanceLock) {
       onActiveChange: setWorkspaceTransactionActive,
     });
     waitForThreadDeletion = threadDeletionManager.waitForIdle;
-    registerChatIpc(ipcMain, {
+    registerChatIpc(guardedIpcMain, {
       sessionManager,
       isProjectDirectoryAvailable,
       threadDeletionManager,

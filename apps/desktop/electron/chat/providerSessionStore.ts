@@ -1,15 +1,17 @@
 import type { ProviderSessionSnapshot } from "../../src/shared/workspacePersistence";
 import type { WorkspaceStore } from "../workspace/workspaceStore";
 import type { ProviderSessionStore } from "./chatSessionManager";
-import {
-  isInconsistentProviderSessionKey,
-} from "../../src/shared/providerSessions";
+import { isInconsistentProviderSessionKey } from "../../src/shared/providerSessions";
 import { runtimeIds, type RuntimeId } from "../../src/shared/runtimes";
+
+export type PersistentProviderSessionStore = ProviderSessionStore & {
+  reinitialize: (snapshot: ProviderSessionSnapshot) => Promise<void>;
+};
 
 export function createPersistentProviderSessionStore(
   store: Pick<WorkspaceStore, "saveProviderSessions">,
   snapshot: ProviderSessionSnapshot,
-): ProviderSessionStore {
+): PersistentProviderSessionStore {
   let sessions = { ...snapshot.sessions };
   const invalidRequests = new Set<string>();
   let writeQueue = Promise.resolve();
@@ -97,6 +99,11 @@ export function createPersistentProviderSessionStore(
         const nextSessions = { ...sessions, ...restoredSessions };
         await store.saveProviderSessions({ version: 1, sessions: nextSessions });
         sessions = nextSessions;
+      }),
+    reinitialize: (nextSnapshot) =>
+      enqueueWrite(async () => {
+        sessions = { ...nextSnapshot.sessions };
+        invalidRequests.clear();
       }),
   };
 }

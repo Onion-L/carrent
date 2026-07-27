@@ -1,10 +1,13 @@
 import {
-  normalizeAppStateSnapshot,
+  normalizeAppStateSnapshotForWrite,
   normalizeWorkspaceSnapshot,
+  type AppStateLoadResult,
   type ProviderSessionSnapshot,
   type WorkspaceSnapshot,
 } from "../../src/shared/workspacePersistence";
 import type { WorkspaceStore } from "./workspaceStore";
+
+export type AppStateIpcResultSource = "reread" | "full-reset";
 
 interface IpcMainLike {
   handle: (
@@ -29,11 +32,37 @@ export function setWorkspaceTransactionActive(active: boolean) {
   workspaceTransactionActive = active;
 }
 
-export function registerWorkspaceIpc(ipcMainLike: IpcMainLike, store: WorkspaceStore) {
-  ipcMainLike.handle("app-state:load", () => store.loadAppStateSnapshot());
+export function registerWorkspaceIpc(
+  ipcMainLike: IpcMainLike,
+  store: WorkspaceStore,
+  initialAppStateResult: AppStateLoadResult,
+  prepareAppStateResult: (
+    result: AppStateLoadResult,
+    source: AppStateIpcResultSource,
+  ) => Promise<AppStateLoadResult> | AppStateLoadResult,
+) {
+  let appStateResult = initialAppStateResult;
+  const consumeAppStateResult = () => {
+    const result = appStateResult;
+    if (result.status === "ready" && result.notice) {
+      appStateResult = { status: "ready", snapshot: result.snapshot };
+    }
+    return result;
+  };
+  ipcMainLike.handle("app-state:load", () => consumeAppStateResult());
+  ipcMainLike.handle("app-state:reread", async () => {
+    const result = await store.initializeAppState();
+    appStateResult = await prepareAppStateResult(result, "reread");
+    return consumeAppStateResult();
+  });
+  ipcMainLike.handle("app-state:full-reset", async () => {
+    const result = await store.fullResetAppState();
+    appStateResult = await prepareAppStateResult(result, "full-reset");
+    return consumeAppStateResult();
+  });
   ipcMainLike.handle("app-state:save", (_event, snapshot) => {
     if (workspaceTransactionActive) throw new Error("Workspace transaction is in progress.");
-    const normalized = normalizeAppStateSnapshot(snapshot);
+    const normalized = normalizeAppStateSnapshotForWrite(snapshot);
     if (!normalized) {
       throw new Error("Invalid App State snapshot.");
     }

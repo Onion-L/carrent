@@ -1914,6 +1914,9 @@ export function Composer(props: ComposerProps) {
         historyMode: getChatHistoryMode(!!externalSubmit?.messageId),
       },
       {
+        onNotice: (message) => {
+          showToast(message, "info");
+        },
         onStarted: (runId) => {
           updateRunChecklist(threadId, { kind: "started", runId });
         },
@@ -2041,7 +2044,7 @@ export function Composer(props: ComposerProps) {
             flushQueuedMessage(nextQueued);
           }
         },
-        onError: (error, runId, writtenFiles) => {
+        onError: (error, runId, writtenFiles, runtimeSessionRecovery) => {
           runWrittenFilesRef.current = writtenFiles ?? [];
           if (runId) {
             updateRunChecklist(threadId, { kind: "outcome", runId, outcome: "failed" });
@@ -2051,7 +2054,14 @@ export function Composer(props: ComposerProps) {
           updateMessageParts(assistantMsg.id, { kind: "interrupt-subagent-tasks" });
           updateMessageParts(assistantMsg.id, {
             kind: "upsert-error",
-            error: { type: "error", id: `error-${assistantMsg.id}`, message: error },
+            error: {
+              type: "error",
+              id: `error-${assistantMsg.id}`,
+              message: error,
+              ...(runtimeSessionRecovery
+                ? { runtimeSessionRecovery: { ...runtimeSessionRecovery, userMessageId } }
+                : {}),
+            },
           });
           updateMessageRunStatus(assistantMsg.id, "failed");
           markThreadActivity(threadId);

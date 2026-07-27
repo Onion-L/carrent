@@ -54,6 +54,8 @@ const MAX_TOOL_OUTPUT_LENGTH = 12_000;
 const MAX_TEXT_FILE_WRITE_BYTES = 4 * 1024 * 1024;
 const STOP_FALLBACK_MS = 5_000;
 
+class RuntimeSessionResumeError extends Error {}
+
 export type KimiAcpTransport = {
   send: (message: JsonObject) => void;
   close: () => void;
@@ -201,7 +203,6 @@ export function startKimiAcpChatRun(options: {
   emit: (event: ChatRunEvent) => void;
   transportFactory: KimiAcpTransportFactory;
   resumeSessionId?: string | null;
-  onInvalidSession?: (sessionId: string) => void | Promise<void>;
   onCompletedSession?: (sessionId: string) => void | Promise<void>;
   onDone?: () => void;
   requestTimeoutMs?: number;
@@ -460,7 +461,6 @@ class KimiAcpRun {
       emit: (event: ChatRunEvent) => void;
       transportFactory: KimiAcpTransportFactory;
       resumeSessionId?: string | null;
-      onInvalidSession?: (sessionId: string) => void | Promise<void>;
       onCompletedSession?: (sessionId: string) => void | Promise<void>;
       onDone?: () => void;
       requestTimeoutMs?: number;
@@ -577,7 +577,10 @@ class KimiAcpRun {
         writtenFiles: [...this.writtenFiles],
       });
     } catch (error) {
-      this.fail(error instanceof Error ? error.message : String(error));
+      this.fail(
+        error instanceof Error ? error.message : String(error),
+        error instanceof RuntimeSessionResumeError,
+      );
     }
   }
 
@@ -636,9 +639,12 @@ class KimiAcpRun {
           }),
         );
         return { configOptions: resume?.configOptions, resumed: true };
-      } catch {
+      } catch (error) {
         this.sessionId = null;
-        await this.forgetInvalidSession(resumeSessionId);
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new RuntimeSessionResumeError(
+          `Kimi Code could not resume the Runtime Session: ${detail}`,
+        );
       }
     }
 
@@ -765,14 +771,6 @@ class KimiAcpRun {
         }),
       });
     });
-  }
-
-  private async forgetInvalidSession(sessionId: string) {
-    try {
-      await this.options.onInvalidSession?.(sessionId);
-    } catch {
-      // Best-effort cleanup; the fallback session can still repair persisted state.
-    }
   }
 
   private async persistCompletedSession() {
@@ -1832,13 +1830,21 @@ class KimiAcpRun {
     console.info(`[chat:question] ${action}${suffix ? ` ${suffix}` : ""}`);
   }
 
-  private fail(error: string) {
+  private fail(error: string, runtimeSessionRecovery = false) {
     this.complete({
       type: "failed",
       runId: this.options.runId,
       requestKey: this.options.request.requestKey,
       error,
       writtenFiles: [...this.writtenFiles],
+      ...(runtimeSessionRecovery
+        ? {
+            runtimeSessionRecovery: {
+              runtimeId: this.options.request.runtimeId,
+              threadId: this.options.request.threadId,
+            },
+          }
+        : {}),
     });
   }
 

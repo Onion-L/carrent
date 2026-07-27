@@ -56,6 +56,9 @@ declare global {
       chat: {
         send: (request: ChatTurnRequest) => Promise<{ runId: string }>;
         stop: (runId: string) => Promise<void>;
+        removeRuntimeSession: (
+          request: import("../shared/chat").RuntimeSessionRecovery,
+        ) => Promise<void>;
         deleteThreadData: (request: DeleteThreadDataRequest) => Promise<void>;
         deleteThreadTransaction?: (request: ThreadDeletionTransactionRequest) => Promise<void>;
         respondToPermission: (response: ChatPermissionResponse) => Promise<void>;

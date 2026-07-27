@@ -73,8 +73,8 @@ function createHarness() {
   let providerSessions: ProviderSessionSnapshot = {
     version: 1,
     sessions: {
-      "kimi:project:/code/carrent:thread-1": "session-1",
-      "kimi:project:/code/carrent:thread-2": "session-2",
+      "kimi:thread-1": "session-1",
+      "kimi:thread-2": "session-2",
     },
   };
   let journal: ThreadDeletionJournal | null = null;
@@ -154,7 +154,7 @@ describe("thread deletion transaction", () => {
         deleteThreadData: async () => ({
           threadIds: ["thread-1"],
           removedProviderSessions: {
-            "kimi:project:/code/carrent:thread-1": "session-1",
+            "kimi:thread-1": "session-1",
           },
           detachedRuntimeSessions: {},
         }),
@@ -192,7 +192,7 @@ describe("thread deletion transaction", () => {
         deleteThreadData: async () => ({
           threadIds: ["thread-1"],
           removedProviderSessions: {
-            "kimi:project:/code/carrent:thread-1": "session-1",
+            "kimi:thread-1": "session-1",
           },
           detachedRuntimeSessions: {},
         }),
@@ -504,14 +504,14 @@ describe("thread deletion transaction", () => {
       phase: "preparing",
       request: request(),
       removedProviderSessions: {
-        "kimi:project:/code/carrent:thread-1": "session-1",
+        "kimi:thread-1": "session-1",
       },
     });
     await harness.workspaceStore.saveAppStateSnapshot(afterAppState);
     await harness.workspaceStore.saveWorkspaceSnapshot(afterWorkspace);
     await harness.workspaceStore.saveProviderSessions({
       version: 1,
-      sessions: { "kimi:project:/code/carrent:thread-2": "session-2" },
+      sessions: { "kimi:thread-2": "session-2" },
     });
 
     await recoverThreadDeletionTransaction({
@@ -523,8 +523,8 @@ describe("thread deletion transaction", () => {
     expect(harness.getAppState()).toEqual(beforeAppState);
     expect(harness.getWorkspace()).toEqual(beforeWorkspace);
     expect(harness.getProviderSessions().sessions).toEqual({
-      "kimi:project:/code/carrent:thread-1": "session-1",
-      "kimi:project:/code/carrent:thread-2": "session-2",
+      "kimi:thread-1": "session-1",
+      "kimi:thread-2": "session-2",
     });
     expect(harness.attachmentEvents).toEqual(["rollback:operation-3"]);
     expect(harness.getJournal()).toBe(null);
@@ -538,14 +538,14 @@ describe("thread deletion transaction", () => {
       phase: "committed",
       request: request(),
       removedProviderSessions: {
-        "kimi:project:/code/carrent:thread-1": "session-1",
+        "kimi:thread-1": "session-1",
       },
     });
     await harness.workspaceStore.saveAppStateSnapshot(afterAppState);
     await harness.workspaceStore.saveWorkspaceSnapshot(afterWorkspace);
     await harness.workspaceStore.saveProviderSessions({
       version: 1,
-      sessions: { "kimi:project:/code/carrent:thread-2": "session-2" },
+      sessions: { "kimi:thread-2": "session-2" },
     });
 
     await recoverThreadDeletionTransaction({
@@ -557,7 +557,7 @@ describe("thread deletion transaction", () => {
     expect(harness.getAppState()).toEqual(afterAppState);
     expect(harness.getWorkspace()).toEqual(afterWorkspace);
     expect(harness.getProviderSessions().sessions).toEqual({
-      "kimi:project:/code/carrent:thread-2": "session-2",
+      "kimi:thread-2": "session-2",
     });
     expect(harness.attachmentEvents).toEqual(["commit:operation-4"]);
     expect(harness.getJournal()).toBe(null);

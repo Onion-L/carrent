@@ -1,12 +1,17 @@
 import type { ProviderSessionSnapshot } from "../../src/shared/workspacePersistence";
 import type { WorkspaceStore } from "../workspace/workspaceStore";
 import type { ProviderSessionStore } from "./chatSessionManager";
+import {
+  isInconsistentProviderSessionKey,
+} from "../../src/shared/providerSessions";
+import { runtimeIds, type RuntimeId } from "../../src/shared/runtimes";
 
 export function createPersistentProviderSessionStore(
   store: Pick<WorkspaceStore, "saveProviderSessions">,
   snapshot: ProviderSessionSnapshot,
 ): ProviderSessionStore {
   let sessions = { ...snapshot.sessions };
+  const invalidRequests = new Set<string>();
   let writeQueue = Promise.resolve();
 
   const enqueueWrite = <T>(write: () => Promise<T>) => {
@@ -18,8 +23,41 @@ export function createPersistentProviderSessionStore(
     return nextWrite;
   };
 
+  const detachInvalid = (requestKey: string, storedKey: string) => {
+    delete sessions[storedKey];
+    invalidRequests.add(requestKey);
+    void enqueueWrite(async () => {
+      await store.saveProviderSessions({ version: 1, sessions: { ...sessions } });
+    }).catch(() => {
+      // The invalid entry stays detached in memory; a later write can persist the repair.
+    });
+  };
+
   return {
-    get: (key) => sessions[key],
+    get: (key) => {
+      const sessionId = sessions[key];
+      if (sessionId !== undefined) {
+        if (sessionId.trim().length === 0) {
+          detachInvalid(key, key);
+          return undefined;
+        }
+        return sessionId;
+      }
+
+      const separator = key.indexOf(":");
+      const runtimeId = key.slice(0, separator) as RuntimeId;
+      const threadId = key.slice(separator + 1);
+      const inconsistentKey = Object.keys(sessions).find(
+        (storedKey) =>
+          runtimeIds.includes(runtimeId) &&
+          isInconsistentProviderSessionKey(storedKey, runtimeId, threadId),
+      );
+      if (inconsistentKey) {
+        detachInvalid(key, inconsistentKey);
+      }
+      return undefined;
+    },
+    consumeInvalidMappingNotice: (key) => invalidRequests.delete(key),
     set: (key, sessionId) =>
       enqueueWrite(async () => {
         const nextSessions = { ...sessions, [key]: sessionId };

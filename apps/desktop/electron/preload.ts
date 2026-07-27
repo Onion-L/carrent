@@ -48,6 +48,8 @@ const carrent = {
     send: (request: ChatTurnRequest) =>
       ipcRenderer.invoke("chat:send", request) as Promise<{ runId: string }>,
     stop: (runId: string) => ipcRenderer.invoke("chat:stop", runId) as Promise<void>,
+    removeRuntimeSession: (request: import("../src/shared/chat").RuntimeSessionRecovery) =>
+      ipcRenderer.invoke("chat:remove-runtime-session", request) as Promise<void>,
     deleteThreadData: (request: DeleteThreadDataRequest) =>
       ipcRenderer.invoke("chat:delete-thread-data", request) as Promise<void>,
     deleteThreadTransaction: (request: ThreadDeletionTransactionRequest) =>

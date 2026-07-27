@@ -5,6 +5,7 @@ import {
   APP_STATE_SNAPSHOT_VERSION,
   WORKSPACE_SNAPSHOT_VERSION,
   normalizeAppStateSnapshot,
+  normalizeProviderSessionSnapshot,
   normalizeWorkspaceSnapshot,
 } from "./workspacePersistence";
 import { MAX_RUN_CHECKLIST_ITEM_BYTES, MAX_RUN_CHECKLIST_ITEMS } from "./runChecklist";
@@ -403,6 +404,17 @@ describe("normalizeAppStateSnapshot", () => {
         activeWorkspaceId: "workspace-1",
       }),
     ).toBe(null);
+  });
+});
+
+describe("normalizeProviderSessionSnapshot", () => {
+  it("preserves an invalid mapping marker for isolated Run-time recovery", () => {
+    expect(
+      normalizeProviderSessionSnapshot({
+        version: 1,
+        sessions: { "kimi:thread-1": { unexpected: true } },
+      }),
+    ).toEqual({ version: 1, sessions: { "kimi:thread-1": "" } });
   });
 });
 

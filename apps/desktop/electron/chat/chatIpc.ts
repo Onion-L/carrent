@@ -3,6 +3,7 @@ import type {
   ChatTurnRequest,
   DeleteThreadDataRequest,
   KimiSessionStatus,
+  RuntimeSessionRecovery,
   ThreadDeletionTransactionRequest,
   ThreadDeletionScope,
 } from "../../src/shared/chat";
@@ -21,7 +22,7 @@ import {
   MAX_TOTAL_ATTACHMENT_BYTES,
   assertValidAttachmentStorageKey,
 } from "../../src/shared/attachment";
-import { runtimeNameMap, type RuntimeId } from "../../src/shared/runtimes";
+import { runtimeIds, runtimeNameMap, type RuntimeId } from "../../src/shared/runtimes";
 import type { ChatSessionManager } from "./chatSessionManager";
 
 interface IpcMainLike {
@@ -81,6 +82,21 @@ export function parseDeleteThreadDataRequest(
       true,
     ),
   };
+}
+
+export function parseRuntimeSessionRecovery(value: unknown): RuntimeSessionRecovery {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid Runtime Session recovery request.");
+  }
+  const request = value as Record<string, unknown>;
+  if (
+    !runtimeIds.includes(request.runtimeId as RuntimeId) ||
+    typeof request.threadId !== "string" ||
+    request.threadId.trim().length === 0
+  ) {
+    throw new Error("Invalid Runtime Session recovery request.");
+  }
+  return { runtimeId: request.runtimeId as RuntimeId, threadId: request.threadId };
 }
 
 export function parseThreadDeletionTransactionRequest(
@@ -326,6 +342,11 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
 
   ipcMainLike.handle("chat:stop", async (_event, runId) => {
     services.sessionManager.stop(runId as string);
+    return undefined;
+  });
+
+  ipcMainLike.handle("chat:remove-runtime-session", async (_event, request) => {
+    await services.sessionManager.removeRuntimeSession(parseRuntimeSessionRecovery(request));
     return undefined;
   });
 

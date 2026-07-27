@@ -6,12 +6,14 @@ import type {
   ChatShellEventPayload,
   ChatSubagentTaskPayload,
   ChatTurnRequest,
+  RuntimeSessionRecovery,
 } from "../../shared/chat";
 import type { RunChecklistSnapshot } from "../../shared/runChecklist";
 import type { ChatPermissionRequest, ChatPermissionResponse } from "../../shared/chatPermissions";
 import type { ChatQuestionRequest, ChatQuestionResponse } from "../../shared/chatQuestions";
 
 export type ChatRunCallbacks = {
+  onNotice?: (message: string) => void;
   onStarted?: (runId: string) => void;
   onDelta?: (text: string) => void;
   onReasoning?: (reasoning: ChatReasoningEventPayload) => void;
@@ -41,7 +43,12 @@ export type ChatRunCallbacks = {
   onQuestionsInterrupted?: (questions: ChatQuestionRequest[]) => void;
   onPlanModeChanged?: (enabled: boolean) => void;
   onComplete?: (text: string, runId: string, writtenFiles?: string[]) => void;
-  onError?: (error: string, runId?: string, writtenFiles?: string[]) => void;
+  onError?: (
+    error: string,
+    runId?: string,
+    writtenFiles?: string[],
+    runtimeSessionRecovery?: RuntimeSessionRecovery,
+  ) => void;
   onStop?: (runId: string, writtenFiles?: string[]) => void;
 };
 
@@ -242,6 +249,11 @@ export function createChatRunCoordinator() {
         requestKeyByRunId.set(event.runId, run.requestKey);
       }
 
+      if (event.type === "notice") {
+        run.callbacks.onNotice?.(event.message);
+        return;
+      }
+
       if (event.type === "started") {
         if (event.threadId === run.threadId) {
           run.callbacks.onStarted?.(event.runId);
@@ -296,7 +308,12 @@ export function createChatRunCoordinator() {
       if (event.type === "failed") {
         clearPermissionsForRun(run, event.runId, true);
         clearQuestionsForRun(run, event.runId, true);
-        run.callbacks.onError?.(event.error, event.runId, event.writtenFiles);
+        run.callbacks.onError?.(
+          event.error,
+          event.runId,
+          event.writtenFiles,
+          event.runtimeSessionRecovery,
+        );
         clearPending(run);
         updateSnapshot(event.error);
         emit();

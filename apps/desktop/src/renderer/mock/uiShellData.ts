@@ -1,6 +1,10 @@
 import type { RuntimeMode } from "../../shared/runtimeMode";
 import type { RuntimeId } from "../../shared/runtimes";
-import type { AttachmentMetadata, ChatSubagentTaskPayload } from "../../shared/chat";
+import type {
+  AttachmentMetadata,
+  ChatSubagentTaskPayload,
+  RuntimeSessionRecovery,
+} from "../../shared/chat";
 import type { ChatPermissionOption } from "../../shared/chatPermissions";
 import type { ThreadRunChecklist } from "../../shared/runChecklist";
 
@@ -136,7 +140,12 @@ export type MessagePart =
       answers?: Array<{ questionIndex: number; labels: string[]; customText?: string }>;
     }
   | SubagentTaskPart
-  | { type: "error"; id: string; message: string };
+  | {
+      type: "error";
+      id: string;
+      message: string;
+      runtimeSessionRecovery?: RuntimeSessionRecovery & { userMessageId: string };
+    };
 
 type TextMessage = MessageBase & {
   type?: "text";

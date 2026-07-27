@@ -1372,9 +1372,8 @@ describe("startKimiAcpChatRun", () => {
     });
   });
 
-  it("replays bounded transcript after a failed resume creates a fresh session", async () => {
+  it("fails visibly without replaying the prompt when session resume fails", async () => {
     const emitted: ChatRunEvent[] = [];
-    let promptRequest: Record<string, unknown> | null = null;
     const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
       if (message.method === "initialize") {
         respondAcp(fakeTransport, message, { protocolVersion: 1 });
@@ -1387,28 +1386,6 @@ describe("startKimiAcpChatRun", () => {
           id: message.id,
           error: { code: -32000, message: "Session not found" },
         });
-        return;
-      }
-
-      if (message.method === "session/new") {
-        respondAcp(fakeTransport, message, { sessionId: "fresh-session" });
-        return;
-      }
-
-      if (message.method === "session/prompt") {
-        promptRequest = message;
-        fakeTransport.emitMessage({
-          jsonrpc: "2.0",
-          method: "session/update",
-          params: {
-            sessionId: "fresh-session",
-            update: {
-              sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: "Recovered" },
-            },
-          },
-        });
-        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
       }
     });
 
@@ -1433,19 +1410,11 @@ describe("startKimiAcpChatRun", () => {
     expect(transport.sent.map((message) => message.method)).toEqual([
       "initialize",
       "session/resume",
-      "session/new",
-      "session/prompt",
     ]);
-    const prompt = (promptRequest!.params as { prompt: Array<{ text: string }> }).prompt;
-    expect(prompt).toHaveLength(1);
-    const text = prompt[0].text;
-    expect(text).toContain("Recent conversation:");
-    expect(text).toContain("user: First");
-    expect(text).toContain("assistant: First answer");
-    expect(text).toContain("user: Follow up");
-    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
-      type: "completed",
-      text: "Recovered",
+    expect(emitted.find((event) => event.type === "completed")).toBeUndefined();
+    expect(emitted.find((event) => event.type === "failed")).toMatchObject({
+      type: "failed",
+      runtimeSessionRecovery: { runtimeId: "kimi", threadId: "thread-1" },
     });
   });
 

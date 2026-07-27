@@ -74,6 +74,39 @@ describe("createPersistentProviderSessionStore", () => {
     expect(store.get("thread-a")).toBe("session-new");
   });
 
+  it("isolates one invalid runtime and thread mapping when it is read", async () => {
+    const saved: ProviderSessionSnapshot[] = [];
+    const store = createPersistentProviderSessionStore(
+      {
+        saveProviderSessions: async (nextSnapshot) => {
+          saved.push(nextSnapshot);
+        },
+      },
+      snapshot({
+        "kimi:thread-a": "session-a",
+        "kimi:thread-b": "",
+        "kimi:project:/tmp/project:thread-c": "session-c",
+        "claude-code:thread-b": "claude-session-b",
+      }),
+    );
+
+    expect(store.get("kimi:thread-b")).toBeUndefined();
+    expect(store.consumeInvalidMappingNotice?.("kimi:thread-b")).toBe(true);
+    expect(store.consumeInvalidMappingNotice?.("kimi:thread-b")).toBe(false);
+    expect(store.get("kimi:thread-c")).toBeUndefined();
+    expect(store.consumeInvalidMappingNotice?.("kimi:thread-c")).toBe(true);
+    expect(store.get("kimi:thread-a")).toBe("session-a");
+    expect(store.get("claude-code:thread-b")).toBe("claude-session-b");
+
+    await waitForSavedCount(saved, 2);
+    expect(saved.at(-1)).toEqual(
+      snapshot({
+        "kimi:thread-a": "session-a",
+        "claude-code:thread-b": "claude-session-b",
+      }),
+    );
+  });
+
   it("keeps memory unchanged when persistence fails", async () => {
     const store = createPersistentProviderSessionStore(
       {
@@ -105,11 +138,10 @@ describe("createPersistentProviderSessionStore", () => {
         },
       },
       snapshot({
-        "kimi:project:/tmp/project:thread-a": "kimi-project",
-        "claude-code:project:/tmp/project:thread-a": "claude-project",
-        "kimi:chat:thread-a": "kimi-chat",
-        "kimi:project:/tmp/project:thread-ab": "unrelated-suffix",
-        "kimi:chat:thread-b": "unrelated-thread",
+        "kimi:thread-a": "kimi-session",
+        "claude-code:thread-a": "claude-session",
+        "kimi:thread-ab": "unrelated-suffix",
+        "kimi:thread-b": "unrelated-thread",
       }),
     );
 
@@ -119,38 +151,38 @@ describe("createPersistentProviderSessionStore", () => {
       {
         version: 1,
         sessions: {
-          "kimi:project:/tmp/project:thread-ab": "unrelated-suffix",
-          "kimi:chat:thread-b": "unrelated-thread",
+          "kimi:thread-ab": "unrelated-suffix",
+          "kimi:thread-b": "unrelated-thread",
         },
       },
     ]);
-    expect(store.get("kimi:project:/tmp/project:thread-a")).toBeUndefined();
-    expect(store.get("kimi:chat:thread-b")).toBe("unrelated-thread");
+    expect(store.get("kimi:thread-a")).toBeUndefined();
+    expect(store.get("kimi:thread-b")).toBe("unrelated-thread");
   });
 
   it("restores provider sessions when a destructive operation rolls back", async () => {
     const saved: ProviderSessionSnapshot[] = [];
-    const key = "kimi:chat:thread-a";
+    const key = "kimi:thread-a";
     const store = createPersistentProviderSessionStore(
       {
         saveProviderSessions: async (nextSnapshot) => {
           saved.push(nextSnapshot);
         },
       },
-      snapshot({ [key]: "session-a", "kimi:chat:thread-b": "session-b" }),
+      snapshot({ [key]: "session-a", "kimi:thread-b": "session-b" }),
     );
 
     const removed = await store.deleteThreads?.(["thread-a"]);
     await store.restoreThreads?.(removed ?? {});
 
     expect(saved.at(-1)).toEqual(
-      snapshot({ [key]: "session-a", "kimi:chat:thread-b": "session-b" }),
+      snapshot({ [key]: "session-a", "kimi:thread-b": "session-b" }),
     );
     expect(store.get(key)).toBe("session-a");
   });
 
   it("keeps memory unchanged when bulk deletion persistence fails", async () => {
-    const key = "kimi:chat:thread-a";
+    const key = "kimi:thread-a";
     const store = createPersistentProviderSessionStore(
       {
         saveProviderSessions: async () => {

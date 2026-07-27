@@ -163,6 +163,11 @@ export interface ChatTurnRequest {
   historyMode?: "continue" | "replace";
 }
 
+export type RuntimeSessionRecovery = {
+  runtimeId: RuntimeId;
+  threadId: string;
+};
+
 type ChatRunEventBase = {
   runId: string;
   requestKey?: string;
@@ -228,6 +233,7 @@ export type ChatRunEvent =
       type: "started";
       threadId: string;
     })
+  | (ChatRunEventBase & { type: "notice"; message: string })
   | (ChatRunEventBase & { type: "delta"; text: string })
   | (ChatRunEventBase & { type: "reasoning"; reasoning: ChatReasoningEventPayload })
   | (ChatRunEventBase & { type: "shell"; shell: ChatShellEventPayload })
@@ -244,7 +250,12 @@ export type ChatRunEvent =
       finishedAt: string;
       writtenFiles?: string[];
     })
-  | (ChatRunEventBase & { type: "failed"; error: string; writtenFiles?: string[] })
+  | (ChatRunEventBase & {
+      type: "failed";
+      error: string;
+      writtenFiles?: string[];
+      runtimeSessionRecovery?: RuntimeSessionRecovery;
+    })
   | (ChatRunEventBase & { type: "stopped"; writtenFiles?: string[] })
   | (ChatRunEventBase & {
       type: "permission-requested";

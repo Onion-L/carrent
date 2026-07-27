@@ -25,6 +25,10 @@ export type UserMessageEditDraft = {
   attachments?: AttachmentMetadata[];
 };
 
+export type RuntimeSessionRetryRequest = NonNullable<
+  Extract<MessagePart, { type: "error" }>["runtimeSessionRecovery"]
+>;
+
 const SKILL_REFERENCE_PATTERN = /\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\)/gu;
 const LEADING_SKILL_REFERENCE_PATTERN = /^\s*(\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\))\s*/u;
 
@@ -455,7 +459,15 @@ export function getAssistantMessagePresentation(
   };
 }
 
-function AssistantMessage({ message, timestamp }: { message: Message; timestamp: string }) {
+function AssistantMessage({
+  message,
+  timestamp,
+  onRemoveRuntimeSessionAndRetry,
+}: {
+  message: Message;
+  timestamp: string;
+  onRemoveRuntimeSessionAndRetry?: (request: RuntimeSessionRetryRequest) => Promise<void> | void;
+}) {
   const content = message.content ?? "";
   const parts = message.type !== "changed_files" ? message.parts : undefined;
   const hasParts = !!parts?.length;
@@ -537,7 +549,15 @@ function AssistantMessage({ message, timestamp }: { message: Message; timestamp:
           ))}
           {presentation.answerText && <MarkdownContent>{presentation.answerText}</MarkdownContent>}
           {errorParts.map((part) => (
-            <ErrorBlock key={part.id} part={part} />
+            <ErrorBlock
+              key={part.id}
+              part={part}
+              onRemoveRuntimeSessionAndRetry={
+                part.runtimeSessionRecovery && onRemoveRuntimeSessionAndRetry
+                  ? () => onRemoveRuntimeSessionAndRetry(part.runtimeSessionRecovery!)
+                  : undefined
+              }
+            />
           ))}
         </div>
       ) : (
@@ -629,10 +649,12 @@ export function MessageTimeline({
   messages,
   threadId,
   onSubmitUserEdit,
+  onRemoveRuntimeSessionAndRetry,
 }: {
   messages: Message[];
   threadId?: string;
   onSubmitUserEdit?: (draft: UserMessageEditDraft) => void;
+  onRemoveRuntimeSessionAndRetry?: (request: RuntimeSessionRetryRequest) => Promise<void> | void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -733,7 +755,11 @@ export function MessageTimeline({
 
               return (
                 <div key={msg.id} className="px-6 py-4">
-                  <AssistantMessage message={msg} timestamp={msg.timestamp} />
+                  <AssistantMessage
+                    message={msg}
+                    timestamp={msg.timestamp}
+                    onRemoveRuntimeSessionAndRetry={onRemoveRuntimeSessionAndRetry}
+                  />
                 </div>
               );
             })}

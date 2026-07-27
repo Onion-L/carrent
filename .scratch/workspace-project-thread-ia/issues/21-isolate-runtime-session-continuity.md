@@ -4,7 +4,7 @@
 
 **Blocked by:** 15 — 从 Association Draft 创建 Thread
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Runtime Session 映射键固定为 Runtime ID + 全局唯一 Thread ID，不包含 Workspace、Project 或目录路径。
 - [ ] 同一 Thread 可以为不同 Runtime 保存独立映射，切换 Runtime 不改变 Thread 身份或历史。

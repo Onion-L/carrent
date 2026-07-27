@@ -34,14 +34,14 @@ describe("getThreadRuntimeSessionId", () => {
   const snapshot = {
     version: 1,
     sessions: {
-      "kimi:project:/tmp/carrent:thread-1": "kimi-session",
-      "codex:project:/tmp/carrent:thread-1": "codex-session",
+      "kimi:thread-1": "kimi-session",
+      "codex:thread-1": "codex-session",
     },
   } satisfies ProviderSessionSnapshot;
 
   it("uses the thread's selected runtime", () => {
     expect(
-      getThreadRuntimeSessionId(snapshot, "/tmp/carrent", {
+      getThreadRuntimeSessionId(snapshot, {
         id: "thread-1",
         title: "Test",
         updatedAt: "now",
@@ -52,7 +52,7 @@ describe("getThreadRuntimeSessionId", () => {
 
   it("uses Kimi for threads without a persisted runtime", () => {
     expect(
-      getThreadRuntimeSessionId(snapshot, "/tmp/carrent", {
+      getThreadRuntimeSessionId(snapshot, {
         id: "thread-1",
         title: "Test",
         updatedAt: "now",

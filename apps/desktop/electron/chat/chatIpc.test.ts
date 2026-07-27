@@ -33,6 +33,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
@@ -48,9 +49,39 @@ describe("registerChatIpc", () => {
       "chat:kimi-status",
       "chat:permission-response",
       "chat:question-response",
+      "chat:remove-runtime-session",
       "chat:send",
       "chat:stop",
     ]);
+  });
+
+  it("validates and forwards Runtime Session removal", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const removed: unknown[] = [];
+    registerChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          removeRuntimeSession: async (request) => {
+            removed.push(request);
+          },
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
+          getStatus: async () => null,
+        },
+      },
+    );
+
+    await handlers.get("chat:remove-runtime-session")?.(
+      {},
+      { runtimeId: "kimi", threadId: "thread-1" },
+    );
+
+    expect(removed).toEqual([{ runtimeId: "kimi", threadId: "thread-1" }]);
   });
 
   it("validates and forwards thread data deletion", async () => {
@@ -63,6 +94,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async (request) => {
             deleted.push(request);
           },
@@ -108,6 +140,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
@@ -181,6 +214,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async (request) => {
             deleted.push(request);
           },
@@ -232,6 +266,7 @@ describe("registerChatIpc", () => {
             started.push({ runId, request });
           },
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
@@ -258,6 +293,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: (runId, request) => started.push({ runId, request }),
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
@@ -298,6 +334,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: (...args) => started.push(args),
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
@@ -333,6 +370,7 @@ describe("registerChatIpc", () => {
             started.push({ runId, request });
           },
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
@@ -380,6 +418,7 @@ describe("registerChatIpc", () => {
               started.push({ runId, request });
             },
             stop: () => {},
+            removeRuntimeSession: async () => {},
             deleteThreadData: async () => {},
             respondToPermission: () => {},
             respondToQuestion: () => {},
@@ -511,6 +550,7 @@ describe("registerChatIpc", () => {
             started.push({ runId, request });
           },
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
@@ -547,6 +587,7 @@ describe("registerChatIpc", () => {
           stop: (runId) => {
             stopped.push(runId);
           },
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
@@ -573,6 +614,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
@@ -608,6 +650,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
@@ -648,6 +691,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: (response) => responses.push(response),
           respondToQuestion: () => {},
@@ -689,6 +733,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: (response) => responses.push(response),
@@ -736,6 +781,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: (response) => responses.push(response),
@@ -777,6 +823,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: (response) => responses.push(response),
@@ -816,6 +863,7 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
+          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: (response) => responses.push(response),

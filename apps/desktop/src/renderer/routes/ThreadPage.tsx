@@ -11,6 +11,7 @@ import {
 import {
   EmptyThreadPrompt,
   MessageTimeline,
+  type RuntimeSessionRetryRequest,
   type UserMessageEditDraft,
 } from "../components/chat/MessageTimeline";
 import {
@@ -159,6 +160,37 @@ function ThreadPageContent() {
         messageId: draft.messageId,
         content: draft.content,
         attachments: draft.attachments,
+        requestId: Date.now(),
+      },
+    });
+  };
+
+  const handleRuntimeSessionRetry = async (request: RuntimeSessionRetryRequest) => {
+    if (!routeData) return;
+    const userMessage = routeData.messages.find(
+      (message) => message.id === request.userMessageId && message.role === "user",
+    );
+    if (!userMessage || userMessage.role !== "user") {
+      showToast("The original request is unavailable.", "error");
+      return;
+    }
+
+    try {
+      await window.carrent.chat.removeRuntimeSession({
+        runtimeId: request.runtimeId,
+        threadId: request.threadId,
+      });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error), "error");
+      return;
+    }
+
+    setSubmitRequest({
+      threadId: request.threadId,
+      request: {
+        messageId: userMessage.id,
+        content: userMessage.content,
+        attachments: userMessage.attachments,
         requestId: Date.now(),
       },
     });
@@ -333,6 +365,7 @@ function ThreadPageContent() {
               messages={routeData?.messages ?? []}
               threadId={routeData?.thread.id}
               onSubmitUserEdit={handleSubmitUserEdit}
+              onRemoveRuntimeSessionAndRetry={handleRuntimeSessionRetry}
             />
             {composer}
           </>

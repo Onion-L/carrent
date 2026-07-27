@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { DEFAULT_RUNTIME_ID } from "../../../shared/runtimes";
+import { buildProviderSessionKey } from "../../../shared/providerSessions";
 import type { ProviderSessionSnapshot } from "../../../shared/workspacePersistence";
 import { useAppState } from "../../context/AppStateContext";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -59,11 +60,10 @@ export function getThreadContextMenuPosition(
 
 export function getThreadRuntimeSessionId(
   snapshot: ProviderSessionSnapshot,
-  projectPath: string,
   thread: ThreadRecord,
 ) {
   const runtimeId = thread.runtimeId ?? DEFAULT_RUNTIME_ID;
-  return snapshot.sessions[`${runtimeId}:project:${projectPath}:${thread.id}`] ?? null;
+  return snapshot.sessions[buildProviderSessionKey(runtimeId, thread.id)] ?? null;
 }
 
 export function ThreadContextMenu({
@@ -304,7 +304,7 @@ export function ThreadHistoryPane() {
     void window.carrent.providerSessions
       .load()
       .then((snapshot) => {
-        const sessionId = getThreadRuntimeSessionId(snapshot, selectedProject.path, thread);
+        const sessionId = getThreadRuntimeSessionId(snapshot, thread);
         setThreadContextMenu((current) =>
           current?.threadId === thread.id ? { ...current, sessionId } : current,
         );

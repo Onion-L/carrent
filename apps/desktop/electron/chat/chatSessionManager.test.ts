@@ -2168,9 +2168,143 @@ describe("createChatSessionManager", () => {
     expect(emitted.filter((event) => event.type === "failed")).toHaveLength(0);
   });
 
-  it("falls back to a new Kimi ACP session when persisted resume fails", async () => {
+  it("keys Kimi sessions only by runtime and globally unique thread id", async () => {
+    const storedSessions = new Map<string, string>();
+    const sessionWrites: Array<{ key: string; sessionId: string }> = [];
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "session-thread-1" });
+        return;
+      }
+      if (message.method === "session/resume") {
+        respondAcp(transport, message, { configOptions: [] });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Done" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: {
+        get: (key) => storedSessions.get(key),
+        set: (key, sessionId) => {
+          sessionWrites.push({ key, sessionId });
+          storedSessions.set(key, sessionId);
+        },
+      },
+    });
+
+    manager.start(
+      "run-kimi-original-path",
+      makeRequest({
+        runtimeId: "kimi",
+        workspace: {
+          kind: "project",
+          workspaceId: "workspace-a",
+          projectId: "project-a",
+          projectPath: "/tmp/original",
+        },
+      }),
+    );
+    await waitForAsyncEvents();
+    manager.start(
+      "run-kimi-relocated-path",
+      makeRequest({
+        runtimeId: "kimi",
+        workspace: {
+          kind: "project",
+          workspaceId: "workspace-b",
+          projectId: "project-b",
+          projectPath: "/tmp/relocated",
+        },
+      }),
+    );
+    await waitForAsyncEvents();
+
+    expect(sessionWrites.map((write) => write.key)).toEqual([
+      "kimi:thread-1",
+      "kimi:thread-1",
+    ]);
+    expect(transports[1]?.sent[1]).toMatchObject({
+      method: "session/resume",
+      params: { sessionId: "session-thread-1" },
+    });
+  });
+
+  it("continues with a fresh Kimi session and emits one notice for an invalid mapping", async () => {
     const emitted: ChatRunEvent[] = [];
-    const sessionKey = "kimi:project:/Users/onion/workbench/timbre:thread-1";
+    let invalidMapping = true;
+    const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(transport, message, { sessionId: "fresh-session" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(transport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Fresh result" },
+          });
+          respondAcp(transport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: {
+        get: () => undefined,
+        consumeInvalidMappingNotice: () => {
+          const result = invalidMapping;
+          invalidMapping = false;
+          return result;
+        },
+        set: () => {},
+      },
+    });
+
+    manager.start("run-kimi-invalid-mapping", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    expect(emitted.filter((event) => event.type === "notice")).toEqual([
+      {
+        type: "notice",
+        runId: "run-kimi-invalid-mapping",
+        requestKey: undefined,
+        message: "Invalid Runtime Session mapping was removed. A new session was started.",
+      },
+    ]);
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Fresh result",
+    });
+  });
+
+  it("fails a Kimi run without replaying the prompt when persisted resume is rejected", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const sessionKey = "kimi:thread-1";
     const persistedSessions = new Map([[sessionKey, "stale-session"]]);
     const deletedSessions: Array<{ key: string; sessionId?: string }> = [];
     const sessionSets: Array<{ key: string; sessionId: string }> = [];
@@ -2229,27 +2363,80 @@ describe("createChatSessionManager", () => {
       transports[0]?.sent
         .filter((message) => typeof message.method === "string")
         .map((message) => message.method),
-    ).toEqual(["initialize", "session/resume", "session/new", "session/prompt"]);
+    ).toEqual(["initialize", "session/resume"]);
     expect(transports[0]?.sent[1]).toMatchObject({
       method: "session/resume",
       params: { sessionId: "stale-session" },
     });
-    expect(transports[0]?.sent[3]).toMatchObject({
-      method: "session/prompt",
-      params: { sessionId: "fresh-session" },
+    expect(deletedSessions).toEqual([]);
+    expect(sessionSets).toEqual([]);
+    expect(persistedSessions.get(sessionKey)).toBe("stale-session");
+    expect(emitted.find((event) => event.type === "failed")).toMatchObject({
+      type: "failed",
+      runtimeSessionRecovery: { runtimeId: "kimi", threadId: "thread-1" },
     });
-    expect(deletedSessions).toEqual([{ key: sessionKey, sessionId: "stale-session" }]);
-    expect(sessionSets).toEqual([{ key: sessionKey, sessionId: "fresh-session" }]);
-    expect(persistedSessions.get(sessionKey)).toBe("fresh-session");
-    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
-      type: "completed",
-      text: "Recovered",
+  });
+
+  it("removes only the requested runtime and thread session before a user retry", async () => {
+    const sessions = new Map([
+      ["kimi:thread-1", "stale-session"],
+      ["claude-code:thread-1", "claude-session"],
+      ["kimi:thread-2", "other-thread-session"],
+    ]);
+    const deleted: Array<{ key: string; sessionId?: string }> = [];
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => createMockChildProcess(),
+      providerSessions: {
+        get: (key) => sessions.get(key),
+        set: (key, sessionId) => {
+          sessions.set(key, sessionId);
+        },
+        delete: (key, sessionId) => {
+          deleted.push({ key, sessionId });
+          if (!sessionId || sessions.get(key) === sessionId) {
+            sessions.delete(key);
+          }
+        },
+      },
     });
+
+    await manager.removeRuntimeSession({ runtimeId: "kimi", threadId: "thread-1" });
+
+    expect(deleted).toEqual([{ key: "kimi:thread-1", sessionId: "stale-session" }]);
+    expect(sessions).toEqual(
+      new Map([
+        ["claude-code:thread-1", "claude-session"],
+        ["kimi:thread-2", "other-thread-session"],
+      ]),
+    );
+  });
+
+  it("rejects Runtime Session recovery when persisted cleanup is unavailable", async () => {
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => createMockChildProcess(),
+      providerSessions: {
+        get: () => "stale-session",
+        set: () => {},
+      },
+    });
+
+    let error: unknown;
+    try {
+      await manager.removeRuntimeSession({ runtimeId: "kimi", threadId: "thread-1" });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error instanceof Error ? error.message : String(error)).toBe(
+      "Runtime Session cleanup is unavailable.",
+    );
   });
 
   it("deletes the old persisted session and starts a fresh one for replacement runs", async () => {
     const emitted: ChatRunEvent[] = [];
-    const sessionKey = "kimi:project:/Users/onion/workbench/timbre:thread-1";
+    const sessionKey = "kimi:thread-1";
     const persistedSessions = new Map([[sessionKey, "old-session"]]);
     const deletedSessions: Array<{ key: string; sessionId?: string }> = [];
     const sessionSets: Array<{ key: string; sessionId: string }> = [];
@@ -2484,7 +2671,7 @@ describe("createChatSessionManager", () => {
     expect(transports[1]?.sent[1]?.method).toBe("session/new");
     expect(sessionSets).toEqual([
       {
-        key: "kimi:project:/Users/onion/workbench/timbre:thread-1",
+        key: "kimi:thread-1",
         sessionId: "kimi-session-2",
       },
     ]);
@@ -2718,7 +2905,7 @@ describe("createChatSessionManager", () => {
     expect(spawnCalls[0]?.options.cwd).toContain("carrent-chat");
   });
 
-  it("separates provider session keys for project and chat scopes", async () => {
+  it("keeps provider session keys stable across workspace scopes for the same thread", async () => {
     const project = makeRequest({
       workspace: {
         kind: "project",
@@ -2780,7 +2967,10 @@ describe("createChatSessionManager", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(sessionSets).toHaveLength(2);
-    expect(sessionSets[0].key).not.toBe(sessionSets[1].key);
+    expect(sessionSets.map((session) => session.key)).toEqual([
+      "claude-code:thread-1",
+      "claude-code:thread-1",
+    ]);
   });
 
   it("normalizes non-zero exit with stderr", async () => {
@@ -3477,13 +3667,12 @@ describe("createChatSessionManager", () => {
     expect(spawnCalls[1]).not.toContain("sess-failed");
   });
 
-  it("retries claude with transcript when resume fails", async () => {
+  it("fails claude without replaying the request when resume fails", async () => {
     const firstChild = createMockChildProcess();
     const resumedChild = createMockChildProcess();
-    const retryChild = createMockChildProcess();
     const emitted: ChatRunEvent[] = [];
     const spawnCalls: string[][] = [];
-    const children = [firstChild, resumedChild, retryChild];
+    const children = [firstChild, resumedChild];
 
     const manager = createChatSessionManager({
       emit: (evt) => emitted.push(evt),
@@ -3523,31 +3712,40 @@ describe("createChatSessionManager", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    retryChild.stdout.emit(
-      "data",
-      Buffer.from('{"type":"system","subtype":"init","session_id":"sess-new"}\n'),
-    );
-    retryChild.stdout.emit(
-      "data",
-      Buffer.from(
-        '{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Recovered"}}}\n',
-      ),
-    );
-    retryChild.emit("close", 0, null);
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    expect(spawnCalls).toHaveLength(3);
+    expect(spawnCalls).toHaveLength(2);
     expect(spawnCalls[1]).toContain("--resume");
     expect(spawnCalls[1]).toContain("sess-old");
     expect(spawnCalls[1].join("\n")).not.toContain("Earlier question");
-    expect(spawnCalls[2]).not.toContain("--resume");
-    expect(spawnCalls[2].join("\n")).toContain("Earlier question");
-    expect(emitted.find((event) => event.type === "failed")).toBeUndefined();
-    expect(emitted.filter((event) => event.type === "completed").at(-1)).toMatchObject({
-      type: "completed",
-      text: "Recovered",
+    expect(emitted.find((event) => event.type === "failed")).toMatchObject({
+      type: "failed",
+      runtimeSessionRecovery: { runtimeId: "claude-code", threadId: "thread-1" },
     });
+  });
+
+  it("does not offer Runtime Session removal for an unrelated claude failure", async () => {
+    const child = createMockChildProcess();
+    const emitted: ChatRunEvent[] = [];
+    const manager = createChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => child,
+      providerSessions: {
+        get: () => "session-valid",
+        set: () => {},
+      },
+    });
+
+    manager.start("run-claude-auth-failure", makeRequest({ runtimeId: "claude-code" }));
+    child.stderr.emit("data", Buffer.from("Authentication failed"));
+    child.emit("close", 1, null);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(emitted.find((event) => event.type === "failed")).toMatchObject({
+      type: "failed",
+      error: "Runtime returned an error: Authentication failed",
+    });
+    expect(
+      emitted.find((event) => event.type === "failed")?.runtimeSessionRecovery,
+    ).toBeUndefined();
   });
 
   it("uses claude final assistant text when partial deltas are absent", async () => {
@@ -3612,7 +3810,7 @@ describe("createChatSessionManager", () => {
 
     expect(sessionSets).toHaveLength(1);
     expect(sessionSets[0]).toEqual({
-      key: "claude-code:project:/Users/onion/workbench/timbre:thread-1",
+      key: "claude-code:thread-1",
       sessionId: "sess-persist-1",
     });
   });
@@ -3942,9 +4140,9 @@ describe("createChatSessionManager", () => {
     const secondChild = createMockChildProcess();
     const children = [firstChild, secondChild];
     const providerSessions = new Map([
-      ["kimi:project:/tmp/project:thread-1", "kimi-session"],
-      ["claude-code:chat:thread-1", "claude-session"],
-      ["kimi:chat:thread-2", "unrelated-session"],
+      ["kimi:thread-1", "kimi-session"],
+      ["claude-code:thread-1", "claude-session"],
+      ["kimi:thread-2", "unrelated-session"],
     ]);
     const manager = createChatSessionManager({
       emit: () => {},
@@ -3987,14 +4185,14 @@ describe("createChatSessionManager", () => {
     expect(firstChild.killed).toBe(true);
     expect(secondChild.killed).toBe(false);
     expect(deletedProviderThreads).toEqual([["thread-1"]]);
-    expect(providerSessions.has("kimi:project:/tmp/project:thread-1")).toBe(false);
-    expect(providerSessions.has("claude-code:chat:thread-1")).toBe(false);
-    expect(providerSessions.get("kimi:chat:thread-2")).toBe("unrelated-session");
+    expect(providerSessions.has("kimi:thread-1")).toBe(false);
+    expect(providerSessions.has("claude-code:thread-1")).toBe(false);
+    expect(providerSessions.get("kimi:thread-2")).toBe("unrelated-session");
     expect(deletedAttachments).toEqual([["attachment.png"]]);
   });
 
   it("rolls a completed thread data deletion back before its transaction commits", async () => {
-    const key = "kimi:project:/tmp/project:thread-1";
+    const key = "kimi:thread-1";
     const providerSessions = new Map([[key, "session-1"]]);
     const manager = createChatSessionManager({
       emit: () => {},
@@ -4033,7 +4231,7 @@ describe("createChatSessionManager", () => {
   });
 
   it("restores provider sessions when attachment cleanup fails", async () => {
-    const key = "kimi:project:/tmp/project:thread-1";
+    const key = "kimi:thread-1";
     const providerSessions = new Map([[key, "session-1"]]);
     const manager = createChatSessionManager({
       emit: () => {},
@@ -4089,7 +4287,7 @@ describe("createChatSessionManager", () => {
   });
 
   it("retries provider session restoration after attachment cleanup fails", async () => {
-    const key = "kimi:project:/tmp/project:thread-1";
+    const key = "kimi:thread-1";
     const providerSessions = new Map([[key, "session-1"]]);
     let restoreAttempts = 0;
     const manager = createChatSessionManager({

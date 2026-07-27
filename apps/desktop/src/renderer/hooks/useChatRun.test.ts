@@ -33,6 +33,44 @@ describe("createChatRunCoordinator", () => {
     expect(coordinator.getSnapshot().isSending).toBe(false);
   });
 
+  it("routes a runtime session notice without ending the run", () => {
+    const notices: string[] = [];
+    const coordinator = createChatRunCoordinator();
+    coordinator.beginRequest("request-1", "thread-1", {
+      onNotice: (message) => notices.push(message),
+    });
+
+    coordinator.handleEvent({
+      type: "notice",
+      requestKey: "request-1",
+      runId: "run-1",
+      message: "Invalid Runtime Session mapping was removed. A new session was started.",
+    } satisfies ChatRunEvent);
+
+    expect(notices).toEqual([
+      "Invalid Runtime Session mapping was removed. A new session was started.",
+    ]);
+    expect(coordinator.getSnapshot().isSending).toBe(true);
+  });
+
+  it("forwards Runtime Session recovery details with a failed run", () => {
+    const recoveries: unknown[] = [];
+    const coordinator = createChatRunCoordinator();
+    coordinator.beginRequest("request-1", "thread-1", {
+      onError: (_error, _runId, _writtenFiles, recovery) => recoveries.push(recovery),
+    });
+
+    coordinator.handleEvent({
+      type: "failed",
+      requestKey: "request-1",
+      runId: "run-1",
+      error: "Session not found",
+      runtimeSessionRecovery: { runtimeId: "kimi", threadId: "thread-1" },
+    } satisfies ChatRunEvent);
+
+    expect(recoveries).toEqual([{ runtimeId: "kimi", threadId: "thread-1" }]);
+  });
+
   it("ignores events from a different request", () => {
     const received: string[] = [];
     const coordinator = createChatRunCoordinator();

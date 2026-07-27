@@ -380,4 +380,24 @@ describe("ErrorBlock", () => {
     expect(markup).toContain("Kimi Code declined the request (provider refusal).");
     expect(markup).toContain("text-danger");
   });
+
+  it("offers explicit Runtime Session removal and retry for resume failures", () => {
+    const markup = renderToStaticMarkup(
+      createElement(ErrorBlock, {
+        part: {
+          type: "error",
+          id: "error-1",
+          message: "Kimi Code could not resume the Runtime Session.",
+          runtimeSessionRecovery: {
+            runtimeId: "kimi",
+            threadId: "thread-1",
+            userMessageId: "message-1",
+          },
+        },
+        onRemoveRuntimeSessionAndRetry: () => {},
+      }),
+    );
+
+    expect(markup).toContain("Remove Runtime Session and retry");
+  });
 });

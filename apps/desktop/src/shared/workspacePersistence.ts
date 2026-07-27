@@ -1133,9 +1133,7 @@ export function normalizeProviderSessionSnapshot(value: unknown): ProviderSessio
 
   const sessions: Record<string, string> = {};
   for (const [key, sessionId] of Object.entries(value.sessions)) {
-    if (typeof sessionId === "string") {
-      sessions[key] = sessionId;
-    }
+    sessions[key] = typeof sessionId === "string" ? sessionId : "";
   }
 
   return { version: 1, sessions };

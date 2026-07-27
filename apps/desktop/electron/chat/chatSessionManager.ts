@@ -8,6 +8,7 @@ import type {
   ChatRunEvent,
   Attachment,
   DeleteThreadDataRequest,
+  RuntimeSessionRecovery,
   ThreadDataDeletionReceipt,
 } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
@@ -26,6 +27,7 @@ import { startQuestionMcpServer, type QuestionMcpServerFactory } from "./questio
 import { getClaudeRuntimeModeArgs, getCodexRuntimeModeArgs } from "../../src/shared/runtimeMode";
 import { extractClaudePermissionRequest } from "./providerPermissionProtocol";
 import type { AttachmentStore } from "../attachments/attachmentStore";
+import { buildProviderSessionKey } from "../../src/shared/providerSessions";
 
 interface ChatSession {
   runId: string;
@@ -53,6 +55,7 @@ export interface ChatSessionManager {
   start: (runId: string, request: ChatTurnRequest) => void;
   stop: (runId: string) => void;
   shutdown: () => void;
+  removeRuntimeSession: (request: RuntimeSessionRecovery) => Promise<void>;
   deleteThreadData: (request: DeleteThreadDataRequest) => Promise<ThreadDataDeletionReceipt | void>;
   rollbackThreadDataDeletion?: (receipt: ThreadDataDeletionReceipt) => Promise<void>;
   respondToPermission: (response: ChatPermissionResponse) => void;
@@ -637,10 +640,18 @@ function resolveRequestCwd(request: ChatTurnRequest) {
 }
 
 function buildRequestSessionKey(request: ChatTurnRequest) {
-  const scope =
-    request.workspace.kind === "project" ? `project:${request.workspace.projectPath}` : "chat";
+  return buildProviderSessionKey(request.runtimeId, request.threadId);
+}
 
-  return `${request.runtimeId}:${scope}:${request.threadId}`;
+function isRuntimeSessionResumeRejection(error: string) {
+  const normalized = error.toLowerCase();
+  return (
+    /(?:could not|failed to|unable to|refused to) resume/u.test(normalized) ||
+    /(?:session|conversation).*(?:not found|does not exist|no longer exists|invalid)/u.test(
+      normalized,
+    ) ||
+    /(?:not found|does not exist).*(?:session|conversation)/u.test(normalized)
+  );
 }
 
 function getSessionRuntimeCommand(
@@ -703,6 +714,7 @@ function getSessionRuntimeCommand(
 
 export type ProviderSessionStore = {
   get: (key: string) => string | undefined;
+  consumeInvalidMappingNotice?: (key: string) => boolean;
   set: (key: string, sessionId: string) => void | Promise<void>;
   delete?: (key: string, sessionId?: string) => void | Promise<void>;
   deleteThreads?: (
@@ -742,6 +754,24 @@ export function createChatSessionManager(options: {
     return { ...request, attachments };
   }
 
+  function getResumeSessionId(runId: string, request: ChatTurnRequest, key: string) {
+    const inMemorySessionId = runtimeSessions.get(key);
+    if (inMemorySessionId) {
+      return inMemorySessionId;
+    }
+
+    const persistedSessionId = options.providerSessions?.get(key);
+    if (options.providerSessions?.consumeInvalidMappingNotice?.(key)) {
+      options.emit({
+        type: "notice",
+        runId,
+        requestKey: request.requestKey,
+        message: "Invalid Runtime Session mapping was removed. A new session was started.",
+      });
+    }
+    return persistedSessionId ?? null;
+  }
+
   function start(runId: string, request: ChatTurnRequest) {
     if (deletedThreadIds.has(request.threadId)) {
       options.emit({
@@ -771,10 +801,11 @@ export function createChatSessionManager(options: {
 
       void (async () => {
         try {
-          let resumeSessionId: string | null =
-            runtimeSessions.get(requestSessionKey) ??
-            options.providerSessions?.get(requestSessionKey) ??
-            null;
+          let resumeSessionId: string | null = getResumeSessionId(
+            runId,
+            requestWithAttachments,
+            requestSessionKey,
+          );
 
           if (requestWithAttachments.historyMode === "replace") {
             const oldSessionId = resumeSessionId;
@@ -813,12 +844,6 @@ export function createChatSessionManager(options: {
             questionServerFactory,
             attachmentStoreRoot: options.attachmentStore?.resolveRoot(),
             resumeSessionId,
-            onInvalidSession: async (sessionId) => {
-              if (runtimeSessions.get(requestSessionKey) === sessionId) {
-                runtimeSessions.delete(requestSessionKey);
-              }
-              await options.providerSessions?.delete?.(requestSessionKey, sessionId);
-            },
             onCompletedSession: async (sessionId) => {
               if (deletedThreadIds.has(requestWithAttachments.threadId)) {
                 return;
@@ -877,9 +902,7 @@ export function createChatSessionManager(options: {
     const requestSessionKey = buildRequestSessionKey(requestWithAttachments);
     const resumeSessionId =
       requestWithAttachments.runtimeId === "claude-code"
-        ? (runtimeSessions.get(requestSessionKey) ??
-          options.providerSessions?.get(requestSessionKey) ??
-          null)
+        ? getResumeSessionId(runId, requestWithAttachments, requestSessionKey)
         : null;
 
     spawnAttempt({
@@ -888,7 +911,6 @@ export function createChatSessionManager(options: {
       requestSessionKey,
       resumeSessionId,
       includeTranscript: !(requestWithAttachments.runtimeId === "claude-code" && resumeSessionId),
-      allowResumeFallback: requestWithAttachments.runtimeId === "claude-code" && !!resumeSessionId,
       emitLifecycleEvents: true,
     });
   }
@@ -899,7 +921,6 @@ export function createChatSessionManager(options: {
     requestSessionKey,
     resumeSessionId,
     includeTranscript,
-    allowResumeFallback,
     emitLifecycleEvents,
   }: {
     runId: string;
@@ -907,7 +928,6 @@ export function createChatSessionManager(options: {
     requestSessionKey: string;
     resumeSessionId: string | null;
     includeTranscript: boolean;
-    allowResumeFallback: boolean;
     emitLifecycleEvents: boolean;
   }) {
     let command: string;
@@ -1134,20 +1154,6 @@ export function createChatSessionManager(options: {
       }
 
       if (code !== 0) {
-        if (allowResumeFallback) {
-          runtimeSessions.delete(requestSessionKey);
-          spawnAttempt({
-            runId,
-            request,
-            requestSessionKey,
-            resumeSessionId: null,
-            includeTranscript: true,
-            allowResumeFallback: false,
-            emitLifecycleEvents: false,
-          });
-          return;
-        }
-
         const stderr = session.stderr.trim();
         const error = stderr
           ? `Runtime returned an error: ${stderr}`
@@ -1158,6 +1164,14 @@ export function createChatSessionManager(options: {
           requestKey: request.requestKey,
           error,
           writtenFiles: currentWrittenFiles(),
+          ...(resumeSessionId && isRuntimeSessionResumeRejection(stderr)
+            ? {
+                runtimeSessionRecovery: {
+                  runtimeId: request.runtimeId,
+                  threadId: request.threadId,
+                },
+              }
+            : {}),
         });
         return;
       }
@@ -1471,10 +1485,29 @@ export function createChatSessionManager(options: {
     }
   }
 
+  async function removeRuntimeSession(request: RuntimeSessionRecovery) {
+    if (options.providerSessions && !options.providerSessions.delete) {
+      throw new Error("Runtime Session cleanup is unavailable.");
+    }
+    const key = buildProviderSessionKey(request.runtimeId, request.threadId);
+    const inMemorySessionId = runtimeSessions.get(key);
+    const sessionId = inMemorySessionId ?? options.providerSessions?.get(key);
+    runtimeSessions.delete(key);
+    try {
+      await options.providerSessions?.delete?.(key, sessionId);
+    } catch (error) {
+      if (inMemorySessionId) {
+        runtimeSessions.set(key, inMemorySessionId);
+      }
+      throw error;
+    }
+  }
+
   return {
     start,
     stop,
     shutdown,
+    removeRuntimeSession,
     deleteThreadData,
     rollbackThreadDataDeletion,
     respondToPermission,

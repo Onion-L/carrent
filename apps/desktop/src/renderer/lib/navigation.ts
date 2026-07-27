@@ -32,7 +32,10 @@ export function getWorkspaceRestorePath(
   lastThreadIdByWorkspace: Record<string, string>,
 ) {
   const thread = threads.find(
-    (item) => item.id === lastThreadIdByWorkspace[workspaceId] && item.workspaceId === workspaceId,
+    (item) =>
+      item.id === lastThreadIdByWorkspace[workspaceId] &&
+      item.workspaceId === workspaceId &&
+      !item.archived,
   );
   return thread
     ? buildThreadPath(workspaceId, thread.projectId, thread.id)
@@ -84,7 +87,10 @@ export function resolveThreeLevelRoute(
   const threadId = parts[5] === "thread" ? parts[6] : undefined;
   const thread = state.threads.find(
     (item) =>
-      item.id === threadId && item.workspaceId === workspaceId && item.projectId === projectId,
+      item.id === threadId &&
+      item.workspaceId === workspaceId &&
+      item.projectId === projectId &&
+      !item.archived,
   );
   if (parts.length !== 7 || !threadId || !thread) {
     return {

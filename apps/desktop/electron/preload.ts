@@ -3,6 +3,7 @@ import type {
   ChatTurnRequest,
   ChatRunEvent,
   DeleteThreadDataRequest,
+  ThreadDeletionTransactionRequest,
   AttachmentMetadata,
 } from "../src/shared/chat";
 import type { ChatPermissionResponse } from "../src/shared/chatPermissions";
@@ -49,6 +50,8 @@ const carrent = {
     stop: (runId: string) => ipcRenderer.invoke("chat:stop", runId) as Promise<void>,
     deleteThreadData: (request: DeleteThreadDataRequest) =>
       ipcRenderer.invoke("chat:delete-thread-data", request) as Promise<void>,
+    deleteThreadTransaction: (request: ThreadDeletionTransactionRequest) =>
+      ipcRenderer.invoke("chat:delete-thread-transaction", request) as Promise<void>,
     respondToPermission: (response: ChatPermissionResponse) =>
       ipcRenderer.invoke("chat:permission-response", response) as Promise<void>,
     respondToQuestion: (response: ChatQuestionResponse) =>

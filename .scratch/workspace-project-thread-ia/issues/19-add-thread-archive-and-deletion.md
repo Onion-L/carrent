@@ -4,7 +4,7 @@
 
 **Blocked by:** 16 — 完成三层导航与位置恢复
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 只有空闲且无排队消息的 Thread 可归档；同一 Thread 有 live Run 时归档入口被阻止。
 - [ ] 归档保留 Thread 身份、标题、历史、附件、未发送 composer state、运行配置、Runtime Session、Rewind 数据、置顶和 Thread Activity Time。

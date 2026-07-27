@@ -3,6 +3,7 @@ import type { RuntimeMode } from "./runtimeMode";
 import type { ChatPermissionOptionKind, ChatPermissionRequest } from "./chatPermissions";
 import type { ChatQuestionRequest } from "./chatQuestions";
 import type { RunChecklistSnapshot } from "./runChecklist";
+import type { AppStateSnapshot, WorkspaceSnapshot } from "./workspacePersistence";
 
 export const DEFAULT_CHAT_RUNTIME_ID: RuntimeId = DEFAULT_RUNTIME_ID;
 
@@ -37,6 +38,20 @@ export type KimiSessionStatus = {
 export type DeleteThreadDataRequest = {
   threadIds: string[];
   attachmentStorageKeys: string[];
+};
+
+export type ThreadDataDeletionReceipt = {
+  threadIds: string[];
+  removedProviderSessions: Record<string, string>;
+  detachedRuntimeSessions: Record<string, string>;
+};
+
+export type ThreadDeletionTransactionRequest = {
+  beforeAppState: AppStateSnapshot;
+  afterAppState: AppStateSnapshot;
+  beforeWorkspace: WorkspaceSnapshot;
+  afterWorkspace: WorkspaceSnapshot;
+  threadData: DeleteThreadDataRequest;
 };
 
 export interface ChatTurnRequest {

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { getLastWorkspaceSnapshot, registerWorkspaceIpc } from "./workspaceIpc";
+import {
+  getLastWorkspaceSnapshot,
+  registerWorkspaceIpc,
+  setWorkspaceTransactionActive,
+} from "./workspaceIpc";
 import type {
   WorkspaceSnapshot,
   ProviderSessionSnapshot,
@@ -133,6 +137,74 @@ describe("registerWorkspaceIpc", () => {
     expect(saved).toHaveLength(1);
     expect(saved[0]).toEqual(snapshot);
     expect(getLastWorkspaceSnapshot()).toEqual(snapshot);
+  });
+
+  it("does not replace the shutdown snapshot when workspace:save fails", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const listeners = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const before: WorkspaceSnapshot = {
+      version: 1,
+      projects: [{ id: "p1", name: "P1", path: "/tmp/p1", threads: [] }],
+      chats: [],
+      messages: [],
+      activeThreadId: null,
+    };
+    const after: WorkspaceSnapshot = { ...before, projects: [] };
+
+    registerWorkspaceIpc(
+      {
+        handle: (channel, listener) => handlers.set(channel, listener),
+        on: (channel, listener) => listeners.set(channel, listener),
+      },
+      createWorkspaceStoreStub({
+        saveWorkspaceSnapshot: async () => {
+          throw new Error("disk full");
+        },
+      }),
+    );
+    listeners.get("workspace:remember")?.({}, before);
+
+    let saveError: unknown;
+    try {
+      await handlers.get("workspace:save")?.({}, after);
+    } catch (error) {
+      saveError = error;
+    }
+    expect(String(saveError)).toContain("disk full");
+    expect(getLastWorkspaceSnapshot()).toEqual(before);
+  });
+
+  it("blocks independent snapshot writes during a Thread deletion transaction", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const saved: WorkspaceSnapshot[] = [];
+    const snapshot: WorkspaceSnapshot = {
+      version: 1,
+      projects: [],
+      chats: [],
+      messages: [],
+      activeThreadId: null,
+    };
+    registerWorkspaceIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener), on() {} },
+      createWorkspaceStoreStub({
+        saveWorkspaceSnapshot: async (next) => {
+          saved.push(next);
+        },
+      }),
+    );
+
+    setWorkspaceTransactionActive(true);
+    let saveError: unknown;
+    try {
+      await handlers.get("workspace:save")?.({}, snapshot);
+    } catch (error) {
+      saveError = error;
+    } finally {
+      setWorkspaceTransactionActive(false);
+    }
+
+    expect(String(saveError)).toContain("Thread deletion is in progress");
+    expect(saved).toHaveLength(0);
   });
 
   it("workspace:remember updates the latest snapshot without writing to disk", () => {

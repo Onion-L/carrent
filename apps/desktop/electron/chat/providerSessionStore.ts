@@ -9,7 +9,7 @@ export function createPersistentProviderSessionStore(
   let sessions = { ...snapshot.sessions };
   let writeQueue = Promise.resolve();
 
-  const enqueueWrite = (write: () => Promise<void>) => {
+  const enqueueWrite = <T>(write: () => Promise<T>) => {
     const nextWrite = writeQueue.catch(() => {}).then(write);
     writeQueue = nextWrite.then(
       () => {},
@@ -40,11 +40,23 @@ export function createPersistentProviderSessionStore(
     deleteThreads: (threadIds) =>
       enqueueWrite(async () => {
         const suffixes = [...new Set(threadIds)].map((threadId) => `:${threadId}`);
+        const removedSessions = Object.fromEntries(
+          Object.entries(sessions).filter(([key]) =>
+            suffixes.some((suffix) => key.endsWith(suffix)),
+          ),
+        );
         const nextSessions = Object.fromEntries(
           Object.entries(sessions).filter(
             ([key]) => !suffixes.some((suffix) => key.endsWith(suffix)),
           ),
         );
+        await store.saveProviderSessions({ version: 1, sessions: nextSessions });
+        sessions = nextSessions;
+        return removedSessions;
+      }),
+    restoreThreads: (restoredSessions) =>
+      enqueueWrite(async () => {
+        const nextSessions = { ...sessions, ...restoredSessions };
         await store.saveProviderSessions({ version: 1, sessions: nextSessions });
         sessions = nextSessions;
       }),

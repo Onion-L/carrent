@@ -3962,6 +3962,7 @@ describe("createChatSessionManager", () => {
             }
           }
         },
+        restoreThreads: () => {},
       },
       attachmentStore: {
         storeAttachment: async () => {
@@ -3990,6 +3991,149 @@ describe("createChatSessionManager", () => {
     expect(providerSessions.has("claude-code:chat:thread-1")).toBe(false);
     expect(providerSessions.get("kimi:chat:thread-2")).toBe("unrelated-session");
     expect(deletedAttachments).toEqual([["attachment.png"]]);
+  });
+
+  it("rolls a completed thread data deletion back before its transaction commits", async () => {
+    const key = "kimi:project:/tmp/project:thread-1";
+    const providerSessions = new Map([[key, "session-1"]]);
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: () => createMockChildProcess(),
+      providerSessions: {
+        get: (sessionKey) => providerSessions.get(sessionKey),
+        set: (sessionKey, sessionId) => {
+          providerSessions.set(sessionKey, sessionId);
+        },
+        deleteThreads: (threadIds) => {
+          const removed: Record<string, string> = {};
+          for (const [sessionKey, sessionId] of providerSessions) {
+            if (threadIds.some((threadId) => sessionKey.endsWith(`:${threadId}`))) {
+              removed[sessionKey] = sessionId;
+              providerSessions.delete(sessionKey);
+            }
+          }
+          return removed;
+        },
+        restoreThreads: (removed) => {
+          Object.entries(removed).forEach(([sessionKey, sessionId]) => {
+            providerSessions.set(sessionKey, sessionId);
+          });
+        },
+      },
+    });
+
+    const receipt = await manager.deleteThreadData({
+      threadIds: ["thread-1"],
+      attachmentStorageKeys: [],
+    });
+    expect(providerSessions.has(key)).toBe(false);
+
+    await manager.rollbackThreadDataDeletion?.(receipt!);
+    expect(providerSessions.get(key)).toBe("session-1");
+  });
+
+  it("restores provider sessions when attachment cleanup fails", async () => {
+    const key = "kimi:project:/tmp/project:thread-1";
+    const providerSessions = new Map([[key, "session-1"]]);
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: () => createMockChildProcess(),
+      providerSessions: {
+        get: (sessionKey) => providerSessions.get(sessionKey),
+        set: (sessionKey, sessionId) => {
+          providerSessions.set(sessionKey, sessionId);
+        },
+        deleteThreads: (threadIds) => {
+          const removed: Record<string, string> = {};
+          for (const [sessionKey, sessionId] of providerSessions) {
+            if (threadIds.some((threadId) => sessionKey.endsWith(`:${threadId}`))) {
+              removed[sessionKey] = sessionId;
+              providerSessions.delete(sessionKey);
+            }
+          }
+          return removed;
+        },
+        restoreThreads: (removed) => {
+          Object.entries(removed).forEach(([sessionKey, sessionId]) => {
+            providerSessions.set(sessionKey, sessionId);
+          });
+        },
+      },
+      attachmentStore: {
+        storeAttachment: async () => {
+          throw new Error("not used");
+        },
+        readAttachment: async () => new Uint8Array(),
+        resolveRoot: () => "/tmp/attachments",
+        resolvePath: (storageKey) => `/tmp/attachments/${storageKey}`,
+        deleteAttachments: async () => {
+          throw new Error("attachment cleanup failed");
+        },
+      },
+    });
+
+    let deletionError: unknown;
+    try {
+      await manager.deleteThreadData({
+        threadIds: ["thread-1"],
+        attachmentStorageKeys: ["attachment.png"],
+      });
+    } catch (error) {
+      deletionError = error;
+    }
+
+    expect(deletionError instanceof Error ? deletionError.message : String(deletionError)).toBe(
+      "attachment cleanup failed",
+    );
+    expect(providerSessions.get(key)).toBe("session-1");
+  });
+
+  it("retries provider session restoration after attachment cleanup fails", async () => {
+    const key = "kimi:project:/tmp/project:thread-1";
+    const providerSessions = new Map([[key, "session-1"]]);
+    let restoreAttempts = 0;
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: () => createMockChildProcess(),
+      providerSessions: {
+        get: (sessionKey) => providerSessions.get(sessionKey),
+        set: (sessionKey, sessionId) => {
+          providerSessions.set(sessionKey, sessionId);
+        },
+        deleteThreads: () => {
+          providerSessions.delete(key);
+          return { [key]: "session-1" };
+        },
+        restoreThreads: (removed) => {
+          restoreAttempts += 1;
+          if (restoreAttempts === 1) throw new Error("provider restore failed");
+          Object.entries(removed).forEach(([sessionKey, sessionId]) => {
+            providerSessions.set(sessionKey, sessionId);
+          });
+        },
+      },
+      attachmentStore: {
+        storeAttachment: async () => {
+          throw new Error("not used");
+        },
+        readAttachment: async () => new Uint8Array(),
+        resolveRoot: () => "/tmp/attachments",
+        resolvePath: (storageKey) => `/tmp/attachments/${storageKey}`,
+        deleteAttachments: async () => {
+          throw new Error("attachment cleanup failed");
+        },
+      },
+    });
+
+    await manager
+      .deleteThreadData({
+        threadIds: ["thread-1"],
+        attachmentStorageKeys: ["attachment.png"],
+      })
+      .catch(() => {});
+
+    expect(restoreAttempts).toBe(2);
+    expect(providerSessions.get(key)).toBe("session-1");
   });
 
   it("does not persist a Claude session after its thread is deleted", async () => {

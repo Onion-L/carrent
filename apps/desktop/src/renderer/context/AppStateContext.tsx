@@ -27,6 +27,8 @@ import {
 } from "../../shared/workspacePersistence";
 import { DEFAULT_RUNTIME_MODE, type RuntimeMode } from "../../shared/runtimeMode";
 import { DEFAULT_RUNTIME_ID, type RuntimeId } from "../../shared/runtimes";
+import { getQueuedMessages } from "../hooks/chatMessageQueue";
+import { hasLiveRunForThread } from "../hooks/useChatRun";
 
 type WorkspaceMutationResult =
   | { ok: true; workspace: WorkspaceRecord }
@@ -108,6 +110,15 @@ type AppStateContextValue = {
   ) => Promise<boolean>;
   recordThreadRun: (input: AppThreadRunStartInput & { threadId: string }) => Promise<boolean>;
   rollbackThreadRun: (threadId: string, runId: string, messageId: string) => Promise<boolean>;
+  archiveThread: (threadId: string) => Promise<boolean>;
+  restoreThread: (threadId: string) => Promise<boolean>;
+  permanentlyDeleteThread: (
+    threadId: string,
+    cleanup: (snapshots: {
+      beforeAppState: AppStateSnapshot;
+      afterAppState: AppStateSnapshot;
+    }) => Promise<void>,
+  ) => Promise<boolean>;
 };
 
 const EMPTY_APP_STATE: AppStateSnapshot = {
@@ -149,9 +160,35 @@ function projectNameFromWorkingDirectory(workingDirectory: string) {
   return normalized.split("/").at(-1) || normalized;
 }
 
+function withoutThread(snapshot: AppStateSnapshot, threadId: string): AppStateSnapshot {
+  const thread = (snapshot.threads ?? []).find((item) => item.id === threadId);
+  if (!thread) return snapshot;
+
+  const lastThreadIdByWorkspace = { ...snapshot.lastThreadIdByWorkspace };
+  if (lastThreadIdByWorkspace[thread.workspaceId] === threadId) {
+    delete lastThreadIdByWorkspace[thread.workspaceId];
+  }
+
+  return {
+    ...snapshot,
+    threads: (snapshot.threads ?? []).filter((item) => item.id !== threadId),
+    threadDrafts: (snapshot.threadDrafts ?? []).filter((draft) => draft.threadId !== threadId),
+    threadMessages: (snapshot.threadMessages ?? []).filter(
+      (message) => message.threadId !== threadId,
+    ),
+    threadRuns: (snapshot.threadRuns ?? []).filter((run) => run.threadId !== threadId),
+    threadPromotionIntents: (snapshot.threadPromotionIntents ?? []).filter(
+      (intent) => intent.threadId !== threadId,
+    ),
+    lastThreadIdByWorkspace,
+  };
+}
+
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<AppStateSnapshot>(EMPTY_APP_STATE);
   const snapshotRef = useRef<AppStateSnapshot>(EMPTY_APP_STATE);
+  const mutatingThreadIdsRef = useRef(new Set<string>());
+  const startingRunThreadIdsRef = useRef(new Set<string>());
   const [hasHydrated, setHasHydrated] = useState(false);
 
   useEffect(() => {
@@ -250,7 +287,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const rememberThreadLocation = useCallback(
     async (workspaceId: string, threadId: string) => {
       const thread = (snapshot.threads ?? []).find(
-        (item) => item.id === threadId && item.workspaceId === workspaceId,
+        (item) => item.id === threadId && item.workspaceId === workspaceId && !item.archived,
       );
       if (!thread) return false;
       if (
@@ -733,7 +770,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const recordThreadRun = useCallback(
     async (input: AppThreadRunStartInput & { threadId: string }) => {
-      if (!(snapshot.threads ?? []).some((thread) => thread.id === input.threadId)) return false;
+      const current = snapshotRef.current;
+      if (
+        mutatingThreadIdsRef.current.has(input.threadId) ||
+        !(current.threads ?? []).some((thread) => thread.id === input.threadId && !thread.archived)
+      ) {
+        return false;
+      }
+      startingRunThreadIdsRef.current.add(input.threadId);
       const message: AppThreadMessageRecord = {
         id: input.messageId,
         threadId: input.threadId,
@@ -754,19 +798,21 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       };
       try {
         await persist({
-          ...snapshot,
-          threads: (snapshot.threads ?? []).map((thread) =>
+          ...current,
+          threads: (current.threads ?? []).map((thread) =>
             thread.id === input.threadId ? { ...thread, lastActivityAt: input.startedAt } : thread,
           ),
-          threadMessages: [...(snapshot.threadMessages ?? []), message],
-          threadRuns: [...(snapshot.threadRuns ?? []), run],
+          threadMessages: [...(current.threadMessages ?? []), message],
+          threadRuns: [...(current.threadRuns ?? []), run],
         });
         return true;
       } catch {
         return false;
+      } finally {
+        startingRunThreadIdsRef.current.delete(input.threadId);
       }
     },
-    [persist, snapshot],
+    [persist],
   );
 
   const rollbackThreadRun = useCallback(
@@ -798,6 +844,99 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       }
     },
     [persist, snapshot],
+  );
+
+  const archiveThread = useCallback(
+    async (threadId: string) => {
+      const current = snapshotRef.current;
+      const thread = (current.threads ?? []).find((item) => item.id === threadId && !item.archived);
+      if (
+        !thread ||
+        mutatingThreadIdsRef.current.has(threadId) ||
+        startingRunThreadIdsRef.current.has(threadId) ||
+        hasLiveRunForThread(threadId) ||
+        getQueuedMessages(threadId).length > 0
+      ) {
+        return false;
+      }
+      mutatingThreadIdsRef.current.add(threadId);
+
+      const lastThreadIdByWorkspace = { ...current.lastThreadIdByWorkspace };
+      if (lastThreadIdByWorkspace[thread.workspaceId] === threadId) {
+        delete lastThreadIdByWorkspace[thread.workspaceId];
+      }
+
+      try {
+        await persist({
+          ...current,
+          threads: (current.threads ?? []).map((item) =>
+            item.id === threadId ? { ...item, archived: true } : item,
+          ),
+          lastThreadIdByWorkspace,
+        });
+        return true;
+      } catch {
+        return false;
+      } finally {
+        mutatingThreadIdsRef.current.delete(threadId);
+      }
+    },
+    [persist],
+  );
+
+  const restoreThread = useCallback(
+    async (threadId: string) => {
+      const current = snapshotRef.current;
+      const thread = (current.threads ?? []).find((item) => item.id === threadId && item.archived);
+      if (!thread || mutatingThreadIdsRef.current.has(threadId)) return false;
+      mutatingThreadIdsRef.current.add(threadId);
+
+      try {
+        await persist({
+          ...current,
+          threads: (current.threads ?? []).map((item) => {
+            if (item.id !== threadId) return item;
+            const { archived: _archived, ...restored } = item;
+            return restored;
+          }),
+        });
+        return true;
+      } catch {
+        return false;
+      } finally {
+        mutatingThreadIdsRef.current.delete(threadId);
+      }
+    },
+    [persist],
+  );
+
+  const permanentlyDeleteThread = useCallback(
+    async (
+      threadId: string,
+      cleanup: (snapshots: {
+        beforeAppState: AppStateSnapshot;
+        afterAppState: AppStateSnapshot;
+      }) => Promise<void>,
+    ) => {
+      const current = snapshotRef.current;
+      const thread = (current.threads ?? []).find((item) => item.id === threadId && item.archived);
+      if (!thread || mutatingThreadIdsRef.current.has(threadId)) return false;
+      mutatingThreadIdsRef.current.add(threadId);
+      const next = withoutThread(current, threadId);
+
+      try {
+        await cleanup({ beforeAppState: current, afterAppState: next });
+        snapshotRef.current = next;
+        setSnapshot(next);
+        return true;
+      } catch (error) {
+        if (error instanceof AggregateError) throw error;
+        return false;
+      } finally {
+        mutatingThreadIdsRef.current.delete(threadId);
+      }
+    },
+    [],
   );
 
   return (
@@ -833,6 +972,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         updateThreadConfig,
         recordThreadRun,
         rollbackThreadRun,
+        archiveThread,
+        restoreThread,
+        permanentlyDeleteThread,
       }}
     >
       {children}

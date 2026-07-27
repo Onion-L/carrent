@@ -21,6 +21,36 @@ function createStore(
 }
 
 describe("createWorkspaceShutdown", () => {
+  it("waits for an active Thread deletion before saving the shutdown snapshot", async () => {
+    let releaseDeletion!: () => void;
+    const deletion = new Promise<void>((resolve) => {
+      releaseDeletion = resolve;
+    });
+    const events: string[] = [];
+    const shutdown = createWorkspaceShutdown({
+      getLastWorkspaceSnapshot: () => snapshot,
+      getWorkspaceStore: () =>
+        createWorkspaceStoreStub({
+          saveWorkspaceSnapshot: async () => {
+            events.push("save");
+          },
+        }),
+      beforeSave: async () => {
+        events.push("wait");
+        await deletion;
+      },
+      quit: () => events.push("quit"),
+    });
+
+    const pending = shutdown.beforeQuit({ preventDefault() {} });
+    await Promise.resolve();
+    expect(events).toEqual(["wait"]);
+
+    releaseDeletion();
+    await pending;
+    expect(events).toEqual(["wait", "save", "quit"]);
+  });
+
   it("saves the latest snapshot exactly once before quitting", async () => {
     const calls: string[] = [];
     const store = createStore(async (savedSnapshot) => {

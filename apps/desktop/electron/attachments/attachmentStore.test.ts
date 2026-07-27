@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAttachmentStore } from "./attachmentStore";
@@ -184,7 +185,7 @@ describe("createAttachmentStore", () => {
   });
 
   it("deletes stored attachments and ignores duplicates", async () => {
-    const { store, cleanup } = createTempStore();
+    const { store, baseDir, cleanup } = createTempStore();
 
     try {
       const metadata = await store.storeAttachment({
@@ -197,8 +198,111 @@ describe("createAttachmentStore", () => {
       await store.deleteAttachments([metadata.storageKey, metadata.storageKey]);
 
       expect(existsSync(store.resolvePath(metadata.storageKey))).toBe(false);
+      expect(readdirSync(baseDir)).toEqual(["attachments"]);
     } finally {
       cleanup();
+    }
+  });
+
+  it("backs attachment bytes on disk before deleting them", async () => {
+    const baseDir = mkdtempSync(join(tmpdir(), "carrent-attachments-"));
+    const copied: Array<{ source: string; destination: string }> = [];
+    const store = createAttachmentStore(baseDir, {
+      copy: async (source, destination) => {
+        copied.push({ source, destination });
+        await copyFile(source, destination);
+      },
+    });
+
+    try {
+      const metadata = await store.storeAttachment({
+        name: "disk-backed.png",
+        mimeType: "image/png",
+        kind: "image",
+        data: new Uint8Array([4, 5, 6]),
+      });
+
+      await store.deleteAttachments([metadata.storageKey]);
+
+      expect(copied).toHaveLength(1);
+      expect(copied[0]?.source).toBe(store.resolvePath(metadata.storageKey));
+      expect(copied[0]?.destination).toContain("attachments-backup-");
+      expect(readdirSync(baseDir)).toEqual(["attachments"]);
+    } finally {
+      rmSync(baseDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a prepared deletion reversible until commit", async () => {
+    const { store, baseDir, cleanup } = createTempStore();
+    try {
+      const metadata = await store.storeAttachment({
+        name: "transaction.png",
+        mimeType: "image/png",
+        kind: "image",
+        data: new Uint8Array([1, 3, 5]),
+      });
+
+      await store.prepareDeletion?.("operation-1", [metadata.storageKey]);
+      expect(existsSync(store.resolvePath(metadata.storageKey))).toBe(false);
+
+      await store.rollbackDeletion?.("operation-1");
+      expect(await store.readAttachment(metadata.storageKey)).toEqual(new Uint8Array([1, 3, 5]));
+      expect(readdirSync(baseDir)).toEqual(["attachments"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("commits a prepared deletion and removes its on-disk journal", async () => {
+    const { store, baseDir, cleanup } = createTempStore();
+    try {
+      const metadata = await store.storeAttachment({
+        name: "transaction.png",
+        mimeType: "image/png",
+        kind: "image",
+        data: new Uint8Array([2, 4, 6]),
+      });
+
+      await store.prepareDeletion?.("operation-2", [metadata.storageKey]);
+      await store.commitDeletion?.("operation-2");
+
+      expect(existsSync(store.resolvePath(metadata.storageKey))).toBe(false);
+      expect(readdirSync(baseDir)).toEqual(["attachments"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("restores attachment bytes when physical cleanup cannot commit", async () => {
+    const baseDir = mkdtempSync(join(tmpdir(), "carrent-attachments-"));
+    let failNextRemoval = true;
+    const store = createAttachmentStore(baseDir, {
+      remove: async (path, options) => {
+        if (failNextRemoval) {
+          failNextRemoval = false;
+          throw new Error("quarantine cleanup failed");
+        }
+        await rm(path, options);
+      },
+    });
+    const data = new Uint8Array([7, 8, 9]);
+    const metadata = await store.storeAttachment({
+      name: "preserve.png",
+      mimeType: "image/png",
+      kind: "image",
+      data,
+    });
+    try {
+      let deletionError: unknown;
+      await store.deleteAttachments([metadata.storageKey]).catch((error) => {
+        deletionError = error;
+      });
+
+      expect(deletionError instanceof Error).toBe(true);
+      expect(await store.readAttachment(metadata.storageKey)).toEqual(data);
+    } finally {
+      rmSync(baseDir, { recursive: true, force: true });
     }
   });
 

@@ -128,6 +128,27 @@ describe("createPersistentProviderSessionStore", () => {
     expect(store.get("kimi:chat:thread-b")).toBe("unrelated-thread");
   });
 
+  it("restores provider sessions when a destructive operation rolls back", async () => {
+    const saved: ProviderSessionSnapshot[] = [];
+    const key = "kimi:chat:thread-a";
+    const store = createPersistentProviderSessionStore(
+      {
+        saveProviderSessions: async (nextSnapshot) => {
+          saved.push(nextSnapshot);
+        },
+      },
+      snapshot({ [key]: "session-a", "kimi:chat:thread-b": "session-b" }),
+    );
+
+    const removed = await store.deleteThreads?.(["thread-a"]);
+    await store.restoreThreads?.(removed ?? {});
+
+    expect(saved.at(-1)).toEqual(
+      snapshot({ [key]: "session-a", "kimi:chat:thread-b": "session-b" }),
+    );
+    expect(store.get(key)).toBe("session-a");
+  });
+
   it("keeps memory unchanged when bulk deletion persistence fails", async () => {
     const key = "kimi:chat:thread-a";
     const store = createPersistentProviderSessionStore(

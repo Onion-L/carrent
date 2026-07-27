@@ -15,6 +15,11 @@ export const SETTINGS_TABS = [
     description: "Theme and text size",
   },
   {
+    id: "archives",
+    label: "Archived Threads",
+    description: "Restore or permanently delete",
+  },
+  {
     id: "about",
     label: "About",
     description: "Version and updates",

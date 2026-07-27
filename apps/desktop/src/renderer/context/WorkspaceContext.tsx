@@ -60,7 +60,7 @@ import {
 import type { RuntimeId } from "../../shared/runtimes";
 import { reconcileInterruptedRuns } from "../lib/interruptedRuns";
 import type { DeleteThreadDataRequest, AttachmentMetadata } from "../../shared/chat";
-import type { ThreadWorkSnapshot } from "../../shared/workspacePersistence";
+import type { AppStateSnapshot, ThreadWorkSnapshot } from "../../shared/workspacePersistence";
 import type { GitWorkspaceDiffResult } from "../../../electron/git/gitIpc";
 import type { RunChecklistEntry, RunChecklistOutcome } from "../../shared/runChecklist";
 import { useAppState } from "./AppStateContext";
@@ -160,7 +160,14 @@ export type WorkspaceContextValue = {
   removeMessages: (messageIds: string[]) => void;
   promoteDraftThread: (projectId: string, threadId: string) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
-  deleteThread: (projectId: string, threadId: string) => Promise<string | null>;
+  deleteThread: (
+    projectId: string,
+    threadId: string,
+    appStateSnapshots?: {
+      beforeAppState: AppStateSnapshot;
+      afterAppState: AppStateSnapshot;
+    },
+  ) => Promise<string | null>;
   createChat: (
     title: string,
     runtimeId?: RuntimeId,
@@ -1032,17 +1039,65 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setActiveThreadId((prev) => (prev === threadId ? null : prev));
   };
 
-  const deleteThread = async (projectId: string, threadId: string) => {
+  const deleteThread = async (
+    projectId: string,
+    threadId: string,
+    appStateSnapshots?: {
+      beforeAppState: AppStateSnapshot;
+      afterAppState: AppStateSnapshot;
+    },
+  ) => {
     const result = deleteThreadInProjects(projects, projectId, threadId);
-    await deleteThreadMessagesAfterCleanup(
+    const currentThreadWork = getThreadWorkSnapshot(allThreadIds);
+    const deletion = prepareThreadDataDeletion(messages, [threadId], currentThreadWork);
+    const nextThreadIds = allThreadIds.filter((id) => id !== threadId);
+    const currentSnapshot = buildWorkspaceSnapshot({
+      projects,
+      chats,
       messages,
-      [threadId],
-      window.carrent.chat.deleteThreadData,
-      getThreadWorkSnapshot(allThreadIds),
-    );
+      activeThreadId,
+      threadWork: currentThreadWork,
+    });
+    const nextSnapshot = buildWorkspaceSnapshot({
+      projects: result.projects,
+      chats,
+      messages: deletion.remainingMessages,
+      activeThreadId: activeThreadId === threadId ? result.nextActiveThreadId : activeThreadId,
+      threadWork: getThreadWorkSnapshot(nextThreadIds),
+    });
+    if (appStateSnapshots) {
+      if (!window.carrent.chat.deleteThreadTransaction) {
+        throw new Error("Thread deletion transaction is unavailable.");
+      }
+      await window.carrent.chat.deleteThreadTransaction({
+        ...appStateSnapshots,
+        beforeWorkspace: currentSnapshot,
+        afterWorkspace: nextSnapshot,
+        threadData: deletion.request,
+      });
+    } else {
+      let removedSnapshotSaved = false;
+      try {
+        await window.carrent.workspace.save(nextSnapshot);
+        removedSnapshotSaved = true;
+        await window.carrent.chat.deleteThreadData(deletion.request);
+      } catch (error) {
+        if (removedSnapshotSaved) {
+          await window.carrent.workspace.save(currentSnapshot);
+          window.carrent.workspace.remember(currentSnapshot);
+        }
+        throw error;
+      }
+    }
+
     removeThreadWork([threadId]);
-    setProjects((prev) => deleteThreadInProjects(prev, projectId, threadId).projects);
-    setMessages((prev) => removeMessagesForThreads(prev, [threadId]));
+    if (!appStateSnapshots) {
+      window.carrent.workspace.remember(nextSnapshot);
+    }
+    setProjects(
+      (currentProjects) => deleteThreadInProjects(currentProjects, projectId, threadId).projects,
+    );
+    setMessages((currentMessages) => removeMessagesForThreads(currentMessages, [threadId]));
     setActiveThreadId((prev) => (prev === threadId ? result.nextActiveThreadId : prev));
     return result.nextActiveThreadId;
   };

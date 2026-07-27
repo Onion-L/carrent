@@ -1,4 +1,4 @@
-import { Monitor, Palette, Settings, SlidersHorizontal, UserRound } from "lucide-react";
+import { Archive, Monitor, Palette, Settings, SlidersHorizontal, UserRound } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   buildSettingsPath,
@@ -11,6 +11,7 @@ const iconByTabId: Record<SettingsTabId, typeof Monitor> = {
   runtime: Monitor,
   personalization: UserRound,
   interface: Palette,
+  archives: Archive,
   about: SlidersHorizontal,
 };
 

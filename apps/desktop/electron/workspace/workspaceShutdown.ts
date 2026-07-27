@@ -10,6 +10,7 @@ type WorkspaceShutdownDependencies = {
   getWorkspaceStore: () => WorkspaceStore | null;
   quit: () => void;
   reportSaveError?: (error: unknown) => void;
+  beforeSave?: () => Promise<void>;
 };
 
 export function createWorkspaceShutdown({
@@ -17,6 +18,7 @@ export function createWorkspaceShutdown({
   getWorkspaceStore,
   quit,
   reportSaveError,
+  beforeSave,
 }: WorkspaceShutdownDependencies) {
   let isQuitting = false;
 
@@ -28,6 +30,7 @@ export function createWorkspaceShutdown({
       isQuitting = true;
 
       try {
+        await beforeSave?.();
         const snapshot = getLastWorkspaceSnapshot();
         const store = getWorkspaceStore();
         if (snapshot && store) {

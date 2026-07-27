@@ -11,8 +11,9 @@ import {
   Minus,
   Plus,
 } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { useAppState } from "../context/AppStateContext";
 import { useSettings } from "../context/SettingsContext";
 import { RTK_MD_CONTENT, upsertRtkAgentsBlock, type RtkGainStats } from "../../shared/rtk";
 import type { RuntimeRecord } from "../../shared/runtimes";
@@ -21,6 +22,8 @@ import { MAX_FONT_SIZE, MIN_FONT_SIZE, parseFontSizeInput, stepFontSize } from "
 import { RuntimeIcon } from "../components/RuntimeIcon";
 import { useRuntimeModels } from "../hooks/useRuntimeModels";
 import { useRuntimes } from "../hooks/useRuntimes";
+import { buildThreadPath } from "../lib/navigation";
+import type { AppThreadRecord } from "../../shared/workspacePersistence";
 
 /* -------------------------------------------------------------------------- */
 /*  Toggle                                                                    */
@@ -820,8 +823,188 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 /*  Settings Page                                                             */
 /* -------------------------------------------------------------------------- */
 
+function ArchivedThreadsPanel({
+  threads,
+  workspaces,
+  projects,
+  associations,
+  restoreThread,
+  permanentlyDeleteThread,
+  deleteThreadContent,
+}: {
+  threads: AppThreadRecord[];
+  workspaces: ReturnType<typeof useAppState>["workspaces"];
+  projects: ReturnType<typeof useAppState>["projects"];
+  associations: ReturnType<typeof useAppState>["associations"];
+  restoreThread: ReturnType<typeof useAppState>["restoreThread"];
+  permanentlyDeleteThread: ReturnType<typeof useAppState>["permanentlyDeleteThread"];
+  deleteThreadContent: ReturnType<typeof useWorkspace>["deleteThread"];
+}) {
+  const navigate = useNavigate();
+  const archivedThreads = [...threads]
+    .filter((thread) => thread.archived)
+    .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt));
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [restoredThread, setRestoredThread] = useState<AppThreadRecord | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<"restore" | "delete" | null>(null);
+
+  useEffect(() => {
+    if (!archivedThreads.some((thread) => thread.id === selectedThreadId)) {
+      setSelectedThreadId(archivedThreads[0]?.id ?? null);
+    }
+  }, [archivedThreads, selectedThreadId]);
+
+  const selectedThread = archivedThreads.find((thread) => thread.id === selectedThreadId) ?? null;
+  const getPath = (thread: AppThreadRecord) => {
+    const workspace = workspaces.find((item) => item.id === thread.workspaceId);
+    const project = projects.find((item) => item.id === thread.projectId);
+    const association = associations.find(
+      (item) => item.workspaceId === thread.workspaceId && item.projectId === thread.projectId,
+    );
+    return `${workspace?.name ?? "Unknown Workspace"} / ${association?.alias ?? project?.name ?? "Unknown Project"} / ${thread.title}`;
+  };
+
+  const handleRestore = async () => {
+    if (!selectedThread || pendingAction) return;
+    setError(null);
+    setPendingAction("restore");
+    try {
+      if (!(await restoreThread(selectedThread.id))) {
+        setError("Thread could not be restored.");
+        return;
+      }
+      setRestoredThread(selectedThread);
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const handlePermanentDelete = async () => {
+    if (!selectedThread || pendingAction) return;
+    if (
+      !window.confirm(
+        `Permanently delete "${selectedThread.title}" and all Carrent-owned history? Project files and Git state will not be changed.`,
+      )
+    ) {
+      return;
+    }
+
+    setError(null);
+    setPendingAction("delete");
+    const selectedIndex = archivedThreads.findIndex((thread) => thread.id === selectedThread.id);
+    const nextSelectedThreadId =
+      archivedThreads[selectedIndex + 1]?.id ?? archivedThreads[selectedIndex - 1]?.id ?? null;
+    let deleted = false;
+    try {
+      deleted = await permanentlyDeleteThread(selectedThread.id, async (appStateSnapshots) => {
+        await deleteThreadContent(selectedThread.projectId, selectedThread.id, appStateSnapshots);
+      });
+    } catch (deleteError) {
+      console.error("[threads] permanent deletion rollback failed", deleteError);
+    }
+    if (!deleted) {
+      setError("Thread could not be permanently deleted.");
+      setPendingAction(null);
+      return;
+    }
+    setSelectedThreadId(nextSelectedThreadId);
+    setPendingAction(null);
+  };
+
+  return (
+    <Section title="Archived Threads">
+      {restoredThread ? (
+        <div className="mb-4 flex items-center justify-between gap-4 border-b border-border pb-4">
+          <p className="min-w-0 text-app-12 text-muted">
+            <span className="font-medium text-fg">{restoredThread.title}</span> was restored.
+          </p>
+          <button
+            type="button"
+            aria-label="Open Restored Thread"
+            onClick={() =>
+              navigate(
+                buildThreadPath(
+                  restoredThread.workspaceId,
+                  restoredThread.projectId,
+                  restoredThread.id,
+                ),
+              )
+            }
+            className="min-h-8 shrink-0 rounded-md border border-border-strong px-3 text-app-12 font-medium text-fg hover:bg-surface-hover"
+          >
+            Open
+          </button>
+        </div>
+      ) : null}
+
+      {archivedThreads.length === 0 ? (
+        <p className="py-4 text-app-12 text-subtle">No Archived Threads</p>
+      ) : (
+        <div className="grid min-h-52 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] border border-border">
+          <div className="border-r border-border">
+            {archivedThreads.map((thread) => (
+              <button
+                key={thread.id}
+                type="button"
+                aria-current={thread.id === selectedThreadId ? "true" : undefined}
+                onClick={() => {
+                  setSelectedThreadId(thread.id);
+                  setError(null);
+                }}
+                className={`block w-full border-b border-border px-3 py-3 text-left text-app-12 last:border-b-0 ${
+                  thread.id === selectedThreadId
+                    ? "bg-surface-hover text-fg"
+                    : "text-muted hover:bg-surface-raised hover:text-fg"
+                }`}
+              >
+                <span className="block truncate font-medium">{thread.title}</span>
+                <span className="mt-1 block truncate text-app-11 text-subtle">
+                  {getPath(thread)}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex min-w-0 flex-col justify-between p-4">
+            {selectedThread ? (
+              <>
+                <div>
+                  <p className="text-app-13 font-medium text-fg">{selectedThread.title}</p>
+                  <p className="mt-1 text-app-11 text-subtle">{getPath(selectedThread)}</p>
+                  {error ? <p className="mt-3 text-app-12 text-danger">{error}</p> : null}
+                </div>
+                <div className="mt-6 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={pendingAction !== null}
+                    onClick={() => void handleRestore()}
+                    className="min-h-8 rounded-md bg-fg px-3 text-app-12 font-medium text-bg hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pendingAction !== null}
+                    onClick={() => void handlePermanentDelete()}
+                    className="min-h-8 rounded-md border border-danger/50 px-3 text-app-12 font-medium text-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Permanently Delete
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 export function SettingsPage() {
-  const { setActiveThreadId } = useWorkspace();
+  const { setActiveThreadId, deleteThread: deleteThreadContent } = useWorkspace();
+  const { workspaces, projects, associations, threads, restoreThread, permanentlyDeleteThread } =
+    useAppState();
   const { autoDetectRuntimes, theme, fontSize, updateSetting } = useSettings();
   const [searchParams] = useSearchParams();
   const activeTabId = resolveSettingsTabId(searchParams.get("tab"));
@@ -883,6 +1066,18 @@ export function SettingsPage() {
                   onChange={(value) => updateSetting("fontSize", value)}
                 />
               </Section>
+            ) : null}
+
+            {activeTabId === "archives" ? (
+              <ArchivedThreadsPanel
+                threads={threads}
+                workspaces={workspaces}
+                projects={projects}
+                associations={associations}
+                restoreThread={restoreThread}
+                permanentlyDeleteThread={permanentlyDeleteThread}
+                deleteThreadContent={deleteThreadContent}
+              />
             ) : null}
 
             {activeTabId === "about" ? (

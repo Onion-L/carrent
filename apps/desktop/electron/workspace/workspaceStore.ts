@@ -10,6 +10,7 @@ import {
 } from "../../src/shared/workspacePersistence";
 
 export type WorkspaceStore = {
+  waitForWrites: () => Promise<void>;
   loadAppStateSnapshot: () => Promise<AppStateSnapshot | null>;
   saveAppStateSnapshot: (snapshot: AppStateSnapshot) => Promise<void>;
   loadWorkspaceSnapshot: () => Promise<WorkspaceSnapshot | null>;
@@ -22,6 +23,16 @@ export function createWorkspaceStore(baseDir: string): WorkspaceStore {
   const appStatePath = join(baseDir, "app-state.json");
   const workspacePath = join(baseDir, "workspace.json");
   const providerSessionsPath = join(baseDir, "provider-sessions.json");
+  let writeQueue = Promise.resolve();
+
+  function enqueueWrite(write: () => Promise<void>) {
+    const nextWrite = writeQueue.catch(() => {}).then(write);
+    writeQueue = nextWrite.then(
+      () => {},
+      () => {},
+    );
+    return nextWrite;
+  }
 
   async function atomicWrite(targetPath: string, data: string): Promise<void> {
     await mkdir(baseDir, { recursive: true });
@@ -31,6 +42,8 @@ export function createWorkspaceStore(baseDir: string): WorkspaceStore {
   }
 
   return {
+    waitForWrites: () => writeQueue,
+
     async loadAppStateSnapshot(): Promise<AppStateSnapshot | null> {
       let raw: string;
       try {
@@ -51,7 +64,7 @@ export function createWorkspaceStore(baseDir: string): WorkspaceStore {
       if (!normalized) {
         throw new Error("Invalid App State snapshot.");
       }
-      await atomicWrite(appStatePath, JSON.stringify(normalized, null, 2));
+      await enqueueWrite(() => atomicWrite(appStatePath, JSON.stringify(normalized, null, 2)));
     },
 
     async loadWorkspaceSnapshot(): Promise<WorkspaceSnapshot | null> {
@@ -82,7 +95,7 @@ export function createWorkspaceStore(baseDir: string): WorkspaceStore {
       if (!normalized) {
         throw new Error("Invalid workspace snapshot.");
       }
-      await atomicWrite(workspacePath, JSON.stringify(normalized, null, 2));
+      await enqueueWrite(() => atomicWrite(workspacePath, JSON.stringify(normalized, null, 2)));
     },
 
     async loadProviderSessions(): Promise<ProviderSessionSnapshot> {
@@ -115,7 +128,9 @@ export function createWorkspaceStore(baseDir: string): WorkspaceStore {
     },
 
     async saveProviderSessions(snapshot: ProviderSessionSnapshot): Promise<void> {
-      await atomicWrite(providerSessionsPath, JSON.stringify(snapshot, null, 2));
+      await enqueueWrite(() =>
+        atomicWrite(providerSessionsPath, JSON.stringify(snapshot, null, 2)),
+      );
     },
   };
 }

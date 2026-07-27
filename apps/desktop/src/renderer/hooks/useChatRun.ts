@@ -368,6 +368,10 @@ const chatRunCoordinator = createChatRunCoordinator();
 let teardownChatListener: VoidFunction | null = null;
 let chatListenerSubscriberCount = 0;
 
+export function hasLiveRunForThread(threadId: string) {
+  return chatRunCoordinator.getSnapshot().runningThreadIds.includes(threadId);
+}
+
 function createRequestKey() {
   return `request-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }

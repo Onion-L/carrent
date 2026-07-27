@@ -8,6 +8,7 @@ import type {
   ChatRunEvent,
   Attachment,
   DeleteThreadDataRequest,
+  ThreadDataDeletionReceipt,
 } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import type { ChatQuestionResponse } from "../../src/shared/chatQuestions";
@@ -52,7 +53,8 @@ export interface ChatSessionManager {
   start: (runId: string, request: ChatTurnRequest) => void;
   stop: (runId: string) => void;
   shutdown: () => void;
-  deleteThreadData: (request: DeleteThreadDataRequest) => Promise<void>;
+  deleteThreadData: (request: DeleteThreadDataRequest) => Promise<ThreadDataDeletionReceipt | void>;
+  rollbackThreadDataDeletion?: (receipt: ThreadDataDeletionReceipt) => Promise<void>;
   respondToPermission: (response: ChatPermissionResponse) => void;
   respondToQuestion: (response: ChatQuestionResponse) => void;
   getStatus: (
@@ -703,7 +705,10 @@ export type ProviderSessionStore = {
   get: (key: string) => string | undefined;
   set: (key: string, sessionId: string) => void | Promise<void>;
   delete?: (key: string, sessionId?: string) => void | Promise<void>;
-  deleteThreads?: (threadIds: string[]) => void | Promise<void>;
+  deleteThreads?: (
+    threadIds: string[],
+  ) => Record<string, string> | void | Promise<Record<string, string> | void>;
+  restoreThreads?: (sessions: Record<string, string>) => void | Promise<void>;
 };
 
 export function createChatSessionManager(options: {
@@ -1289,11 +1294,19 @@ export function createChatSessionManager(options: {
     if (request.attachmentStorageKeys.length > 0 && !options.attachmentStore) {
       throw new Error("Attachment store is unavailable.");
     }
+    if (
+      request.attachmentStorageKeys.length > 0 &&
+      options.providerSessions &&
+      !options.providerSessions.restoreThreads
+    ) {
+      throw new Error("Provider session rollback is unavailable.");
+    }
     request.attachmentStorageKeys.forEach((storageKey) =>
       options.attachmentStore?.resolvePath(storageKey),
     );
 
     const threadIdSet = new Set(threadIds);
+    const detachedRuntimeSessions = new Map<string, string>();
     threadIds.forEach((threadId) => deletedThreadIds.add(threadId));
 
     for (const [runId, threadId] of pendingKimiRuns) {
@@ -1314,13 +1327,71 @@ export function createChatSessionManager(options: {
 
     for (const key of runtimeSessions.keys()) {
       if (threadIds.some((threadId) => key.endsWith(`:${threadId}`))) {
+        detachedRuntimeSessions.set(key, runtimeSessions.get(key)!);
         runtimeSessions.delete(key);
       }
     }
 
-    await options.providerSessions?.deleteThreads?.(threadIds);
-    if (request.attachmentStorageKeys.length > 0) {
-      await options.attachmentStore!.deleteAttachments(request.attachmentStorageKeys);
+    let removedProviderSessions: Record<string, string> | void = undefined;
+    try {
+      removedProviderSessions = await options.providerSessions?.deleteThreads?.(threadIds);
+      if (request.attachmentStorageKeys.length > 0) {
+        await options.attachmentStore!.deleteAttachments(request.attachmentStorageKeys);
+      }
+    } catch (error) {
+      detachedRuntimeSessions.forEach((sessionId, key) => runtimeSessions.set(key, sessionId));
+      threadIds.forEach((threadId) => deletedThreadIds.delete(threadId));
+      if (removedProviderSessions && Object.keys(removedProviderSessions).length > 0) {
+        let rollbackError: unknown;
+        let restored = false;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            await options.providerSessions?.restoreThreads?.(removedProviderSessions);
+            restored = true;
+            break;
+          } catch (caught) {
+            rollbackError = caught;
+          }
+        }
+        if (!restored) {
+          throw new AggregateError(
+            [error, rollbackError],
+            "Thread data deletion failed and provider sessions could not be restored.",
+          );
+        }
+      }
+      throw error;
+    }
+
+    return {
+      threadIds,
+      removedProviderSessions: removedProviderSessions ?? {},
+      detachedRuntimeSessions: Object.fromEntries(detachedRuntimeSessions),
+    } satisfies ThreadDataDeletionReceipt;
+  }
+
+  async function rollbackThreadDataDeletion(receipt: ThreadDataDeletionReceipt) {
+    Object.entries(receipt.detachedRuntimeSessions).forEach(([key, sessionId]) => {
+      runtimeSessions.set(key, sessionId);
+    });
+    receipt.threadIds.forEach((threadId) => deletedThreadIds.delete(threadId));
+    const removedSessions = receipt.removedProviderSessions;
+    if (Object.keys(removedSessions).length > 0) {
+      if (!options.providerSessions?.restoreThreads) {
+        throw new Error("Provider session rollback is unavailable.");
+      }
+      let rollbackError: unknown;
+      let restored = false;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          await options.providerSessions.restoreThreads(removedSessions);
+          restored = true;
+          break;
+        } catch (error) {
+          rollbackError = error;
+        }
+      }
+      if (!restored) throw rollbackError;
     }
   }
 
@@ -1405,6 +1476,7 @@ export function createChatSessionManager(options: {
     stop,
     shutdown,
     deleteThreadData,
+    rollbackThreadDataDeletion,
     respondToPermission,
     respondToQuestion,
     getStatus,

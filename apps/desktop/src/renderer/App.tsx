@@ -78,7 +78,8 @@ function WorkspaceRestoreRoute() {
   const rememberedThreadId = target ? lastThreadIdByWorkspace[target.id] : undefined;
   const rememberedThread = target
     ? threads.find(
-        (thread) => thread.id === rememberedThreadId && thread.workspaceId === target.id,
+        (thread) =>
+          thread.id === rememberedThreadId && thread.workspaceId === target.id && !thread.archived,
       )
     : null;
 

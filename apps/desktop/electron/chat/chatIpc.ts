@@ -3,7 +3,12 @@ import type {
   ChatTurnRequest,
   DeleteThreadDataRequest,
   KimiSessionStatus,
+  ThreadDeletionTransactionRequest,
 } from "../../src/shared/chat";
+import {
+  normalizeAppStateSnapshot,
+  normalizeWorkspaceSnapshot,
+} from "../../src/shared/workspacePersistence";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import type { ChatQuestionAnswer, ChatQuestionResponse } from "../../src/shared/chatQuestions";
 import {
@@ -27,6 +32,9 @@ interface IpcMainLike {
 
 export interface ChatIpcServices {
   sessionManager: ChatSessionManager;
+  threadDeletionManager?: {
+    deleteThread: (request: ThreadDeletionTransactionRequest) => Promise<void>;
+  };
 }
 
 const MAX_DELETE_THREAD_IDS = 10_000;
@@ -68,6 +76,29 @@ export function parseDeleteThreadDataRequest(value: unknown): DeleteThreadDataRe
       MAX_DELETE_ATTACHMENT_KEYS,
       true,
     ),
+  };
+}
+
+export function parseThreadDeletionTransactionRequest(
+  value: unknown,
+): ThreadDeletionTransactionRequest {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid thread deletion transaction.");
+  }
+  const request = value as Record<string, unknown>;
+  const beforeAppState = normalizeAppStateSnapshot(request.beforeAppState);
+  const afterAppState = normalizeAppStateSnapshot(request.afterAppState);
+  const beforeWorkspace = normalizeWorkspaceSnapshot(request.beforeWorkspace);
+  const afterWorkspace = normalizeWorkspaceSnapshot(request.afterWorkspace);
+  if (!beforeAppState || !afterAppState || !beforeWorkspace || !afterWorkspace) {
+    throw new Error("Invalid thread deletion transaction snapshots.");
+  }
+  return {
+    beforeAppState,
+    afterAppState,
+    beforeWorkspace,
+    afterWorkspace,
+    threadData: parseDeleteThreadDataRequest(request.threadData),
   };
 }
 
@@ -262,6 +293,16 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
 
   ipcMainLike.handle("chat:delete-thread-data", async (_event, request) => {
     await services.sessionManager.deleteThreadData(parseDeleteThreadDataRequest(request));
+    return undefined;
+  });
+
+  ipcMainLike.handle("chat:delete-thread-transaction", async (_event, request) => {
+    if (!services.threadDeletionManager) {
+      throw new Error("Thread deletion transaction is unavailable.");
+    }
+    await services.threadDeletionManager.deleteThread(
+      parseThreadDeletionTransactionRequest(request),
+    );
     return undefined;
   });
 

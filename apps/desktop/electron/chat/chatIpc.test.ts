@@ -44,6 +44,7 @@ describe("registerChatIpc", () => {
 
     expect([...handlers.keys()].sort()).toEqual([
       "chat:delete-thread-data",
+      "chat:delete-thread-transaction",
       "chat:kimi-status",
       "chat:permission-response",
       "chat:question-response",
@@ -80,6 +81,66 @@ describe("registerChatIpc", () => {
 
     expect(deleted).toEqual([
       { threadIds: ["thread-1"], attachmentStorageKeys: ["attachment.png"] },
+    ]);
+  });
+
+  it("validates and forwards an atomic thread deletion transaction", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const deleted: unknown[] = [];
+    const appState = {
+      version: 1,
+      workspaces: [],
+      projects: [],
+      associations: [],
+      activeWorkspaceId: null,
+    };
+    const workspace = {
+      version: 1,
+      projects: [],
+      chats: [],
+      messages: [],
+      activeThreadId: null,
+    };
+
+    registerChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
+          getStatus: async () => null,
+        },
+        threadDeletionManager: {
+          deleteThread: async (request) => {
+            deleted.push(request);
+          },
+        },
+      },
+    );
+
+    await handlers.get("chat:delete-thread-transaction")?.(
+      {},
+      {
+        beforeAppState: appState,
+        afterAppState: appState,
+        beforeWorkspace: workspace,
+        afterWorkspace: workspace,
+        threadData: { threadIds: ["thread-1"], attachmentStorageKeys: [] },
+      },
+    );
+
+    expect(deleted).toEqual([
+      {
+        beforeAppState: appState,
+        afterAppState: appState,
+        beforeWorkspace: workspace,
+        afterWorkspace: workspace,
+        threadData: { threadIds: ["thread-1"], attachmentStorageKeys: [] },
+      },
     ]);
   });
 

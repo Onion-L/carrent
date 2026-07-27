@@ -1,4 +1,4 @@
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AttachmentKind, AttachmentMetadata } from "../../src/shared/chat";
@@ -18,10 +18,23 @@ export type AttachmentStore = {
   resolveRoot: () => string;
   resolvePath: (storageKey: string) => string;
   deleteAttachments: (storageKeys: string[]) => Promise<void>;
+  prepareDeletion?: (operationId: string, storageKeys: string[]) => Promise<void>;
+  commitDeletion?: (operationId: string) => Promise<void>;
+  rollbackDeletion?: (operationId: string) => Promise<void>;
 };
 
-export function createAttachmentStore(baseDir: string): AttachmentStore {
+type AttachmentStoreOptions = {
+  copy?: (source: string, destination: string) => Promise<void>;
+  remove?: (path: string, options: { recursive: true; force: true }) => Promise<void>;
+};
+
+export function createAttachmentStore(
+  baseDir: string,
+  options?: AttachmentStoreOptions,
+): AttachmentStore {
   const attachmentsDir = join(baseDir, "attachments");
+  const copy = options?.copy ?? copyFile;
+  const remove = options?.remove ?? rm;
 
   async function storeAttachment(input: {
     name: string;
@@ -53,7 +66,9 @@ export function createAttachmentStore(baseDir: string): AttachmentStore {
   }
 
   async function readAttachment(storageKey: string): Promise<Uint8Array> {
-    const buffer = await readFile(join(attachmentsDir, assertValidAttachmentStorageKey(storageKey)));
+    const buffer = await readFile(
+      join(attachmentsDir, assertValidAttachmentStorageKey(storageKey)),
+    );
     return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
   }
 
@@ -65,17 +80,120 @@ export function createAttachmentStore(baseDir: string): AttachmentStore {
     return attachmentsDir;
   }
 
-  async function deleteAttachments(storageKeys: string[]): Promise<void> {
-    const validatedKeys = [...new Set(storageKeys.map(assertValidAttachmentStorageKey))];
+  function operationDirectories(operationId: string) {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(operationId)) {
+      throw new Error("Invalid attachment deletion operation.");
+    }
+    const stagedDir = join(baseDir, `attachments-delete-${operationId}`);
+    const backupDir = join(baseDir, `attachments-backup-${operationId}`);
+    return { stagedDir, backupDir };
+  }
 
-    for (const storageKey of validatedKeys) {
+  async function operationKeys(directory: string) {
+    try {
+      return (await readdir(directory)).map(assertValidAttachmentStorageKey);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+  }
+
+  async function rollbackDeletion(operationId: string) {
+    const { stagedDir, backupDir } = operationDirectories(operationId);
+    const storageKeys = [
+      ...new Set([...(await operationKeys(stagedDir)), ...(await operationKeys(backupDir))]),
+    ];
+    const rollbackErrors: unknown[] = [];
+    await mkdir(attachmentsDir, { recursive: true });
+    for (const storageKey of storageKeys.reverse()) {
       try {
-        await unlink(join(attachmentsDir, storageKey));
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-          throw error;
+        await rename(join(stagedDir, storageKey), join(attachmentsDir, storageKey));
+        continue;
+      } catch (renameError) {
+        if ((renameError as NodeJS.ErrnoException).code !== "ENOENT") {
+          rollbackErrors.push(renameError);
+          continue;
         }
       }
+      try {
+        await copy(join(backupDir, storageKey), join(attachmentsDir, storageKey));
+      } catch (copyError) {
+        if ((copyError as NodeJS.ErrnoException).code !== "ENOENT") {
+          rollbackErrors.push(copyError);
+        }
+      }
+    }
+    for (const directory of [stagedDir, backupDir]) {
+      try {
+        await remove(directory, { recursive: true, force: true });
+      } catch (error) {
+        rollbackErrors.push(error);
+      }
+    }
+    if (rollbackErrors.length > 0) {
+      throw new AggregateError(
+        rollbackErrors,
+        "Attachment deletion could not be fully rolled back.",
+      );
+    }
+  }
+
+  async function prepareDeletion(operationId: string, storageKeys: string[]) {
+    const validatedKeys = [...new Set(storageKeys.map(assertValidAttachmentStorageKey))];
+    const { stagedDir, backupDir } = operationDirectories(operationId);
+    if (validatedKeys.length === 0) return;
+    await mkdir(stagedDir, { recursive: true });
+    await mkdir(backupDir, { recursive: true });
+
+    try {
+      for (const storageKey of validatedKeys) {
+        try {
+          await copy(join(attachmentsDir, storageKey), join(backupDir, storageKey));
+          await rename(join(attachmentsDir, storageKey), join(stagedDir, storageKey));
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
+    } catch (error) {
+      const rollbackErrors: unknown[] = [];
+      try {
+        await rollbackDeletion(operationId);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+      if (rollbackErrors.length > 0) {
+        throw new AggregateError(
+          [error, ...rollbackErrors],
+          "Attachment deletion failed and could not be fully rolled back.",
+        );
+      }
+      throw error;
+    }
+  }
+
+  async function commitDeletion(operationId: string) {
+    const { stagedDir, backupDir } = operationDirectories(operationId);
+    await remove(stagedDir, { recursive: true, force: true });
+    await remove(backupDir, { recursive: true, force: true });
+  }
+
+  async function deleteAttachments(storageKeys: string[]): Promise<void> {
+    const validatedKeys = [...new Set(storageKeys.map(assertValidAttachmentStorageKey))];
+    if (validatedKeys.length === 0) return;
+    const operationId = randomUUID();
+    await prepareDeletion(operationId, validatedKeys);
+    try {
+      await commitDeletion(operationId);
+    } catch (error) {
+      try {
+        await rollbackDeletion(operationId);
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          "Attachment deletion failed and could not be fully rolled back.",
+        );
+      }
+      throw error;
     }
   }
 
@@ -85,5 +203,8 @@ export function createAttachmentStore(baseDir: string): AttachmentStore {
     resolveRoot,
     resolvePath,
     deleteAttachments,
+    prepareDeletion,
+    commitDeletion,
+    rollbackDeletion,
   };
 }

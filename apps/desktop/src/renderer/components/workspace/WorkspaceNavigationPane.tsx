@@ -58,7 +58,9 @@ export function WorkspaceNavigationPane({
           const projectThreads = threads
             .filter(
               (thread) =>
-                thread.workspaceId === association.workspaceId && thread.projectId === project.id,
+                thread.workspaceId === association.workspaceId &&
+                thread.projectId === project.id &&
+                !thread.archived,
             )
             .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt));
 

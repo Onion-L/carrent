@@ -7,9 +7,19 @@ import { ensureCliPaths } from "./runtime/processPath";
 import { registerRuntimeIpc } from "./runtime/runtimeIpc";
 import { registerChatIpc } from "./chat/chatIpc";
 import { createChatSessionManager, type ChatSessionManager } from "./chat/chatSessionManager";
+import {
+  createThreadDeletionJournalStore,
+  createThreadDeletionTransactionManager,
+  recoverThreadDeletionTransaction,
+} from "./chat/threadDeletionTransaction";
 import { createPersistentProviderSessionStore } from "./chat/providerSessionStore";
 import { createWorkspaceStore } from "./workspace/workspaceStore";
-import { getLastWorkspaceSnapshot, registerWorkspaceIpc } from "./workspace/workspaceIpc";
+import {
+  getLastWorkspaceSnapshot,
+  registerWorkspaceIpc,
+  rememberWorkspaceSnapshot,
+  setWorkspaceTransactionActive,
+} from "./workspace/workspaceIpc";
 import { createWorkspaceShutdown } from "./workspace/workspaceShutdown";
 import type { WorkspaceStore } from "./workspace/workspaceStore";
 import { createAttachmentStore } from "./attachments/attachmentStore";
@@ -75,6 +85,7 @@ function createWindow(icon: string | undefined) {
 
 let workspaceStore: WorkspaceStore | null = null;
 let chatSessionManager: ChatSessionManager | null = null;
+let waitForThreadDeletion: (() => Promise<void>) | null = null;
 
 app.whenReady().then(async () => {
   ensureCliPaths();
@@ -87,11 +98,30 @@ app.whenReady().then(async () => {
 
   registerRuntimeIpc(ipcMain);
 
-  const store = createWorkspaceStore(app.getPath("userData"));
+  const userDataPath = app.getPath("userData");
+  const store = createWorkspaceStore(userDataPath);
   workspaceStore = store;
   registerWorkspaceIpc(ipcMain, store);
 
-  const attachmentStore = createAttachmentStore(app.getPath("userData"));
+  const attachmentStore = createAttachmentStore(userDataPath);
+  if (
+    !attachmentStore.prepareDeletion ||
+    !attachmentStore.commitDeletion ||
+    !attachmentStore.rollbackDeletion
+  ) {
+    throw new Error("Transactional attachment cleanup is unavailable.");
+  }
+  const transactionAttachmentStore = {
+    prepareDeletion: attachmentStore.prepareDeletion,
+    commitDeletion: attachmentStore.commitDeletion,
+    rollbackDeletion: attachmentStore.rollbackDeletion,
+  };
+  const threadDeletionJournalStore = createThreadDeletionJournalStore(userDataPath);
+  await recoverThreadDeletionTransaction({
+    journalStore: threadDeletionJournalStore,
+    workspaceStore: store,
+    attachmentStore: transactionAttachmentStore,
+  });
   registerAttachmentIpc(ipcMain, { attachmentStore });
   registerSkillIpc(ipcMain);
   registerGitIpc(ipcMain);
@@ -131,8 +161,26 @@ app.whenReady().then(async () => {
       return bridgeManager.getRuntimeHandle();
     },
   });
+  if (!sessionManager.rollbackThreadDataDeletion) {
+    throw new Error("Thread data rollback is unavailable.");
+  }
   chatSessionManager = sessionManager;
-  registerChatIpc(ipcMain, { sessionManager });
+  const threadDeletionManager = createThreadDeletionTransactionManager({
+    journalStore: threadDeletionJournalStore,
+    workspaceStore: store,
+    attachmentStore: transactionAttachmentStore,
+    sessionManager: {
+      deleteThreadData: sessionManager.deleteThreadData,
+      rollbackThreadDataDeletion: sessionManager.rollbackThreadDataDeletion,
+    },
+    onCommitted: rememberWorkspaceSnapshot,
+    onActiveChange: setWorkspaceTransactionActive,
+  });
+  waitForThreadDeletion = threadDeletionManager.waitForIdle;
+  registerChatIpc(ipcMain, {
+    sessionManager,
+    threadDeletionManager,
+  });
   createWindow(icon);
 
   app.on("activate", () => {
@@ -147,6 +195,9 @@ const workspaceShutdown = createWorkspaceShutdown({
   getWorkspaceStore: () => workspaceStore,
   quit: () => app.quit(),
   reportSaveError: (error) => console.error("[workspace] failed to save before quit", error),
+  beforeSave: async () => {
+    await waitForThreadDeletion?.();
+  },
 });
 
 app.on("before-quit", (event) => {

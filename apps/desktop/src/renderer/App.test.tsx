@@ -14,7 +14,12 @@ import {
 } from "react-router-dom";
 
 import type { AppStateSnapshot, WorkspaceSnapshot } from "../shared/workspacePersistence";
-import type { ChatRunEvent, ChatTurnRequest } from "../shared/chat";
+import type {
+  ChatRunEvent,
+  ChatTurnRequest,
+  DeleteThreadDataRequest,
+  ThreadDeletionTransactionRequest,
+} from "../shared/chat";
 
 mock.module("./assets/logo.png", () => ({ default: "logo.png" }));
 const { default: App } = await import("./App");
@@ -53,24 +58,44 @@ function installBridge(
   chatSendFails = false,
   workspaceSnapshot: WorkspaceSnapshot = legacySnapshot,
   workspaceLoadFails: boolean | number = false,
+  deleteThreadDataRequests: DeleteThreadDataRequest[] = [],
+  deleteThreadDataFails = false,
+  appStateSaveGate?: Promise<void>,
+  workspaceSaved: WorkspaceSnapshot[] = [],
+  workspaceSaveFails: boolean | number | number[] = false,
+  deleteThreadTransactionGate?: Promise<void>,
 ) {
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
   let saveAttempt = 0;
   let workspaceLoadAttempt = 0;
+  let workspaceSaveAttempt = 0;
+  const saveAppState = async (snapshot: AppStateSnapshot) => {
+    saveAttempt += 1;
+    if (
+      saveFails === true ||
+      saveFails === saveAttempt ||
+      (Array.isArray(saveFails) && saveFails.includes(saveAttempt))
+    ) {
+      throw new Error("disk full");
+    }
+    await appStateSaveGate;
+    saved.push(structuredClone(snapshot));
+  };
+  const saveWorkspace = async (snapshot: WorkspaceSnapshot) => {
+    workspaceSaveAttempt += 1;
+    if (
+      workspaceSaveFails === true ||
+      workspaceSaveFails === workspaceSaveAttempt ||
+      (Array.isArray(workspaceSaveFails) && workspaceSaveFails.includes(workspaceSaveAttempt))
+    ) {
+      throw new Error("workspace disk full");
+    }
+    workspaceSaved.push(structuredClone(snapshot));
+  };
   window.carrent = {
     appState: {
       load: async () => appState,
-      save: async (snapshot: AppStateSnapshot) => {
-        saveAttempt += 1;
-        if (
-          saveFails === true ||
-          saveFails === saveAttempt ||
-          (Array.isArray(saveFails) && saveFails.includes(saveAttempt))
-        ) {
-          throw new Error("disk full");
-        }
-        saved.push(structuredClone(snapshot));
-      },
+      save: saveAppState,
     },
     dialog: {
       openDirectory: async () => {
@@ -89,7 +114,7 @@ function installBridge(
         return workspaceSnapshot;
       },
       remember: () => {},
-      save: async () => {},
+      save: saveWorkspace,
     },
     runtimes: {
       list: async () => [
@@ -156,7 +181,17 @@ function installBridge(
           if (chatListener === listener) chatListener = null;
         };
       },
-      deleteThreadData: async () => {},
+      deleteThreadData: async (request: DeleteThreadDataRequest) => {
+        deleteThreadDataRequests.push(structuredClone(request));
+        if (deleteThreadDataFails) throw new Error("cleanup failed");
+      },
+      deleteThreadTransaction: async (request: ThreadDeletionTransactionRequest) => {
+        deleteThreadDataRequests.push(structuredClone(request.threadData));
+        if (deleteThreadDataFails) throw new Error("cleanup failed");
+        await deleteThreadTransactionGate;
+        await saveAppState(request.afterAppState);
+        await saveWorkspace(request.afterWorkspace);
+      },
     },
   } as unknown as Window["carrent"];
 }
@@ -170,6 +205,12 @@ async function renderApp(
   chatSendFails = false,
   workspaceSnapshot: WorkspaceSnapshot = legacySnapshot,
   workspaceLoadFails: boolean | number = false,
+  deleteThreadDataRequests: DeleteThreadDataRequest[] = [],
+  deleteThreadDataFails = false,
+  appStateSaveGate?: Promise<void>,
+  workspaceSaved: WorkspaceSnapshot[] = [],
+  workspaceSaveFails: boolean | number | number[] = false,
+  deleteThreadTransactionGate?: Promise<void>,
 ) {
   const saved: AppStateSnapshot[] = [];
   localStorage.setItem(
@@ -191,6 +232,12 @@ async function renderApp(
     chatSendFails,
     workspaceSnapshot,
     workspaceLoadFails,
+    deleteThreadDataRequests,
+    deleteThreadDataFails,
+    appStateSaveGate,
+    workspaceSaved,
+    workspaceSaveFails,
+    deleteThreadTransactionGate,
   );
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -1681,5 +1728,504 @@ describe("Association Thread Drafts", () => {
 
     expect(requests).toHaveLength(0);
     expect(saved).toHaveLength(0);
+  });
+});
+
+describe("Archived Thread lifecycle", () => {
+  function lifecycleState(archivedThreadIds: string[] = []): AppStateSnapshot {
+    return {
+      version: 1,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Primary Thread",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T10:00:00.000Z",
+          ...(archivedThreadIds.includes("thread-1") ? { archived: true } : {}),
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+        {
+          id: "thread-2",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Secondary Thread",
+          createdAt: "2026-07-27T07:00:00.000Z",
+          lastActivityAt: "2026-07-27T09:00:00.000Z",
+          ...(archivedThreadIds.includes("thread-2") ? { archived: true } : {}),
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      threadMessages: [
+        {
+          id: "message-1",
+          threadId: "thread-1",
+          role: "user",
+          content: "Keep this history",
+          createdAt: "2026-07-27T10:00:00.000Z",
+          attachments: [
+            {
+              id: "attachment-1",
+              kind: "file",
+              name: "notes.txt",
+              mimeType: "text/plain",
+              size: 5,
+              storageKey: "attachment-1.txt",
+            },
+          ],
+        },
+      ],
+      threadRuns: [
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          messageId: "message-1",
+          startedAt: "2026-07-27T10:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
+      activeWorkspaceId: "workspace-1",
+    };
+  }
+
+  function lifecycleWorkspaceSnapshot(queued = false): WorkspaceSnapshot {
+    return {
+      version: 1,
+      projects: [
+        {
+          id: "project-1",
+          name: "Carrent",
+          path: "/code/carrent",
+          threads: [
+            {
+              id: "thread-1",
+              title: "Primary Thread",
+              updatedAt: "2026-07-27T10:00:00.000Z",
+              pinned: true,
+              runChecklist: {
+                runId: "run-1",
+                runtimeId: "kimi",
+                entries: [{ content: "Keep checklist", status: "pending" }],
+                outcome: "completed",
+                expanded: true,
+              },
+            },
+            {
+              id: "thread-2",
+              title: "Secondary Thread",
+              updatedAt: "2026-07-27T09:00:00.000Z",
+            },
+          ],
+        },
+      ],
+      chats: [],
+      messages: [
+        {
+          id: "message-1",
+          threadId: "thread-1",
+          role: "user",
+          content: "Keep this history",
+          timestamp: "10:00",
+          attachments: [
+            {
+              id: "attachment-1",
+              kind: "file",
+              name: "notes.txt",
+              mimeType: "text/plain",
+              size: 5,
+              storageKey: "attachment-1.txt",
+            },
+          ],
+        },
+      ],
+      activeThreadId: "thread-1",
+      ...(queued
+        ? {
+            threadWork: {
+              "thread-1": {
+                queuedMessages: [{ id: "queued-1", content: "Wait for the current Run" }],
+              },
+            },
+          }
+        : {}),
+    };
+  }
+
+  it("archives an idle Thread and opens the next active sibling", async () => {
+    const saved = await renderApp(
+      lifecycleState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      lifecycleWorkspaceSnapshot(),
+    );
+
+    await click(buttonNamed("Archive Thread"));
+
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-2");
+    expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.archived).toBe(true);
+    expect(saved.at(-1)?.threadMessages).toEqual(lifecycleState().threadMessages);
+    expect(saved.at(-1)?.threadRuns).toEqual(lifecycleState().threadRuns);
+    expect(container!.textContent).not.toContain("Primary Thread");
+  });
+
+  it("blocks archive while a Thread has queued messages", async () => {
+    await renderApp(
+      lifecycleState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      lifecycleWorkspaceSnapshot(true),
+    );
+
+    expect(buttonNamed("Archive Thread").disabled).toBe(true);
+    expect(buttonNamed("Archive Thread").title).toContain("queued messages");
+  });
+
+  it("blocks archive while the Thread has a live Run", async () => {
+    const requests: ChatTurnRequest[] = [];
+    await renderApp(
+      lifecycleState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      requests,
+      false,
+      lifecycleWorkspaceSnapshot(),
+    );
+
+    await fillTextarea(container!.querySelector("textarea")!, "Keep this Run visible");
+    await click(composerSendButton());
+
+    expect(buttonNamed("Archive Thread").disabled).toBe(true);
+    expect(buttonNamed("Archive Thread").title).toContain("live Run");
+
+    await act(async () => {
+      emitChatEvent?.({
+        type: "completed",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+        text: "Done",
+        finishedAt: "2026-07-27T10:01:00.000Z",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  });
+
+  it("does not start a Run while archiving the Thread", async () => {
+    let releaseSave!: () => void;
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const requests: ChatTurnRequest[] = [];
+    const saved = await renderApp(
+      lifecycleState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      requests,
+      false,
+      lifecycleWorkspaceSnapshot(),
+      false,
+      [],
+      false,
+      saveGate,
+    );
+
+    await click(buttonNamed("Archive Thread"));
+    await fillTextarea(container!.querySelector("textarea")!, "Do not race this archive");
+    await click(composerSendButton());
+
+    releaseSave();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(requests).toHaveLength(0);
+    expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.archived).toBe(true);
+  });
+
+  it("opens the Project overview when archiving the last active Thread", async () => {
+    await renderApp(
+      lifecycleState(["thread-2"]),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      lifecycleWorkspaceSnapshot(),
+    );
+
+    await click(buttonNamed("Archive Thread"));
+
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+  });
+
+  it("does not open an Archived Thread or expose its Composer", async () => {
+    await renderApp(
+      lifecycleState(["thread-1"]),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      lifecycleWorkspaceSnapshot(),
+    );
+
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+    expect(container!.querySelector("textarea")).toBe(null);
+  });
+
+  it("restores an Archived Thread in Settings and opens it only on request", async () => {
+    const saved = await renderApp(
+      lifecycleState(["thread-1"]),
+      "/settings?tab=archives",
+      [],
+      false,
+      [],
+      false,
+      lifecycleWorkspaceSnapshot(),
+    );
+
+    expect(container!.textContent).toContain("Personal / Carrent / Primary Thread");
+    await click(buttonNamed("Restore"));
+
+    expect(currentPathname).toBe("/settings");
+    expect(
+      saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.archived,
+    ).toBeUndefined();
+    expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.lastActivityAt).toBe(
+      "2026-07-27T10:00:00.000Z",
+    );
+    expect(container!.textContent).toContain("Primary Thread was restored");
+
+    await click(buttonNamed("Open Restored Thread"));
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+  });
+
+  it("keeps restore and permanent deletion mutually exclusive", async () => {
+    let releaseSave!: () => void;
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const cleanupRequests: DeleteThreadDataRequest[] = [];
+    await renderApp(
+      lifecycleState(["thread-1"]),
+      "/settings?tab=archives",
+      [],
+      false,
+      [],
+      false,
+      lifecycleWorkspaceSnapshot(),
+      false,
+      cleanupRequests,
+      false,
+      saveGate,
+    );
+
+    await click(buttonNamed("Restore"));
+    expect(buttonNamed("Permanently Delete").disabled).toBe(true);
+
+    releaseSave();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(cleanupRequests).toHaveLength(0);
+  });
+
+  it("keeps an Archived Thread when permanent deletion confirmation is canceled", async () => {
+    const cleanupRequests: DeleteThreadDataRequest[] = [];
+    let confirmation = "";
+    window.confirm = (message) => {
+      confirmation = String(message);
+      return false;
+    };
+    await renderApp(
+      lifecycleState(["thread-1"]),
+      "/settings?tab=archives",
+      [],
+      false,
+      [],
+      false,
+      lifecycleWorkspaceSnapshot(),
+      false,
+      cleanupRequests,
+    );
+
+    await click(buttonNamed("Permanently Delete"));
+
+    expect(confirmation).toContain('Permanently delete "Primary Thread"');
+    expect(confirmation).toContain("Project files and Git state will not be changed");
+    expect(cleanupRequests).toHaveLength(0);
+    expect(container!.textContent).toContain("Primary Thread");
+  });
+
+  it("permanently deletes only from Archives and keeps the next item selected", async () => {
+    const cleanupRequests: DeleteThreadDataRequest[] = [];
+    window.confirm = () => true;
+    const saved = await renderApp(
+      lifecycleState(["thread-1", "thread-2"]),
+      "/settings?tab=archives",
+      [],
+      false,
+      [],
+      false,
+      lifecycleWorkspaceSnapshot(),
+      false,
+      cleanupRequests,
+    );
+
+    await click(buttonNamed("Permanently Delete"));
+
+    expect(currentPathname).toBe("/settings");
+    expect(cleanupRequests).toEqual([
+      { threadIds: ["thread-1"], attachmentStorageKeys: ["attachment-1.txt"] },
+    ]);
+    expect(saved.at(-1)?.threads?.map((thread) => thread.id)).toEqual(["thread-2"]);
+    expect(saved.at(-1)?.threadMessages).toEqual([]);
+    expect(saved.at(-1)?.threadRuns).toEqual([]);
+    expect(container!.textContent).toContain("Secondary Thread");
+  });
+
+  it("preserves another Thread's live updates while permanent deletion is pending", async () => {
+    let releaseDeletion!: () => void;
+    const deletionGate = new Promise<void>((resolve) => {
+      releaseDeletion = resolve;
+    });
+    const requests: ChatTurnRequest[] = [];
+    window.confirm = () => true;
+    await renderApp(
+      lifecycleState(["thread-1"]),
+      "/workspace/workspace-1/project/project-1/thread/thread-2",
+      [],
+      false,
+      requests,
+      false,
+      lifecycleWorkspaceSnapshot(),
+      false,
+      [],
+      false,
+      undefined,
+      [],
+      false,
+      deletionGate,
+    );
+
+    await fillTextarea(container!.querySelector("textarea")!, "Keep this live update");
+    await click(composerSendButton());
+    await act(async () => {
+      testNavigate!("/settings?tab=archives");
+    });
+    await click(buttonNamed("Permanently Delete"));
+
+    await act(async () => {
+      emitChatEvent?.({
+        type: "checklist",
+        runId: requests[0]!.runId!,
+        threadId: "thread-2",
+        runtimeId: "kimi",
+        checklist: {
+          entries: [{ content: "Arrived during deletion", status: "in_progress" }],
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    releaseDeletion();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      testNavigate!("/workspace/workspace-1/project/project-1/thread/thread-2");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container!.textContent).toContain("Arrived during deletion");
+  });
+
+  it("selects the following Archived Thread after deleting a middle item", async () => {
+    window.confirm = () => true;
+    const appState = lifecycleState(["thread-1", "thread-2"]);
+    appState.threads = [
+      ...(appState.threads ?? []),
+      {
+        id: "thread-3",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        title: "Tertiary Thread",
+        createdAt: "2026-07-27T06:00:00.000Z",
+        lastActivityAt: "2026-07-27T08:00:00.000Z",
+        archived: true,
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
+    ];
+
+    await renderApp(
+      appState,
+      "/settings?tab=archives",
+      [],
+      false,
+      [],
+      false,
+      lifecycleWorkspaceSnapshot(),
+    );
+
+    const secondaryButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Secondary Thread"),
+    );
+    if (!secondaryButton) throw new Error("Secondary Archived Thread was not found");
+    await click(secondaryButton);
+    await click(buttonNamed("Permanently Delete"));
+
+    const tertiaryButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Tertiary Thread"),
+    );
+    expect(tertiaryButton?.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("keeps an Archived Thread when permanent cleanup fails", async () => {
+    const cleanupRequests: DeleteThreadDataRequest[] = [];
+    window.confirm = () => true;
+    const saved = await renderApp(
+      lifecycleState(["thread-1"]),
+      "/settings?tab=archives",
+      [],
+      false,
+      [],
+      false,
+      lifecycleWorkspaceSnapshot(),
+      false,
+      cleanupRequests,
+      true,
+    );
+
+    await click(buttonNamed("Permanently Delete"));
+
+    expect(cleanupRequests).toHaveLength(1);
+    expect(saved).toHaveLength(0);
+    expect(container!.textContent).toContain("Thread could not be permanently deleted");
+    expect(container!.textContent).toContain("Primary Thread");
   });
 });

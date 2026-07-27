@@ -6,6 +6,7 @@ import { createWorkspaceStore } from "./workspaceStore";
 import type {
   WorkspaceSnapshot,
   ProviderSessionSnapshot,
+  AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
 
 async function makeTempDir(): Promise<string> {
@@ -13,6 +14,46 @@ async function makeTempDir(): Promise<string> {
 }
 
 describe("createWorkspaceStore", () => {
+  it("writes and reads the workspace App State snapshot", async () => {
+    const baseDir = await makeTempDir();
+    const store = createWorkspaceStore(baseDir);
+    const snapshot: AppStateSnapshot = {
+      version: 1,
+      workspaces: [
+        { id: "workspace-1", name: "Personal", order: 0 },
+        { id: "workspace-2", name: "Client", order: 1 },
+      ],
+      activeWorkspaceId: "workspace-2",
+    };
+
+    await store.saveAppStateSnapshot(snapshot);
+
+    expect(await store.loadAppStateSnapshot()).toEqual(snapshot);
+  });
+
+  it("rejects invalid Workspace data before writing App State", async () => {
+    const baseDir = await makeTempDir();
+    const store = createWorkspaceStore(baseDir);
+    const snapshot = {
+      version: 1,
+      workspaces: [
+        { id: "workspace-1", name: "Personal", order: 0 },
+        { id: "workspace-2", name: " personal ", order: 1 },
+      ],
+      activeWorkspaceId: "workspace-1",
+    } as AppStateSnapshot;
+
+    let saveError: unknown;
+    try {
+      await store.saveAppStateSnapshot(snapshot);
+    } catch (error) {
+      saveError = error;
+    }
+
+    expect(String(saveError)).toContain("Invalid App State snapshot");
+    expect(await readdir(baseDir)).not.toContain("app-state.json");
+  });
+
   it("writes and reads workspace snapshot", async () => {
     const baseDir = await makeTempDir();
     const store = createWorkspaceStore(baseDir);

@@ -10,11 +10,16 @@ import type { ChatQuestionResponse } from "../src/shared/chatQuestions";
 import type { SkillRecord } from "../src/shared/skills";
 import type { McpServerStatus } from "../src/shared/mcpServer";
 import type {
+  AppStateSnapshot,
   WorkspaceSnapshot,
   ProviderSessionSnapshot,
 } from "../src/shared/workspacePersistence";
 import type { RuntimeId } from "../src/shared/runtimes";
-import type { GitBranchInfo, GitWorkspaceDiffResult, GitWorkspaceSnapshotResult } from "./git/gitIpc";
+import type {
+  GitBranchInfo,
+  GitWorkspaceDiffResult,
+  GitWorkspaceSnapshotResult,
+} from "./git/gitIpc";
 import type { RtkGainStats } from "../src/shared/rtk";
 
 const carrent = {
@@ -81,6 +86,10 @@ const carrent = {
   clipboard: {
     writeText: (text: string) => ipcRenderer.invoke("clipboard:write-text", text),
   },
+  appState: {
+    load: () => ipcRenderer.invoke("app-state:load") as Promise<AppStateSnapshot | null>,
+    save: (snapshot: AppStateSnapshot) => ipcRenderer.invoke("app-state:save", snapshot),
+  },
   workspace: {
     load: () => ipcRenderer.invoke("workspace:load") as Promise<WorkspaceSnapshot | null>,
     remember: (snapshot: WorkspaceSnapshot) => ipcRenderer.send("workspace:remember", snapshot),
@@ -126,9 +135,16 @@ const carrent = {
     createBranch: (projectPath: string, branch: string) =>
       ipcRenderer.invoke("git:createBranch", projectPath, branch) as Promise<GitBranchInfo>,
     workspaceSnapshot: (projectPath: string) =>
-      ipcRenderer.invoke("git:workspace-snapshot", projectPath) as Promise<GitWorkspaceSnapshotResult>,
+      ipcRenderer.invoke(
+        "git:workspace-snapshot",
+        projectPath,
+      ) as Promise<GitWorkspaceSnapshotResult>,
     workspaceDiff: (projectPath: string, baseRevision?: string) =>
-      ipcRenderer.invoke("git:workspace-diff", projectPath, baseRevision ?? null) as Promise<GitWorkspaceDiffResult>,
+      ipcRenderer.invoke(
+        "git:workspace-diff",
+        projectPath,
+        baseRevision ?? null,
+      ) as Promise<GitWorkspaceDiffResult>,
   },
 };
 

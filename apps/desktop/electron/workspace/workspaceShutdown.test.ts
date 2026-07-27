@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { WorkspaceSnapshot } from "../../src/shared/workspacePersistence";
 import type { WorkspaceStore } from "./workspaceStore";
+import { createWorkspaceStoreStub } from "./workspaceStore.testUtils";
 import { createWorkspaceShutdown } from "./workspaceShutdown";
 
 const snapshot: WorkspaceSnapshot = {
@@ -14,12 +15,9 @@ const snapshot: WorkspaceSnapshot = {
 function createStore(
   saveWorkspaceSnapshot: WorkspaceStore["saveWorkspaceSnapshot"],
 ): WorkspaceStore {
-  return {
-    loadWorkspaceSnapshot: async () => null,
+  return createWorkspaceStoreStub({
     saveWorkspaceSnapshot,
-    loadProviderSessions: async () => ({ version: 1, sessions: {} }),
-    saveProviderSessions: async () => {},
-  };
+  });
 }
 
 describe("createWorkspaceShutdown", () => {

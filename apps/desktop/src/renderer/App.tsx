@@ -10,23 +10,37 @@ import { SettingsPage } from "./routes/SettingsPage";
 import { ThreadPage } from "./routes/ThreadPage";
 import { ChatPage } from "./routes/ChatPage";
 import { WorkspaceProvider } from "./context/WorkspaceContext";
+import { AppStateProvider, useAppState } from "./context/AppStateContext";
+import { FirstUsePage } from "./routes/FirstUsePage";
+import { WorkspaceOverviewPage } from "./routes/WorkspaceOverviewPage";
+
+function WorkspaceRestoreRoute() {
+  const { workspaces, activeWorkspaceId } = useAppState();
+  const target =
+    workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0] ?? null;
+  return target ? <Navigate replace to={`/workspace/${target.id}`} /> : <FirstUsePage />;
+}
 
 function AppRoutes() {
-  const { hasHydrated } = useWorkspace();
+  const { hasHydrated: hasLegacyHydrated } = useWorkspace();
+  const { hasHydrated, workspaces } = useAppState();
 
-  if (!hasHydrated) {
+  if (!hasHydrated || !hasLegacyHydrated) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-bg">
-        <span className="text-app-14 text-subtle">Loading workspace...</span>
+        <span className="text-app-14 text-subtle">Loading App State...</span>
       </div>
     );
   }
+
+  if (workspaces.length === 0) return <FirstUsePage />;
 
   return (
     <ToastProvider>
       <DesktopShell>
         <Routes>
-          <Route element={<HomePage />} path="/" />
+          <Route element={<WorkspaceRestoreRoute />} path="/" />
+          <Route element={<WorkspaceOverviewPage />} path="/workspace/:workspaceId" />
           <Route element={<HomePage />} path="/project/:projectId" />
           <Route element={<ThreadPage />} path="/thread/:projectId/:threadId" />
           <Route element={<ChatPage />} path="/chat/:threadId" />
@@ -42,12 +56,14 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <WorkspaceProvider>
-      <SettingsProvider>
-        <RuntimeModelsProvider>
-          <AppRoutes />
-        </RuntimeModelsProvider>
-      </SettingsProvider>
-    </WorkspaceProvider>
+    <AppStateProvider>
+      <WorkspaceProvider>
+        <SettingsProvider>
+          <RuntimeModelsProvider>
+            <AppRoutes />
+          </RuntimeModelsProvider>
+        </SettingsProvider>
+      </WorkspaceProvider>
+    </AppStateProvider>
   );
 }

@@ -1,4 +1,5 @@
 import {
+  normalizeAppStateSnapshot,
   normalizeWorkspaceSnapshot,
   type ProviderSessionSnapshot,
   type WorkspaceSnapshot,
@@ -20,6 +21,14 @@ export function getLastWorkspaceSnapshot(): WorkspaceSnapshot | null {
 }
 
 export function registerWorkspaceIpc(ipcMainLike: IpcMainLike, store: WorkspaceStore) {
+  ipcMainLike.handle("app-state:load", () => store.loadAppStateSnapshot());
+  ipcMainLike.handle("app-state:save", (_event, snapshot) => {
+    const normalized = normalizeAppStateSnapshot(snapshot);
+    if (!normalized) {
+      throw new Error("Invalid App State snapshot.");
+    }
+    return store.saveAppStateSnapshot(normalized);
+  });
   ipcMainLike.handle("workspace:load", () => store.loadWorkspaceSnapshot());
   ipcMainLike.on("workspace:remember", (_event, snapshot) => {
     const normalized = normalizeWorkspaceSnapshot(snapshot);

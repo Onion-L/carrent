@@ -22,7 +22,11 @@ import type {
   GitWorkspaceDiffResult,
   GitWorkspaceSnapshotResult,
 } from "../../electron/git/gitIpc";
-import type { WorkspaceSnapshot, ProviderSessionSnapshot } from "../shared/workspacePersistence";
+import type {
+  AppStateSnapshot,
+  WorkspaceSnapshot,
+  ProviderSessionSnapshot,
+} from "../shared/workspacePersistence";
 import type { RtkGainStats } from "../shared/rtk";
 
 declare global {
@@ -76,6 +80,10 @@ declare global {
       };
       clipboard: {
         writeText: (text: string) => Promise<void>;
+      };
+      appState: {
+        load: () => Promise<AppStateSnapshot | null>;
+        save: (snapshot: AppStateSnapshot) => Promise<void>;
       };
       workspace: {
         load: () => Promise<WorkspaceSnapshot | null>;

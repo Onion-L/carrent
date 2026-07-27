@@ -1,13 +1,17 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  normalizeAppStateSnapshot,
   normalizeProviderSessionSnapshot,
   normalizeWorkspaceSnapshot,
+  type AppStateSnapshot,
   type ProviderSessionSnapshot,
   type WorkspaceSnapshot,
 } from "../../src/shared/workspacePersistence";
 
 export type WorkspaceStore = {
+  loadAppStateSnapshot: () => Promise<AppStateSnapshot | null>;
+  saveAppStateSnapshot: (snapshot: AppStateSnapshot) => Promise<void>;
   loadWorkspaceSnapshot: () => Promise<WorkspaceSnapshot | null>;
   saveWorkspaceSnapshot: (snapshot: WorkspaceSnapshot) => Promise<void>;
   loadProviderSessions: () => Promise<ProviderSessionSnapshot>;
@@ -15,6 +19,7 @@ export type WorkspaceStore = {
 };
 
 export function createWorkspaceStore(baseDir: string): WorkspaceStore {
+  const appStatePath = join(baseDir, "app-state.json");
   const workspacePath = join(baseDir, "workspace.json");
   const providerSessionsPath = join(baseDir, "provider-sessions.json");
 
@@ -26,6 +31,29 @@ export function createWorkspaceStore(baseDir: string): WorkspaceStore {
   }
 
   return {
+    async loadAppStateSnapshot(): Promise<AppStateSnapshot | null> {
+      let raw: string;
+      try {
+        raw = await readFile(appStatePath, "utf-8");
+      } catch {
+        return null;
+      }
+
+      try {
+        return normalizeAppStateSnapshot(JSON.parse(raw));
+      } catch {
+        return null;
+      }
+    },
+
+    async saveAppStateSnapshot(snapshot: AppStateSnapshot): Promise<void> {
+      const normalized = normalizeAppStateSnapshot(snapshot);
+      if (!normalized) {
+        throw new Error("Invalid App State snapshot.");
+      }
+      await atomicWrite(appStatePath, JSON.stringify(normalized, null, 2));
+    },
+
     async loadWorkspaceSnapshot(): Promise<WorkspaceSnapshot | null> {
       let raw: string;
       try {

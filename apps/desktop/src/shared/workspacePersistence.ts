@@ -19,6 +19,19 @@ import {
 } from "./runChecklist";
 
 export const WORKSPACE_SNAPSHOT_VERSION = 1;
+export const APP_STATE_SNAPSHOT_VERSION = 1;
+
+export type WorkspaceRecord = {
+  id: string;
+  name: string;
+  order: number;
+};
+
+export type AppStateSnapshot = {
+  version: typeof APP_STATE_SNAPSHOT_VERSION;
+  workspaces: WorkspaceRecord[];
+  activeWorkspaceId: string | null;
+};
 
 const MAX_PATCH_BYTES = 256 * 1024;
 const MAX_PLAN_REVIEW_BYTES = 256 * 1024;
@@ -63,6 +76,59 @@ export type ProviderSessionSnapshot = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | null {
+  if (!isRecord(value)) return null;
+  if (value.version !== APP_STATE_SNAPSHOT_VERSION) return null;
+  if (!Array.isArray(value.workspaces)) return null;
+  if (typeof value.activeWorkspaceId !== "string" && value.activeWorkspaceId !== null) {
+    return null;
+  }
+
+  const workspaces: WorkspaceRecord[] = [];
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  const orders = new Set<number>();
+
+  for (const workspace of value.workspaces) {
+    if (!isRecord(workspace)) return null;
+    if (typeof workspace.id !== "string" || workspace.id.trim() !== workspace.id || !workspace.id) {
+      return null;
+    }
+    if (
+      typeof workspace.name !== "string" ||
+      workspace.name.trim() !== workspace.name ||
+      !workspace.name
+    ) {
+      return null;
+    }
+    const order = workspace.order;
+    if (typeof order !== "number" || !Number.isInteger(order) || order < 0) return null;
+
+    const normalizedName = workspace.name.toLocaleLowerCase();
+    if (ids.has(workspace.id) || names.has(normalizedName) || orders.has(order)) {
+      return null;
+    }
+
+    ids.add(workspace.id);
+    names.add(normalizedName);
+    orders.add(order);
+    workspaces.push({
+      id: workspace.id,
+      name: workspace.name,
+      order,
+    });
+  }
+
+  if (orders.size > 0 && Math.max(...orders) !== orders.size - 1) return null;
+  if (value.activeWorkspaceId !== null && !ids.has(value.activeWorkspaceId)) return null;
+
+  return {
+    version: APP_STATE_SNAPSHOT_VERSION,
+    workspaces: workspaces.sort((left, right) => left.order - right.order),
+    activeWorkspaceId: value.activeWorkspaceId,
+  };
 }
 
 function normalizeOptionalString(value: unknown) {

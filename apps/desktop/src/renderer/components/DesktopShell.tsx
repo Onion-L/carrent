@@ -1,11 +1,12 @@
 import { useCallback, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useLocation } from "react-router-dom";
-import { SidebarNav } from "./SidebarNav";
 import { ThreadHistoryPane } from "./chat/ThreadHistoryPane";
 import { SettingsTabsPane } from "./settings/SettingsTabsPane";
 import { McpServerControl } from "./mcp/McpServerControl";
 import { DesktopHeaderActionsSlot } from "./DesktopHeaderActions";
+import { WorkspaceNavigationPane } from "./workspace/WorkspaceNavigationPane";
+import { WorkspaceRail } from "./workspace/WorkspaceRail";
 
 const LEFT_SIDEBAR_WIDTH = 58;
 const MIN_SECONDARY_PANE_WIDTH = 200;
@@ -19,7 +20,13 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   const resizeStartRef = useRef({ x: 0, width: DEFAULT_SECONDARY_PANE_WIDTH });
   const location = useLocation();
   const secondaryPane =
-    location.pathname === "/settings" ? <SettingsTabsPane /> : <ThreadHistoryPane />;
+    location.pathname === "/settings" ? (
+      <SettingsTabsPane />
+    ) : location.pathname.startsWith("/workspace/") ? (
+      <WorkspaceNavigationPane />
+    ) : (
+      <ThreadHistoryPane />
+    );
 
   const toggleSecondaryPane = useCallback(() => {
     setIsSecondaryPaneCollapsed((collapsed) => !collapsed);
@@ -88,7 +95,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
 
         <div className="flex min-h-0 flex-1 bg-bg">
           <div className="min-h-0 shrink-0" style={{ width: LEFT_SIDEBAR_WIDTH }}>
-            <SidebarNav collapsed={true} />
+            <WorkspaceRail />
           </div>
 
           <div className="min-h-0 min-w-0 flex-1 bg-sidebar p-1.5 pl-0">

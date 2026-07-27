@@ -3,10 +3,12 @@ import { getLastWorkspaceSnapshot, registerWorkspaceIpc } from "./workspaceIpc";
 import type {
   WorkspaceSnapshot,
   ProviderSessionSnapshot,
+  AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
+import { createWorkspaceStoreStub } from "./workspaceStore.testUtils";
 
 describe("registerWorkspaceIpc", () => {
-  it("registers workspace and provider session channels", () => {
+  it("registers App State, legacy workspace, and provider session channels", () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const listeners = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
 
@@ -19,21 +21,59 @@ describe("registerWorkspaceIpc", () => {
           listeners.set(channel, listener);
         },
       },
-      {
-        loadWorkspaceSnapshot: async () => null,
-        saveWorkspaceSnapshot: async () => {},
-        loadProviderSessions: async () => ({ version: 1, sessions: {} }),
-        saveProviderSessions: async () => {},
-      },
+      createWorkspaceStoreStub(),
     );
 
     expect([...handlers.keys()].sort()).toEqual([
+      "app-state:load",
+      "app-state:save",
       "provider-sessions:load",
       "provider-sessions:save",
       "workspace:load",
       "workspace:save",
     ]);
     expect([...listeners.keys()]).toEqual(["workspace:remember"]);
+  });
+
+  it("app-state:save validates and forwards the snapshot to the store", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const saved: AppStateSnapshot[] = [];
+    const snapshot: AppStateSnapshot = {
+      version: 1,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      activeWorkspaceId: "workspace-1",
+    };
+
+    registerWorkspaceIpc(
+      {
+        handle(channel, listener) {
+          handlers.set(channel, listener);
+        },
+        on() {},
+      },
+      createWorkspaceStoreStub({
+        saveAppStateSnapshot: async (value) => {
+          saved.push(value);
+        },
+      }),
+    );
+
+    await handlers.get("app-state:save")?.({}, snapshot);
+    expect(saved).toEqual([snapshot]);
+
+    let saveError: unknown;
+    try {
+      handlers.get("app-state:save")?.(
+        {},
+        {
+          ...snapshot,
+          workspaces: [{ id: "workspace-1", name: " ", order: 0 }],
+        },
+      );
+    } catch (error) {
+      saveError = error;
+    }
+    expect(String(saveError)).toContain("Invalid App State snapshot");
   });
 
   it("workspace:load returns snapshot from store", async () => {
@@ -53,12 +93,9 @@ describe("registerWorkspaceIpc", () => {
         },
         on() {},
       },
-      {
+      createWorkspaceStoreStub({
         loadWorkspaceSnapshot: async () => snapshot,
-        saveWorkspaceSnapshot: async () => {},
-        loadProviderSessions: async () => ({ version: 1, sessions: {} }),
-        saveProviderSessions: async () => {},
-      },
+      }),
     );
 
     const result = await handlers.get("workspace:load")?.({});
@@ -83,14 +120,11 @@ describe("registerWorkspaceIpc", () => {
         },
         on() {},
       },
-      {
-        loadWorkspaceSnapshot: async () => null,
+      createWorkspaceStoreStub({
         saveWorkspaceSnapshot: async (s) => {
           saved.push(s);
         },
-        loadProviderSessions: async () => ({ version: 1, sessions: {} }),
-        saveProviderSessions: async () => {},
-      },
+      }),
     );
 
     await handlers.get("workspace:save")?.({}, snapshot);
@@ -120,14 +154,11 @@ describe("registerWorkspaceIpc", () => {
           listeners.set(channel, listener);
         },
       },
-      {
-        loadWorkspaceSnapshot: async () => null,
+      createWorkspaceStoreStub({
         saveWorkspaceSnapshot: async (s) => {
           saved.push(s);
         },
-        loadProviderSessions: async () => ({ version: 1, sessions: {} }),
-        saveProviderSessions: async () => {},
-      },
+      }),
     );
 
     listeners.get("workspace:remember")?.({}, snapshot);
@@ -170,12 +201,7 @@ describe("registerWorkspaceIpc", () => {
           listeners.set(channel, listener);
         },
       },
-      {
-        loadWorkspaceSnapshot: async () => null,
-        saveWorkspaceSnapshot: async () => {},
-        loadProviderSessions: async () => ({ version: 1, sessions: {} }),
-        saveProviderSessions: async () => {},
-      },
+      createWorkspaceStoreStub(),
     );
 
     listeners.get("workspace:remember")?.({}, snapshot);
@@ -195,12 +221,9 @@ describe("registerWorkspaceIpc", () => {
         },
         on() {},
       },
-      {
-        loadWorkspaceSnapshot: async () => null,
-        saveWorkspaceSnapshot: async () => {},
+      createWorkspaceStoreStub({
         loadProviderSessions: async () => sessions,
-        saveProviderSessions: async () => {},
-      },
+      }),
     );
 
     const result = await handlers.get("provider-sessions:load")?.({});

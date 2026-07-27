@@ -120,6 +120,13 @@ export function normalizeProjectWorkingDirectory(value: string): string {
   return `${prefix}${segments.join("/")}` || (isAbsolute ? prefix : "");
 }
 
+export function getProjectWorkingDirectoryIdentity(workingDirectory: string): string {
+  const normalized = normalizeProjectWorkingDirectory(workingDirectory);
+  return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("//")
+    ? normalized.toLocaleLowerCase()
+    : normalized;
+}
+
 export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | null {
   if (!isRecord(value)) return null;
   if (value.version !== APP_STATE_SNAPSHOT_VERSION) return null;
@@ -182,19 +189,20 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
     if (typeof project.workingDirectory !== "string" || !project.workingDirectory) return null;
 
     const workingDirectory = normalizeProjectWorkingDirectory(project.workingDirectory);
+    const workingDirectoryIdentity = getProjectWorkingDirectoryIdentity(workingDirectory);
     const isAbsoluteWorkingDirectory =
       workingDirectory.startsWith("/") || /^[A-Za-z]:\//.test(workingDirectory);
     if (
       !workingDirectory ||
       !isAbsoluteWorkingDirectory ||
       projectIds.has(project.id) ||
-      workingDirectories.has(workingDirectory)
+      workingDirectories.has(workingDirectoryIdentity)
     ) {
       return null;
     }
 
     projectIds.add(project.id);
-    workingDirectories.add(workingDirectory);
+    workingDirectories.add(workingDirectoryIdentity);
     projects.push({ id: project.id, name: project.name, workingDirectory });
   }
 

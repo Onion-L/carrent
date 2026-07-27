@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 
 import { useAppState } from "../context/AppStateContext";
@@ -22,6 +22,7 @@ export function ProjectOverviewPage() {
   const association = associations.find(
     (item) => item.workspaceId === workspaceId && item.projectId === projectId,
   );
+  const [saveError, setSaveError] = useState<string | null>(null);
   useEffect(() => {
     if (!workspace || workspace.id === activeWorkspaceId) return;
     void selectWorkspace(workspace.id);
@@ -41,18 +42,21 @@ export function ProjectOverviewPage() {
       </div>
 
       <div className="grid max-w-2xl gap-8 py-7">
+        {saveError && <p className="text-app-12 text-danger">{saveError}</p>}
         <section>
           <h2 className="text-app-14 font-semibold text-fg">Workspace alias</h2>
           <form
             className="mt-3 flex gap-2"
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault();
+              setSaveError(null);
               const data = new FormData(event.currentTarget);
-              void setProjectAlias(
+              const saved = await setProjectAlias(
                 workspace.id,
                 project.id,
                 String(data.get("projectAlias") ?? ""),
               );
+              if (!saved) setSaveError("Project settings could not be saved.");
             }}
           >
             <input
@@ -77,10 +81,15 @@ export function ProjectOverviewPage() {
           </p>
           <form
             className="mt-3 flex gap-2"
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault();
+              setSaveError(null);
               const data = new FormData(event.currentTarget);
-              void renameSharedProject(project.id, String(data.get("sharedProjectName") ?? ""));
+              const saved = await renameSharedProject(
+                project.id,
+                String(data.get("sharedProjectName") ?? ""),
+              );
+              if (!saved) setSaveError("Project settings could not be saved.");
             }}
           >
             <input
@@ -102,14 +111,16 @@ export function ProjectOverviewPage() {
           <h2 className="text-app-14 font-semibold text-fg">New Thread defaults</h2>
           <form
             className="mt-3"
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault();
+              setSaveError(null);
               const data = new FormData(event.currentTarget);
-              void setAssociationDefaults(workspace.id, project.id, {
+              const saved = await setAssociationDefaults(workspace.id, project.id, {
                 runtimeId: String(data.get("defaultRuntimeId")) as RuntimeId,
                 runtimeModelId: String(data.get("defaultRuntimeModelId") ?? ""),
                 runtimeMode: String(data.get("defaultRuntimeMode")) as RuntimeMode,
               });
+              if (!saved) setSaveError("Project settings could not be saved.");
             }}
           >
             <div className="grid grid-cols-2 gap-3">

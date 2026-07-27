@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 
 import {
   APP_STATE_SNAPSHOT_VERSION,
+  getProjectWorkingDirectoryIdentity,
   normalizeAppStateSnapshot,
   normalizeProjectWorkingDirectory,
   type AppProjectRecord,
@@ -45,6 +46,11 @@ type AppStateContextValue = {
       runtimeModelId?: string;
       runtimeMode: RuntimeMode;
     },
+  ) => Promise<boolean>;
+  moveAssociation: (
+    workspaceId: string,
+    projectId: string,
+    direction: "up" | "down",
   ) => Promise<boolean>;
 };
 
@@ -181,8 +187,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       const workingDirectory = normalizeProjectWorkingDirectory(value);
       if (!workingDirectory) return { ok: false, error: "Project directory is required." };
 
+      const workingDirectoryIdentity = getProjectWorkingDirectoryIdentity(workingDirectory);
       const existingProject = snapshot.projects.find(
-        (project) => project.workingDirectory === workingDirectory,
+        (project) =>
+          getProjectWorkingDirectoryIdentity(project.workingDirectory) === workingDirectoryIdentity,
       );
       const project: AppProjectRecord = existingProject ?? {
         id: `project-${crypto.randomUUID()}`,
@@ -306,6 +314,36 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [persist, snapshot],
   );
 
+  const moveAssociation = useCallback(
+    async (workspaceId: string, projectId: string, direction: "up" | "down") => {
+      const workspaceAssociations = snapshot.associations
+        .filter((association) => association.workspaceId === workspaceId)
+        .sort((left, right) => left.order - right.order);
+      const currentIndex = workspaceAssociations.findIndex(
+        (association) => association.projectId === projectId,
+      );
+      const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+      const current = workspaceAssociations[currentIndex];
+      const target = workspaceAssociations[targetIndex];
+      if (!current || !target) return false;
+
+      try {
+        await persist({
+          ...snapshot,
+          associations: snapshot.associations.map((association) => {
+            if (association === current) return { ...association, order: target.order };
+            if (association === target) return { ...association, order: current.order };
+            return association;
+          }),
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [persist, snapshot],
+  );
+
   return (
     <AppStateContext.Provider
       value={{
@@ -321,6 +359,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         setProjectAlias,
         renameSharedProject,
         setAssociationDefaults,
+        moveAssociation,
       }}
     >
       {children}

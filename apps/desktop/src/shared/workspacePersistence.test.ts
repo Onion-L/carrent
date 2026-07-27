@@ -76,6 +76,36 @@ describe("normalizeAppStateSnapshot", () => {
     ).toBe(null);
     expect(normalizeAppStateSnapshot({ ...base, associations: [] })).toBe(null);
   });
+
+  it("treats Windows Project directory identity as case-insensitive", () => {
+    expect(
+      normalizeAppStateSnapshot({
+        version: APP_STATE_SNAPSHOT_VERSION,
+        workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+        projects: [
+          { id: "project-1", name: "One", workingDirectory: "C:/Code/Carrent" },
+          { id: "project-2", name: "Two", workingDirectory: "c:/code/carrent" },
+        ],
+        associations: [
+          {
+            workspaceId: "workspace-1",
+            projectId: "project-1",
+            order: 0,
+            defaultRuntimeId: "kimi",
+            defaultRuntimeMode: "approval-required",
+          },
+          {
+            workspaceId: "workspace-1",
+            projectId: "project-2",
+            order: 1,
+            defaultRuntimeId: "kimi",
+            defaultRuntimeMode: "approval-required",
+          },
+        ],
+        activeWorkspaceId: "workspace-1",
+      }),
+    ).toBe(null);
+  });
 });
 
 describe("normalizeWorkspaceSnapshot", () => {

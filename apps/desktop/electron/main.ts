@@ -1,6 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell, dialog, clipboard } from "electron";
 import { existsSync } from "node:fs";
-import { realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,6 +22,7 @@ import {
 } from "./bridge/carrentBridgeManager";
 import { registerMcpServerIpc } from "./bridge/mcpServerIpc";
 import { registerSettingsIpc } from "./settings/settingsIpc";
+import { registerDialogIpc } from "./dialog/dialogIpc";
 import { spawn } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -103,15 +103,7 @@ app.whenReady().then(async () => {
   registerMcpServerIpc(ipcMain, bridgeManager);
   await bridgeManager.initialize();
 
-  ipcMain.handle("dialog:open-directory", async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ["openDirectory"],
-    });
-    return {
-      ...result,
-      filePaths: await Promise.all(result.filePaths.map((filePath) => realpath(filePath))),
-    };
-  });
+  registerDialogIpc(ipcMain, () => dialog.showOpenDialog({ properties: ["openDirectory"] }));
 
   ipcMain.handle("shell:open-path", async (_event, filePath: string) => {
     const result = await shell.openPath(filePath);

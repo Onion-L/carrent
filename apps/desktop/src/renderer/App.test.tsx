@@ -24,11 +24,13 @@ function installBridge(
   appState: AppStateSnapshot | null,
   saved: AppStateSnapshot[],
   selectedDirectories: string[] = [],
+  saveFails = false,
 ) {
   window.carrent = {
     appState: {
       load: async () => appState,
       save: async (snapshot: AppStateSnapshot) => {
+        if (saveFails) throw new Error("disk full");
         saved.push(structuredClone(snapshot));
       },
     },
@@ -70,9 +72,10 @@ async function renderApp(
   appState: AppStateSnapshot | null,
   initialEntry = "/",
   selectedDirectories: string[] = [],
+  saveFails = false,
 ) {
   const saved: AppStateSnapshot[] = [];
-  installBridge(appState, saved, selectedDirectories);
+  installBridge(appState, saved, selectedDirectories, saveFails);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -406,5 +409,48 @@ describe("Workspace Projects and Associations", () => {
 
     expect(saved.at(-1)?.projects[0].name).toBe("Carrent Desktop");
     expect(container!.querySelector("h1")?.textContent).toBe("Carrent Desktop");
+  });
+
+  it("reorders Projects inside one Workspace without affecting another Association", async () => {
+    const state = sharedProjectState();
+    state.projects.push({
+      id: "project-2",
+      name: "Website",
+      workingDirectory: "/code/website",
+    });
+    state.associations.push({
+      workspaceId: "workspace-1",
+      projectId: "project-2",
+      order: 1,
+      defaultRuntimeId: "kimi",
+      defaultRuntimeMode: "approval-required",
+    });
+    const saved = await renderApp(state, "/workspace/workspace-1");
+
+    await click(buttonNamed("Move Website up"));
+
+    expect(saved.at(-1)?.associations).toEqual([
+      { ...state.associations[0], order: 1 },
+      state.associations[1],
+      { ...state.associations[2], order: 0 },
+    ]);
+  });
+
+  it("shows a Project settings save failure without changing displayed state", async () => {
+    const saved = await renderApp(
+      sharedProjectState(),
+      "/workspace/workspace-1/project/project-1",
+      [],
+      true,
+    );
+    const sharedNameInput = container!.querySelector<HTMLInputElement>(
+      'input[name="sharedProjectName"]',
+    )!;
+    await fillInput(sharedNameInput, "Carrent Desktop");
+    await click(buttonNamed("Save Shared Name"));
+
+    expect(saved).toHaveLength(0);
+    expect(container!.textContent).toContain("Project settings could not be saved.");
+    expect(container!.querySelector("h1")?.textContent).toBe("Carrent");
   });
 });

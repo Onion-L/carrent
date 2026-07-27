@@ -5,6 +5,7 @@ import { WorkspaceNameDialog } from "../components/workspace/WorkspaceNameDialog
 import { AddProjectButton } from "../components/workspace/AddProjectButton";
 import { useAppState } from "../context/AppStateContext";
 import { useNavigate } from "react-router-dom";
+import { getWorkspaceProjects } from "../lib/workspaceProjects";
 
 export function WorkspaceOverviewPage() {
   const { workspaceId } = useParams();
@@ -19,13 +20,7 @@ export function WorkspaceOverviewPage() {
   } = useAppState();
   const [isRenaming, setIsRenaming] = useState(false);
   const workspace = workspaces.find((item) => item.id === workspaceId);
-  const workspaceProjects = associations
-    .filter((association) => association.workspaceId === workspaceId)
-    .sort((left, right) => left.order - right.order)
-    .flatMap((association) => {
-      const project = projects.find((item) => item.id === association.projectId);
-      return project ? [{ project, association }] : [];
-    });
+  const workspaceProjects = getWorkspaceProjects(projects, associations, workspaceId);
 
   useEffect(() => {
     if (!workspace || workspace.id === activeWorkspaceId) return;

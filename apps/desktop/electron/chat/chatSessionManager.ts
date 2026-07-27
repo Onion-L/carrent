@@ -1,6 +1,5 @@
 import type { ChildProcess } from "node:child_process";
 import path from "node:path";
-import fs from "node:fs";
 import type {
   ChatReasoningEventPayload,
   ChatShellEventPayload,
@@ -82,19 +81,19 @@ type ClaudeStreamState = {
   sessionId: string | null;
   shellCommands: Map<string, string>;
   writtenFiles: Set<string>;
-  projectPath: string;
+  workingDirectory: string;
 };
 
 type CodexStreamState = {
   buffer: string;
   text: string;
   writtenFiles: Set<string>;
-  projectPath: string;
+  workingDirectory: string;
 };
 
 const MAX_SHELL_OUTPUT_LENGTH = 12_000;
 
-function createClaudeStreamState(projectPath: string): ClaudeStreamState {
+function createClaudeStreamState(workingDirectory: string): ClaudeStreamState {
   return {
     buffer: "",
     text: "",
@@ -104,21 +103,24 @@ function createClaudeStreamState(projectPath: string): ClaudeStreamState {
     sessionId: null,
     shellCommands: new Map(),
     writtenFiles: new Set(),
-    projectPath,
+    workingDirectory,
   };
 }
 
-function createCodexStreamState(projectPath: string): CodexStreamState {
+function createCodexStreamState(workingDirectory: string): CodexStreamState {
   return {
     buffer: "",
     text: "",
     writtenFiles: new Set(),
-    projectPath,
+    workingDirectory,
   };
 }
 
-function normalizeRunWrittenFile(projectPath: string, reportedPath: string): string | null {
-  const relativePath = path.relative(projectPath, path.resolve(projectPath, reportedPath));
+function normalizeRunWrittenFile(workingDirectory: string, reportedPath: string): string | null {
+  const relativePath = path.relative(
+    workingDirectory,
+    path.resolve(workingDirectory, reportedPath),
+  );
   if (!relativePath || relativePath === ".." || relativePath.startsWith(`..${path.sep}`)) {
     return null;
   }
@@ -364,7 +366,9 @@ function collectClaudeFileEditToolUse(state: ClaudeStreamState, payload: unknown
     }
 
     const filePath = readString(readObject(block.input)?.file_path);
-    const relativePath = filePath ? normalizeRunWrittenFile(state.projectPath, filePath) : null;
+    const relativePath = filePath
+      ? normalizeRunWrittenFile(state.workingDirectory, filePath)
+      : null;
     if (relativePath) {
       state.writtenFiles.add(relativePath);
     }
@@ -603,7 +607,7 @@ function consumeCodexStreamChunk(
         for (const change of item.changes) {
           const changePath = readString(readObject(change)?.path);
           const relativePath = changePath
-            ? normalizeRunWrittenFile(state.projectPath, changePath)
+            ? normalizeRunWrittenFile(state.workingDirectory, changePath)
             : null;
           if (relativePath) {
             state.writtenFiles.add(relativePath);
@@ -627,24 +631,6 @@ function consumeCodexStreamChunk(
       continue;
     }
   }
-}
-
-function getProjectlessChatCwd() {
-  try {
-    const { app } = require("electron");
-    return path.join(app.getPath("userData"), "carrent-chat");
-  } catch {
-    return path.join(process.env.APPDATA || process.env.HOME || "/tmp", "carrent-chat");
-  }
-}
-
-function resolveRequestCwd(request: ChatTurnRequest) {
-  if (request.workspace.kind === "project") {
-    return request.workspace.projectPath;
-  }
-  const cwd = getProjectlessChatCwd();
-  fs.mkdirSync(cwd, { recursive: true });
-  return cwd;
 }
 
 function buildRequestSessionKey(request: ChatTurnRequest) {
@@ -806,7 +792,7 @@ export function createChatSessionManager(options: {
       return;
     }
 
-    if (request.workspace.kind === "project" && !request.workspace.projectPath) {
+    if (!request.context.workingDirectory) {
       options.emit({
         type: "failed",
         runId,
@@ -871,7 +857,7 @@ export function createChatSessionManager(options: {
           const handle = startKimiAcpChatRun({
             runId,
             request: requestWithAttachments,
-            cwd: resolveRequestCwd(requestWithAttachments),
+            cwd: requestWithAttachments.context.workingDirectory,
             emit: options.emit,
             transportFactory,
             bridgeFactory,
@@ -991,16 +977,16 @@ export function createChatSessionManager(options: {
       }
     }, TIMEOUT_MS);
 
-    const projectPath = resolveRequestCwd(request);
+    const workingDirectory = request.context.workingDirectory;
     const child = options.spawn(command, args, {
-      cwd: projectPath,
+      cwd: workingDirectory,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
     const claudeStreamState =
-      request.runtimeId === "claude-code" ? createClaudeStreamState(projectPath) : null;
+      request.runtimeId === "claude-code" ? createClaudeStreamState(workingDirectory) : null;
     const codexStreamState =
-      request.runtimeId === "codex" ? createCodexStreamState(projectPath) : null;
+      request.runtimeId === "codex" ? createCodexStreamState(workingDirectory) : null;
     const currentWrittenFiles = () => [
       ...((claudeStreamState ?? codexStreamState)?.writtenFiles ?? []),
     ];
@@ -1266,25 +1252,6 @@ export function createChatSessionManager(options: {
 
     if (!emitLifecycleEvents) {
       return;
-    }
-
-    if (request.draftRef) {
-      options.emit({
-        type: "thread-upserted",
-        runId,
-        requestKey: request.requestKey,
-        draftId: request.draftRef.draftId,
-        projectId: request.draftRef.projectId,
-        thread: {
-          id: request.threadId,
-          title: request.draftRef.title,
-          updatedAt: new Date().toISOString(),
-          runtimeId: request.runtimeId,
-          runtimeModelId: request.runtimeModelId,
-          runtimeMode: request.runtimeMode,
-          planMode: request.planMode,
-        },
-      });
     }
 
     options.emit({
@@ -1587,7 +1554,7 @@ export function createChatSessionManager(options: {
     try {
       return await getKimiSessionStatus({
         sessionId,
-        cwd: resolveRequestCwd(request),
+        cwd: request.context.workingDirectory,
         transportFactory,
         requestTimeoutMs: 30_000,
       });

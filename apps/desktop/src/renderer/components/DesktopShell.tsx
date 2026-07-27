@@ -13,10 +13,9 @@ import {
   type AttentionEntry,
 } from "./workspace/AttentionPane";
 import { useAppState } from "../context/AppStateContext";
-import { useWorkspace } from "../context/WorkspaceContext";
+import { useThreadContent } from "../context/ThreadContentContext";
 import { useChatRun } from "../hooks/useChatRun";
 import { getAttentionGroups } from "../lib/projectThreads";
-import type { ThreadRecord } from "../mock/uiShellData";
 import { ThreadSearchDialog } from "./workspace/ThreadSearchDialog";
 import { buildThreadPath, getProjectIdFromPathname } from "../lib/navigation";
 import type { ThreadSearchScope } from "../../shared/threadSearch";
@@ -42,25 +41,10 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   const { workspaces, projects, associations, threads, activeWorkspaceId, selectWorkspace } =
     useAppState();
   const [threadSearch, setThreadSearch] = useState<ThreadSearchState | null>(null);
-  const { projects: contentProjects, messages } = useWorkspace();
+  const { messages } = useThreadContent();
   const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
   const attentionGroups = useMemo(() => {
-    const contentThreads = new Map(
-      contentProjects.flatMap((project) => project.threads.map((thread) => [thread.id, thread])),
-    );
-    const candidates = threads
-      .filter((thread) => !thread.archived)
-      .map((thread) => ({
-        ...(contentThreads.get(thread.id) ?? {
-          id: thread.id,
-          title: thread.title,
-          updatedAt: thread.lastActivityAt,
-        }),
-        ...thread,
-        title: thread.title,
-        updatedAt: thread.lastActivityAt,
-        lastActivityAt: thread.lastActivityAt,
-      })) satisfies Array<ThreadRecord & (typeof threads)[number]>;
+    const candidates = threads.filter((thread) => !thread.archived).map((thread) => thread);
 
     return getAttentionGroups({
       threads: candidates,
@@ -89,7 +73,6 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     }));
   }, [
     associations,
-    contentProjects,
     messages,
     pendingPermissions,
     pendingQuestions,

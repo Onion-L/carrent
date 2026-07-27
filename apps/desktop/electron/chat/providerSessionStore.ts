@@ -1,5 +1,5 @@
 import type { ProviderSessionSnapshot } from "../../src/shared/workspacePersistence";
-import type { WorkspaceStore } from "../workspace/workspaceStore";
+import type { AppStateStore } from "../workspace/appStateStore";
 import type { ProviderSessionStore } from "./chatSessionManager";
 import { isInconsistentProviderSessionKey } from "../../src/shared/providerSessions";
 import { runtimeIds, type RuntimeId } from "../../src/shared/runtimes";
@@ -9,7 +9,7 @@ export type PersistentProviderSessionStore = ProviderSessionStore & {
 };
 
 export function createPersistentProviderSessionStore(
-  store: Pick<WorkspaceStore, "saveProviderSessions">,
+  store: Pick<AppStateStore, "saveProviderSessions">,
   snapshot: ProviderSessionSnapshot,
 ): PersistentProviderSessionStore {
   let sessions = { ...snapshot.sessions };

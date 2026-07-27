@@ -1,6 +1,10 @@
 import { ArrowDown, Box, Check, Copy, Pencil, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type Message, type MessagePart, type AttachmentMetadata } from "../../mock/uiShellData";
+import {
+  type Message,
+  type MessagePart,
+  type AttachmentMetadata,
+} from "../../../shared/threadContent";
 import { isFileAttachment, isImageAttachment } from "../../../shared/attachment";
 import {
   FILE_ATTACHMENT_ICONS,
@@ -28,6 +32,18 @@ export type UserMessageEditDraft = {
 export type RuntimeSessionRetryRequest = NonNullable<
   Extract<MessagePart, { type: "error" }>["runtimeSessionRecovery"]
 >;
+
+function getMessageTimestamp(message: Message) {
+  if (message.timestamp) return message.timestamp;
+  if (message.createdAt === undefined) return "";
+  const date = new Date(message.createdAt);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
 
 const SKILL_REFERENCE_PATTERN = /\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\)/gu;
 const LEADING_SKILL_REFERENCE_PATTERN = /^\s*(\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\))\s*/u;
@@ -553,7 +569,11 @@ function AssistantMessage({
             <AgentActivityBlock
               items={presentation.activityItems}
               status={message.runStatus}
-              startedAt={message.createdAt}
+              startedAt={
+                typeof message.createdAt === "string"
+                  ? Date.parse(message.createdAt)
+                  : message.createdAt
+              }
               finishedAt={message.runFinishedAt}
               duration={message.duration}
               hasFinalAnswerStarted={presentation.answerText.length > 0}
@@ -741,7 +761,7 @@ export function MessageTimeline({
                   <div key={msg.id} className="px-6 py-4">
                     <UserMessage
                       content={msg.content}
-                      timestamp={msg.timestamp}
+                      timestamp={getMessageTimestamp(msg)}
                       attachments={msg.attachments}
                       isEditing={editingMessageId === msg.id}
                       onEdit={
@@ -766,7 +786,7 @@ export function MessageTimeline({
               if (msg.type === "changed_files") {
                 return (
                   <div key={msg.id} className="px-4 py-5">
-                    <ChangedFilesMessageItem message={msg} timestamp={msg.timestamp} />
+                    <ChangedFilesMessageItem message={msg} timestamp={getMessageTimestamp(msg)} />
                   </div>
                 );
               }
@@ -775,7 +795,7 @@ export function MessageTimeline({
                 <div key={msg.id} className="px-6 py-4">
                   <AssistantMessage
                     message={msg}
-                    timestamp={msg.timestamp}
+                    timestamp={getMessageTimestamp(msg)}
                     onRemoveRuntimeSessionAndRetry={onRemoveRuntimeSessionAndRetry}
                   />
                 </div>

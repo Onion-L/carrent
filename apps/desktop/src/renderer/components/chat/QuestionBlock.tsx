@@ -1,6 +1,6 @@
 import { CircleHelp } from "lucide-react";
 
-import type { MessagePart } from "../../mock/uiShellData";
+import type { MessagePart } from "../../../shared/threadContent";
 
 export type QuestionPart = Extract<MessagePart, { type: "question" }>;
 

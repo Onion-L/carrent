@@ -4,7 +4,6 @@ import {
   normalizeProjectWorkingDirectory,
   type AppStateSnapshot,
   type ProjectRelocationRequest,
-  type WorkspaceSnapshot,
 } from "../../src/shared/workspacePersistence";
 
 export type RuntimeSessionDetachmentReceipt = {
@@ -17,8 +16,6 @@ type ProjectRelocationStore = {
   waitForWrites: () => Promise<void>;
   loadAppStateSnapshot: () => Promise<AppStateSnapshot | null>;
   saveAppStateSnapshot: (snapshot: AppStateSnapshot) => Promise<void>;
-  loadWorkspaceSnapshot: () => Promise<WorkspaceSnapshot | null>;
-  saveWorkspaceSnapshot: (snapshot: WorkspaceSnapshot) => Promise<void>;
 };
 
 type ProjectRelocationSessionManager = {
@@ -57,7 +54,7 @@ async function retryTwice(operation: () => Promise<void>) {
 }
 
 export function createProjectRelocationManager(options: {
-  workspaceStore: ProjectRelocationStore;
+  appStateStore: ProjectRelocationStore;
   sessionManager: ProjectRelocationSessionManager;
   checkDirectory?: (workingDirectory: string) => Promise<boolean>;
   onActiveChange?: (active: boolean) => void;
@@ -85,11 +82,10 @@ export function createProjectRelocationManager(options: {
             throw new Error("Selected Project Working Directory is unavailable.");
           }
 
-          await options.workspaceStore.waitForWrites();
-          const beforeAppState = await options.workspaceStore.loadAppStateSnapshot();
-          const beforeWorkspace = await options.workspaceStore.loadWorkspaceSnapshot();
-          if (!beforeAppState || !beforeWorkspace) {
-            throw new Error("Project relocation requires persisted App State and workspace data.");
+          await options.appStateStore.waitForWrites();
+          const beforeAppState = await options.appStateStore.loadAppStateSnapshot();
+          if (!beforeAppState) {
+            throw new Error("Project relocation requires persisted App State.");
           }
 
           const project = beforeAppState.projects.find((item) => item.id === request.projectId);
@@ -118,23 +114,14 @@ export function createProjectRelocationManager(options: {
               item.id === project.id ? { ...item, workingDirectory: targetDirectory } : item,
             ),
           };
-          const afterWorkspace: WorkspaceSnapshot = {
-            ...beforeWorkspace,
-            projects: beforeWorkspace.projects.map((item) =>
-              item.id === project.id ? { ...item, path: targetDirectory } : item,
-            ),
-          };
-
           const receipt = await options.sessionManager.detachRuntimeSessions(threadIds);
           try {
-            await options.workspaceStore.saveAppStateSnapshot(afterAppState);
-            await options.workspaceStore.saveWorkspaceSnapshot(afterWorkspace);
+            await options.appStateStore.saveAppStateSnapshot(afterAppState);
             options.sessionManager.completeRuntimeSessionDetachment(receipt);
           } catch (error) {
             const rollbackErrors: unknown[] = [];
             for (const operation of [
-              () => options.workspaceStore.saveAppStateSnapshot(beforeAppState),
-              () => options.workspaceStore.saveWorkspaceSnapshot(beforeWorkspace),
+              () => options.appStateStore.saveAppStateSnapshot(beforeAppState),
               () => options.sessionManager.restoreRuntimeSessions(receipt),
             ]) {
               try {
@@ -152,7 +139,7 @@ export function createProjectRelocationManager(options: {
             throw error;
           }
 
-          return { appState: afterAppState, workspace: afterWorkspace };
+          return { appState: afterAppState };
         } finally {
           options.onActiveChange?.(false);
         }
@@ -167,7 +154,6 @@ export function registerProjectDirectoryIpc(
     relocationManager?: {
       relocate: (request: ProjectRelocationRequest) => Promise<{
         appState: AppStateSnapshot;
-        workspace: WorkspaceSnapshot;
       }>;
     };
   } = {},

@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, MessageSquarePlus, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ChangedFile } from "../../mock/uiShellData";
+import type { ChangedFile } from "../../../shared/threadContent";
 
 export type WorkspaceDiffSnapshot = {
   baseRevision: string;

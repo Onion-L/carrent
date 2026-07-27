@@ -26,10 +26,11 @@ function createProductionChatSessionManager(
 
 function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
-    workspace: {
+    context: {
       kind: "project",
+      workspaceId: "workspace-1",
       projectId: "timbre",
-      projectPath: "/Users/onion/workbench/timbre",
+      workingDirectory: "/Users/onion/workbench/timbre",
     },
     threadId: "thread-1",
     runtimeId: "codex",
@@ -361,7 +362,12 @@ describe("createChatSessionManager", () => {
     manager.start(
       "run-5",
       makeRequest({
-        workspace: { kind: "project", projectId: "timbre", projectPath: "" },
+        context: {
+          kind: "project",
+          workspaceId: "workspace-1",
+          projectId: "timbre",
+          workingDirectory: "",
+        },
       }),
     );
 
@@ -1246,10 +1252,11 @@ describe("createChatSessionManager", () => {
       "run-kimi-read",
       makeRequest({
         runtimeId: "kimi",
-        workspace: {
+        context: {
           kind: "project",
+          workspaceId: "workspace-1",
           projectId: "carrent",
-          projectPath: workspacePath,
+          workingDirectory: workspacePath,
         },
       }),
     );
@@ -1274,7 +1281,7 @@ describe("createChatSessionManager", () => {
     });
   });
 
-  it("refuses Kimi ACP fs/read_text_file requests that escape through workspace symlinks", async () => {
+  it("refuses Kimi ACP fs/read_text_file requests that escape the Project Working Directory", async () => {
     const workspacePath = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-workspace-"));
     const outsidePath = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-outside-"));
     await writeFile(path.join(outsidePath, "secret.txt"), "secret", "utf8");
@@ -1327,10 +1334,11 @@ describe("createChatSessionManager", () => {
       "run-kimi-read-symlink",
       makeRequest({
         runtimeId: "kimi",
-        workspace: {
+        context: {
           kind: "project",
+          workspaceId: "workspace-1",
           projectId: "tmp",
-          projectPath: workspacePath,
+          workingDirectory: workspacePath,
         },
       }),
     );
@@ -1339,7 +1347,7 @@ describe("createChatSessionManager", () => {
     const readResponse = transports[0]?.sent.find((message) => message.id === "agent-read-symlink");
     const readError = readResponse?.error as { code?: number; message?: string } | undefined;
     expect(readError?.code).toBe(-32000);
-    expect(readError?.message).toContain("Refusing to read outside workspace");
+    expect(readError?.message).toContain("Refusing to read outside Project Working Directory");
     expect((readResponse?.result as { content?: string } | undefined)?.content).toBeUndefined();
     expect(emitted.find((event) => event.type === "completed")).toMatchObject({
       type: "completed",
@@ -2316,11 +2324,11 @@ describe("createChatSessionManager", () => {
       "run-kimi-original-path",
       makeRequest({
         runtimeId: "kimi",
-        workspace: {
+        context: {
           kind: "project",
           workspaceId: "workspace-a",
           projectId: "project-a",
-          projectPath: "/tmp/original",
+          workingDirectory: "/tmp/original",
         },
       }),
     );
@@ -2329,11 +2337,11 @@ describe("createChatSessionManager", () => {
       "run-kimi-relocated-path",
       makeRequest({
         runtimeId: "kimi",
-        workspace: {
+        context: {
           kind: "project",
           workspaceId: "workspace-b",
           projectId: "project-b",
-          projectPath: "/tmp/relocated",
+          workingDirectory: "/tmp/relocated",
         },
       }),
     );
@@ -2980,40 +2988,23 @@ describe("createChatSessionManager", () => {
     expect(spawnCalled).toBe(false);
   });
 
-  it("accepts projectless chat requests", async () => {
-    const mockChild = createMockChildProcess();
-    const emitted: ChatRunEvent[] = [];
-    const spawnCalls: Array<{
-      command: string;
-      args: string[];
-      options: { cwd: string };
-    }> = [];
-
-    const manager = createChatSessionManager({
-      emit: (evt) => emitted.push(evt),
-      spawn: (command, args, options) => {
-        spawnCalls.push({ command, args, options: options as { cwd: string } });
-        return mockChild;
-      },
-    });
-
-    manager.start("run-chat", makeRequest({ workspace: { kind: "chat" } }));
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    expect(emitted.some((event) => event.type === "failed")).toBe(false);
-    expect(spawnCalls[0]?.options.cwd).toContain("carrent-chat");
-  });
-
-  it("keeps provider session keys stable across workspace scopes for the same thread", async () => {
-    const project = makeRequest({
-      workspace: {
+  it("keeps provider session keys stable across associations for the same thread", async () => {
+    const firstAssociation = makeRequest({
+      context: {
         kind: "project",
+        workspaceId: "workspace-a",
         projectId: "carrent",
-        projectPath: "/Users/onion/workbench/carrent",
+        workingDirectory: "/code/carrent",
       },
     });
-    const chat = makeRequest({ workspace: { kind: "chat" } });
+    const secondAssociation = makeRequest({
+      context: {
+        kind: "project",
+        workspaceId: "workspace-b",
+        projectId: "timbre",
+        workingDirectory: "/code/timbre",
+      },
+    });
 
     const emitted: ChatRunEvent[] = [];
     const firstChild = createMockChildProcess();
@@ -3038,7 +3029,7 @@ describe("createChatSessionManager", () => {
       },
     });
 
-    manager.start("run-proj", { ...project, runtimeId: "claude-code" });
+    manager.start("run-association-a", { ...firstAssociation, runtimeId: "claude-code" });
     firstChild.stdout.emit(
       "data",
       Buffer.from(
@@ -3052,7 +3043,7 @@ describe("createChatSessionManager", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    manager.start("run-chat2", { ...chat, runtimeId: "claude-code" });
+    manager.start("run-association-b", { ...secondAssociation, runtimeId: "claude-code" });
     secondChild.stdout.emit(
       "data",
       Buffer.from(
@@ -3094,7 +3085,7 @@ describe("createChatSessionManager", () => {
     expect(failed?.error).toContain("Out of credits");
   });
 
-  it("emits thread-upserted before started for a draft-first message", async () => {
+  it("starts a promoted Thread message without a legacy Thread projection event", async () => {
     const mockChild = createMockChildProcess();
     const emitted: ChatRunEvent[] = [];
 
@@ -3107,116 +3098,19 @@ describe("createChatSessionManager", () => {
       "run-7",
       makeRequest({
         threadId: "thread-promoted",
-        draftRef: {
-          draftId: "draft-1",
-          projectId: "project-1",
-          title: "New Draft Thread",
-        },
       }),
     );
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(emitted[0]).toMatchObject({
-      type: "thread-upserted",
-      runId: "run-7",
-      draftId: "draft-1",
-      projectId: "project-1",
-      thread: {
-        id: "thread-promoted",
-        title: "New Draft Thread",
-      },
-    });
-    expect(emitted[1]).toMatchObject({
       type: "started",
       runId: "run-7",
       threadId: "thread-promoted",
     });
   });
 
-  it("emits promoted draft threads with the request runtime mode", async () => {
-    const mockChild = createMockChildProcess();
-    const emitted: ChatRunEvent[] = [];
-
-    const manager = createChatSessionManager({
-      emit: (evt) => emitted.push(evt),
-      spawn: () => mockChild,
-    });
-
-    manager.start(
-      "run-draft-mode",
-      makeRequest({
-        runtimeMode: "auto-accept-edits",
-        draftRef: {
-          draftId: "draft-1",
-          projectId: "p1",
-          title: "Draft title",
-        },
-      }),
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    const upserted = emitted.find((event) => event.type === "thread-upserted");
-    expect(upserted?.thread.runtimeMode).toBe("auto-accept-edits");
-  });
-
-  it("emits promoted draft threads with the request runtime", async () => {
-    const mockChild = createMockChildProcess();
-    const emitted: ChatRunEvent[] = [];
-
-    const manager = createChatSessionManager({
-      emit: (evt) => emitted.push(evt),
-      spawn: () => mockChild,
-    });
-
-    manager.start(
-      "run-draft-runtime",
-      makeRequest({
-        runtimeId: "claude-code",
-        draftRef: {
-          draftId: "draft-1",
-          projectId: "p1",
-          title: "Draft title",
-        },
-      }),
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    const upserted = emitted.find((event) => event.type === "thread-upserted");
-    expect(upserted?.thread.runtimeId).toBe("claude-code");
-  });
-
-  it("emits promoted draft threads with the request runtime model", async () => {
-    const mockChild = createMockChildProcess();
-    const emitted: ChatRunEvent[] = [];
-
-    const manager = createChatSessionManager({
-      emit: (evt) => emitted.push(evt),
-      spawn: () => mockChild,
-    });
-
-    manager.start(
-      "run-draft-model",
-      makeRequest({
-        runtimeId: "pi",
-        runtimeModelId: "deepseek/deepseek-v4-flash",
-        draftRef: {
-          draftId: "draft-1",
-          projectId: "p1",
-          title: "Draft title",
-        },
-      }),
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    const upserted = emitted.find((event) => event.type === "thread-upserted");
-    expect(upserted?.thread.runtimeModelId).toBe("deepseek/deepseek-v4-flash");
-  });
-
-  it("does not emit thread-upserted for a normal real-thread message", async () => {
+  it("starts a normal Thread message", async () => {
     const mockChild = createMockChildProcess();
     const emitted: ChatRunEvent[] = [];
 
@@ -3229,7 +3123,6 @@ describe("createChatSessionManager", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(emitted.some((event) => event.type === "thread-upserted")).toBe(false);
     expect(emitted[0]).toMatchObject({
       type: "started",
       runId: "run-8",

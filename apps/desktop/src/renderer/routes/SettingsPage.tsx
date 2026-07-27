@@ -12,7 +12,7 @@ import {
   Plus,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useWorkspace } from "../context/WorkspaceContext";
+import { useThreadContent } from "../context/ThreadContentContext";
 import { useAppState } from "../context/AppStateContext";
 import { useSettings } from "../context/SettingsContext";
 import { RTK_MD_CONTENT, upsertRtkAgentsBlock, type RtkGainStats } from "../../shared/rtk";
@@ -838,7 +838,7 @@ function ArchivedThreadsPanel({
   associations: ReturnType<typeof useAppState>["associations"];
   restoreThread: ReturnType<typeof useAppState>["restoreThread"];
   permanentlyDeleteThread: ReturnType<typeof useAppState>["permanentlyDeleteThread"];
-  deleteThreadContent: ReturnType<typeof useWorkspace>["deleteThread"];
+  deleteThreadContent: ReturnType<typeof useThreadContent>["deleteThread"];
 }) {
   const navigate = useNavigate();
   const archivedThreads = [...threads]
@@ -898,7 +898,7 @@ function ArchivedThreadsPanel({
     let deleted = false;
     try {
       deleted = await permanentlyDeleteThread(selectedThread.id, async (appStateSnapshots) => {
-        await deleteThreadContent(selectedThread.projectId, selectedThread.id, appStateSnapshots);
+        await deleteThreadContent(selectedThread.id, appStateSnapshots);
       });
     } catch (deleteError) {
       console.error("[threads] permanent deletion rollback failed", deleteError);
@@ -1002,7 +1002,7 @@ function ArchivedThreadsPanel({
 }
 
 export function SettingsPage() {
-  const { setActiveThreadId, deleteThread: deleteThreadContent } = useWorkspace();
+  const { setSelectedThreadId, deleteThread: deleteThreadContent } = useThreadContent();
   const { workspaces, projects, associations, threads, restoreThread, permanentlyDeleteThread } =
     useAppState();
   const { autoDetectRuntimes, theme, fontSize, updateSetting } = useSettings();
@@ -1011,8 +1011,8 @@ export function SettingsPage() {
   const activeTab = SETTINGS_TABS.find((tab) => tab.id === activeTabId) ?? SETTINGS_TABS[0];
 
   useEffect(() => {
-    setActiveThreadId(null);
-  }, [setActiveThreadId]);
+    setSelectedThreadId(null);
+  }, [setSelectedThreadId]);
 
   return (
     <div className="flex h-full w-full flex-col bg-bg">

@@ -10,7 +10,7 @@ import {
   splitLeadingSkillReferences,
   UserMessageAttachmentList,
 } from "./MessageTimeline";
-import type { Message } from "../../mock/uiShellData";
+import type { Message } from "../../../shared/threadContent";
 import { getPlanReviewStatusLabel } from "./PlanReviewBlock";
 import { ErrorBlock } from "./ErrorBlock";
 

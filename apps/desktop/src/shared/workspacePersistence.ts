@@ -1,11 +1,4 @@
-import type {
-  ChangedFile,
-  ChangedFilesMessage,
-  Message,
-  MessagePart,
-  ProjectRecord,
-  ThreadRecord,
-} from "../renderer/mock/uiShellData";
+import type { ChangedFile, ChangedFilesMessage, Message, MessagePart } from "./threadContent";
 import type { AttachmentKind, AttachmentMetadata } from "./chat";
 import {
   isSupportedImageMimeType,
@@ -13,8 +6,7 @@ import {
   MAX_ATTACHMENT_COUNT,
 } from "./attachment";
 import type { ChatPermissionOption } from "./chatPermissions";
-import { isRuntimeMode, normalizeRuntimeMode, type RuntimeMode } from "./runtimeMode";
-import { normalizeRuntimeId } from "./runtimes";
+import { isRuntimeMode, type RuntimeMode } from "./runtimeMode";
 import { runtimeIds, type RuntimeId } from "./runtimes";
 import {
   normalizeRunChecklistEntries,
@@ -22,7 +14,7 @@ import {
   type ThreadRunChecklist,
 } from "./runChecklist";
 
-export const WORKSPACE_SNAPSHOT_VERSION = 1;
+const LEGACY_WORKSPACE_SNAPSHOT_VERSION = 1;
 export const APP_STATE_SNAPSHOT_VERSION = 1;
 
 export type AppStateRecoveryStage =
@@ -85,10 +77,12 @@ export type AppThreadRecord = {
   createdAt: string;
   lastActivityAt: string;
   archived?: boolean;
+  pinned?: boolean;
   runtimeId: RuntimeId;
   runtimeModelId?: string;
   runtimeMode: RuntimeMode;
   planMode: boolean;
+  runChecklist?: ThreadRunChecklist;
 };
 
 export type AssociationThreadDraftRecord = {
@@ -105,10 +99,9 @@ export type AssociationThreadDraftRecord = {
   planMode: boolean;
 };
 
-export type AppThreadMessageRecord = {
-  id: string;
-  threadId: string;
-  role: "user" | "assistant";
+type PersistedMessage = Message<{ timestamp?: string }>;
+
+export type AppThreadMessageRecord = PersistedMessage & {
   content: string;
   createdAt: string;
   attachments: AttachmentMetadata[];
@@ -155,6 +148,7 @@ export type AppStateSnapshot = {
   threadMessages?: AppThreadMessageRecord[];
   threadRuns?: AppThreadRunRecord[];
   threadPromotionIntents?: AppThreadPromotionIntentRecord[];
+  threadWork?: Record<string, ThreadWorkSnapshot>;
   lastThreadIdByWorkspace?: Record<string, string>;
   activeWorkspaceId: string | null;
 };
@@ -170,6 +164,7 @@ export function createEmptyAppStateSnapshot(): AppStateSnapshot {
     threadMessages: [],
     threadRuns: [],
     threadPromotionIntents: [],
+    threadWork: {},
     lastThreadIdByWorkspace: {},
     activeWorkspaceId: null,
   };
@@ -202,15 +197,6 @@ export type ThreadWorkSnapshot = {
   queuedMessages: ThreadWorkQueuedMessage[];
 };
 
-export type WorkspaceSnapshot = {
-  version: typeof WORKSPACE_SNAPSHOT_VERSION;
-  projects: ProjectRecord[];
-  chats: ThreadRecord[];
-  messages: Message[];
-  activeThreadId: string | null;
-  threadWork?: Record<string, ThreadWorkSnapshot>;
-};
-
 export type ProviderSessionSnapshot = {
   version: 1;
   sessions: Record<string, string>;
@@ -218,7 +204,6 @@ export type ProviderSessionSnapshot = {
 
 export type ProjectRelocationResult = {
   appState: AppStateSnapshot;
-  workspace: WorkspaceSnapshot;
 };
 
 export type ProjectRelocationRequest = {
@@ -282,6 +267,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
   if (value.threadDrafts !== undefined && !Array.isArray(value.threadDrafts)) return null;
   if (value.threadMessages !== undefined && !Array.isArray(value.threadMessages)) return null;
   if (value.threadRuns !== undefined && !Array.isArray(value.threadRuns)) return null;
+  if (value.threadWork !== undefined && !isRecord(value.threadWork)) return null;
   if (value.threadPromotionIntents !== undefined && !Array.isArray(value.threadPromotionIntents)) {
     return null;
   }
@@ -443,6 +429,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       !isIsoTimestamp(thread.createdAt) ||
       !isIsoTimestamp(thread.lastActivityAt) ||
       (thread.archived !== undefined && typeof thread.archived !== "boolean") ||
+      (thread.pinned !== undefined && typeof thread.pinned !== "boolean") ||
       !runtimeIds.includes(thread.runtimeId as RuntimeId) ||
       !isRuntimeMode(thread.runtimeMode) ||
       typeof thread.planMode !== "boolean"
@@ -451,6 +438,8 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
     }
     const runtimeModelId = normalizePersistedModelId(thread.runtimeModelId);
     if (thread.runtimeModelId !== undefined && !runtimeModelId) return null;
+    const runChecklist = normalizeThreadRunChecklist(thread.runChecklist);
+    if (thread.runChecklist !== undefined && !runChecklist) return null;
 
     threadIds.add(thread.id);
     threads.push({
@@ -461,10 +450,12 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       createdAt: thread.createdAt,
       lastActivityAt: thread.lastActivityAt,
       ...(thread.archived === true ? { archived: true } : {}),
+      ...(thread.pinned === true ? { pinned: true } : {}),
       runtimeId: thread.runtimeId as RuntimeId,
       ...(runtimeModelId ? { runtimeModelId } : {}),
       runtimeMode: thread.runtimeMode,
       planMode: thread.planMode,
+      ...(runChecklist ? { runChecklist } : {}),
     });
   }
 
@@ -568,16 +559,19 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       normalizeAttachmentMetadata(attachment, allowLegacyAttachmentKindInference),
     );
     if (attachments.some((attachment) => !attachment)) return null;
+    const normalizedMessage = normalizeMessageRecord({
+      ...message,
+      createdAt: Date.parse(message.createdAt),
+      ...(typeof message.timestamp === "string" ? { timestamp: message.timestamp } : {}),
+      attachments: attachments as AttachmentMetadata[],
+    } as PersistedMessage);
+    if (!normalizedMessage) return null;
 
     messageIds.add(message.id);
     messageThreadIds.set(message.id, message.threadId);
     threadMessages.push({
-      id: message.id,
-      threadId: message.threadId,
-      role: message.role,
-      content: message.content,
+      ...(normalizedMessage as unknown as AppThreadMessageRecord),
       createdAt: message.createdAt,
-      attachments: attachments as AttachmentMetadata[],
     });
   }
 
@@ -684,6 +678,12 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
     });
   }
 
+  const threadWork = normalizeThreadWork(value.threadWork);
+  if (value.threadWork !== undefined && !threadWork) return null;
+  if (threadWork && Object.keys(threadWork).some((threadId) => !threadIds.has(threadId))) {
+    return null;
+  }
+
   return {
     version: APP_STATE_SNAPSHOT_VERSION,
     workspaces: workspaces.sort((left, right) => left.order - right.order),
@@ -694,6 +694,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
     ...(value.threadMessages !== undefined ? { threadMessages } : {}),
     ...(value.threadRuns !== undefined ? { threadRuns } : {}),
     ...(value.threadPromotionIntents !== undefined ? { threadPromotionIntents } : {}),
+    ...(value.threadWork !== undefined ? { threadWork: threadWork ?? {} } : {}),
     ...(value.lastThreadIdByWorkspace !== undefined ? { lastThreadIdByWorkspace } : {}),
     activeWorkspaceId: value.activeWorkspaceId,
   };
@@ -722,15 +723,6 @@ function normalizePersistedModelId(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string" || !value || value.trim() !== value) return undefined;
   return value;
-}
-
-function normalizeOptionalString(value: unknown) {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-
-  const trimmed = value.trim();
-  return trimmed ? trimmed : undefined;
 }
 
 function normalizeThreadRunChecklist(value: unknown): ThreadRunChecklist | null {
@@ -1041,51 +1033,100 @@ function normalizeSubagentTaskPart(
   };
 }
 
-function normalizeMessageParts(value: unknown): MessagePart[] | undefined {
-  if (!Array.isArray(value)) return undefined;
+function normalizeMessagePart(value: unknown): MessagePart | null {
+  if (!isRecord(value) || typeof value.type !== "string") return null;
 
-  const parts = value.flatMap((item) => {
-    if (isRecord(item) && item.type === "plan_review") {
-      const normalized = normalizePlanReviewPart(item);
-      return normalized ? [normalized] : [];
+  if (value.type === "text") {
+    return typeof value.content === "string" ? { type: "text", content: value.content } : null;
+  }
+  if (value.type === "reasoning") {
+    if (
+      typeof value.id !== "string" ||
+      typeof value.content !== "string" ||
+      (value.status !== "running" && value.status !== "completed" && value.status !== "cancelled")
+    ) {
+      return null;
     }
-    if (isRecord(item) && item.type === "question") {
-      const normalized = normalizeQuestionPart(item);
-      return normalized ? [normalized] : [];
+    return {
+      type: "reasoning",
+      id: value.id,
+      content: value.content,
+      status: value.status,
+    };
+  }
+  if (value.type === "shell") {
+    if (
+      typeof value.id !== "string" ||
+      typeof value.command !== "string" ||
+      typeof value.output !== "string" ||
+      (value.status !== "running" &&
+        value.status !== "completed" &&
+        value.status !== "failed" &&
+        value.status !== "cancelled") ||
+      (value.exitCode !== undefined &&
+        value.exitCode !== null &&
+        (typeof value.exitCode !== "number" || !Number.isInteger(value.exitCode)))
+    ) {
+      return null;
     }
-    if (isRecord(item) && item.type === "subagent_task") {
-      const normalized = normalizeSubagentTaskPart(item);
-      return normalized ? [normalized] : [];
+    return {
+      type: "shell",
+      id: value.id,
+      command: value.command,
+      output: value.output,
+      status: value.status,
+      ...(value.exitCode !== undefined ? { exitCode: value.exitCode as number | null } : {}),
+    };
+  }
+  if (value.type === "plan_review") return normalizePlanReviewPart(value);
+  if (value.type === "question") return normalizeQuestionPart(value);
+  if (value.type === "subagent_task") return normalizeSubagentTaskPart(value);
+  if (value.type === "error") {
+    if (typeof value.id !== "string" || typeof value.message !== "string") return null;
+    if (value.runtimeSessionRecovery !== undefined && !isRecord(value.runtimeSessionRecovery)) {
+      return null;
     }
-    return [item as MessagePart];
-  });
-  return parts.length > 0 ? parts : undefined;
+    return value as MessagePart;
+  }
+  return null;
 }
 
-function normalizeMessageRecord(message: Message): Message {
-  const record = message as Message & { attachments?: unknown; parts?: unknown };
+function normalizeMessageParts(value: unknown): MessagePart[] | undefined | null {
+  if (!Array.isArray(value)) return null;
+
+  const parts = value.map(normalizeMessagePart);
+  if (parts.some((part) => part === null)) return null;
+  return parts.length > 0 ? (parts as MessagePart[]) : undefined;
+}
+
+function normalizeMessageRecord(message: PersistedMessage): PersistedMessage | null {
+  const record = message as PersistedMessage & { attachments?: unknown; parts?: unknown };
 
   if (record.type === "changed_files") {
-    const changedFilesRecord = record as ChangedFilesMessage & { changedFiles?: unknown };
-    const normalizedFiles = Array.isArray(changedFilesRecord.changedFiles)
-      ? changedFilesRecord.changedFiles
-          .map((file) => normalizeChangedFile(file))
-          .filter((file): file is ChangedFile => file !== null)
-      : [];
+    const changedFilesRecord = record as ChangedFilesMessage<{ timestamp?: string }> & {
+      changedFiles?: unknown;
+    };
+    if (!Array.isArray(changedFilesRecord.changedFiles)) return null;
+    const normalizedFiles = changedFilesRecord.changedFiles.map((file) =>
+      normalizeChangedFile(file),
+    );
+    if (normalizedFiles.some((file) => file === null)) return null;
 
     const normalizedSnapshot = normalizeChangedFilesSnapshot(changedFilesRecord.snapshot);
     const { snapshot: _oldSnapshot, ...recordWithoutSnapshot } = changedFilesRecord;
 
-    const normalized: ChangedFilesMessage = {
+    const normalized: ChangedFilesMessage<{ timestamp?: string }> = {
       ...recordWithoutSnapshot,
-      changedFiles: normalizedFiles,
+      changedFiles: normalizedFiles as ChangedFile[],
       ...(normalizedSnapshot ? { snapshot: normalizedSnapshot } : {}),
     };
 
-    return normalized as Message;
+    return normalized;
   }
 
-  const normalizedParts = normalizeMessageParts(record.parts);
+  const normalizedParts =
+    record.parts === undefined ? undefined : normalizeMessageParts(record.parts);
+  if (normalizedParts === null) return null;
   const normalizedAttachments = Array.isArray(record.attachments)
     ? record.attachments
         .map((attachment) => normalizeAttachmentMetadata(attachment))
@@ -1098,7 +1139,7 @@ function normalizeMessageRecord(message: Message): Message {
     ...rest,
     ...(normalizedParts ? { parts: normalizedParts } : {}),
     ...(normalizedAttachments ? { attachments: normalizedAttachments } : {}),
-  } as Message;
+  } as PersistedMessage;
 }
 
 function utf8ByteLength(text: string): number {
@@ -1149,87 +1190,42 @@ function normalizeThreadWorkQueuedMessage(value: unknown): ThreadWorkQueuedMessa
   };
 }
 
-function normalizeThreadWork(value: unknown): Record<string, ThreadWorkSnapshot> | undefined {
+function normalizeThreadWork(
+  value: unknown,
+): Record<string, ThreadWorkSnapshot> | undefined | null {
   if (value === undefined) return undefined;
-  if (!isRecord(value)) return {};
+  if (!isRecord(value)) return null;
 
   const threadWork: Record<string, ThreadWorkSnapshot> = {};
   for (const [threadId, entry] of Object.entries(value)) {
-    if (!isRecord(entry)) continue;
+    if (!threadId || !isRecord(entry) || !Array.isArray(entry.queuedMessages)) return null;
 
     const draft = entry.draft === undefined ? null : normalizeThreadWorkDraft(entry.draft);
-    const queuedMessages = Array.isArray(entry.queuedMessages)
-      ? entry.queuedMessages
-          .map((item) => normalizeThreadWorkQueuedMessage(item))
-          .filter((item): item is ThreadWorkQueuedMessage => item !== null)
-          .slice(0, MAX_THREAD_WORK_QUEUE_ITEMS)
-      : [];
+    if (entry.draft !== undefined && !draft) return null;
+    if (entry.queuedMessages.length > MAX_THREAD_WORK_QUEUE_ITEMS) return null;
+    const queuedMessages = entry.queuedMessages.map((item) =>
+      normalizeThreadWorkQueuedMessage(item),
+    );
+    if (queuedMessages.some((item) => item === null)) return null;
 
     threadWork[threadId] = {
       ...(draft ? { draft } : {}),
-      queuedMessages,
+      queuedMessages: queuedMessages as ThreadWorkQueuedMessage[],
     };
   }
   return threadWork;
 }
 
-export function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot | null {
-  if (!isRecord(value)) return null;
-  if (value.version !== WORKSPACE_SNAPSHOT_VERSION) return null;
-  if (!Array.isArray(value.projects)) return null;
-  if (!Array.isArray(value.messages)) return null;
-  if (typeof value.activeThreadId !== "string" && value.activeThreadId !== null) return null;
+export function isRecognizedLegacyWorkspaceSnapshot(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.version !== LEGACY_WORKSPACE_SNAPSHOT_VERSION) return false;
+  if (!Array.isArray(value.projects)) return false;
+  if (!Array.isArray(value.messages)) return false;
+  if (typeof value.activeThreadId !== "string" && value.activeThreadId !== null) return false;
 
   const chats = value.chats === undefined ? [] : value.chats;
-  if (!Array.isArray(chats)) return null;
-
-  const snapshot = value as WorkspaceSnapshot;
-  function normalizeThreadRecord(
-    thread: ThreadRecord & {
-      runtimeId?: unknown;
-      runtimeMode?: unknown;
-      runtimeModelId?: unknown;
-      lastActivityAt?: unknown;
-      planMode?: unknown;
-      runChecklist?: unknown;
-    },
-  ): ThreadRecord {
-    const runtimeModelId = normalizeOptionalString(thread.runtimeModelId);
-    const lastActivityAt = normalizeOptionalString(thread.lastActivityAt);
-    const validLastActivityAt =
-      lastActivityAt && !Number.isNaN(Date.parse(lastActivityAt)) ? lastActivityAt : undefined;
-    const runChecklist = normalizeThreadRunChecklist(thread.runChecklist);
-    const {
-      runtimeModelId: _runtimeModelId,
-      lastActivityAt: _lastActivityAt,
-      planMode: _planMode,
-      runChecklist: _runChecklist,
-      ...rest
-    } = thread;
-
-    return {
-      ...(rest as Omit<ThreadRecord, "runtimeId" | "runtimeMode" | "runtimeModelId">),
-      runtimeId: normalizeRuntimeId(thread.runtimeId),
-      runtimeMode: normalizeRuntimeMode(thread.runtimeMode),
-      planMode: thread.planMode === true,
-      ...(runtimeModelId ? { runtimeModelId } : {}),
-      ...(validLastActivityAt ? { lastActivityAt: validLastActivityAt } : {}),
-      ...(runChecklist ? { runChecklist } : {}),
-    };
-  }
-
-  const threadWork = normalizeThreadWork(value.threadWork);
-
-  return {
-    ...snapshot,
-    projects: snapshot.projects.map((project) => ({
-      ...project,
-      threads: project.threads.map(normalizeThreadRecord),
-    })),
-    chats: chats.map(normalizeThreadRecord),
-    messages: snapshot.messages.map(normalizeMessageRecord),
-    ...(threadWork ? { threadWork } : {}),
-  };
+  if (!Array.isArray(chats)) return false;
+  return value.projects.every((project) => isRecord(project) && Array.isArray(project.threads));
 }
 
 export function normalizeProviderSessionSnapshot(value: unknown): ProviderSessionSnapshot | null {

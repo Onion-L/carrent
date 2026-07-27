@@ -13,10 +13,7 @@ export function buildChatPrompt(
   const recentTranscript =
     options?.includeTranscript === false ? [] : trimTranscript(request.transcript);
 
-  const contextLine =
-    request.workspace.kind === "project"
-      ? `Project: ${request.workspace.projectPath}`
-      : "Context: General chat. No project folder is selected.";
+  const contextLine = `Project: ${request.context.workingDirectory}`;
 
   const parts: string[] = [contextLine, ``];
 

@@ -1,15 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import type { MessagePart } from "../renderer/mock/uiShellData";
 import {
   APP_STATE_SNAPSHOT_VERSION,
-  WORKSPACE_SNAPSHOT_VERSION,
   normalizeAppStateSnapshot,
   normalizePersistedAppStateSnapshot,
   normalizeProviderSessionSnapshot,
-  normalizeWorkspaceSnapshot,
 } from "./workspacePersistence";
-import { MAX_RUN_CHECKLIST_ITEM_BYTES, MAX_RUN_CHECKLIST_ITEMS } from "./runChecklist";
 
 describe("normalizeAppStateSnapshot", () => {
   it("round-trips valid per-Workspace last Thread locations", () => {
@@ -322,6 +318,153 @@ describe("normalizeAppStateSnapshot", () => {
     expect(normalizeAppStateSnapshot(snapshot)).toEqual(snapshot);
   });
 
+  it("round-trips complete Thread content in App State", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Persist complete content",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:01:00.000Z",
+          pinned: true,
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+          runChecklist: {
+            runId: "run-1",
+            runtimeId: "kimi",
+            entries: [{ content: "Persist content", status: "in_progress" }],
+            outcome: "running",
+            expanded: true,
+          },
+        },
+      ],
+      threadDrafts: [],
+      threadMessages: [
+        {
+          id: "message-1",
+          threadId: "thread-1",
+          role: "assistant",
+          content: "Working",
+          createdAt: "2026-07-27T08:01:00.000Z",
+          timestamp: "16:01",
+          runStatus: "running",
+          parts: [
+            {
+              type: "reasoning",
+              id: "reasoning-1",
+              content: "Inspecting state",
+              status: "running",
+            },
+          ],
+          attachments: [],
+        },
+      ],
+      threadRuns: [],
+      threadPromotionIntents: [],
+      threadWork: {
+        "thread-1": {
+          draft: { content: "Follow up", attachedSkillNames: [], attachments: [] },
+          queuedMessages: [{ id: "queued-1", content: "Next request", requiresConfirmation: true }],
+        },
+      },
+      lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
+      activeWorkspaceId: "workspace-1",
+    };
+
+    expect(normalizeAppStateSnapshot(snapshot)).toEqual(snapshot);
+  });
+
+  it("rejects an App State snapshot when any Thread content entry is invalid", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Validate content",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      threadDrafts: [],
+      threadMessages: [
+        {
+          id: "message-1",
+          threadId: "thread-1",
+          role: "assistant",
+          content: "Working",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          attachments: [],
+          parts: [{ type: "text", content: "Working" }],
+        },
+      ],
+      threadRuns: [],
+      threadPromotionIntents: [],
+      threadWork: {
+        "thread-1": {
+          draft: { content: "Follow up", attachedSkillNames: [], attachments: [] },
+          queuedMessages: [{ id: "queue-1", content: "Continue" }],
+        },
+      },
+      activeWorkspaceId: "workspace-1",
+    };
+
+    expect(
+      normalizeAppStateSnapshot({
+        ...snapshot,
+        threadWork: { "thread-1": { draft: { content: 42 }, queuedMessages: [] } },
+      }),
+    ).toBe(null);
+    expect(
+      normalizeAppStateSnapshot({
+        ...snapshot,
+        threadWork: { "thread-1": { queuedMessages: [{ id: "queue-1" }] } },
+      }),
+    ).toBe(null);
+    expect(
+      normalizeAppStateSnapshot({
+        ...snapshot,
+        threadMessages: [{ ...snapshot.threadMessages[0], parts: [{ type: "unknown" }] }],
+      }),
+    ).toBe(null);
+    expect(
+      normalizeAppStateSnapshot({
+        ...snapshot,
+        threadMessages: [{ ...snapshot.threadMessages[0], parts: [{ type: "text", content: 42 }] }],
+      }),
+    ).toBe(null);
+  });
+
   it("round-trips a pending promotion intent without creating a Thread", () => {
     const snapshot = {
       version: APP_STATE_SNAPSHOT_VERSION,
@@ -571,1268 +714,5 @@ describe("normalizeProviderSessionSnapshot", () => {
         sessions: { "kimi:thread-1": { unexpected: true } },
       }),
     ).toEqual({ version: 1, sessions: { "kimi:thread-1": "" } });
-  });
-});
-
-describe("normalizeWorkspaceSnapshot", () => {
-  it("accepts a valid current snapshot", () => {
-    const snapshot = {
-      version: WORKSPACE_SNAPSHOT_VERSION,
-      projects: [{ id: "p1", name: "P1", path: "/tmp/p1", threads: [] }],
-      chats: [],
-      messages: [],
-      activeThreadId: null,
-    };
-
-    expect(normalizeWorkspaceSnapshot(snapshot)).toEqual(snapshot);
-  });
-
-  it("accepts older snapshots without agents", () => {
-    const snapshot = {
-      version: WORKSPACE_SNAPSHOT_VERSION,
-      projects: [{ id: "p1", name: "P1", path: "/tmp/p1", threads: [] }],
-      messages: [],
-      activeThreadId: null,
-    };
-
-    expect(normalizeWorkspaceSnapshot(snapshot)).toEqual({ ...snapshot, chats: [] });
-  });
-
-  it("normalizes snapshots without chats as an empty list", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [],
-      messages: [],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.chats).toEqual([]);
-  });
-
-  it("rejects snapshots with invalid chats", () => {
-    expect(
-      normalizeWorkspaceSnapshot({
-        version: 1,
-        projects: [],
-        chats: "bad",
-        messages: [],
-        activeThreadId: null,
-      }),
-    ).toBe(null);
-  });
-
-  it("rejects malformed snapshots", () => {
-    expect(normalizeWorkspaceSnapshot({ version: 999 })).toBe(null);
-    expect(normalizeWorkspaceSnapshot(null)).toBe(null);
-  });
-
-  it("accepts a valid snapshot with chats", () => {
-    const snapshot = {
-      version: WORKSPACE_SNAPSHOT_VERSION,
-      projects: [],
-      chats: [{ id: "c1", title: "Chat 1", updatedAt: "2024-01-01T00:00:00Z" }],
-      messages: [],
-      activeThreadId: null,
-    };
-
-    expect(normalizeWorkspaceSnapshot(snapshot)).toEqual({
-      ...snapshot,
-      chats: [
-        {
-          ...snapshot.chats[0],
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
-        },
-      ],
-    });
-  });
-
-  it("normalizes legacy project threads without runtime mode", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [
-        {
-          id: "p1",
-          name: "P1",
-          path: "/tmp/p1",
-          threads: [{ id: "t1", title: "Old", updatedAt: "now" }],
-        },
-      ],
-      chats: [],
-      messages: [],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.projects[0].threads[0].runtimeId).toBe("kimi");
-    expect(snapshot?.projects[0].threads[0].runtimeMode).toBe("approval-required");
-  });
-
-  it("preserves valid thread activity timestamps and drops invalid values", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [
-        {
-          id: "p1",
-          name: "P1",
-          path: "/tmp/p1",
-          threads: [
-            {
-              id: "valid",
-              title: "Valid",
-              updatedAt: "now",
-              lastActivityAt: "2026-05-01T00:00:00Z",
-            },
-            {
-              id: "invalid",
-              title: "Invalid",
-              updatedAt: "now",
-              lastActivityAt: "recently",
-            },
-          ],
-        },
-      ],
-      chats: [],
-      messages: [],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.projects[0].threads[0].lastActivityAt).toBe("2026-05-01T00:00:00Z");
-    expect(snapshot?.projects[0].threads[1].lastActivityAt).toBeUndefined();
-  });
-
-  it("normalizes legacy chats without runtime fields", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [],
-      chats: [{ id: "c1", title: "Chat", updatedAt: "now" }],
-      messages: [],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.chats[0].runtimeId).toBe("kimi");
-    expect(snapshot?.chats[0].runtimeMode).toBe("approval-required");
-    expect(snapshot?.chats[0].planMode).toBe(false);
-  });
-
-  it("preserves enabled Plan mode for project threads and chats", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [
-        {
-          id: "p1",
-          name: "P1",
-          path: "/tmp/p1",
-          threads: [{ id: "t1", title: "Thread", updatedAt: "now", planMode: true }],
-        },
-      ],
-      chats: [{ id: "c1", title: "Chat", updatedAt: "now", planMode: true }],
-      messages: [],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.projects[0].threads[0].planMode).toBe(true);
-    expect(snapshot?.chats[0].planMode).toBe(true);
-  });
-
-  it("round-trips retained Run Checklists for project Threads and project-less Threads", () => {
-    const projectChecklist = {
-      runId: "run-project",
-      runtimeId: "kimi",
-      outcome: "failed",
-      expanded: false,
-      entries: [
-        { content: "Inspect", status: "completed" },
-        { content: "Implement", status: "in_progress" },
-      ],
-    };
-    const chatChecklist = {
-      runId: "run-chat",
-      runtimeId: "codex",
-      outcome: "completed",
-      expanded: true,
-      entries: [{ content: "Verify", status: "completed" }],
-    };
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [
-        {
-          id: "p1",
-          name: "P1",
-          path: "/tmp/p1",
-          threads: [
-            { id: "t1", title: "Thread", updatedAt: "now", runChecklist: projectChecklist },
-          ],
-        },
-      ],
-      chats: [{ id: "c1", title: "Chat", updatedAt: "now", runChecklist: chatChecklist }],
-      messages: [],
-      activeThreadId: "t1",
-    });
-
-    expect(snapshot?.projects[0].threads[0].runChecklist).toEqual(projectChecklist);
-    expect(snapshot?.chats[0].runChecklist).toEqual(chatChecklist);
-  });
-
-  it("rejects malformed and oversized persisted Run Checklists atomically", () => {
-    const makeThread = (id: string, runChecklist: unknown) => ({
-      id,
-      title: id,
-      updatedAt: "now",
-      runChecklist,
-    });
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [
-        {
-          id: "p1",
-          name: "P1",
-          path: "/tmp/p1",
-          threads: [
-            makeThread("unknown-state", {
-              runId: "run-1",
-              runtimeId: "kimi",
-              outcome: "running",
-              expanded: true,
-              entries: [
-                { content: "Valid first item", status: "completed" },
-                { content: "Invalid second item", status: "blocked" },
-              ],
-            }),
-            makeThread("oversized-content", {
-              runId: "run-2",
-              runtimeId: "kimi",
-              outcome: "running",
-              expanded: true,
-              entries: [
-                { content: "x".repeat(MAX_RUN_CHECKLIST_ITEM_BYTES + 1), status: "pending" },
-              ],
-            }),
-            makeThread("too-many-items", {
-              runId: "run-3",
-              runtimeId: "kimi",
-              outcome: "running",
-              expanded: true,
-              entries: Array.from({ length: MAX_RUN_CHECKLIST_ITEMS + 1 }, (_, index) => ({
-                content: `Item ${index}`,
-                status: "pending",
-              })),
-            }),
-          ],
-        },
-      ],
-      chats: [],
-      messages: [],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.projects[0].threads.map((thread) => thread.runChecklist)).toEqual([
-      undefined,
-      undefined,
-      undefined,
-    ]);
-  });
-
-  it("restores pending Plan Reviews as interrupted", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          content: "",
-          parts: [
-            {
-              type: "plan_review",
-              id: "review-1",
-              permissionId: "permission-1",
-              content: "# Plan\n\n- Implement",
-              status: "pending",
-              options: [
-                { optionId: "plan_approve", name: "Approve", kind: "allow_once" },
-                { optionId: "plan_revise", name: "Revise", kind: "reject_once" },
-              ],
-            },
-          ],
-        },
-      ],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.messages[0]).toMatchObject({
-      parts: [{ type: "plan_review", status: "interrupted" }],
-    });
-  });
-
-  it("drops malformed Plan Reviews without dropping the message", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          content: "Answer",
-          parts: [
-            { type: "text", content: "Answer" },
-            {
-              type: "plan_review",
-              id: "review-1",
-              permissionId: "permission-1",
-              content: "# Plan",
-              status: "pending",
-              options: [{ optionId: "bad", name: "Bad", kind: "unsupported" }],
-            },
-          ],
-        },
-      ],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.messages[0]).toMatchObject({
-      content: "Answer",
-      parts: [{ type: "text", content: "Answer" }],
-    });
-  });
-
-  it("round-trips settled question records", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          content: "",
-          parts: [
-            {
-              type: "question",
-              id: "question-q-1",
-              questionId: "q-1",
-              status: "answered",
-              questions: [
-                { header: "Language", question: "Which language should the module use?" },
-                { header: "Features", question: "Which features should it include?" },
-              ],
-              answers: [
-                { questionIndex: 0, labels: ["TypeScript"] },
-                { questionIndex: 1, labels: ["Logging", "Other"], customText: "Coverage" },
-              ],
-            },
-            {
-              type: "question",
-              id: "question-q-2",
-              questionId: "q-2",
-              status: "skipped",
-              questions: [{ header: "Scope", question: "Refactor the tests too?" }],
-            },
-          ],
-        },
-      ],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.messages[0]).toMatchObject({
-      parts: [
-        {
-          type: "question",
-          questionId: "q-1",
-          status: "answered",
-          questions: [
-            { header: "Language", question: "Which language should the module use?" },
-            { header: "Features", question: "Which features should it include?" },
-          ],
-          answers: [
-            { questionIndex: 0, labels: ["TypeScript"] },
-            { questionIndex: 1, labels: ["Logging", "Other"], customText: "Coverage" },
-          ],
-        },
-        { type: "question", questionId: "q-2", status: "skipped" },
-      ],
-    });
-  });
-
-  it("restores pending question records as interrupted so they never look actionable", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          content: "",
-          parts: [
-            {
-              type: "question",
-              id: "question-q-1",
-              questionId: "q-1",
-              status: "pending",
-              questions: [{ header: "Language", question: "Which language?" }],
-            },
-          ],
-        },
-      ],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.messages[0]).toMatchObject({
-      parts: [{ type: "question", status: "interrupted" }],
-    });
-  });
-
-  it("drops malformed question records without dropping the message", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          content: "Answer",
-          parts: [
-            { type: "text", content: "Answer" },
-            {
-              type: "question",
-              id: "question-q-1",
-              questionId: "q-1",
-              status: "answered",
-              questions: [{ header: "Language" }],
-            },
-          ],
-        },
-      ],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.messages[0]).toMatchObject({
-      content: "Answer",
-      parts: [{ type: "text", content: "Answer" }],
-    });
-  });
-
-  it("round-trips error parts", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          content: "Answer",
-          parts: [
-            { type: "text", content: "Answer" },
-            {
-              type: "error",
-              id: "error-m1",
-              message: "Kimi Code declined the request (provider refusal).",
-            },
-          ],
-        },
-      ],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.messages[0]).toMatchObject({
-      content: "Answer",
-      parts: [
-        { type: "text", content: "Answer" },
-        {
-          type: "error",
-          id: "error-m1",
-          message: "Kimi Code declined the request (provider refusal).",
-        },
-      ],
-    });
-  });
-
-  it("preserves legacy runtime ids during normalization", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [
-        {
-          id: "p1",
-          name: "P1",
-          path: "/tmp/p1",
-          threads: [{ id: "t1", title: "Old", updatedAt: "now", runtimeId: "codex" }],
-        },
-      ],
-      chats: [{ id: "c1", title: "Chat", updatedAt: "now", runtimeId: "claude-code" }],
-      messages: [],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.projects[0].threads[0].runtimeId).toBe("codex");
-    expect(snapshot?.chats[0].runtimeId).toBe("claude-code");
-  });
-
-  it("normalizes invalid runtime ids to Kimi Code", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [
-        {
-          id: "p1",
-          name: "P1",
-          path: "/tmp/p1",
-          threads: [{ id: "t1", title: "Old", updatedAt: "now", runtimeId: "bad" }],
-        },
-      ],
-      chats: [{ id: "c1", title: "Chat", updatedAt: "now", runtimeId: "bad" }],
-      messages: [],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.projects[0].threads[0].runtimeId).toBe("kimi");
-    expect(snapshot?.chats[0].runtimeId).toBe("kimi");
-  });
-
-  it("preserves valid runtime model ids for threads and chats", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [
-        {
-          id: "p1",
-          name: "P1",
-          path: "/tmp/p1",
-          threads: [{ id: "t1", title: "Thread", updatedAt: "now", runtimeModelId: " gpt-5 " }],
-        },
-      ],
-      chats: [{ id: "c1", title: "Chat", updatedAt: "now", runtimeModelId: "gpt-5" }],
-      messages: [],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.projects[0].threads[0].runtimeModelId).toBe("gpt-5");
-    expect(snapshot?.chats[0].runtimeModelId).toBe("gpt-5");
-  });
-
-  it("drops invalid runtime model ids for threads and chats", () => {
-    const snapshot = normalizeWorkspaceSnapshot({
-      version: 1,
-      projects: [
-        {
-          id: "p1",
-          name: "P1",
-          path: "/tmp/p1",
-          threads: [{ id: "t1", title: "Thread", updatedAt: "now", runtimeModelId: "   " }],
-        },
-      ],
-      chats: [{ id: "c1", title: "Chat", updatedAt: "now", runtimeModelId: "" }],
-      messages: [],
-      activeThreadId: null,
-    });
-
-    expect(snapshot?.projects[0].threads[0].runtimeModelId).toBeUndefined();
-    expect(snapshot?.chats[0].runtimeModelId).toBeUndefined();
-  });
-
-  it("preserves image attachment metadata in messages", () => {
-    const snapshot = {
-      version: WORKSPACE_SNAPSHOT_VERSION,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "user",
-          threadId: "t1",
-          content: "Look at this",
-          timestamp: "09:00",
-          attachments: [
-            {
-              id: "a1",
-              kind: "image",
-              name: "screenshot.png",
-              mimeType: "image/png",
-              size: 1024,
-              storageKey: "a1.png",
-            },
-          ],
-        },
-      ],
-      activeThreadId: null,
-    };
-
-    const normalized = normalizeWorkspaceSnapshot(snapshot);
-    const userMessage = normalized!.messages[0] as { attachments?: unknown };
-    expect(userMessage.attachments).toEqual(snapshot.messages[0].attachments);
-  });
-
-  it("round-trips mixed image and file attachment metadata", () => {
-    const snapshot = {
-      version: WORKSPACE_SNAPSHOT_VERSION,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "user",
-          threadId: "t1",
-          content: "Look at these",
-          timestamp: "09:00",
-          attachments: [
-            {
-              id: "a1",
-              kind: "image",
-              name: "screenshot.png",
-              mimeType: "image/png",
-              size: 1024,
-              storageKey: "a1.png",
-            },
-            {
-              id: "a2",
-              kind: "file",
-              name: "main.ts",
-              mimeType: "text/plain",
-              size: 512,
-              storageKey: "a2.ts",
-              sha256: "a".repeat(64),
-            },
-          ],
-        },
-      ],
-      activeThreadId: null,
-    };
-
-    const normalized = normalizeWorkspaceSnapshot(snapshot);
-    const userMessage = normalized!.messages[0] as { attachments?: unknown };
-    expect(userMessage.attachments).toEqual(snapshot.messages[0].attachments);
-  });
-
-  it("backfills kind image for legacy image records without kind", () => {
-    const snapshot = {
-      version: WORKSPACE_SNAPSHOT_VERSION,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "user",
-          threadId: "t1",
-          content: "",
-          timestamp: "09:00",
-          attachments: [
-            {
-              id: "a1",
-              name: "screenshot.png",
-              mimeType: "image/png",
-              size: 1024,
-              storageKey: "a1.png",
-            },
-          ],
-        },
-      ],
-      activeThreadId: null,
-    };
-
-    const normalized = normalizeWorkspaceSnapshot(snapshot);
-    const userMessage = normalized!.messages[0] as { attachments?: unknown[] };
-    expect(userMessage.attachments).toEqual([
-      {
-        id: "a1",
-        kind: "image",
-        name: "screenshot.png",
-        mimeType: "image/png",
-        size: 1024,
-        storageKey: "a1.png",
-      },
-    ]);
-  });
-
-  it("discards legacy non-image records without kind instead of guessing", () => {
-    const snapshot = {
-      version: WORKSPACE_SNAPSHOT_VERSION,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "user",
-          threadId: "t1",
-          content: "",
-          timestamp: "09:00",
-          attachments: [
-            {
-              id: "a2",
-              name: "main.ts",
-              mimeType: "text/plain",
-              size: 512,
-              storageKey: "a2.ts",
-            },
-          ],
-        },
-      ],
-      activeThreadId: null,
-    };
-
-    const normalized = normalizeWorkspaceSnapshot(snapshot);
-    const userMessage = normalized!.messages[0] as { attachments?: unknown[] };
-    expect(userMessage.attachments).toEqual([]);
-  });
-
-  it("accepts a changed_files message with a valid snapshot", () => {
-    const snapshot = {
-      version: WORKSPACE_SNAPSHOT_VERSION,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          type: "changed_files",
-          content: "Workspace changes",
-          changedFiles: [
-            { path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false },
-          ],
-          snapshot: {
-            baseRevision: "abc123",
-            capturedAt: "2024-01-01T00:00:00.000Z",
-            patch: "diff --git a/a.txt b/a.txt",
-            truncated: false,
-          },
-        },
-      ],
-      activeThreadId: null,
-    };
-
-    const normalized = normalizeWorkspaceSnapshot(snapshot);
-    const message = normalized!.messages[0] as { snapshot?: unknown; changedFiles?: unknown[] };
-    expect(message.snapshot).toEqual(snapshot.messages[0].snapshot);
-    expect(message.changedFiles).toEqual(snapshot.messages[0].changedFiles);
-  });
-
-  it("accepts a legacy changed_files message without a snapshot", () => {
-    const snapshot = {
-      version: WORKSPACE_SNAPSHOT_VERSION,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          type: "changed_files",
-          content: "Changed files",
-          changedFiles: [{ path: "a.txt", additions: 1, deletions: 0 }],
-        },
-      ],
-      activeThreadId: null,
-    };
-
-    const normalized = normalizeWorkspaceSnapshot(snapshot);
-    const message = normalized!.messages[0] as { snapshot?: unknown; changedFiles?: unknown[] };
-    expect(message.snapshot).toBeUndefined();
-    expect(message.changedFiles).toEqual([
-      { path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false },
-    ]);
-  });
-
-  it("drops malformed changed_files fields and keeps the message", () => {
-    const snapshot = {
-      version: WORKSPACE_SNAPSHOT_VERSION,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          type: "changed_files",
-          changedFiles: [
-            { path: "valid.txt", additions: 1, deletions: 0, binary: false, untracked: false },
-            { path: "invalid" },
-            "not-a-file",
-          ],
-          snapshot: {
-            baseRevision: "abc123",
-            capturedAt: "2024-01-01T00:00:00.000Z",
-            patch: "diff",
-            truncated: "not-a-boolean",
-          },
-        },
-      ],
-      activeThreadId: null,
-    };
-
-    const normalized = normalizeWorkspaceSnapshot(snapshot);
-    const message = normalized!.messages[0] as { snapshot?: unknown; changedFiles?: unknown[] };
-    expect(message.snapshot).toBeUndefined();
-    expect(message.changedFiles).toEqual([
-      { path: "valid.txt", additions: 1, deletions: 0, binary: false, untracked: false },
-    ]);
-  });
-
-  it("drops an oversized persisted patch", () => {
-    const snapshot = {
-      version: WORKSPACE_SNAPSHOT_VERSION,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          type: "changed_files",
-          changedFiles: [
-            { path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false },
-          ],
-          snapshot: {
-            baseRevision: "abc123",
-            capturedAt: "2024-01-01T00:00:00.000Z",
-            patch: "x".repeat(256 * 1024 + 1),
-            truncated: false,
-          },
-        },
-      ],
-      activeThreadId: null,
-    };
-
-    const normalized = normalizeWorkspaceSnapshot(snapshot);
-    const message = normalized!.messages[0] as { snapshot?: unknown };
-    expect(message.snapshot).toBeUndefined();
-  });
-
-  it("strips runtime-only image attachment fields from persisted messages", () => {
-    const snapshot = {
-      version: WORKSPACE_SNAPSHOT_VERSION,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "user",
-          threadId: "t1",
-          content: "",
-          timestamp: "09:00",
-          attachments: [
-            {
-              id: "a1",
-              name: "screenshot.png",
-              mimeType: "image/png",
-              size: 1024,
-              storageKey: "a1.png",
-              localPath: "/tmp/attachments/a1.png",
-              base64: "raw",
-            },
-          ],
-        },
-      ],
-      activeThreadId: null,
-    };
-
-    const normalized = normalizeWorkspaceSnapshot(snapshot);
-    const messageAttachment = (normalized!.messages[0] as { attachments?: unknown[] })
-      .attachments![0] as Record<string, unknown>;
-
-    expect(messageAttachment).toEqual({
-      id: "a1",
-      kind: "image",
-      name: "screenshot.png",
-      mimeType: "image/png",
-      size: 1024,
-      storageKey: "a1.png",
-    });
-  });
-});
-
-describe("normalizeWorkspaceSnapshot threadWork", () => {
-  const baseSnapshot = {
-    version: WORKSPACE_SNAPSHOT_VERSION,
-    projects: [],
-    chats: [],
-    messages: [],
-    activeThreadId: null,
-  };
-
-  const imageAttachment = {
-    id: "a1",
-    kind: "image",
-    name: "screenshot.png",
-    mimeType: "image/png",
-    size: 1024,
-    storageKey: "a1.png",
-  };
-
-  it("leaves snapshots without threadWork unchanged", () => {
-    const normalized = normalizeWorkspaceSnapshot(baseSnapshot);
-    expect(normalized).toEqual(baseSnapshot);
-    expect(normalized && "threadWork" in normalized).toBe(false);
-  });
-
-  it("round-trips a valid draft and queue", () => {
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      threadWork: {
-        "thread-1": {
-          draft: {
-            content: "Draft text",
-            attachedSkillNames: ["pdf"],
-            attachments: [imageAttachment],
-          },
-          queuedMessages: [
-            { id: "q1", content: "First", attachments: [imageAttachment] },
-            { id: "q2", content: "Second" },
-          ],
-        },
-      },
-    });
-
-    expect(normalized?.threadWork).toEqual({
-      "thread-1": {
-        draft: {
-          content: "Draft text",
-          attachedSkillNames: ["pdf"],
-          attachments: [imageAttachment],
-        },
-        queuedMessages: [
-          {
-            id: "q1",
-            content: "First",
-            attachments: [imageAttachment],
-            requiresConfirmation: true,
-          },
-          { id: "q2", content: "Second", requiresConfirmation: true },
-        ],
-      },
-    });
-  });
-
-  it("normalizes a missing queue to an empty list", () => {
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      threadWork: {
-        "thread-1": {
-          draft: { content: "Only a draft", attachedSkillNames: [], attachments: [] },
-        },
-      },
-    });
-
-    expect(normalized?.threadWork?.["thread-1"]).toEqual({
-      draft: { content: "Only a draft", attachedSkillNames: [], attachments: [] },
-      queuedMessages: [],
-    });
-  });
-
-  it("drops malformed Thread entries without rejecting the snapshot", () => {
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      threadWork: {
-        bad: "not-a-record",
-        "thread-1": {
-          draft: { content: "ok", attachedSkillNames: [], attachments: [] },
-          queuedMessages: [],
-        },
-      },
-    });
-
-    expect(normalized).not.toBe(null);
-    expect(normalized?.threadWork?.bad).toBeUndefined();
-    expect(normalized?.threadWork?.["thread-1"]?.draft?.content).toBe("ok");
-  });
-
-  it("drops a malformed threadWork field entirely", () => {
-    const normalized = normalizeWorkspaceSnapshot({ ...baseSnapshot, threadWork: "bad" });
-    expect(normalized?.threadWork).toEqual({});
-  });
-
-  it("drops a draft whose text exceeds 256 KiB but keeps the queue", () => {
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      threadWork: {
-        "thread-1": {
-          draft: {
-            content: "x".repeat(256 * 1024 + 1),
-            attachedSkillNames: [],
-            attachments: [],
-          },
-          queuedMessages: [{ id: "q1", content: "kept" }],
-        },
-      },
-    });
-
-    expect(normalized?.threadWork?.["thread-1"]?.draft).toBeUndefined();
-    expect(normalized?.threadWork?.["thread-1"]?.queuedMessages).toHaveLength(1);
-  });
-
-  it("drops queue items with oversized text or malformed fields", () => {
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      threadWork: {
-        "thread-1": {
-          queuedMessages: [
-            { id: "q1", content: "x".repeat(256 * 1024 + 1) },
-            { content: "missing id" },
-            { id: "q2", content: 42 },
-            { id: "q3", content: "kept" },
-          ],
-        },
-      },
-    });
-
-    expect(normalized?.threadWork?.["thread-1"]?.queuedMessages).toEqual([
-      { id: "q3", content: "kept", requiresConfirmation: true },
-    ]);
-  });
-
-  it("caps a Thread's queue at 50 items", () => {
-    const queuedMessages = Array.from({ length: 60 }, (_, index) => ({
-      id: `q${index}`,
-      content: `item ${index}`,
-    }));
-
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      threadWork: { "thread-1": { queuedMessages } },
-    });
-
-    const queue = normalized?.threadWork?.["thread-1"]?.queuedMessages ?? [];
-    expect(queue).toHaveLength(50);
-    expect(queue[0]?.id).toBe("q0");
-    expect(queue.at(-1)?.id).toBe("q49");
-  });
-
-  it("drops entries with invalid attachment metadata and rejects runtime-only fields", () => {
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      threadWork: {
-        "thread-1": {
-          draft: {
-            content: "kept",
-            attachedSkillNames: [],
-            attachments: [{ ...imageAttachment, localPath: "/tmp/a1.png", base64: "raw" }],
-          },
-          queuedMessages: [
-            { id: "q1", content: "bad attachment", attachments: [{ id: "a2" }] },
-            { id: "q2", content: "too many", attachments: Array(31).fill(imageAttachment) },
-          ],
-        },
-      },
-    });
-
-    const entry = normalized?.threadWork?.["thread-1"];
-    expect(entry?.draft?.attachments).toEqual([imageAttachment]);
-    expect(entry?.queuedMessages).toEqual([]);
-  });
-
-  it("keeps recovered queues isolated per Thread", () => {
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      threadWork: {
-        "thread-1": { queuedMessages: [{ id: "q1", content: "one" }] },
-        "thread-2": { queuedMessages: [{ id: "q2", content: "two" }] },
-      },
-    });
-
-    expect(normalized?.threadWork?.["thread-1"]?.queuedMessages[0]?.content).toBe("one");
-    expect(normalized?.threadWork?.["thread-2"]?.queuedMessages[0]?.content).toBe("two");
-  });
-});
-
-describe("normalizeWorkspaceSnapshot subagent tasks", () => {
-  const baseSnapshot = {
-    version: WORKSPACE_SNAPSHOT_VERSION,
-    projects: [],
-    chats: [],
-    activeThreadId: null,
-  };
-
-  const completedTask = {
-    type: "subagent_task",
-    id: "0:tool_agent",
-    runtimeId: "kimi",
-    source: "agent",
-    runtimeAgentId: "agent-0",
-    agentType: "coder",
-    description: "Implement persistence",
-    prompt: "Implement step 1 and report the result",
-    background: false,
-    status: "completed",
-    summary: "Implemented persistence and tests.",
-    startedAt: 1000,
-    finishedAt: 2000,
-  };
-
-  it("round-trips a valid Subagent Task part", () => {
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          content: "Done",
-          parts: [{ type: "text", content: "Done" }, completedTask],
-        },
-      ],
-    });
-
-    expect(normalized?.messages[0]).toMatchObject({
-      content: "Done",
-      parts: [{ type: "text", content: "Done" }, completedTask],
-    });
-  });
-
-  it("round-trips a valid AgentSwarm task with an agent count", () => {
-    const swarmTask = {
-      type: "subagent_task",
-      id: "0:tool_swarm",
-      runtimeId: "kimi",
-      source: "agent-swarm",
-      agentType: "explore",
-      agentCount: 5,
-      description: "Review modules",
-      background: false,
-      status: "detached",
-      startedAt: 1000,
-      finishedAt: 1500,
-    };
-
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          content: "",
-          parts: [swarmTask],
-        },
-      ],
-    });
-
-    expect(normalized?.messages[0]).toMatchObject({ parts: [swarmTask] });
-  });
-
-  it("round-trips an AgentSwarm task with no agent count", () => {
-    const swarmTask = {
-      type: "subagent_task",
-      id: "0:tool_swarm",
-      runtimeId: "kimi",
-      source: "agent-swarm",
-      description: "Review modules",
-      background: true,
-      status: "detached",
-      startedAt: 1000,
-      finishedAt: 1500,
-    };
-
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          content: "",
-          parts: [swarmTask],
-        },
-      ],
-    });
-
-    expect(normalized?.messages[0]).toMatchObject({ parts: [swarmTask] });
-    const message = (normalized?.messages ?? [])[0] as { parts?: MessagePart[] };
-    expect(message.parts?.[0]).toMatchObject({ type: "subagent_task", id: "0:tool_swarm" });
-    expect(Object.keys(message.parts?.[0] ?? {})).not.toContain("agentCount");
-  });
-
-  it("restores persisted running Subagent Tasks as interrupted", () => {
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          content: "",
-          parts: [{ ...completedTask, status: "running", finishedAt: undefined }],
-        },
-      ],
-    });
-
-    expect(normalized?.messages[0]).toMatchObject({
-      parts: [{ type: "subagent_task", status: "interrupted" }],
-    });
-  });
-
-  it("drops malformed Subagent Tasks without dropping the message", () => {
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          content: "Answer",
-          parts: [
-            { type: "text", content: "Answer" },
-            { ...completedTask, id: "bad-status", status: "exploded" },
-            { ...completedTask, id: "bad-time", finishedAt: 500 },
-            { ...completedTask, id: "bad-count", agentCount: 0 },
-            { ...completedTask, id: "bad-prompt", prompt: "x".repeat(12_001) },
-          ],
-        },
-      ],
-    });
-
-    expect(normalized?.messages[0]).toMatchObject({
-      content: "Answer",
-      parts: [{ type: "text", content: "Answer" }],
-    });
-  });
-
-  it("preserves Thread Work-in-Progress fields alongside Subagent Tasks", () => {
-    const normalized = normalizeWorkspaceSnapshot({
-      ...baseSnapshot,
-      messages: [
-        {
-          id: "m1",
-          role: "assistant",
-          threadId: "t1",
-          timestamp: "09:00",
-          content: "Done",
-          parts: [completedTask],
-        },
-      ],
-      threadWork: {
-        t1: {
-          draft: { content: "Draft text", attachedSkillNames: [], attachments: [] },
-          queuedMessages: [{ id: "q1", content: "First" }],
-        },
-      },
-    });
-
-    expect(normalized?.messages[0]).toMatchObject({ parts: [completedTask] });
-    expect(normalized?.threadWork?.t1).toMatchObject({
-      draft: { content: "Draft text" },
-      queuedMessages: [{ id: "q1", content: "First" }],
-    });
   });
 });

@@ -55,7 +55,8 @@ import {
   getNextTypewriterText,
   hasPendingTypewriterText,
 } from "./typewriter";
-import { useWorkspace } from "../../context/WorkspaceContext";
+import { useThreadContent } from "../../context/ThreadContentContext";
+import { useAppState } from "../../context/AppStateContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import { QuestionPanel, getPendingQuestionForThread } from "./QuestionPanel";
 import { RunChecklist } from "./RunChecklist";
@@ -78,7 +79,7 @@ import {
   type QueuedChatMessage,
   type ThreadWorkDraftSnapshot,
 } from "../../hooks/chatMessageQueue";
-import type { Message } from "../../mock/uiShellData";
+import type { Message } from "../../../shared/threadContent";
 import type { GitWorkspaceDiffResult } from "../../../../electron/git/gitIpc";
 import {
   type ChatReasoningEventPayload,
@@ -239,6 +240,7 @@ type ComposerProps =
   | {
       mode: "thread";
       placement?: "default" | "centered";
+      workspaceId: string;
       projectId: string;
       threadId: string;
       messages: Message[];
@@ -262,7 +264,6 @@ type ComposerProps =
       projectId: string;
       projectName: string;
       projectPath: string;
-      draftId: string;
       threadId: string;
       initialDraft: ThreadWorkDraftSnapshot;
       messages: Message[];
@@ -277,22 +278,6 @@ type ComposerProps =
       onPromotionAccepted: (runId: string) => Promise<boolean>;
       onPromotionRejected: (draft: ThreadWorkDraftSnapshot) => Promise<void>;
       onPromoted: (threadId: string) => void;
-      onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
-      onRuntimeModelIdChange?: (modelId: string | undefined) => void;
-      onRuntimeModeChange?: (mode: RuntimeMode) => void;
-      onPlanModeChange?: (enabled: boolean) => void;
-    }
-  | {
-      mode: "chat";
-      placement?: "default" | "centered";
-      threadId: string;
-      messages: Message[];
-      runtimeId: RuntimeId;
-      runtimeModelId?: string;
-      runtimeMode: RuntimeMode;
-      planMode: boolean;
-      submitRequest?: ComposerSubmitRequest;
-      draftRequest?: ComposerDraftRequest;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
@@ -450,8 +435,8 @@ export function normalizeGitBranchInfo(info: unknown): GitBranchInfo {
 }
 
 export function createWorkspaceDiffCapture(options: {
-  mode: "thread" | "chat";
-  projectPath?: string;
+  mode: "thread";
+  projectPath: string;
   threadId: string;
   captureBaseline: (projectPath: string) => Promise<string | null>;
   workspaceDiff: (projectPath: string, baseRevision?: string) => Promise<GitWorkspaceDiffResult>;
@@ -466,13 +451,10 @@ export function createWorkspaceDiffCapture(options: {
   // Snapshots the worktree at send time so the diff captured after the run
   // only contains what changed during this run, not every pre-existing
   // uncommitted change. Baseline failures fall back to a HEAD diff.
-  const baselinePromise =
-    options.mode !== "chat" && options.projectPath
-      ? options.captureBaseline(options.projectPath).catch(() => null)
-      : null;
+  const baselinePromise = options.captureBaseline(options.projectPath).catch(() => null);
 
   return () => {
-    if (options.mode === "chat" || !options.projectPath || captured) {
+    if (captured) {
       return;
     }
     captured = true;
@@ -480,7 +462,7 @@ export function createWorkspaceDiffCapture(options: {
     void (async () => {
       try {
         const baseRevision = (await baselinePromise) ?? undefined;
-        const result = await options.workspaceDiff(options.projectPath!, baseRevision);
+        const result = await options.workspaceDiff(options.projectPath, baseRevision);
         if (result.state === "ready" && result.files.length > 0) {
           const projectRoot = result.projectRelativeRoot === "." ? "" : result.projectRelativeRoot;
           const repoWritePaths = new Set(
@@ -871,22 +853,19 @@ function titleCaseSkillName(name: string) {
 export function Composer(props: ComposerProps) {
   const navigate = useNavigate();
   const {
-    projects,
-    chats,
     appendMessage,
+    upsertMessages,
     appendWorkspaceDiffMessage,
     updateMessageAndPruneAfter,
     updateMessageRunStatus,
     updateMessageParts,
     updateRunChecklist,
     markThreadActivity,
-    upsertChat,
     upsertThread,
-    upsertAssociationThread,
-    removeAssociationThread,
+    removeThreadFromState,
     removeMessages,
-    promoteDraftThread,
-  } = useWorkspace();
+  } = useThreadContent();
+  const { projects, threads } = useAppState();
   const {
     runningThreadIds,
     pendingPermissions,
@@ -961,25 +940,22 @@ export function Composer(props: ComposerProps) {
   const lastDraftRequestIdRef = useRef<number | null>(null);
   const steerItemRef = useRef<QueuedChatMessage | null>(null);
   const editingQueuedIdRef = useRef<string | null>(null);
-  const projectId = props.mode === "chat" ? null : props.projectId;
+  const projectId = props.projectId;
   const project =
     props.mode === "association-draft"
       ? {
           id: props.projectId,
           name: props.projectName,
-          path: props.projectPath,
-          threads: [],
+          workingDirectory: props.projectPath,
         }
       : projectId
         ? (projects.find((item) => item.id === projectId) ?? null)
         : null;
   const threadId = props.threadId;
   const thread =
-    props.mode === "chat"
-      ? (chats.find((item) => item.id === threadId) ?? null)
-      : props.mode === "association-draft"
-        ? null
-        : (project?.threads.find((item) => item.id === threadId) ?? null);
+    props.mode === "association-draft"
+      ? null
+      : (threads.find((item) => item.id === threadId && item.projectId === projectId) ?? null);
   const runChecklist = thread?.runChecklist;
   const queuedMessages = useQueuedMessages(threadId);
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
@@ -1025,17 +1001,15 @@ export function Composer(props: ComposerProps) {
       return;
     }
 
-    const workspace =
-      props.mode === "chat"
-        ? { kind: "chat" as const }
-        : {
-            kind: "project" as const,
-            projectId: props.projectId,
-            projectPath: project?.path ?? "",
-          };
+    const context = {
+      kind: "project" as const,
+      projectId: props.projectId,
+      workingDirectory: project?.workingDirectory ?? "",
+      workspaceId: props.workspaceId,
+    };
 
     const status = await window.carrent.chat.getKimiStatus({
-      workspace,
+      context,
       threadId,
       runtimeId: props.runtimeId,
       runtimeModelId: getRuntimeModelIdForSend({
@@ -1053,7 +1027,7 @@ export function Composer(props: ComposerProps) {
   }, [
     props.mode,
     projectId,
-    project?.path,
+    project?.workingDirectory,
     threadId,
     props.runtimeId,
     props.runtimeModelId,
@@ -1133,9 +1107,7 @@ export function Composer(props: ComposerProps) {
     isPreparingAttachments,
     hasUnavailableAttachments: hasUnavailablePendingAttachments(pendingAttachments),
   });
-  const canSend =
-    (props.mode === "chat" ? hasSendableContent : hasSendableContent && !!project) &&
-    isSelectedRuntimeAvailable;
+  const canSend = hasSendableContent && !!project && isSelectedRuntimeAvailable;
   const isThreadSending = runningThreadIds.includes(threadId);
   const threadPermissions = useMemo(
     () => getActionablePermissionsForThread({ pendingPermissions, threadId }),
@@ -1234,7 +1206,7 @@ export function Composer(props: ComposerProps) {
   }, [isThreadSending, refreshKimiStatus]);
 
   useEffect(() => {
-    if (!project?.path) {
+    if (!project?.workingDirectory) {
       setGitBranches([]);
       setGitBranchWorktrees([]);
       setCurrentBranch(null);
@@ -1249,7 +1221,7 @@ export function Composer(props: ComposerProps) {
     void (async () => {
       try {
         const git = getGitBridge(window.carrent);
-        const info = normalizeGitBranchInfo(await git.branches(project.path));
+        const info = normalizeGitBranchInfo(await git.branches(project.workingDirectory));
         if (!cancelled) {
           setGitBranches(info.branches);
           setGitBranchWorktrees(info.branchWorktrees);
@@ -1272,12 +1244,12 @@ export function Composer(props: ComposerProps) {
     return () => {
       cancelled = true;
     };
-  }, [project?.path, showToast]);
+  }, [project?.workingDirectory, showToast]);
 
   const handleCreateBranch = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!project?.path || creatingBranch) {
+      if (!project?.workingDirectory || creatingBranch) {
         return;
       }
 
@@ -1293,7 +1265,9 @@ export function Composer(props: ComposerProps) {
         if (typeof git.createBranch !== "function") {
           throw new Error("Git branch creation is unavailable. Restart Carrent and try again.");
         }
-        const info = normalizeGitBranchInfo(await git.createBranch(project.path, branchName));
+        const info = normalizeGitBranchInfo(
+          await git.createBranch(project.workingDirectory, branchName),
+        );
         setCurrentBranch(info.current);
         setGitBranches(info.branches);
         setGitBranchWorktrees(info.branchWorktrees);
@@ -1307,7 +1281,7 @@ export function Composer(props: ComposerProps) {
         setCreatingBranch(false);
       }
     },
-    [creatingBranch, newBranchName, project?.path, showToast],
+    [creatingBranch, newBranchName, project?.workingDirectory, showToast],
   );
 
   useEffect(() => {
@@ -1564,10 +1538,7 @@ export function Composer(props: ComposerProps) {
       isExternalSubmit,
       hasUnavailableAttachments: hasUnavailablePendingAttachments(currentPendingAttachments),
     });
-    const canSendCurrent =
-      (props.mode === "chat"
-        ? hasCurrentSendableContent
-        : hasCurrentSendableContent && !!project) && isSelectedRuntimeAvailable;
+    const canSendCurrent = hasCurrentSendableContent && !!project && isSelectedRuntimeAvailable;
 
     if (planCommand && planSubmission.attachOnly) {
       props.onPlanModeChange?.(true);
@@ -1594,10 +1565,6 @@ export function Composer(props: ComposerProps) {
     // into the new instance's input.
     if (!isExternalSubmit && props.mode !== "association-draft") {
       clearThreadDraft(threadId);
-    }
-
-    if (props.mode === "thread") {
-      promoteDraftThread(props.projectId, props.threadId);
     }
 
     const validation = validateAttachmentSelection(
@@ -1652,14 +1619,33 @@ export function Composer(props: ComposerProps) {
       content: string,
       attachments?: AttachmentMetadata[],
       runStatus?: Message["runStatus"],
-    ) =>
-      appendMessage({
+    ) => {
+      if (props.mode === "association-draft") {
+        const now = Date.now();
+        return {
+          id: `msg-${now}-${Math.random().toString(36).slice(2, 7)}`,
+          threadId,
+          role,
+          type: "text" as const,
+          content,
+          attachments: attachments ?? [],
+          runStatus,
+          timestamp: new Date(now).toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          }),
+          createdAt: new Date(now).toISOString(),
+        };
+      }
+      return appendMessage({
         threadId,
         role,
         content,
         attachments,
         runStatus,
       });
+    };
 
     const updateLocalMessageTextPart = (messageId: string, content: string) => {
       if (!content) {
@@ -1751,8 +1737,8 @@ export function Composer(props: ComposerProps) {
     // before the diff capture reads it.
     const runWrittenFilesRef = { current: [] as string[] };
     const captureWorkspaceDiff = createWorkspaceDiffCapture({
-      mode: props.mode === "chat" ? "chat" : "thread",
-      projectPath: project?.path,
+      mode: "thread",
+      projectPath: project!.workingDirectory,
       threadId,
       captureBaseline: async (projectPath) => {
         const snapshot = await window.carrent.git.workspaceSnapshot(projectPath);
@@ -1864,23 +1850,6 @@ export function Composer(props: ComposerProps) {
         return false;
       }
       preparedPersistentRun = true;
-      upsertAssociationThread(
-        {
-          id: props.projectId,
-          name: props.projectName,
-          path: props.projectPath,
-          threads: [],
-        },
-        {
-          id: props.threadId,
-          title: associationDraftTitle!,
-          updatedAt: startedAt,
-          runtimeId: props.runtimeId,
-          runtimeModelId: runtimeModelIdForSend,
-          runtimeMode: props.runtimeMode,
-          planMode: effectivePlanMode,
-        },
-      );
     } else if (props.mode === "thread" && !isExternalSubmit && props.onRunPrepared) {
       preparedPersistentRun = await props.onRunPrepared(runInput);
       if (!preparedPersistentRun) {
@@ -1892,26 +1861,13 @@ export function Composer(props: ComposerProps) {
     const startedRunId = await send(
       {
         runId: requestedRunId,
-        workspace:
-          props.mode === "chat"
-            ? { kind: "chat" }
-            : {
-                kind: "project",
-                projectId: props.projectId,
-                projectPath: project!.path,
-                ...(props.mode === "association-draft" ? { workspaceId: props.workspaceId } : {}),
-              },
+        context: {
+          kind: "project",
+          projectId: props.projectId,
+          workingDirectory: project!.workingDirectory,
+          workspaceId: props.workspaceId,
+        },
         threadId,
-        ...(props.mode === "association-draft"
-          ? {
-              draftRef: {
-                draftId: props.draftId,
-                workspaceId: props.workspaceId,
-                projectId: props.projectId,
-                title: associationDraftTitle!,
-              },
-            }
-          : {}),
         runtimeId: props.runtimeId,
         runtimeModelId: runtimeModelIdForSend,
         runtimeMode: props.runtimeMode,
@@ -2107,7 +2063,7 @@ export function Composer(props: ComposerProps) {
     if (!startedRunId) {
       if (props.mode === "association-draft") {
         await props.onPromotionRejected(associationDraftSnapshot!);
-        removeAssociationThread(props.projectId, props.threadId);
+        removeThreadFromState(props.threadId);
       } else if (props.mode === "thread" && preparedPersistentRun) {
         await props.onRunRejected?.(runInput);
       }
@@ -2121,10 +2077,11 @@ export function Composer(props: ComposerProps) {
       const committed = await props.onPromotionAccepted(startedRunId);
       if (!committed) {
         await stop(threadId);
-        removeAssociationThread(props.projectId, props.threadId);
+        removeThreadFromState(props.threadId);
         removeMessages([userMessageId, assistantMsg.id]);
         return false;
       }
+      upsertMessages([assistantMsg]);
       props.onPromoted(props.threadId);
     }
 
@@ -2144,25 +2101,13 @@ export function Composer(props: ComposerProps) {
       }
     }
 
-    if (props.mode === "chat") {
-      const chatThread = chats.find((c) => c.id === threadId);
-      if (chatThread && chatThread.title === "New chat") {
-        const title =
-          deriveThreadTitle(messageText, { fallback: "" }) ||
-          attachmentMetadata[0]?.name ||
-          "Image message";
-        upsertChat({ ...chatThread, title });
-      }
-    }
-
     if (props.mode === "thread") {
-      const thread = project?.threads.find((t) => t.id === threadId);
       if (thread && thread.title === "New thread") {
         const title =
           deriveThreadTitle(messageText, { fallback: "" }) ||
           attachmentMetadata[0]?.name ||
           "New thread";
-        upsertThread(props.projectId, { ...thread, title, draft: undefined });
+        upsertThread(props.projectId, { ...thread, title });
       }
     }
 
@@ -2197,7 +2142,7 @@ export function Composer(props: ComposerProps) {
 
   useEffect(() => {
     // A pending steer belongs to the thread it was created in. When the
-    // Composer switches threads (ChatPage reuses one instance) or unmounts,
+    // Composer switches Threads while reusing one instance or unmounts,
     // put the message back into that thread's queue instead of letting it
     // leak into a different thread's run.
     return () => {
@@ -3265,7 +3210,7 @@ export function Composer(props: ComposerProps) {
         </div>
 
         <div className="mt-2 flex justify-end">
-          {project?.path ? (
+          {project?.workingDirectory ? (
             <div ref={branchPickerRef} className="relative">
               <button
                 onClick={() => {
@@ -3312,12 +3257,12 @@ export function Composer(props: ComposerProps) {
                         <button
                           key={branch}
                           onClick={() => {
-                            if (!isCurrent && project?.path) {
+                            if (!isCurrent && project?.workingDirectory) {
                               void (async () => {
                                 try {
                                   const git = getGitBridge(window.carrent);
                                   const info = normalizeGitBranchInfo(
-                                    await git.checkout(project.path, branch),
+                                    await git.checkout(project.workingDirectory, branch),
                                   );
                                   setCurrentBranch(info.current);
                                   setGitBranches(info.branches);

@@ -4,10 +4,11 @@ import { registerChatIpc } from "./chatIpc";
 
 function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
-    workspace: {
+    context: {
       kind: "project",
+      workspaceId: "workspace-1",
       projectId: "timbre",
-      projectPath: "/Users/onion/workbench/timbre",
+      workingDirectory: "/Users/onion/workbench/timbre",
     },
     threadId: "thread-1",
     runtimeId: "kimi",
@@ -126,14 +127,6 @@ describe("registerChatIpc", () => {
       associations: [],
       activeWorkspaceId: null,
     };
-    const workspace = {
-      version: 1,
-      projects: [],
-      chats: [],
-      messages: [],
-      activeThreadId: null,
-    };
-
     registerChatIpc(
       { handle: (channel, listener) => handlers.set(channel, listener) },
       {
@@ -160,8 +153,6 @@ describe("registerChatIpc", () => {
       {
         beforeAppState: appState,
         afterAppState: appState,
-        beforeWorkspace: workspace,
-        afterWorkspace: workspace,
         threadData: { threadIds: ["thread-1"], attachmentStorageKeys: [] },
       },
     );
@@ -170,8 +161,6 @@ describe("registerChatIpc", () => {
       {
         beforeAppState: appState,
         afterAppState: appState,
-        beforeWorkspace: workspace,
-        afterWorkspace: workspace,
         threadData: { threadIds: [], attachmentStorageKeys: [] },
         scope: {
           kind: "association",
@@ -185,15 +174,11 @@ describe("registerChatIpc", () => {
       {
         beforeAppState: appState,
         afterAppState: appState,
-        beforeWorkspace: workspace,
-        afterWorkspace: workspace,
         threadData: { threadIds: ["thread-1"], attachmentStorageKeys: [] },
       },
       {
         beforeAppState: appState,
         afterAppState: appState,
-        beforeWorkspace: workspace,
-        afterWorkspace: workspace,
         threadData: { threadIds: [], attachmentStorageKeys: [] },
         scope: {
           kind: "association",
@@ -317,7 +302,7 @@ describe("registerChatIpc", () => {
     expect(started).toHaveLength(0);
   });
 
-  it("forwards Association Draft identity and Project Working Directory with its reserved Run ID", async () => {
+  it("forwards stable Thread identity and Project Working Directory with its reserved Run ID", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const started: { runId: string; request: ChatTurnRequest }[] = [];
     registerChatIpc(
@@ -337,19 +322,13 @@ describe("registerChatIpc", () => {
     );
     const request = makeRequest({
       runId: "run-draft-1",
-      workspace: {
+      context: {
         kind: "project",
         workspaceId: "workspace-1",
         projectId: "project-1",
-        projectPath: "/code/carrent",
+        workingDirectory: "/code/carrent",
       },
       threadId: "thread-1",
-      draftRef: {
-        draftId: "draft-1",
-        workspaceId: "workspace-1",
-        projectId: "project-1",
-        title: "Create threads from drafts",
-      },
     });
 
     const result = await handlers.get("chat:send")?.({}, request);

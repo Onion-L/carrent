@@ -2,9 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createWorkspaceStore } from "./workspaceStore";
+import { createAppStateStore } from "./appStateStore";
 import type {
-  WorkspaceSnapshot,
   ProviderSessionSnapshot,
   AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
@@ -39,10 +38,10 @@ const missingAppStateEvidenceCases: ReadonlyArray<
   ["thread-deletion-journal.json", "file"],
 ];
 
-describe("createWorkspaceStore", () => {
+describe("createAppStateStore", () => {
   it("initializes first use with an empty current App State", async () => {
     const baseDir = await makeTempDir();
-    const store = createWorkspaceStore(baseDir);
+    const store = createAppStateStore(baseDir);
 
     const result = await store.initializeAppState();
 
@@ -58,6 +57,7 @@ describe("createWorkspaceStore", () => {
         threadMessages: [],
         threadRuns: [],
         threadPromotionIntents: [],
+        threadWork: {},
         lastThreadIdByWorkspace: {},
         activeWorkspaceId: null,
       },
@@ -67,7 +67,7 @@ describe("createWorkspaceStore", () => {
 
   it("treats an established App State file that disappears as corruption", async () => {
     const baseDir = await makeTempDir();
-    const store = createWorkspaceStore(baseDir);
+    const store = createAppStateStore(baseDir);
     await store.initializeAppState();
     await rm(join(baseDir, "app-state.json"));
 
@@ -91,7 +91,7 @@ describe("createWorkspaceStore", () => {
         await writeFile(evidencePath, "sensitive evidence", "utf-8");
       }
 
-      const result = await createWorkspaceStore(baseDir).initializeAppState();
+      const result = await createAppStateStore(baseDir).initializeAppState();
 
       expect(result.status).toBe("recovery-required");
       if (result.status === "recovery-required") {
@@ -113,7 +113,7 @@ describe("createWorkspaceStore", () => {
     const malformedDir = await makeTempDir();
     const malformedPath = join(malformedDir, "app-state.json");
     await writeFile(malformedPath, "{partial", "utf-8");
-    const malformed = await createWorkspaceStore(malformedDir).initializeAppState();
+    const malformed = await createAppStateStore(malformedDir).initializeAppState();
     expect(malformed.status).toBe("recovery-required");
     expect(await readFile(malformedPath, "utf-8")).toBe("{partial");
 
@@ -121,7 +121,7 @@ describe("createWorkspaceStore", () => {
     const unknownPath = join(unknownDir, "app-state.json");
     const unknownSchema = '{"version":999,"private":"keep"}';
     await writeFile(unknownPath, unknownSchema, "utf-8");
-    const unknown = await createWorkspaceStore(unknownDir).initializeAppState();
+    const unknown = await createAppStateStore(unknownDir).initializeAppState();
     expect(unknown.status).toBe("recovery-required");
     if (unknown.status === "recovery-required") {
       expect(unknown.diagnostics.at(-1)?.stage).toBe("schema-version");
@@ -144,7 +144,7 @@ describe("createWorkspaceStore", () => {
       "utf-8",
     );
 
-    const result = await createWorkspaceStore(baseDir).initializeAppState();
+    const result = await createAppStateStore(baseDir).initializeAppState();
 
     expect(result.status).toBe("recovery-required");
     if (result.status === "recovery-required") {
@@ -168,7 +168,7 @@ describe("createWorkspaceStore", () => {
       activeWorkspaceId: null,
     });
     await writeFile(appStatePath, truncated, "utf-8");
-    const store = createWorkspaceStore(baseDir);
+    const store = createAppStateStore(baseDir);
 
     const result = await store.initializeAppState();
 
@@ -211,7 +211,7 @@ describe("createWorkspaceStore", () => {
     await writeFile(join(baseDir, "carrent-chat", "legacy.txt"), "legacy", "utf-8");
     await writeFile(join(projectDir, "keep.txt"), "project data", "utf-8");
 
-    const result = await createWorkspaceStore(baseDir).initializeAppState();
+    const result = await createAppStateStore(baseDir).initializeAppState();
 
     expect(result.status).toBe("ready");
     if (result.status === "ready") expect(result.notice).toBe("legacy-reset");
@@ -235,7 +235,7 @@ describe("createWorkspaceStore", () => {
       activeThreadId: null,
     });
     await writeFile(workspacePath, legacy, "utf-8");
-    const store = createWorkspaceStore(baseDir, {
+    const store = createAppStateStore(baseDir, {
       rename: async () => {
         throw new Error("rename denied");
       },
@@ -263,7 +263,7 @@ describe("createWorkspaceStore", () => {
     await writeFile(workspacePath, legacyWorkspace, "utf-8");
     await writeFile(providerSessionsPath, providerSessions, "utf-8");
     const rootStateBeforeReset = (await readdir(baseDir)).sort();
-    const store = createWorkspaceStore(baseDir, {
+    const store = createAppStateStore(baseDir, {
       rename: async (from, to) => {
         if (from === providerSessionsPath) throw new Error("provider move denied");
         await rename(from, to);
@@ -289,7 +289,7 @@ describe("createWorkspaceStore", () => {
       activeThreadId: null,
     });
     await writeFile(workspacePath, legacy, "utf-8");
-    const store = createWorkspaceStore(baseDir, {
+    const store = createAppStateStore(baseDir, {
       writeFile: async (path, data, encoding) => {
         if (data === emptyAppStatePayload) throw new Error("disk full");
         await writeFile(path, data, encoding);
@@ -321,7 +321,7 @@ describe("createWorkspaceStore", () => {
     await mkdir(join(baseDir, "attachments"));
     await writeFile(attachmentPath, "legacy attachment", "utf-8");
 
-    const store = createWorkspaceStore(baseDir, { remove: failRemoval });
+    const store = createAppStateStore(baseDir, { remove: failRemoval });
 
     const result = await store.initializeAppState();
 
@@ -339,7 +339,7 @@ describe("createWorkspaceStore", () => {
     await mkdir(join(baseDir, "attachments"));
     await mkdir(join(baseDir, "attachments-delete-full-reset-operation"));
     await mkdir(join(baseDir, "attachments-backup-full-reset-operation"));
-    const store = createWorkspaceStore(baseDir);
+    const store = createAppStateStore(baseDir);
     expect((await store.initializeAppState()).status).toBe("recovery-required");
 
     const result = await store.fullResetAppState();
@@ -357,17 +357,15 @@ describe("createWorkspaceStore", () => {
 
   it("resets an interrupted public atomic write without restoring its payload", async () => {
     const baseDir = await makeTempDir();
-    await createWorkspaceStore(baseDir).initializeAppState();
-    const interruptedSnapshot: WorkspaceSnapshot = {
-      version: 1,
-      projects: [{ id: "old-project", name: "Old", path: "/tmp/old", threads: [] }],
-      chats: [],
-      messages: [],
-      activeThreadId: null,
+    await createAppStateStore(baseDir).initializeAppState();
+    const interruptedSnapshot: AppStateSnapshot = {
+      ...createEmptyAppStateSnapshot(),
+      workspaces: [{ id: "workspace-old", name: "Old", order: 0 }],
+      activeWorkspaceId: "workspace-old",
     };
     const interruptedPayload = JSON.stringify(interruptedSnapshot, null, 2);
     let interruptedWritePath: string | undefined;
-    const interruptedStore = createWorkspaceStore(baseDir, {
+    const interruptedStore = createAppStateStore(baseDir, {
       writeFile: async (path, data, encoding) => {
         if (data === interruptedPayload) interruptedWritePath = path;
         await writeFile(path, data, encoding);
@@ -382,25 +380,25 @@ describe("createWorkspaceStore", () => {
       },
     });
     expect(
-      String(await caughtError(() => interruptedStore.saveWorkspaceSnapshot(interruptedSnapshot))),
+      String(await caughtError(() => interruptedStore.saveAppStateSnapshot(interruptedSnapshot))),
     ).toContain("rename interrupted");
-    expect(await interruptedStore.loadWorkspaceSnapshot()).toBe(null);
+    expect(await interruptedStore.loadAppStateSnapshot()).toEqual(createEmptyAppStateSnapshot());
 
     await rm(join(baseDir, "app-state.json"));
     await rm(join(baseDir, "app-state.initialized"));
-    const store = createWorkspaceStore(baseDir);
+    const store = createAppStateStore(baseDir);
     expect((await store.initializeAppState()).status).toBe("recovery-required");
 
     const result = await store.fullResetAppState();
 
     expect(result.status).toBe("ready");
-    const restartedStore = createWorkspaceStore(baseDir);
+    const restartedStore = createAppStateStore(baseDir);
     expect((await restartedStore.initializeAppState()).status).toBe("ready");
-    expect(await restartedStore.loadWorkspaceSnapshot()).toBe(null);
+    expect(await restartedStore.loadAppStateSnapshot()).toEqual(createEmptyAppStateSnapshot());
 
     await rm(join(baseDir, "app-state.json"));
     await rm(join(baseDir, "app-state.initialized"));
-    expect((await createWorkspaceStore(baseDir).initializeAppState()).status).toBe("ready");
+    expect((await createAppStateStore(baseDir).initializeAppState()).status).toBe("ready");
   });
 
   it("preserves blocked App State when the first reset move fails", async () => {
@@ -408,7 +406,7 @@ describe("createWorkspaceStore", () => {
     const appStatePath = join(baseDir, "app-state.json");
     const unknownSchema = '{"version":999,"private":"keep"}';
     await writeFile(appStatePath, unknownSchema, "utf-8");
-    const store = createWorkspaceStore(baseDir, {
+    const store = createAppStateStore(baseDir, {
       rename: async () => {
         throw new Error("rename denied");
       },
@@ -430,7 +428,7 @@ describe("createWorkspaceStore", () => {
     const providerSessions = '{"version":1,"sessions":{"kimi:thread-1":"session-1"}}';
     await writeFile(appStatePath, unknownSchema, "utf-8");
     await writeFile(providerSessionsPath, providerSessions, "utf-8");
-    const store = createWorkspaceStore(baseDir, {
+    const store = createAppStateStore(baseDir, {
       writeFile: async (path, data, encoding) => {
         if (data === emptyAppStatePayload) throw new Error("disk full");
         await writeFile(path, data, encoding);
@@ -461,7 +459,7 @@ describe("createWorkspaceStore", () => {
     await writeFile(providerSessionsPath, providerSessions, "utf-8");
     const rootStateBeforeReset = (await readdir(baseDir)).sort();
     let resetSnapshotPath: string | undefined;
-    const store = createWorkspaceStore(baseDir, {
+    const store = createAppStateStore(baseDir, {
       writeFile: async (path, data, encoding) => {
         if (data === emptyAppStatePayload) resetSnapshotPath = path;
         await writeFile(path, data, encoding);
@@ -495,7 +493,7 @@ describe("createWorkspaceStore", () => {
     let resetSnapshotPath: string | undefined;
     let resetSnapshotRenameFailurePending = true;
     let providerRestoreFailurePending = true;
-    const store = createWorkspaceStore(baseDir, {
+    const store = createAppStateStore(baseDir, {
       writeFile: async (path, data, encoding) => {
         if (data === emptyAppStatePayload) resetSnapshotPath = path;
         await writeFile(path, data, encoding);
@@ -543,7 +541,7 @@ describe("createWorkspaceStore", () => {
     await writeFile(join(baseDir, "app-state.json"), unknownSchema, "utf-8");
     await writeFile(join(baseDir, "provider-sessions.json"), providerSessions, "utf-8");
     let cleanupFailurePending = true;
-    const store = createWorkspaceStore(baseDir, {
+    const store = createAppStateStore(baseDir, {
       remove: async (path, options) => {
         try {
           if ((await stat(path)).isDirectory() && cleanupFailurePending) {
@@ -587,7 +585,7 @@ describe("createWorkspaceStore", () => {
     await writeFile(providerSessionsPath, providerSessions, "utf-8");
     await mkdir(join(baseDir, "attachments"));
     await writeFile(attachmentPath, "attachment data", "utf-8");
-    const store = createWorkspaceStore(baseDir, { remove: failRemoval });
+    const store = createAppStateStore(baseDir, { remove: failRemoval });
     expect((await store.initializeAppState()).status).toBe("recovery-required");
 
     const result = await store.fullResetAppState();
@@ -598,9 +596,9 @@ describe("createWorkspaceStore", () => {
     expect(await readFile(attachmentPath, "utf-8")).toBe("attachment data");
   });
 
-  it("writes and reads the workspace App State snapshot", async () => {
+  it("writes and reads the App State snapshot", async () => {
     const baseDir = await makeTempDir();
-    const store = createWorkspaceStore(baseDir);
+    const store = createAppStateStore(baseDir);
     const snapshot: AppStateSnapshot = {
       version: 1,
       workspaces: [
@@ -638,13 +636,14 @@ describe("createWorkspaceStore", () => {
       threadMessages: [],
       threadRuns: [],
       threadPromotionIntents: [],
+      threadWork: {},
       lastThreadIdByWorkspace: {},
     });
   });
 
   it("rejects invalid Workspace data before writing App State", async () => {
     const baseDir = await makeTempDir();
-    const store = createWorkspaceStore(baseDir);
+    const store = createAppStateStore(baseDir);
     const snapshot = {
       version: 1,
       workspaces: [
@@ -669,7 +668,7 @@ describe("createWorkspaceStore", () => {
 
   it("rejects App State attachments without an explicit kind before writing", async () => {
     const baseDir = await makeTempDir();
-    const store = createWorkspaceStore(baseDir);
+    const store = createAppStateStore(baseDir);
     const snapshot = {
       version: 1,
       workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
@@ -731,7 +730,7 @@ describe("createWorkspaceStore", () => {
 
   it("rejects App State with an orphaned Project before writing", async () => {
     const baseDir = await makeTempDir();
-    const store = createWorkspaceStore(baseDir);
+    const store = createAppStateStore(baseDir);
     const snapshot: AppStateSnapshot = {
       version: 1,
       workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
@@ -751,62 +750,9 @@ describe("createWorkspaceStore", () => {
     expect(await readdir(baseDir)).not.toContain("app-state.json");
   });
 
-  it("writes and reads workspace snapshot", async () => {
-    const baseDir = await makeTempDir();
-    const store = createWorkspaceStore(baseDir);
-    const snapshot: WorkspaceSnapshot = {
-      version: 1,
-      projects: [{ id: "p1", name: "P1", path: "/tmp/p1", threads: [] }],
-      chats: [],
-      messages: [],
-      activeThreadId: null,
-    };
-
-    await store.saveWorkspaceSnapshot(snapshot);
-    const loaded = await store.loadWorkspaceSnapshot();
-    expect(loaded).toEqual(snapshot);
-  });
-
-  it("normalizes workspace snapshots before writing", async () => {
-    const baseDir = await makeTempDir();
-    const store = createWorkspaceStore(baseDir);
-    const snapshot = {
-      version: 1,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "user",
-          threadId: "t1",
-          content: "",
-          timestamp: "09:00",
-          attachments: [
-            {
-              id: "a1",
-              name: "screen.png",
-              mimeType: "image/png",
-              size: 10,
-              storageKey: "a1.png",
-              localPath: "/tmp/attachments/a1.png",
-              base64: "raw",
-            },
-          ],
-        },
-      ],
-      activeThreadId: null,
-    } as unknown as WorkspaceSnapshot;
-
-    await store.saveWorkspaceSnapshot(snapshot);
-
-    const raw = await readFile(join(baseDir, "workspace.json"), "utf-8");
-    expect(raw).not.toContain("localPath");
-    expect(raw).not.toContain("base64");
-  });
-
   it("writes and reads provider sessions", async () => {
     const baseDir = await makeTempDir();
-    const store = createWorkspaceStore(baseDir);
+    const store = createAppStateStore(baseDir);
     const snapshot: ProviderSessionSnapshot = {
       version: 1,
       sessions: { "key-1": "sess-abc" },
@@ -817,36 +763,16 @@ describe("createWorkspaceStore", () => {
     expect(loaded).toEqual(snapshot);
   });
 
-  it("returns null for missing workspace file", async () => {
-    const baseDir = await makeTempDir();
-    const store = createWorkspaceStore(baseDir);
-    const loaded = await store.loadWorkspaceSnapshot();
-    expect(loaded).toBe(null);
-  });
-
   it("returns empty sessions for missing provider file", async () => {
     const baseDir = await makeTempDir();
-    const store = createWorkspaceStore(baseDir);
+    const store = createAppStateStore(baseDir);
     const loaded = await store.loadProviderSessions();
     expect(loaded).toEqual({ version: 1, sessions: {} });
   });
 
-  it("renames corrupt workspace json to corrupt backup", async () => {
-    const baseDir = await makeTempDir();
-    const store = createWorkspaceStore(baseDir);
-    const workspacePath = join(baseDir, "workspace.json");
-    await writeFile(workspacePath, "not-json", "utf-8");
-
-    const loaded = await store.loadWorkspaceSnapshot();
-    expect(loaded).toBe(null);
-
-    const files = await readdir(baseDir);
-    expect(files.some((f) => f.startsWith("workspace.corrupt-"))).toBe(true);
-  });
-
   it("renames corrupt provider sessions json to corrupt backup", async () => {
     const baseDir = await makeTempDir();
-    const store = createWorkspaceStore(baseDir);
+    const store = createAppStateStore(baseDir);
     const path = join(baseDir, "provider-sessions.json");
     await writeFile(path, "not-json", "utf-8");
 

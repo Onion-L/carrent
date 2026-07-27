@@ -3,7 +3,6 @@ import { describe, expect, it } from "bun:test";
 import type {
   AppStateSnapshot,
   ProviderSessionSnapshot,
-  WorkspaceSnapshot,
 } from "../../src/shared/workspacePersistence";
 import {
   createThreadDeletionTransactionManager,
@@ -47,29 +46,8 @@ const afterAppState: AppStateSnapshot = {
   threads: [],
 };
 
-const beforeWorkspace: WorkspaceSnapshot = {
-  version: 1,
-  projects: [
-    {
-      id: "project-1",
-      name: "Carrent",
-      path: "/code/carrent",
-      threads: [{ id: "thread-1", title: "Archived", updatedAt: "2026-07-27T00:00:00.000Z" }],
-    },
-  ],
-  chats: [],
-  messages: [],
-  activeThreadId: null,
-};
-
-const afterWorkspace: WorkspaceSnapshot = {
-  ...beforeWorkspace,
-  projects: [{ ...beforeWorkspace.projects[0]!, threads: [] }],
-};
-
 function createHarness() {
   let appState = structuredClone(beforeAppState);
-  let workspace = structuredClone(beforeWorkspace);
   let providerSessions: ProviderSessionSnapshot = {
     version: 1,
     sessions: {
@@ -88,15 +66,11 @@ function createHarness() {
       journal = null;
     },
   };
-  const workspaceStore = {
+  const appStateStore = {
     waitForWrites: async () => {},
     loadAppStateSnapshot: async () => structuredClone(appState),
     saveAppStateSnapshot: async (snapshot: AppStateSnapshot) => {
       appState = structuredClone(snapshot);
-    },
-    loadWorkspaceSnapshot: async () => structuredClone(workspace),
-    saveWorkspaceSnapshot: async (snapshot: WorkspaceSnapshot) => {
-      workspace = structuredClone(snapshot);
     },
     loadProviderSessions: async () => structuredClone(providerSessions),
     saveProviderSessions: async (snapshot: ProviderSessionSnapshot) => {
@@ -117,11 +91,10 @@ function createHarness() {
 
   return {
     journalStore,
-    workspaceStore,
+    appStateStore,
     attachmentStore,
     attachmentEvents,
     getAppState: () => appState,
-    getWorkspace: () => workspace,
     getProviderSessions: () => providerSessions,
     getJournal: () => journal,
     setJournal: (next: ThreadDeletionJournal) => {
@@ -134,8 +107,6 @@ function request() {
   return {
     beforeAppState,
     afterAppState,
-    beforeWorkspace,
-    afterWorkspace,
     threadData: {
       threadIds: ["thread-1"],
       attachmentStorageKeys: ["attachment.png"],
@@ -144,11 +115,11 @@ function request() {
 }
 
 describe("thread deletion transaction", () => {
-  it("commits App State, workspace content, sessions, and attachments as one operation", async () => {
+  it("commits App State, sessions, and attachments as one operation", async () => {
     const harness = createHarness();
     const manager = createThreadDeletionTransactionManager({
       journalStore: harness.journalStore,
-      workspaceStore: harness.workspaceStore,
+      appStateStore: harness.appStateStore,
       attachmentStore: harness.attachmentStore,
       sessionManager: {
         deleteThreadData: async () => ({
@@ -166,7 +137,6 @@ describe("thread deletion transaction", () => {
     await manager.deleteThread(request());
 
     expect(harness.getAppState()).toEqual(afterAppState);
-    expect(harness.getWorkspace()).toEqual(afterWorkspace);
     expect(harness.attachmentEvents).toEqual([
       "prepare:operation-1:attachment.png",
       "commit:operation-1",
@@ -176,15 +146,15 @@ describe("thread deletion transaction", () => {
 
   it("rolls every store back when a pre-commit write fails", async () => {
     const harness = createHarness();
-    let workspaceSaveAttempts = 0;
+    let appStateSaveAttempts = 0;
     const manager = createThreadDeletionTransactionManager({
       journalStore: harness.journalStore,
-      workspaceStore: {
-        ...harness.workspaceStore,
-        saveWorkspaceSnapshot: async (snapshot) => {
-          workspaceSaveAttempts += 1;
-          if (workspaceSaveAttempts === 1) throw new Error("disk full");
-          await harness.workspaceStore.saveWorkspaceSnapshot(snapshot);
+      appStateStore: {
+        ...harness.appStateStore,
+        saveAppStateSnapshot: async (snapshot) => {
+          appStateSaveAttempts += 1;
+          if (appStateSaveAttempts === 1) throw new Error("disk full");
+          await harness.appStateStore.saveAppStateSnapshot(snapshot);
         },
       },
       attachmentStore: harness.attachmentStore,
@@ -210,7 +180,6 @@ describe("thread deletion transaction", () => {
     expect(String(deletionError)).toContain("disk full");
 
     expect(harness.getAppState()).toEqual(beforeAppState);
-    expect(harness.getWorkspace()).toEqual(beforeWorkspace);
     expect(harness.attachmentEvents).toEqual([
       "prepare:operation-2:attachment.png",
       "rollback:operation-2",
@@ -234,15 +203,15 @@ describe("thread deletion transaction", () => {
   ]) {
     it(`rolls back the complete ${testCase.name} when persistence fails`, async () => {
       const harness = createHarness();
-      let workspaceSaveAttempts = 0;
+      let appStateSaveAttempts = 0;
       const manager = createThreadDeletionTransactionManager({
         journalStore: harness.journalStore,
-        workspaceStore: {
-          ...harness.workspaceStore,
-          saveWorkspaceSnapshot: async (snapshot) => {
-            workspaceSaveAttempts += 1;
-            if (workspaceSaveAttempts === 1) throw new Error("disk full");
-            await harness.workspaceStore.saveWorkspaceSnapshot(snapshot);
+        appStateStore: {
+          ...harness.appStateStore,
+          saveAppStateSnapshot: async (snapshot) => {
+            appStateSaveAttempts += 1;
+            if (appStateSaveAttempts === 1) throw new Error("disk full");
+            await harness.appStateStore.saveAppStateSnapshot(snapshot);
           },
         },
         attachmentStore: harness.attachmentStore,
@@ -266,7 +235,6 @@ describe("thread deletion transaction", () => {
       expect(String(deletionError)).toContain("disk full");
 
       expect(harness.getAppState()).toEqual(beforeAppState);
-      expect(harness.getWorkspace()).toEqual(beforeWorkspace);
       expect(harness.getJournal()).toBe(null);
       expect(harness.attachmentEvents.at(-1)).toBe(
         `rollback:operation-${testCase.scope.kind}-rollback`,
@@ -279,9 +247,9 @@ describe("thread deletion transaction", () => {
     const activeChanges: boolean[] = [];
     const manager = createThreadDeletionTransactionManager({
       journalStore: harness.journalStore,
-      workspaceStore: {
-        ...harness.workspaceStore,
-        saveWorkspaceSnapshot: async () => {
+      appStateStore: {
+        ...harness.appStateStore,
+        saveAppStateSnapshot: async () => {
           throw new Error("disk full");
         },
       },
@@ -344,56 +312,18 @@ describe("thread deletion transaction", () => {
         },
       ],
     };
-    const latestWorkspace: WorkspaceSnapshot = {
-      ...beforeWorkspace,
-      projects: [
-        {
-          ...beforeWorkspace.projects[0]!,
-          threads: [
-            ...beforeWorkspace.projects[0]!.threads,
-            {
-              id: "thread-2",
-              title: "Live",
-              updatedAt: "2026-07-27T02:00:00.000Z",
-              runChecklist: {
-                runId: "run-2",
-                runtimeId: "kimi",
-                entries: [{ content: "Preserve this", status: "in_progress" }],
-                outcome: "running",
-                expanded: true,
-              },
-            },
-          ],
-        },
-      ],
-      messages: [
-        {
-          id: "message-2",
-          threadId: "thread-2",
-          role: "assistant",
-          type: "text",
-          content: "Arrived before deletion",
-          timestamp: "02:00",
-        },
-      ],
-    };
-    await harness.workspaceStore.saveAppStateSnapshot(latestAppState);
-    await harness.workspaceStore.saveWorkspaceSnapshot(latestWorkspace);
+    await harness.appStateStore.saveAppStateSnapshot(latestAppState);
     const readOrder: string[] = [];
     const manager = createThreadDeletionTransactionManager({
       journalStore: harness.journalStore,
-      workspaceStore: {
-        ...harness.workspaceStore,
+      appStateStore: {
+        ...harness.appStateStore,
         waitForWrites: async () => {
           readOrder.push("drain");
         },
         loadAppStateSnapshot: async () => {
           readOrder.push("load-app-state");
-          return harness.workspaceStore.loadAppStateSnapshot();
-        },
-        loadWorkspaceSnapshot: async () => {
-          readOrder.push("load-workspace");
-          return harness.workspaceStore.loadWorkspaceSnapshot();
+          return harness.appStateStore.loadAppStateSnapshot();
         },
       },
       attachmentStore: harness.attachmentStore,
@@ -410,15 +340,11 @@ describe("thread deletion transaction", () => {
 
     await manager.deleteThread(request());
 
-    expect(readOrder.slice(0, 3)).toEqual(["drain", "load-app-state", "load-workspace"]);
+    expect(readOrder.slice(0, 2)).toEqual(["drain", "load-app-state"]);
     expect(harness.getAppState().threads?.map((thread) => thread.id)).toEqual(["thread-2"]);
     expect(harness.getAppState().threadMessages?.map((message) => message.id)).toEqual([
       "message-2",
     ]);
-    expect(harness.getWorkspace().projects[0]?.threads.map((thread) => thread.id)).toEqual([
-      "thread-2",
-    ]);
-    expect(harness.getWorkspace().messages.map((message) => message.id)).toEqual(["message-2"]);
   });
 
   it("removes a Workspace cascade while preserving a shared Project", async () => {
@@ -437,10 +363,10 @@ describe("thread deletion transaction", () => {
         },
       ],
     };
-    await harness.workspaceStore.saveAppStateSnapshot(sharedAppState);
+    await harness.appStateStore.saveAppStateSnapshot(sharedAppState);
     const manager = createThreadDeletionTransactionManager({
       journalStore: harness.journalStore,
-      workspaceStore: harness.workspaceStore,
+      appStateStore: harness.appStateStore,
       attachmentStore: harness.attachmentStore,
       sessionManager: {
         deleteThreadData: async () => ({
@@ -469,7 +395,7 @@ describe("thread deletion transaction", () => {
     const harness = createHarness();
     const manager = createThreadDeletionTransactionManager({
       journalStore: harness.journalStore,
-      workspaceStore: harness.workspaceStore,
+      appStateStore: harness.appStateStore,
       attachmentStore: harness.attachmentStore,
       sessionManager: {
         deleteThreadData: async () => ({
@@ -493,7 +419,6 @@ describe("thread deletion transaction", () => {
     expect(harness.getAppState().workspaces).toEqual(beforeAppState.workspaces);
     expect(harness.getAppState().associations).toEqual([]);
     expect(harness.getAppState().projects).toEqual([]);
-    expect(harness.getWorkspace().projects).toEqual([]);
   });
 
   it("rolls back a preparing transaction during startup recovery", async () => {
@@ -507,21 +432,19 @@ describe("thread deletion transaction", () => {
         "kimi:thread-1": "session-1",
       },
     });
-    await harness.workspaceStore.saveAppStateSnapshot(afterAppState);
-    await harness.workspaceStore.saveWorkspaceSnapshot(afterWorkspace);
-    await harness.workspaceStore.saveProviderSessions({
+    await harness.appStateStore.saveAppStateSnapshot(afterAppState);
+    await harness.appStateStore.saveProviderSessions({
       version: 1,
       sessions: { "kimi:thread-2": "session-2" },
     });
 
     await recoverThreadDeletionTransaction({
       journalStore: harness.journalStore,
-      workspaceStore: harness.workspaceStore,
+      appStateStore: harness.appStateStore,
       attachmentStore: harness.attachmentStore,
     });
 
     expect(harness.getAppState()).toEqual(beforeAppState);
-    expect(harness.getWorkspace()).toEqual(beforeWorkspace);
     expect(harness.getProviderSessions().sessions).toEqual({
       "kimi:thread-1": "session-1",
       "kimi:thread-2": "session-2",
@@ -541,21 +464,19 @@ describe("thread deletion transaction", () => {
         "kimi:thread-1": "session-1",
       },
     });
-    await harness.workspaceStore.saveAppStateSnapshot(afterAppState);
-    await harness.workspaceStore.saveWorkspaceSnapshot(afterWorkspace);
-    await harness.workspaceStore.saveProviderSessions({
+    await harness.appStateStore.saveAppStateSnapshot(afterAppState);
+    await harness.appStateStore.saveProviderSessions({
       version: 1,
       sessions: { "kimi:thread-2": "session-2" },
     });
 
     await recoverThreadDeletionTransaction({
       journalStore: harness.journalStore,
-      workspaceStore: harness.workspaceStore,
+      appStateStore: harness.appStateStore,
       attachmentStore: harness.attachmentStore,
     });
 
     expect(harness.getAppState()).toEqual(afterAppState);
-    expect(harness.getWorkspace()).toEqual(afterWorkspace);
     expect(harness.getProviderSessions().sessions).toEqual({
       "kimi:thread-2": "session-2",
     });
@@ -577,7 +498,7 @@ describe("thread deletion transaction", () => {
     };
     const manager = createThreadDeletionTransactionManager({
       journalStore: harness.journalStore,
-      workspaceStore: harness.workspaceStore,
+      appStateStore: harness.appStateStore,
       attachmentStore,
       sessionManager: {
         deleteThreadData: async () => ({
@@ -594,13 +515,12 @@ describe("thread deletion transaction", () => {
     await manager.deleteThread(request());
 
     expect(harness.getAppState()).toEqual(afterAppState);
-    expect(harness.getWorkspace()).toEqual(afterWorkspace);
     expect(harness.getJournal()?.phase).toBe("committed");
     expect(activeChanges).toEqual([true, false]);
 
     await recoverThreadDeletionTransaction({
       journalStore: harness.journalStore,
-      workspaceStore: harness.workspaceStore,
+      appStateStore: harness.appStateStore,
       attachmentStore,
     });
 

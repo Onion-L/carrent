@@ -11,7 +11,6 @@ import { applyThreadDeletionToAppState } from "../../src/shared/chat";
 import type {
   AppStateSnapshot,
   ProviderSessionSnapshot,
-  WorkspaceSnapshot,
 } from "../../src/shared/workspacePersistence";
 
 export type ThreadDeletionJournal = {
@@ -28,41 +27,13 @@ export type ThreadDeletionJournalStore = {
   clear: () => Promise<void>;
 };
 
-type TransactionWorkspaceStore = {
+type TransactionAppStateStore = {
   waitForWrites: () => Promise<void>;
   loadAppStateSnapshot: () => Promise<AppStateSnapshot | null>;
-  loadWorkspaceSnapshot: () => Promise<WorkspaceSnapshot | null>;
   loadProviderSessions: () => Promise<ProviderSessionSnapshot>;
   saveProviderSessions: (snapshot: ProviderSessionSnapshot) => Promise<void>;
   saveAppStateSnapshot: (snapshot: AppStateSnapshot) => Promise<void>;
-  saveWorkspaceSnapshot: (snapshot: WorkspaceSnapshot) => Promise<void>;
 };
-
-function removeThreadsFromWorkspace(
-  snapshot: WorkspaceSnapshot,
-  threadIds: string[],
-  fallbackActiveThreadId: string | null,
-): WorkspaceSnapshot {
-  const ids = new Set(threadIds);
-  return {
-    ...snapshot,
-    projects: snapshot.projects.map((project) => ({
-      ...project,
-      threads: project.threads.filter((thread) => !ids.has(thread.id)),
-    })),
-    chats: snapshot.chats.filter((thread) => !ids.has(thread.id)),
-    messages: snapshot.messages.filter((message) => !ids.has(message.threadId)),
-    activeThreadId:
-      snapshot.activeThreadId && ids.has(snapshot.activeThreadId)
-        ? fallbackActiveThreadId
-        : snapshot.activeThreadId,
-    threadWork: snapshot.threadWork
-      ? Object.fromEntries(
-          Object.entries(snapshot.threadWork).filter(([threadId]) => !ids.has(threadId)),
-        )
-      : undefined,
-  };
-}
 
 type TransactionAttachmentStore = {
   prepareDeletion: (operationId: string, storageKeys: string[]) => Promise<void>;
@@ -127,17 +98,16 @@ export function createThreadDeletionJournalStore(baseDir: string): ThreadDeletio
 async function restorePreparingTransaction(options: {
   journal: ThreadDeletionJournal;
   journalStore: ThreadDeletionJournalStore;
-  workspaceStore: TransactionWorkspaceStore;
+  appStateStore: TransactionAppStateStore;
   attachmentStore: TransactionAttachmentStore;
 }) {
   const rollbackErrors: unknown[] = [];
   const { journal } = options;
   const operations = [
-    () => options.workspaceStore.saveAppStateSnapshot(journal.request.beforeAppState),
-    () => options.workspaceStore.saveWorkspaceSnapshot(journal.request.beforeWorkspace),
+    () => options.appStateStore.saveAppStateSnapshot(journal.request.beforeAppState),
     async () => {
-      const current = await options.workspaceStore.loadProviderSessions();
-      await options.workspaceStore.saveProviderSessions({
+      const current = await options.appStateStore.loadProviderSessions();
+      await options.appStateStore.saveProviderSessions({
         version: 1,
         sessions: { ...current.sessions, ...journal.removedProviderSessions },
       });
@@ -160,7 +130,7 @@ async function restorePreparingTransaction(options: {
 async function finishCommittedTransaction(options: {
   journal: ThreadDeletionJournal;
   journalStore: ThreadDeletionJournalStore;
-  workspaceStore: TransactionWorkspaceStore;
+  appStateStore: TransactionAppStateStore;
   attachmentStore: TransactionAttachmentStore;
 }) {
   const { journal } = options;
@@ -172,7 +142,7 @@ async function finishCommittedTransaction(options: {
 
 export async function recoverThreadDeletionTransaction(options: {
   journalStore: ThreadDeletionJournalStore;
-  workspaceStore: TransactionWorkspaceStore;
+  appStateStore: TransactionAppStateStore;
   attachmentStore: TransactionAttachmentStore;
 }) {
   const journal = await options.journalStore.load();
@@ -186,11 +156,10 @@ export async function recoverThreadDeletionTransaction(options: {
 
 export function createThreadDeletionTransactionManager(options: {
   journalStore: ThreadDeletionJournalStore;
-  workspaceStore: TransactionWorkspaceStore;
+  appStateStore: TransactionAppStateStore;
   attachmentStore: TransactionAttachmentStore;
   sessionManager: TransactionSessionManager;
   createOperationId?: () => string;
-  onCommitted?: (workspace: WorkspaceSnapshot) => void;
   onActiveChange?: (active: boolean) => void;
 }) {
   let queue = Promise.resolve();
@@ -210,7 +179,7 @@ export function createThreadDeletionTransactionManager(options: {
         options.onActiveChange?.(true);
         let recoveryPending = false;
         try {
-          await options.workspaceStore.waitForWrites();
+          await options.appStateStore.waitForWrites();
           try {
             await recoverThreadDeletionTransaction(options);
           } catch (error) {
@@ -221,35 +190,21 @@ export function createThreadDeletionTransactionManager(options: {
             recoveryPending = true;
             throw new Error("Previous Thread attachment cleanup is still pending.");
           }
-          const beforeAppState = await options.workspaceStore.loadAppStateSnapshot();
-          const beforeWorkspace = await options.workspaceStore.loadWorkspaceSnapshot();
-          if (!beforeAppState || !beforeWorkspace) {
-            throw new Error("Thread deletion requires persisted App State and workspace data.");
+          const beforeAppState = await options.appStateStore.loadAppStateSnapshot();
+          if (!beforeAppState) {
+            throw new Error("Thread deletion requires persisted App State.");
           }
           const afterAppState = applyThreadDeletionToAppState(
             beforeAppState,
             request.threadData.threadIds,
             request.scope,
           );
-          const afterWorkspaceWithoutThreads = removeThreadsFromWorkspace(
-            beforeWorkspace,
-            request.threadData.threadIds,
-            request.afterWorkspace.activeThreadId,
-          );
-          const remainingProjectIds = new Set(afterAppState.projects.map((project) => project.id));
           const transactionRequest: ThreadDeletionTransactionRequest = {
             ...request,
             beforeAppState,
             afterAppState,
-            beforeWorkspace,
-            afterWorkspace: {
-              ...afterWorkspaceWithoutThreads,
-              projects: afterWorkspaceWithoutThreads.projects.filter((project) =>
-                remainingProjectIds.has(project.id),
-              ),
-            },
           };
-          const providerSnapshot = await options.workspaceStore.loadProviderSessions();
+          const providerSnapshot = await options.appStateStore.loadProviderSessions();
           const journal: ThreadDeletionJournal = {
             version: 1,
             operationId: options.createOperationId?.() ?? randomUUID(),
@@ -281,16 +236,12 @@ export function createThreadDeletionTransactionManager(options: {
               removedProviderSessions: journal.removedProviderSessions,
               detachedRuntimeSessions: {},
             };
-            await options.workspaceStore.saveAppStateSnapshot(transactionRequest.afterAppState);
-            await options.workspaceStore.saveWorkspaceSnapshot(transactionRequest.afterWorkspace);
+            await options.appStateStore.saveAppStateSnapshot(transactionRequest.afterAppState);
             await options.journalStore.save({ ...journal, phase: "committed" });
-            options.onCommitted?.(transactionRequest.afterWorkspace);
           } catch (error) {
             const rollbackErrors: unknown[] = [];
             const operations = [
-              () => options.workspaceStore.saveAppStateSnapshot(transactionRequest.beforeAppState),
-              () =>
-                options.workspaceStore.saveWorkspaceSnapshot(transactionRequest.beforeWorkspace),
+              () => options.appStateStore.saveAppStateSnapshot(transactionRequest.beforeAppState),
               ...(receipt
                 ? [() => options.sessionManager.rollbackThreadDataDeletion(receipt!)]
                 : []),

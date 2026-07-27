@@ -14,8 +14,8 @@ import {
   XCircle,
 } from "lucide-react";
 
-import { useWorkspaceDiff } from "../../context/WorkspaceDiffContext";
-import type { ChangedFilesMessage, Message, SubagentTaskPart } from "../../mock/uiShellData";
+import { useThreadContentDiff } from "../../context/WorkspaceDiffContext";
+import type { ChangedFilesMessage, Message, SubagentTaskPart } from "../../../shared/threadContent";
 import { MarkdownContent } from "./MarkdownContent";
 
 export function collectSubagentTasks(messages: Message[]): SubagentTaskPart[] {
@@ -393,7 +393,7 @@ export function ThreadInspectorPane({
   onSelectTask: (taskId: string | null) => void;
 }) {
   const [branch, setBranch] = useState<string | null>(null);
-  const { openDiff } = useWorkspaceDiff();
+  const { openDiff } = useThreadContentDiff();
 
   useEffect(() => {
     if (!projectPath) {

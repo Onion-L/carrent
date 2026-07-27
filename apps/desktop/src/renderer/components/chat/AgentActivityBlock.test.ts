@@ -6,7 +6,7 @@ import {
   getBlockTitle,
   inferAgentActivityStatus,
 } from "./AgentActivityBlock";
-import type { MessagePart } from "../../mock/uiShellData";
+import type { MessagePart } from "../../../shared/threadContent";
 
 type ReasoningPart = Extract<MessagePart, { type: "reasoning" }>;
 type ShellPart = Extract<MessagePart, { type: "shell" }>;

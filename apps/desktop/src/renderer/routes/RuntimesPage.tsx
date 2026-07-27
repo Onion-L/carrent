@@ -2,7 +2,7 @@ import { useMemo, useEffect } from "react";
 import { Monitor, Play, Plug, RefreshCw, Square } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { useRuntimes } from "../hooks/useRuntimes";
-import { useWorkspace } from "../context/WorkspaceContext";
+import { useThreadContent } from "../context/ThreadContentContext";
 import { RuntimeIcon } from "../components/RuntimeIcon";
 import { useRuntimeModels } from "../hooks/useRuntimeModels";
 
@@ -15,11 +15,11 @@ export function RuntimesPage() {
     setRuntimesEnabled,
     refreshVersion,
   } = useRuntimes();
-  const { setActiveThreadId } = useWorkspace();
+  const { setSelectedThreadId } = useThreadContent();
 
   useEffect(() => {
-    setActiveThreadId(null);
-  }, [setActiveThreadId]);
+    setSelectedThreadId(null);
+  }, [setSelectedThreadId]);
   const [searchParams] = useSearchParams();
   const selectedId = searchParams.get("runtime");
 

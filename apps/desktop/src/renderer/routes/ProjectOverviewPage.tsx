@@ -7,7 +7,7 @@ import { runtimeIds, runtimeNameMap, type RuntimeId } from "../../shared/runtime
 import { type RuntimeMode } from "../../shared/runtimeMode";
 import type { AssociationThreadDraftRecord } from "../../shared/workspacePersistence";
 import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
-import { useWorkspace } from "../context/WorkspaceContext";
+import { useThreadContent } from "../context/ThreadContentContext";
 import { useChatRun } from "../hooks/useChatRun";
 
 export function ProjectOverviewPage() {
@@ -34,7 +34,7 @@ export function ProjectOverviewPage() {
     rollbackThreadDraftPromotion,
     removeAssociation,
   } = useAppState();
-  const { deleteThreads } = useWorkspace();
+  const { deleteThreads } = useThreadContent();
   const { runningThreadIds } = useChatRun();
   const workspace = workspaces.find((item) => item.id === workspaceId);
   const project = projects.find((item) => item.id === projectId);
@@ -102,7 +102,6 @@ export function ProjectOverviewPage() {
               projectId={project.id}
               projectName={project.name}
               projectPath={project.workingDirectory}
-              draftId={openDraft.id}
               threadId={openDraft.threadId}
               initialDraft={{
                 content: openDraft.content,

@@ -26,7 +26,6 @@ import type {
 } from "../../electron/git/gitIpc";
 import type {
   AppStateSnapshot,
-  WorkspaceSnapshot,
   ProviderSessionSnapshot,
   ProjectRelocationResult,
   ProjectRelocationRequest,
@@ -95,12 +94,8 @@ declare global {
         load: () => Promise<import("../shared/workspacePersistence").AppStateLoadResult>;
         reread: () => Promise<import("../shared/workspacePersistence").AppStateLoadResult>;
         fullReset: () => Promise<import("../shared/workspacePersistence").AppStateLoadResult>;
+        stage: (snapshot: AppStateSnapshot) => void;
         save: (snapshot: AppStateSnapshot) => Promise<void>;
-      };
-      workspace: {
-        load: () => Promise<WorkspaceSnapshot | null>;
-        remember: (snapshot: WorkspaceSnapshot) => void;
-        save: (snapshot: WorkspaceSnapshot) => Promise<void>;
       };
       providerSessions: {
         load: () => Promise<ProviderSessionSnapshot>;

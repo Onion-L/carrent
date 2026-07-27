@@ -808,28 +808,6 @@ describe("plan slash helpers", () => {
 });
 
 describe("createWorkspaceDiffCapture", () => {
-  it("does not capture for General chat", async () => {
-    const workspaceDiff = async () => ({
-      state: "clean" as const,
-      baseRevision: "abc",
-      capturedAt: "now",
-    });
-    const append = () => {
-      throw new Error("should not append");
-    };
-    const capture = createWorkspaceDiffCapture({
-      mode: "chat",
-      threadId: "t1",
-      captureBaseline: async () => null,
-      workspaceDiff,
-      appendWorkspaceDiffMessage: append,
-      getRunWritePaths: () => [],
-      showToast: () => {},
-    });
-    capture();
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  });
-
   it("does not append for clean or unavailable results", async () => {
     const append = () => {
       throw new Error("should not append");

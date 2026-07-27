@@ -4,7 +4,7 @@
 
 **Blocked by:** 17 — 添加跨 Workspace 待处理视图；18 — 添加分层 Thread 搜索；20 — 添加 Association 与 Workspace 级联移除；21 — 隔离 Runtime Session 连续性故障；22 — 处理 Project 目录不可用与重新定位；23 — 处理附件缺失与孤立数据；24 — 固定 Main Window 与重启生命周期；25 — 处理 schema 重置与 App State 损坏
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 删除旧 flat Project、projectless Chat、`activeThreadId` 和旧 workspace snapshot 的生产读写路径，仅保留已决定的旧开发 schema 识别与重置逻辑。
 - [ ] 删除旧 `/project/:projectId`、`/thread/:projectId/:threadId` 和 `/chat/:threadId` 的正常页面实现，只保留统一不兼容回退。

@@ -6,13 +6,20 @@ import {
   getThreadDisplayStatus,
   splitProjectThreads,
 } from "./projectThreads";
-import type { Message, ThreadRecord } from "../mock/uiShellData";
+import type { Message } from "../../shared/threadContent";
+import type { AppThreadRecord } from "../../shared/workspacePersistence";
 
-function makeThread(overrides: Partial<ThreadRecord> = {}): ThreadRecord {
+function makeThread(overrides: Partial<AppThreadRecord> = {}): AppThreadRecord {
   return {
     id: "t",
+    workspaceId: "workspace-1",
+    projectId: "project-1",
     title: "Thread",
-    updatedAt: "1h ago",
+    createdAt: "2026-01-01T00:00:00Z",
+    lastActivityAt: "2026-01-01T00:00:00Z",
+    runtimeId: "kimi",
+    runtimeMode: "approval-required",
+    planMode: false,
     ...overrides,
   };
 }
@@ -95,7 +102,7 @@ describe("splitProjectThreads", () => {
     ]);
   });
 
-  it("resolves activity from persisted value, messages, then legacy updatedAt", () => {
+  it("resolves activity from persisted Thread Activity Time", () => {
     const message = {
       id: "message-1",
       role: "user",
@@ -109,21 +116,24 @@ describe("splitProjectThreads", () => {
       getThreadActivityTime(
         makeThread({
           id: "thread-1",
-          updatedAt: "2026-01-01T00:00:00Z",
           lastActivityAt: "2026-03-01T00:00:00Z",
         }),
         [message],
       ),
     ).toBe(Date.parse("2026-03-01T00:00:00Z"));
     expect(
-      getThreadActivityTime(makeThread({ id: "thread-1", updatedAt: "2026-01-01T00:00:00Z" }), [
-        message,
-      ]),
-    ).toBe(message.createdAt);
-    expect(
-      getThreadActivityTime(makeThread({ id: "thread-1", updatedAt: "2026-01-01T00:00:00Z" }), []),
+      getThreadActivityTime(
+        makeThread({ id: "thread-1", lastActivityAt: "2026-01-01T00:00:00Z" }),
+        [message],
+      ),
     ).toBe(Date.parse("2026-01-01T00:00:00Z"));
-    expect(getThreadActivityTime(makeThread({ updatedAt: "unknown" }), [])).toBe(null);
+    expect(
+      getThreadActivityTime(
+        makeThread({ id: "thread-1", lastActivityAt: "2026-01-01T00:00:00Z" }),
+        [],
+      ),
+    ).toBe(Date.parse("2026-01-01T00:00:00Z"));
+    expect(getThreadActivityTime(makeThread({ lastActivityAt: "unknown" }), [])).toBe(null);
   });
 
   it("filters titles case-insensitively after trimming the query", () => {

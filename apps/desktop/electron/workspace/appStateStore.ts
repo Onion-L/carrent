@@ -13,27 +13,24 @@ import {
   normalizeAppStateSnapshotForWrite,
   normalizePersistedAppStateSnapshot,
   normalizeProviderSessionSnapshot,
-  normalizeWorkspaceSnapshot,
+  isRecognizedLegacyWorkspaceSnapshot,
   type AppStateDiagnostic,
   type AppStateLoadResult,
   type AppStateSnapshot,
   type ProviderSessionSnapshot,
-  type WorkspaceSnapshot,
 } from "../../src/shared/workspacePersistence";
 
-export type WorkspaceStore = {
+export type AppStateStore = {
   waitForWrites: () => Promise<void>;
   initializeAppState: () => Promise<AppStateLoadResult>;
   fullResetAppState: () => Promise<AppStateLoadResult>;
   loadAppStateSnapshot: () => Promise<AppStateSnapshot | null>;
   saveAppStateSnapshot: (snapshot: AppStateSnapshot) => Promise<void>;
-  loadWorkspaceSnapshot: () => Promise<WorkspaceSnapshot | null>;
-  saveWorkspaceSnapshot: (snapshot: WorkspaceSnapshot) => Promise<void>;
   loadProviderSessions: () => Promise<ProviderSessionSnapshot>;
   saveProviderSessions: (snapshot: ProviderSessionSnapshot) => Promise<void>;
 };
 
-type WorkspaceStoreOptions = {
+type AppStateStoreOptions = {
   appVersion?: string;
   now?: () => Date;
   rename?: (from: string, to: string) => Promise<void>;
@@ -66,14 +63,14 @@ const RESETTABLE_PATHS = [
   "thread-deletion-journal.json",
 ] as const;
 
-export function createWorkspaceStore(
+export function createAppStateStore(
   baseDir: string,
-  options: WorkspaceStoreOptions = {},
-): WorkspaceStore {
+  options: AppStateStoreOptions = {},
+): AppStateStore {
   const appStatePath = join(baseDir, "app-state.json");
   const initializedMarkerPath = join(baseDir, INITIALIZED_MARKER);
   const resetStagingPath = join(baseDir, RESET_STAGING_DIRECTORY);
-  const workspacePath = join(baseDir, "workspace.json");
+  const legacyWorkspacePath = join(baseDir, "workspace.json");
   const providerSessionsPath = join(baseDir, "provider-sessions.json");
   const rename = options.rename ?? renameFile;
   const writeFile = options.writeFile ?? writeFileContents;
@@ -314,12 +311,10 @@ export function createWorkspaceStore(
       );
     }
 
-    if (await pathExists(workspacePath)) {
+    if (await pathExists(legacyWorkspacePath)) {
       try {
-        const legacy = normalizeWorkspaceSnapshot(
-          JSON.parse(await readFile(workspacePath, "utf-8")),
-        );
-        if (!legacy) {
+        const legacy = JSON.parse(await readFile(legacyWorkspacePath, "utf-8"));
+        if (!isRecognizedLegacyWorkspaceSnapshot(legacy)) {
           return requireAppStateRecovery(
             diagnostic("legacy-detection", "Existing data is not a recognized legacy schema."),
           );
@@ -383,6 +378,7 @@ export function createWorkspaceStore(
         threadMessages: normalized.threadMessages ?? [],
         threadRuns: normalized.threadRuns ?? [],
         threadPromotionIntents: normalized.threadPromotionIntents ?? [],
+        threadWork: normalized.threadWork ?? {},
         lastThreadIdByWorkspace: normalized.lastThreadIdByWorkspace ?? {},
       };
       await enqueueWrite(async () => {
@@ -391,38 +387,6 @@ export function createWorkspaceStore(
           await atomicWrite(initializedMarkerPath, `${APP_STATE_SNAPSHOT_VERSION}\n`);
         }
       });
-    },
-
-    async loadWorkspaceSnapshot(): Promise<WorkspaceSnapshot | null> {
-      let raw: string;
-      try {
-        raw = await readFile(workspacePath, "utf-8");
-      } catch {
-        return null;
-      }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        await rename(workspacePath, `${baseDir}/workspace.corrupt-${Date.now()}.json`);
-        return null;
-      }
-
-      const snapshot = normalizeWorkspaceSnapshot(parsed);
-      if (!snapshot) {
-        await rename(workspacePath, `${baseDir}/workspace.corrupt-${Date.now()}.json`);
-      }
-      return snapshot;
-    },
-
-    async saveWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Promise<void> {
-      assertAppStateWritable();
-      const normalized = normalizeWorkspaceSnapshot(snapshot);
-      if (!normalized) {
-        throw new Error("Invalid workspace snapshot.");
-      }
-      await enqueueWrite(() => atomicWrite(workspacePath, JSON.stringify(normalized, null, 2)));
     },
 
     async loadProviderSessions(): Promise<ProviderSessionSnapshot> {

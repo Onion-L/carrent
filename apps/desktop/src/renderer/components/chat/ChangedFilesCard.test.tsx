@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { ChangedFilesCard } from "./ChangedFilesCard";
-import type { ChangedFilesMessage } from "../../mock/uiShellData";
+import type { ChangedFilesMessage } from "../../../shared/threadContent";
 
 function renderCard(message: ChangedFilesMessage): string {
   return renderToStaticMarkup(<ChangedFilesCard message={message} />);
@@ -16,9 +16,7 @@ function makeMessage(overrides: Partial<ChangedFilesMessage> = {}): ChangedFiles
     timestamp: "09:00",
     type: "changed_files",
     content: "Workspace changes",
-    changedFiles: [
-      { path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false },
-    ],
+    changedFiles: [{ path: "a.txt", additions: 1, deletions: 0, binary: false, untracked: false }],
     ...overrides,
   };
 }
@@ -51,7 +49,14 @@ describe("ChangedFilesCard", () => {
     const message = makeMessage({
       changedFiles: [
         { path: "image.png", additions: 0, deletions: 0, binary: true, untracked: false },
-        { path: "huge.txt", additions: 0, deletions: 0, binary: false, untracked: true, omitted: true },
+        {
+          path: "huge.txt",
+          additions: 0,
+          deletions: 0,
+          binary: false,
+          untracked: true,
+          omitted: true,
+        },
       ],
     });
     const html = renderCard(message);

@@ -1,7 +1,7 @@
 import { CircleAlert, RotateCcw } from "lucide-react";
 import { useState } from "react";
 
-import type { MessagePart } from "../../mock/uiShellData";
+import type { MessagePart } from "../../../shared/threadContent";
 
 export type ErrorPart = Extract<MessagePart, { type: "error" }>;
 

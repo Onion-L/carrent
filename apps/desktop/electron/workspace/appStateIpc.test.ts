@@ -1,17 +1,17 @@
 import { describe, expect, it } from "bun:test";
 import {
-  getLastWorkspaceSnapshot,
-  registerWorkspaceIpc,
-  setWorkspaceTransactionActive,
-} from "./workspaceIpc";
+  clearStagedAppStateSnapshot,
+  getStagedAppStateSnapshot,
+  registerAppStateIpc,
+  setAppStateTransactionActive,
+} from "./appStateIpc";
 import {
   createEmptyAppStateSnapshot,
   type AppStateLoadResult,
-  type WorkspaceSnapshot,
   type ProviderSessionSnapshot,
   type AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
-import { createWorkspaceStoreStub } from "./workspaceStore.testUtils";
+import { createAppStateStoreStub } from "./appStateStore.testUtils";
 import { createAppStateIpcGate } from "./appStateIpcGate";
 
 const readyAppStateResult: AppStateLoadResult = {
@@ -28,21 +28,17 @@ async function caughtError(operation: () => unknown): Promise<unknown> {
   }
 }
 
-describe("registerWorkspaceIpc", () => {
-  it("registers App State, legacy workspace, and provider session channels", () => {
+describe("registerAppStateIpc", () => {
+  it("registers App State and provider session channels", () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const listeners = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
 
-    registerWorkspaceIpc(
+    registerAppStateIpc(
       {
         handle(channel, listener) {
           handlers.set(channel, listener);
         },
-        on(channel, listener) {
-          listeners.set(channel, listener);
-        },
       },
-      createWorkspaceStoreStub(),
+      createAppStateStoreStub(),
       readyAppStateResult,
       preserveAppStateResult,
     );
@@ -54,10 +50,7 @@ describe("registerWorkspaceIpc", () => {
       "app-state:save",
       "provider-sessions:load",
       "provider-sessions:save",
-      "workspace:load",
-      "workspace:save",
     ]);
-    expect([...listeners.keys()]).toEqual(["workspace:remember"]);
   });
 
   it("loads, re-reads, and fully resets through the recovery boundary", async () => {
@@ -88,9 +81,9 @@ describe("registerWorkspaceIpc", () => {
     let initializeCalls = 0;
     let resetCalls = 0;
 
-    registerWorkspaceIpc(
-      { handle: (channel, listener) => handlers.set(channel, listener), on() {} },
-      createWorkspaceStoreStub({
+    registerAppStateIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      createAppStateStoreStub({
         initializeAppState: async () => {
           initializeCalls += 1;
           return recovery;
@@ -121,9 +114,9 @@ describe("registerWorkspaceIpc", () => {
       activeWorkspaceId: null,
     };
 
-    registerWorkspaceIpc(
-      { handle: (channel, listener) => handlers.set(channel, listener), on() {} },
-      createWorkspaceStoreStub({
+    registerAppStateIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      createAppStateStoreStub({
         fullResetAppState: async () => ({ status: "ready", snapshot, notice: "full-reset" }),
       }),
       { status: "ready", snapshot, notice: "legacy-reset" },
@@ -164,9 +157,9 @@ describe("registerWorkspaceIpc", () => {
         initialResult,
       );
 
-      registerWorkspaceIpc(
+      registerAppStateIpc(
         gate.ipcMain,
-        createWorkspaceStoreStub({
+        createAppStateStoreStub({
           initializeAppState: async () => readyAppStateResult,
           fullResetAppState: async () => readyAppStateResult,
         }),
@@ -179,13 +172,16 @@ describe("registerWorkspaceIpc", () => {
       );
 
       const recoveryRequest = Promise.resolve(handlers.get(recoveryChannel)?.({}));
-      expect(String(await caughtError(() => handlers.get("workspace:load")?.({})))).toContain(
-        "App State recovery is required",
-      );
+      expect(
+        String(await caughtError(() => handlers.get("provider-sessions:load")?.({}))),
+      ).toContain("App State recovery is required");
 
       finishPreparation?.();
       expect(await recoveryRequest).toEqual(readyAppStateResult);
-      expect(await handlers.get("workspace:load")?.({})).toBe(null);
+      expect(await handlers.get("provider-sessions:load")?.({})).toEqual({
+        version: 1,
+        sessions: {},
+      });
     });
   }
 
@@ -204,9 +200,9 @@ describe("registerWorkspaceIpc", () => {
       },
     };
 
-    registerWorkspaceIpc(
-      { handle: (channel, listener) => handlers.set(channel, listener), on() {} },
-      createWorkspaceStoreStub({ initializeAppState: async () => staleResult }),
+    registerAppStateIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      createAppStateStoreStub({ initializeAppState: async () => staleResult }),
       { status: "recovery-required", diagnostics: [] },
       async (result, source) => {
         expect(result).toEqual(staleResult);
@@ -230,14 +226,13 @@ describe("registerWorkspaceIpc", () => {
       activeWorkspaceId: "workspace-1",
     };
 
-    registerWorkspaceIpc(
+    registerAppStateIpc(
       {
         handle(channel, listener) {
           handlers.set(channel, listener);
         },
-        on() {},
       },
-      createWorkspaceStoreStub({
+      createAppStateStoreStub({
         saveAppStateSnapshot: async (value) => {
           saved.push(value);
         },
@@ -314,9 +309,9 @@ describe("registerWorkspaceIpc", () => {
       activeWorkspaceId: "workspace-1",
     };
 
-    registerWorkspaceIpc(
-      { handle: (channel, listener) => handlers.set(channel, listener), on() {} },
-      createWorkspaceStoreStub({
+    registerAppStateIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      createAppStateStoreStub({
         saveAppStateSnapshot: async () => {
           saveCalls += 1;
         },
@@ -336,118 +331,14 @@ describe("registerWorkspaceIpc", () => {
     expect(saveCalls).toBe(0);
   });
 
-  it("workspace:load returns snapshot from store", async () => {
+  it("blocks independent App State writes during a Thread deletion transaction", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const snapshot: WorkspaceSnapshot = {
-      version: 1,
-      projects: [],
-      chats: [],
-      messages: [],
-      activeThreadId: null,
-    };
-
-    registerWorkspaceIpc(
-      {
-        handle(channel, listener) {
-          handlers.set(channel, listener);
-        },
-        on() {},
-      },
-      createWorkspaceStoreStub({
-        loadWorkspaceSnapshot: async () => snapshot,
-      }),
-      readyAppStateResult,
-      preserveAppStateResult,
-    );
-
-    const result = await handlers.get("workspace:load")?.({});
-    expect(result).toEqual(snapshot);
-  });
-
-  it("workspace:save forwards snapshot to store", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const saved: WorkspaceSnapshot[] = [];
-    const snapshot: WorkspaceSnapshot = {
-      version: 1,
-      projects: [{ id: "p1", name: "P1", path: "/tmp/p1", threads: [] }],
-      chats: [],
-      messages: [],
-      activeThreadId: null,
-    };
-
-    registerWorkspaceIpc(
-      {
-        handle(channel, listener) {
-          handlers.set(channel, listener);
-        },
-        on() {},
-      },
-      createWorkspaceStoreStub({
-        saveWorkspaceSnapshot: async (s) => {
-          saved.push(s);
-        },
-      }),
-      readyAppStateResult,
-      preserveAppStateResult,
-    );
-
-    await handlers.get("workspace:save")?.({}, snapshot);
-    expect(saved).toHaveLength(1);
-    expect(saved[0]).toEqual(snapshot);
-    expect(getLastWorkspaceSnapshot()).toEqual(snapshot);
-  });
-
-  it("does not replace the shutdown snapshot when workspace:save fails", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const listeners = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const before: WorkspaceSnapshot = {
-      version: 1,
-      projects: [{ id: "p1", name: "P1", path: "/tmp/p1", threads: [] }],
-      chats: [],
-      messages: [],
-      activeThreadId: null,
-    };
-    const after: WorkspaceSnapshot = { ...before, projects: [] };
-
-    registerWorkspaceIpc(
-      {
-        handle: (channel, listener) => handlers.set(channel, listener),
-        on: (channel, listener) => listeners.set(channel, listener),
-      },
-      createWorkspaceStoreStub({
-        saveWorkspaceSnapshot: async () => {
-          throw new Error("disk full");
-        },
-      }),
-      readyAppStateResult,
-      preserveAppStateResult,
-    );
-    listeners.get("workspace:remember")?.({}, before);
-
-    let saveError: unknown;
-    try {
-      await handlers.get("workspace:save")?.({}, after);
-    } catch (error) {
-      saveError = error;
-    }
-    expect(String(saveError)).toContain("disk full");
-    expect(getLastWorkspaceSnapshot()).toEqual(before);
-  });
-
-  it("blocks independent snapshot writes during a Thread deletion transaction", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const saved: WorkspaceSnapshot[] = [];
-    const snapshot: WorkspaceSnapshot = {
-      version: 1,
-      projects: [],
-      chats: [],
-      messages: [],
-      activeThreadId: null,
-    };
-    registerWorkspaceIpc(
-      { handle: (channel, listener) => handlers.set(channel, listener), on() {} },
-      createWorkspaceStoreStub({
-        saveWorkspaceSnapshot: async (next) => {
+    const saved: AppStateSnapshot[] = [];
+    const snapshot = createEmptyAppStateSnapshot();
+    registerAppStateIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      createAppStateStoreStub({
+        saveAppStateSnapshot: async (next) => {
           saved.push(next);
         },
       }),
@@ -455,113 +346,54 @@ describe("registerWorkspaceIpc", () => {
       preserveAppStateResult,
     );
 
-    setWorkspaceTransactionActive(true);
+    setAppStateTransactionActive(true);
     let saveError: unknown;
     try {
-      await handlers.get("workspace:save")?.({}, snapshot);
+      await handlers.get("app-state:save")?.({}, snapshot);
     } catch (error) {
       saveError = error;
     } finally {
-      setWorkspaceTransactionActive(false);
+      setAppStateTransactionActive(false);
     }
 
-    expect(String(saveError)).toContain("Workspace transaction is in progress");
+    expect(String(saveError)).toContain("App State transaction is in progress");
     expect(saved).toHaveLength(0);
   });
 
-  it("workspace:remember updates the latest snapshot without writing to disk", () => {
+  it("stages the latest valid App State for shutdown and clears it after a durable save", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const listeners = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const saved: WorkspaceSnapshot[] = [];
-    const snapshot: WorkspaceSnapshot = {
-      version: 1,
-      projects: [{ id: "p2", name: "P2", path: "/tmp/p2", threads: [] }],
-      chats: [],
-      messages: [],
-      activeThreadId: null,
-    };
+    const listeners = new Map<string, (event: unknown, ...args: unknown[]) => void>();
+    const snapshot = createEmptyAppStateSnapshot();
 
-    registerWorkspaceIpc(
+    registerAppStateIpc(
       {
-        handle(channel, listener) {
-          handlers.set(channel, listener);
-        },
-        on(channel, listener) {
-          listeners.set(channel, listener);
-        },
+        handle: (channel, listener) => handlers.set(channel, listener),
+        on: (channel, listener) => listeners.set(channel, listener),
       },
-      createWorkspaceStoreStub({
-        saveWorkspaceSnapshot: async (s) => {
-          saved.push(s);
-        },
-      }),
+      createAppStateStoreStub(),
       readyAppStateResult,
       preserveAppStateResult,
     );
 
-    listeners.get("workspace:remember")?.({}, snapshot);
-    expect(getLastWorkspaceSnapshot()).toEqual(snapshot);
-    expect(saved).toHaveLength(0);
-  });
+    listeners.get("app-state:stage")?.({}, snapshot);
+    expect(getStagedAppStateSnapshot()).toEqual(snapshot);
 
-  it("workspace:remember stores a normalized snapshot", () => {
-    const listeners = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const snapshot = {
-      version: 1,
-      projects: [],
-      chats: [],
-      messages: [
-        {
-          id: "m1",
-          role: "user",
-          threadId: "t1",
-          content: "",
-          timestamp: "09:00",
-          attachments: [
-            {
-              id: "a1",
-              name: "screen.png",
-              mimeType: "image/png",
-              size: 10,
-              storageKey: "a1.png",
-              localPath: "/tmp/attachments/a1.png",
-            },
-          ],
-        },
-      ],
-      activeThreadId: null,
-    } as unknown as WorkspaceSnapshot;
-
-    registerWorkspaceIpc(
-      {
-        handle() {},
-        on(channel, listener) {
-          listeners.set(channel, listener);
-        },
-      },
-      createWorkspaceStoreStub(),
-      readyAppStateResult,
-      preserveAppStateResult,
-    );
-
-    listeners.get("workspace:remember")?.({}, snapshot);
-    const attachment = (getLastWorkspaceSnapshot()!.messages[0] as { attachments?: unknown[] })
-      .attachments![0] as Record<string, unknown>;
-    expect("localPath" in attachment).toBe(false);
+    await handlers.get("app-state:save")?.({}, snapshot);
+    expect(getStagedAppStateSnapshot()).toBe(null);
+    clearStagedAppStateSnapshot();
   });
 
   it("provider-sessions:load returns sessions from store", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const sessions: ProviderSessionSnapshot = { version: 1, sessions: { k1: "s1" } };
 
-    registerWorkspaceIpc(
+    registerAppStateIpc(
       {
         handle(channel, listener) {
           handlers.set(channel, listener);
         },
-        on() {},
       },
-      createWorkspaceStoreStub({
+      createAppStateStoreStub({
         loadProviderSessions: async () => sessions,
       }),
       readyAppStateResult,

@@ -1,4 +1,5 @@
-import type { Message, ThreadRecord } from "../mock/uiShellData";
+import type { Message } from "../../shared/threadContent";
+import type { AppThreadRecord } from "../../shared/workspacePersistence";
 
 export type ThreadDisplayStatus = "running" | "approval" | "question" | "failed";
 export type AttentionStatus = Exclude<ThreadDisplayStatus, "running">;
@@ -11,7 +12,7 @@ function parseTimestamp(value: string | undefined) {
   return Number.isNaN(timestamp) ? null : timestamp;
 }
 
-export function getThreadActivityTime(thread: ThreadRecord, messages: Message[]) {
+export function getThreadActivityTime(thread: AppThreadRecord, messages: Message[]) {
   const persistedActivity = parseTimestamp(thread.lastActivityAt);
   if (persistedActivity !== null) {
     return persistedActivity;
@@ -19,15 +20,15 @@ export function getThreadActivityTime(thread: ThreadRecord, messages: Message[])
 
   let latestMessageAt: number | null = null;
   for (const message of messages) {
-    if (
-      message.threadId === thread.id &&
-      typeof message.createdAt === "number" &&
-      Number.isFinite(message.createdAt)
-    ) {
-      latestMessageAt = Math.max(latestMessageAt ?? message.createdAt, message.createdAt);
+    if (message.threadId === thread.id && message.createdAt !== undefined) {
+      const createdAt =
+        typeof message.createdAt === "number" ? message.createdAt : Date.parse(message.createdAt);
+      if (Number.isFinite(createdAt)) {
+        latestMessageAt = Math.max(latestMessageAt ?? createdAt, createdAt);
+      }
     }
   }
-  return latestMessageAt ?? parseTimestamp(thread.updatedAt);
+  return latestMessageAt;
 }
 
 export function getThreadDisplayStatus({
@@ -70,7 +71,7 @@ export function getThreadDisplayStatus({
   return latestAssistantMessage?.runStatus === "failed" ? "failed" : null;
 }
 
-function sortByActivity<T extends ThreadRecord>(threads: T[], messages: Message[]) {
+function sortByActivity<T extends AppThreadRecord>(threads: T[], messages: Message[]) {
   return threads
     .map((thread, index) => ({
       thread,
@@ -84,7 +85,7 @@ function sortByActivity<T extends ThreadRecord>(threads: T[], messages: Message[
     .map(({ thread }) => thread);
 }
 
-export function getAttentionGroups<T extends ThreadRecord>({
+export function getAttentionGroups<T extends AppThreadRecord>({
   threads,
   runningThreadIds,
   pendingApprovals,
@@ -120,17 +121,16 @@ export function getAttentionGroups<T extends ThreadRecord>({
     .filter((group) => group.threads.length > 0);
 }
 
-export function splitProjectThreads(threads: ThreadRecord[], messages: Message[] = []) {
-  const visible = threads.filter((thread) => !thread.draft);
-  const pinned = visible.filter((thread) => thread.pinned);
-  const regular = visible.filter((thread) => !thread.pinned);
+export function splitProjectThreads(threads: AppThreadRecord[], messages: Message[] = []) {
+  const pinned = threads.filter((thread) => thread.pinned);
+  const regular = threads.filter((thread) => !thread.pinned);
 
   return {
     active: [...sortByActivity(pinned, messages), ...sortByActivity(regular, messages)],
   };
 }
 
-export function filterProjectThreads(threads: ThreadRecord[], query: string) {
+export function filterProjectThreads(threads: AppThreadRecord[], query: string) {
   const normalizedQuery = query.trim().toLocaleLowerCase();
   if (!normalizedQuery) {
     return threads;

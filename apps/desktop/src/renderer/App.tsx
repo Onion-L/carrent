@@ -3,13 +3,12 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 
 import { DesktopShell } from "./components/DesktopShell";
 import { ToastProvider } from "./components/toast/ToastContext";
-import { useWorkspace } from "./context/WorkspaceContext";
+import { useThreadContent } from "./context/ThreadContentContext";
 import { SettingsProvider } from "./context/SettingsContext";
 import { RuntimeModelsProvider } from "./context/RuntimeModelsContext";
-import { HomePage } from "./routes/HomePage";
 import { SettingsPage } from "./routes/SettingsPage";
 import { ThreadPage } from "./routes/ThreadPage";
-import { WorkspaceProvider } from "./context/WorkspaceContext";
+import { ThreadContentProvider } from "./context/ThreadContentContext";
 import { AppStateProvider, useAppState } from "./context/AppStateContext";
 import { FirstUsePage } from "./routes/FirstUsePage";
 import { WorkspaceOverviewPage } from "./routes/WorkspaceOverviewPage";
@@ -133,10 +132,10 @@ function WorkspaceRestoreRoute() {
 }
 
 function AppRoutes() {
-  const { hasHydrated: hasLegacyHydrated } = useWorkspace();
+  const { hasHydrated: hasThreadContentHydrated } = useThreadContent();
   const { hasHydrated, workspaces } = useAppState();
 
-  if (!hasHydrated || !hasLegacyHydrated) {
+  if (!hasHydrated || !hasThreadContentHydrated) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-bg">
         <span className="text-app-14 text-subtle">Loading App State...</span>
@@ -172,13 +171,10 @@ function AppRoutes() {
             element={<ThreadPage />}
             path="/workspace/:workspaceId/project/:projectId/thread/:threadId"
           />
-          <Route element={<Navigate replace to="/" />} path="/project/:projectId" />
-          <Route element={<Navigate replace to="/" />} path="/thread/:projectId/:threadId" />
-          <Route element={<Navigate replace to="/" />} path="/chat/:threadId" />
-          <Route element={<HomePage />} path="/agents" />
+          <Route element={null} path="/workspace/*" />
           <Route element={<Navigate replace to="/settings?tab=runtime" />} path="/runtimes" />
           <Route element={<SettingsPage />} path="/settings" />
-          <Route element={<HomePage />} path="*" />
+          <Route element={<Navigate replace to="/" />} path="*" />
         </Routes>
       </DesktopShell>
     </ToastProvider>
@@ -199,13 +195,13 @@ function AppContent() {
   if (recoveryDiagnostics) return <AppStateRecoveryPage />;
 
   return (
-    <WorkspaceProvider>
+    <ThreadContentProvider>
       <SettingsProvider>
         <RuntimeModelsProvider>
           <AppRoutes />
         </RuntimeModelsProvider>
       </SettingsProvider>
-    </WorkspaceProvider>
+    </ThreadContentProvider>
   );
 }
 

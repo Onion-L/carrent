@@ -1,6 +1,3 @@
-import type { WorkspaceSnapshot } from "../src/shared/workspacePersistence";
-import type { WorkspaceStore } from "./workspace/workspaceStore";
-
 type BeforeQuitEvent = {
   preventDefault: () => void;
 };
@@ -12,8 +9,6 @@ type LiveRunQuitPolicy = {
 };
 
 type AppShutdownDependencies = {
-  getLastWorkspaceSnapshot: () => WorkspaceSnapshot | null;
-  getWorkspaceStore: () => WorkspaceStore | null;
   quit: () => void;
   reportShutdownError?: (error: unknown) => void;
   beforeSave?: () => Promise<void>;
@@ -21,8 +16,6 @@ type AppShutdownDependencies = {
 };
 
 export function createAppShutdown({
-  getLastWorkspaceSnapshot,
-  getWorkspaceStore,
   quit,
   reportShutdownError,
   beforeSave,
@@ -53,11 +46,6 @@ export function createAppShutdown({
 
         await activeLiveRunQuitPolicy?.cancelLiveRuns();
         await beforeSave?.();
-        const snapshot = getLastWorkspaceSnapshot();
-        const store = getWorkspaceStore();
-        if (snapshot && store) {
-          await store.saveWorkspaceSnapshot(snapshot);
-        }
       } catch (error) {
         isQuitting = false;
         reportShutdownError?.(error);

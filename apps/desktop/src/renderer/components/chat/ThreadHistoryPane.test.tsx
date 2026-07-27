@@ -43,19 +43,30 @@ describe("getThreadRuntimeSessionId", () => {
     expect(
       getThreadRuntimeSessionId(snapshot, {
         id: "thread-1",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
         title: "Test",
-        updatedAt: "now",
+        createdAt: "2026-07-27T08:00:00.000Z",
+        lastActivityAt: "2026-07-27T08:00:00.000Z",
         runtimeId: "codex",
+        runtimeMode: "approval-required",
+        planMode: false,
       }),
     ).toBe("codex-session");
   });
 
-  it("uses Kimi for threads without a persisted runtime", () => {
+  it("uses the persisted Kimi runtime", () => {
     expect(
       getThreadRuntimeSessionId(snapshot, {
         id: "thread-1",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
         title: "Test",
-        updatedAt: "now",
+        createdAt: "2026-07-27T08:00:00.000Z",
+        lastActivityAt: "2026-07-27T08:00:00.000Z",
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
       }),
     ).toBe("kimi-session");
   });

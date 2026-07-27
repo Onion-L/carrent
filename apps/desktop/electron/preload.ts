@@ -14,7 +14,6 @@ import type { McpServerStatus } from "../src/shared/mcpServer";
 import type {
   AppStateSnapshot,
   AppStateLoadResult,
-  WorkspaceSnapshot,
   ProviderSessionSnapshot,
   ProjectRelocationResult,
   ProjectRelocationRequest,
@@ -110,12 +109,8 @@ const carrent = {
     load: () => ipcRenderer.invoke("app-state:load") as Promise<AppStateLoadResult>,
     reread: () => ipcRenderer.invoke("app-state:reread") as Promise<AppStateLoadResult>,
     fullReset: () => ipcRenderer.invoke("app-state:full-reset") as Promise<AppStateLoadResult>,
+    stage: (snapshot: AppStateSnapshot) => ipcRenderer.send("app-state:stage", snapshot),
     save: (snapshot: AppStateSnapshot) => ipcRenderer.invoke("app-state:save", snapshot),
-  },
-  workspace: {
-    load: () => ipcRenderer.invoke("workspace:load") as Promise<WorkspaceSnapshot | null>,
-    remember: (snapshot: WorkspaceSnapshot) => ipcRenderer.send("workspace:remember", snapshot),
-    save: (snapshot: WorkspaceSnapshot) => ipcRenderer.invoke("workspace:save", snapshot),
   },
   providerSessions: {
     load: () => ipcRenderer.invoke("provider-sessions:load") as Promise<ProviderSessionSnapshot>,

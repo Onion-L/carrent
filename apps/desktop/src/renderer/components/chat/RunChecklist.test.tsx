@@ -8,9 +8,10 @@ import { MemoryRouter } from "react-router-dom";
 
 import type { ThreadRunChecklist } from "../../../shared/runChecklist";
 import type { ChatRunEvent } from "../../../shared/chat";
-import type { WorkspaceSnapshot } from "../../../shared/workspacePersistence";
+import type { AppStateSnapshot } from "../../../shared/workspacePersistence";
+import { AppStateProvider } from "../../context/AppStateContext";
 import { RuntimeModelsProvider } from "../../context/RuntimeModelsContext";
-import { WorkspaceProvider, useWorkspace } from "../../context/WorkspaceContext";
+import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
 import { Composer } from "./Composer";
 import { getRunChecklistProgress, RunChecklist } from "./RunChecklist";
 
@@ -55,15 +56,17 @@ afterEach(async () => {
 });
 
 function ComposerHarness({ threadId }: { threadId: string }) {
-  const { hasHydrated, getChatRouteData } = useWorkspace();
-  const routeData = getChatRouteData(threadId);
+  const { hasHydrated, getThreadRouteData } = useThreadContent();
+  const routeData = getThreadRouteData("project-1", threadId);
   if (!hasHydrated || !routeData) {
     return null;
   }
 
   return (
     <Composer
-      mode="chat"
+      mode="thread"
+      workspaceId="workspace-1"
+      projectId="project-1"
       threadId={threadId}
       messages={routeData.messages}
       runtimeId="kimi"
@@ -73,13 +76,17 @@ function ComposerHarness({ threadId }: { threadId: string }) {
   );
 }
 
-async function renderComposer(threadId: string, snapshot: WorkspaceSnapshot) {
+async function renderComposer(threadId: string, snapshot: AppStateSnapshot) {
   window.carrent = {
-    workspace: {
-      load: async () => snapshot,
-      remember: () => {},
+    appState: {
+      load: async () => ({ status: "ready", snapshot }),
+      reread: async () => ({ status: "ready", snapshot }),
+      stage: () => {},
       save: async () => {},
+      fullReset: async () => ({ status: "ready", snapshot }),
+      copyDiagnostics: async () => {},
     },
+    projectDirectories: { check: async () => ({ available: true }) },
     runtimes: {
       list: async () => [
         {
@@ -121,13 +128,15 @@ async function renderComposer(threadId: string, snapshot: WorkspaceSnapshot) {
   root = createRoot(container);
   await act(async () => {
     root!.render(
-      <WorkspaceProvider>
-        <RuntimeModelsProvider>
-          <MemoryRouter>
-            <ComposerHarness threadId={threadId} />
-          </MemoryRouter>
-        </RuntimeModelsProvider>
-      </WorkspaceProvider>,
+      <AppStateProvider>
+        <ThreadContentProvider>
+          <RuntimeModelsProvider>
+            <MemoryRouter>
+              <ComposerHarness threadId={threadId} />
+            </MemoryRouter>
+          </RuntimeModelsProvider>
+        </ThreadContentProvider>
+      </AppStateProvider>,
     );
   });
   await act(async () => {
@@ -138,13 +147,15 @@ async function renderComposer(threadId: string, snapshot: WorkspaceSnapshot) {
 async function rerenderComposer(threadId: string) {
   await act(async () => {
     root!.render(
-      <WorkspaceProvider>
-        <RuntimeModelsProvider>
-          <MemoryRouter>
-            <ComposerHarness threadId={threadId} />
-          </MemoryRouter>
-        </RuntimeModelsProvider>
-      </WorkspaceProvider>,
+      <AppStateProvider>
+        <ThreadContentProvider>
+          <RuntimeModelsProvider>
+            <MemoryRouter>
+              <ComposerHarness threadId={threadId} />
+            </MemoryRouter>
+          </RuntimeModelsProvider>
+        </ThreadContentProvider>
+      </AppStateProvider>,
     );
   });
   await act(async () => {
@@ -229,24 +240,42 @@ describe("RunChecklist", () => {
   });
 
   it("restores per-Thread state and follows the Composer Run lifecycle", async () => {
-    const snapshot: WorkspaceSnapshot = {
+    const snapshot: AppStateSnapshot = {
       version: 1,
-      projects: [],
-      chats: [
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
         {
           id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
           title: "First",
-          updatedAt: "now",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
           runtimeId: "kimi",
           runtimeMode: "approval-required",
+          planMode: false,
           runChecklist: checklist,
         },
         {
           id: "thread-2",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
           title: "Second",
-          updatedAt: "now",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
           runtimeId: "kimi",
           runtimeMode: "approval-required",
+          planMode: false,
           runChecklist: {
             ...checklist,
             runId: "run-2",
@@ -254,8 +283,13 @@ describe("RunChecklist", () => {
           },
         },
       ],
-      messages: [],
-      activeThreadId: "thread-1",
+      threadDrafts: [],
+      threadMessages: [],
+      threadRuns: [],
+      threadPromotionIntents: [],
+      threadWork: {},
+      lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
+      activeWorkspaceId: "workspace-1",
     };
     await renderComposer("thread-1", snapshot);
 

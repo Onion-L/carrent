@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Folder, FileCode, FileText } from "lucide-react";
-import type { Message } from "../../mock/uiShellData";
-import { useWorkspaceDiff } from "../../context/WorkspaceDiffContext";
+import type { Message } from "../../../shared/threadContent";
+import { useThreadContentDiff } from "../../context/WorkspaceDiffContext";
 
 type ChangedFilesMessage = Extract<Message, { type: "changed_files" }>;
 
@@ -29,7 +29,7 @@ function FileChangeLabel({ file }: { file: ChangedFilesMessage["changedFiles"][0
 
 export function ChangedFilesCard({ message }: { message: ChangedFilesMessage }) {
   const [expanded, setExpanded] = useState(true);
-  const { openDiff } = useWorkspaceDiff();
+  const { openDiff } = useThreadContentDiff();
 
   const totalAdditions = message.changedFiles.reduce((s, f) => s + f.additions, 0);
   const totalDeletions = message.changedFiles.reduce((s, f) => s + f.deletions, 0);

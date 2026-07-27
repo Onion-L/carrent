@@ -15,8 +15,8 @@ export type QueuedChatMessage = {
 export type { ThreadWorkDraftSnapshot, ThreadWorkSnapshot };
 
 // Per-thread FIFO for messages composed while a run is active, plus the
-// Composer draft. Hydrated from the workspace snapshot on load and serialized
-// back into it through the debounced workspace save; queue items recovered
+// Composer draft. Hydrated from the App State Snapshot on load and serialized
+// back into it through the debounced App State save; queue items recovered
 // from disk require an explicit Send/Steer before they can start a Run.
 const queueByThreadId = new Map<string, QueuedChatMessage[]>();
 const draftByThreadId = new Map<string, ThreadWorkDraftSnapshot>();
@@ -126,7 +126,7 @@ export function removeThreadWork(threadIds: string[]): void {
   }
 }
 
-// Replaces all in-memory queues/drafts with a loaded workspace snapshot. An
+// Replaces all in-memory queues/drafts with loaded App State. An
 // absent or empty snapshot clears stale state (fresh start or failed load).
 export function hydrateThreadWork(
   threadWork: Record<string, ThreadWorkSnapshot> | null | undefined,

@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { AddProjectButton } from "./AddProjectButton";
 import { getWorkspaceProjects } from "../../lib/workspaceProjects";
 import { buildProjectPath, buildThreadPath, buildWorkspacePath } from "../../lib/navigation";
-import { useWorkspace } from "../../context/WorkspaceContext";
+import { useThreadContent } from "../../context/ThreadContentContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import { getThreadDisplayStatus, type ThreadDisplayStatus } from "../../lib/projectThreads";
 import type { ThreadSearchScope } from "../../../shared/threadSearch";
@@ -32,7 +32,7 @@ export function WorkspaceNavigationPane({
     moveAssociation,
     projectDirectoryStatusById,
   } = useAppState();
-  const { projects: contentProjects, messages } = useWorkspace();
+  const { messages } = useThreadContent();
   const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
   const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
   const workspaceProjects = getWorkspaceProjects(projects, associations, activeWorkspaceId);
@@ -140,9 +140,6 @@ export function WorkspaceNavigationPane({
                     pendingQuestions,
                     messages,
                   });
-                  const contentThread = contentProjects
-                    .flatMap((item) => item.threads)
-                    .find((item) => item.id === thread.id);
                   return (
                     <button
                       key={thread.id}
@@ -154,9 +151,7 @@ export function WorkspaceNavigationPane({
                           : "text-subtle"
                       }`}
                     >
-                      <span className="min-w-0 flex-1 truncate">
-                        {contentThread?.title ?? thread.title}
-                      </span>
+                      <span className="min-w-0 flex-1 truncate">{thread.title}</span>
                       {status && (
                         <span className="shrink-0 text-app-10 text-subtle">
                           {STATUS_LABELS[status]}

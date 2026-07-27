@@ -20,10 +20,11 @@ import {
 
 function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
-    workspace: {
+    context: {
       kind: "project",
+      workspaceId: "workspace-1",
       projectId: "carrent",
-      projectPath: "/Users/onion/workbench/carrent",
+      workingDirectory: "/Users/onion/workbench/carrent",
     },
     threadId: "thread-1",
     runtimeId: "kimi",
@@ -1701,7 +1702,12 @@ describe("startKimiAcpChatRun", () => {
     startKimiAcpChatRun({
       runId: "run-kimi-plan-files",
       request: makeRequest({
-        workspace: { kind: "project", projectId: "p1", projectPath: projectDir },
+        context: {
+          kind: "project",
+          workspaceId: "workspace-1",
+          projectId: "p1",
+          workingDirectory: projectDir,
+        },
       }),
       cwd: projectDir,
       emit: () => {},
@@ -1765,7 +1771,12 @@ describe("startKimiAcpChatRun", () => {
     startKimiAcpChatRun({
       runId: "run-kimi-written-files",
       request: makeRequest({
-        workspace: { kind: "project", projectId: "p1", projectPath: projectDir },
+        context: {
+          kind: "project",
+          workspaceId: "workspace-1",
+          projectId: "p1",
+          workingDirectory: projectDir,
+        },
       }),
       cwd: projectDir,
       emit: (event) => emitted.push(event),
@@ -1900,7 +1911,12 @@ describe("startKimiAcpChatRun", () => {
     startKimiAcpChatRun({
       runId: "run-kimi-plan-file-boundary",
       request: makeRequest({
-        workspace: { kind: "project", projectId: "p1", projectPath: projectDir },
+        context: {
+          kind: "project",
+          workspaceId: "workspace-1",
+          projectId: "p1",
+          workingDirectory: projectDir,
+        },
       }),
       cwd: projectDir,
       emit: () => {},
@@ -2003,7 +2019,12 @@ describe("startKimiAcpChatRun", () => {
     startKimiAcpChatRun({
       runId: "run-kimi-attachment-boundary",
       request: makeRequest({
-        workspace: { kind: "project", projectId: "p1", projectPath: projectDir },
+        context: {
+          kind: "project",
+          workspaceId: "workspace-1",
+          projectId: "p1",
+          workingDirectory: projectDir,
+        },
         attachments: [
           {
             id: "a1",
@@ -2115,7 +2136,12 @@ describe("startKimiAcpChatRun", () => {
     startKimiAcpChatRun({
       runId: "run-kimi-attachment-history-boundary",
       request: makeRequest({
-        workspace: { kind: "project", projectId: "p1", projectPath: projectDir },
+        context: {
+          kind: "project",
+          workspaceId: "workspace-1",
+          projectId: "p1",
+          workingDirectory: projectDir,
+        },
         attachments: [],
       }),
       cwd: projectDir,
@@ -2157,7 +2183,12 @@ describe("startKimiAcpChatRun", () => {
     startKimiAcpChatRun({
       runId: "run-kimi-attachment-missing",
       request: makeRequest({
-        workspace: { kind: "project", projectId: "p1", projectPath: projectDir },
+        context: {
+          kind: "project",
+          workspaceId: "workspace-1",
+          projectId: "p1",
+          workingDirectory: projectDir,
+        },
         attachments: [
           {
             id: "a1",

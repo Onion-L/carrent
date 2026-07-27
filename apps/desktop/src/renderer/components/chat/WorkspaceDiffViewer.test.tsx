@@ -13,7 +13,7 @@ import {
   WorkspaceDiffViewer,
   type WorkspaceDiffSnapshot,
 } from "./WorkspaceDiffViewer";
-import type { ChangedFile } from "../../mock/uiShellData";
+import type { ChangedFile } from "../../../shared/threadContent";
 
 function renderContent(
   snapshot: WorkspaceDiffSnapshot,

@@ -43,25 +43,23 @@ describe("createAppStateIpcGate", () => {
 
   it("allows only recovery IPC while App State is blocked", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const listeners = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const gate = createAppStateIpcGate(
       {
         handle: (channel: string, listener: (event: unknown, ...args: unknown[]) => unknown) =>
           handlers.set(channel, listener),
-        on: (channel: string, listener: (event: unknown, ...args: unknown[]) => unknown) =>
-          listeners.set(channel, listener),
+        on() {},
       },
       recovery,
     );
     let runsStarted = 0;
-    let snapshotsRemembered = 0;
+    let snapshotsSaved = 0;
     let diagnosticsCopied = 0;
 
     gate.ipcMain.handle("chat:send", () => {
       runsStarted += 1;
     });
-    gate.ipcMain.on("workspace:remember", () => {
-      snapshotsRemembered += 1;
+    gate.ipcMain.handle("app-state:save", () => {
+      snapshotsSaved += 1;
     });
     gate.ipcMain.handle("clipboard:write-text", () => {
       diagnosticsCopied += 1;
@@ -73,17 +71,26 @@ describe("createAppStateIpcGate", () => {
     } catch (error) {
       runError = error;
     }
-    listeners.get("workspace:remember")?.({});
+    const saveError = await caughtError(() => handlers.get("app-state:save")?.({}));
     expect(String(runError)).toContain("App State recovery is required");
+    expect(String(saveError)).toContain("App State recovery is required");
     expect(await handlers.get("clipboard:write-text")?.({})).toBeUndefined();
     expect(runsStarted).toBe(0);
-    expect(snapshotsRemembered).toBe(0);
+    expect(snapshotsSaved).toBe(0);
     expect(diagnosticsCopied).toBe(1);
 
     gate.update(ready);
     expect(await handlers.get("chat:send")?.({})).toBeUndefined();
-    listeners.get("workspace:remember")?.({});
+    await handlers.get("app-state:save")?.({});
     expect(runsStarted).toBe(1);
-    expect(snapshotsRemembered).toBe(1);
+    expect(snapshotsSaved).toBe(1);
   });
 });
+
+async function caughtError(operation: () => unknown): Promise<unknown> {
+  try {
+    return await operation();
+  } catch (error) {
+    return error;
+  }
+}

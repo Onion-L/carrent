@@ -17,10 +17,6 @@ export function buildThreadPath(workspaceId: string, projectId: string, threadId
   return `${buildProjectPath(workspaceId, projectId)}/thread/${threadId}`;
 }
 
-export function buildChatPath(threadId: string) {
-  return `/chat/${threadId}`;
-}
-
 export function getProjectIdFromPathname(pathname: string) {
   const parts = pathname.split("/");
   return parts[1] === "workspace" && parts[3] === "project" ? parts[4] || null : null;

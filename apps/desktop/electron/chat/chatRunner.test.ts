@@ -10,10 +10,11 @@ import type { RuntimeMode } from "../../src/shared/runtimeMode";
 
 function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
-    workspace: {
+    context: {
       kind: "project",
+      workspaceId: "workspace-1",
       projectId: "timbre",
-      projectPath: "/Users/onion/workbench/timbre",
+      workingDirectory: "/Users/onion/workbench/timbre",
     },
     threadId: "thread-1",
     runtimeId: "codex",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { Message, SubagentTaskPart } from "../../mock/uiShellData";
+import type { Message, SubagentTaskPart } from "../../../shared/threadContent";
 import {
   ThreadInspectorContent,
   ThreadInspectorToggle,

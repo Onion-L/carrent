@@ -1393,7 +1393,7 @@ class KimiAcpRun {
 
     const target = await this.resolveTextFileTarget(requestedPath, "read");
 
-    if (target.kind === "workspace") {
+    if (target.kind === "project") {
       this.emit({
         type: "reasoning",
         runId: this.options.runId,
@@ -1436,7 +1436,7 @@ class KimiAcpRun {
     const target = await this.resolveTextFileTarget(requestedPath, "write");
     await mkdir(path.dirname(target.path), { recursive: true });
     await writeFile(target.path, content, "utf8");
-    if (target.kind === "workspace" && target.relativePath) {
+    if (target.kind === "project" && target.relativePath) {
       this.writtenFiles.add(target.relativePath.split(path.sep).join("/"));
     }
     return {};
@@ -1465,28 +1465,28 @@ class KimiAcpRun {
       }
     }
 
-    const workspacePath = path.resolve(this.options.cwd);
-    const workspaceRealPath = await realpath(this.options.cwd);
-    const workspaceRelative = path.relative(workspacePath, resolvedPath);
-    const isLexicallyInWorkspace = isContainedRelativePath(workspaceRelative);
+    const projectWorkingDirectory = path.resolve(this.options.cwd);
+    const projectWorkingDirectoryRealPath = await realpath(this.options.cwd);
+    const projectRelativePath = path.relative(projectWorkingDirectory, resolvedPath);
+    const isLexicallyInProject = isContainedRelativePath(projectRelativePath);
 
-    if (isLexicallyInWorkspace) {
+    if (isLexicallyInProject) {
       const targetPath = await resolveContainedTextFilePath({
         targetPath: resolvedPath,
-        rootRealPath: workspaceRealPath,
+        rootRealPath: projectWorkingDirectoryRealPath,
         access,
-        refusalMessage: `Refusing to ${access} outside workspace: ${requestedPath}`,
+        refusalMessage: `Refusing to ${access} outside Project Working Directory: ${requestedPath}`,
       });
       return {
-        kind: "workspace" as const,
+        kind: "project" as const,
         path: targetPath,
-        relativePath: workspaceRelative,
+        relativePath: projectRelativePath,
       };
     }
 
     const sessionsRoot = this.options.kimiSessionsRoot ?? getKimiSessionsRoot();
     if (!this.sessionId || !isCurrentKimiPlanPath(resolvedPath, this.sessionId, sessionsRoot)) {
-      throw new Error(`Refusing to ${access} outside workspace: ${requestedPath}`);
+      throw new Error(`Refusing to ${access} outside Project Working Directory: ${requestedPath}`);
     }
 
     const sessionsRootRealPath = await realpath(sessionsRoot);
@@ -1789,25 +1789,6 @@ class KimiAcpRun {
   }
 
   private emitThreadLifecycle() {
-    if (this.options.request.draftRef) {
-      this.emit({
-        type: "thread-upserted",
-        runId: this.options.runId,
-        requestKey: this.options.request.requestKey,
-        draftId: this.options.request.draftRef.draftId,
-        projectId: this.options.request.draftRef.projectId,
-        thread: {
-          id: this.options.request.threadId,
-          title: this.options.request.draftRef.title,
-          updatedAt: new Date().toISOString(),
-          runtimeId: this.options.request.runtimeId,
-          runtimeModelId: this.options.request.runtimeModelId,
-          runtimeMode: this.options.request.runtimeMode,
-          planMode: this.options.request.planMode,
-        },
-      });
-    }
-
     this.emit({
       type: "started",
       runId: this.options.runId,

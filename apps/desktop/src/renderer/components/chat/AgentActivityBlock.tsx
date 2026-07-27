@@ -1,6 +1,6 @@
 import { CheckCircle2, ChevronRight, CircleDashed, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { MessagePart } from "../../mock/uiShellData";
+import type { MessagePart } from "../../../shared/threadContent";
 
 export type ReasoningPart = Extract<MessagePart, { type: "reasoning" }>;
 export type ShellPart = Extract<MessagePart, { type: "shell" }>;

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
-import type { ChangedFile } from "../mock/uiShellData";
+import type { ChangedFile } from "../../shared/threadContent";
 import type { WorkspaceDiffSnapshot } from "../components/chat/WorkspaceDiffViewer";
 
 type WorkspaceDiffState =
@@ -40,6 +40,6 @@ export function WorkspaceDiffProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useWorkspaceDiff(): WorkspaceDiffContextValue {
+export function useThreadContentDiff(): WorkspaceDiffContextValue {
   return useContext(WorkspaceDiffContext);
 }

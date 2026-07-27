@@ -17,7 +17,6 @@ import type {
   AppStateLoadResult,
   AppStateSnapshot,
   ProjectRelocationRequest,
-  WorkspaceSnapshot,
 } from "../shared/workspacePersistence";
 import type {
   ChatRunEvent,
@@ -28,14 +27,6 @@ import type {
 
 mock.module("./assets/logo.png", () => ({ default: "logo.png" }));
 const { default: App } = await import("./App");
-
-const legacySnapshot: WorkspaceSnapshot = {
-  version: 1,
-  projects: [],
-  chats: [],
-  messages: [],
-  activeThreadId: null,
-};
 
 const emptyAppState: AppStateSnapshot = {
   version: 1,
@@ -76,22 +67,16 @@ function installBridge(
   saveFails: boolean | number | number[] = false,
   chatRequests: ChatTurnRequest[] = [],
   chatSendFails = false,
-  workspaceSnapshot: WorkspaceSnapshot = legacySnapshot,
-  workspaceLoadFails: boolean | number = false,
   deleteThreadDataRequests: DeleteThreadDataRequest[] = [],
   deleteThreadDataFails = false,
   appStateSaveGate?: Promise<void>,
-  workspaceSaved: WorkspaceSnapshot[] = [],
-  workspaceSaveFails: boolean | number | number[] = false,
   deleteThreadTransactionGate?: Promise<void>,
   projectDirectoryAvailable: boolean | boolean[] | (() => boolean) = true,
   projectRelocationRequests: ProjectRelocationRequest[] = [],
 ) {
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
   let saveAttempt = 0;
-  let workspaceLoadAttempt = 0;
-  let workspaceSaveAttempt = 0;
-  let currentWorkspaceSnapshot = structuredClone(workspaceSnapshot);
+  const loadedAppState = appState ?? emptyAppState;
   const saveAppState = async (snapshot: AppStateSnapshot) => {
     saveAttempt += 1;
     if (
@@ -104,26 +89,16 @@ function installBridge(
     await appStateSaveGate;
     saved.push(structuredClone(snapshot));
   };
-  const saveWorkspace = async (snapshot: WorkspaceSnapshot) => {
-    workspaceSaveAttempt += 1;
-    if (
-      workspaceSaveFails === true ||
-      workspaceSaveFails === workspaceSaveAttempt ||
-      (Array.isArray(workspaceSaveFails) && workspaceSaveFails.includes(workspaceSaveAttempt))
-    ) {
-      throw new Error("workspace disk full");
-    }
-    workspaceSaved.push(structuredClone(snapshot));
-  };
   window.carrent = {
     appState: {
-      load: async () => ({ status: "ready", snapshot: appState ?? emptyAppState }),
-      reread: async () => ({ status: "ready", snapshot: appState ?? emptyAppState }),
+      load: async () => ({ status: "ready", snapshot: loadedAppState }),
+      reread: async () => ({ status: "ready", snapshot: loadedAppState }),
       fullReset: async () => ({
         status: "ready",
         snapshot: emptyAppState,
         notice: "full-reset",
       }),
+      stage: () => {},
       save: saveAppState,
     },
     dialog: {
@@ -136,17 +111,6 @@ function installBridge(
     },
     clipboard: {
       writeText: async () => {},
-    },
-    workspace: {
-      load: async () => {
-        workspaceLoadAttempt += 1;
-        if (workspaceLoadFails === true || workspaceLoadFails === workspaceLoadAttempt) {
-          throw new Error("content unavailable");
-        }
-        return currentWorkspaceSnapshot;
-      },
-      remember: () => {},
-      save: saveWorkspace,
     },
     runtimes: {
       list: async () => [
@@ -193,15 +157,7 @@ function installBridge(
               : project,
           ),
         };
-        currentWorkspaceSnapshot = {
-          ...currentWorkspaceSnapshot,
-          projects: currentWorkspaceSnapshot.projects.map((project) =>
-            project.id === request.projectId
-              ? { ...project, path: request.targetDirectory }
-              : project,
-          ),
-        };
-        return { appState: relocatedAppState, workspace: currentWorkspaceSnapshot };
+        return { appState: relocatedAppState };
       },
     },
     skills: { list: async () => [] },
@@ -253,7 +209,6 @@ function installBridge(
         if (deleteThreadDataFails) throw new Error("cleanup failed");
         await deleteThreadTransactionGate;
         await saveAppState(request.afterAppState);
-        await saveWorkspace(request.afterWorkspace);
       },
     },
     mainWindow: {
@@ -299,6 +254,7 @@ async function renderRecoveryApp(
       return current;
     },
     fullReset: async () => resetResult,
+    stage: () => {},
     save: async (snapshot) => {
       saved.push(structuredClone(snapshot));
     },
@@ -309,6 +265,15 @@ async function renderRecoveryApp(
   await mountInstalledBridge(initialEntry);
 }
 
+type RenderAppOptions = {
+  deleteThreadDataRequests?: DeleteThreadDataRequest[];
+  deleteThreadDataFails?: boolean;
+  appStateSaveGate?: Promise<void>;
+  deleteThreadTransactionGate?: Promise<void>;
+  projectDirectoryAvailable?: boolean | boolean[] | (() => boolean);
+  projectRelocationRequests?: ProjectRelocationRequest[];
+};
+
 async function renderApp(
   appState: AppStateSnapshot | null,
   initialEntry = "/",
@@ -316,16 +281,7 @@ async function renderApp(
   saveFails: boolean | number | number[] = false,
   chatRequests: ChatTurnRequest[] = [],
   chatSendFails = false,
-  workspaceSnapshot: WorkspaceSnapshot = legacySnapshot,
-  workspaceLoadFails: boolean | number = false,
-  deleteThreadDataRequests: DeleteThreadDataRequest[] = [],
-  deleteThreadDataFails = false,
-  appStateSaveGate?: Promise<void>,
-  workspaceSaved: WorkspaceSnapshot[] = [],
-  workspaceSaveFails: boolean | number | number[] = false,
-  deleteThreadTransactionGate?: Promise<void>,
-  projectDirectoryAvailable: boolean | boolean[] | (() => boolean) = true,
-  projectRelocationRequests: ProjectRelocationRequest[] = [],
+  options: RenderAppOptions = {},
 ) {
   const saved: AppStateSnapshot[] = [];
   localStorage.setItem(
@@ -345,16 +301,12 @@ async function renderApp(
     saveFails,
     chatRequests,
     chatSendFails,
-    workspaceSnapshot,
-    workspaceLoadFails,
-    deleteThreadDataRequests,
-    deleteThreadDataFails,
-    appStateSaveGate,
-    workspaceSaved,
-    workspaceSaveFails,
-    deleteThreadTransactionGate,
-    projectDirectoryAvailable,
-    projectRelocationRequests,
+    options.deleteThreadDataRequests,
+    options.deleteThreadDataFails,
+    options.appStateSaveGate,
+    options.deleteThreadTransactionGate,
+    options.projectDirectoryAvailable,
+    options.projectRelocationRequests,
   );
   await mountInstalledBridge(initialEntry);
 
@@ -693,30 +645,60 @@ describe("three-level navigation", () => {
     };
   }
 
-  const navigationWorkspaceSnapshot: WorkspaceSnapshot = {
-    version: 1,
-    projects: [
-      {
-        id: "project-1",
-        name: "Carrent",
-        path: "/code/carrent",
-        threads: [
-          { id: "thread-1", title: "Personal Thread", updatedAt: "now" },
-          { id: "thread-2", title: "Client Thread", updatedAt: "now" },
-        ],
-      },
-    ],
-    chats: [],
-    messages: [],
-    activeThreadId: null,
-  };
-
   it("restores the active Workspace's last valid Thread on startup", async () => {
-    await renderApp(navigationState(), "/", [], false, [], false, navigationWorkspaceSnapshot);
+    await renderApp(navigationState());
 
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
     expect(currentNavigationType).toBe("REPLACE");
     expect(container!.textContent).toContain("Personal Thread");
+  });
+
+  it("flushes pending Thread content before the Main Window closes", async () => {
+    const saved = await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+    );
+
+    await fillTextarea(container!.querySelector("textarea")!, "Save before closing");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+      window.dispatchEvent(new window.Event("beforeunload"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(saved.at(-1)?.threadWork?.["thread-1"]?.draft?.content).toBe("Save before closing");
+  });
+
+  it("preserves newer Thread content while a navigation save is pending", async () => {
+    let releaseSave!: () => void;
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const saved = await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      { appStateSaveGate: saveGate },
+    );
+
+    await act(async () => {
+      testNavigate!("/workspace/workspace-2/project/project-1/thread/thread-2");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await fillTextarea(container!.querySelector("textarea")!, "Keep the newer draft");
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+    releaseSave();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(saved.at(-1)?.threadWork?.["thread-2"]?.draft?.content).toBe("Keep the newer draft");
   });
 
   it("restores each Workspace's last valid Thread and keeps repeated selection a no-op", async () => {
@@ -727,7 +709,6 @@ describe("three-level navigation", () => {
       false,
       [],
       false,
-      navigationWorkspaceSnapshot,
     );
 
     await click(buttonNamed("Client"));
@@ -748,7 +729,6 @@ describe("three-level navigation", () => {
       false,
       [],
       false,
-      navigationWorkspaceSnapshot,
     );
 
     const navigationPane = container!.querySelector("aside.border-r")!;
@@ -774,15 +754,7 @@ describe("three-level navigation", () => {
 
   it("keeps Settings in the Main Window and returns to the entry location", async () => {
     const entryPath = "/workspace/workspace-1/project/project-1/thread/thread-1";
-    await renderApp(
-      navigationState(),
-      entryPath,
-      [],
-      false,
-      [],
-      false,
-      navigationWorkspaceSnapshot,
-    );
+    await renderApp(navigationState(), entryPath, [], false, [], false);
 
     await click(buttonNamed("Settings"));
     expect(currentPathname).toBe("/settings");
@@ -801,7 +773,6 @@ describe("three-level navigation", () => {
       false,
       [],
       false,
-      navigationWorkspaceSnapshot,
     );
 
     await act(async () => {
@@ -826,7 +797,6 @@ describe("three-level navigation", () => {
       false,
       [],
       false,
-      navigationWorkspaceSnapshot,
     );
 
     await act(async () => {
@@ -880,7 +850,6 @@ describe("three-level navigation", () => {
       false,
       [],
       false,
-      navigationWorkspaceSnapshot,
     );
 
     await click(buttonNamed("Search Personal"));
@@ -935,7 +904,6 @@ describe("three-level navigation", () => {
       false,
       [],
       false,
-      navigationWorkspaceSnapshot,
     );
 
     await act(async () => {
@@ -974,15 +942,7 @@ describe("three-level navigation", () => {
   });
 
   it("switches from global search to an Association scope outside a Project route", async () => {
-    await renderApp(
-      navigationState(),
-      "/settings",
-      [],
-      false,
-      [],
-      false,
-      navigationWorkspaceSnapshot,
-    );
+    await renderApp(navigationState(), "/settings", [], false, [], false);
 
     await act(async () => {
       window.dispatchEvent(
@@ -1004,27 +964,26 @@ describe("three-level navigation", () => {
   it("aggregates Attention across Workspaces without replacing the current content", async () => {
     const state = navigationState();
     const chatRequests: ChatTurnRequest[] = [];
-    const workspaceSnapshot: WorkspaceSnapshot = {
-      ...navigationWorkspaceSnapshot,
-      messages: [
-        {
-          id: "failure-1",
-          role: "assistant",
-          threadId: "thread-1",
-          content: "Personal failed",
-          timestamp: "08:00",
-          runStatus: "failed",
-        },
-        {
-          id: "failure-2",
-          role: "assistant",
-          threadId: "thread-2",
-          content: "Client failed",
-          timestamp: "09:00",
-          runStatus: "failed",
-        },
-      ],
-    };
+    state.threadMessages = [
+      {
+        id: "failure-1",
+        role: "assistant",
+        threadId: "thread-1",
+        content: "Personal failed",
+        createdAt: "2026-07-27T08:00:00.000Z",
+        attachments: [],
+        runStatus: "failed",
+      },
+      {
+        id: "failure-2",
+        role: "assistant",
+        threadId: "thread-2",
+        content: "Client failed",
+        createdAt: "2026-07-27T09:00:00.000Z",
+        attachments: [],
+        runStatus: "failed",
+      },
+    ];
 
     await renderApp(
       state,
@@ -1033,7 +992,6 @@ describe("three-level navigation", () => {
       false,
       chatRequests,
       false,
-      workspaceSnapshot,
     );
 
     expect(buttonNamed("Attention").textContent).toContain("2");
@@ -1107,18 +1065,6 @@ describe("three-level navigation", () => {
       runtimeMode: "approval-required",
       planMode: false,
     });
-    const workspaceSnapshot: WorkspaceSnapshot = {
-      ...navigationWorkspaceSnapshot,
-      projects: [
-        {
-          ...navigationWorkspaceSnapshot.projects[0],
-          threads: [
-            ...navigationWorkspaceSnapshot.projects[0].threads,
-            { id: "thread-3", title: "Running Thread", updatedAt: "now" },
-          ],
-        },
-      ],
-    };
     const chatRequests: ChatTurnRequest[] = [];
     await renderApp(
       state,
@@ -1127,7 +1073,6 @@ describe("three-level navigation", () => {
       false,
       chatRequests,
       false,
-      workspaceSnapshot,
     );
 
     const startRun = async (path: string, message: string) => {
@@ -1225,7 +1170,6 @@ describe("three-level navigation", () => {
       false,
       [],
       false,
-      navigationWorkspaceSnapshot,
     );
 
     expect(buttonNamed("Attention").textContent).toContain("0");
@@ -1246,7 +1190,7 @@ describe("three-level navigation", () => {
     const state = navigationState();
     state.lastThreadIdByWorkspace = { "workspace-1": "missing-thread" };
 
-    await renderApp(state, "/", [], false, [], false, navigationWorkspaceSnapshot);
+    await renderApp(state);
 
     expect(currentPathname).toBe("/workspace/workspace-1");
     expect(currentNavigationType).toBe("REPLACE");
@@ -1262,7 +1206,6 @@ describe("three-level navigation", () => {
       false,
       [],
       false,
-      navigationWorkspaceSnapshot,
     );
 
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
@@ -1279,7 +1222,6 @@ describe("three-level navigation", () => {
       false,
       [],
       false,
-      navigationWorkspaceSnapshot,
     );
 
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
@@ -1300,37 +1242,16 @@ describe("three-level navigation", () => {
     expect(container!.textContent).toContain("Create your first Workspace");
   });
 
-  it("replaces the current Thread route after a successful content retry", async () => {
-    await renderApp(
-      navigationState(),
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      [],
-      false,
-      navigationWorkspaceSnapshot,
-      1,
-    );
-
-    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
-    expect(container!.textContent).toContain("Thread content could not be loaded.");
-    expect(container!.textContent).not.toContain("corrupt");
-    await click(buttonNamed("Retry"));
-    expect(container!.textContent).not.toContain("Thread content could not be loaded.");
-    expect(container!.textContent).toContain("Personal Thread");
-    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
-    expect(currentNavigationType).toBe("REPLACE");
-  });
-
   it("persists interrupted restart state without discarding produced history", async () => {
-    const workspaceSnapshot = structuredClone(navigationWorkspaceSnapshot);
-    workspaceSnapshot.messages = [
+    const state = navigationState();
+    state.threadMessages = [
       {
         id: "assistant-running",
         role: "assistant",
         threadId: "thread-1",
-        timestamp: "10:00",
+        createdAt: "2026-07-27T10:00:00.000Z",
         content: "Partial answer",
+        attachments: [],
         runStatus: "running",
         parts: [
           { type: "text", content: "Partial answer" },
@@ -1360,27 +1281,12 @@ describe("three-level navigation", () => {
         ],
       },
     ];
-    const workspaceSaved: WorkspaceSnapshot[] = [];
-
-    await renderApp(
-      navigationState(),
-      "/",
-      [],
-      false,
-      [],
-      false,
-      workspaceSnapshot,
-      false,
-      [],
-      false,
-      undefined,
-      workspaceSaved,
-    );
+    const saved = await renderApp(state, "/", [], false, [], false);
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 550));
     });
 
-    expect(workspaceSaved.at(-1)?.messages[0]).toMatchObject({
+    expect(saved.at(-1)?.threadMessages?.[0]).toMatchObject({
       content: "Partial answer",
       runStatus: "cancelled",
       parts: [
@@ -1392,23 +1298,6 @@ describe("three-level navigation", () => {
     });
   });
 
-  it("pushes history when content-load recovery opens the parent overview", async () => {
-    await renderApp(
-      navigationState(),
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      [],
-      false,
-      navigationWorkspaceSnapshot,
-      true,
-    );
-
-    await click(buttonNamed("Open Project Overview"));
-    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
-    expect(currentNavigationType).toBe("PUSH");
-  });
-
   it("replaces a three-level route with extra path segments", async () => {
     await renderApp(
       navigationState(),
@@ -1417,7 +1306,6 @@ describe("three-level navigation", () => {
       false,
       [],
       false,
-      navigationWorkspaceSnapshot,
     );
 
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
@@ -1810,21 +1698,18 @@ describe("Association Thread Drafts", () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
-      workspace: {
+      context: {
         kind: "project",
         workspaceId: "workspace-1",
         projectId: "project-1",
-        projectPath: "/code/carrent",
-      },
-      draftRef: {
-        projectId: "project-1",
-        workspaceId: "workspace-1",
+        workingDirectory: "/code/carrent",
       },
       runtimeId: "kimi",
       runtimeModelId: "kimi-k2.5",
       runtimeMode: "approval-required",
       message: "Implement association drafts",
     });
+    expect("draftRef" in requests[0]).toBe(false);
     expect(saved.at(-1)?.threadDrafts).toEqual([]);
     expect(saved.at(-1)?.threads).toHaveLength(1);
     expect(saved.at(-1)?.threads?.[0]).toMatchObject({
@@ -1839,6 +1724,11 @@ describe("Association Thread Drafts", () => {
       threadId: requests[0].threadId,
       role: "user",
       content: "Implement association drafts",
+    });
+    expect(saved.at(-1)?.threadMessages?.[1]).toMatchObject({
+      threadId: requests[0].threadId,
+      role: "assistant",
+      attachments: [],
     });
     expect(saved.at(-1)?.threadRuns?.[0]).toMatchObject({
       id: requests[0].runId,
@@ -2009,31 +1899,6 @@ describe("Association Thread Drafts", () => {
         },
       ],
     };
-    const workspaceSnapshot: WorkspaceSnapshot = {
-      version: 1,
-      projects: [
-        {
-          id: "project-1",
-          name: "Carrent",
-          path: "/code/carrent",
-          threads: [
-            {
-              id: "thread-1",
-              title: "Existing Thread",
-              updatedAt: "2026-07-27T08:00:00.000Z",
-              runtimeId: "kimi",
-              runtimeModelId: "kimi-k2.5",
-              runtimeMode: "approval-required",
-              planMode: false,
-            },
-          ],
-        },
-      ],
-      chats: [],
-      messages: [],
-      activeThreadId: "thread-1",
-    };
-
     const saved = await renderApp(
       threadState,
       "/workspace/workspace-1/project/project-1/thread/thread-1",
@@ -2041,7 +1906,6 @@ describe("Association Thread Drafts", () => {
       true,
       requests,
       false,
-      workspaceSnapshot,
     );
     await fillTextarea(container!.querySelector("textarea")!, "Do not dispatch this");
     await click(composerSendButton());
@@ -2080,27 +1944,6 @@ describe("Project Working Directory recovery", () => {
     ],
     activeWorkspaceId: "workspace-1",
   };
-  const workspaceSnapshot: WorkspaceSnapshot = {
-    version: 1,
-    projects: [
-      {
-        id: "project-1",
-        name: "Carrent",
-        path: "/missing/carrent",
-        threads: [
-          {
-            id: "thread-1",
-            title: "Keep History",
-            updatedAt: "2026-07-27T08:00:00.000Z",
-          },
-        ],
-      },
-    ],
-    chats: [],
-    messages: [],
-    activeThreadId: "thread-1",
-  };
-
   it("keeps hierarchy visible and blocks the Thread Composer when the directory is unavailable", async () => {
     await renderApp(
       appState,
@@ -2109,15 +1952,7 @@ describe("Project Working Directory recovery", () => {
       false,
       [],
       false,
-      workspaceSnapshot,
-      false,
-      [],
-      false,
-      undefined,
-      [],
-      false,
-      undefined,
-      false,
+      { projectDirectoryAvailable: false },
     );
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -2141,15 +1976,7 @@ describe("Project Working Directory recovery", () => {
       false,
       [],
       false,
-      workspaceSnapshot,
-      false,
-      [],
-      false,
-      undefined,
-      [],
-      false,
-      undefined,
-      () => available,
+      { projectDirectoryAvailable: () => available },
     );
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -2165,24 +1992,19 @@ describe("Project Working Directory recovery", () => {
 
   it("relocates explicitly and replaces the unavailable Thread location", async () => {
     const relocations: ProjectRelocationRequest[] = [];
+    const requests: ChatTurnRequest[] = [];
     let available = false;
     await renderApp(
       appState,
       "/workspace/workspace-1/project/project-1/thread/thread-1",
       ["/new/carrent"],
       false,
-      [],
+      requests,
       false,
-      workspaceSnapshot,
-      false,
-      [],
-      false,
-      undefined,
-      [],
-      false,
-      undefined,
-      () => available,
-      relocations,
+      {
+        projectDirectoryAvailable: () => available,
+        projectRelocationRequests: relocations,
+      },
     );
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -2195,6 +2017,23 @@ describe("Project Working Directory recovery", () => {
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
     expect(currentNavigationType).toBe("REPLACE");
     expect(container!.querySelector("textarea")).not.toBe(null);
+
+    await fillTextarea(container!.querySelector("textarea")!, "Use the relocated directory");
+    await click(composerSendButton());
+
+    expect(requests[0]?.context).toEqual({
+      kind: "project",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      workingDirectory: "/new/carrent",
+    });
+    await act(async () => {
+      emitChatEvent?.({
+        type: "stopped",
+        runId: requests[0]!.runId!,
+        requestKey: requests[0]!.requestKey,
+      });
+    });
   });
 
   it("keeps the unavailable state when directory relocation is canceled", async () => {
@@ -2206,16 +2045,7 @@ describe("Project Working Directory recovery", () => {
       false,
       [],
       false,
-      workspaceSnapshot,
-      false,
-      [],
-      false,
-      undefined,
-      [],
-      false,
-      undefined,
-      false,
-      relocations,
+      { projectDirectoryAvailable: false, projectRelocationRequests: relocations },
     );
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -2230,7 +2060,7 @@ describe("Project Working Directory recovery", () => {
 });
 
 describe("Archived Thread lifecycle", () => {
-  function lifecycleState(archivedThreadIds: string[] = []): AppStateSnapshot {
+  function lifecycleState(archivedThreadIds: string[] = [], queued = false): AppStateSnapshot {
     return {
       version: 1,
       workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
@@ -2252,10 +2082,18 @@ describe("Archived Thread lifecycle", () => {
           title: "Primary Thread",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T10:00:00.000Z",
+          pinned: true,
           ...(archivedThreadIds.includes("thread-1") ? { archived: true } : {}),
           runtimeId: "kimi",
           runtimeMode: "approval-required",
           planMode: false,
+          runChecklist: {
+            runId: "run-1",
+            runtimeId: "kimi",
+            entries: [{ content: "Keep checklist", status: "pending" }],
+            outcome: "completed",
+            expanded: true,
+          },
         },
         {
           id: "thread-2",
@@ -2300,75 +2138,19 @@ describe("Archived Thread lifecycle", () => {
           planMode: false,
         },
       ],
+      threadWork: queued
+        ? {
+            "thread-1": {
+              queuedMessages: [{ id: "queued-1", content: "Wait for the current Run" }],
+            },
+          }
+        : {},
       lastThreadIdByWorkspace: archivedThreadIds.includes("thread-1")
         ? archivedThreadIds.includes("thread-2")
           ? {}
           : { "workspace-1": "thread-2" }
         : { "workspace-1": "thread-1" },
       activeWorkspaceId: "workspace-1",
-    };
-  }
-
-  function lifecycleWorkspaceSnapshot(queued = false): WorkspaceSnapshot {
-    return {
-      version: 1,
-      projects: [
-        {
-          id: "project-1",
-          name: "Carrent",
-          path: "/code/carrent",
-          threads: [
-            {
-              id: "thread-1",
-              title: "Primary Thread",
-              updatedAt: "2026-07-27T10:00:00.000Z",
-              pinned: true,
-              runChecklist: {
-                runId: "run-1",
-                runtimeId: "kimi",
-                entries: [{ content: "Keep checklist", status: "pending" }],
-                outcome: "completed",
-                expanded: true,
-              },
-            },
-            {
-              id: "thread-2",
-              title: "Secondary Thread",
-              updatedAt: "2026-07-27T09:00:00.000Z",
-            },
-          ],
-        },
-      ],
-      chats: [],
-      messages: [
-        {
-          id: "message-1",
-          threadId: "thread-1",
-          role: "user",
-          content: "Keep this history",
-          timestamp: "10:00",
-          attachments: [
-            {
-              id: "attachment-1",
-              kind: "file",
-              name: "notes.txt",
-              mimeType: "text/plain",
-              size: 5,
-              storageKey: "attachment-1.txt",
-            },
-          ],
-        },
-      ],
-      activeThreadId: "thread-1",
-      ...(queued
-        ? {
-            threadWork: {
-              "thread-1": {
-                queuedMessages: [{ id: "queued-1", content: "Wait for the current Run" }],
-              },
-            },
-          }
-        : {}),
     };
   }
 
@@ -2380,7 +2162,6 @@ describe("Archived Thread lifecycle", () => {
       false,
       [],
       false,
-      lifecycleWorkspaceSnapshot(),
     );
 
     await click(buttonNamed("Archive Thread"));
@@ -2394,13 +2175,12 @@ describe("Archived Thread lifecycle", () => {
 
   it("blocks archive while a Thread has queued messages", async () => {
     await renderApp(
-      lifecycleState(),
+      lifecycleState([], true),
       "/workspace/workspace-1/project/project-1/thread/thread-1",
       [],
       false,
       [],
       false,
-      lifecycleWorkspaceSnapshot(true),
     );
 
     expect(buttonNamed("Archive Thread").disabled).toBe(true);
@@ -2416,7 +2196,6 @@ describe("Archived Thread lifecycle", () => {
       false,
       requests,
       false,
-      lifecycleWorkspaceSnapshot(),
     );
 
     await fillTextarea(container!.querySelector("textarea")!, "Keep this Run visible");
@@ -2450,11 +2229,7 @@ describe("Archived Thread lifecycle", () => {
       false,
       requests,
       false,
-      lifecycleWorkspaceSnapshot(),
-      false,
-      [],
-      false,
-      saveGate,
+      { appStateSaveGate: saveGate },
     );
 
     await click(buttonNamed("Archive Thread"));
@@ -2478,7 +2253,6 @@ describe("Archived Thread lifecycle", () => {
       false,
       [],
       false,
-      lifecycleWorkspaceSnapshot(),
     );
 
     await click(buttonNamed("Archive Thread"));
@@ -2494,7 +2268,6 @@ describe("Archived Thread lifecycle", () => {
       false,
       [],
       false,
-      lifecycleWorkspaceSnapshot(),
     );
 
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
@@ -2509,7 +2282,6 @@ describe("Archived Thread lifecycle", () => {
       false,
       [],
       false,
-      lifecycleWorkspaceSnapshot(),
     );
 
     expect(container!.textContent).toContain("Personal / Carrent / Primary Thread");
@@ -2534,19 +2306,10 @@ describe("Archived Thread lifecycle", () => {
       releaseSave = resolve;
     });
     const cleanupRequests: DeleteThreadDataRequest[] = [];
-    await renderApp(
-      lifecycleState(["thread-1"]),
-      "/settings?tab=archives",
-      [],
-      false,
-      [],
-      false,
-      lifecycleWorkspaceSnapshot(),
-      false,
-      cleanupRequests,
-      false,
-      saveGate,
-    );
+    await renderApp(lifecycleState(["thread-1"]), "/settings?tab=archives", [], false, [], false, {
+      deleteThreadDataRequests: cleanupRequests,
+      appStateSaveGate: saveGate,
+    });
 
     await click(buttonNamed("Restore"));
     expect(buttonNamed("Permanently Delete").disabled).toBe(true);
@@ -2565,17 +2328,9 @@ describe("Archived Thread lifecycle", () => {
       confirmation = String(message);
       return false;
     };
-    await renderApp(
-      lifecycleState(["thread-1"]),
-      "/settings?tab=archives",
-      [],
-      false,
-      [],
-      false,
-      lifecycleWorkspaceSnapshot(),
-      false,
-      cleanupRequests,
-    );
+    await renderApp(lifecycleState(["thread-1"]), "/settings?tab=archives", [], false, [], false, {
+      deleteThreadDataRequests: cleanupRequests,
+    });
 
     await click(buttonNamed("Permanently Delete"));
 
@@ -2595,9 +2350,7 @@ describe("Archived Thread lifecycle", () => {
       false,
       [],
       false,
-      lifecycleWorkspaceSnapshot(),
-      false,
-      cleanupRequests,
+      { deleteThreadDataRequests: cleanupRequests },
     );
 
     await click(buttonNamed("Permanently Delete"));
@@ -2626,14 +2379,7 @@ describe("Archived Thread lifecycle", () => {
       false,
       requests,
       false,
-      lifecycleWorkspaceSnapshot(),
-      false,
-      [],
-      false,
-      undefined,
-      [],
-      false,
-      deletionGate,
+      { deleteThreadTransactionGate: deletionGate },
     );
 
     await fillTextarea(container!.querySelector("textarea")!, "Keep this live update");
@@ -2684,15 +2430,7 @@ describe("Archived Thread lifecycle", () => {
       },
     ];
 
-    await renderApp(
-      appState,
-      "/settings?tab=archives",
-      [],
-      false,
-      [],
-      false,
-      lifecycleWorkspaceSnapshot(),
-    );
+    await renderApp(appState, "/settings?tab=archives", [], false, [], false);
 
     const secondaryButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent?.includes("Secondary Thread"),
@@ -2717,10 +2455,7 @@ describe("Archived Thread lifecycle", () => {
       false,
       [],
       false,
-      lifecycleWorkspaceSnapshot(),
-      false,
-      cleanupRequests,
-      true,
+      { deleteThreadDataRequests: cleanupRequests, deleteThreadDataFails: true },
     );
 
     await click(buttonNamed("Permanently Delete"));
@@ -2818,9 +2553,7 @@ describe("Archived Thread lifecycle", () => {
       false,
       [],
       false,
-      lifecycleWorkspaceSnapshot(),
-      false,
-      cleanupRequests,
+      { deleteThreadDataRequests: cleanupRequests },
     );
 
     await click(buttonNamed("Remove from Workspace"));
@@ -2892,17 +2625,9 @@ describe("Archived Thread lifecycle", () => {
       confirmation = String(message);
       return true;
     };
-    const saved = await renderApp(
-      appState,
-      "/workspace/workspace-2",
-      [],
-      false,
-      [],
-      false,
-      lifecycleWorkspaceSnapshot(),
-      false,
-      cleanupRequests,
-    );
+    const saved = await renderApp(appState, "/workspace/workspace-2", [], false, [], false, {
+      deleteThreadDataRequests: cleanupRequests,
+    });
 
     await click(buttonNamed("Delete Workspace"));
 
@@ -2943,7 +2668,6 @@ describe("Archived Thread lifecycle", () => {
       false,
       [],
       false,
-      { version: 1, projects: [], chats: [], messages: [], activeThreadId: null },
     );
 
     await click(buttonNamed("Delete Workspace"));
@@ -2968,7 +2692,6 @@ describe("Archived Thread lifecycle", () => {
       false,
       [],
       false,
-      { version: 1, projects: [], chats: [], messages: [], activeThreadId: null },
     );
 
     await click(buttonNamed("Delete Workspace"));
@@ -2993,7 +2716,6 @@ describe("Archived Thread lifecycle", () => {
       false,
       requests,
       false,
-      lifecycleWorkspaceSnapshot(),
     );
 
     await fillTextarea(container!.querySelector("textarea")!, "Keep this Run alive");
@@ -3029,12 +2751,7 @@ describe("Archived Thread lifecycle", () => {
     appState.threadMessages = [];
     appState.threadRuns = [];
     appState.lastThreadIdByWorkspace = {};
-    const workspaceSnapshot = lifecycleWorkspaceSnapshot();
-    workspaceSnapshot.projects[0]!.threads = [];
-    workspaceSnapshot.messages = [];
-    workspaceSnapshot.activeThreadId = null;
     const cleanupRequests: DeleteThreadDataRequest[] = [];
-    const workspaceSaved: WorkspaceSnapshot[] = [];
     window.confirm = () => true;
     const saved = await renderApp(
       appState,
@@ -3043,12 +2760,7 @@ describe("Archived Thread lifecycle", () => {
       false,
       [],
       false,
-      workspaceSnapshot,
-      false,
-      cleanupRequests,
-      false,
-      undefined,
-      workspaceSaved,
+      { deleteThreadDataRequests: cleanupRequests },
     );
 
     await click(buttonNamed("Remove from Workspace"));
@@ -3056,7 +2768,6 @@ describe("Archived Thread lifecycle", () => {
     expect(cleanupRequests).toEqual([{ threadIds: [], attachmentStorageKeys: [] }]);
     expect(saved.at(-1)?.projects).toEqual([]);
     expect(saved.at(-1)?.associations).toEqual([]);
-    expect(workspaceSaved.at(-1)?.projects).toEqual([]);
     expect(currentPathname).toBe("/workspace/workspace-1");
   });
 });

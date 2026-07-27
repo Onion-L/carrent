@@ -1,7 +1,7 @@
 import { createEmptyAppStateSnapshot } from "../../src/shared/workspacePersistence";
-import type { WorkspaceStore } from "./workspaceStore";
+import type { AppStateStore } from "./appStateStore";
 
-export function createWorkspaceStoreStub(overrides: Partial<WorkspaceStore> = {}): WorkspaceStore {
+export function createAppStateStoreStub(overrides: Partial<AppStateStore> = {}): AppStateStore {
   return {
     waitForWrites: async () => {},
     initializeAppState: async () => ({
@@ -15,8 +15,6 @@ export function createWorkspaceStoreStub(overrides: Partial<WorkspaceStore> = {}
     }),
     loadAppStateSnapshot: async () => null,
     saveAppStateSnapshot: async () => {},
-    loadWorkspaceSnapshot: async () => null,
-    saveWorkspaceSnapshot: async () => {},
     loadProviderSessions: async () => ({ version: 1, sessions: {} }),
     saveProviderSessions: async () => {},
     ...overrides,

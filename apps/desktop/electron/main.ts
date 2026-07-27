@@ -16,20 +16,20 @@ import {
   createPersistentProviderSessionStore,
   type PersistentProviderSessionStore,
 } from "./chat/providerSessionStore";
-import { createWorkspaceStore } from "./workspace/workspaceStore";
+import { createAppStateStore } from "./workspace/appStateStore";
 import {
-  getLastWorkspaceSnapshot,
-  registerWorkspaceIpc,
-  rememberWorkspaceSnapshot,
-  setWorkspaceTransactionActive,
-} from "./workspace/workspaceIpc";
+  clearStagedAppStateSnapshot,
+  getStagedAppStateSnapshot,
+  registerAppStateIpc,
+  setAppStateTransactionActive,
+} from "./workspace/appStateIpc";
 import { createAppShutdown } from "./appShutdown";
 import {
   createProjectRelocationManager,
   isProjectDirectoryAvailable,
   registerProjectDirectoryIpc,
 } from "./workspace/projectDirectory";
-import type { WorkspaceStore } from "./workspace/workspaceStore";
+import type { AppStateStore } from "./workspace/appStateStore";
 import { createAttachmentStore } from "./attachments/attachmentStore";
 import { reconcileAttachmentsAfterValidStateLoad } from "./attachments/attachmentReconciliation";
 import { registerAttachmentIpc } from "./attachments/attachmentIpc";
@@ -62,7 +62,7 @@ function resolveIconPath() {
 }
 
 let mainWindow: BrowserWindow | null = null;
-let workspaceStore: WorkspaceStore | null = null;
+let appStateStore: AppStateStore | null = null;
 let chatSessionManager: ChatSessionManager | null = null;
 let waitForThreadDeletion: (() => Promise<void>) | null = null;
 
@@ -155,7 +155,7 @@ if (!hasSingleInstanceLock) {
     }
 
     const userDataPath = app.getPath("userData");
-    const store = createWorkspaceStore(userDataPath, { appVersion: app.getVersion() });
+    const store = createAppStateStore(userDataPath, { appVersion: app.getVersion() });
     const appStateInitialization = await store.initializeAppState();
     const appStateIpcGate = createAppStateIpcGate(ipcMain, {
       status: "recovery-required",
@@ -163,7 +163,7 @@ if (!hasSingleInstanceLock) {
     });
     const guardedIpcMain = appStateIpcGate.ipcMain;
     let providerSessionStore: PersistentProviderSessionStore | null = null;
-    workspaceStore = store;
+    appStateStore = store;
     registerRuntimeIpc(guardedIpcMain);
 
     const attachmentStore = createAttachmentStore(userDataPath);
@@ -194,14 +194,13 @@ if (!hasSingleInstanceLock) {
       recoverThreadDeletion: () =>
         recoverThreadDeletionTransaction({
           journalStore: threadDeletionJournalStore,
-          workspaceStore: store,
+          appStateStore: store,
           attachmentStore: transactionAttachmentStore,
         }),
       reloadAppState: () => store.initializeAppState(),
       reconcileAttachments: async (snapshot) => {
         await reconcileAttachmentsAfterValidStateLoad({
           appState: snapshot,
-          workspace: await store.loadWorkspaceSnapshot(),
           deleteOrphanedAttachments: attachmentStore.deleteOrphanedAttachments,
         });
       },
@@ -219,7 +218,7 @@ if (!hasSingleInstanceLock) {
       updateIpcGate: (result) => appStateIpcGate.update(result),
     });
     const startupAppStateResult = await appStateLifecycle.apply(appStateInitialization, "startup");
-    registerWorkspaceIpc(guardedIpcMain, store, startupAppStateResult, (result, source) =>
+    registerAppStateIpc(guardedIpcMain, store, startupAppStateResult, (result, source) =>
       appStateLifecycle.apply(result, source),
     );
 
@@ -269,27 +268,26 @@ if (!hasSingleInstanceLock) {
       throw new Error("Project relocation Session cleanup is unavailable.");
     }
     const projectRelocationManager = createProjectRelocationManager({
-      workspaceStore: store,
+      appStateStore: store,
       sessionManager: {
         hasLiveRunForThreads: sessionManager.hasLiveRunForThreads,
         detachRuntimeSessions: sessionManager.detachRuntimeSessions,
         restoreRuntimeSessions: sessionManager.restoreRuntimeSessions,
         completeRuntimeSessionDetachment: sessionManager.completeRuntimeSessionDetachment,
       },
-      onActiveChange: setWorkspaceTransactionActive,
+      onActiveChange: setAppStateTransactionActive,
     });
     registerProjectDirectoryIpc(guardedIpcMain, { relocationManager: projectRelocationManager });
     chatSessionManager = sessionManager;
     const threadDeletionManager = createThreadDeletionTransactionManager({
       journalStore: threadDeletionJournalStore,
-      workspaceStore: store,
+      appStateStore: store,
       attachmentStore: transactionAttachmentStore,
       sessionManager: {
         deleteThreadData: sessionManager.deleteThreadData,
         rollbackThreadDataDeletion: sessionManager.rollbackThreadDataDeletion,
       },
-      onCommitted: rememberWorkspaceSnapshot,
-      onActiveChange: setWorkspaceTransactionActive,
+      onActiveChange: setAppStateTransactionActive,
     });
     waitForThreadDeletion = threadDeletionManager.waitForIdle;
     registerChatIpc(guardedIpcMain, {
@@ -310,12 +308,16 @@ if (!hasSingleInstanceLock) {
 }
 
 const appShutdown = createAppShutdown({
-  getLastWorkspaceSnapshot,
-  getWorkspaceStore: () => workspaceStore,
   quit: () => app.quit(),
   reportShutdownError: (error) => console.error("[app] failed to quit safely", error),
   beforeSave: async () => {
     await waitForThreadDeletion?.();
+    const stagedAppState = getStagedAppStateSnapshot();
+    if (stagedAppState && appStateStore) {
+      await appStateStore.saveAppStateSnapshot(stagedAppState);
+      clearStagedAppStateSnapshot();
+    }
+    await appStateStore?.waitForWrites();
   },
   liveRunQuitPolicy: {
     hasLiveRuns: () => chatSessionManager?.hasLiveRuns?.() ?? false,

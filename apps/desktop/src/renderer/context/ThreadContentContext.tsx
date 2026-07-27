@@ -1,5 +1,4 @@
 import {
-  useCallback,
   createContext,
   useContext,
   useEffect,
@@ -10,46 +9,10 @@ import {
   type ReactNode,
 } from "react";
 import {
-  initialActiveThreadId,
-  messages as initialMessages,
-  projects as initialProjects,
   type ChangedFilesMessage,
   type Message,
   type MessagePart,
-  type ProjectRecord,
-  type ThreadRecord,
-} from "../mock/uiShellData";
-import {
-  deleteChatThread,
-  deleteThreadInProjects,
-  createChatThread,
-  createProjectInProjects,
-  createThreadInProjects,
-  findCurrentChatThread,
-  findCurrentProject,
-  findCurrentThread,
-  markChatThreadActivity,
-  markThreadActivityInProjects,
-  renameProjectInProjects,
-  renameThreadInProjects,
-  resolveChatThreadRouteData,
-  setChatThreadRuntimeMode,
-  setChatThreadPlanMode,
-  setChatThreadRuntimeModelId,
-  setChatThreadRuntimeId,
-  setThreadRuntimeIdInProjects,
-  setThreadRuntimeModeInProjects,
-  setThreadPlanModeInProjects,
-  setThreadRuntimeModelIdInProjects,
-  toggleChatThreadPin,
-  toggleThreadPinInProjects,
-  upsertChatThread,
-  upsertThreadInProjects,
-} from "../lib/workspaceState";
-import {
-  buildWorkspaceSnapshot,
-  useDebouncedWorkspaceSave,
-} from "../hooks/useDebouncedWorkspaceSave";
+} from "../../shared/threadContent";
 import {
   getThreadWorkSnapshot,
   getThreadWorkVersion,
@@ -64,7 +27,12 @@ import type {
   AttachmentMetadata,
   ThreadDeletionAppStateSnapshots,
 } from "../../shared/chat";
-import type { ThreadWorkSnapshot } from "../../shared/workspacePersistence";
+import type {
+  AppThreadMessageRecord,
+  AppProjectRecord,
+  AppThreadRecord,
+  ThreadWorkSnapshot,
+} from "../../shared/workspacePersistence";
 import type { GitWorkspaceDiffResult } from "../../../electron/git/gitIpc";
 import type { RunChecklistEntry, RunChecklistOutcome } from "../../shared/runChecklist";
 import { useAppState } from "./AppStateContext";
@@ -83,9 +51,9 @@ export type RunChecklistUpdate =
   | { kind: "expanded"; expanded: boolean };
 
 export function applyRunChecklistUpdate(
-  thread: ThreadRecord,
+  thread: AppThreadRecord,
   update: RunChecklistUpdate,
-): ThreadRecord {
+): AppThreadRecord {
   if (update.kind === "started" || (update.kind === "snapshot" && update.entries.length === 0)) {
     const { runChecklist: _runChecklist, ...threadWithoutChecklist } = thread;
     return threadWithoutChecklist;
@@ -124,48 +92,28 @@ export function applyRunChecklistUpdate(
   };
 }
 
-export type WorkspaceContextValue = {
-  projects: ProjectRecord[];
-  chats: ThreadRecord[];
+export type ThreadContentContextValue = {
   messages: Message[];
-  activeThreadId: string | null;
+  selectedThreadId: string | null;
   hasHydrated: boolean;
-  contentLoadError: string | null;
-  currentThread: ThreadRecord | null;
-  currentProject: ProjectRecord | null;
+  currentThread: AppThreadRecord | null;
+  currentProject: AppProjectRecord | null;
   getThreadRouteData: (
     projectId: string,
     threadId: string,
   ) => {
-    project: ProjectRecord;
-    thread: ThreadRecord;
+    project: AppProjectRecord;
+    thread: AppThreadRecord;
     messages: Message[];
   } | null;
-  getChatRouteData: (threadId: string) => {
-    thread: ThreadRecord;
-    messages: Message[];
-  } | null;
-  setActiveThreadId: (id: string | null) => void;
-  retryContentLoad: () => Promise<boolean>;
-  createProject: (folderPath: string) => ProjectRecord | null;
-  removeProject: (projectId: string) => Promise<void>;
-  renameProject: (projectId: string, newName: string) => boolean;
+  setSelectedThreadId: (id: string | null) => void;
   renameThread: (projectId: string, threadId: string, newTitle: string) => boolean;
   markThreadActivity: (threadId: string, at?: number) => void;
-  createThread: (
-    projectId: string,
-    title: string,
-    runtimeId?: RuntimeId,
-    runtimeModelId?: string,
-  ) => ThreadRecord | null;
-  upsertThread: (projectId: string, thread: ThreadRecord) => void;
-  upsertAssociationThread: (project: ProjectRecord, thread: ThreadRecord) => void;
-  removeAssociationThread: (projectId: string, threadId: string) => void;
+  upsertThread: (projectId: string, thread: AppThreadRecord) => void;
+  removeThreadFromState: (threadId: string) => void;
   removeMessages: (messageIds: string[]) => void;
-  promoteDraftThread: (projectId: string, threadId: string) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
   deleteThread: (
-    projectId: string,
     threadId: string,
     appStateSnapshots?: ThreadDeletionAppStateSnapshots,
   ) => Promise<string | null>;
@@ -173,14 +121,6 @@ export type WorkspaceContextValue = {
     threadIds: string[],
     appStateSnapshots: ThreadDeletionAppStateSnapshots,
   ) => Promise<void>;
-  createChat: (
-    title: string,
-    runtimeId?: RuntimeId,
-    runtimeModelId?: string,
-  ) => ThreadRecord | null;
-  upsertChat: (thread: ThreadRecord) => void;
-  toggleChatPin: (threadId: string) => void;
-  deleteChat: (threadId: string) => Promise<void>;
   upsertMessages: (messages: Message[]) => void;
   appendMessage: (message: {
     threadId: string;
@@ -198,25 +138,6 @@ export type WorkspaceContextValue = {
   updateMessageRunStatus: (id: string, status: MessageRunStatus) => void;
   updateMessageParts: (id: string, update: MessagePartUpdate) => void;
   updateRunChecklist: (threadId: string, update: RunChecklistUpdate) => void;
-  setThreadRuntimeMode: (
-    projectId: string,
-    threadId: string,
-    runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
-  ) => void;
-  setThreadPlanMode: (projectId: string, threadId: string, planMode: boolean) => void;
-  setThreadRuntimeId: (projectId: string, threadId: string, runtimeId: RuntimeId) => void;
-  setThreadRuntimeModelId: (
-    projectId: string,
-    threadId: string,
-    runtimeModelId: string | undefined,
-  ) => void;
-  setChatRuntimeMode: (
-    threadId: string,
-    runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
-  ) => void;
-  setChatPlanMode: (threadId: string, planMode: boolean) => void;
-  setChatRuntimeId: (threadId: string, runtimeId: RuntimeId) => void;
-  setChatRuntimeModelId: (threadId: string, runtimeModelId: string | undefined) => void;
 };
 
 export type MessagePartUpdate =
@@ -262,37 +183,22 @@ export type MessagePartUpdate =
       error: Extract<MessagePart, { type: "error" }>;
     };
 
-const WorkspaceContext = createContext<WorkspaceContextValue>({
-  projects: [],
-  chats: [],
+const ThreadContentContext = createContext<ThreadContentContextValue>({
   messages: [],
-  activeThreadId: null,
+  selectedThreadId: null,
   hasHydrated: false,
-  contentLoadError: null,
   currentThread: null,
   currentProject: null,
   getThreadRouteData: () => null,
-  getChatRouteData: () => null,
-  setActiveThreadId: () => {},
-  retryContentLoad: async () => false,
-  createProject: () => null,
-  removeProject: async () => {},
-  renameProject: () => false,
+  setSelectedThreadId: () => {},
   renameThread: () => false,
   markThreadActivity: () => {},
-  createThread: () => null,
   upsertThread: () => {},
-  upsertAssociationThread: () => {},
-  removeAssociationThread: () => {},
+  removeThreadFromState: () => {},
   removeMessages: () => {},
-  promoteDraftThread: () => {},
   toggleThreadPin: () => {},
   deleteThread: async () => null,
   deleteThreads: async () => {},
-  createChat: () => null,
-  upsertChat: () => {},
-  toggleChatPin: () => {},
-  deleteChat: async () => {},
   upsertMessages: () => {},
   appendMessage: () => ({
     id: "",
@@ -316,14 +222,6 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   updateMessageRunStatus: () => {},
   updateMessageParts: () => {},
   updateRunChecklist: () => {},
-  setThreadRuntimeMode: () => {},
-  setThreadPlanMode: () => {},
-  setThreadRuntimeId: () => {},
-  setThreadRuntimeModelId: () => {},
-  setChatRuntimeMode: () => {},
-  setChatPlanMode: () => {},
-  setChatRuntimeId: () => {},
-  setChatRuntimeModelId: () => {},
 });
 
 function formatTime(date: Date): string {
@@ -335,13 +233,14 @@ function formatTime(date: Date): string {
 }
 
 export function resolveWorkspaceThreadRouteData(
-  projects: ProjectRecord[],
+  projects: AppProjectRecord[],
+  threads: AppThreadRecord[],
   messages: Message[],
   projectId: string,
   threadId: string,
 ) {
   const project = projects.find((item) => item.id === projectId);
-  const thread = project?.threads.find((item) => item.id === threadId);
+  const thread = threads.find((item) => item.id === threadId && item.projectId === projectId);
   if (!project || !thread) {
     return null;
   }
@@ -353,10 +252,7 @@ export function resolveWorkspaceThreadRouteData(
   };
 }
 
-export function mergeMessagesIntoWorkspace(
-  existingMessages: Message[],
-  incomingMessages: Message[],
-) {
+export function mergeThreadMessages(existingMessages: Message[], incomingMessages: Message[]) {
   const incomingById = new Map(incomingMessages.map((message) => [message.id, message]));
   const merged = existingMessages.map((message) => incomingById.get(message.id) ?? message);
   const knownIds = new Set(existingMessages.map((message) => message.id));
@@ -404,12 +300,6 @@ export function buildChangedFilesMessage({
       truncated: result.truncated,
     },
   };
-}
-
-export function collectProjectThreadIds(projects: ProjectRecord[], projectId: string) {
-  return (
-    projects.find((project) => project.id === projectId)?.threads.map((thread) => thread.id) ?? []
-  );
 }
 
 export function removeMessagesForThreads(messages: Message[], requestedThreadIds: string[]) {
@@ -704,164 +594,47 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
   };
 }
 
-export function WorkspaceProvider({ children }: { children: ReactNode }) {
+export function ThreadContentProvider({ children }: { children: ReactNode }) {
   const {
     hasHydrated: appStateHasHydrated,
     projects: appStateProjects,
     threads: appStateThreads,
     threadMessages: appStateThreadMessages,
+    threadWork: appStateThreadWork,
+    updateThreadContent,
   } = useAppState();
-  const [projects, setProjects] = useState<ProjectRecord[]>([]);
-  const [chats, setChats] = useState<ThreadRecord[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const [hasHydrated, setHasHydrated] = useState(false);
-  const [contentLoadError, setContentLoadError] = useState<string | null>(null);
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  const retryResolverRef = useRef<((loaded: boolean) => void) | null>(null);
-  const retryContentLoad = useCallback(
-    () =>
-      new Promise<boolean>((resolve) => {
-        retryResolverRef.current = resolve;
-        setLoadAttempt((attempt) => attempt + 1);
-      }),
-    [],
-  );
-
-  const currentThread =
-    findCurrentThread(projects, activeThreadId) ?? findCurrentChatThread(chats, activeThreadId);
-  const currentProject = findCurrentProject(projects, activeThreadId);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const hydrationCompleteRef = useRef(false);
+  const messages: Message[] = appStateThreadMessages.map((message) => ({
+    ...message,
+    timestamp: message.timestamp ?? formatTime(new Date(message.createdAt)),
+  }));
+  const currentThread = appStateThreads.find((thread) => thread.id === selectedThreadId) ?? null;
+  const currentProject =
+    appStateProjects.find((project) => project.id === currentThread?.projectId) ?? null;
   const getThreadRouteData = (projectId: string, threadId: string) =>
-    resolveWorkspaceThreadRouteData(projects, messages, projectId, threadId);
-  const getChatRouteData = (threadId: string) =>
-    resolveChatThreadRouteData(chats, messages, threadId);
+    resolveWorkspaceThreadRouteData(
+      appStateProjects,
+      appStateThreads,
+      messages,
+      projectId,
+      threadId,
+    );
 
   useEffect(() => {
-    let cancelled = false;
-    setContentLoadError(null);
+    if (!appStateHasHydrated || hydrationCompleteRef.current) return;
+    hydrationCompleteRef.current = true;
+    hydrateThreadWork(appStateThreadWork);
+    const reconciledMessages = reconcileInterruptedRuns(messages);
+    if (reconciledMessages.some((message, index) => message !== messages[index])) {
+      updateThreadContent((content) => ({
+        ...content,
+        threadMessages: reconciledMessages as AppThreadMessageRecord[],
+      }));
+    }
+  }, [appStateHasHydrated, appStateThreadWork, messages, updateThreadContent]);
 
-    window.carrent.workspace
-      .load()
-      .then((snapshot) => {
-        if (cancelled) return;
-        // Apply persisted work-in-progress before the hydrated UI mounts so a
-        // Composer never initializes from an empty queue/draft store.
-        hydrateThreadWork(snapshot?.threadWork);
-        if (snapshot) {
-          setProjects(snapshot.projects);
-          setChats(snapshot.chats ?? []);
-          setMessages(reconcileInterruptedRuns(snapshot.messages));
-          setActiveThreadId(snapshot.activeThreadId);
-        } else {
-          setProjects(initialProjects);
-          setChats([]);
-          setMessages(initialMessages);
-          setActiveThreadId(initialActiveThreadId);
-        }
-        retryResolverRef.current?.(true);
-        retryResolverRef.current = null;
-      })
-      .catch((error) => {
-        console.error("[workspace] failed to load", error);
-        if (!cancelled) {
-          setContentLoadError("Thread content could not be loaded.");
-          hydrateThreadWork(undefined);
-          setProjects(initialProjects);
-          setChats([]);
-          setMessages(initialMessages);
-          setActiveThreadId(initialActiveThreadId);
-          retryResolverRef.current?.(false);
-          retryResolverRef.current = null;
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setHasHydrated(true);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loadAttempt]);
-
-  useEffect(() => {
-    if (!hasHydrated || !appStateHasHydrated) return;
-
-    setProjects((currentProjects) => {
-      let nextProjects = currentProjects;
-      let changed = false;
-
-      for (const appThread of appStateThreads) {
-        const appProject = appStateProjects.find((project) => project.id === appThread.projectId);
-        if (!appProject) continue;
-
-        const adapterThread: ThreadRecord = {
-          id: appThread.id,
-          title: appThread.title,
-          updatedAt: appThread.lastActivityAt,
-          lastActivityAt: appThread.lastActivityAt,
-          runtimeId: appThread.runtimeId,
-          ...(appThread.runtimeModelId ? { runtimeModelId: appThread.runtimeModelId } : {}),
-          runtimeMode: appThread.runtimeMode,
-          planMode: appThread.planMode,
-        };
-        const existingProject = nextProjects.find((project) => project.id === appProject.id);
-        const existingThread = existingProject?.threads.find(
-          (thread) => thread.id === appThread.id,
-        );
-        if (existingThread) continue;
-
-        changed = true;
-        if (!existingProject) {
-          nextProjects = [
-            ...nextProjects,
-            {
-              id: appProject.id,
-              name: appProject.name,
-              path: appProject.workingDirectory,
-              threads: [adapterThread],
-            },
-          ];
-        } else {
-          nextProjects = upsertThreadInProjects(nextProjects, appProject.id, adapterThread);
-        }
-      }
-
-      return changed ? nextProjects : currentProjects;
-    });
-
-    setMessages((currentMessages) => {
-      const existingIds = new Set(currentMessages.map((message) => message.id));
-      const missingMessages = appStateThreadMessages.flatMap((message) => {
-        if (existingIds.has(message.id)) return [];
-        const createdAt = Date.parse(message.createdAt);
-        return [
-          {
-            id: message.id,
-            threadId: message.threadId,
-            role: message.role,
-            type: "text" as const,
-            content: message.content,
-            attachments: message.attachments,
-            timestamp: formatTime(new Date(createdAt)),
-            createdAt,
-          },
-        ];
-      });
-      return missingMessages.length > 0
-        ? [...currentMessages, ...missingMessages]
-        : currentMessages;
-    });
-  }, [appStateHasHydrated, appStateProjects, appStateThreadMessages, appStateThreads, hasHydrated]);
-
-  const allThreadIds = useMemo(
-    () => [
-      ...projects.flatMap((project) => project.threads.map((thread) => thread.id)),
-      ...chats.map((chat) => chat.id),
-    ],
-    [projects, chats],
-  );
+  const allThreadIds = useMemo(() => appStateThreads.map((thread) => thread.id), [appStateThreads]);
   const threadWorkVersion = useSyncExternalStore(subscribeToThreadWork, getThreadWorkVersion);
   const threadWork = useMemo(
     () => getThreadWorkSnapshot(allThreadIds),
@@ -869,49 +642,26 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [allThreadIds, threadWorkVersion],
   );
 
-  useDebouncedWorkspaceSave(
-    buildWorkspaceSnapshot({ projects, chats, messages, activeThreadId, threadWork }),
-    hasHydrated,
-  );
-
-  const createProject = (folderPath: string) => {
-    const result = createProjectInProjects(projects, folderPath);
-    setProjects(result.projects);
-    return result.project;
-  };
-
-  const removeProject = async (projectId: string) => {
-    const threadIds = collectProjectThreadIds(projects, projectId);
-    if (threadIds.length > 0) {
-      await deleteThreadMessagesAfterCleanup(
-        messages,
-        threadIds,
-        window.carrent.chat.deleteThreadData,
-        getThreadWorkSnapshot(allThreadIds),
-      );
-      removeThreadWork(threadIds);
-    }
-    setProjects((prev) => prev.filter((project) => project.id !== projectId));
-    if (threadIds.length > 0) {
-      setMessages((prev) => removeMessagesForThreads(prev, threadIds));
-    }
-    setActiveThreadId((prev) => (prev && threadIds.includes(prev) ? null : prev));
-  };
-
-  const renameProject = (projectId: string, newName: string) => {
-    const result = renameProjectInProjects(projects, projectId, newName);
-    if (result.renamed) {
-      setProjects(result.projects);
-    }
-    return result.renamed;
-  };
+  useEffect(() => {
+    if (!appStateHasHydrated || !hydrationCompleteRef.current) return;
+    if (JSON.stringify(threadWork) === JSON.stringify(appStateThreadWork)) return;
+    updateThreadContent((content) => ({ ...content, threadWork }));
+  }, [appStateHasHydrated, appStateThreadWork, threadWork, threadWorkVersion, updateThreadContent]);
 
   const renameThread = (projectId: string, threadId: string, newTitle: string) => {
     const title = newTitle.trim();
-    if (!title) {
+    if (
+      !title ||
+      !appStateThreads.some((thread) => thread.id === threadId && thread.projectId === projectId)
+    ) {
       return false;
     }
-    setProjects((prev) => renameThreadInProjects(prev, projectId, threadId, title).projects);
+    updateThreadContent((content) => ({
+      ...content,
+      threads: content.threads.map((thread) =>
+        thread.id === threadId ? { ...thread, title } : thread,
+      ),
+    }));
     return true;
   };
 
@@ -920,187 +670,84 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       return;
     }
     const lastActivityAt = new Date(at).toISOString();
-    setProjects((prev) => markThreadActivityInProjects(prev, threadId, lastActivityAt));
-    setChats((prev) => markChatThreadActivity(prev, threadId, lastActivityAt));
-  };
-
-  const createThread = (
-    projectId: string,
-    title: string,
-    runtimeId?: RuntimeId,
-    runtimeModelId?: string,
-  ) => {
-    const project = projects.find((p) => p.id === projectId);
-    const existingDraft = project?.threads.find((t) => t.draft);
-    if (existingDraft) {
-      setActiveThreadId(existingDraft.id);
-      return existingDraft;
-    }
-
-    const result = createThreadInProjects(
-      projects,
-      projectId,
-      title,
-      runtimeId,
-      runtimeModelId,
-      true,
-    );
-    if (!result.thread) {
-      return null;
-    }
-
-    setProjects(result.projects);
-    setActiveThreadId(result.thread.id);
-    return result.thread;
-  };
-
-  const promoteDraftThread = (projectId: string, threadId: string) => {
-    setProjects((prev) =>
-      prev.map((project) => {
-        if (project.id !== projectId) {
-          return project;
-        }
-
-        return {
-          ...project,
-          threads: project.threads.map((thread) =>
-            thread.id === threadId ? { ...thread, draft: undefined } : thread,
-          ),
-        };
-      }),
-    );
-  };
-
-  const upsertThread = (projectId: string, thread: ThreadRecord) => {
-    setProjects((prev) => upsertThreadInProjects(prev, projectId, thread));
-  };
-
-  const upsertAssociationThread = (project: ProjectRecord, thread: ThreadRecord) => {
-    setProjects((prev) => {
-      const existing = prev.find((item) => item.id === project.id);
-      if (!existing) {
-        return [{ ...project, threads: [thread] }, ...prev];
-      }
-      return upsertThreadInProjects(
-        prev.map((item) =>
-          item.id === project.id ? { ...item, name: project.name, path: project.path } : item,
-        ),
-        project.id,
-        thread,
-      );
-    });
-    setActiveThreadId(thread.id);
-  };
-
-  const removeAssociationThread = (projectId: string, threadId: string) => {
-    setProjects((prev) =>
-      prev.map((project) =>
-        project.id === projectId
-          ? { ...project, threads: project.threads.filter((thread) => thread.id !== threadId) }
-          : project,
+    updateThreadContent((content) => ({
+      ...content,
+      threads: content.threads.map((thread) =>
+        thread.id === threadId ? { ...thread, lastActivityAt } : thread,
       ),
-    );
-    setActiveThreadId((prev) => (prev === threadId ? null : prev));
+    }));
+  };
+
+  const upsertThread = (projectId: string, thread: AppThreadRecord) => {
+    if (thread.projectId !== projectId) return;
+    updateThreadContent((content) => ({
+      ...content,
+      threads: content.threads.some((item) => item.id === thread.id)
+        ? content.threads.map((item) => (item.id === thread.id ? thread : item))
+        : [...content.threads, thread],
+    }));
+  };
+
+  const removeThreadFromState = (threadId: string) => {
+    updateThreadContent((content) => ({
+      threads: content.threads.filter((thread) => thread.id !== threadId),
+      threadMessages: content.threadMessages.filter((message) => message.threadId !== threadId),
+      threadWork: Object.fromEntries(
+        Object.entries(content.threadWork).filter(([id]) => id !== threadId),
+      ),
+    }));
+    setSelectedThreadId((prev) => (prev === threadId ? null : prev));
   };
 
   const removeMessages = (messageIds: string[]) => {
     const ids = new Set(messageIds);
-    setMessages((prev) => prev.filter((message) => !ids.has(message.id)));
+    updateThreadContent((content) => ({
+      ...content,
+      threadMessages: content.threadMessages.filter((message) => !ids.has(message.id)),
+    }));
   };
 
   const toggleThreadPin = (projectId: string, threadId: string) => {
-    setProjects((prev) => toggleThreadPinInProjects(prev, projectId, threadId));
-  };
-
-  const createChat = (title: string, runtimeId?: RuntimeId, runtimeModelId?: string) => {
-    const thread = createChatThread(title, runtimeId, runtimeModelId);
-    if (!thread) {
-      return null;
-    }
-    setChats((prev) => [thread, ...prev]);
-    setActiveThreadId(thread.id);
-    return thread;
-  };
-
-  const upsertChat = (thread: ThreadRecord) => {
-    setChats((prev) => upsertChatThread(prev, thread));
-  };
-
-  const toggleChatPin = (threadId: string) => {
-    setChats((prev) => toggleChatThreadPin(prev, threadId));
-  };
-
-  const deleteChat = async (threadId: string) => {
-    await deleteThreadMessagesAfterCleanup(
-      messages,
-      [threadId],
-      window.carrent.chat.deleteThreadData,
-      getThreadWorkSnapshot(allThreadIds),
-    );
-    removeThreadWork([threadId]);
-    setChats((prev) => deleteChatThread(prev, threadId));
-    setMessages((prev) => removeMessagesForThreads(prev, [threadId]));
-    setActiveThreadId((prev) => (prev === threadId ? null : prev));
+    updateThreadContent((content) => ({
+      ...content,
+      threads: content.threads.map((thread) =>
+        thread.id === threadId && thread.projectId === projectId
+          ? { ...thread, pinned: !thread.pinned || undefined }
+          : thread,
+      ),
+    }));
   };
 
   const deleteThread = async (
-    projectId: string,
     threadId: string,
     appStateSnapshots?: ThreadDeletionAppStateSnapshots,
   ) => {
-    const result = deleteThreadInProjects(projects, projectId, threadId);
     const currentThreadWork = getThreadWorkSnapshot(allThreadIds);
     const deletion = prepareThreadDataDeletion(messages, [threadId], currentThreadWork);
-    const nextThreadIds = allThreadIds.filter((id) => id !== threadId);
-    const currentSnapshot = buildWorkspaceSnapshot({
-      projects,
-      chats,
-      messages,
-      activeThreadId,
-      threadWork: currentThreadWork,
-    });
-    const nextSnapshot = buildWorkspaceSnapshot({
-      projects: result.projects,
-      chats,
-      messages: deletion.remainingMessages,
-      activeThreadId: activeThreadId === threadId ? result.nextActiveThreadId : activeThreadId,
-      threadWork: getThreadWorkSnapshot(nextThreadIds),
-    });
     if (appStateSnapshots) {
       if (!window.carrent.chat.deleteThreadTransaction) {
         throw new Error("Thread deletion transaction is unavailable.");
       }
       await window.carrent.chat.deleteThreadTransaction({
         ...appStateSnapshots,
-        beforeWorkspace: currentSnapshot,
-        afterWorkspace: nextSnapshot,
         threadData: deletion.request,
       });
     } else {
-      let removedSnapshotSaved = false;
-      try {
-        await window.carrent.workspace.save(nextSnapshot);
-        removedSnapshotSaved = true;
-        await window.carrent.chat.deleteThreadData(deletion.request);
-      } catch (error) {
-        if (removedSnapshotSaved) {
-          await window.carrent.workspace.save(currentSnapshot);
-          window.carrent.workspace.remember(currentSnapshot);
-        }
-        throw error;
-      }
+      await window.carrent.chat.deleteThreadData(deletion.request);
     }
 
     removeThreadWork([threadId]);
     if (!appStateSnapshots) {
-      window.carrent.workspace.remember(nextSnapshot);
+      updateThreadContent((content) => ({
+        threads: content.threads.filter((thread) => thread.id !== threadId),
+        threadMessages: content.threadMessages.filter((message) => message.threadId !== threadId),
+        threadWork: Object.fromEntries(
+          Object.entries(content.threadWork).filter(([id]) => id !== threadId),
+        ),
+      }));
     }
-    setProjects(
-      (currentProjects) => deleteThreadInProjects(currentProjects, projectId, threadId).projects,
-    );
-    setMessages((currentMessages) => removeMessagesForThreads(currentMessages, [threadId]));
-    setActiveThreadId((prev) => (prev === threadId ? result.nextActiveThreadId : prev));
-    return result.nextActiveThreadId;
+    setSelectedThreadId((prev) => (prev === threadId ? null : prev));
+    return null;
   };
 
   const deleteThreads = async (
@@ -1109,9 +756,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   ) => {
     const threadIds = [...new Set(requestedThreadIds)];
     const deletedThreadIds = new Set(threadIds);
-    const remainingProjectIds = new Set(
-      appStateSnapshots.afterAppState.projects.map(({ id }) => id),
-    );
     const currentThreadWork = getThreadWorkSnapshot(allThreadIds);
     const deletion = prepareThreadDataDeletion(messages, threadIds, currentThreadWork);
     const remainingAppStateAttachmentKeys = new Set([
@@ -1139,94 +783,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const attachmentStorageKeys = [
       ...new Set([...deletion.request.attachmentStorageKeys, ...removedAppStateAttachmentKeys]),
     ].filter((storageKey) => !remainingAppStateAttachmentKeys.has(storageKey));
-    const nextProjects = projects
-      .filter((project) => remainingProjectIds.has(project.id))
-      .map((project) => ({
-        ...project,
-        threads: project.threads.filter((thread) => !deletedThreadIds.has(thread.id)),
-      }));
-    const nextChats = chats.filter((thread) => !deletedThreadIds.has(thread.id));
     const nextActiveThreadId =
-      activeThreadId && deletedThreadIds.has(activeThreadId) ? null : activeThreadId;
-    const currentSnapshot = buildWorkspaceSnapshot({
-      projects,
-      chats,
-      messages,
-      activeThreadId,
-      threadWork: currentThreadWork,
-    });
-    const nextThreadIds = allThreadIds.filter((id) => !deletedThreadIds.has(id));
-    const nextSnapshot = buildWorkspaceSnapshot({
-      projects: nextProjects,
-      chats: nextChats,
-      messages: deletion.remainingMessages,
-      activeThreadId: nextActiveThreadId,
-      threadWork: getThreadWorkSnapshot(nextThreadIds),
-    });
+      selectedThreadId && deletedThreadIds.has(selectedThreadId) ? null : selectedThreadId;
     if (!window.carrent.chat.deleteThreadTransaction) {
       throw new Error("Thread deletion transaction is unavailable.");
     }
     await window.carrent.chat.deleteThreadTransaction({
       ...appStateSnapshots,
-      beforeWorkspace: currentSnapshot,
-      afterWorkspace: nextSnapshot,
       threadData: { ...deletion.request, attachmentStorageKeys },
     });
 
     removeThreadWork(threadIds);
-    setProjects(nextProjects);
-    setChats(nextChats);
-    setMessages(deletion.remainingMessages);
-    setActiveThreadId(nextActiveThreadId);
-  };
-
-  const setThreadRuntimeMode = (
-    projectId: string,
-    threadId: string,
-    runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
-  ) => {
-    setProjects((prev) => setThreadRuntimeModeInProjects(prev, projectId, threadId, runtimeMode));
-  };
-
-  const setThreadPlanMode = (projectId: string, threadId: string, planMode: boolean) => {
-    setProjects((prev) => setThreadPlanModeInProjects(prev, projectId, threadId, planMode));
-  };
-
-  const setThreadRuntimeId = (projectId: string, threadId: string, runtimeId: RuntimeId) => {
-    setProjects((prev) => setThreadRuntimeIdInProjects(prev, projectId, threadId, runtimeId));
-  };
-
-  const setThreadRuntimeModelId = (
-    projectId: string,
-    threadId: string,
-    runtimeModelId: string | undefined,
-  ) => {
-    setProjects((prev) =>
-      setThreadRuntimeModelIdInProjects(prev, projectId, threadId, runtimeModelId),
-    );
-  };
-
-  const setChatRuntimeMode = (
-    threadId: string,
-    runtimeMode: import("../../shared/runtimeMode").RuntimeMode,
-  ) => {
-    setChats((prev) => setChatThreadRuntimeMode(prev, threadId, runtimeMode));
-  };
-
-  const setChatPlanMode = (threadId: string, planMode: boolean) => {
-    setChats((prev) => setChatThreadPlanMode(prev, threadId, planMode));
-  };
-
-  const setChatRuntimeId = (threadId: string, runtimeId: RuntimeId) => {
-    setChats((prev) => setChatThreadRuntimeId(prev, threadId, runtimeId));
-  };
-
-  const setChatRuntimeModelId = (threadId: string, runtimeModelId: string | undefined) => {
-    setChats((prev) => setChatThreadRuntimeModelId(prev, threadId, runtimeModelId));
+    setSelectedThreadId(nextActiveThreadId);
   };
 
   const upsertMessages = (incomingMessages: Message[]) => {
-    setMessages((prev) => mergeMessagesIntoWorkspace(prev, incomingMessages));
+    updateThreadContent((content) => ({
+      ...content,
+      threadMessages: mergeThreadMessages(
+        content.threadMessages as Message[],
+        incomingMessages,
+      ) as AppThreadMessageRecord[],
+    }));
   };
 
   const appendMessage = (message: {
@@ -1239,12 +817,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     const now = Date.now();
     const newMessage: Message = {
       ...message,
+      attachments: message.attachments ?? [],
       type: "text",
       id: `msg-${now}-${Math.random().toString(36).slice(2, 7)}`,
       timestamp: formatTime(new Date(now)),
-      createdAt: now,
+      createdAt: new Date(now).toISOString(),
     };
-    setMessages((prev) => [...prev, newMessage]);
+    updateThreadContent((content) => ({
+      ...content,
+      threadMessages: [...content.threadMessages, newMessage as AppThreadMessageRecord],
+    }));
     return newMessage;
   };
 
@@ -1254,25 +836,40 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   ): ChangedFilesMessage => {
     const now = Date.now();
     const message = buildChangedFilesMessage({ threadId, result, now, formatTime });
-    setMessages((prev) => [...prev, message]);
+    updateThreadContent((content) => ({
+      ...content,
+      threadMessages: [
+        ...content.threadMessages,
+        { ...message, attachments: [] } as AppThreadMessageRecord,
+      ],
+    }));
     return message;
   };
 
   const updateMessage = (id: string, content: string) => {
-    setMessages((prev) =>
-      prev.map((msg) =>
+    updateThreadContent((state) => ({
+      ...state,
+      threadMessages: state.threadMessages.map((msg) =>
         msg.id === id && msg.type !== "changed_files" ? { ...msg, content, parts: undefined } : msg,
       ),
-    );
+    }));
   };
 
   const updateMessageAndPruneAfter = (id: string, content: string) => {
-    setMessages((prev) => updateMessageAndPruneThreadAfter(prev, id, content));
+    updateThreadContent((state) => ({
+      ...state,
+      threadMessages: updateMessageAndPruneThreadAfter(
+        state.threadMessages as Message[],
+        id,
+        content,
+      ) as AppThreadMessageRecord[],
+    }));
   };
 
   const updateMessageRunStatus = (id: string, status: MessageRunStatus) => {
-    setMessages((prev) =>
-      prev.map((msg) => {
+    updateThreadContent((content) => ({
+      ...content,
+      threadMessages: content.threadMessages.map((msg) => {
         if (msg.id !== id || msg.type === "changed_files") {
           return msg;
         }
@@ -1283,64 +880,47 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           runFinishedAt: status === "running" ? undefined : Date.now(),
         };
       }),
-    );
+    }));
   };
 
   const updateMessageParts = (id: string, update: MessagePartUpdate) => {
-    setMessages((prev) =>
-      prev.map((msg) => (msg.id === id ? applyMessagePartUpdate(msg, update) : msg)),
-    );
+    updateThreadContent((content) => ({
+      ...content,
+      threadMessages: content.threadMessages.map((msg) =>
+        msg.id === id
+          ? (applyMessagePartUpdate(msg as Message, update) as AppThreadMessageRecord)
+          : msg,
+      ),
+    }));
   };
 
   const updateRunChecklist = (threadId: string, update: RunChecklistUpdate) => {
-    setProjects((prev) =>
-      prev.map((project) => ({
-        ...project,
-        threads: project.threads.map((thread) =>
-          thread.id === threadId ? applyRunChecklistUpdate(thread, update) : thread,
-        ),
-      })),
-    );
-    setChats((prev) =>
-      prev.map((thread) =>
+    updateThreadContent((content) => ({
+      ...content,
+      threads: content.threads.map((thread) =>
         thread.id === threadId ? applyRunChecklistUpdate(thread, update) : thread,
       ),
-    );
+    }));
   };
 
   return (
-    <WorkspaceContext.Provider
+    <ThreadContentContext.Provider
       value={{
-        projects,
-        chats,
         messages,
-        activeThreadId,
-        hasHydrated,
-        contentLoadError,
+        selectedThreadId,
+        hasHydrated: appStateHasHydrated,
         currentThread,
         currentProject,
         getThreadRouteData,
-        getChatRouteData,
-        setActiveThreadId,
-        retryContentLoad,
-        createProject,
-        removeProject,
-        renameProject,
+        setSelectedThreadId,
         renameThread,
         markThreadActivity,
-        createThread,
         upsertThread,
-        upsertAssociationThread,
-        removeAssociationThread,
+        removeThreadFromState,
         removeMessages,
-        promoteDraftThread,
         toggleThreadPin,
         deleteThread,
         deleteThreads,
-        createChat,
-        upsertChat,
-        toggleChatPin,
-        deleteChat,
         upsertMessages,
         appendMessage,
         appendWorkspaceDiffMessage,
@@ -1349,21 +929,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         updateMessageRunStatus,
         updateMessageParts,
         updateRunChecklist,
-        setThreadRuntimeMode,
-        setThreadPlanMode,
-        setThreadRuntimeId,
-        setThreadRuntimeModelId,
-        setChatRuntimeMode,
-        setChatPlanMode,
-        setChatRuntimeId,
-        setChatRuntimeModelId,
       }}
     >
       {children}
-    </WorkspaceContext.Provider>
+    </ThreadContentContext.Provider>
   );
 }
 
-export function useWorkspace() {
-  return useContext(WorkspaceContext);
+export function useThreadContent() {
+  return useContext(ThreadContentContext);
 }

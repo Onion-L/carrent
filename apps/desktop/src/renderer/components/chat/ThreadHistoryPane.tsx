@@ -11,13 +11,14 @@ import {
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { DEFAULT_RUNTIME_ID } from "../../../shared/runtimes";
 import { buildProviderSessionKey } from "../../../shared/providerSessions";
-import type { ProviderSessionSnapshot } from "../../../shared/workspacePersistence";
+import type {
+  AppThreadRecord,
+  ProviderSessionSnapshot,
+} from "../../../shared/workspacePersistence";
 import { useAppState } from "../../context/AppStateContext";
-import { useWorkspace } from "../../context/WorkspaceContext";
+import { useThreadContent } from "../../context/ThreadContentContext";
 import { useChatRun } from "../../hooks/useChatRun";
-import { useRuntimes } from "../../hooks/useRuntimes";
 import { formatAbsoluteTime, formatRelativeTime } from "../../lib/formatRelativeTime";
 import { buildProjectPath, buildThreadPath, getProjectIdFromPathname } from "../../lib/navigation";
 import {
@@ -26,9 +27,6 @@ import {
   splitProjectThreads,
   type ThreadDisplayStatus,
 } from "../../lib/projectThreads";
-import { getChatRuntimeOptions } from "../../lib/runtimeSelection";
-import { findProjectIdForThread } from "../../lib/workspaceState";
-import type { ThreadRecord } from "../../mock/uiShellData";
 import { useToast } from "../toast/ToastContext";
 
 const THREAD_STATUS_META: Record<ThreadDisplayStatus, { label: string; className: string }> = {
@@ -60,10 +58,9 @@ export function getThreadContextMenuPosition(
 
 export function getThreadRuntimeSessionId(
   snapshot: ProviderSessionSnapshot,
-  thread: ThreadRecord,
+  thread: AppThreadRecord,
 ) {
-  const runtimeId = thread.runtimeId ?? DEFAULT_RUNTIME_ID;
-  return snapshot.sessions[buildProviderSessionKey(runtimeId, thread.id)] ?? null;
+  return snapshot.sessions[buildProviderSessionKey(thread.runtimeId, thread.id)] ?? null;
 }
 
 export function ThreadContextMenu({
@@ -126,20 +123,16 @@ type ThreadContextMenuState = {
 export function ThreadHistoryPane() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { activeWorkspaceId } = useAppState();
+  const { activeWorkspaceId, projects, threads, openThreadDraft } = useAppState();
   const {
-    projects,
     messages,
-    activeThreadId,
-    setActiveThreadId,
+    selectedThreadId,
+    setSelectedThreadId,
     toggleThreadPin,
     deleteThread,
-    createThread,
     renameThread,
-  } = useWorkspace();
+  } = useThreadContent();
   const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
-  const { runtimes } = useRuntimes();
-  const defaultRuntimeId = getChatRuntimeOptions(runtimes)[0]?.id;
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const [threadContextMenu, setThreadContextMenu] = useState<ThreadContextMenuState | null>(null);
@@ -160,13 +153,21 @@ export function ThreadHistoryPane() {
     [location.pathname],
   );
   const selectedProject =
-    projects.find((project) => project.id === routeProjectId) ??
-    projects.find((project) => project.active) ??
-    projects[0] ??
-    null;
+    projects.find((project) => project.id === routeProjectId) ?? projects[0] ?? null;
   const allProjectThreads = useMemo(
-    () => (selectedProject ? splitProjectThreads(selectedProject.threads, messages).active : []),
-    [messages, selectedProject],
+    () =>
+      selectedProject && activeWorkspaceId
+        ? splitProjectThreads(
+            threads.filter(
+              (thread) =>
+                thread.workspaceId === activeWorkspaceId &&
+                thread.projectId === selectedProject.id &&
+                !thread.archived,
+            ),
+            messages,
+          ).active
+        : [],
+    [activeWorkspaceId, messages, selectedProject, threads],
   );
 
   useEffect(() => {
@@ -240,15 +241,15 @@ export function ThreadHistoryPane() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const createThreadAndOpen = () => {
+  const createThreadAndOpen = async () => {
     if (!activeWorkspaceId || !selectedProject || creatingRef.current) {
       return;
     }
 
     creatingRef.current = true;
-    const thread = createThread(selectedProject.id, "New thread", defaultRuntimeId);
-    if (thread) {
-      navigate(buildThreadPath(activeWorkspaceId, selectedProject.id, thread.id));
+    const draft = await openThreadDraft(activeWorkspaceId, selectedProject.id);
+    if (draft) {
+      navigate(buildProjectPath(activeWorkspaceId, selectedProject.id));
     }
     window.setTimeout(() => {
       creatingRef.current = false;
@@ -261,11 +262,13 @@ export function ThreadHistoryPane() {
     }
 
     try {
-      const nextActiveThreadId = await deleteThread(selectedProject.id, threadId);
+      const nextActiveThreadId = await deleteThread(threadId);
       showToast("Deleted successfully", "success");
-      if (activeThreadId === threadId) {
+      if (selectedThreadId === threadId) {
         if (nextActiveThreadId) {
-          const nextProjectId = findProjectIdForThread(projects, nextActiveThreadId);
+          const nextProjectId = threads.find(
+            (thread) => thread.id === nextActiveThreadId,
+          )?.projectId;
           navigate(
             nextProjectId
               ? buildThreadPath(activeWorkspaceId, nextProjectId, nextActiveThreadId)
@@ -286,7 +289,10 @@ export function ThreadHistoryPane() {
     setEditingThreadTitle("");
   };
 
-  const openThreadContextMenu = (thread: ThreadRecord, event: React.MouseEvent<HTMLDivElement>) => {
+  const openThreadContextMenu = (
+    thread: AppThreadRecord,
+    event: React.MouseEvent<HTMLDivElement>,
+  ) => {
     if (!selectedProject) {
       return;
     }
@@ -341,8 +347,11 @@ export function ThreadHistoryPane() {
             >
               {selectedProject.name}
             </div>
-            <div className="truncate text-app-11 text-subtle" title={selectedProject.path}>
-              {selectedProject.path}
+            <div
+              className="truncate text-app-11 text-subtle"
+              title={selectedProject.workingDirectory}
+            >
+              {selectedProject.workingDirectory}
             </div>
           </div>
         ) : (
@@ -352,7 +361,7 @@ export function ThreadHistoryPane() {
 
       <div className="shrink-0 space-y-0.5 px-2 pb-1 pt-1">
         <button
-          onClick={createThreadAndOpen}
+          onClick={() => void createThreadAndOpen()}
           disabled={!selectedProject}
           className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-app-13 text-muted transition hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
         >
@@ -375,7 +384,7 @@ export function ThreadHistoryPane() {
               <div className="px-3 pb-1 pt-1 text-app-11 font-medium text-subtle">Threads</div>
               <div className="space-y-0.5">
                 {allProjectThreads.map((thread) => {
-                  const isActive = thread.id === activeThreadId;
+                  const isActive = thread.id === selectedThreadId;
                   const isEditing = editingThreadId === thread.id;
                   const status = getThreadDisplayStatus({
                     threadId: thread.id,
@@ -440,7 +449,7 @@ export function ThreadHistoryPane() {
                             type="button"
                             onClick={() => {
                               if (!activeWorkspaceId) return;
-                              setActiveThreadId(thread.id);
+                              setSelectedThreadId(thread.id);
                               navigate(
                                 buildThreadPath(activeWorkspaceId, selectedProject.id, thread.id),
                               );
@@ -543,7 +552,10 @@ export function ThreadHistoryPane() {
                 sessionId={threadContextMenu.sessionId}
                 firstItemRef={threadContextMenuFirstItemRef}
                 onCopyProjectPath={() =>
-                  void copyThreadContextValue(selectedProject.path, "Project path copied")
+                  void copyThreadContextValue(
+                    selectedProject.workingDirectory,
+                    "Project path copied",
+                  )
                 }
                 onCopySessionId={() => {
                   if (threadContextMenu.sessionId) {

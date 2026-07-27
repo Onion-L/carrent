@@ -1,6 +1,6 @@
 import { ListChecks } from "lucide-react";
 
-import type { MessagePart } from "../../mock/uiShellData";
+import type { MessagePart } from "../../../shared/threadContent";
 import { MarkdownContent } from "./MarkdownContent";
 
 export type PlanReviewPart = Extract<MessagePart, { type: "plan_review" }>;

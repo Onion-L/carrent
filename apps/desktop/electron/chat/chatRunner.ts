@@ -1,5 +1,3 @@
-import path from "node:path";
-import fs from "node:fs";
 import type { ProcessRunner } from "../runtime/processRunner";
 import type { ChatTurnRequest } from "../../src/shared/chat";
 import { runtimeNameMap, type RuntimeId } from "../../src/shared/runtimes";
@@ -24,24 +22,6 @@ export interface ChatRunner {
 export type RuntimeCommandOptions = {
   allowLegacyRuntimeCommands?: boolean;
 };
-
-function getProjectlessChatCwd() {
-  try {
-    const { app } = require("electron");
-    return path.join(app.getPath("userData"), "carrent-chat");
-  } catch {
-    return path.join(process.env.APPDATA || process.env.HOME || "/tmp", "carrent-chat");
-  }
-}
-
-function resolveRequestCwd(request: ChatTurnRequest) {
-  if (request.workspace.kind === "project") {
-    return request.workspace.projectPath;
-  }
-  const cwd = getProjectlessChatCwd();
-  fs.mkdirSync(cwd, { recursive: true });
-  return cwd;
-}
 
 export function createChatRunner(
   processRunner: ProcessRunner,
@@ -69,7 +49,7 @@ export function createChatRunner(
       }
 
       const result = await processRunner.run(command, args, {
-        cwd: resolveRequestCwd(request),
+        cwd: request.context.workingDirectory,
         timeoutMs: 120_000,
       });
 

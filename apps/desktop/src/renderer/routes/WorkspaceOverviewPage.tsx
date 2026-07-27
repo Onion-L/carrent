@@ -6,7 +6,7 @@ import { AddProjectButton } from "../components/workspace/AddProjectButton";
 import { useAppState } from "../context/AppStateContext";
 import { useNavigate } from "react-router-dom";
 import { getWorkspaceProjects } from "../lib/workspaceProjects";
-import { useWorkspace } from "../context/WorkspaceContext";
+import { useThreadContent } from "../context/ThreadContentContext";
 import { useChatRun } from "../hooks/useChatRun";
 
 export function WorkspaceOverviewPage() {
@@ -22,7 +22,7 @@ export function WorkspaceOverviewPage() {
     selectWorkspace,
     deleteWorkspace,
   } = useAppState();
-  const { deleteThreads } = useWorkspace();
+  const { deleteThreads } = useThreadContent();
   const { runningThreadIds } = useChatRun();
   const [isRenaming, setIsRenaming] = useState(false);
   const workspace = workspaces.find((item) => item.id === workspaceId);

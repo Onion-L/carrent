@@ -3,13 +3,16 @@ import type { RuntimeMode } from "./runtimeMode";
 import type { ChatPermissionOptionKind, ChatPermissionRequest } from "./chatPermissions";
 import type { ChatQuestionRequest } from "./chatQuestions";
 import type { RunChecklistSnapshot } from "./runChecklist";
-import type { AppStateSnapshot, WorkspaceSnapshot } from "./workspacePersistence";
+import type { AppStateSnapshot } from "./workspacePersistence";
 
 export const DEFAULT_CHAT_RUNTIME_ID: RuntimeId = DEFAULT_RUNTIME_ID;
 
-export type ChatWorkspaceScope =
-  | { kind: "project"; projectPath: string; projectId: string; workspaceId?: string }
-  | { kind: "chat" };
+export type ChatRunContext = {
+  kind: "project";
+  workingDirectory: string;
+  projectId: string;
+  workspaceId: string;
+};
 
 export type AttachmentKind = "image" | "file";
 
@@ -64,8 +67,6 @@ export type ThreadDeletionAppStateSnapshots = {
 };
 
 export type ThreadDeletionTransactionRequest = ThreadDeletionAppStateSnapshots & {
-  beforeWorkspace: WorkspaceSnapshot;
-  afterWorkspace: WorkspaceSnapshot;
   threadData: DeleteThreadDataRequest;
 };
 
@@ -91,6 +92,11 @@ export function applyThreadDeletionToAppState(
     threadPromotionIntents: snapshot.threadPromotionIntents?.filter(
       (intent) => !ids.has(intent.threadId),
     ),
+    threadWork: snapshot.threadWork
+      ? Object.fromEntries(
+          Object.entries(snapshot.threadWork).filter(([threadId]) => !ids.has(threadId)),
+        )
+      : undefined,
     lastThreadIdByWorkspace,
   };
   if (!scope || scope.kind === "threads") return withoutThreads;
@@ -148,14 +154,8 @@ export function applyThreadDeletionToAppState(
 export interface ChatTurnRequest {
   requestKey?: string;
   runId?: string;
-  workspace: ChatWorkspaceScope;
+  context: ChatRunContext;
   threadId: string;
-  draftRef?: {
-    draftId: string;
-    projectId: string;
-    workspaceId?: string;
-    title: string;
-  };
   runtimeId: RuntimeId;
   runtimeModelId?: string;
   runtimeMode: RuntimeMode;
@@ -221,20 +221,6 @@ export type ChatSubagentTaskPayload = {
 };
 
 export type ChatRunEvent =
-  | (ChatRunEventBase & {
-      type: "thread-upserted";
-      draftId: string;
-      projectId: string;
-      thread: {
-        id: string;
-        title: string;
-        updatedAt: string;
-        runtimeId?: RuntimeId;
-        runtimeModelId?: string;
-        runtimeMode?: RuntimeMode;
-        planMode?: boolean;
-      };
-    })
   | (ChatRunEventBase & {
       type: "started";
       threadId: string;

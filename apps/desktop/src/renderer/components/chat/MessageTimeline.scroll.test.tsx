@@ -6,7 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 
-import type { Message } from "../../mock/uiShellData";
+import type { Message } from "../../../shared/threadContent";
 import { MessageTimeline } from "./MessageTimeline";
 
 function userMessage(id: string, content: string): Message {

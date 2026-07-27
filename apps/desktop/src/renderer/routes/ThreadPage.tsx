@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive } from "lucide-react";
-import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 
 import { ChatHeader } from "../components/chat/ChatHeader";
 import {
@@ -24,12 +24,12 @@ import {
 } from "../components/chat/ThreadInspectorPane";
 import { WorkspaceDiffViewer } from "../components/chat/WorkspaceDiffViewer";
 import { DesktopHeaderPortal } from "../components/DesktopHeaderActions";
-import { useWorkspace } from "../context/WorkspaceContext";
+import { useThreadContent } from "../context/ThreadContentContext";
 import { useAppState } from "../context/AppStateContext";
-import { WorkspaceDiffProvider, useWorkspaceDiff } from "../context/WorkspaceDiffContext";
+import { WorkspaceDiffProvider, useThreadContentDiff } from "../context/WorkspaceDiffContext";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
-import type { Message } from "../mock/uiShellData";
+import type { Message } from "../../shared/threadContent";
 import { useChatRun } from "../hooks/useChatRun";
 import { useQueuedMessages } from "../hooks/chatMessageQueue";
 import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
@@ -37,7 +37,7 @@ import { buildProjectPath, buildThreadPath } from "../lib/navigation";
 import { useToast } from "../components/toast/ToastContext";
 
 export function resolveThreadRouteData(
-  getThreadRouteData: ReturnType<typeof useWorkspace>["getThreadRouteData"],
+  getThreadRouteData: ReturnType<typeof useThreadContent>["getThreadRouteData"],
   projectId?: string,
   threadId?: string,
 ) {
@@ -55,12 +55,11 @@ export function getThreadInspectorInput(
     return null;
   }
 
-  return { projectPath: routeData.project.path, messages: routeData.messages };
+  return { projectPath: routeData.project.workingDirectory, messages: routeData.messages };
 }
 
 function ThreadPageContent() {
   const { workspaceId, projectId, threadId } = useParams();
-  const location = useLocation();
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [submitRequest, setSubmitRequest] = useState<
@@ -71,16 +70,7 @@ function ThreadPageContent() {
   >();
   const [archiveTargetPath, setArchiveTargetPath] = useState<string | null>(null);
   const draftRequestIdRef = useRef(0);
-  const {
-    getThreadRouteData,
-    contentLoadError,
-    retryContentLoad,
-    setActiveThreadId,
-    setThreadPlanMode,
-    setThreadRuntimeMode,
-    setThreadRuntimeId,
-    setThreadRuntimeModelId,
-  } = useWorkspace();
+  const { getThreadRouteData, setSelectedThreadId } = useThreadContent();
   const {
     workspaces,
     projects,
@@ -115,7 +105,7 @@ function ThreadPageContent() {
     appWorkspace && appProject && appAssociation && appThread
       ? `${appWorkspace.name} / ${appAssociation.alias ?? appProject.name} / ${appThread.title}`
       : undefined;
-  const { state: diffState, closeDiff } = useWorkspaceDiff();
+  const { state: diffState, closeDiff } = useThreadContentDiff();
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const seenTaskIdsRef = useRef<Set<string>>(new Set());
@@ -126,8 +116,8 @@ function ThreadPageContent() {
   );
 
   useEffect(() => {
-    setActiveThreadId(routeData?.thread.id ?? null);
-  }, [routeData?.thread.id, setActiveThreadId]);
+    setSelectedThreadId(routeData?.thread.id ?? null);
+  }, [routeData?.thread.id, setSelectedThreadId]);
 
   useEffect(() => {
     setSubmitRequest(undefined);
@@ -202,6 +192,7 @@ function ThreadPageContent() {
     <Composer
       key={routeData.thread.id}
       mode="thread"
+      workspaceId={workspaceId!}
       placement={isEmptyThread ? "centered" : "default"}
       projectId={routeData.project.id}
       threadId={routeData.thread.id}
@@ -217,19 +208,15 @@ function ThreadPageContent() {
         draftRequest?.threadId === routeData.thread.id ? draftRequest.request : undefined
       }
       onRuntimeIdChange={(runtimeId) => {
-        setThreadRuntimeId(routeData.project.id, routeData.thread.id, runtimeId);
         if (appThread) void updateThreadConfig(appThread.id, { runtimeId });
       }}
       onRuntimeModelIdChange={(modelId) => {
-        setThreadRuntimeModelId(routeData.project.id, routeData.thread.id, modelId);
         if (appThread) void updateThreadConfig(appThread.id, { runtimeModelId: modelId });
       }}
       onRuntimeModeChange={(mode) => {
-        setThreadRuntimeMode(routeData.project.id, routeData.thread.id, mode);
         if (appThread) void updateThreadConfig(appThread.id, { runtimeMode: mode });
       }}
       onPlanModeChange={(enabled) => {
-        setThreadPlanMode(routeData.project.id, routeData.thread.id, enabled);
         if (appThread) void updateThreadConfig(appThread.id, { planMode: enabled });
       }}
       onRunPrepared={
@@ -296,44 +283,6 @@ function ThreadPageContent() {
           (thread) => thread.projectId === appProject.id && runningThreadIds.includes(thread.id),
         )}
       />
-    );
-  }
-
-  if (contentLoadError && workspaceId && projectId) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <ChatHeader title={appThread?.title} breadcrumb={breadcrumb} />
-        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
-          <div className="max-w-md text-center">
-            <h2 className="text-app-15 font-semibold text-fg">{contentLoadError}</h2>
-            <p className="mt-2 text-app-12 text-muted">
-              Navigation is still available while Carrent retries this content.
-            </p>
-            <div className="mt-5 flex justify-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  void retryContentLoad().then((loaded) => {
-                    if (loaded) {
-                      navigate(`${location.pathname}${location.search}`, { replace: true });
-                    }
-                  });
-                }}
-                className="min-h-8 rounded-md bg-fg px-3 text-app-12 font-medium text-bg hover:opacity-90"
-              >
-                Retry
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate(`/workspace/${workspaceId}/project/${projectId}`)}
-                className="min-h-8 rounded-md border border-border-strong px-3 text-app-12 font-medium text-fg hover:bg-surface-hover"
-              >
-                Open Project Overview
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
     );
   }
 

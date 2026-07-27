@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 
-import type { MessagePart } from "../../mock/uiShellData";
+import type { MessagePart } from "../../../shared/threadContent";
 import { getQuestionStatusLabel, QuestionBlock, type QuestionPart } from "./QuestionBlock";
 
 function makePart(overrides: Partial<QuestionPart> = {}): QuestionPart {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { registerProjectDirectoryIpc } from "./projectDirectory";
 import { createProjectRelocationManager } from "./projectDirectory";
-import type { AppStateSnapshot, WorkspaceSnapshot } from "../../src/shared/workspacePersistence";
+import type { AppStateSnapshot } from "../../src/shared/workspacePersistence";
 
 function relocationSnapshots() {
   const appState: AppStateSnapshot = {
@@ -65,17 +65,7 @@ function relocationSnapshots() {
     ],
     activeWorkspaceId: "workspace-1",
   };
-  const workspace: WorkspaceSnapshot = {
-    version: 1,
-    projects: [
-      { id: "project-1", name: "Carrent", path: "/old/carrent", threads: [] },
-      { id: "project-2", name: "Other", path: "/code/other", threads: [] },
-    ],
-    chats: [],
-    messages: [],
-    activeThreadId: null,
-  };
-  return { appState, workspace };
+  return { appState };
 }
 
 describe("registerProjectDirectoryIpc", () => {
@@ -129,18 +119,13 @@ describe("createProjectRelocationManager", () => {
   it("updates the shared Project path and detaches all of its Runtime Sessions", async () => {
     const before = relocationSnapshots();
     let appState = structuredClone(before.appState);
-    let workspace = structuredClone(before.workspace);
     const detached: string[][] = [];
     const manager = createProjectRelocationManager({
-      workspaceStore: {
+      appStateStore: {
         waitForWrites: async () => {},
         loadAppStateSnapshot: async () => appState,
         saveAppStateSnapshot: async (next) => {
           appState = structuredClone(next);
-        },
-        loadWorkspaceSnapshot: async () => workspace,
-        saveWorkspaceSnapshot: async (next) => {
-          workspace = structuredClone(next);
         },
       },
       sessionManager: {
@@ -165,9 +150,6 @@ describe("createProjectRelocationManager", () => {
       name: "Carrent",
       workingDirectory: "/new/carrent",
     });
-    expect(result.workspace.projects.find((project) => project.id === "project-1")?.path).toBe(
-      "/new/carrent",
-    );
     expect(detached).toEqual([["thread-1", "thread-2"]]);
     expect(appState.projects.find((project) => project.id === "project-2")?.workingDirectory).toBe(
       "/code/other",
@@ -178,14 +160,10 @@ describe("createProjectRelocationManager", () => {
     const before = relocationSnapshots();
     let detached = false;
     const manager = createProjectRelocationManager({
-      workspaceStore: {
+      appStateStore: {
         waitForWrites: async () => {},
         loadAppStateSnapshot: async () => before.appState,
         saveAppStateSnapshot: async () => {
-          throw new Error("must not save");
-        },
-        loadWorkspaceSnapshot: async () => before.workspace,
-        saveWorkspaceSnapshot: async () => {
           throw new Error("must not save");
         },
       },
@@ -216,12 +194,10 @@ describe("createProjectRelocationManager", () => {
     const before = relocationSnapshots();
     let detached = false;
     const manager = createProjectRelocationManager({
-      workspaceStore: {
+      appStateStore: {
         waitForWrites: async () => {},
         loadAppStateSnapshot: async () => before.appState,
         saveAppStateSnapshot: async () => {},
-        loadWorkspaceSnapshot: async () => before.workspace,
-        saveWorkspaceSnapshot: async () => {},
       },
       sessionManager: {
         hasLiveRunForThreads: () => false,
@@ -250,14 +226,12 @@ describe("createProjectRelocationManager", () => {
     const before = relocationSnapshots();
     const savedAppStates: AppStateSnapshot[] = [];
     const manager = createProjectRelocationManager({
-      workspaceStore: {
+      appStateStore: {
         waitForWrites: async () => {},
         loadAppStateSnapshot: async () => before.appState,
         saveAppStateSnapshot: async (snapshot) => {
           savedAppStates.push(snapshot);
         },
-        loadWorkspaceSnapshot: async () => before.workspace,
-        saveWorkspaceSnapshot: async () => {},
       },
       sessionManager: {
         hasLiveRunForThreads: () => false,
@@ -278,10 +252,10 @@ describe("createProjectRelocationManager", () => {
     expect(before.appState.projects[0]?.workingDirectory).toBe("/old/carrent");
   });
 
-  it("rolls back paths and Runtime Sessions when a path write fails", async () => {
+  it("rolls back App State and Runtime Sessions when a path write fails", async () => {
     const before = relocationSnapshots();
     let appState = structuredClone(before.appState);
-    let workspace = structuredClone(before.workspace);
+    let appStateSaveAttempts = 0;
     let restored = false;
     let completed = false;
     const receipt = {
@@ -290,16 +264,13 @@ describe("createProjectRelocationManager", () => {
       runtimeSessions: {},
     };
     const manager = createProjectRelocationManager({
-      workspaceStore: {
+      appStateStore: {
         waitForWrites: async () => {},
         loadAppStateSnapshot: async () => appState,
         saveAppStateSnapshot: async (next) => {
+          appStateSaveAttempts += 1;
+          if (appStateSaveAttempts === 1) throw new Error("disk full");
           appState = structuredClone(next);
-        },
-        loadWorkspaceSnapshot: async () => workspace,
-        saveWorkspaceSnapshot: async (next) => {
-          if (next.projects[0]?.path === "/new/carrent") throw new Error("disk full");
-          workspace = structuredClone(next);
         },
       },
       sessionManager: {
@@ -321,7 +292,6 @@ describe("createProjectRelocationManager", () => {
       .catch(() => {});
 
     expect(appState).toEqual(before.appState);
-    expect(workspace).toEqual(before.workspace);
     expect(restored).toBe(true);
     expect(completed).toBe(false);
   });

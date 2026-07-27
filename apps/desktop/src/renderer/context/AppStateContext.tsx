@@ -24,6 +24,7 @@ import {
   type AppThreadRunRecord,
   type AssociationThreadDraftRecord,
   type ThreadWorkDraftSnapshot,
+  type ThreadWorkSnapshot,
   type WorkspaceProjectAssociationRecord,
   type WorkspaceRecord,
 } from "../../shared/workspacePersistence";
@@ -99,6 +100,7 @@ type AppStateContextValue = {
   threadMessages: AppThreadMessageRecord[];
   threadRuns: AppThreadRunRecord[];
   threadPromotionIntents: AppThreadPromotionIntentRecord[];
+  threadWork: Record<string, ThreadWorkSnapshot>;
   lastThreadIdByWorkspace: Record<string, string>;
   activeWorkspaceId: string | null;
   projectDirectoryStatusById: Record<string, ProjectDirectoryStatus>;
@@ -157,6 +159,17 @@ type AppStateContextValue = {
       Pick<AppThreadRecord, "runtimeId" | "runtimeModelId" | "runtimeMode" | "planMode">
     >,
   ) => Promise<boolean>;
+  updateThreadContent: (
+    update: (content: {
+      threads: AppThreadRecord[];
+      threadMessages: AppThreadMessageRecord[];
+      threadWork: Record<string, ThreadWorkSnapshot>;
+    }) => {
+      threads: AppThreadRecord[];
+      threadMessages: AppThreadMessageRecord[];
+      threadWork: Record<string, ThreadWorkSnapshot>;
+    },
+  ) => void;
   recordThreadRun: (input: AppThreadRunStartInput & { threadId: string }) => Promise<boolean>;
   rollbackThreadRun: (threadId: string, runId: string, messageId: string) => Promise<boolean>;
   archiveThread: (threadId: string) => Promise<boolean>;
@@ -200,33 +213,78 @@ function projectNameFromWorkingDirectory(workingDirectory: string) {
   return normalized.split("/").at(-1) || normalized;
 }
 
-function withoutThread(snapshot: AppStateSnapshot, threadId: string): AppStateSnapshot {
-  const thread = (snapshot.threads ?? []).find((item) => item.id === threadId);
-  if (!thread) return snapshot;
+function valuesEqual(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
 
-  const lastThreadIdByWorkspace = { ...snapshot.lastThreadIdByWorkspace };
-  if (lastThreadIdByWorkspace[thread.workspaceId] === threadId) {
-    delete lastThreadIdByWorkspace[thread.workspaceId];
+function applyRecordChanges<T extends object>(base: T, intended: T, latest: T): T {
+  const merged = { ...latest } as T;
+  const baseRecord = base as Record<string, unknown>;
+  const intendedRecord = intended as Record<string, unknown>;
+  const mergedRecord = merged as Record<string, unknown>;
+
+  for (const key of new Set([...Object.keys(baseRecord), ...Object.keys(intendedRecord)])) {
+    if (valuesEqual(baseRecord[key], intendedRecord[key])) continue;
+    if (Object.hasOwn(intendedRecord, key)) {
+      mergedRecord[key] = intendedRecord[key];
+    } else {
+      delete mergedRecord[key];
+    }
+  }
+  return merged;
+}
+
+function mergeRecordList<T extends { id: string }>(base: T[], intended: T[], latest: T[]): T[] {
+  const baseById = new Map(base.map((record) => [record.id, record]));
+  const intendedById = new Map(intended.map((record) => [record.id, record]));
+  const mergedById = new Map(latest.map((record) => [record.id, record]));
+
+  for (const [id, baseRecord] of baseById) {
+    const intendedRecord = intendedById.get(id);
+    if (!intendedRecord) {
+      mergedById.delete(id);
+      continue;
+    }
+    const latestRecord = mergedById.get(id);
+    mergedById.set(
+      id,
+      latestRecord ? applyRecordChanges(baseRecord, intendedRecord, latestRecord) : intendedRecord,
+    );
+  }
+  for (const [id, intendedRecord] of intendedById) {
+    if (!baseById.has(id)) mergedById.set(id, intendedRecord);
   }
 
-  return {
-    ...snapshot,
-    threads: (snapshot.threads ?? []).filter((item) => item.id !== threadId),
-    threadDrafts: (snapshot.threadDrafts ?? []).filter((draft) => draft.threadId !== threadId),
-    threadMessages: (snapshot.threadMessages ?? []).filter(
-      (message) => message.threadId !== threadId,
-    ),
-    threadRuns: (snapshot.threadRuns ?? []).filter((run) => run.threadId !== threadId),
-    threadPromotionIntents: (snapshot.threadPromotionIntents ?? []).filter(
-      (intent) => intent.threadId !== threadId,
-    ),
-    lastThreadIdByWorkspace,
-  };
+  return [...mergedById.values()];
+}
+
+function mergeThreadWork(
+  base: Record<string, ThreadWorkSnapshot>,
+  intended: Record<string, ThreadWorkSnapshot>,
+  latest: Record<string, ThreadWorkSnapshot>,
+) {
+  const merged = { ...latest };
+  for (const [threadId, baseWork] of Object.entries(base)) {
+    const intendedWork = intended[threadId];
+    if (!intendedWork) {
+      delete merged[threadId];
+      continue;
+    }
+    merged[threadId] = latest[threadId]
+      ? applyRecordChanges(baseWork, intendedWork, latest[threadId])
+      : intendedWork;
+  }
+  for (const [threadId, intendedWork] of Object.entries(intended)) {
+    if (!base[threadId]) merged[threadId] = intendedWork;
+  }
+  return merged;
 }
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<AppStateSnapshot>(EMPTY_APP_STATE);
   const snapshotRef = useRef<AppStateSnapshot>(EMPTY_APP_STATE);
+  const saveAppStateRef = useRef(window.carrent.appState.save);
+  const mountedRef = useRef(true);
   const mutatingThreadIdsRef = useRef(new Set<string>());
   const startingRunThreadIdsRef = useRef(new Set<string>());
   const [hasHydrated, setHasHydrated] = useState(false);
@@ -235,6 +293,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [projectDirectoryStatusById, setProjectDirectoryStatusById] = useState<
     Record<string, ProjectDirectoryStatus>
   >({});
+  const threadContentSaveTimerRef = useRef<number | null>(null);
 
   const applyLoadResult = useCallback((result: AppStateLoadResult) => {
     if (result.status === "recovery-required") {
@@ -360,11 +419,94 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [snapshot.projects]);
 
   const persist = useCallback(async (nextSnapshot: AppStateSnapshot) => {
+    const contentAtStart = snapshotRef.current;
     const normalized = normalizeAppStateSnapshot(nextSnapshot);
     if (!normalized) throw new Error("Invalid App State snapshot.");
-    await window.carrent.appState.save(normalized);
-    snapshotRef.current = normalized;
-    setSnapshot(normalized);
+    await saveAppStateRef.current(normalized);
+    if (!mountedRef.current) return;
+    const latest = snapshotRef.current;
+    const committed =
+      latest === contentAtStart
+        ? normalized
+        : {
+            ...normalized,
+            threads: mergeRecordList(
+              contentAtStart.threads ?? [],
+              normalized.threads ?? [],
+              latest.threads ?? [],
+            ),
+            threadMessages: mergeRecordList(
+              contentAtStart.threadMessages ?? [],
+              normalized.threadMessages ?? [],
+              latest.threadMessages ?? [],
+            ),
+            threadWork: mergeThreadWork(
+              contentAtStart.threadWork ?? {},
+              normalized.threadWork ?? {},
+              latest.threadWork ?? {},
+            ),
+          };
+    snapshotRef.current = committed;
+    setSnapshot(committed);
+  }, []);
+
+  const updateThreadContent = useCallback(
+    (
+      update: (content: {
+        threads: AppThreadRecord[];
+        threadMessages: AppThreadMessageRecord[];
+        threadWork: Record<string, ThreadWorkSnapshot>;
+      }) => {
+        threads: AppThreadRecord[];
+        threadMessages: AppThreadMessageRecord[];
+        threadWork: Record<string, ThreadWorkSnapshot>;
+      },
+    ) => {
+      if (!mountedRef.current) return;
+      const current = snapshotRef.current;
+      const content = update({
+        threads: current.threads ?? [],
+        threadMessages: current.threadMessages ?? [],
+        threadWork: current.threadWork ?? {},
+      });
+      const next = { ...current, ...content };
+      snapshotRef.current = next;
+      setSnapshot(next);
+      window.carrent.appState.stage(next);
+
+      if (threadContentSaveTimerRef.current !== null) {
+        window.clearTimeout(threadContentSaveTimerRef.current);
+      }
+      threadContentSaveTimerRef.current = window.setTimeout(() => {
+        threadContentSaveTimerRef.current = null;
+        void persist(snapshotRef.current).catch((error) => {
+          console.error("[app-state] failed to save Thread content", error);
+        });
+      }, 250);
+    },
+    [persist],
+  );
+
+  useEffect(() => {
+    const flushPendingThreadContent = () => {
+      if (threadContentSaveTimerRef.current !== null) {
+        window.clearTimeout(threadContentSaveTimerRef.current);
+        threadContentSaveTimerRef.current = null;
+        const normalized = normalizeAppStateSnapshot(snapshotRef.current);
+        if (normalized) {
+          void saveAppStateRef.current(normalized).catch(() => {
+            // Best-effort flush while the Main Window is closing.
+          });
+        }
+      }
+    };
+
+    window.addEventListener("beforeunload", flushPendingThreadContent);
+    return () => {
+      window.removeEventListener("beforeunload", flushPendingThreadContent);
+      flushPendingThreadContent();
+      mountedRef.current = false;
+    };
   }, []);
 
   const createWorkspace = useCallback(
@@ -896,7 +1038,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           ...current,
           threads: [...(current.threads ?? []), thread],
           threadDrafts: (current.threadDrafts ?? []).filter((item) => item.id !== draft.id),
-          threadMessages: [...(current.threadMessages ?? []), message],
+          threadMessages: (current.threadMessages ?? []).some(
+            (existing) => existing.id === message.id,
+          )
+            ? current.threadMessages
+            : [...(current.threadMessages ?? []), message],
           threadRuns: [...(current.threadRuns ?? []), run],
           threadPromotionIntents: (current.threadPromotionIntents ?? []).filter(
             (item) => item.draftId !== draft.id,
@@ -992,7 +1138,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           threads: (current.threads ?? []).map((thread) =>
             thread.id === input.threadId ? { ...thread, lastActivityAt: input.startedAt } : thread,
           ),
-          threadMessages: [...(current.threadMessages ?? []), message],
+          threadMessages: (current.threadMessages ?? []).some(
+            (existing) => existing.id === message.id,
+          )
+            ? current.threadMessages
+            : [...(current.threadMessages ?? []), message],
           threadRuns: [...(current.threadRuns ?? []), run],
         });
         return true;
@@ -1109,12 +1259,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       const thread = (current.threads ?? []).find((item) => item.id === threadId && item.archived);
       if (!thread || mutatingThreadIdsRef.current.has(threadId)) return false;
       mutatingThreadIdsRef.current.add(threadId);
-      const next = withoutThread(current, threadId);
+      const next = applyThreadDeletionToAppState(current, [threadId]);
 
       try {
         await cleanup({ beforeAppState: current, afterAppState: next });
-        snapshotRef.current = next;
-        setSnapshot(next);
+        const committed = applyThreadDeletionToAppState(snapshotRef.current, [threadId]);
+        snapshotRef.current = committed;
+        setSnapshot(committed);
         return true;
       } catch (error) {
         if (error instanceof AggregateError) throw error;
@@ -1173,8 +1324,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           afterAppState: next,
           scope,
         });
-        snapshotRef.current = next;
-        setSnapshot(next);
+        const committed = applyThreadDeletionToAppState(
+          snapshotRef.current,
+          affectedThreadIds,
+          scope,
+        );
+        snapshotRef.current = committed;
+        setSnapshot(committed);
         return true;
       } catch (error) {
         if (error instanceof AggregateError) throw error;
@@ -1212,6 +1368,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         threadMessages: snapshot.threadMessages ?? [],
         threadRuns: snapshot.threadRuns ?? [],
         threadPromotionIntents: snapshot.threadPromotionIntents ?? [],
+        threadWork: snapshot.threadWork ?? {},
         lastThreadIdByWorkspace: snapshot.lastThreadIdByWorkspace ?? {},
         activeWorkspaceId: snapshot.activeWorkspaceId,
         projectDirectoryStatusById,
@@ -1237,6 +1394,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         commitThreadDraftPromotion,
         rollbackThreadDraftPromotion,
         updateThreadConfig,
+        updateThreadContent,
         recordThreadRun,
         rollbackThreadRun,
         archiveThread,

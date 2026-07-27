@@ -55,7 +55,6 @@ export type ChatRunCallbacks = {
 type ChatRunSnapshot = {
   isSending: boolean;
   lastError: string | null;
-  activeThreadId: string | null;
   runningThreadIds: string[];
   pendingPermissions: ChatPermissionRequest[];
   pendingQuestions: ChatQuestionRequest[];
@@ -74,7 +73,6 @@ export function createChatRunCoordinator() {
   let snapshot: ChatRunSnapshot = {
     isSending: false,
     lastError: null,
-    activeThreadId: null,
     runningThreadIds: [],
     pendingPermissions: [],
     pendingQuestions: [],
@@ -91,7 +89,6 @@ export function createChatRunCoordinator() {
     snapshot = {
       isSending: runningThreadIds.length > 0,
       lastError,
-      activeThreadId: runningThreadIds[0] ?? null,
       runningThreadIds,
       pendingPermissions: [...pendingPermissionById.values()],
       pendingQuestions: [...pendingQuestionById.values()],
@@ -466,7 +463,6 @@ export function useChatRun() {
   return {
     isSending: snapshot.isSending,
     lastError: snapshot.lastError,
-    activeThreadId: snapshot.activeThreadId,
     runningThreadIds: snapshot.runningThreadIds,
     pendingPermissions: snapshot.pendingPermissions,
     pendingQuestions: snapshot.pendingQuestions,

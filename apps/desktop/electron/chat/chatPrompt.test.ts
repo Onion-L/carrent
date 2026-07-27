@@ -4,10 +4,11 @@ import type { ChatTurnRequest } from "../../src/shared/chat";
 
 function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
-    workspace: {
+    context: {
       kind: "project",
+      workspaceId: "workspace-1",
       projectId: "timbre",
-      projectPath: "/Users/onion/workbench/timbre",
+      workingDirectory: "/Users/onion/workbench/timbre",
     },
     threadId: "thread-1",
     runtimeId: "codex",
@@ -48,10 +49,11 @@ describe("buildChatPrompt", () => {
   it("includes project path context", () => {
     const prompt = buildChatPrompt(
       makeRequest({
-        workspace: {
+        context: {
           kind: "project",
+          workspaceId: "workspace-1",
           projectId: "carrent",
-          projectPath: "/Users/onion/workbench/carrent",
+          workingDirectory: "/Users/onion/workbench/carrent",
         },
       }),
     );
@@ -61,26 +63,16 @@ describe("buildChatPrompt", () => {
   it("includes project context for project chats", () => {
     const prompt = buildChatPrompt(
       makeRequest({
-        workspace: {
+        context: {
           kind: "project",
+          workspaceId: "workspace-1",
           projectId: "carrent",
-          projectPath: "/Users/onion/workbench/carrent",
+          workingDirectory: "/Users/onion/workbench/carrent",
         },
       }),
     );
 
     expect(prompt).toContain("Project: /Users/onion/workbench/carrent");
-  });
-
-  it("includes no-project context for chat-only threads", () => {
-    const prompt = buildChatPrompt(
-      makeRequest({
-        workspace: { kind: "chat" },
-      }),
-    );
-
-    expect(prompt).toContain("Context: General chat. No project folder is selected.");
-    expect(prompt).not.toContain("Project:");
   });
 
   it("formats transcript as role: content pairs", () => {

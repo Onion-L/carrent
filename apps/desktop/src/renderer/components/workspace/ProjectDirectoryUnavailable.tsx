@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import type { AppProjectRecord } from "../../../shared/workspacePersistence";
 import { useAppState } from "../../context/AppStateContext";
-import { useWorkspace } from "../../context/WorkspaceContext";
 
 export function ProjectDirectoryUnavailable({
   project,
@@ -17,7 +16,6 @@ export function ProjectDirectoryUnavailable({
   const location = useLocation();
   const navigate = useNavigate();
   const { recheckProjectDirectory, relocateProject, projectDirectoryStatusById } = useAppState();
-  const { retryContentLoad } = useWorkspace();
   const [error, setError] = useState<string | null>(null);
   const checking = projectDirectoryStatusById[project.id] === "checking";
 
@@ -70,9 +68,7 @@ export function ProjectDirectoryUnavailable({
                       setError(result.error);
                       return;
                     }
-                    if (await retryContentLoad()) {
-                      navigate(`${location.pathname}${location.search}`, { replace: true });
-                    }
+                    navigate(`${location.pathname}${location.search}`, { replace: true });
                   })
                   .catch((caught) => {
                     setError(

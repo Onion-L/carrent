@@ -7,10 +7,7 @@ import type {
   ThreadDeletionTransactionRequest,
   ThreadDeletionScope,
 } from "../../src/shared/chat";
-import {
-  normalizeAppStateSnapshot,
-  normalizeWorkspaceSnapshot,
-} from "../../src/shared/workspacePersistence";
+import { normalizeAppStateSnapshot } from "../../src/shared/workspacePersistence";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import type { ChatQuestionAnswer, ChatQuestionResponse } from "../../src/shared/chatQuestions";
 import {
@@ -110,9 +107,7 @@ export function parseThreadDeletionTransactionRequest(
   const request = value as Record<string, unknown>;
   const beforeAppState = normalizeAppStateSnapshot(request.beforeAppState);
   const afterAppState = normalizeAppStateSnapshot(request.afterAppState);
-  const beforeWorkspace = normalizeWorkspaceSnapshot(request.beforeWorkspace);
-  const afterWorkspace = normalizeWorkspaceSnapshot(request.afterWorkspace);
-  if (!beforeAppState || !afterAppState || !beforeWorkspace || !afterWorkspace) {
+  if (!beforeAppState || !afterAppState) {
     throw new Error("Invalid thread deletion transaction snapshots.");
   }
   let scope: ThreadDeletionScope | undefined;
@@ -148,8 +143,6 @@ export function parseThreadDeletionTransactionRequest(
   return {
     beforeAppState,
     afterAppState,
-    beforeWorkspace,
-    afterWorkspace,
     threadData: parseDeleteThreadDataRequest(
       request.threadData,
       scope?.kind === "association" || scope?.kind === "workspace",
@@ -207,10 +200,7 @@ export function parseChatTurnAttachments(value: unknown): AttachmentMetadata[] |
       throw new Error("Invalid attachment metadata.");
     }
     assertValidAttachmentStorageKey(record.storageKey);
-    if (
-      record.sha256 !== undefined &&
-      !isValidAttachmentSha256(record.sha256)
-    ) {
+    if (record.sha256 !== undefined && !isValidAttachmentSha256(record.sha256)) {
       throw new Error("Invalid attachment metadata.");
     }
     if (
@@ -329,9 +319,8 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
       throw new Error(unavailableMessage);
     }
     if (
-      req.workspace.kind === "project" &&
       services.isProjectDirectoryAvailable &&
-      !(await services.isProjectDirectoryAvailable(req.workspace.projectPath))
+      !(await services.isProjectDirectoryAvailable(req.context.workingDirectory))
     ) {
       throw new Error("Project Working Directory is unavailable.");
     }

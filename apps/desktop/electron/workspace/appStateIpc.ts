@@ -1,11 +1,10 @@
 import {
   normalizeAppStateSnapshotForWrite,
-  normalizeWorkspaceSnapshot,
   type AppStateLoadResult,
+  type AppStateSnapshot,
   type ProviderSessionSnapshot,
-  type WorkspaceSnapshot,
 } from "../../src/shared/workspacePersistence";
-import type { WorkspaceStore } from "./workspaceStore";
+import type { AppStateStore } from "./appStateStore";
 
 export type AppStateIpcResultSource = "reread" | "full-reset";
 
@@ -14,27 +13,30 @@ interface IpcMainLike {
     channel: string,
     listener: (event: unknown, ...args: unknown[]) => Promise<unknown> | unknown,
   ) => void;
-  on: (channel: string, listener: (event: unknown, ...args: unknown[]) => void) => void;
+  on?: (channel: string, listener: (event: unknown, ...args: unknown[]) => void) => void;
 }
 
-let lastWorkspaceSnapshot: WorkspaceSnapshot | null = null;
-let workspaceTransactionActive = false;
+let appStateTransactionActive = false;
+let stagedAppState: { snapshot: AppStateSnapshot; revision: number } | null = null;
+let stagedAppStateRevision = 0;
 
-export function getLastWorkspaceSnapshot(): WorkspaceSnapshot | null {
-  return lastWorkspaceSnapshot;
+export function getStagedAppStateSnapshot(): AppStateSnapshot | null {
+  return stagedAppState?.snapshot ?? null;
 }
 
-export function rememberWorkspaceSnapshot(snapshot: WorkspaceSnapshot) {
-  lastWorkspaceSnapshot = snapshot;
+export function clearStagedAppStateSnapshot() {
+  stagedAppState = null;
+  stagedAppStateRevision += 1;
 }
 
-export function setWorkspaceTransactionActive(active: boolean) {
-  workspaceTransactionActive = active;
+export function setAppStateTransactionActive(active: boolean) {
+  appStateTransactionActive = active;
+  if (active) clearStagedAppStateSnapshot();
 }
 
-export function registerWorkspaceIpc(
+export function registerAppStateIpc(
   ipcMainLike: IpcMainLike,
-  store: WorkspaceStore,
+  store: AppStateStore,
   initialAppStateResult: AppStateLoadResult,
   prepareAppStateResult: (
     result: AppStateLoadResult,
@@ -60,30 +62,25 @@ export function registerWorkspaceIpc(
     appStateResult = await prepareAppStateResult(result, "full-reset");
     return consumeAppStateResult();
   });
+  ipcMainLike.on?.("app-state:stage", (_event, snapshot) => {
+    if (appStateTransactionActive) return;
+    const normalized = normalizeAppStateSnapshotForWrite(snapshot);
+    if (!normalized) return;
+    stagedAppStateRevision += 1;
+    stagedAppState = { snapshot: normalized, revision: stagedAppStateRevision };
+  });
   ipcMainLike.handle("app-state:save", (_event, snapshot) => {
-    if (workspaceTransactionActive) throw new Error("Workspace transaction is in progress.");
+    if (appStateTransactionActive) throw new Error("App State transaction is in progress.");
     const normalized = normalizeAppStateSnapshotForWrite(snapshot);
     if (!normalized) {
       throw new Error("Invalid App State snapshot.");
     }
-    return store.saveAppStateSnapshot(normalized);
-  });
-  ipcMainLike.handle("workspace:load", () => store.loadWorkspaceSnapshot());
-  ipcMainLike.on("workspace:remember", (_event, snapshot) => {
-    if (workspaceTransactionActive) return;
-    const normalized = normalizeWorkspaceSnapshot(snapshot);
-    if (normalized) {
-      rememberWorkspaceSnapshot(normalized);
-    }
-  });
-  ipcMainLike.handle("workspace:save", async (_event, snapshot) => {
-    if (workspaceTransactionActive) throw new Error("Workspace transaction is in progress.");
-    const normalized = normalizeWorkspaceSnapshot(snapshot);
-    if (!normalized) {
-      throw new Error("Invalid workspace snapshot.");
-    }
-    await store.saveWorkspaceSnapshot(normalized);
-    rememberWorkspaceSnapshot(normalized);
+    const stagedRevisionBeforeSave = stagedAppState?.revision;
+    return store.saveAppStateSnapshot(normalized).then(() => {
+      if (stagedAppState?.revision === stagedRevisionBeforeSave) {
+        clearStagedAppStateSnapshot();
+      }
+    });
   });
   ipcMainLike.handle("provider-sessions:load", () => store.loadProviderSessions());
   ipcMainLike.handle("provider-sessions:save", (_event, snapshot) =>

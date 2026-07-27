@@ -1,40 +1,14 @@
 import { describe, expect, it } from "bun:test";
-import type { WorkspaceSnapshot } from "../src/shared/workspacePersistence";
-import type { WorkspaceStore } from "./workspace/workspaceStore";
-import { createWorkspaceStoreStub } from "./workspace/workspaceStore.testUtils";
 import { createAppShutdown } from "./appShutdown";
 
-const snapshot: WorkspaceSnapshot = {
-  version: 1,
-  projects: [],
-  chats: [],
-  messages: [],
-  activeThreadId: null,
-};
-
-function createStore(
-  saveWorkspaceSnapshot: WorkspaceStore["saveWorkspaceSnapshot"],
-): WorkspaceStore {
-  return createWorkspaceStoreStub({
-    saveWorkspaceSnapshot,
-  });
-}
-
 describe("createAppShutdown", () => {
-  it("waits for an active Thread deletion before saving the shutdown snapshot", async () => {
+  it("waits for active Thread cleanup before quitting", async () => {
     let releaseDeletion!: () => void;
     const deletion = new Promise<void>((resolve) => {
       releaseDeletion = resolve;
     });
     const events: string[] = [];
     const shutdown = createAppShutdown({
-      getLastWorkspaceSnapshot: () => snapshot,
-      getWorkspaceStore: () =>
-        createWorkspaceStoreStub({
-          saveWorkspaceSnapshot: async () => {
-            events.push("save");
-          },
-        }),
       beforeSave: async () => {
         events.push("wait");
         await deletion;
@@ -48,18 +22,15 @@ describe("createAppShutdown", () => {
 
     releaseDeletion();
     await pending;
-    expect(events).toEqual(["wait", "save", "quit"]);
+    expect(events).toEqual(["wait", "quit"]);
   });
 
-  it("saves the latest snapshot exactly once before quitting", async () => {
+  it("runs the shutdown persistence hook exactly once before quitting", async () => {
     const calls: string[] = [];
-    const store = createStore(async (savedSnapshot) => {
-      expect(savedSnapshot).toEqual(snapshot);
-      calls.push("save");
-    });
     const shutdown = createAppShutdown({
-      getLastWorkspaceSnapshot: () => snapshot,
-      getWorkspaceStore: () => store,
+      beforeSave: async () => {
+        calls.push("save");
+      },
       quit: () => calls.push("quit"),
     });
     let prevented = false;
@@ -74,15 +45,9 @@ describe("createAppShutdown", () => {
     expect(calls).toEqual(["save", "quit"]);
   });
 
-  it("flushes without requiring a window count", async () => {
-    let saveCount = 0;
+  it("quits when there is no shutdown persistence hook", async () => {
     let quitCount = 0;
     const shutdown = createAppShutdown({
-      getLastWorkspaceSnapshot: () => snapshot,
-      getWorkspaceStore: () =>
-        createStore(async () => {
-          saveCount += 1;
-        }),
       quit: () => {
         quitCount += 1;
       },
@@ -90,41 +55,17 @@ describe("createAppShutdown", () => {
 
     await shutdown.beforeQuit({ preventDefault() {} });
 
-    expect(saveCount).toBe(1);
     expect(quitCount).toBe(1);
   });
 
-  it("quits when no snapshot has been remembered", async () => {
-    let prevented = false;
-    let quitCount = 0;
-    const shutdown = createAppShutdown({
-      getLastWorkspaceSnapshot: () => null,
-      getWorkspaceStore: () => createStore(async () => {}),
-      quit: () => {
-        quitCount += 1;
-      },
-    });
-
-    await shutdown.beforeQuit({
-      preventDefault: () => {
-        prevented = true;
-      },
-    });
-
-    expect(prevented).toBe(true);
-    expect(quitCount).toBe(1);
-  });
-
-  it("reports save errors and keeps the app open", async () => {
+  it("reports shutdown persistence errors and keeps the app open", async () => {
     const saveError = new Error("save failed");
     const reported: unknown[] = [];
     let quitCount = 0;
     const shutdown = createAppShutdown({
-      getLastWorkspaceSnapshot: () => snapshot,
-      getWorkspaceStore: () =>
-        createStore(async () => {
-          throw saveError;
-        }),
+      beforeSave: async () => {
+        throw saveError;
+      },
       quit: () => {
         quitCount += 1;
       },
@@ -144,11 +85,9 @@ describe("createAppShutdown", () => {
     let recursivePreventCount = 0;
     let shutdown: ReturnType<typeof createAppShutdown>;
     shutdown = createAppShutdown({
-      getLastWorkspaceSnapshot: () => snapshot,
-      getWorkspaceStore: () =>
-        createStore(async () => {
-          saveCount += 1;
-        }),
+      beforeSave: async () => {
+        saveCount += 1;
+      },
       quit: () => {
         void shutdown.beforeQuit({
           preventDefault: () => {
@@ -177,11 +116,9 @@ describe("createAppShutdown", () => {
     let firstPreventCount = 0;
     let repeatedPreventCount = 0;
     const shutdown = createAppShutdown({
-      getLastWorkspaceSnapshot: () => snapshot,
-      getWorkspaceStore: () =>
-        createStore(async () => {
-          await save;
-        }),
+      beforeSave: async () => {
+        await save;
+      },
       quit: () => {},
     });
 
@@ -208,11 +145,6 @@ describe("createAppShutdown", () => {
   it("returns to the app when quitting with a live Run is not confirmed", async () => {
     const calls: string[] = [];
     const shutdown = createAppShutdown({
-      getLastWorkspaceSnapshot: () => snapshot,
-      getWorkspaceStore: () =>
-        createStore(async () => {
-          calls.push("save");
-        }),
       liveRunQuitPolicy: {
         hasLiveRuns: () => true,
         confirmQuitWithLiveRuns: async () => false,
@@ -233,8 +165,6 @@ describe("createAppShutdown", () => {
     const confirmationError = new Error("dialog failed");
     const reported: unknown[] = [];
     const shutdown = createAppShutdown({
-      getLastWorkspaceSnapshot: () => snapshot,
-      getWorkspaceStore: () => createStore(async () => {}),
       liveRunQuitPolicy: {
         hasLiveRuns: () => true,
         confirmQuitWithLiveRuns: async () => {
@@ -261,11 +191,9 @@ describe("createAppShutdown", () => {
       finishCancellation = resolve;
     });
     const shutdown = createAppShutdown({
-      getLastWorkspaceSnapshot: () => snapshot,
-      getWorkspaceStore: () =>
-        createStore(async () => {
-          calls.push("save");
-        }),
+      beforeSave: async () => {
+        calls.push("save");
+      },
       liveRunQuitPolicy: {
         hasLiveRuns: () => true,
         confirmQuitWithLiveRuns: async () => {

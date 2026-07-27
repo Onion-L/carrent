@@ -1,14 +1,8 @@
 import { describe, expect, it } from "bun:test";
 
-import { resolveWorkspaceThreadRouteData } from "../context/WorkspaceContext";
-import {
-  messages as seededMessages,
-  projects as seededProjects,
-  type Message,
-  type ProjectRecord,
-  type SubagentTaskPart,
-  type ThreadRecord,
-} from "../mock/uiShellData";
+import { resolveWorkspaceThreadRouteData } from "../context/ThreadContentContext";
+import { type Message, type SubagentTaskPart } from "../../shared/threadContent";
+import type { AppProjectRecord, AppThreadRecord } from "../../shared/workspacePersistence";
 import {
   collectSubagentTasks,
   resolveRightPane,
@@ -27,24 +21,26 @@ type TextMessage = {
   duration?: string;
 };
 
-function makeThread(overrides: Partial<ThreadRecord> = {}): ThreadRecord {
+function makeThread(overrides: Partial<AppThreadRecord> = {}): AppThreadRecord {
   return {
     id: "thread-1",
+    workspaceId: "workspace-1",
+    projectId: "project-1",
     title: "Thread 1",
-    updatedAt: "now",
+    createdAt: "2026-07-27T08:00:00.000Z",
+    lastActivityAt: "2026-07-27T08:00:00.000Z",
+    runtimeId: "kimi",
+    runtimeMode: "approval-required",
+    planMode: false,
     ...overrides,
   };
 }
 
-function makeProject(
-  overrides: Partial<ProjectRecord> = {},
-  threads: ThreadRecord[] = [],
-): ProjectRecord {
+function makeProject(overrides: Partial<AppProjectRecord> = {}): AppProjectRecord {
   return {
     id: "project-1",
     name: "Project 1",
-    path: "/tmp/project-1",
-    threads,
+    workingDirectory: "/tmp/project-1",
     ...overrides,
   };
 }
@@ -62,12 +58,8 @@ function makeMessage(overrides: Partial<TextMessage> = {}): TextMessage {
 
 describe("resolveThreadRouteData", () => {
   it("returns the matching project, thread, and messages", () => {
-    const projects = [
-      makeProject({ id: "project-1" }, [
-        makeThread({ id: "thread-1" }),
-        makeThread({ id: "thread-2" }),
-      ]),
-    ];
+    const projects = [makeProject({ id: "project-1" })];
+    const threads = [makeThread({ id: "thread-1" }), makeThread({ id: "thread-2" })];
     const messages: Message[] = [
       makeMessage({ id: "message-1", threadId: "thread-1" }),
       makeMessage({ id: "message-2", threadId: "thread-2" }),
@@ -75,7 +67,7 @@ describe("resolveThreadRouteData", () => {
 
     const result = resolveThreadRouteData(
       (projectId, threadId) =>
-        resolveWorkspaceThreadRouteData(projects, messages, projectId, threadId),
+        resolveWorkspaceThreadRouteData(projects, threads, messages, projectId, threadId),
       "project-1",
       "thread-1",
     );
@@ -86,35 +78,20 @@ describe("resolveThreadRouteData", () => {
   });
 
   it("returns null when the thread does not belong to the project", () => {
-    const projects = [
-      makeProject({ id: "project-1" }, [makeThread({ id: "thread-1" })]),
-      makeProject({ id: "project-2" }, [makeThread({ id: "thread-2" })]),
+    const projects = [makeProject({ id: "project-1" }), makeProject({ id: "project-2" })];
+    const threads = [
+      makeThread({ id: "thread-1", projectId: "project-1" }),
+      makeThread({ id: "thread-2", projectId: "project-2" }),
     ];
 
     expect(
       resolveThreadRouteData(
-        (projectId, threadId) => resolveWorkspaceThreadRouteData(projects, [], projectId, threadId),
+        (projectId, threadId) =>
+          resolveWorkspaceThreadRouteData(projects, threads, [], projectId, threadId),
         "project-1",
         "thread-2",
       ),
     ).toBe(null);
-  });
-
-  it("reads the verification route directly from seeded workspace data", () => {
-    const result = resolveThreadRouteData(
-      (projectId, threadId) =>
-        resolveWorkspaceThreadRouteData(seededProjects, seededMessages, projectId, threadId),
-      "project-1",
-      "thread-1",
-    );
-
-    expect(result?.project.id).toBe("project-1");
-    expect(result?.thread.id).toBe("thread-1");
-    expect(result?.thread.title).toBe("Shared workspace thread state");
-    expect(result?.messages.map((message) => message.id)).toEqual([
-      "message-carrent-1",
-      "message-carrent-2",
-    ]);
   });
 });
 
@@ -134,9 +111,8 @@ function makeSubagentTask(overrides: Partial<SubagentTaskPart> = {}): SubagentTa
 
 describe("thread inspector integration", () => {
   it("passes the project path and messages to the inspector", () => {
-    const projects = [
-      makeProject({ id: "project-1", path: "/tmp/project-1" }, [makeThread({ id: "thread-1" })]),
-    ];
+    const projects = [makeProject({ id: "project-1", workingDirectory: "/tmp/project-1" })];
+    const threads = [makeThread({ id: "thread-1" })];
     const taskMessage = {
       id: "message-task",
       role: "assistant",
@@ -148,7 +124,7 @@ describe("thread inspector integration", () => {
 
     const routeData = resolveThreadRouteData(
       (projectId, threadId) =>
-        resolveWorkspaceThreadRouteData(projects, [taskMessage], projectId, threadId),
+        resolveWorkspaceThreadRouteData(projects, threads, [taskMessage], projectId, threadId),
       "project-1",
       "thread-1",
     );

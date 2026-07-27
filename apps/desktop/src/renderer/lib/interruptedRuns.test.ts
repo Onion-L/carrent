@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { reconcileInterruptedRuns } from "./interruptedRuns";
-import type { Message } from "../mock/uiShellData";
+import type { Message } from "../../shared/threadContent";
 
 type TextMessage = Extract<Message, { type?: "text" }>;
 

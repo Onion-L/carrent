@@ -1,17 +1,17 @@
 import { describe, expect, it } from "bun:test";
 
-import type { Message, ProjectRecord } from "../mock/uiShellData";
+import type { Message } from "../../shared/threadContent";
+import type { AppThreadRecord } from "../../shared/workspacePersistence";
 import {
   applyRunChecklistUpdate,
   applyMessagePartUpdate,
   buildChangedFilesMessage,
-  collectProjectThreadIds,
   deleteThreadMessagesAfterCleanup,
-  mergeMessagesIntoWorkspace,
+  mergeThreadMessages,
   prepareThreadDataDeletion,
   removeMessagesForThreads,
   updateMessageAndPruneThreadAfter,
-} from "./WorkspaceContext";
+} from "./ThreadContentContext";
 
 type TextMessage = Extract<Message, { role: "user" | "assistant"; content: string }>;
 
@@ -28,10 +28,16 @@ function makeMessage(overrides: Partial<TextMessage> = {}): TextMessage {
 }
 
 describe("applyRunChecklistUpdate", () => {
-  const thread: ProjectRecord["threads"][number] = {
+  const thread: AppThreadRecord = {
     id: "thread-1",
+    workspaceId: "workspace-1",
+    projectId: "project-1",
     title: "Checklist",
-    updatedAt: "now",
+    createdAt: "2026-07-27T08:00:00.000Z",
+    lastActivityAt: "2026-07-27T08:00:00.000Z",
+    runtimeId: "kimi",
+    runtimeMode: "approval-required",
+    planMode: false,
   };
 
   it("auto-expands the first snapshot and fully replaces later entries", () => {
@@ -180,7 +186,7 @@ describe("buildChangedFilesMessage", () => {
   });
 });
 
-describe("mergeMessagesIntoWorkspace", () => {
+describe("mergeThreadMessages", () => {
   it("merges incoming messages without duplicating existing ones", () => {
     const existing = [makeMessage({ id: "message-1" })];
     const incoming = [
@@ -188,7 +194,7 @@ describe("mergeMessagesIntoWorkspace", () => {
       makeMessage({ id: "message-2", role: "assistant", content: "" }),
     ];
 
-    expect(mergeMessagesIntoWorkspace(existing, incoming)).toEqual([
+    expect(mergeThreadMessages(existing, incoming)).toEqual([
       makeMessage({ id: "message-1", content: "updated" }),
       makeMessage({ id: "message-2", role: "assistant", content: "" }),
     ]);
@@ -201,7 +207,7 @@ describe("mergeMessagesIntoWorkspace", () => {
     ];
     const incoming = [makeMessage({ id: "message-3", threadId: "thread-1" })];
 
-    expect(mergeMessagesIntoWorkspace(existing, incoming)).toEqual([
+    expect(mergeThreadMessages(existing, incoming)).toEqual([
       makeMessage({ id: "message-1", threadId: "thread-1" }),
       makeMessage({ id: "message-2", threadId: "thread-2" }),
       makeMessage({ id: "message-3", threadId: "thread-1" }),
@@ -227,7 +233,7 @@ describe("mergeMessagesIntoWorkspace", () => {
       }),
     ];
 
-    const merged = mergeMessagesIntoWorkspace(existing, incoming);
+    const merged = mergeThreadMessages(existing, incoming);
     expect(merged).toHaveLength(2);
     expect((merged[1] as TextMessage).attachments).toEqual(incoming[0].attachments);
   });
@@ -315,37 +321,6 @@ describe("thread data deletion", () => {
       threadIds: ["chat-1"],
       attachmentStorageKeys: ["shared-in-chat.png"],
     });
-  });
-
-  it("collects every thread and message owned by a project", () => {
-    const projects: ProjectRecord[] = [
-      {
-        id: "project-1",
-        name: "One",
-        path: "/tmp/one",
-        threads: [
-          { id: "thread-1", title: "One", updatedAt: "now" },
-          { id: "thread-2", title: "Two", updatedAt: "now" },
-        ],
-      },
-      {
-        id: "project-2",
-        name: "Two",
-        path: "/tmp/two",
-        threads: [{ id: "thread-3", title: "Three", updatedAt: "now" }],
-      },
-    ];
-    const messages = [
-      makeMessage({ id: "one", threadId: "thread-1" }),
-      makeMessage({ id: "two", threadId: "thread-2" }),
-      makeMessage({ id: "three", threadId: "thread-3" }),
-    ];
-    const threadIds = collectProjectThreadIds(projects, "project-1");
-
-    expect(threadIds).toEqual(["thread-1", "thread-2"]);
-    expect(prepareThreadDataDeletion(messages, threadIds).remainingMessages).toEqual([
-      makeMessage({ id: "three", threadId: "thread-3" }),
-    ]);
   });
 
   it("leaves messages unchanged when persistent cleanup fails", async () => {

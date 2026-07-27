@@ -14,6 +14,8 @@ import type {
   AppStateSnapshot,
   WorkspaceSnapshot,
   ProviderSessionSnapshot,
+  ProjectRelocationResult,
+  ProjectRelocationRequest,
 } from "../src/shared/workspacePersistence";
 import type { RuntimeId } from "../src/shared/runtimes";
 import type {
@@ -104,6 +106,14 @@ const carrent = {
     load: () => ipcRenderer.invoke("provider-sessions:load") as Promise<ProviderSessionSnapshot>,
     save: (snapshot: ProviderSessionSnapshot) =>
       ipcRenderer.invoke("provider-sessions:save", snapshot),
+  },
+  projectDirectories: {
+    check: (workingDirectory: string) =>
+      ipcRenderer.invoke("project-directory:check", workingDirectory) as Promise<{
+        available: boolean;
+      }>,
+    relocate: (request: ProjectRelocationRequest) =>
+      ipcRenderer.invoke("project-directory:relocate", request) as Promise<ProjectRelocationResult>,
   },
   settings: {
     checkForUpdates: () =>

@@ -34,6 +34,7 @@ interface IpcMainLike {
 
 export interface ChatIpcServices {
   sessionManager: ChatSessionManager;
+  isProjectDirectoryAvailable?: (workingDirectory: string) => Promise<boolean>;
   threadDeletionManager?: {
     deleteThread: (request: ThreadDeletionTransactionRequest) => Promise<void>;
   };
@@ -318,6 +319,13 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
     const unavailableMessage = getV1UnavailableRuntimeMessage(req.runtimeId);
     if (unavailableMessage) {
       throw new Error(unavailableMessage);
+    }
+    if (
+      req.workspace.kind === "project" &&
+      services.isProjectDirectoryAvailable &&
+      !(await services.isProjectDirectoryAvailable(req.workspace.projectPath))
+    ) {
+      throw new Error("Project Working Directory is unavailable.");
     }
 
     const sanitizedRequest: ChatTurnRequest = {

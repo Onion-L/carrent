@@ -203,7 +203,7 @@ describe("registerWorkspaceIpc", () => {
       setWorkspaceTransactionActive(false);
     }
 
-    expect(String(saveError)).toContain("Thread deletion is in progress");
+    expect(String(saveError)).toContain("Workspace transaction is in progress");
     expect(saved).toHaveLength(0);
   });
 

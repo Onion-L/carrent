@@ -27,6 +27,8 @@ import type {
   AppStateSnapshot,
   WorkspaceSnapshot,
   ProviderSessionSnapshot,
+  ProjectRelocationResult,
+  ProjectRelocationRequest,
 } from "../shared/workspacePersistence";
 import type { RtkGainStats } from "../shared/rtk";
 
@@ -98,6 +100,10 @@ declare global {
       providerSessions: {
         load: () => Promise<ProviderSessionSnapshot>;
         save: (snapshot: ProviderSessionSnapshot) => Promise<void>;
+      };
+      projectDirectories: {
+        check: (workingDirectory: string) => Promise<{ available: boolean }>;
+        relocate: (request: ProjectRelocationRequest) => Promise<ProjectRelocationResult>;
       };
       settings: {
         checkForUpdates: () => Promise<{ hasUpdate: boolean; latestVersion?: string }>;

@@ -32,6 +32,7 @@ import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
 import type { Message } from "../mock/uiShellData";
 import { useChatRun } from "../hooks/useChatRun";
 import { useQueuedMessages } from "../hooks/chatMessageQueue";
+import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
 import { buildProjectPath, buildThreadPath } from "../lib/navigation";
 import { useToast } from "../components/toast/ToastContext";
 
@@ -89,6 +90,7 @@ function ThreadPageContent() {
     recordThreadRun,
     rollbackThreadRun,
     archiveThread,
+    projectDirectoryStatusById,
   } = useAppState();
   const { runningThreadIds } = useChatRun();
   const queuedMessages = useQueuedMessages(threadId ?? "");
@@ -283,6 +285,18 @@ function ThreadPageContent() {
 
   if (workspaceId && !appThread) {
     return <Navigate replace to={`/workspace/${workspaceId}/project/${projectId}`} />;
+  }
+
+  if (appProject && breadcrumb && projectDirectoryStatusById[appProject.id] === "unavailable") {
+    return (
+      <ProjectDirectoryUnavailable
+        project={appProject}
+        breadcrumb={breadcrumb}
+        hasLiveRun={threads.some(
+          (thread) => thread.projectId === appProject.id && runningThreadIds.includes(thread.id),
+        )}
+      />
+    );
   }
 
   if (contentLoadError && workspaceId && projectId) {

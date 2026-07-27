@@ -284,6 +284,39 @@ describe("registerChatIpc", () => {
     expect(started[0].request.message).toBe("Hello");
   });
 
+  it("blocks a Project Run when its recorded Working Directory is unavailable", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const started: unknown[] = [];
+    registerChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager: {
+          start: (...args) => started.push(args),
+          stop: () => {},
+          removeRuntimeSession: async () => {},
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
+          getStatus: async () => null,
+        },
+        isProjectDirectoryAvailable: async () => false,
+      },
+    );
+
+    let error: unknown;
+    try {
+      await handlers.get("chat:send")?.({}, makeRequest());
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error instanceof Error ? error.message : String(error)).toBe(
+      "Project Working Directory is unavailable.",
+    );
+    expect(started).toHaveLength(0);
+  });
+
   it("forwards Association Draft identity and Project Working Directory with its reserved Run ID", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const started: { runId: string; request: ChatTurnRequest }[] = [];

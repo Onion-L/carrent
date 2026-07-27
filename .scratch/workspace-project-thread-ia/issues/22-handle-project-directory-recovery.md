@@ -4,7 +4,7 @@
 
 **Blocked by:** 16 — 完成三层导航与位置恢复；21 — 隔离 Runtime Session 连续性故障
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Carrent 检测记录目录是否可用，但不搜索、猜测或自动采用其他路径，Project 身份在目录不可用时保持不变。
 - [ ] 不可用 Project 在中栏 Project 项显示警告，当前 Project/Thread 右侧内容替换为局部错误状态并保留完整层级导航。

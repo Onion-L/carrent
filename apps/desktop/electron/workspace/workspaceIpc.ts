@@ -32,7 +32,7 @@ export function setWorkspaceTransactionActive(active: boolean) {
 export function registerWorkspaceIpc(ipcMainLike: IpcMainLike, store: WorkspaceStore) {
   ipcMainLike.handle("app-state:load", () => store.loadAppStateSnapshot());
   ipcMainLike.handle("app-state:save", (_event, snapshot) => {
-    if (workspaceTransactionActive) throw new Error("Thread deletion is in progress.");
+    if (workspaceTransactionActive) throw new Error("Workspace transaction is in progress.");
     const normalized = normalizeAppStateSnapshot(snapshot);
     if (!normalized) {
       throw new Error("Invalid App State snapshot.");
@@ -48,7 +48,7 @@ export function registerWorkspaceIpc(ipcMainLike: IpcMainLike, store: WorkspaceS
     }
   });
   ipcMainLike.handle("workspace:save", async (_event, snapshot) => {
-    if (workspaceTransactionActive) throw new Error("Thread deletion is in progress.");
+    if (workspaceTransactionActive) throw new Error("Workspace transaction is in progress.");
     const normalized = normalizeWorkspaceSnapshot(snapshot);
     if (!normalized) {
       throw new Error("Invalid workspace snapshot.");

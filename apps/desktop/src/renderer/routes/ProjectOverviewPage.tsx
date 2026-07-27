@@ -6,6 +6,7 @@ import { Composer } from "../components/chat/Composer";
 import { runtimeIds, runtimeNameMap, type RuntimeId } from "../../shared/runtimes";
 import { type RuntimeMode } from "../../shared/runtimeMode";
 import type { AssociationThreadDraftRecord } from "../../shared/workspacePersistence";
+import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useChatRun } from "../hooks/useChatRun";
 
@@ -23,6 +24,7 @@ export function ProjectOverviewPage() {
     setProjectAlias,
     renameSharedProject,
     setAssociationDefaults,
+    projectDirectoryStatusById,
     openThreadDraft,
     updateThreadDraft,
     updateThreadDraftConfig,
@@ -59,6 +61,17 @@ export function ProjectOverviewPage() {
       thread.projectId === project.id &&
       runningThreadIds.includes(thread.id),
   );
+  if (projectDirectoryStatusById[project.id] === "unavailable") {
+    return (
+      <ProjectDirectoryUnavailable
+        project={project}
+        breadcrumb={`${workspace.name} / ${displayName}`}
+        hasLiveRun={threads.some(
+          (thread) => thread.projectId === project.id && runningThreadIds.includes(thread.id),
+        )}
+      />
+    );
+  }
   if (openDraft) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">

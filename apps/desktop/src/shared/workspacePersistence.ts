@@ -166,6 +166,16 @@ export type ProviderSessionSnapshot = {
   sessions: Record<string, string>;
 };
 
+export type ProjectRelocationResult = {
+  appState: AppStateSnapshot;
+  workspace: WorkspaceSnapshot;
+};
+
+export type ProjectRelocationRequest = {
+  projectId: string;
+  targetDirectory: string;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

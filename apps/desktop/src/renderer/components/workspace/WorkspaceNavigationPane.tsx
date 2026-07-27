@@ -1,5 +1,5 @@
 import { useAppState } from "../../context/AppStateContext";
-import { ArrowDown, ArrowUp, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, Search, TriangleAlert } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AddProjectButton } from "./AddProjectButton";
 import { getWorkspaceProjects } from "../../lib/workspaceProjects";
@@ -23,8 +23,15 @@ export function WorkspaceNavigationPane({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { workspaces, projects, associations, threads, activeWorkspaceId, moveAssociation } =
-    useAppState();
+  const {
+    workspaces,
+    projects,
+    associations,
+    threads,
+    activeWorkspaceId,
+    moveAssociation,
+    projectDirectoryStatusById,
+  } = useAppState();
   const { projects: contentProjects, messages } = useWorkspace();
   const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
   const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
@@ -75,6 +82,17 @@ export function WorkspaceNavigationPane({
                 >
                   <span className="block truncate">{association.alias ?? project.name}</span>
                 </button>
+                {projectDirectoryStatusById[project.id] === "unavailable" && (
+                  <button
+                    type="button"
+                    aria-label={`${association.alias ?? project.name} directory unavailable`}
+                    title="Project Working Directory unavailable"
+                    onClick={() => navigate(projectPath)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center text-danger"
+                  >
+                    <TriangleAlert className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 <button
                   aria-label={`Search ${association.alias ?? project.name}`}
                   title="Search Project"

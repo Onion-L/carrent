@@ -2236,10 +2236,7 @@ describe("createChatSessionManager", () => {
     );
     await waitForAsyncEvents();
 
-    expect(sessionWrites.map((write) => write.key)).toEqual([
-      "kimi:thread-1",
-      "kimi:thread-1",
-    ]);
+    expect(sessionWrites.map((write) => write.key)).toEqual(["kimi:thread-1", "kimi:thread-1"]);
     expect(transports[1]?.sent[1]).toMatchObject({
       method: "session/resume",
       params: { sessionId: "session-thread-1" },
@@ -4228,6 +4225,49 @@ describe("createChatSessionManager", () => {
 
     await manager.rollbackThreadDataDeletion?.(receipt!);
     expect(providerSessions.get(key)).toBe("session-1");
+  });
+
+  it("detaches and restores Runtime Sessions for a Project relocation", async () => {
+    const providerSessions = new Map([
+      ["kimi:thread-1", "kimi-session"],
+      ["claude-code:thread-1", "claude-session"],
+      ["kimi:thread-2", "unrelated-session"],
+    ]);
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: () => createMockChildProcess(),
+      providerSessions: {
+        get: (key) => providerSessions.get(key),
+        set: (key, sessionId) => {
+          providerSessions.set(key, sessionId);
+        },
+        deleteThreads: (threadIds) => {
+          const removed: Record<string, string> = {};
+          for (const [key, sessionId] of providerSessions) {
+            if (threadIds.some((threadId) => key.endsWith(`:${threadId}`))) {
+              removed[key] = sessionId;
+              providerSessions.delete(key);
+            }
+          }
+          return removed;
+        },
+        restoreThreads: (sessions) => {
+          Object.entries(sessions).forEach(([key, sessionId]) => {
+            providerSessions.set(key, sessionId);
+          });
+        },
+      },
+    });
+
+    const receipt = await manager.detachRuntimeSessions!(["thread-1"]);
+
+    expect(providerSessions.has("kimi:thread-1")).toBe(false);
+    expect(providerSessions.has("claude-code:thread-1")).toBe(false);
+    expect(providerSessions.get("kimi:thread-2")).toBe("unrelated-session");
+
+    await manager.restoreRuntimeSessions!(receipt);
+    expect(providerSessions.get("kimi:thread-1")).toBe("kimi-session");
+    expect(providerSessions.get("claude-code:thread-1")).toBe("claude-session");
   });
 
   it("restores provider sessions when attachment cleanup fails", async () => {

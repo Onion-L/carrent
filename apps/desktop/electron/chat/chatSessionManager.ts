@@ -28,6 +28,7 @@ import { getClaudeRuntimeModeArgs, getCodexRuntimeModeArgs } from "../../src/sha
 import { extractClaudePermissionRequest } from "./providerPermissionProtocol";
 import type { AttachmentStore } from "../attachments/attachmentStore";
 import { buildProviderSessionKey } from "../../src/shared/providerSessions";
+import type { RuntimeSessionDetachmentReceipt } from "../workspace/projectDirectory";
 
 interface ChatSession {
   runId: string;
@@ -58,6 +59,10 @@ export interface ChatSessionManager {
   removeRuntimeSession: (request: RuntimeSessionRecovery) => Promise<void>;
   deleteThreadData: (request: DeleteThreadDataRequest) => Promise<ThreadDataDeletionReceipt | void>;
   rollbackThreadDataDeletion?: (receipt: ThreadDataDeletionReceipt) => Promise<void>;
+  hasLiveRunForThreads?: (threadIds: string[]) => boolean;
+  detachRuntimeSessions?: (threadIds: string[]) => Promise<RuntimeSessionDetachmentReceipt>;
+  restoreRuntimeSessions?: (receipt: RuntimeSessionDetachmentReceipt) => Promise<void>;
+  completeRuntimeSessionDetachment?: (receipt: RuntimeSessionDetachmentReceipt) => void;
   respondToPermission: (response: ChatPermissionResponse) => void;
   respondToQuestion: (response: ChatQuestionResponse) => void;
   getStatus: (
@@ -739,6 +744,7 @@ export function createChatSessionManager(options: {
   const stoppedPendingKimiRuns = new Set<string>();
   const runtimeSessions = new Map<string, string>();
   const deletedThreadIds = new Set<string>();
+  const relocatingThreadIds = new Set<string>();
   const TIMEOUT_MS = 120_000;
 
   function resolveAttachmentPaths(request: ChatTurnRequest): ChatTurnRequest {
@@ -779,6 +785,15 @@ export function createChatSessionManager(options: {
         runId,
         requestKey: request.requestKey,
         error: "Thread has been deleted.",
+      });
+      return;
+    }
+    if (relocatingThreadIds.has(request.threadId)) {
+      options.emit({
+        type: "failed",
+        runId,
+        requestKey: request.requestKey,
+        error: "Project relocation is in progress.",
       });
       return;
     }
@@ -1409,6 +1424,71 @@ export function createChatSessionManager(options: {
     }
   }
 
+  function hasLiveRunForThreads(threadIds: string[]) {
+    const ids = new Set(threadIds);
+    return (
+      [...pendingKimiRuns.values()].some((threadId) => ids.has(threadId)) ||
+      [...kimiSessions.values()].some((session) => ids.has(session.threadId)) ||
+      [...sessions.values()].some((session) => ids.has(session.threadId))
+    );
+  }
+
+  async function detachRuntimeSessions(
+    threadIds: string[],
+  ): Promise<RuntimeSessionDetachmentReceipt> {
+    const uniqueThreadIds = [...new Set(threadIds)];
+    if (hasLiveRunForThreads(uniqueThreadIds)) {
+      throw new Error("Stop the Project's live Run before relocating its directory.");
+    }
+    if (options.providerSessions && !options.providerSessions.deleteThreads) {
+      throw new Error("Provider session cleanup is unavailable.");
+    }
+    if (options.providerSessions && !options.providerSessions.restoreThreads) {
+      throw new Error("Provider session rollback is unavailable.");
+    }
+
+    uniqueThreadIds.forEach((threadId) => relocatingThreadIds.add(threadId));
+    const runtimeSessionEntries = Object.fromEntries(
+      [...runtimeSessions].filter(([key]) =>
+        uniqueThreadIds.some((threadId) => key.endsWith(`:${threadId}`)),
+      ),
+    );
+    Object.keys(runtimeSessionEntries).forEach((key) => runtimeSessions.delete(key));
+
+    try {
+      const providerSessions =
+        (await options.providerSessions?.deleteThreads?.(uniqueThreadIds)) ?? {};
+      return {
+        threadIds: uniqueThreadIds,
+        providerSessions,
+        runtimeSessions: runtimeSessionEntries,
+      };
+    } catch (error) {
+      Object.entries(runtimeSessionEntries).forEach(([key, sessionId]) => {
+        runtimeSessions.set(key, sessionId);
+      });
+      uniqueThreadIds.forEach((threadId) => relocatingThreadIds.delete(threadId));
+      throw error;
+    }
+  }
+
+  async function restoreRuntimeSessions(receipt: RuntimeSessionDetachmentReceipt) {
+    if (Object.keys(receipt.providerSessions).length > 0) {
+      if (!options.providerSessions?.restoreThreads) {
+        throw new Error("Provider session rollback is unavailable.");
+      }
+      await options.providerSessions.restoreThreads(receipt.providerSessions);
+    }
+    Object.entries(receipt.runtimeSessions).forEach(([key, sessionId]) => {
+      runtimeSessions.set(key, sessionId);
+    });
+    receipt.threadIds.forEach((threadId) => relocatingThreadIds.delete(threadId));
+  }
+
+  function completeRuntimeSessionDetachment(receipt: RuntimeSessionDetachmentReceipt) {
+    receipt.threadIds.forEach((threadId) => relocatingThreadIds.delete(threadId));
+  }
+
   // Since no provider currently supports interactive stdin-based approval (per spike findings),
   // we emit permission-failed for all responses when in approval-required mode.
   // The pending permission infrastructure is in place for future provider support.
@@ -1510,6 +1590,10 @@ export function createChatSessionManager(options: {
     removeRuntimeSession,
     deleteThreadData,
     rollbackThreadDataDeletion,
+    hasLiveRunForThreads,
+    detachRuntimeSessions,
+    restoreRuntimeSessions,
+    completeRuntimeSessionDetachment,
     respondToPermission,
     respondToQuestion,
     getStatus,

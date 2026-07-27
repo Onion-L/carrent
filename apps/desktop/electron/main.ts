@@ -21,6 +21,11 @@ import {
   setWorkspaceTransactionActive,
 } from "./workspace/workspaceIpc";
 import { createWorkspaceShutdown } from "./workspace/workspaceShutdown";
+import {
+  createProjectRelocationManager,
+  isProjectDirectoryAvailable,
+  registerProjectDirectoryIpc,
+} from "./workspace/projectDirectory";
 import type { WorkspaceStore } from "./workspace/workspaceStore";
 import { createAttachmentStore } from "./attachments/attachmentStore";
 import { registerAttachmentIpc } from "./attachments/attachmentIpc";
@@ -164,6 +169,25 @@ app.whenReady().then(async () => {
   if (!sessionManager.rollbackThreadDataDeletion) {
     throw new Error("Thread data rollback is unavailable.");
   }
+  if (
+    !sessionManager.hasLiveRunForThreads ||
+    !sessionManager.detachRuntimeSessions ||
+    !sessionManager.restoreRuntimeSessions ||
+    !sessionManager.completeRuntimeSessionDetachment
+  ) {
+    throw new Error("Project relocation Session cleanup is unavailable.");
+  }
+  const projectRelocationManager = createProjectRelocationManager({
+    workspaceStore: store,
+    sessionManager: {
+      hasLiveRunForThreads: sessionManager.hasLiveRunForThreads,
+      detachRuntimeSessions: sessionManager.detachRuntimeSessions,
+      restoreRuntimeSessions: sessionManager.restoreRuntimeSessions,
+      completeRuntimeSessionDetachment: sessionManager.completeRuntimeSessionDetachment,
+    },
+    onActiveChange: setWorkspaceTransactionActive,
+  });
+  registerProjectDirectoryIpc(ipcMain, { relocationManager: projectRelocationManager });
   chatSessionManager = sessionManager;
   const threadDeletionManager = createThreadDeletionTransactionManager({
     journalStore: threadDeletionJournalStore,
@@ -179,6 +203,7 @@ app.whenReady().then(async () => {
   waitForThreadDeletion = threadDeletionManager.waitForIdle;
   registerChatIpc(ipcMain, {
     sessionManager,
+    isProjectDirectoryAvailable,
     threadDeletionManager,
   });
   createWindow(icon);

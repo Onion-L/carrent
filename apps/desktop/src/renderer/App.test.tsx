@@ -13,7 +13,11 @@ import {
   type NavigationType,
 } from "react-router-dom";
 
-import type { AppStateSnapshot, WorkspaceSnapshot } from "../shared/workspacePersistence";
+import type {
+  AppStateSnapshot,
+  ProjectRelocationRequest,
+  WorkspaceSnapshot,
+} from "../shared/workspacePersistence";
 import type {
   ChatRunEvent,
   ChatTurnRequest,
@@ -64,11 +68,14 @@ function installBridge(
   workspaceSaved: WorkspaceSnapshot[] = [],
   workspaceSaveFails: boolean | number | number[] = false,
   deleteThreadTransactionGate?: Promise<void>,
+  projectDirectoryAvailable: boolean | boolean[] | (() => boolean) = true,
+  projectRelocationRequests: ProjectRelocationRequest[] = [],
 ) {
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
   let saveAttempt = 0;
   let workspaceLoadAttempt = 0;
   let workspaceSaveAttempt = 0;
+  let currentWorkspaceSnapshot = structuredClone(workspaceSnapshot);
   const saveAppState = async (snapshot: AppStateSnapshot) => {
     saveAttempt += 1;
     if (
@@ -111,7 +118,7 @@ function installBridge(
         if (workspaceLoadFails === true || workspaceLoadFails === workspaceLoadAttempt) {
           throw new Error("content unavailable");
         }
-        return workspaceSnapshot;
+        return currentWorkspaceSnapshot;
       },
       remember: () => {},
       save: saveWorkspace,
@@ -140,6 +147,37 @@ function installBridge(
     providerSessions: {
       load: async () => ({ version: 1, sessions: {} }),
       save: async () => {},
+    },
+    projectDirectories: {
+      check: async () => ({
+        available:
+          typeof projectDirectoryAvailable === "function"
+            ? projectDirectoryAvailable()
+            : Array.isArray(projectDirectoryAvailable)
+              ? (projectDirectoryAvailable.shift() ?? true)
+              : projectDirectoryAvailable,
+      }),
+      relocate: async (request: ProjectRelocationRequest) => {
+        projectRelocationRequests.push(structuredClone(request));
+        if (!appState) throw new Error("App State is unavailable");
+        const relocatedAppState: AppStateSnapshot = {
+          ...appState,
+          projects: appState.projects.map((project) =>
+            project.id === request.projectId
+              ? { ...project, workingDirectory: request.targetDirectory }
+              : project,
+          ),
+        };
+        currentWorkspaceSnapshot = {
+          ...currentWorkspaceSnapshot,
+          projects: currentWorkspaceSnapshot.projects.map((project) =>
+            project.id === request.projectId
+              ? { ...project, path: request.targetDirectory }
+              : project,
+          ),
+        };
+        return { appState: relocatedAppState, workspace: currentWorkspaceSnapshot };
+      },
     },
     skills: { list: async () => [] },
     attachments: {
@@ -211,6 +249,8 @@ async function renderApp(
   workspaceSaved: WorkspaceSnapshot[] = [],
   workspaceSaveFails: boolean | number | number[] = false,
   deleteThreadTransactionGate?: Promise<void>,
+  projectDirectoryAvailable: boolean | boolean[] | (() => boolean) = true,
+  projectRelocationRequests: ProjectRelocationRequest[] = [],
 ) {
   const saved: AppStateSnapshot[] = [];
   localStorage.setItem(
@@ -238,6 +278,8 @@ async function renderApp(
     workspaceSaved,
     workspaceSaveFails,
     deleteThreadTransactionGate,
+    projectDirectoryAvailable,
+    projectRelocationRequests,
   );
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -1728,6 +1770,184 @@ describe("Association Thread Drafts", () => {
 
     expect(requests).toHaveLength(0);
     expect(saved).toHaveLength(0);
+  });
+});
+
+describe("Project Working Directory recovery", () => {
+  const appState: AppStateSnapshot = {
+    version: 1,
+    workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+    projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/missing/carrent" }],
+    associations: [
+      {
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        order: 0,
+        defaultRuntimeId: "kimi",
+        defaultRuntimeMode: "approval-required",
+      },
+    ],
+    threads: [
+      {
+        id: "thread-1",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        title: "Keep History",
+        createdAt: "2026-07-27T08:00:00.000Z",
+        lastActivityAt: "2026-07-27T08:00:00.000Z",
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
+    ],
+    activeWorkspaceId: "workspace-1",
+  };
+  const workspaceSnapshot: WorkspaceSnapshot = {
+    version: 1,
+    projects: [
+      {
+        id: "project-1",
+        name: "Carrent",
+        path: "/missing/carrent",
+        threads: [
+          {
+            id: "thread-1",
+            title: "Keep History",
+            updatedAt: "2026-07-27T08:00:00.000Z",
+          },
+        ],
+      },
+    ],
+    chats: [],
+    messages: [],
+    activeThreadId: "thread-1",
+  };
+
+  it("keeps hierarchy visible and blocks the Thread Composer when the directory is unavailable", async () => {
+    await renderApp(
+      appState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      workspaceSnapshot,
+      false,
+      [],
+      false,
+      undefined,
+      [],
+      false,
+      undefined,
+      false,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(container!.textContent).toContain("Personal / Carrent / Keep History");
+    expect(container!.textContent).toContain("Project Working Directory is unavailable");
+    expect(container!.textContent).toContain("/missing/carrent");
+    expect(buttonNamed("Recheck")).toBeDefined();
+    expect(buttonNamed("Relocate Directory")).toBeDefined();
+    expect(buttonNamed("Carrent directory unavailable")).toBeDefined();
+    expect(container!.querySelector("textarea")).toBe(null);
+  });
+
+  it("rechecks successfully and replaces the unavailable Thread location", async () => {
+    let available = false;
+    await renderApp(
+      appState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      workspaceSnapshot,
+      false,
+      [],
+      false,
+      undefined,
+      [],
+      false,
+      undefined,
+      () => available,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    available = true;
+    await click(buttonNamed("Recheck"));
+
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(currentNavigationType).toBe("REPLACE");
+    expect(container!.querySelector("textarea")).not.toBe(null);
+  });
+
+  it("relocates explicitly and replaces the unavailable Thread location", async () => {
+    const relocations: ProjectRelocationRequest[] = [];
+    let available = false;
+    await renderApp(
+      appState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      ["/new/carrent"],
+      false,
+      [],
+      false,
+      workspaceSnapshot,
+      false,
+      [],
+      false,
+      undefined,
+      [],
+      false,
+      undefined,
+      () => available,
+      relocations,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    available = true;
+    await click(buttonNamed("Relocate Directory"));
+
+    expect(relocations).toEqual([{ projectId: "project-1", targetDirectory: "/new/carrent" }]);
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(currentNavigationType).toBe("REPLACE");
+    expect(container!.querySelector("textarea")).not.toBe(null);
+  });
+
+  it("keeps the unavailable state when directory relocation is canceled", async () => {
+    const relocations: ProjectRelocationRequest[] = [];
+    await renderApp(
+      appState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      workspaceSnapshot,
+      false,
+      [],
+      false,
+      undefined,
+      [],
+      false,
+      undefined,
+      false,
+      relocations,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    await click(buttonNamed("Relocate Directory"));
+
+    expect(relocations).toHaveLength(0);
+    expect(container!.textContent).toContain("Project Working Directory is unavailable");
+    expect(container!.querySelector("textarea")).toBe(null);
   });
 });
 

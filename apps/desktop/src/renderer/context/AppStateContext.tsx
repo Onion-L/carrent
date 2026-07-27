@@ -48,6 +48,10 @@ type ProjectMutationResult =
     }
   | { ok: false; error: string };
 
+type ProjectRelocationMutationResult = { ok: true } | { ok: false; error: string };
+
+export type ProjectDirectoryStatus = "checking" | "available" | "unavailable";
+
 type PromoteDraftInput = AppThreadRunStartInput & {
   draftId: string;
   title: string;
@@ -72,11 +76,17 @@ type AppStateContextValue = {
   threadPromotionIntents: AppThreadPromotionIntentRecord[];
   lastThreadIdByWorkspace: Record<string, string>;
   activeWorkspaceId: string | null;
+  projectDirectoryStatusById: Record<string, ProjectDirectoryStatus>;
   createWorkspace: (name: string) => Promise<WorkspaceMutationResult>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceMutationResult>;
   selectWorkspace: (workspaceId: string) => Promise<boolean>;
   rememberThreadLocation: (workspaceId: string, threadId: string) => Promise<boolean>;
   addProject: (workspaceId: string, workingDirectory: string) => Promise<ProjectMutationResult>;
+  recheckProjectDirectory: (projectId: string) => Promise<boolean>;
+  relocateProject: (
+    projectId: string,
+    targetDirectory: string,
+  ) => Promise<ProjectRelocationMutationResult>;
   setProjectAlias: (workspaceId: string, projectId: string, alias: string) => Promise<boolean>;
   renameSharedProject: (projectId: string, name: string) => Promise<boolean>;
   setAssociationDefaults: (
@@ -204,6 +214,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const mutatingThreadIdsRef = useRef(new Set<string>());
   const startingRunThreadIdsRef = useRef(new Set<string>());
   const [hasHydrated, setHasHydrated] = useState(false);
+  const [projectDirectoryStatusById, setProjectDirectoryStatusById] = useState<
+    Record<string, ProjectDirectoryStatus>
+  >({});
 
   useEffect(() => {
     let cancelled = false;
@@ -231,6 +244,45 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const projectIds = new Set(snapshot.projects.map((project) => project.id));
+    setProjectDirectoryStatusById((current) => {
+      const next = Object.fromEntries(
+        Object.entries(current).filter(([projectId]) => projectIds.has(projectId)),
+      ) as Record<string, ProjectDirectoryStatus>;
+      snapshot.projects.forEach((project) => {
+        next[project.id] ??= "checking";
+      });
+      return next;
+    });
+
+    void Promise.all(
+      snapshot.projects.map(async (project) => {
+        try {
+          const result = await window.carrent.projectDirectories.check(project.workingDirectory);
+          if (!cancelled) {
+            setProjectDirectoryStatusById((current) => ({
+              ...current,
+              [project.id]: result.available ? "available" : "unavailable",
+            }));
+          }
+        } catch {
+          if (!cancelled) {
+            setProjectDirectoryStatusById((current) => ({
+              ...current,
+              [project.id]: "unavailable",
+            }));
+          }
+        }
+      }),
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [snapshot.projects]);
 
   const persist = useCallback(async (nextSnapshot: AppStateSnapshot) => {
     const normalized = normalizeAppStateSnapshot(nextSnapshot);
@@ -376,6 +428,55 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       }
     },
     [persist, snapshot],
+  );
+
+  const recheckProjectDirectory = useCallback(async (projectId: string) => {
+    const project = snapshotRef.current.projects.find((item) => item.id === projectId);
+    if (!project) return false;
+    setProjectDirectoryStatusById((current) => ({ ...current, [projectId]: "checking" }));
+    try {
+      const result = await window.carrent.projectDirectories.check(project.workingDirectory);
+      setProjectDirectoryStatusById((current) => ({
+        ...current,
+        [projectId]: result.available ? "available" : "unavailable",
+      }));
+      return result.available;
+    } catch {
+      setProjectDirectoryStatusById((current) => ({
+        ...current,
+        [projectId]: "unavailable",
+      }));
+      return false;
+    }
+  }, []);
+
+  const relocateProject = useCallback(
+    async (
+      projectId: string,
+      targetDirectory: string,
+    ): Promise<ProjectRelocationMutationResult> => {
+      try {
+        const result = await window.carrent.projectDirectories.relocate({
+          projectId,
+          targetDirectory,
+        });
+        const normalized = normalizeAppStateSnapshot(result.appState);
+        if (!normalized) throw new Error("Project relocation returned invalid App State.");
+        snapshotRef.current = normalized;
+        setSnapshot(normalized);
+        setProjectDirectoryStatusById((current) => ({
+          ...current,
+          [projectId]: "available",
+        }));
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "Project could not be relocated.",
+        };
+      }
+    },
+    [],
   );
 
   const setProjectAlias = useCallback(
@@ -1036,11 +1137,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         threadPromotionIntents: snapshot.threadPromotionIntents ?? [],
         lastThreadIdByWorkspace: snapshot.lastThreadIdByWorkspace ?? {},
         activeWorkspaceId: snapshot.activeWorkspaceId,
+        projectDirectoryStatusById,
         createWorkspace,
         renameWorkspace,
         selectWorkspace,
         rememberThreadLocation,
         addProject,
+        recheckProjectDirectory,
+        relocateProject,
         setProjectAlias,
         renameSharedProject,
         setAssociationDefaults,

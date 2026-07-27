@@ -57,10 +57,12 @@ type AppStateContextValue = {
   threadMessages: AppThreadMessageRecord[];
   threadRuns: AppThreadRunRecord[];
   threadPromotionIntents: AppThreadPromotionIntentRecord[];
+  lastThreadIdByWorkspace: Record<string, string>;
   activeWorkspaceId: string | null;
   createWorkspace: (name: string) => Promise<WorkspaceMutationResult>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceMutationResult>;
   selectWorkspace: (workspaceId: string) => Promise<boolean>;
+  rememberThreadLocation: (workspaceId: string, threadId: string) => Promise<boolean>;
   addProject: (workspaceId: string, workingDirectory: string) => Promise<ProjectMutationResult>;
   setProjectAlias: (workspaceId: string, projectId: string, alias: string) => Promise<boolean>;
   renameSharedProject: (projectId: string, name: string) => Promise<boolean>;
@@ -118,6 +120,7 @@ const EMPTY_APP_STATE: AppStateSnapshot = {
   threadMessages: [],
   threadRuns: [],
   threadPromotionIntents: [],
+  lastThreadIdByWorkspace: {},
   activeWorkspaceId: null,
 };
 
@@ -239,6 +242,32 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       if (!snapshot.workspaces.some((workspace) => workspace.id === workspaceId)) return false;
 
       await persist({ ...snapshot, activeWorkspaceId: workspaceId });
+      return true;
+    },
+    [persist, snapshot],
+  );
+
+  const rememberThreadLocation = useCallback(
+    async (workspaceId: string, threadId: string) => {
+      const thread = (snapshot.threads ?? []).find(
+        (item) => item.id === threadId && item.workspaceId === workspaceId,
+      );
+      if (!thread) return false;
+      if (
+        snapshot.activeWorkspaceId === workspaceId &&
+        snapshot.lastThreadIdByWorkspace?.[workspaceId] === threadId
+      ) {
+        return false;
+      }
+
+      await persist({
+        ...snapshot,
+        activeWorkspaceId: workspaceId,
+        lastThreadIdByWorkspace: {
+          ...snapshot.lastThreadIdByWorkspace,
+          [workspaceId]: threadId,
+        },
+      });
       return true;
     },
     [persist, snapshot],
@@ -783,10 +812,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         threadMessages: snapshot.threadMessages ?? [],
         threadRuns: snapshot.threadRuns ?? [],
         threadPromotionIntents: snapshot.threadPromotionIntents ?? [],
+        lastThreadIdByWorkspace: snapshot.lastThreadIdByWorkspace ?? {},
         activeWorkspaceId: snapshot.activeWorkspaceId,
         createWorkspace,
         renameWorkspace,
         selectWorkspace,
+        rememberThreadLocation,
         addProject,
         setProjectAlias,
         renameSharedProject,

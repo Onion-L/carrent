@@ -1,4 +1,5 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import { DesktopShell } from "./components/DesktopShell";
 import { ToastProvider } from "./components/toast/ToastContext";
@@ -8,18 +9,99 @@ import { RuntimeModelsProvider } from "./context/RuntimeModelsContext";
 import { HomePage } from "./routes/HomePage";
 import { SettingsPage } from "./routes/SettingsPage";
 import { ThreadPage } from "./routes/ThreadPage";
-import { ChatPage } from "./routes/ChatPage";
 import { WorkspaceProvider } from "./context/WorkspaceContext";
 import { AppStateProvider, useAppState } from "./context/AppStateContext";
 import { FirstUsePage } from "./routes/FirstUsePage";
 import { WorkspaceOverviewPage } from "./routes/WorkspaceOverviewPage";
 import { ProjectOverviewPage } from "./routes/ProjectOverviewPage";
+import { useToast } from "./components/toast/ToastContext";
+import { getWorkspaceRestorePath, resolveThreeLevelRoute } from "./lib/navigation";
+
+const LEGACY_ROUTE_PATTERN = /^\/(?:project\/[^/]+|thread\/[^/]+\/[^/]+|chat\/[^/]+)$/u;
+
+function NavigationCoordinator() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+  const { workspaces, projects, associations, threads, rememberThreadLocation } = useAppState();
+  const notifiedLocations = useRef(new Set<string>());
+
+  useEffect(() => {
+    let target: string | null = null;
+    let notice: string | null = null;
+
+    if (LEGACY_ROUTE_PATTERN.test(location.pathname)) {
+      target = "/";
+      notice = "This link is incompatible with the current navigation model.";
+    } else {
+      const resolution = resolveThreeLevelRoute(
+        { workspaces, projects, associations, threads },
+        location.pathname,
+      );
+      if (resolution.kind === "fallback") {
+        target = resolution.to;
+        notice = resolution.notice;
+      } else if (resolution.kind === "thread") {
+        void rememberThreadLocation(resolution.workspaceId, resolution.threadId).catch((error) => {
+          console.error("[app-state] failed to remember Thread location", error);
+        });
+      }
+    }
+
+    if (!target || !notice) return;
+    if (!notifiedLocations.current.has(location.pathname)) {
+      notifiedLocations.current.add(location.pathname);
+      showToast(notice, "info");
+    }
+    navigate(target, { replace: true });
+  }, [
+    associations,
+    location.pathname,
+    navigate,
+    projects,
+    rememberThreadLocation,
+    showToast,
+    threads,
+    workspaces,
+  ]);
+
+  return null;
+}
 
 function WorkspaceRestoreRoute() {
-  const { workspaces, activeWorkspaceId } = useAppState();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+  const { workspaces, threads, lastThreadIdByWorkspace, activeWorkspaceId } = useAppState();
+  const notifiedStaleThread = useRef(false);
   const target =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0] ?? null;
-  return target ? <Navigate replace to={`/workspace/${target.id}`} /> : <FirstUsePage />;
+  const rememberedThreadId = target ? lastThreadIdByWorkspace[target.id] : undefined;
+  const rememberedThread = target
+    ? threads.find(
+        (thread) => thread.id === rememberedThreadId && thread.workspaceId === target.id,
+      )
+    : null;
+
+  useEffect(() => {
+    if (!target) return;
+    if (rememberedThreadId && !rememberedThread && !notifiedStaleThread.current) {
+      notifiedStaleThread.current = true;
+      showToast("The last Thread could not be restored.", "info");
+    }
+    navigate(getWorkspaceRestorePath(target.id, threads, lastThreadIdByWorkspace), {
+      replace: true,
+    });
+  }, [
+    lastThreadIdByWorkspace,
+    navigate,
+    rememberedThread,
+    rememberedThreadId,
+    showToast,
+    target,
+    threads,
+  ]);
+
+  return target ? null : <FirstUsePage />;
 }
 
 function AppRoutes() {
@@ -34,10 +116,18 @@ function AppRoutes() {
     );
   }
 
-  if (workspaces.length === 0) return <FirstUsePage />;
+  if (workspaces.length === 0) {
+    return (
+      <ToastProvider>
+        <NavigationCoordinator />
+        <FirstUsePage />
+      </ToastProvider>
+    );
+  }
 
   return (
     <ToastProvider>
+      <NavigationCoordinator />
       <DesktopShell>
         <Routes>
           <Route element={<WorkspaceRestoreRoute />} path="/" />
@@ -50,9 +140,9 @@ function AppRoutes() {
             element={<ThreadPage />}
             path="/workspace/:workspaceId/project/:projectId/thread/:threadId"
           />
-          <Route element={<HomePage />} path="/project/:projectId" />
-          <Route element={<ThreadPage />} path="/thread/:projectId/:threadId" />
-          <Route element={<ChatPage />} path="/chat/:threadId" />
+          <Route element={<Navigate replace to="/" />} path="/project/:projectId" />
+          <Route element={<Navigate replace to="/" />} path="/thread/:projectId/:threadId" />
+          <Route element={<Navigate replace to="/" />} path="/chat/:threadId" />
           <Route element={<HomePage />} path="/agents" />
           <Route element={<Navigate replace to="/settings?tab=runtime" />} path="/runtimes" />
           <Route element={<SettingsPage />} path="/settings" />

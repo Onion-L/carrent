@@ -13,6 +13,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { DEFAULT_RUNTIME_ID } from "../../../shared/runtimes";
 import type { ProviderSessionSnapshot } from "../../../shared/workspacePersistence";
+import { useAppState } from "../../context/AppStateContext";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import { useRuntimes } from "../../hooks/useRuntimes";
@@ -126,6 +127,7 @@ type ThreadContextMenuState = {
 export function ThreadHistoryPane() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { activeWorkspaceId } = useAppState();
   const {
     projects,
     messages,
@@ -242,14 +244,14 @@ export function ThreadHistoryPane() {
   }, []);
 
   const createThreadAndOpen = () => {
-    if (!selectedProject || creatingRef.current) {
+    if (!activeWorkspaceId || !selectedProject || creatingRef.current) {
       return;
     }
 
     creatingRef.current = true;
     const thread = createThread(selectedProject.id, "New thread", defaultRuntimeId);
     if (thread) {
-      navigate(buildThreadPath(selectedProject.id, thread.id));
+      navigate(buildThreadPath(activeWorkspaceId, selectedProject.id, thread.id));
     }
     window.setTimeout(() => {
       creatingRef.current = false;
@@ -257,7 +259,7 @@ export function ThreadHistoryPane() {
   };
 
   const deleteThreadAction = async (threadId: string) => {
-    if (!selectedProject) {
+    if (!activeWorkspaceId || !selectedProject) {
       return;
     }
 
@@ -269,11 +271,11 @@ export function ThreadHistoryPane() {
           const nextProjectId = findProjectIdForThread(projects, nextActiveThreadId);
           navigate(
             nextProjectId
-              ? buildThreadPath(nextProjectId, nextActiveThreadId)
-              : buildProjectPath(selectedProject.id),
+              ? buildThreadPath(activeWorkspaceId, nextProjectId, nextActiveThreadId)
+              : buildProjectPath(activeWorkspaceId, selectedProject.id),
           );
         } else {
-          navigate(buildProjectPath(selectedProject.id));
+          navigate(buildProjectPath(activeWorkspaceId, selectedProject.id));
         }
       }
     } catch (error) {
@@ -449,8 +451,11 @@ export function ThreadHistoryPane() {
                           <button
                             type="button"
                             onClick={() => {
+                              if (!activeWorkspaceId) return;
                               setActiveThreadId(thread.id);
-                              navigate(buildThreadPath(selectedProject.id, thread.id));
+                              navigate(
+                                buildThreadPath(activeWorkspaceId, selectedProject.id, thread.id),
+                              );
                             }}
                             className="flex min-w-0 flex-1 self-stretch items-center gap-2 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20"
                           >
@@ -538,8 +543,9 @@ export function ThreadHistoryPane() {
         <ThreadSearchDialog
           threads={allProjectThreads}
           onSelect={(threadId) => {
+            if (!activeWorkspaceId) return;
             setActiveThreadId(threadId);
-            navigate(buildThreadPath(selectedProject.id, threadId));
+            navigate(buildThreadPath(activeWorkspaceId, selectedProject.id, threadId));
             setSearchOpen(false);
           }}
           onClose={() => setSearchOpen(false)}

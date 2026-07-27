@@ -4,14 +4,18 @@ import { useNavigate } from "react-router-dom";
 
 import { useAppState } from "../../context/AppStateContext";
 import { WorkspaceNameDialog } from "./WorkspaceNameDialog";
-
-function workspacePath(workspaceId: string) {
-  return `/workspace/${workspaceId}`;
-}
+import { buildWorkspacePath, getWorkspaceRestorePath } from "../../lib/navigation";
 
 export function WorkspaceRail() {
   const navigate = useNavigate();
-  const { workspaces, activeWorkspaceId, createWorkspace, selectWorkspace } = useAppState();
+  const {
+    workspaces,
+    threads,
+    lastThreadIdByWorkspace,
+    activeWorkspaceId,
+    createWorkspace,
+    selectWorkspace,
+  } = useAppState();
   const [isCreating, setIsCreating] = useState(false);
 
   return (
@@ -36,7 +40,11 @@ export function WorkspaceRail() {
                 aria-current={active ? "page" : undefined}
                 title={workspace.name}
                 onClick={async () => {
-                  if (await selectWorkspace(workspace.id)) navigate(workspacePath(workspace.id));
+                  if (await selectWorkspace(workspace.id)) {
+                    navigate(
+                      getWorkspaceRestorePath(workspace.id, threads, lastThreadIdByWorkspace),
+                    );
+                  }
                 }}
                 className={`flex h-11 w-11 items-center justify-center rounded-md border text-app-13 font-semibold transition ${
                   active
@@ -69,7 +77,7 @@ export function WorkspaceRail() {
             const result = await createWorkspace(name);
             if (!result.ok) return result.error;
             setIsCreating(false);
-            navigate(workspacePath(result.workspace.id));
+            navigate(buildWorkspacePath(result.workspace.id));
             return null;
           }}
         />

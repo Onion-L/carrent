@@ -4,7 +4,14 @@ import "./test/registerHappyDom";
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
+import {
+  MemoryRouter,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+  type NavigateFunction,
+  type NavigationType,
+} from "react-router-dom";
 
 import type { AppStateSnapshot, WorkspaceSnapshot } from "../shared/workspacePersistence";
 import type { ChatTurnRequest } from "../shared/chat";
@@ -20,6 +27,19 @@ const legacySnapshot: WorkspaceSnapshot = {
 
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
+let currentPathname = "";
+let currentNavigationType: NavigationType | null = null;
+let testNavigate: NavigateFunction | null = null;
+
+function NavigationProbe() {
+  const location = useLocation();
+  const navigationType = useNavigationType();
+  const navigate = useNavigate();
+  currentPathname = location.pathname;
+  currentNavigationType = navigationType;
+  testNavigate = navigate;
+  return null;
+}
 
 function installBridge(
   appState: AppStateSnapshot | null,
@@ -29,9 +49,11 @@ function installBridge(
   chatRequests: ChatTurnRequest[] = [],
   chatSendFails = false,
   workspaceSnapshot: WorkspaceSnapshot = legacySnapshot,
+  workspaceLoadFails: boolean | number = false,
 ) {
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
   let saveAttempt = 0;
+  let workspaceLoadAttempt = 0;
   window.carrent = {
     appState: {
       load: async () => appState,
@@ -56,7 +78,13 @@ function installBridge(
       },
     },
     workspace: {
-      load: async () => workspaceSnapshot,
+      load: async () => {
+        workspaceLoadAttempt += 1;
+        if (workspaceLoadFails === true || workspaceLoadFails === workspaceLoadAttempt) {
+          throw new Error("content unavailable");
+        }
+        return workspaceSnapshot;
+      },
       remember: () => {},
       save: async () => {},
     },
@@ -137,6 +165,7 @@ async function renderApp(
   chatRequests: ChatTurnRequest[] = [],
   chatSendFails = false,
   workspaceSnapshot: WorkspaceSnapshot = legacySnapshot,
+  workspaceLoadFails: boolean | number = false,
 ) {
   const saved: AppStateSnapshot[] = [];
   localStorage.setItem(
@@ -157,6 +186,7 @@ async function renderApp(
     chatRequests,
     chatSendFails,
     workspaceSnapshot,
+    workspaceLoadFails,
   );
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -166,6 +196,7 @@ async function renderApp(
     root!.render(
       <MemoryRouter initialEntries={[initialEntry]}>
         <App />
+        <NavigationProbe />
       </MemoryRouter>,
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -229,6 +260,9 @@ afterEach(async () => {
   localStorage.clear();
   root = null;
   container = null;
+  currentPathname = "";
+  currentNavigationType = null;
+  testNavigate = null;
 });
 
 describe("Workspace App State foundation", () => {
@@ -340,6 +374,331 @@ describe("Workspace App State foundation", () => {
     expect(saved.at(-1)?.activeWorkspaceId).toBe("workspace-2");
     expect(container!.querySelector("h1")?.textContent).toBe("Client");
     expect(buttonNamed("Client").getAttribute("aria-current")).toBe("page");
+  });
+});
+
+describe("three-level navigation", () => {
+  function navigationState(): AppStateSnapshot {
+    return {
+      version: 1,
+      workspaces: [
+        { id: "workspace-1", name: "Personal", order: 0 },
+        { id: "workspace-2", name: "Client", order: 1 },
+      ],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          alias: "Personal Carrent",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+        {
+          workspaceId: "workspace-2",
+          projectId: "project-1",
+          alias: "Client Carrent",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Personal Thread",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+        {
+          id: "thread-2",
+          workspaceId: "workspace-2",
+          projectId: "project-1",
+          title: "Client Thread",
+          createdAt: "2026-07-27T09:00:00.000Z",
+          lastActivityAt: "2026-07-27T09:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      lastThreadIdByWorkspace: {
+        "workspace-1": "thread-1",
+        "workspace-2": "thread-2",
+      },
+      activeWorkspaceId: "workspace-1",
+    };
+  }
+
+  const navigationWorkspaceSnapshot: WorkspaceSnapshot = {
+    version: 1,
+    projects: [
+      {
+        id: "project-1",
+        name: "Carrent",
+        path: "/code/carrent",
+        threads: [
+          { id: "thread-1", title: "Personal Thread", updatedAt: "now" },
+          { id: "thread-2", title: "Client Thread", updatedAt: "now" },
+        ],
+      },
+    ],
+    chats: [],
+    messages: [],
+    activeThreadId: null,
+  };
+
+  it("restores the active Workspace's last valid Thread on startup", async () => {
+    await renderApp(navigationState(), "/", [], false, [], false, navigationWorkspaceSnapshot);
+
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(currentNavigationType).toBe("REPLACE");
+    expect(container!.textContent).toContain("Personal Thread");
+  });
+
+  it("restores each Workspace's last valid Thread and keeps repeated selection a no-op", async () => {
+    const saved = await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+    );
+
+    await click(buttonNamed("Client"));
+    expect(currentPathname).toBe("/workspace/workspace-2/project/project-1/thread/thread-2");
+    expect(saved.at(-1)?.activeWorkspaceId).toBe("workspace-2");
+
+    const saveCount = saved.length;
+    await click(buttonNamed("Client"));
+    expect(saved).toHaveLength(saveCount);
+    expect(currentPathname).toBe("/workspace/workspace-2/project/project-1/thread/thread-2");
+  });
+
+  it("groups the current Workspace's Threads, shows the full path, and preserves push history", async () => {
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+    );
+
+    const navigationPane = container!.querySelector("aside.border-r")!;
+    expect(navigationPane.textContent).toContain("Personal Carrent");
+    expect(navigationPane.textContent).toContain("Personal Thread");
+    expect(navigationPane.textContent).not.toContain("Client Thread");
+    expect(container!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
+
+    await click(buttonNamed("Personal Carrent"));
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+    expect(currentNavigationType).toBe("PUSH");
+
+    await click(buttonNamed("Personal Thread"));
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(currentNavigationType).toBe("PUSH");
+
+    await act(async () => {
+      testNavigate!(-1);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+  });
+
+  it("falls back from a stale startup Thread to the active Workspace overview", async () => {
+    const state = navigationState();
+    state.lastThreadIdByWorkspace = { "workspace-1": "missing-thread" };
+
+    await renderApp(state, "/", [], false, [], false, navigationWorkspaceSnapshot);
+
+    expect(currentPathname).toBe("/workspace/workspace-1");
+    expect(currentNavigationType).toBe("REPLACE");
+    expect(container!.querySelector("h1")?.textContent).toBe("Personal");
+    expect(container!.textContent).toContain("The last Thread could not be restored.");
+    buttonNamed("Dismiss toast");
+  });
+
+  it("replaces a missing Thread with its Project overview and one dismissible notice", async () => {
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/missing-thread",
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+    );
+
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+    expect(currentNavigationType).toBe("REPLACE");
+    expect(container!.textContent).toContain("Thread could not be found.");
+    buttonNamed("Dismiss toast");
+  });
+
+  it("replaces legacy routes without translating their identity", async () => {
+    await renderApp(
+      navigationState(),
+      "/thread/project-1/thread-from-old-route",
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+    );
+
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(currentNavigationType).toBe("REPLACE");
+    expect(container!.textContent).toContain(
+      "This link is incompatible with the current navigation model.",
+    );
+  });
+
+  it("replaces a legacy route even when the app has no Workspaces", async () => {
+    await renderApp(null, "/chat/legacy-thread");
+
+    expect(currentPathname).toBe("/");
+    expect(currentNavigationType).toBe("REPLACE");
+    expect(container!.textContent).toContain(
+      "This link is incompatible with the current navigation model.",
+    );
+    expect(container!.textContent).toContain("Create your first Workspace");
+  });
+
+  it("replaces the current Thread route after a successful content retry", async () => {
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+      1,
+    );
+
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(container!.textContent).toContain("Thread content could not be loaded.");
+    expect(container!.textContent).not.toContain("corrupt");
+    await click(buttonNamed("Retry"));
+    expect(container!.textContent).not.toContain("Thread content could not be loaded.");
+    expect(container!.textContent).toContain("Personal Thread");
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(currentNavigationType).toBe("REPLACE");
+  });
+
+  it("pushes history when content-load recovery opens the parent overview", async () => {
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+      true,
+    );
+
+    await click(buttonNamed("Open Project Overview"));
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+    expect(currentNavigationType).toBe("PUSH");
+  });
+
+  it("replaces a three-level route with extra path segments", async () => {
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1/extra",
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+    );
+
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+    expect(currentNavigationType).toBe("REPLACE");
+    expect(container!.textContent).toContain("Thread could not be found.");
+  });
+
+  it("preserves the fixed rail and session-only middle pane controls", async () => {
+    await renderApp(navigationState(), "/workspace/workspace-1");
+
+    const navigationPane = container!.querySelector("aside.border-r")!;
+    const middlePane = navigationPane.parentElement as HTMLDivElement;
+    const workspaceRail = container!.querySelector<HTMLDivElement>('div[style*="width: 58px"]');
+    expect(workspaceRail).not.toBe(null);
+    expect(middlePane.style.width).toBe("280px");
+
+    await click(buttonNamed("Collapse sidebar"));
+    expect(middlePane.style.width).toBe("0px");
+    await click(buttonNamed("Expand sidebar"));
+    expect(middlePane.style.width).toBe("280px");
+
+    const resizer = container!.querySelector<HTMLDivElement>(".cursor-col-resize")!;
+    await act(async () => {
+      resizer.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, clientX: 0 }));
+      document.dispatchEvent(new window.MouseEvent("mousemove", { clientX: 1000 }));
+      document.dispatchEvent(new window.MouseEvent("mouseup"));
+    });
+    expect(middlePane.style.width).toBe("480px");
+
+    await act(async () => {
+      resizer.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, clientX: 0 }));
+      document.dispatchEvent(new window.MouseEvent("mousemove", { clientX: -1000 }));
+      document.dispatchEvent(new window.MouseEvent("mouseup"));
+    });
+    expect(middlePane.style.width).toBe("200px");
+  });
+
+  it("replaces an invalid ownership chain with the nearest valid parent and a notice", async () => {
+    await renderApp(
+      {
+        version: 1,
+        workspaces: [
+          { id: "workspace-1", name: "Personal", order: 0 },
+          { id: "workspace-2", name: "Client", order: 1 },
+        ],
+        projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+        associations: [
+          {
+            workspaceId: "workspace-1",
+            projectId: "project-1",
+            order: 0,
+            defaultRuntimeId: "kimi",
+            defaultRuntimeMode: "approval-required",
+          },
+        ],
+        threads: [
+          {
+            id: "thread-1",
+            workspaceId: "workspace-1",
+            projectId: "project-1",
+            title: "Navigation",
+            createdAt: "2026-07-27T08:00:00.000Z",
+            lastActivityAt: "2026-07-27T08:00:00.000Z",
+            runtimeId: "kimi",
+            runtimeMode: "approval-required",
+            planMode: false,
+          },
+        ],
+        activeWorkspaceId: "workspace-1",
+      },
+      "/workspace/workspace-2/project/project-1/thread/thread-1",
+    );
+
+    expect(currentPathname).toBe("/workspace/workspace-2");
+    expect(currentNavigationType).toBe("REPLACE");
+    expect(container!.textContent).toContain("Project is not available in this Workspace.");
+    expect(container!.querySelector("h1")?.textContent).toBe("Client");
   });
 });
 

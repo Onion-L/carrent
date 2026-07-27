@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, useParams } from "react-router-dom";
+import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { ChatHeader } from "../components/chat/ChatHeader";
 import {
@@ -53,6 +53,8 @@ export function getThreadInspectorInput(
 
 function ThreadPageContent() {
   const { workspaceId, projectId, threadId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [submitRequest, setSubmitRequest] = useState<
     { threadId: string; request: ComposerSubmitRequest } | undefined
   >();
@@ -62,13 +64,23 @@ function ThreadPageContent() {
   const draftRequestIdRef = useRef(0);
   const {
     getThreadRouteData,
+    contentLoadError,
+    retryContentLoad,
     setActiveThreadId,
     setThreadPlanMode,
     setThreadRuntimeMode,
     setThreadRuntimeId,
     setThreadRuntimeModelId,
   } = useWorkspace();
-  const { threads, updateThreadConfig, recordThreadRun, rollbackThreadRun } = useAppState();
+  const {
+    workspaces,
+    projects,
+    associations,
+    threads,
+    updateThreadConfig,
+    recordThreadRun,
+    rollbackThreadRun,
+  } = useAppState();
   const appThread = workspaceId
     ? threads.find(
         (thread) =>
@@ -81,6 +93,15 @@ function ThreadPageContent() {
     workspaceId && !appThread
       ? null
       : resolveThreadRouteData(getThreadRouteData, projectId, threadId);
+  const appWorkspace = workspaces.find((workspace) => workspace.id === workspaceId);
+  const appProject = projects.find((project) => project.id === projectId);
+  const appAssociation = associations.find(
+    (association) => association.workspaceId === workspaceId && association.projectId === projectId,
+  );
+  const breadcrumb =
+    appWorkspace && appProject && appAssociation && appThread
+      ? `${appWorkspace.name} / ${appAssociation.alias ?? appProject.name} / ${appThread.title}`
+      : undefined;
   const { state: diffState, closeDiff } = useWorkspaceDiff();
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -186,6 +207,44 @@ function ThreadPageContent() {
     return <Navigate replace to={`/workspace/${workspaceId}/project/${projectId}`} />;
   }
 
+  if (contentLoadError && workspaceId && projectId) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ChatHeader title={appThread?.title} breadcrumb={breadcrumb} />
+        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
+          <div className="max-w-md text-center">
+            <h2 className="text-app-15 font-semibold text-fg">{contentLoadError}</h2>
+            <p className="mt-2 text-app-12 text-muted">
+              Navigation is still available while Carrent retries this content.
+            </p>
+            <div className="mt-5 flex justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void retryContentLoad().then((loaded) => {
+                    if (loaded) {
+                      navigate(`${location.pathname}${location.search}`, { replace: true });
+                    }
+                  });
+                }}
+                className="min-h-8 rounded-md bg-fg px-3 text-app-12 font-medium text-bg hover:opacity-90"
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/workspace/${workspaceId}/project/${projectId}`)}
+                className="min-h-8 rounded-md border border-border-strong px-3 text-app-12 font-medium text-fg hover:bg-surface-hover"
+              >
+                Open Project Overview
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative flex h-full w-full">
       {shouldShowInspectorToggle({
@@ -200,7 +259,7 @@ function ThreadPageContent() {
         </DesktopHeaderPortal>
       )}
       <div className="flex h-full min-w-0 flex-1 flex-col">
-        <ChatHeader title={routeData?.thread.title ?? "Thread not found"} />
+        <ChatHeader title={routeData?.thread.title ?? "Thread not found"} breadcrumb={breadcrumb} />
         {routeData && isEmptyThread ? (
           <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
             <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">

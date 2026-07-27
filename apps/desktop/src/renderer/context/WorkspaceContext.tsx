@@ -1,8 +1,10 @@
 import {
+  useCallback,
   createContext,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -124,6 +126,7 @@ export type WorkspaceContextValue = {
   messages: Message[];
   activeThreadId: string | null;
   hasHydrated: boolean;
+  contentLoadError: string | null;
   currentThread: ThreadRecord | null;
   currentProject: ProjectRecord | null;
   getThreadRouteData: (
@@ -139,6 +142,7 @@ export type WorkspaceContextValue = {
     messages: Message[];
   } | null;
   setActiveThreadId: (id: string | null) => void;
+  retryContentLoad: () => Promise<boolean>;
   createProject: (folderPath: string) => ProjectRecord | null;
   removeProject: (projectId: string) => Promise<void>;
   renameProject: (projectId: string, newName: string) => boolean;
@@ -252,11 +256,13 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   messages: [],
   activeThreadId: null,
   hasHydrated: false,
+  contentLoadError: null,
   currentThread: null,
   currentProject: null,
   getThreadRouteData: () => null,
   getChatRouteData: () => null,
   setActiveThreadId: () => {},
+  retryContentLoad: async () => false,
   createProject: () => null,
   removeProject: async () => {},
   renameProject: () => false,
@@ -699,6 +705,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [hasHydrated, setHasHydrated] = useState(false);
+  const [contentLoadError, setContentLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const retryResolverRef = useRef<((loaded: boolean) => void) | null>(null);
+  const retryContentLoad = useCallback(
+    () =>
+      new Promise<boolean>((resolve) => {
+        retryResolverRef.current = resolve;
+        setLoadAttempt((attempt) => attempt + 1);
+      }),
+    [],
+  );
 
   const currentThread =
     findCurrentThread(projects, activeThreadId) ?? findCurrentChatThread(chats, activeThreadId);
@@ -710,6 +727,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    setContentLoadError(null);
 
     window.carrent.workspace
       .load()
@@ -729,15 +747,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           setMessages(initialMessages);
           setActiveThreadId(initialActiveThreadId);
         }
+        retryResolverRef.current?.(true);
+        retryResolverRef.current = null;
       })
       .catch((error) => {
         console.error("[workspace] failed to load", error);
         if (!cancelled) {
+          setContentLoadError("Thread content could not be loaded.");
           hydrateThreadWork(undefined);
           setProjects(initialProjects);
           setChats([]);
           setMessages(initialMessages);
           setActiveThreadId(initialActiveThreadId);
+          retryResolverRef.current?.(false);
+          retryResolverRef.current = null;
         }
       })
       .finally(() => {
@@ -749,7 +772,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadAttempt]);
 
   useEffect(() => {
     if (!hasHydrated || !appStateHasHydrated) return;
@@ -1160,11 +1183,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         messages,
         activeThreadId,
         hasHydrated,
+        contentLoadError,
         currentThread,
         currentProject,
         getThreadRouteData,
         getChatRouteData,
         setActiveThreadId,
+        retryContentLoad,
         createProject,
         removeProject,
         renameProject,

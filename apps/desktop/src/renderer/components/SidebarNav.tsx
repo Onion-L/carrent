@@ -23,6 +23,7 @@ import {
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 
 import { useToast } from "../components/toast/ToastContext";
+import { useAppState } from "../context/AppStateContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 import {
   buildChatPath,
@@ -251,6 +252,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { showToast } = useToast();
+  const { activeWorkspaceId } = useAppState();
   const { projects, createProject, removeProject, renameProject } = useWorkspace();
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
@@ -392,9 +394,9 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
     }
 
     const newProject = createProject(result.filePaths[0]);
-    if (newProject) {
+    if (newProject && activeWorkspaceId) {
       setIsProjectDialogOpen(false);
-      navigate(buildProjectPath(newProject.id));
+      navigate(buildProjectPath(activeWorkspaceId, newProject.id));
     }
   };
 
@@ -546,7 +548,11 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }) {
                       ) : (
                         <button
                           title={project.name}
-                          onClick={() => navigate(buildProjectPath(project.id))}
+                          onClick={() => {
+                            if (activeWorkspaceId) {
+                              navigate(buildProjectPath(activeWorkspaceId, project.id));
+                            }
+                          }}
                           className={
                             collapsed
                               ? `flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-bg text-app-13 font-semibold leading-none shadow-[inset_0_0_0_1px_rgb(var(--color-border)/0.9)] transition ${

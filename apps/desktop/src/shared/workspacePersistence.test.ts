@@ -10,6 +10,46 @@ import {
 import { MAX_RUN_CHECKLIST_ITEM_BYTES, MAX_RUN_CHECKLIST_ITEMS } from "./runChecklist";
 
 describe("normalizeAppStateSnapshot", () => {
+  it("round-trips per-Workspace last Thread locations including stale recovery targets", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Navigation",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
+      activeWorkspaceId: "workspace-1",
+    };
+
+    expect(normalizeAppStateSnapshot(snapshot)).toEqual(snapshot);
+    expect(
+      normalizeAppStateSnapshot({
+        ...snapshot,
+        lastThreadIdByWorkspace: { "workspace-1": "missing-thread" },
+      })?.lastThreadIdByWorkspace,
+    ).toEqual({ "workspace-1": "missing-thread" });
+  });
+
   it("round-trips Projects and Workspace-Project Associations", () => {
     const snapshot = {
       version: APP_STATE_SNAPSHOT_VERSION,

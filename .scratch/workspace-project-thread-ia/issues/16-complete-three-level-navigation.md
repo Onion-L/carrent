@@ -4,7 +4,7 @@
 
 **Blocked by:** 15 — 从 Association Draft 创建 Thread
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Workspace、Project 和 Thread 分别使用 `/workspace/:workspaceId`、`/workspace/:workspaceId/project/:projectId` 和 `/workspace/:workspaceId/project/:projectId/thread/:threadId`。
 - [ ] 路由解析验证完整 Workspace-Project-Thread 归属链，名称和 Project Working Directory 路径不进入 URL。

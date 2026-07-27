@@ -120,6 +120,7 @@ export type AppStateSnapshot = {
   threadMessages?: AppThreadMessageRecord[];
   threadRuns?: AppThreadRunRecord[];
   threadPromotionIntents?: AppThreadPromotionIntentRecord[];
+  lastThreadIdByWorkspace?: Record<string, string>;
   activeWorkspaceId: string | null;
 };
 
@@ -210,6 +211,9 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
   if (value.threadMessages !== undefined && !Array.isArray(value.threadMessages)) return null;
   if (value.threadRuns !== undefined && !Array.isArray(value.threadRuns)) return null;
   if (value.threadPromotionIntents !== undefined && !Array.isArray(value.threadPromotionIntents)) {
+    return null;
+  }
+  if (value.lastThreadIdByWorkspace !== undefined && !isRecord(value.lastThreadIdByWorkspace)) {
     return null;
   }
   if (typeof value.activeWorkspaceId !== "string" && value.activeWorkspaceId !== null) {
@@ -391,6 +395,12 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
       runtimeMode: thread.runtimeMode,
       planMode: thread.planMode,
     });
+  }
+
+  const lastThreadIdByWorkspace: Record<string, string> = {};
+  for (const [workspaceId, threadId] of Object.entries(value.lastThreadIdByWorkspace ?? {})) {
+    if (!ids.has(workspaceId) || typeof threadId !== "string" || !threadId) return null;
+    lastThreadIdByWorkspace[workspaceId] = threadId;
   }
 
   const threadDrafts: AssociationThreadDraftRecord[] = [];
@@ -594,6 +604,7 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
     ...(value.threadMessages !== undefined ? { threadMessages } : {}),
     ...(value.threadRuns !== undefined ? { threadRuns } : {}),
     ...(value.threadPromotionIntents !== undefined ? { threadPromotionIntents } : {}),
+    ...(value.lastThreadIdByWorkspace !== undefined ? { lastThreadIdByWorkspace } : {}),
     activeWorkspaceId: value.activeWorkspaceId,
   };
 }

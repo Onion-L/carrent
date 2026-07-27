@@ -7,7 +7,7 @@ import type { RunChecklistSnapshot } from "./runChecklist";
 export const DEFAULT_CHAT_RUNTIME_ID: RuntimeId = DEFAULT_RUNTIME_ID;
 
 export type ChatWorkspaceScope =
-  | { kind: "project"; projectPath: string; projectId: string }
+  | { kind: "project"; projectPath: string; projectId: string; workspaceId?: string }
   | { kind: "chat" };
 
 export type AttachmentKind = "image" | "file";
@@ -41,11 +41,13 @@ export type DeleteThreadDataRequest = {
 
 export interface ChatTurnRequest {
   requestKey?: string;
+  runId?: string;
   workspace: ChatWorkspaceScope;
   threadId: string;
   draftRef?: {
     draftId: string;
     projectId: string;
+    workspaceId?: string;
     title: string;
   };
   runtimeId: RuntimeId;

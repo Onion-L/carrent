@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import {
   APP_STATE_SNAPSHOT_VERSION,
@@ -7,6 +15,13 @@ import {
   normalizeProjectWorkingDirectory,
   type AppProjectRecord,
   type AppStateSnapshot,
+  type AppThreadMessageRecord,
+  type AppThreadPromotionIntentRecord,
+  type AppThreadRecord,
+  type AppThreadRunStartInput,
+  type AppThreadRunRecord,
+  type AssociationThreadDraftRecord,
+  type ThreadWorkDraftSnapshot,
   type WorkspaceProjectAssociationRecord,
   type WorkspaceRecord,
 } from "../../shared/workspacePersistence";
@@ -26,11 +41,22 @@ type ProjectMutationResult =
     }
   | { ok: false; error: string };
 
+type PromoteDraftInput = AppThreadRunStartInput & {
+  draftId: string;
+  title: string;
+  draft: ThreadWorkDraftSnapshot;
+};
+
 type AppStateContextValue = {
   hasHydrated: boolean;
   workspaces: WorkspaceRecord[];
   projects: AppProjectRecord[];
   associations: WorkspaceProjectAssociationRecord[];
+  threads: AppThreadRecord[];
+  threadDrafts: AssociationThreadDraftRecord[];
+  threadMessages: AppThreadMessageRecord[];
+  threadRuns: AppThreadRunRecord[];
+  threadPromotionIntents: AppThreadPromotionIntentRecord[];
   activeWorkspaceId: string | null;
   createWorkspace: (name: string) => Promise<WorkspaceMutationResult>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceMutationResult>;
@@ -52,6 +78,34 @@ type AppStateContextValue = {
     projectId: string,
     direction: "up" | "down",
   ) => Promise<boolean>;
+  openThreadDraft: (
+    workspaceId: string,
+    projectId: string,
+  ) => Promise<AssociationThreadDraftRecord | null>;
+  updateThreadDraft: (draftId: string, draft: ThreadWorkDraftSnapshot | null) => Promise<boolean>;
+  updateThreadDraftConfig: (
+    draftId: string,
+    config: {
+      runtimeId: RuntimeId;
+      runtimeModelId?: string;
+      runtimeMode: RuntimeMode;
+      planMode: boolean;
+    },
+  ) => Promise<boolean>;
+  discardThreadDraft: (draftId: string) => Promise<boolean>;
+  prepareThreadDraftPromotion: (
+    input: PromoteDraftInput,
+  ) => Promise<AppThreadPromotionIntentRecord | null>;
+  commitThreadDraftPromotion: (draftId: string, runId: string) => Promise<AppThreadRecord | null>;
+  rollbackThreadDraftPromotion: (draft: AssociationThreadDraftRecord) => Promise<boolean>;
+  updateThreadConfig: (
+    threadId: string,
+    config: Partial<
+      Pick<AppThreadRecord, "runtimeId" | "runtimeModelId" | "runtimeMode" | "planMode">
+    >,
+  ) => Promise<boolean>;
+  recordThreadRun: (input: AppThreadRunStartInput & { threadId: string }) => Promise<boolean>;
+  rollbackThreadRun: (threadId: string, runId: string, messageId: string) => Promise<boolean>;
 };
 
 const EMPTY_APP_STATE: AppStateSnapshot = {
@@ -59,6 +113,11 @@ const EMPTY_APP_STATE: AppStateSnapshot = {
   workspaces: [],
   projects: [],
   associations: [],
+  threads: [],
+  threadDrafts: [],
+  threadMessages: [],
+  threadRuns: [],
+  threadPromotionIntents: [],
   activeWorkspaceId: null,
 };
 
@@ -89,6 +148,7 @@ function projectNameFromWorkingDirectory(workingDirectory: string) {
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<AppStateSnapshot>(EMPTY_APP_STATE);
+  const snapshotRef = useRef<AppStateSnapshot>(EMPTY_APP_STATE);
   const [hasHydrated, setHasHydrated] = useState(false);
 
   useEffect(() => {
@@ -98,11 +158,16 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       .load()
       .then((loaded) => {
         if (cancelled) return;
-        setSnapshot(normalizeAppStateSnapshot(loaded) ?? EMPTY_APP_STATE);
+        const normalized = normalizeAppStateSnapshot(loaded) ?? EMPTY_APP_STATE;
+        snapshotRef.current = normalized;
+        setSnapshot(normalized);
       })
       .catch((error) => {
         console.error("[app-state] failed to load", error);
-        if (!cancelled) setSnapshot(EMPTY_APP_STATE);
+        if (!cancelled) {
+          snapshotRef.current = EMPTY_APP_STATE;
+          setSnapshot(EMPTY_APP_STATE);
+        }
       })
       .finally(() => {
         if (!cancelled) setHasHydrated(true);
@@ -117,6 +182,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     const normalized = normalizeAppStateSnapshot(nextSnapshot);
     if (!normalized) throw new Error("Invalid App State snapshot.");
     await window.carrent.appState.save(normalized);
+    snapshotRef.current = normalized;
     setSnapshot(normalized);
   }, []);
 
@@ -344,6 +410,367 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [persist, snapshot],
   );
 
+  const openThreadDraft = useCallback(
+    async (workspaceId: string, projectId: string) => {
+      const existing = (snapshot.threadDrafts ?? []).find(
+        (draft) => draft.workspaceId === workspaceId && draft.projectId === projectId,
+      );
+      if (existing) return existing;
+
+      const association = snapshot.associations.find(
+        (item) => item.workspaceId === workspaceId && item.projectId === projectId,
+      );
+      if (!association) return null;
+
+      const draft: AssociationThreadDraftRecord = {
+        id: `draft-${crypto.randomUUID()}`,
+        threadId: `thread-${crypto.randomUUID()}`,
+        workspaceId,
+        projectId,
+        content: "",
+        attachedSkillNames: [],
+        attachments: [],
+        runtimeId: association.defaultRuntimeId,
+        ...(association.defaultRuntimeModelId
+          ? { runtimeModelId: association.defaultRuntimeModelId }
+          : {}),
+        runtimeMode: association.defaultRuntimeMode,
+        planMode: false,
+      };
+
+      try {
+        await persist({
+          ...snapshot,
+          threads: snapshot.threads ?? [],
+          threadDrafts: [...(snapshot.threadDrafts ?? []), draft],
+          threadMessages: snapshot.threadMessages ?? [],
+          threadRuns: snapshot.threadRuns ?? [],
+          threadPromotionIntents: snapshot.threadPromotionIntents ?? [],
+        });
+        return draft;
+      } catch {
+        return null;
+      }
+    },
+    [persist, snapshot],
+  );
+
+  const updateThreadDraft = useCallback(
+    async (draftId: string, draft: ThreadWorkDraftSnapshot | null) => {
+      const current = snapshotRef.current;
+      const existing = (current.threadDrafts ?? []).find((item) => item.id === draftId);
+      if (!existing) return false;
+      try {
+        await persist({
+          ...current,
+          threadDrafts: (current.threadDrafts ?? []).map((item) =>
+            item.id === draftId
+              ? {
+                  ...item,
+                  content: draft?.content ?? "",
+                  attachedSkillNames: draft?.attachedSkillNames ?? [],
+                  attachments: draft?.attachments ?? [],
+                }
+              : item,
+          ),
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [persist],
+  );
+
+  const updateThreadDraftConfig = useCallback(
+    async (
+      draftId: string,
+      config: {
+        runtimeId: RuntimeId;
+        runtimeModelId?: string;
+        runtimeMode: RuntimeMode;
+        planMode: boolean;
+      },
+    ) => {
+      const current = snapshotRef.current;
+      if (!(current.threadDrafts ?? []).some((item) => item.id === draftId)) return false;
+      const runtimeModelId = config.runtimeModelId?.trim() || undefined;
+      try {
+        await persist({
+          ...current,
+          threadDrafts: (current.threadDrafts ?? []).map((item) => {
+            if (item.id !== draftId) return item;
+            const { runtimeModelId: _runtimeModelId, ...withoutModel } = item;
+            return {
+              ...withoutModel,
+              runtimeId: config.runtimeId,
+              ...(runtimeModelId ? { runtimeModelId } : {}),
+              runtimeMode: config.runtimeMode,
+              planMode: config.planMode,
+            };
+          }),
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [persist],
+  );
+
+  const discardThreadDraft = useCallback(
+    async (draftId: string) => {
+      const current = snapshotRef.current;
+      if (!(current.threadDrafts ?? []).some((item) => item.id === draftId)) return false;
+      try {
+        await persist({
+          ...current,
+          threadDrafts: (current.threadDrafts ?? []).filter((item) => item.id !== draftId),
+          threadPromotionIntents: (current.threadPromotionIntents ?? []).filter(
+            (intent) => intent.draftId !== draftId,
+          ),
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [persist],
+  );
+
+  const prepareThreadDraftPromotion = useCallback(
+    async (input: PromoteDraftInput) => {
+      const current = snapshotRef.current;
+      const draft = (current.threadDrafts ?? []).find((item) => item.id === input.draftId);
+      if (!draft) return null;
+      const associationExists = current.associations.some(
+        (item) => item.workspaceId === draft.workspaceId && item.projectId === draft.projectId,
+      );
+      if (
+        !associationExists ||
+        (current.threads ?? []).some((item) => item.id === draft.threadId)
+      ) {
+        return null;
+      }
+
+      const { draftId: _draftId, title, draft: preparedDraft, ...runInput } = input;
+      const intent: AppThreadPromotionIntentRecord = {
+        draftId: draft.id,
+        threadId: draft.threadId,
+        workspaceId: draft.workspaceId,
+        projectId: draft.projectId,
+        title,
+        ...runInput,
+      };
+
+      try {
+        await persist({
+          ...current,
+          threadDrafts: (current.threadDrafts ?? []).map((item) =>
+            item.id === draft.id
+              ? {
+                  ...item,
+                  content: preparedDraft.content,
+                  attachedSkillNames: preparedDraft.attachedSkillNames,
+                  attachments: preparedDraft.attachments,
+                  runtimeId: input.runtimeId,
+                  ...(input.runtimeModelId
+                    ? { runtimeModelId: input.runtimeModelId }
+                    : { runtimeModelId: undefined }),
+                  runtimeMode: input.runtimeMode,
+                  planMode: input.planMode,
+                }
+              : item,
+          ),
+          threadPromotionIntents: [
+            ...(current.threadPromotionIntents ?? []).filter((item) => item.draftId !== draft.id),
+            intent,
+          ],
+        });
+        return intent;
+      } catch {
+        return null;
+      }
+    },
+    [persist],
+  );
+
+  const commitThreadDraftPromotion = useCallback(
+    async (draftId: string, runId: string) => {
+      const current = snapshotRef.current;
+      const intent = (current.threadPromotionIntents ?? []).find(
+        (item) => item.draftId === draftId && item.runId === runId,
+      );
+      const draft = (current.threadDrafts ?? []).find((item) => item.id === draftId);
+      if (!intent || !draft) return null;
+
+      const thread: AppThreadRecord = {
+        id: intent.threadId,
+        workspaceId: intent.workspaceId,
+        projectId: intent.projectId,
+        title: intent.title,
+        createdAt: intent.startedAt,
+        lastActivityAt: intent.startedAt,
+        runtimeId: intent.runtimeId,
+        ...(intent.runtimeModelId ? { runtimeModelId: intent.runtimeModelId } : {}),
+        runtimeMode: intent.runtimeMode,
+        planMode: intent.planMode,
+      };
+      const message: AppThreadMessageRecord = {
+        id: intent.messageId,
+        threadId: intent.threadId,
+        role: "user",
+        content: intent.message,
+        createdAt: intent.startedAt,
+        attachments: intent.attachments,
+      };
+      const run: AppThreadRunRecord = {
+        id: intent.runId,
+        threadId: intent.threadId,
+        messageId: intent.messageId,
+        startedAt: intent.startedAt,
+        runtimeId: intent.runtimeId,
+        ...(intent.runtimeModelId ? { runtimeModelId: intent.runtimeModelId } : {}),
+        runtimeMode: intent.runtimeMode,
+        planMode: intent.planMode,
+      };
+
+      try {
+        await persist({
+          ...current,
+          threads: [...(current.threads ?? []), thread],
+          threadDrafts: (current.threadDrafts ?? []).filter((item) => item.id !== draft.id),
+          threadMessages: [...(current.threadMessages ?? []), message],
+          threadRuns: [...(current.threadRuns ?? []), run],
+          threadPromotionIntents: (current.threadPromotionIntents ?? []).filter(
+            (item) => item.draftId !== draft.id,
+          ),
+        });
+        return thread;
+      } catch {
+        return null;
+      }
+    },
+    [persist],
+  );
+
+  const updateThreadConfig = useCallback(
+    async (
+      threadId: string,
+      config: Partial<
+        Pick<AppThreadRecord, "runtimeId" | "runtimeModelId" | "runtimeMode" | "planMode">
+      >,
+    ) => {
+      if (!(snapshot.threads ?? []).some((item) => item.id === threadId)) return false;
+      try {
+        await persist({
+          ...snapshot,
+          threads: (snapshot.threads ?? []).map((thread) => {
+            if (thread.id !== threadId) return thread;
+            const next = { ...thread, ...config };
+            if (!next.runtimeModelId) delete next.runtimeModelId;
+            return next;
+          }),
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [persist, snapshot],
+  );
+
+  const rollbackThreadDraftPromotion = useCallback(
+    async (draft: AssociationThreadDraftRecord) => {
+      const current = snapshotRef.current;
+      try {
+        await persist({
+          ...current,
+          threadDrafts: [
+            ...(current.threadDrafts ?? []).filter((item) => item.id !== draft.id),
+            draft,
+          ],
+          threadPromotionIntents: (current.threadPromotionIntents ?? []).filter(
+            (intent) => intent.draftId !== draft.id,
+          ),
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [persist],
+  );
+
+  const recordThreadRun = useCallback(
+    async (input: AppThreadRunStartInput & { threadId: string }) => {
+      if (!(snapshot.threads ?? []).some((thread) => thread.id === input.threadId)) return false;
+      const message: AppThreadMessageRecord = {
+        id: input.messageId,
+        threadId: input.threadId,
+        role: "user",
+        content: input.message,
+        createdAt: input.startedAt,
+        attachments: input.attachments,
+      };
+      const run: AppThreadRunRecord = {
+        id: input.runId,
+        threadId: input.threadId,
+        messageId: input.messageId,
+        startedAt: input.startedAt,
+        runtimeId: input.runtimeId,
+        ...(input.runtimeModelId ? { runtimeModelId: input.runtimeModelId } : {}),
+        runtimeMode: input.runtimeMode,
+        planMode: input.planMode,
+      };
+      try {
+        await persist({
+          ...snapshot,
+          threads: (snapshot.threads ?? []).map((thread) =>
+            thread.id === input.threadId ? { ...thread, lastActivityAt: input.startedAt } : thread,
+          ),
+          threadMessages: [...(snapshot.threadMessages ?? []), message],
+          threadRuns: [...(snapshot.threadRuns ?? []), run],
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [persist, snapshot],
+  );
+
+  const rollbackThreadRun = useCallback(
+    async (threadId: string, runId: string, messageId: string) => {
+      try {
+        await persist({
+          ...snapshot,
+          threadMessages: (snapshot.threadMessages ?? []).filter(
+            (message) => message.id !== messageId,
+          ),
+          threadRuns: (snapshot.threadRuns ?? []).filter((run) => run.id !== runId),
+          threads: (snapshot.threads ?? []).map((thread) =>
+            thread.id === threadId
+              ? {
+                  ...thread,
+                  lastActivityAt:
+                    (snapshot.threadMessages ?? [])
+                      .filter(
+                        (message) => message.threadId === threadId && message.id !== messageId,
+                      )
+                      .at(-1)?.createdAt ?? thread.createdAt,
+                }
+              : thread,
+          ),
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [persist, snapshot],
+  );
+
   return (
     <AppStateContext.Provider
       value={{
@@ -351,6 +778,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         workspaces: snapshot.workspaces,
         projects: snapshot.projects,
         associations: snapshot.associations,
+        threads: snapshot.threads ?? [],
+        threadDrafts: snapshot.threadDrafts ?? [],
+        threadMessages: snapshot.threadMessages ?? [],
+        threadRuns: snapshot.threadRuns ?? [],
+        threadPromotionIntents: snapshot.threadPromotionIntents ?? [],
         activeWorkspaceId: snapshot.activeWorkspaceId,
         createWorkspace,
         renameWorkspace,
@@ -360,6 +792,16 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         renameSharedProject,
         setAssociationDefaults,
         moveAssociation,
+        openThreadDraft,
+        updateThreadDraft,
+        updateThreadDraftConfig,
+        discardThreadDraft,
+        prepareThreadDraftPromotion,
+        commitThreadDraftPromotion,
+        rollbackThreadDraftPromotion,
+        updateThreadConfig,
+        recordThreadRun,
+        rollbackThreadRun,
       }}
     >
       {children}

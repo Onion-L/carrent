@@ -161,6 +161,74 @@ describe("registerChatIpc", () => {
     expect(started[0].request.message).toBe("Hello");
   });
 
+  it("forwards Association Draft identity and Project Working Directory with its reserved Run ID", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const started: { runId: string; request: ChatTurnRequest }[] = [];
+    registerChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager: {
+          start: (runId, request) => started.push({ runId, request }),
+          stop: () => {},
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
+          getStatus: async () => null,
+        },
+      },
+    );
+    const request = makeRequest({
+      runId: "run-draft-1",
+      workspace: {
+        kind: "project",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        projectPath: "/code/carrent",
+      },
+      threadId: "thread-1",
+      draftRef: {
+        draftId: "draft-1",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        title: "Create threads from drafts",
+      },
+    });
+
+    const result = await handlers.get("chat:send")?.({}, request);
+
+    expect(result).toEqual({ runId: "run-draft-1" });
+    expect(started).toEqual([{ runId: "run-draft-1", request }]);
+  });
+
+  it("rejects a malformed reserved Run ID", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const started: unknown[] = [];
+    registerChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager: {
+          start: (...args) => started.push(args),
+          stop: () => {},
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: () => {},
+          getStatus: async () => null,
+        },
+      },
+    );
+
+    let error: unknown;
+    try {
+      await handlers.get("chat:send")?.({}, makeRequest({ runId: " bad " }));
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error instanceof Error ? error.message : String(error)).toBe("Invalid run ID.");
+    expect(started).toHaveLength(0);
+  });
+
   it("forwards attachments with the chat:send request", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const started: { runId: string; request: ChatTurnRequest }[] = [];

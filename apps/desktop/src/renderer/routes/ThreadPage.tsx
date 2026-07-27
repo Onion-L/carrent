@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
 
 import { ChatHeader } from "../components/chat/ChatHeader";
 import {
@@ -23,6 +23,7 @@ import {
 import { WorkspaceDiffViewer } from "../components/chat/WorkspaceDiffViewer";
 import { DesktopHeaderPortal } from "../components/DesktopHeaderActions";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { useAppState } from "../context/AppStateContext";
 import { WorkspaceDiffProvider, useWorkspaceDiff } from "../context/WorkspaceDiffContext";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
@@ -51,7 +52,7 @@ export function getThreadInspectorInput(
 }
 
 function ThreadPageContent() {
-  const { projectId, threadId } = useParams();
+  const { workspaceId, projectId, threadId } = useParams();
   const [submitRequest, setSubmitRequest] = useState<
     { threadId: string; request: ComposerSubmitRequest } | undefined
   >();
@@ -67,7 +68,19 @@ function ThreadPageContent() {
     setThreadRuntimeId,
     setThreadRuntimeModelId,
   } = useWorkspace();
-  const routeData = resolveThreadRouteData(getThreadRouteData, projectId, threadId);
+  const { threads, updateThreadConfig, recordThreadRun, rollbackThreadRun } = useAppState();
+  const appThread = workspaceId
+    ? threads.find(
+        (thread) =>
+          thread.id === threadId &&
+          thread.workspaceId === workspaceId &&
+          thread.projectId === projectId,
+      )
+    : null;
+  const routeData =
+    workspaceId && !appThread
+      ? null
+      : resolveThreadRouteData(getThreadRouteData, projectId, threadId);
   const { state: diffState, closeDiff } = useWorkspaceDiff();
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -128,32 +141,50 @@ function ThreadPageContent() {
       projectId={routeData.project.id}
       threadId={routeData.thread.id}
       messages={routeData.messages}
-      runtimeId={routeData.thread.runtimeId ?? DEFAULT_RUNTIME_ID}
-      runtimeModelId={routeData.thread.runtimeModelId}
-      runtimeMode={routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
-      planMode={routeData.thread.planMode === true}
+      runtimeId={appThread?.runtimeId ?? routeData.thread.runtimeId ?? DEFAULT_RUNTIME_ID}
+      runtimeModelId={appThread ? appThread.runtimeModelId : routeData.thread.runtimeModelId}
+      runtimeMode={appThread?.runtimeMode ?? routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
+      planMode={appThread?.planMode ?? routeData.thread.planMode === true}
       submitRequest={
         submitRequest?.threadId === routeData.thread.id ? submitRequest.request : undefined
       }
       draftRequest={
         draftRequest?.threadId === routeData.thread.id ? draftRequest.request : undefined
       }
-      onRuntimeIdChange={(runtimeId) =>
-        setThreadRuntimeId(routeData.project.id, routeData.thread.id, runtimeId)
+      onRuntimeIdChange={(runtimeId) => {
+        setThreadRuntimeId(routeData.project.id, routeData.thread.id, runtimeId);
+        if (appThread) void updateThreadConfig(appThread.id, { runtimeId });
+      }}
+      onRuntimeModelIdChange={(modelId) => {
+        setThreadRuntimeModelId(routeData.project.id, routeData.thread.id, modelId);
+        if (appThread) void updateThreadConfig(appThread.id, { runtimeModelId: modelId });
+      }}
+      onRuntimeModeChange={(mode) => {
+        setThreadRuntimeMode(routeData.project.id, routeData.thread.id, mode);
+        if (appThread) void updateThreadConfig(appThread.id, { runtimeMode: mode });
+      }}
+      onPlanModeChange={(enabled) => {
+        setThreadPlanMode(routeData.project.id, routeData.thread.id, enabled);
+        if (appThread) void updateThreadConfig(appThread.id, { planMode: enabled });
+      }}
+      onRunPrepared={
+        appThread ? (input) => recordThreadRun({ threadId: appThread.id, ...input }) : undefined
       }
-      onRuntimeModelIdChange={(modelId) =>
-        setThreadRuntimeModelId(routeData.project.id, routeData.thread.id, modelId)
-      }
-      onRuntimeModeChange={(mode) =>
-        setThreadRuntimeMode(routeData.project.id, routeData.thread.id, mode)
-      }
-      onPlanModeChange={(enabled) =>
-        setThreadPlanMode(routeData.project.id, routeData.thread.id, enabled)
+      onRunRejected={
+        appThread
+          ? async (input) => {
+              await rollbackThreadRun(appThread.id, input.runId, input.messageId);
+            }
+          : undefined
       }
     />
   ) : null;
 
   const rightPane = resolveRightPane({ diffOpen: diffState.open, inspectorOpen });
+
+  if (workspaceId && !appThread) {
+    return <Navigate replace to={`/workspace/${workspaceId}/project/${projectId}`} />;
+  }
 
   return (
     <div className="relative flex h-full w-full">

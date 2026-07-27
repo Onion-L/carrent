@@ -43,11 +43,83 @@ export type WorkspaceProjectAssociationRecord = {
   defaultRuntimeMode: RuntimeMode;
 };
 
+export type AppThreadRecord = {
+  id: string;
+  workspaceId: string;
+  projectId: string;
+  title: string;
+  createdAt: string;
+  lastActivityAt: string;
+  runtimeId: RuntimeId;
+  runtimeModelId?: string;
+  runtimeMode: RuntimeMode;
+  planMode: boolean;
+};
+
+export type AssociationThreadDraftRecord = {
+  id: string;
+  threadId: string;
+  workspaceId: string;
+  projectId: string;
+  content: string;
+  attachedSkillNames: string[];
+  attachments: AttachmentMetadata[];
+  runtimeId: RuntimeId;
+  runtimeModelId?: string;
+  runtimeMode: RuntimeMode;
+  planMode: boolean;
+};
+
+export type AppThreadMessageRecord = {
+  id: string;
+  threadId: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  attachments: AttachmentMetadata[];
+};
+
+export type AppThreadRunRecord = {
+  id: string;
+  threadId: string;
+  messageId: string;
+  startedAt: string;
+  runtimeId: RuntimeId;
+  runtimeModelId?: string;
+  runtimeMode: RuntimeMode;
+  planMode: boolean;
+};
+
+export type AppThreadRunStartInput = {
+  runId: string;
+  messageId: string;
+  message: string;
+  attachments: AttachmentMetadata[];
+  startedAt: string;
+  runtimeId: RuntimeId;
+  runtimeModelId?: string;
+  runtimeMode: RuntimeMode;
+  planMode: boolean;
+};
+
+export type AppThreadPromotionIntentRecord = AppThreadRunStartInput & {
+  draftId: string;
+  threadId: string;
+  workspaceId: string;
+  projectId: string;
+  title: string;
+};
+
 export type AppStateSnapshot = {
   version: typeof APP_STATE_SNAPSHOT_VERSION;
   workspaces: WorkspaceRecord[];
   projects: AppProjectRecord[];
   associations: WorkspaceProjectAssociationRecord[];
+  threads?: AppThreadRecord[];
+  threadDrafts?: AssociationThreadDraftRecord[];
+  threadMessages?: AppThreadMessageRecord[];
+  threadRuns?: AppThreadRunRecord[];
+  threadPromotionIntents?: AppThreadPromotionIntentRecord[];
   activeWorkspaceId: string | null;
 };
 
@@ -133,6 +205,13 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
   if (!Array.isArray(value.workspaces)) return null;
   if (value.projects !== undefined && !Array.isArray(value.projects)) return null;
   if (value.associations !== undefined && !Array.isArray(value.associations)) return null;
+  if (value.threads !== undefined && !Array.isArray(value.threads)) return null;
+  if (value.threadDrafts !== undefined && !Array.isArray(value.threadDrafts)) return null;
+  if (value.threadMessages !== undefined && !Array.isArray(value.threadMessages)) return null;
+  if (value.threadRuns !== undefined && !Array.isArray(value.threadRuns)) return null;
+  if (value.threadPromotionIntents !== undefined && !Array.isArray(value.threadPromotionIntents)) {
+    return null;
+  }
   if (typeof value.activeWorkspaceId !== "string" && value.activeWorkspaceId !== null) {
     return null;
   }
@@ -272,13 +351,264 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
   }
   if (projects.some((project) => !associatedProjectIds.has(project.id))) return null;
 
+  const threads: AppThreadRecord[] = [];
+  const threadIds = new Set<string>();
+  for (const thread of value.threads ?? []) {
+    if (!isRecord(thread)) return null;
+    const associationKey = `${thread.workspaceId}\u0000${thread.projectId}`;
+    if (
+      typeof thread.id !== "string" ||
+      !thread.id ||
+      thread.id.trim() !== thread.id ||
+      threadIds.has(thread.id) ||
+      typeof thread.workspaceId !== "string" ||
+      typeof thread.projectId !== "string" ||
+      !associationKeys.has(associationKey) ||
+      typeof thread.title !== "string" ||
+      !thread.title ||
+      thread.title.trim() !== thread.title ||
+      !isIsoTimestamp(thread.createdAt) ||
+      !isIsoTimestamp(thread.lastActivityAt) ||
+      !runtimeIds.includes(thread.runtimeId as RuntimeId) ||
+      !isRuntimeMode(thread.runtimeMode) ||
+      typeof thread.planMode !== "boolean"
+    ) {
+      return null;
+    }
+    const runtimeModelId = normalizePersistedModelId(thread.runtimeModelId);
+    if (thread.runtimeModelId !== undefined && !runtimeModelId) return null;
+
+    threadIds.add(thread.id);
+    threads.push({
+      id: thread.id,
+      workspaceId: thread.workspaceId,
+      projectId: thread.projectId,
+      title: thread.title,
+      createdAt: thread.createdAt,
+      lastActivityAt: thread.lastActivityAt,
+      runtimeId: thread.runtimeId as RuntimeId,
+      ...(runtimeModelId ? { runtimeModelId } : {}),
+      runtimeMode: thread.runtimeMode,
+      planMode: thread.planMode,
+    });
+  }
+
+  const threadDrafts: AssociationThreadDraftRecord[] = [];
+  const draftIds = new Set<string>();
+  const draftAssociationKeys = new Set<string>();
+  const reservedThreadIds = new Set(threadIds);
+  for (const draft of value.threadDrafts ?? []) {
+    if (!isRecord(draft)) return null;
+    const associationKey = `${draft.workspaceId}\u0000${draft.projectId}`;
+    if (
+      typeof draft.id !== "string" ||
+      !draft.id ||
+      draft.id.trim() !== draft.id ||
+      draftIds.has(draft.id) ||
+      typeof draft.threadId !== "string" ||
+      !draft.threadId ||
+      draft.threadId.trim() !== draft.threadId ||
+      reservedThreadIds.has(draft.threadId) ||
+      typeof draft.workspaceId !== "string" ||
+      typeof draft.projectId !== "string" ||
+      !associationKeys.has(associationKey) ||
+      draftAssociationKeys.has(associationKey) ||
+      typeof draft.content !== "string" ||
+      !Array.isArray(draft.attachedSkillNames) ||
+      draft.attachedSkillNames.some(
+        (name) => typeof name !== "string" || !name || name.trim() !== name,
+      ) ||
+      new Set(draft.attachedSkillNames).size !== draft.attachedSkillNames.length ||
+      !Array.isArray(draft.attachments) ||
+      !runtimeIds.includes(draft.runtimeId as RuntimeId) ||
+      !isRuntimeMode(draft.runtimeMode) ||
+      typeof draft.planMode !== "boolean"
+    ) {
+      return null;
+    }
+    const attachments = draft.attachments.map(normalizeAttachmentMetadata);
+    if (attachments.some((attachment) => !attachment)) return null;
+    const runtimeModelId = normalizePersistedModelId(draft.runtimeModelId);
+    if (draft.runtimeModelId !== undefined && !runtimeModelId) return null;
+
+    draftIds.add(draft.id);
+    draftAssociationKeys.add(associationKey);
+    reservedThreadIds.add(draft.threadId);
+    threadDrafts.push({
+      id: draft.id,
+      threadId: draft.threadId,
+      workspaceId: draft.workspaceId,
+      projectId: draft.projectId,
+      content: draft.content,
+      attachedSkillNames: [...draft.attachedSkillNames],
+      attachments: attachments as AttachmentMetadata[],
+      runtimeId: draft.runtimeId as RuntimeId,
+      ...(runtimeModelId ? { runtimeModelId } : {}),
+      runtimeMode: draft.runtimeMode,
+      planMode: draft.planMode,
+    });
+  }
+
+  const threadMessages: AppThreadMessageRecord[] = [];
+  const messageIds = new Set<string>();
+  const messageThreadIds = new Map<string, string>();
+  for (const message of value.threadMessages ?? []) {
+    if (!isRecord(message)) return null;
+    if (
+      typeof message.id !== "string" ||
+      !message.id ||
+      message.id.trim() !== message.id ||
+      messageIds.has(message.id) ||
+      typeof message.threadId !== "string" ||
+      !threadIds.has(message.threadId) ||
+      (message.role !== "user" && message.role !== "assistant") ||
+      typeof message.content !== "string" ||
+      !isIsoTimestamp(message.createdAt) ||
+      !Array.isArray(message.attachments)
+    ) {
+      return null;
+    }
+    const attachments = message.attachments.map(normalizeAttachmentMetadata);
+    if (attachments.some((attachment) => !attachment)) return null;
+
+    messageIds.add(message.id);
+    messageThreadIds.set(message.id, message.threadId);
+    threadMessages.push({
+      id: message.id,
+      threadId: message.threadId,
+      role: message.role,
+      content: message.content,
+      createdAt: message.createdAt,
+      attachments: attachments as AttachmentMetadata[],
+    });
+  }
+
+  const threadRuns: AppThreadRunRecord[] = [];
+  const runIds = new Set<string>();
+  for (const run of value.threadRuns ?? []) {
+    if (!isRecord(run)) return null;
+    if (
+      typeof run.id !== "string" ||
+      !run.id ||
+      run.id.trim() !== run.id ||
+      runIds.has(run.id) ||
+      typeof run.threadId !== "string" ||
+      !threadIds.has(run.threadId) ||
+      typeof run.messageId !== "string" ||
+      messageThreadIds.get(run.messageId) !== run.threadId ||
+      !isIsoTimestamp(run.startedAt) ||
+      !runtimeIds.includes(run.runtimeId as RuntimeId) ||
+      !isRuntimeMode(run.runtimeMode) ||
+      typeof run.planMode !== "boolean"
+    ) {
+      return null;
+    }
+    const runtimeModelId = normalizePersistedModelId(run.runtimeModelId);
+    if (run.runtimeModelId !== undefined && !runtimeModelId) return null;
+
+    runIds.add(run.id);
+    threadRuns.push({
+      id: run.id,
+      threadId: run.threadId,
+      messageId: run.messageId,
+      startedAt: run.startedAt,
+      runtimeId: run.runtimeId as RuntimeId,
+      ...(runtimeModelId ? { runtimeModelId } : {}),
+      runtimeMode: run.runtimeMode,
+      planMode: run.planMode,
+    });
+  }
+
+  const threadPromotionIntents: AppThreadPromotionIntentRecord[] = [];
+  const intentDraftIds = new Set<string>();
+  const intentRunIds = new Set<string>();
+  const intentMessageIds = new Set<string>();
+  for (const intent of value.threadPromotionIntents ?? []) {
+    if (!isRecord(intent)) return null;
+    const draft = threadDrafts.find((item) => item.id === intent.draftId);
+    if (
+      typeof intent.draftId !== "string" ||
+      !draft ||
+      intentDraftIds.has(intent.draftId) ||
+      typeof intent.threadId !== "string" ||
+      intent.threadId !== draft.threadId ||
+      typeof intent.workspaceId !== "string" ||
+      intent.workspaceId !== draft.workspaceId ||
+      typeof intent.projectId !== "string" ||
+      intent.projectId !== draft.projectId ||
+      typeof intent.title !== "string" ||
+      !intent.title ||
+      intent.title.trim() !== intent.title ||
+      typeof intent.runId !== "string" ||
+      !intent.runId ||
+      intent.runId.trim() !== intent.runId ||
+      runIds.has(intent.runId) ||
+      intentRunIds.has(intent.runId) ||
+      typeof intent.messageId !== "string" ||
+      !intent.messageId ||
+      intent.messageId.trim() !== intent.messageId ||
+      messageIds.has(intent.messageId) ||
+      intentMessageIds.has(intent.messageId) ||
+      typeof intent.message !== "string" ||
+      !Array.isArray(intent.attachments) ||
+      !isIsoTimestamp(intent.startedAt) ||
+      !runtimeIds.includes(intent.runtimeId as RuntimeId) ||
+      !isRuntimeMode(intent.runtimeMode) ||
+      typeof intent.planMode !== "boolean"
+    ) {
+      return null;
+    }
+    const attachments = intent.attachments.map(normalizeAttachmentMetadata);
+    if (attachments.some((attachment) => !attachment)) return null;
+    const runtimeModelId = normalizePersistedModelId(intent.runtimeModelId);
+    if (intent.runtimeModelId !== undefined && !runtimeModelId) return null;
+
+    intentDraftIds.add(intent.draftId);
+    intentRunIds.add(intent.runId);
+    intentMessageIds.add(intent.messageId);
+    threadPromotionIntents.push({
+      draftId: intent.draftId,
+      threadId: intent.threadId,
+      workspaceId: intent.workspaceId,
+      projectId: intent.projectId,
+      title: intent.title,
+      runId: intent.runId,
+      messageId: intent.messageId,
+      message: intent.message,
+      attachments: attachments as AttachmentMetadata[],
+      startedAt: intent.startedAt,
+      runtimeId: intent.runtimeId as RuntimeId,
+      ...(runtimeModelId ? { runtimeModelId } : {}),
+      runtimeMode: intent.runtimeMode,
+      planMode: intent.planMode,
+    });
+  }
+
   return {
     version: APP_STATE_SNAPSHOT_VERSION,
     workspaces: workspaces.sort((left, right) => left.order - right.order),
     projects,
     associations,
+    ...(value.threads !== undefined ? { threads } : {}),
+    ...(value.threadDrafts !== undefined ? { threadDrafts } : {}),
+    ...(value.threadMessages !== undefined ? { threadMessages } : {}),
+    ...(value.threadRuns !== undefined ? { threadRuns } : {}),
+    ...(value.threadPromotionIntents !== undefined ? { threadPromotionIntents } : {}),
     activeWorkspaceId: value.activeWorkspaceId,
   };
+}
+
+function isIsoTimestamp(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)) {
+    return false;
+  }
+  return new Date(value).toISOString() === value;
+}
+
+function normalizePersistedModelId(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !value || value.trim() !== value) return undefined;
+  return value;
 }
 
 function normalizeOptionalString(value: unknown) {

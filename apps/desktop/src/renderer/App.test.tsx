@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 
 import type { AppStateSnapshot, WorkspaceSnapshot } from "../shared/workspacePersistence";
+import type { ChatTurnRequest } from "../shared/chat";
 import App from "./App";
 
 const legacySnapshot: WorkspaceSnapshot = {
@@ -24,13 +25,25 @@ function installBridge(
   appState: AppStateSnapshot | null,
   saved: AppStateSnapshot[],
   selectedDirectories: string[] = [],
-  saveFails = false,
+  saveFails: boolean | number | number[] = false,
+  chatRequests: ChatTurnRequest[] = [],
+  chatSendFails = false,
+  workspaceSnapshot: WorkspaceSnapshot = legacySnapshot,
 ) {
+  let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
+  let saveAttempt = 0;
   window.carrent = {
     appState: {
       load: async () => appState,
       save: async (snapshot: AppStateSnapshot) => {
-        if (saveFails) throw new Error("disk full");
+        saveAttempt += 1;
+        if (
+          saveFails === true ||
+          saveFails === saveAttempt ||
+          (Array.isArray(saveFails) && saveFails.includes(saveAttempt))
+        ) {
+          throw new Error("disk full");
+        }
         saved.push(structuredClone(snapshot));
       },
     },
@@ -43,12 +56,24 @@ function installBridge(
       },
     },
     workspace: {
-      load: async () => legacySnapshot,
+      load: async () => workspaceSnapshot,
       remember: () => {},
       save: async () => {},
     },
     runtimes: {
-      list: async () => [],
+      list: async () => [
+        {
+          id: "kimi",
+          name: "Kimi Code",
+          command: "kimi",
+          availability: "detected",
+          enabled: true,
+          status: "running",
+          configuration: "configured",
+          verification: "passed",
+          supportsModelPing: true,
+        },
+      ],
       listModels: async () => ({ state: "listed", models: [] }),
     },
     mcpServer: {
@@ -61,8 +86,44 @@ function installBridge(
       save: async () => {},
     },
     skills: { list: async () => [] },
+    attachments: {
+      store: async () => {
+        throw new Error("not used");
+      },
+      read: async () => new Uint8Array(),
+    },
+    git: {
+      branches: async () => ({ current: "main", branches: ["main"], branchWorktrees: [] }),
+      checkout: async () => ({ current: "main", branches: ["main"], branchWorktrees: [] }),
+      createBranch: async () => ({ current: "main", branches: ["main"], branchWorktrees: [] }),
+      workspaceSnapshot: async () => ({ state: "unavailable", reason: "not-a-repository" }),
+      workspaceDiff: async () => ({ state: "unavailable", reason: "not-a-repository" }),
+    },
     chat: {
-      onEvent: () => () => {},
+      send: async (request: ChatTurnRequest) => {
+        if (chatSendFails) throw new Error("runtime unavailable");
+        chatRequests.push(structuredClone(request));
+        const runId = request.runId ?? "run-1";
+        queueMicrotask(() => {
+          chatListener?.({
+            type: "started",
+            runId,
+            requestKey: request.requestKey,
+            threadId: request.threadId,
+          });
+        });
+        return { runId };
+      },
+      stop: async () => {},
+      respondToPermission: async () => {},
+      respondToQuestion: async () => {},
+      getKimiStatus: async () => null,
+      onEvent: (listener: (event: import("../shared/chat").ChatRunEvent) => void) => {
+        chatListener = listener;
+        return () => {
+          if (chatListener === listener) chatListener = null;
+        };
+      },
       deleteThreadData: async () => {},
     },
   } as unknown as Window["carrent"];
@@ -72,10 +133,31 @@ async function renderApp(
   appState: AppStateSnapshot | null,
   initialEntry = "/",
   selectedDirectories: string[] = [],
-  saveFails = false,
+  saveFails: boolean | number | number[] = false,
+  chatRequests: ChatTurnRequest[] = [],
+  chatSendFails = false,
+  workspaceSnapshot: WorkspaceSnapshot = legacySnapshot,
 ) {
   const saved: AppStateSnapshot[] = [];
-  installBridge(appState, saved, selectedDirectories, saveFails);
+  localStorage.setItem(
+    "carrent:settings",
+    JSON.stringify({
+      autoDetectRuntimes: true,
+      theme: "dark",
+      fontSize: 14,
+      runtimeEnabledById: { kimi: true },
+      runtimeDefaultModelById: {},
+    }),
+  );
+  installBridge(
+    appState,
+    saved,
+    selectedDirectories,
+    saveFails,
+    chatRequests,
+    chatSendFails,
+    workspaceSnapshot,
+  );
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -111,11 +193,32 @@ async function fillInput(input: HTMLInputElement, value: string) {
   });
 }
 
+async function fillTextarea(textarea: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    "value",
+  )!.set!;
+  await act(async () => {
+    textarea.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+    setter.call(textarea, value);
+    textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
+    textarea.dispatchEvent(new window.Event("change", { bubbles: true }));
+    textarea.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "a" }));
+  });
+}
+
 async function click(button: HTMLButtonElement) {
   await act(async () => {
     button.click();
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
+}
+
+function composerSendButton() {
+  const icon = [...container!.querySelectorAll<SVGElement>(".lucide-arrow-up")].at(-1);
+  const button = icon?.closest<HTMLButtonElement>("button");
+  if (!button) throw new Error("Composer send button not found");
+  return button;
 }
 
 afterEach(async () => {
@@ -452,5 +555,343 @@ describe("Workspace Projects and Associations", () => {
     expect(saved).toHaveLength(0);
     expect(container!.textContent).toContain("Project settings could not be saved.");
     expect(container!.querySelector("h1")?.textContent).toBe("Carrent");
+  });
+});
+
+describe("Association Thread Drafts", () => {
+  const state: AppStateSnapshot = {
+    version: 1,
+    workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+    projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+    associations: [
+      {
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        order: 0,
+        defaultRuntimeId: "kimi",
+        defaultRuntimeModelId: "kimi-k2.5",
+        defaultRuntimeMode: "approval-required",
+      },
+    ],
+    threads: [],
+    threadDrafts: [],
+    threadMessages: [],
+    threadRuns: [],
+    activeWorkspaceId: "workspace-1",
+  };
+
+  it("persists one recoverable Draft without creating a Thread", async () => {
+    const saved = await renderApp(state, "/workspace/workspace-1/project/project-1");
+
+    await click(buttonNamed("New Thread"));
+
+    expect(saved.at(-1)?.threads).toEqual([]);
+    expect(saved.at(-1)?.threadDrafts).toHaveLength(1);
+    expect(saved.at(-1)?.threadDrafts?.[0]).toMatchObject({
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      content: "",
+      runtimeId: "kimi",
+      runtimeModelId: "kimi-k2.5",
+      runtimeMode: "approval-required",
+    });
+
+    await fillTextarea(container!.querySelector("textarea")!, "Keep this across navigation");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(saved.at(-1)?.threadDrafts?.[0].content).toBe("Keep this across navigation");
+    expect(saved.at(-1)?.threads).toEqual([]);
+  });
+
+  it("restores an Association Draft from the persisted App State", async () => {
+    const restoredState: AppStateSnapshot = {
+      ...state,
+      threadDrafts: [
+        {
+          id: "draft-1",
+          threadId: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          content: "Recovered request",
+          attachedSkillNames: [],
+          attachments: [],
+          runtimeId: "kimi",
+          runtimeModelId: "kimi-k2.5",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+    };
+    const saved = await renderApp(restoredState, "/workspace/workspace-1/project/project-1");
+
+    await click(buttonNamed("Resume Draft"));
+
+    expect(container!.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+      "Recovered request",
+    );
+    expect(saved).toHaveLength(0);
+  });
+
+  it("promotes the Draft on first send and dispatches the fixed three-level identity", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const saved = await renderApp(
+      state,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      false,
+      requests,
+    );
+
+    await click(buttonNamed("New Thread"));
+    await fillTextarea(container!.querySelector("textarea")!, "Implement association drafts");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+    const sendButton = composerSendButton();
+    expect(sendButton.disabled).toBe(false);
+    await click(sendButton);
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      workspace: {
+        kind: "project",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        projectPath: "/code/carrent",
+      },
+      draftRef: {
+        projectId: "project-1",
+        workspaceId: "workspace-1",
+      },
+      runtimeId: "kimi",
+      runtimeModelId: "kimi-k2.5",
+      runtimeMode: "approval-required",
+      message: "Implement association drafts",
+    });
+    expect(saved.at(-1)?.threadDrafts).toEqual([]);
+    expect(saved.at(-1)?.threads).toHaveLength(1);
+    expect(saved.at(-1)?.threads?.[0]).toMatchObject({
+      id: requests[0].threadId,
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      runtimeId: "kimi",
+      runtimeModelId: "kimi-k2.5",
+      runtimeMode: "approval-required",
+    });
+    expect(saved.at(-1)?.threadMessages?.[0]).toMatchObject({
+      threadId: requests[0].threadId,
+      role: "user",
+      content: "Implement association drafts",
+    });
+    expect(saved.at(-1)?.threadRuns?.[0]).toMatchObject({
+      id: requests[0].runId,
+      threadId: requests[0].threadId,
+      runtimeId: "kimi",
+      runtimeModelId: "kimi-k2.5",
+      runtimeMode: "approval-required",
+    });
+  });
+
+  it("keeps the Draft retryable when the first dispatch is rejected", async () => {
+    const saved = await renderApp(
+      state,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      false,
+      [],
+      true,
+    );
+
+    await click(buttonNamed("New Thread"));
+    await fillTextarea(container!.querySelector("textarea")!, "Retry this request");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+    await click(composerSendButton());
+
+    expect(saved.at(-1)?.threads).toEqual([]);
+    expect(saved.at(-1)?.threadDrafts?.[0]).toMatchObject({
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      content: "Retry this request",
+    });
+  });
+
+  it("keeps the Draft persisted when dispatch rejection cleanup cannot be saved", async () => {
+    const saved = await renderApp(
+      state,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      [3],
+      [],
+      true,
+    );
+
+    await click(buttonNamed("New Thread"));
+    await fillTextarea(container!.querySelector("textarea")!, "Retry after cleanup failure");
+    await click(composerSendButton());
+
+    expect(saved.at(-1)?.threads).toEqual([]);
+    expect(saved.at(-1)?.threadDrafts?.[0]).toMatchObject({
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      content: "Retry after cleanup failure",
+    });
+    expect(container!.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+      "Retry after cleanup failure",
+    );
+  });
+
+  it("keeps the Draft retryable when promotion persistence fails", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const saved = await renderApp(
+      state,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      3,
+      requests,
+    );
+
+    await click(buttonNamed("New Thread"));
+    await fillTextarea(container!.querySelector("textarea")!, "Persist this before promotion");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+    await click(composerSendButton());
+
+    expect(requests).toHaveLength(0);
+    expect(saved.at(-1)?.threads).toEqual([]);
+    expect(saved.at(-1)?.threadDrafts?.[0]).toMatchObject({
+      content: "Persist this before promotion",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+    });
+  });
+
+  it("keeps the Draft persisted when final promotion commit fails", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const saved = await renderApp(
+      state,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      4,
+      requests,
+    );
+
+    await click(buttonNamed("New Thread"));
+    await fillTextarea(container!.querySelector("textarea")!, "Keep the finalization retryable");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+    await click(composerSendButton());
+
+    expect(requests).toHaveLength(1);
+    expect(saved.at(-1)?.threads).toEqual([]);
+    expect(saved.at(-1)?.threadDrafts?.[0]).toMatchObject({
+      content: "Keep the finalization retryable",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+    });
+  });
+
+  it("recovers an App State Thread into the three-level route", async () => {
+    const threadState: AppStateSnapshot = {
+      ...state,
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Recovered Thread",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeModelId: "kimi-k2.5",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      threadMessages: [
+        {
+          id: "message-1",
+          threadId: "thread-1",
+          role: "user",
+          content: "Recovered message",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          attachments: [],
+        },
+      ],
+    };
+
+    await renderApp(threadState, "/workspace/workspace-1/project/project-1/thread/thread-1");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(container!.textContent).toContain("Recovered Thread");
+    expect(container!.textContent).toContain("Recovered message");
+    expect(container!.querySelector("textarea") !== null).toBe(true);
+  });
+
+  it("does not dispatch an existing Thread Run when App State persistence fails", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const threadState: AppStateSnapshot = {
+      ...state,
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Existing Thread",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeModelId: "kimi-k2.5",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+    };
+    const workspaceSnapshot: WorkspaceSnapshot = {
+      version: 1,
+      projects: [
+        {
+          id: "project-1",
+          name: "Carrent",
+          path: "/code/carrent",
+          threads: [
+            {
+              id: "thread-1",
+              title: "Existing Thread",
+              updatedAt: "2026-07-27T08:00:00.000Z",
+              runtimeId: "kimi",
+              runtimeModelId: "kimi-k2.5",
+              runtimeMode: "approval-required",
+              planMode: false,
+            },
+          ],
+        },
+      ],
+      chats: [],
+      messages: [],
+      activeThreadId: "thread-1",
+    };
+
+    const saved = await renderApp(
+      threadState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      true,
+      requests,
+      false,
+      workspaceSnapshot,
+    );
+    await fillTextarea(container!.querySelector("textarea")!, "Do not dispatch this");
+    await click(composerSendButton());
+
+    expect(requests).toHaveLength(0);
+    expect(saved).toHaveLength(0);
   });
 });

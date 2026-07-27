@@ -4,7 +4,7 @@
 
 **Blocked by:** 14 — 在 Workspace 中添加和复用 Project
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 每个 Workspace-Project Association 最多保存一个 Thread Draft，包含未发送内容、附件和所选运行配置。
 - [ ] Thread Draft 可跨导航和应用重启恢复，但不创建 Thread、消息或 Runtime Session，也不进入任何现有 Thread 集合。

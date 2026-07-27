@@ -61,6 +61,7 @@ import type { DeleteThreadDataRequest, AttachmentMetadata } from "../../shared/c
 import type { ThreadWorkSnapshot } from "../../shared/workspacePersistence";
 import type { GitWorkspaceDiffResult } from "../../../electron/git/gitIpc";
 import type { RunChecklistEntry, RunChecklistOutcome } from "../../shared/runChecklist";
+import { useAppState } from "./AppStateContext";
 
 type MessageRunStatus = NonNullable<Message["runStatus"]>;
 
@@ -150,6 +151,9 @@ export type WorkspaceContextValue = {
     runtimeModelId?: string,
   ) => ThreadRecord | null;
   upsertThread: (projectId: string, thread: ThreadRecord) => void;
+  upsertAssociationThread: (project: ProjectRecord, thread: ThreadRecord) => void;
+  removeAssociationThread: (projectId: string, threadId: string) => void;
+  removeMessages: (messageIds: string[]) => void;
   promoteDraftThread: (projectId: string, threadId: string) => void;
   toggleThreadPin: (projectId: string, threadId: string) => void;
   deleteThread: (projectId: string, threadId: string) => Promise<string | null>;
@@ -260,6 +264,9 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   markThreadActivity: () => {},
   createThread: () => null,
   upsertThread: () => {},
+  upsertAssociationThread: () => {},
+  removeAssociationThread: () => {},
+  removeMessages: () => {},
   promoteDraftThread: () => {},
   toggleThreadPin: () => {},
   deleteThread: async () => null,
@@ -681,6 +688,12 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
 }
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  const {
+    hasHydrated: appStateHasHydrated,
+    projects: appStateProjects,
+    threads: appStateThreads,
+    threadMessages: appStateThreadMessages,
+  } = useAppState();
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [chats, setChats] = useState<ThreadRecord[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -737,6 +750,76 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasHydrated || !appStateHasHydrated) return;
+
+    setProjects((currentProjects) => {
+      let nextProjects = currentProjects;
+      let changed = false;
+
+      for (const appThread of appStateThreads) {
+        const appProject = appStateProjects.find((project) => project.id === appThread.projectId);
+        if (!appProject) continue;
+
+        const adapterThread: ThreadRecord = {
+          id: appThread.id,
+          title: appThread.title,
+          updatedAt: appThread.lastActivityAt,
+          lastActivityAt: appThread.lastActivityAt,
+          runtimeId: appThread.runtimeId,
+          ...(appThread.runtimeModelId ? { runtimeModelId: appThread.runtimeModelId } : {}),
+          runtimeMode: appThread.runtimeMode,
+          planMode: appThread.planMode,
+        };
+        const existingProject = nextProjects.find((project) => project.id === appProject.id);
+        const existingThread = existingProject?.threads.find(
+          (thread) => thread.id === appThread.id,
+        );
+        if (existingThread) continue;
+
+        changed = true;
+        if (!existingProject) {
+          nextProjects = [
+            ...nextProjects,
+            {
+              id: appProject.id,
+              name: appProject.name,
+              path: appProject.workingDirectory,
+              threads: [adapterThread],
+            },
+          ];
+        } else {
+          nextProjects = upsertThreadInProjects(nextProjects, appProject.id, adapterThread);
+        }
+      }
+
+      return changed ? nextProjects : currentProjects;
+    });
+
+    setMessages((currentMessages) => {
+      const existingIds = new Set(currentMessages.map((message) => message.id));
+      const missingMessages = appStateThreadMessages.flatMap((message) => {
+        if (existingIds.has(message.id)) return [];
+        const createdAt = Date.parse(message.createdAt);
+        return [
+          {
+            id: message.id,
+            threadId: message.threadId,
+            role: message.role,
+            type: "text" as const,
+            content: message.content,
+            attachments: message.attachments,
+            timestamp: formatTime(new Date(createdAt)),
+            createdAt,
+          },
+        ];
+      });
+      return missingMessages.length > 0
+        ? [...currentMessages, ...missingMessages]
+        : currentMessages;
+    });
+  }, [appStateHasHydrated, appStateProjects, appStateThreadMessages, appStateThreads, hasHydrated]);
 
   const allThreadIds = useMemo(
     () => [
@@ -856,6 +939,39 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const upsertThread = (projectId: string, thread: ThreadRecord) => {
     setProjects((prev) => upsertThreadInProjects(prev, projectId, thread));
+  };
+
+  const upsertAssociationThread = (project: ProjectRecord, thread: ThreadRecord) => {
+    setProjects((prev) => {
+      const existing = prev.find((item) => item.id === project.id);
+      if (!existing) {
+        return [{ ...project, threads: [thread] }, ...prev];
+      }
+      return upsertThreadInProjects(
+        prev.map((item) =>
+          item.id === project.id ? { ...item, name: project.name, path: project.path } : item,
+        ),
+        project.id,
+        thread,
+      );
+    });
+    setActiveThreadId(thread.id);
+  };
+
+  const removeAssociationThread = (projectId: string, threadId: string) => {
+    setProjects((prev) =>
+      prev.map((project) =>
+        project.id === projectId
+          ? { ...project, threads: project.threads.filter((thread) => thread.id !== threadId) }
+          : project,
+      ),
+    );
+    setActiveThreadId((prev) => (prev === threadId ? null : prev));
+  };
+
+  const removeMessages = (messageIds: string[]) => {
+    const ids = new Set(messageIds);
+    setMessages((prev) => prev.filter((message) => !ids.has(message.id)));
   };
 
   const toggleThreadPin = (projectId: string, threadId: string) => {
@@ -1056,6 +1172,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         markThreadActivity,
         createThread,
         upsertThread,
+        upsertAssociationThread,
+        removeAssociationThread,
+        removeMessages,
         promoteDraftThread,
         toggleThreadPin,
         deleteThread,

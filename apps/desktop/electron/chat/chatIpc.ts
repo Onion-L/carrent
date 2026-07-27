@@ -242,7 +242,13 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
       ),
     };
 
-    const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    if (
+      req.runId !== undefined &&
+      (typeof req.runId !== "string" || !req.runId || req.runId.trim() !== req.runId)
+    ) {
+      throw new Error("Invalid run ID.");
+    }
+    const runId = req.runId ?? `run-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
     services.sessionManager.start(runId, sanitizedRequest);
 

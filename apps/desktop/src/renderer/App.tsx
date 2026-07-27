@@ -46,6 +46,10 @@ function AppRoutes() {
             element={<ProjectOverviewPage />}
             path="/workspace/:workspaceId/project/:projectId"
           />
+          <Route
+            element={<ThreadPage />}
+            path="/workspace/:workspaceId/project/:projectId/thread/:threadId"
+          />
           <Route element={<HomePage />} path="/project/:projectId" />
           <Route element={<ThreadPage />} path="/thread/:projectId/:threadId" />
           <Route element={<ChatPage />} path="/chat/:threadId" />

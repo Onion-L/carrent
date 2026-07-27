@@ -32,6 +32,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 
 import type { AttachmentMetadata, KimiSessionStatus } from "../../../shared/chat";
+import type { AppThreadRunStartInput } from "../../../shared/workspacePersistence";
 import {
   FILE_ATTACHMENT_ICONS,
   fileAttachmentIconKind,
@@ -203,6 +204,13 @@ export type ComposerDraftRequest = {
   requestId: number;
 };
 
+export type AssociationDraftPromotionInput = AppThreadRunStartInput & {
+  title: string;
+  draft: ThreadWorkDraftSnapshot;
+};
+
+export type ComposerAcceptedRunInput = AppThreadRunStartInput;
+
 export function mergeComposerDraftContent(current: string, incoming: string): string {
   if (!current.trim()) {
     return incoming;
@@ -238,6 +246,35 @@ type ComposerProps =
       planMode: boolean;
       submitRequest?: ComposerSubmitRequest;
       draftRequest?: ComposerDraftRequest;
+      onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
+      onRuntimeModelIdChange?: (modelId: string | undefined) => void;
+      onRuntimeModeChange?: (mode: RuntimeMode) => void;
+      onPlanModeChange?: (enabled: boolean) => void;
+      onRunPrepared?: (input: ComposerAcceptedRunInput) => Promise<boolean>;
+      onRunRejected?: (input: ComposerAcceptedRunInput) => Promise<void>;
+    }
+  | {
+      mode: "association-draft";
+      placement?: "default" | "centered";
+      workspaceId: string;
+      projectId: string;
+      projectName: string;
+      projectPath: string;
+      draftId: string;
+      threadId: string;
+      initialDraft: ThreadWorkDraftSnapshot;
+      messages: Message[];
+      runtimeId: RuntimeId;
+      runtimeModelId?: string;
+      runtimeMode: RuntimeMode;
+      planMode: boolean;
+      submitRequest?: ComposerSubmitRequest;
+      draftRequest?: ComposerDraftRequest;
+      onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void;
+      onPromote: (input: AssociationDraftPromotionInput) => Promise<boolean>;
+      onPromotionAccepted: (runId: string) => Promise<boolean>;
+      onPromotionRejected: (draft: ThreadWorkDraftSnapshot) => Promise<void>;
+      onPromoted: (threadId: string) => void;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
@@ -839,6 +876,9 @@ export function Composer(props: ComposerProps) {
     markThreadActivity,
     upsertChat,
     upsertThread,
+    upsertAssociationThread,
+    removeAssociationThread,
+    removeMessages,
     promoteDraftThread,
   } = useWorkspace();
   const {
@@ -853,16 +893,23 @@ export function Composer(props: ComposerProps) {
   const { skills, loading: skillsLoading, error: skillsError } = useSkills();
   const { status: mcpServerStatus } = useMcpServer();
   const { showToast } = useToast();
-  const [input, setInput] = useState(() => getThreadDraft(props.threadId)?.content ?? "");
+  const initialDraft =
+    props.mode === "association-draft" ? props.initialDraft : getThreadDraft(props.threadId);
+  const [input, setInput] = useState(() => initialDraft?.content ?? "");
   const [pendingDraftSkillNames, setPendingDraftSkillNames] = useState<string[] | null>(() => {
-    const names = getThreadDraft(props.threadId)?.attachedSkillNames ?? [];
+    const names = initialDraft?.attachedSkillNames ?? [];
     return names.length > 0 ? names : null;
   });
   const draftAttachmentsRef = useRef<AttachmentMetadata[] | null>(null);
   if (draftAttachmentsRef.current === null) {
-    draftAttachmentsRef.current = getThreadDraft(props.threadId)?.attachments ?? [];
+    draftAttachmentsRef.current = initialDraft?.attachments ?? [];
   }
   const draftRestoreCompleteRef = useRef(false);
+  const associationDraftChangeRef = useRef<
+    ((draft: ThreadWorkDraftSnapshot | null) => void) | null
+  >(props.mode === "association-draft" ? props.onDraftChange : null);
+  associationDraftChangeRef.current =
+    props.mode === "association-draft" ? props.onDraftChange : null;
   const [textareaCursor, setTextareaCursor] = useState(0);
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
@@ -909,12 +956,24 @@ export function Composer(props: ComposerProps) {
   const steerItemRef = useRef<QueuedChatMessage | null>(null);
   const editingQueuedIdRef = useRef<string | null>(null);
   const projectId = props.mode === "chat" ? null : props.projectId;
-  const project = projectId ? (projects.find((item) => item.id === projectId) ?? null) : null;
+  const project =
+    props.mode === "association-draft"
+      ? {
+          id: props.projectId,
+          name: props.projectName,
+          path: props.projectPath,
+          threads: [],
+        }
+      : projectId
+        ? (projects.find((item) => item.id === projectId) ?? null)
+        : null;
   const threadId = props.threadId;
   const thread =
     props.mode === "chat"
       ? (chats.find((item) => item.id === threadId) ?? null)
-      : (project?.threads.find((item) => item.id === threadId) ?? null);
+      : props.mode === "association-draft"
+        ? null
+        : (project?.threads.find((item) => item.id === threadId) ?? null);
   const runChecklist = thread?.runChecklist;
   const queuedMessages = useQueuedMessages(threadId);
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
@@ -1525,7 +1584,7 @@ export function Composer(props: ComposerProps) {
     // remounts this component; the remount may happen before the post-`send`
     // cleanup runs, and a stale draft would resurrect the just-sent text
     // into the new instance's input.
-    if (!isExternalSubmit) {
+    if (!isExternalSubmit && props.mode !== "association-draft") {
       clearThreadDraft(threadId);
     }
 
@@ -1572,7 +1631,9 @@ export function Composer(props: ComposerProps) {
         return [];
       });
       setAttachmentError(null);
-      clearThreadDraft(threadId);
+      if (props.mode !== "association-draft") {
+        clearThreadDraft(threadId);
+      }
       return true;
     }
 
@@ -1682,7 +1743,7 @@ export function Composer(props: ComposerProps) {
     // before the diff capture reads it.
     const runWrittenFilesRef = { current: [] as string[] };
     const captureWorkspaceDiff = createWorkspaceDiffCapture({
-      mode: props.mode,
+      mode: props.mode === "chat" ? "chat" : "thread",
       projectPath: project?.path,
       threadId,
       captureBaseline: async (projectPath) => {
@@ -1696,10 +1757,11 @@ export function Composer(props: ComposerProps) {
       showToast,
     });
 
+    let userMessageId = externalSubmit?.messageId ?? "";
     if (externalSubmit?.messageId) {
       updateMessageAndPruneAfter(externalSubmit.messageId, messageText);
     } else {
-      appendLocalMessage("user", messageText, attachmentMetadata);
+      userMessageId = appendLocalMessage("user", messageText, attachmentMetadata).id;
     }
     markThreadActivity(threadId);
 
@@ -1750,8 +1812,78 @@ export function Composer(props: ComposerProps) {
       }, 0);
     };
 
-    const sendStarted = await send(
+    const requestedRunId = `run-${crypto.randomUUID()}`;
+    const runtimeModelIdForSend = getRuntimeModelIdForSend({
+      runtimeId: props.runtimeId,
+      runtimeModelId: props.runtimeModelId,
+    });
+    const associationDraftTitle =
+      props.mode === "association-draft"
+        ? deriveThreadTitle(messageText, { fallback: "" }) ||
+          attachmentMetadata[0]?.name ||
+          "New thread"
+        : null;
+    const associationDraftSnapshot =
+      props.mode === "association-draft"
+        ? buildThreadDraftSnapshot({
+            content: currentInput,
+            attachedSkills: currentAttachedSkills,
+            pendingAttachments: currentPendingAttachments,
+          })!
+        : null;
+    const startedAt = new Date().toISOString();
+    const runInput: ComposerAcceptedRunInput = {
+      runId: requestedRunId,
+      messageId: userMessageId,
+      message: messageText,
+      attachments: attachmentMetadata,
+      startedAt,
+      runtimeId: props.runtimeId,
+      runtimeModelId: runtimeModelIdForSend,
+      runtimeMode: props.runtimeMode,
+      planMode: effectivePlanMode,
+    };
+    let preparedPersistentRun = false;
+
+    if (props.mode === "association-draft") {
+      const promoted = await props.onPromote({
+        ...runInput,
+        title: associationDraftTitle!,
+        draft: associationDraftSnapshot!,
+      });
+      if (!promoted) {
+        removeMessages([userMessageId, assistantMsg.id]);
+        return false;
+      }
+      preparedPersistentRun = true;
+      upsertAssociationThread(
+        {
+          id: props.projectId,
+          name: props.projectName,
+          path: props.projectPath,
+          threads: [],
+        },
+        {
+          id: props.threadId,
+          title: associationDraftTitle!,
+          updatedAt: startedAt,
+          runtimeId: props.runtimeId,
+          runtimeModelId: runtimeModelIdForSend,
+          runtimeMode: props.runtimeMode,
+          planMode: effectivePlanMode,
+        },
+      );
+    } else if (props.mode === "thread" && !isExternalSubmit && props.onRunPrepared) {
+      preparedPersistentRun = await props.onRunPrepared(runInput);
+      if (!preparedPersistentRun) {
+        removeMessages([userMessageId, assistantMsg.id]);
+        return false;
+      }
+    }
+
+    const startedRunId = await send(
       {
+        runId: requestedRunId,
         workspace:
           props.mode === "chat"
             ? { kind: "chat" }
@@ -1759,13 +1891,21 @@ export function Composer(props: ComposerProps) {
                 kind: "project",
                 projectId: props.projectId,
                 projectPath: project!.path,
+                ...(props.mode === "association-draft" ? { workspaceId: props.workspaceId } : {}),
               },
         threadId,
+        ...(props.mode === "association-draft"
+          ? {
+              draftRef: {
+                draftId: props.draftId,
+                workspaceId: props.workspaceId,
+                projectId: props.projectId,
+                title: associationDraftTitle!,
+              },
+            }
+          : {}),
         runtimeId: props.runtimeId,
-        runtimeModelId: getRuntimeModelIdForSend({
-          runtimeId: props.runtimeId,
-          runtimeModelId: props.runtimeModelId,
-        }),
+        runtimeModelId: runtimeModelIdForSend,
         runtimeMode: props.runtimeMode,
         planMode: effectivePlanMode,
         transcript,
@@ -1946,8 +2086,28 @@ export function Composer(props: ComposerProps) {
       },
     );
 
-    if (!sendStarted) {
+    if (!startedRunId) {
+      if (props.mode === "association-draft") {
+        await props.onPromotionRejected(associationDraftSnapshot!);
+        removeAssociationThread(props.projectId, props.threadId);
+      } else if (props.mode === "thread" && preparedPersistentRun) {
+        await props.onRunRejected?.(runInput);
+      }
+      if (props.mode === "association-draft" || preparedPersistentRun) {
+        removeMessages([userMessageId, assistantMsg.id]);
+      }
       return false;
+    }
+
+    if (props.mode === "association-draft") {
+      const committed = await props.onPromotionAccepted(startedRunId);
+      if (!committed) {
+        await stop(threadId);
+        removeAssociationThread(props.projectId, props.threadId);
+        removeMessages([userMessageId, assistantMsg.id]);
+        return false;
+      }
+      props.onPromoted(props.threadId);
     }
 
     if (!isExternalSubmit) {
@@ -1961,7 +2121,9 @@ export function Composer(props: ComposerProps) {
         });
         return [];
       });
-      clearThreadDraft(threadId);
+      if (props.mode !== "association-draft") {
+        clearThreadDraft(threadId);
+      }
     }
 
     if (props.mode === "chat") {
@@ -2094,14 +2256,16 @@ export function Composer(props: ComposerProps) {
         attachedSkills,
         pendingAttachments,
       });
-      if (draft) {
+      if (props.mode === "association-draft") {
+        associationDraftChangeRef.current?.(draft);
+      } else if (draft) {
         setThreadDraft(threadId, draft);
       } else {
         clearThreadDraft(threadId);
       }
     }, 300);
     return () => clearTimeout(timeout);
-  }, [threadId, input, attachedSkills, pendingAttachments, pendingDraftSkillNames]);
+  }, [threadId, input, attachedSkills, pendingAttachments, pendingDraftSkillNames, props.mode]);
 
   useEffect(() => {
     if (!props.submitRequest || lastSubmitRequestIdRef.current === props.submitRequest.requestId) {
@@ -2957,7 +3121,10 @@ export function Composer(props: ComposerProps) {
                       className="h-3 w-3"
                     />
                     <span className="min-w-0 truncate">
-                      {getRuntimeModeLabel(props.runtimeMode ?? DEFAULT_RUNTIME_MODE, props.runtimeId)}
+                      {getRuntimeModeLabel(
+                        props.runtimeMode ?? DEFAULT_RUNTIME_MODE,
+                        props.runtimeId,
+                      )}
                     </span>
                     <ChevronDown className="h-3 w-3" />
                   </button>

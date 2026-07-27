@@ -106,6 +106,263 @@ describe("normalizeAppStateSnapshot", () => {
       }),
     ).toBe(null);
   });
+
+  it("round-trips Association Drafts, fixed Thread ownership, messages, and Run config", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeModelId: "kimi-k2.5",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Implement draft promotion",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeModelId: "kimi-k2.5",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      threadDrafts: [
+        {
+          id: "draft-2",
+          threadId: "thread-2",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          content: "Unsent request",
+          attachedSkillNames: ["tdd"],
+          attachments: [],
+          runtimeId: "codex",
+          runtimeModelId: "gpt-5",
+          runtimeMode: "full-access",
+          planMode: true,
+        },
+      ],
+      threadMessages: [
+        {
+          id: "message-1",
+          threadId: "thread-1",
+          role: "user",
+          content: "Implement draft promotion",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          attachments: [],
+        },
+      ],
+      threadRuns: [
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          messageId: "message-1",
+          startedAt: "2026-07-27T08:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeModelId: "kimi-k2.5",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      activeWorkspaceId: "workspace-1",
+    };
+
+    expect(normalizeAppStateSnapshot(snapshot)).toEqual(snapshot);
+  });
+
+  it("round-trips a pending promotion intent without creating a Thread", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [],
+      threadDrafts: [
+        {
+          id: "draft-1",
+          threadId: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          content: "Pending request",
+          attachedSkillNames: [],
+          attachments: [],
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      threadMessages: [],
+      threadRuns: [],
+      threadPromotionIntents: [
+        {
+          draftId: "draft-1",
+          threadId: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Pending request",
+          runId: "run-1",
+          messageId: "message-1",
+          message: "Pending request",
+          attachments: [],
+          startedAt: "2026-07-27T08:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      activeWorkspaceId: "workspace-1",
+    };
+
+    expect(normalizeAppStateSnapshot(snapshot)).toEqual(snapshot);
+    expect(normalizeAppStateSnapshot({ ...snapshot, threadDrafts: [] })).toBe(null);
+  });
+
+  it("rejects Draft and Thread records outside an existing Association", () => {
+    const base = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      activeWorkspaceId: "workspace-1",
+    };
+    const draft = {
+      id: "draft-1",
+      threadId: "thread-1",
+      workspaceId: "workspace-1",
+      projectId: "project-missing",
+      content: "Unsent",
+      attachedSkillNames: [],
+      attachments: [],
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+    };
+    const thread = {
+      id: "thread-1",
+      workspaceId: "workspace-1",
+      projectId: "project-missing",
+      title: "Missing parent",
+      createdAt: "2026-07-27T08:00:00.000Z",
+      lastActivityAt: "2026-07-27T08:00:00.000Z",
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+    };
+
+    expect(normalizeAppStateSnapshot({ ...base, threadDrafts: [draft] })).toBe(null);
+    expect(normalizeAppStateSnapshot({ ...base, threads: [thread] })).toBe(null);
+  });
+
+  it("rejects more than one Draft per Association and invalid Run references", () => {
+    const base = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      activeWorkspaceId: "workspace-1",
+    };
+    const draft = {
+      id: "draft-1",
+      threadId: "thread-1",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      content: "Unsent",
+      attachedSkillNames: [],
+      attachments: [],
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+    };
+
+    expect(
+      normalizeAppStateSnapshot({
+        ...base,
+        threadDrafts: [draft, { ...draft, id: "draft-2", threadId: "thread-2" }],
+      }),
+    ).toBe(null);
+    expect(
+      normalizeAppStateSnapshot({
+        ...base,
+        threadRuns: [
+          {
+            id: "run-1",
+            threadId: "thread-missing",
+            messageId: "message-missing",
+            startedAt: "2026-07-27T08:00:00.000Z",
+            runtimeId: "kimi",
+            runtimeMode: "approval-required",
+            planMode: false,
+          },
+        ],
+      }),
+    ).toBe(null);
+  });
+
+  it("rejects parseable dates that are not persisted ISO timestamps", () => {
+    expect(
+      normalizeAppStateSnapshot({
+        version: APP_STATE_SNAPSHOT_VERSION,
+        workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+        projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+        associations: [
+          {
+            workspaceId: "workspace-1",
+            projectId: "project-1",
+            order: 0,
+            defaultRuntimeId: "kimi",
+            defaultRuntimeMode: "approval-required",
+          },
+        ],
+        threads: [
+          {
+            id: "thread-1",
+            workspaceId: "workspace-1",
+            projectId: "project-1",
+            title: "Thread",
+            createdAt: "July 27, 2026",
+            lastActivityAt: "2026-07-27T08:00:00.000Z",
+            runtimeId: "kimi",
+            runtimeMode: "approval-required",
+            planMode: false,
+          },
+        ],
+        activeWorkspaceId: "workspace-1",
+      }),
+    ).toBe(null);
+  });
 });
 
 describe("normalizeWorkspaceSnapshot", () => {

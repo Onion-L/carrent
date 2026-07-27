@@ -366,6 +366,7 @@ export function createChatRunCoordinator() {
 
 const chatRunCoordinator = createChatRunCoordinator();
 let teardownChatListener: VoidFunction | null = null;
+let chatListenerSubscriberCount = 0;
 
 function createRequestKey() {
   return `request-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -381,13 +382,26 @@ function ensureChatListener() {
   });
 }
 
+function subscribeToChatRun(listener: ChatRunStoreListener) {
+  ensureChatListener();
+  chatListenerSubscriberCount += 1;
+  const unsubscribe = chatRunCoordinator.subscribe(listener);
+
+  return () => {
+    unsubscribe();
+    chatListenerSubscriberCount -= 1;
+    if (chatListenerSubscriberCount === 0) {
+      teardownChatListener?.();
+      teardownChatListener = null;
+    }
+  };
+}
+
 export function useChatRun() {
   const [snapshot, setSnapshot] = useState(() => chatRunCoordinator.getSnapshot());
 
   useEffect(() => {
-    ensureChatListener();
-
-    return chatRunCoordinator.subscribe(() => {
+    return subscribeToChatRun(() => {
       setSnapshot(chatRunCoordinator.getSnapshot());
     });
   }, []);

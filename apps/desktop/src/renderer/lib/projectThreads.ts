@@ -1,6 +1,7 @@
 import type { Message, ThreadRecord } from "../mock/uiShellData";
 
 export type ThreadDisplayStatus = "running" | "approval" | "question" | "failed";
+export type AttentionStatus = Exclude<ThreadDisplayStatus, "running">;
 
 function parseTimestamp(value: string | undefined) {
   if (!value) {
@@ -69,7 +70,7 @@ export function getThreadDisplayStatus({
   return latestAssistantMessage?.runStatus === "failed" ? "failed" : null;
 }
 
-function sortByActivity(threads: ThreadRecord[], messages: Message[]) {
+function sortByActivity<T extends ThreadRecord>(threads: T[], messages: Message[]) {
   return threads
     .map((thread, index) => ({
       thread,
@@ -81,6 +82,42 @@ function sortByActivity(threads: ThreadRecord[], messages: Message[]) {
       return activityDiff || a.index - b.index;
     })
     .map(({ thread }) => thread);
+}
+
+export function getAttentionGroups<T extends ThreadRecord>({
+  threads,
+  runningThreadIds,
+  pendingApprovals,
+  pendingQuestions,
+  messages,
+}: {
+  threads: T[];
+  runningThreadIds: string[];
+  pendingApprovals: Array<{ threadId: string }>;
+  pendingQuestions: Array<{ threadId: string }>;
+  messages: Message[];
+}) {
+  const groups: Array<{ status: AttentionStatus; threads: T[] }> = [
+    { status: "approval", threads: [] },
+    { status: "question", threads: [] },
+    { status: "failed", threads: [] },
+  ];
+
+  for (const thread of threads) {
+    const status = getThreadDisplayStatus({
+      threadId: thread.id,
+      runningThreadIds,
+      pendingApprovals,
+      pendingQuestions,
+      messages,
+    });
+    const group = groups.find((item) => item.status === status);
+    if (group) group.threads.push(thread);
+  }
+
+  return groups
+    .map((group) => ({ ...group, threads: sortByActivity(group.threads, messages) }))
+    .filter((group) => group.threads.length > 0);
 }
 
 export function splitProjectThreads(threads: ThreadRecord[], messages: Message[] = []) {

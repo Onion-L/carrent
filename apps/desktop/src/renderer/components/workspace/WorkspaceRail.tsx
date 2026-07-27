@@ -1,13 +1,15 @@
-import { Plus, Settings } from "lucide-react";
+import { CircleAlert, Plus, Settings } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAppState } from "../../context/AppStateContext";
 import { WorkspaceNameDialog } from "./WorkspaceNameDialog";
 import { buildWorkspacePath, getWorkspaceRestorePath } from "../../lib/navigation";
+import { getAttentionViewState } from "./AttentionPane";
 
-export function WorkspaceRail() {
+export function WorkspaceRail({ attentionCount }: { attentionCount: number }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     workspaces,
     threads,
@@ -21,6 +23,27 @@ export function WorkspaceRail() {
   return (
     <>
       <aside className="flex h-full min-h-0 flex-col items-center bg-sidebar px-1.5 py-1">
+        <button
+          aria-label="Attention"
+          aria-pressed={getAttentionViewState(location.state) !== null}
+          title="Attention"
+          onClick={() => {
+            if (getAttentionViewState(location.state)) return;
+            navigate(`${location.pathname}${location.search}`, {
+              state: {
+                ...(location.state && typeof location.state === "object" ? location.state : {}),
+                attentionView: { scrollTop: 0, selectedThreadId: null, groups: null },
+              },
+            });
+          }}
+          className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+        >
+          <CircleAlert className="h-4 w-4" />
+          <span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-danger px-1 text-center text-[10px] leading-4 text-white">
+            {attentionCount}
+          </span>
+        </button>
+
         <button
           aria-label="Create Workspace"
           title="Create Workspace"

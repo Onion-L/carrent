@@ -4,7 +4,7 @@
 
 **Blocked by:** 16 — 完成三层导航与位置恢复
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 左栏顶部提供固定待处理入口和数量徽标，数量只包含等待批准、等待回答和 Failed Thread。
 - [ ] 打开待处理只临时替换中栏，右侧当前 Workspace、Project 或 Thread 内容保持不变，不自动选择第一项或增加独立概览页。

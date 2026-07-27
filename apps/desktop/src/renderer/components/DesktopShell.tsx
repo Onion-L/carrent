@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { ThreadHistoryPane } from "./chat/ThreadHistoryPane";
@@ -7,6 +7,16 @@ import { McpServerControl } from "./mcp/McpServerControl";
 import { DesktopHeaderActionsSlot } from "./DesktopHeaderActions";
 import { WorkspaceNavigationPane } from "./workspace/WorkspaceNavigationPane";
 import { WorkspaceRail } from "./workspace/WorkspaceRail";
+import {
+  AttentionPane,
+  getAttentionViewState,
+  type AttentionEntry,
+} from "./workspace/AttentionPane";
+import { useAppState } from "../context/AppStateContext";
+import { useWorkspace } from "../context/WorkspaceContext";
+import { useChatRun } from "../hooks/useChatRun";
+import { getAttentionGroups } from "../lib/projectThreads";
+import type { ThreadRecord } from "../mock/uiShellData";
 
 const LEFT_SIDEBAR_WIDTH = 58;
 const MIN_SECONDARY_PANE_WIDTH = 200;
@@ -19,14 +29,75 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   const [isResizing, setIsResizing] = useState(false);
   const resizeStartRef = useRef({ x: 0, width: DEFAULT_SECONDARY_PANE_WIDTH });
   const location = useLocation();
-  const secondaryPane =
-    location.pathname === "/settings" ? (
-      <SettingsTabsPane />
-    ) : location.pathname.startsWith("/workspace/") ? (
-      <WorkspaceNavigationPane />
-    ) : (
-      <ThreadHistoryPane />
+  const { workspaces, projects, associations, threads } = useAppState();
+  const { projects: contentProjects, messages } = useWorkspace();
+  const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
+  const attentionGroups = useMemo(() => {
+    const contentThreads = new Map(
+      contentProjects.flatMap((project) => project.threads.map((thread) => [thread.id, thread])),
     );
+    const candidates = threads
+      .filter((thread) => !(thread as typeof thread & { archived?: boolean }).archived)
+      .map((thread) => ({
+        ...(contentThreads.get(thread.id) ?? {
+          id: thread.id,
+          title: thread.title,
+          updatedAt: thread.lastActivityAt,
+        }),
+        ...thread,
+        title: thread.title,
+        updatedAt: thread.lastActivityAt,
+        lastActivityAt: thread.lastActivityAt,
+      })) satisfies Array<ThreadRecord & (typeof threads)[number]>;
+
+    return getAttentionGroups({
+      threads: candidates,
+      runningThreadIds,
+      pendingApprovals: pendingPermissions,
+      pendingQuestions,
+      messages,
+    }).map((group) => ({
+      status: group.status,
+      threads: group.threads.flatMap((thread) => {
+        const workspace = workspaces.find((item) => item.id === thread.workspaceId);
+        const project = projects.find((item) => item.id === thread.projectId);
+        const association = associations.find(
+          (item) => item.workspaceId === thread.workspaceId && item.projectId === thread.projectId,
+        );
+        return workspace && project && association
+          ? [
+              {
+                ...thread,
+                workspaceName: workspace.name,
+                projectName: association.alias ?? project.name,
+              } satisfies AttentionEntry,
+            ]
+          : [];
+      }),
+    }));
+  }, [
+    associations,
+    contentProjects,
+    messages,
+    pendingPermissions,
+    pendingQuestions,
+    projects,
+    runningThreadIds,
+    threads,
+    workspaces,
+  ]);
+  const attentionCount = attentionGroups.reduce((count, group) => count + group.threads.length, 0);
+  const attentionViewState = getAttentionViewState(location.state);
+  const attentionViewOpen = attentionViewState !== null;
+  const secondaryPane = attentionViewOpen ? (
+    <AttentionPane groups={attentionViewState.groups ?? attentionGroups} />
+  ) : location.pathname === "/settings" ? (
+    <SettingsTabsPane />
+  ) : location.pathname.startsWith("/workspace/") ? (
+    <WorkspaceNavigationPane />
+  ) : (
+    <ThreadHistoryPane />
+  );
 
   const toggleSecondaryPane = useCallback(() => {
     setIsSecondaryPaneCollapsed((collapsed) => !collapsed);
@@ -95,7 +166,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
 
         <div className="flex min-h-0 flex-1 bg-bg">
           <div className="min-h-0 shrink-0" style={{ width: LEFT_SIDEBAR_WIDTH }}>
-            <WorkspaceRail />
+            <WorkspaceRail attentionCount={attentionCount} />
           </div>
 
           <div className="min-h-0 min-w-0 flex-1 bg-sidebar p-1.5 pl-0">

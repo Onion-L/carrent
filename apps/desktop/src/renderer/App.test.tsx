@@ -14,7 +14,7 @@ import {
 } from "react-router-dom";
 
 import type { AppStateSnapshot, WorkspaceSnapshot } from "../shared/workspacePersistence";
-import type { ChatTurnRequest } from "../shared/chat";
+import type { ChatRunEvent, ChatTurnRequest } from "../shared/chat";
 import App from "./App";
 
 const legacySnapshot: WorkspaceSnapshot = {
@@ -30,6 +30,7 @@ let root: Root | null = null;
 let currentPathname = "";
 let currentNavigationType: NavigationType | null = null;
 let testNavigate: NavigateFunction | null = null;
+let emitChatEvent: ((event: ChatRunEvent) => void) | null = null;
 
 function NavigationProbe() {
   const location = useLocation();
@@ -148,6 +149,7 @@ function installBridge(
       getKimiStatus: async () => null,
       onEvent: (listener: (event: import("../shared/chat").ChatRunEvent) => void) => {
         chatListener = listener;
+        emitChatEvent = (event) => chatListener?.(event);
         return () => {
           if (chatListener === listener) chatListener = null;
         };
@@ -263,6 +265,7 @@ afterEach(async () => {
   currentPathname = "";
   currentNavigationType = null;
   testNavigate = null;
+  emitChatEvent = null;
 });
 
 describe("Workspace App State foundation", () => {
@@ -513,6 +516,247 @@ describe("three-level navigation", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+  });
+
+  it("aggregates Attention across Workspaces without replacing the current content", async () => {
+    const state = navigationState();
+    const chatRequests: ChatTurnRequest[] = [];
+    const workspaceSnapshot: WorkspaceSnapshot = {
+      ...navigationWorkspaceSnapshot,
+      messages: [
+        {
+          id: "failure-1",
+          role: "assistant",
+          threadId: "thread-1",
+          content: "Personal failed",
+          timestamp: "08:00",
+          runStatus: "failed",
+        },
+        {
+          id: "failure-2",
+          role: "assistant",
+          threadId: "thread-2",
+          content: "Client failed",
+          timestamp: "09:00",
+          runStatus: "failed",
+        },
+      ],
+    };
+
+    await renderApp(
+      state,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      chatRequests,
+      false,
+      workspaceSnapshot,
+    );
+
+    expect(buttonNamed("Attention").textContent).toContain("2");
+    expect(container!.querySelector("aside.border-r")!.textContent).toContain("Failed");
+    expect(container!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
+
+    await click(buttonNamed("Attention"));
+
+    const attentionPane = container!.querySelector<HTMLElement>(
+      'aside[aria-label="Attention View"]',
+    );
+    expect(attentionPane).not.toBe(null);
+    expect(attentionPane!.textContent).toContain("Failed");
+    expect(attentionPane!.textContent).toContain("Personal / Personal Carrent");
+    expect(attentionPane!.textContent).toContain("Client / Client Carrent");
+    expect(attentionPane!.textContent!.indexOf("Client Thread")).toBeLessThan(
+      attentionPane!.textContent!.indexOf("Personal Thread"),
+    );
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(container!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
+
+    const attentionList = attentionPane!.querySelector<HTMLElement>('[role="listbox"]')!;
+    attentionList.scrollTop = 73;
+    await click(buttonNamed("Client Thread"));
+
+    expect(currentPathname).toBe("/workspace/workspace-2/project/project-1/thread/thread-2");
+    expect(currentNavigationType).toBe("PUSH");
+    expect(container!.querySelector('aside[aria-label="Attention View"]')).toBe(null);
+
+    await fillTextarea(container!.querySelector<HTMLTextAreaElement>("textarea")!, "Retry failure");
+    await click(composerSendButton());
+    expect(chatRequests).toHaveLength(1);
+
+    await act(async () => {
+      testNavigate!(-1);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    const restoredPane = container!.querySelector<HTMLElement>(
+      'aside[aria-label="Attention View"]',
+    )!;
+    expect(restoredPane.textContent).toContain("Failed");
+    expect(restoredPane.querySelector<HTMLElement>('[role="listbox"]')!.scrollTop).toBe(73);
+    expect(
+      [...restoredPane.querySelectorAll<HTMLElement>('[role="option"]')]
+        .find((item) => item.textContent?.includes("Client Thread"))
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(container!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
+
+    await act(async () => {
+      emitChatEvent!({
+        type: "stopped",
+        runId: chatRequests[0].runId!,
+        requestKey: chatRequests[0].requestKey,
+      });
+    });
+  });
+
+  it("includes approval and answer waits while excluding a running-only Thread", async () => {
+    const state = navigationState();
+    state.threads!.push({
+      id: "thread-3",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      title: "Running Thread",
+      createdAt: "2026-07-27T10:00:00.000Z",
+      lastActivityAt: "2026-07-27T10:00:00.000Z",
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+    });
+    const workspaceSnapshot: WorkspaceSnapshot = {
+      ...navigationWorkspaceSnapshot,
+      projects: [
+        {
+          ...navigationWorkspaceSnapshot.projects[0],
+          threads: [
+            ...navigationWorkspaceSnapshot.projects[0].threads,
+            { id: "thread-3", title: "Running Thread", updatedAt: "now" },
+          ],
+        },
+      ],
+    };
+    const chatRequests: ChatTurnRequest[] = [];
+    await renderApp(
+      state,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      chatRequests,
+      false,
+      workspaceSnapshot,
+    );
+
+    const startRun = async (path: string, message: string) => {
+      await act(async () => {
+        testNavigate!(path);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      await fillTextarea(container!.querySelector<HTMLTextAreaElement>("textarea")!, message);
+      await click(composerSendButton());
+      return chatRequests.at(-1)!;
+    };
+
+    const approvalRun = await startRun(
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      "Need approval",
+    );
+    await act(async () => {
+      emitChatEvent!({
+        type: "permission-requested",
+        runId: approvalRun.runId!,
+        requestKey: approvalRun.requestKey,
+        permission: {
+          id: "permission-1",
+          runId: approvalRun.runId!,
+          requestKey: approvalRun.requestKey,
+          threadId: "thread-1",
+          provider: "kimi",
+          action: "edit",
+          title: "Edit file",
+          options: [],
+          createdAt: "2026-07-27T10:00:00.000Z",
+          expiresAt: "2026-07-27T10:01:00.000Z",
+        },
+      });
+    });
+
+    const questionRun = await startRun(
+      "/workspace/workspace-2/project/project-1/thread/thread-2",
+      "Need answer",
+    );
+    await act(async () => {
+      emitChatEvent!({
+        type: "question-requested",
+        runId: questionRun.runId!,
+        requestKey: questionRun.requestKey,
+        question: {
+          id: "question-1",
+          runId: questionRun.runId!,
+          requestKey: questionRun.requestKey,
+          threadId: "thread-2",
+          provider: "kimi",
+          source: "native-acp",
+          questions: [
+            {
+              header: "Choice",
+              question: "Continue?",
+              options: [{ optionId: "yes", label: "Yes" }],
+              multiSelect: false,
+            },
+          ],
+          createdAt: "2026-07-27T10:00:00.000Z",
+        },
+      });
+    });
+
+    const runningRun = await startRun(
+      "/workspace/workspace-1/project/project-1/thread/thread-3",
+      "Keep running",
+    );
+
+    expect(buttonNamed("Attention").textContent).toContain("2");
+    await click(buttonNamed("Attention"));
+    const attentionPane = container!.querySelector<HTMLElement>(
+      'aside[aria-label="Attention View"]',
+    )!;
+    expect(attentionPane.textContent).toContain("Waiting for approval");
+    expect(attentionPane.textContent).toContain("Waiting for answer");
+    expect(attentionPane.textContent).not.toContain("Running Thread");
+    expect(attentionPane.textContent!.indexOf("Personal Thread")).toBeLessThan(
+      attentionPane.textContent!.indexOf("Client Thread"),
+    );
+
+    await act(async () => {
+      for (const request of [approvalRun, questionRun, runningRun]) {
+        emitChatEvent!({ type: "stopped", runId: request.runId!, requestKey: request.requestKey });
+      }
+    });
+  });
+
+  it("keeps the right pane visible when Attention is empty", async () => {
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+    );
+
+    expect(buttonNamed("Attention").textContent).toContain("0");
+    await click(buttonNamed("Attention"));
+
+    const attentionPane = container!.querySelector<HTMLElement>(
+      'aside[aria-label="Attention View"]',
+    )!;
+    expect(attentionPane.textContent).toContain("Nothing needs attention");
+    expect(attentionPane.textContent).toContain(
+      "Approval requests, questions, and failed Threads will appear here.",
+    );
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(container!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
   });
 
   it("falls back from a stale startup Thread to the active Workspace overview", async () => {

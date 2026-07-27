@@ -4,12 +4,24 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { AddProjectButton } from "./AddProjectButton";
 import { getWorkspaceProjects } from "../../lib/workspaceProjects";
 import { buildProjectPath, buildThreadPath, buildWorkspacePath } from "../../lib/navigation";
+import { useWorkspace } from "../../context/WorkspaceContext";
+import { useChatRun } from "../../hooks/useChatRun";
+import { getThreadDisplayStatus, type ThreadDisplayStatus } from "../../lib/projectThreads";
+
+const STATUS_LABELS: Record<ThreadDisplayStatus, string> = {
+  approval: "Approval",
+  question: "Question",
+  running: "Running",
+  failed: "Failed",
+};
 
 export function WorkspaceNavigationPane() {
   const navigate = useNavigate();
   const location = useLocation();
   const { workspaces, projects, associations, threads, activeWorkspaceId, moveAssociation } =
     useAppState();
+  const { projects: contentProjects, messages } = useWorkspace();
+  const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
   const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
   const workspaceProjects = getWorkspaceProjects(projects, associations, activeWorkspaceId);
 
@@ -71,18 +83,35 @@ export function WorkspaceNavigationPane() {
                     project.id,
                     thread.id,
                   );
+                  const status = getThreadDisplayStatus({
+                    threadId: thread.id,
+                    runningThreadIds,
+                    pendingApprovals: pendingPermissions,
+                    pendingQuestions,
+                    messages,
+                  });
+                  const contentThread = contentProjects
+                    .flatMap((item) => item.threads)
+                    .find((item) => item.id === thread.id);
                   return (
                     <button
                       key={thread.id}
                       type="button"
                       onClick={() => navigate(threadPath)}
-                      className={`block min-h-7 w-full truncate rounded-md px-2 text-left text-app-12 hover:bg-surface-hover hover:text-fg ${
+                      className={`flex min-h-7 w-full items-center gap-2 rounded-md px-2 text-left text-app-12 hover:bg-surface-hover hover:text-fg ${
                         location.pathname === threadPath
                           ? "bg-surface-hover text-fg"
                           : "text-subtle"
                       }`}
                     >
-                      {thread.title}
+                      <span className="min-w-0 flex-1 truncate">
+                        {contentThread?.title ?? thread.title}
+                      </span>
+                      {status && (
+                        <span className="shrink-0 text-app-10 text-subtle">
+                          {STATUS_LABELS[status]}
+                        </span>
+                      )}
                     </button>
                   );
                 })}

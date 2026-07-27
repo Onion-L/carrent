@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   filterProjectThreads,
+  getAttentionGroups,
   getThreadActivityTime,
   getThreadDisplayStatus,
   splitProjectThreads,
@@ -17,6 +18,43 @@ function makeThread(overrides: Partial<ThreadRecord> = {}): ThreadRecord {
 }
 
 describe("splitProjectThreads", () => {
+  it("groups attention Threads by intervention priority and activity", () => {
+    const threads = [
+      makeThread({ id: "approval-old", lastActivityAt: "2026-01-01T00:00:00Z" }),
+      makeThread({ id: "failed-new", lastActivityAt: "2026-06-01T00:00:00Z" }),
+      makeThread({ id: "question", lastActivityAt: "2026-05-01T00:00:00Z" }),
+      makeThread({ id: "approval-new", lastActivityAt: "2026-04-01T00:00:00Z" }),
+      makeThread({ id: "running", lastActivityAt: "2026-07-01T00:00:00Z" }),
+      makeThread({ id: "failed-old", lastActivityAt: "2026-02-01T00:00:00Z" }),
+    ];
+    const failedMessages = ["failed-new", "failed-old"].map(
+      (threadId) =>
+        ({
+          id: `message-${threadId}`,
+          role: "assistant",
+          threadId,
+          content: "Error",
+          timestamp: "09:00",
+          runStatus: "failed",
+        }) satisfies Message,
+    );
+
+    const groups = getAttentionGroups({
+      threads,
+      runningThreadIds: ["approval-old", "approval-new", "question", "running"],
+      pendingApprovals: [{ threadId: "approval-old" }, { threadId: "approval-new" }],
+      pendingQuestions: [{ threadId: "question" }],
+      messages: failedMessages,
+    });
+
+    expect(groups.map((group) => group.status)).toEqual(["approval", "question", "failed"]);
+    expect(groups.map((group) => group.threads.map((thread) => thread.id))).toEqual([
+      ["approval-new", "approval-old"],
+      ["question"],
+      ["failed-new", "failed-old"],
+    ]);
+  });
+
   it("sorts pinned threads ahead of regular threads", () => {
     const threads = [
       makeThread({ id: "a", title: "Regular A" }),

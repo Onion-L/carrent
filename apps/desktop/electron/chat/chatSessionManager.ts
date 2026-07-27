@@ -29,6 +29,7 @@ import { extractClaudePermissionRequest } from "./providerPermissionProtocol";
 import type { AttachmentStore } from "../attachments/attachmentStore";
 import { buildProviderSessionKey } from "../../src/shared/providerSessions";
 import type { RuntimeSessionDetachmentReceipt } from "../workspace/projectDirectory";
+import { terminateChildProcess } from "./terminateChildProcess";
 
 interface ChatSession {
   runId: string;
@@ -55,7 +56,8 @@ export type SpawnFn = (
 export interface ChatSessionManager {
   start: (runId: string, request: ChatTurnRequest) => void;
   stop: (runId: string) => void;
-  shutdown: () => void;
+  shutdown: () => Promise<void>;
+  hasLiveRuns?: () => boolean;
   removeRuntimeSession: (request: RuntimeSessionRecovery) => Promise<void>;
   deleteThreadData: (request: DeleteThreadDataRequest) => Promise<ThreadDataDeletionReceipt | void>;
   rollbackThreadDataDeletion?: (receipt: ThreadDataDeletionReceipt) => Promise<void>;
@@ -737,10 +739,12 @@ export function createChatSessionManager(options: {
   carrentBridgeFactory?: CarrentBridgeFactory;
   questionMcpServerFactory?: QuestionMcpServerFactory;
   attachmentStore?: AttachmentStore;
+  shutdownGracePeriodMs?: number;
 }): ChatSessionManager {
   const sessions = new Map<string, ChatSession>();
   const kimiSessions = new Map<string, { handle: KimiAcpRunHandle; threadId: string }>();
   const pendingKimiRuns = new Map<string, string>();
+  const pendingKimiRunTasks = new Map<string, Promise<void>>();
   const stoppedPendingKimiRuns = new Set<string>();
   const runtimeSessions = new Map<string, string>();
   const deletedThreadIds = new Set<string>();
@@ -828,7 +832,7 @@ export function createChatSessionManager(options: {
       const requestSessionKey = buildRequestSessionKey(requestWithAttachments);
       pendingKimiRuns.set(runId, requestWithAttachments.threadId);
 
-      void (async () => {
+      const pendingKimiRunTask = (async () => {
         try {
           let resumeSessionId: string | null = getResumeSessionId(
             runId,
@@ -909,6 +913,8 @@ export function createChatSessionManager(options: {
           stoppedPendingKimiRuns.delete(runId);
         }
       })();
+      pendingKimiRunTasks.set(runId, pendingKimiRunTask);
+      void pendingKimiRunTask.finally(() => pendingKimiRunTasks.delete(runId));
       return;
     }
 
@@ -1310,19 +1316,25 @@ export function createChatSessionManager(options: {
 
   // App shutdown ends every live run immediately so Run-scoped question
   // servers flush their pending MCP calls and close before the process exits.
-  function shutdown() {
+  async function shutdown() {
     for (const runId of pendingKimiRuns.keys()) {
       stoppedPendingKimiRuns.add(runId);
     }
+    await Promise.all(pendingKimiRunTasks.values());
+
+    const terminations: Promise<void>[] = [];
     for (const [, kimiSession] of kimiSessions) {
-      kimiSession.handle.shutdown();
+      terminations.push(kimiSession.handle.shutdown());
     }
-    kimiSessions.clear();
     for (const [, session] of sessions) {
       session.stoppedByUser = true;
       clearTimeout(session.timeoutHandle);
-      session.child.kill("SIGTERM");
+      terminations.push(
+        terminateChildProcess(session.child, options.shutdownGracePeriodMs ?? 5_000),
+      );
     }
+    await Promise.all(terminations);
+    kimiSessions.clear();
     sessions.clear();
   }
 
@@ -1445,6 +1457,10 @@ export function createChatSessionManager(options: {
       [...kimiSessions.values()].some((session) => ids.has(session.threadId)) ||
       [...sessions.values()].some((session) => ids.has(session.threadId))
     );
+  }
+
+  function hasLiveRuns() {
+    return pendingKimiRuns.size > 0 || kimiSessions.size > 0 || sessions.size > 0;
   }
 
   async function detachRuntimeSessions(
@@ -1601,6 +1617,7 @@ export function createChatSessionManager(options: {
     start,
     stop,
     shutdown,
+    hasLiveRuns,
     removeRuntimeSession,
     deleteThreadData,
     rollbackThreadDataDeletion,

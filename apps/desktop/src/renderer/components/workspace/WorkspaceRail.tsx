@@ -19,6 +19,17 @@ export function WorkspaceRail({ attentionCount }: { attentionCount: number }) {
     selectWorkspace,
   } = useAppState();
   const [isCreating, setIsCreating] = useState(false);
+  const settingsReturnLocation =
+    location.pathname === "/settings" &&
+    location.state &&
+    typeof location.state === "object" &&
+    "settingsReturnLocation" in location.state
+      ? (location.state.settingsReturnLocation as {
+          pathname?: unknown;
+          search?: unknown;
+          state?: unknown;
+        })
+      : null;
 
   return (
     <>
@@ -63,7 +74,10 @@ export function WorkspaceRail({ attentionCount }: { attentionCount: number }) {
                 aria-current={active ? "page" : undefined}
                 title={workspace.name}
                 onClick={async () => {
-                  if (await selectWorkspace(workspace.id)) {
+                  if (
+                    (await selectWorkspace(workspace.id)) ||
+                    (location.pathname === "/settings" && workspace.id === activeWorkspaceId)
+                  ) {
                     navigate(
                       getWorkspaceRestorePath(workspace.id, threads, lastThreadIdByWorkspace),
                     );
@@ -83,8 +97,37 @@ export function WorkspaceRail({ attentionCount }: { attentionCount: number }) {
 
         <button
           aria-label="Settings"
+          aria-current={location.pathname === "/settings" ? "page" : undefined}
           title="Settings"
-          onClick={() => navigate("/settings")}
+          onClick={() => {
+            if (
+              location.pathname === "/settings" &&
+              typeof settingsReturnLocation?.pathname === "string"
+            ) {
+              navigate(
+                `${settingsReturnLocation.pathname}${typeof settingsReturnLocation.search === "string" ? settingsReturnLocation.search : ""}`,
+                { state: settingsReturnLocation.state },
+              );
+              return;
+            }
+            if (location.pathname === "/settings") {
+              navigate(
+                activeWorkspaceId
+                  ? getWorkspaceRestorePath(activeWorkspaceId, threads, lastThreadIdByWorkspace)
+                  : "/",
+              );
+              return;
+            }
+            navigate("/settings", {
+              state: {
+                settingsReturnLocation: {
+                  pathname: location.pathname,
+                  search: location.search,
+                  state: location.state,
+                },
+              },
+            });
+          }}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
         >
           <Settings className="h-4 w-4" />

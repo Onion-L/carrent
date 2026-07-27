@@ -46,6 +46,7 @@ import {
   type SessionQuestionInput,
   type SessionQuestionToolResult,
 } from "./questionMcpServer";
+import { terminateChildProcess } from "./terminateChildProcess";
 
 type JsonRpcId = string | number;
 type JsonObject = Record<string, unknown>;
@@ -58,7 +59,7 @@ class RuntimeSessionResumeError extends Error {}
 
 export type KimiAcpTransport = {
   send: (message: JsonObject) => void;
-  close: () => void;
+  close: () => void | Promise<void>;
   onMessage: (listener: (message: JsonObject) => void) => void;
   onError: (listener: (error: Error) => void) => void;
   onClose: (
@@ -84,7 +85,7 @@ export type SpawnAcpProcess = (
 
 export type KimiAcpRunHandle = {
   stop: () => void;
-  shutdown: () => void;
+  shutdown: () => Promise<void>;
   respondToPermission: (response: ChatPermissionResponse) => void;
   respondToQuestion: (response: ChatQuestionResponse) => void;
 };
@@ -180,9 +181,9 @@ export function createKimiAcpProcessTransport(
         }
       });
     },
-    close() {
+    async close() {
       child.stdin?.end();
-      child.kill("SIGTERM");
+      await terminateChildProcess(child);
     },
     onMessage(listener) {
       messageListeners.add(listener);
@@ -441,6 +442,7 @@ class KimiAcpRun {
   >();
   private pendingQuestions = new Map<string, PendingQuestion>();
   private questionServer: QuestionMcpServerHandle | null = null;
+  private cleanupPromise: Promise<void> = Promise.resolve();
   private mcpQuestionCounter = 0;
   private toolStates = new Map<
     string,
@@ -878,13 +880,13 @@ class KimiAcpRun {
 
   // App shutdown ends the run immediately: no session/cancel grace period, but
   // the same terminal cleanup (question server flush, transport close).
-  shutdown() {
-    if (this.terminal) {
-      return;
+  async shutdown() {
+    if (!this.terminal) {
+      this.stoppedByUser = true;
+      this.completeStopped();
     }
 
-    this.stoppedByUser = true;
-    this.completeStopped();
+    await this.cleanupPromise;
   }
 
   respondToPermission(response: ChatPermissionResponse) {
@@ -1904,10 +1906,13 @@ class KimiAcpRun {
       });
     });
     this.pendingQuestions.clear();
-    this.closeBridge();
-    this.closeQuestionServer();
     this.options.emit(event);
-    this.transport.close();
+    this.cleanupPromise = Promise.all([
+      this.closeBridge(),
+      this.closeQuestionServer(),
+      Promise.resolve(this.transport.close()),
+    ]).then(() => undefined);
+    void this.cleanupPromise.catch(() => {});
     this.options.onDone?.();
   }
 
@@ -1928,26 +1933,26 @@ class KimiAcpRun {
     this.pendingTodoListActivity = [];
   }
 
-  private closeBridge() {
+  private closeBridge(): Promise<void> {
     const bridge = this.bridge;
     this.bridge = null;
     if (!bridge) {
-      return;
+      return Promise.resolve();
     }
 
-    void bridge.close().catch(() => {
+    return bridge.close().catch(() => {
       // Best-effort cleanup; the run has already reached a terminal state.
     });
   }
 
-  private closeQuestionServer() {
+  private closeQuestionServer(): Promise<void> {
     const questionServer = this.questionServer;
     this.questionServer = null;
     if (!questionServer) {
-      return;
+      return Promise.resolve();
     }
 
-    void questionServer.close().catch(() => {
+    return questionServer.close().catch(() => {
       // Best-effort cleanup; the run has already reached a terminal state.
     });
   }

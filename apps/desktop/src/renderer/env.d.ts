@@ -32,12 +32,14 @@ import type {
   ProjectRelocationRequest,
 } from "../shared/workspacePersistence";
 import type { RtkGainStats } from "../shared/rtk";
+import type { MainWindowApi } from "../shared/mainWindow";
 
 declare global {
   interface Window {
     carrent: {
       platform: NodeJS.Platform;
       electronVersion: string;
+      mainWindow: MainWindowApi;
       runtimes: {
         list: () => Promise<RuntimeRecord[]>;
         localCheck: (id: RuntimeId) => Promise<RuntimeVerificationResult>;

@@ -82,4 +82,52 @@ describe("reconcileInterruptedRuns", () => {
       { type: "shell", id: "s2", command: "pwd", output: "", status: "cancelled" },
     ]);
   });
+
+  it("interrupts pending Run interactions while preserving produced history", () => {
+    const [result] = reconcileInterruptedRuns([
+      makeMessage({
+        runStatus: "running",
+        content: "Partial answer",
+        parts: [
+          { type: "text", content: "Partial answer" },
+          {
+            type: "plan_review",
+            id: "approval-1",
+            permissionId: "permission-1",
+            content: "Approve the plan",
+            status: "pending",
+            options: [],
+          },
+          {
+            type: "question",
+            id: "question-part-1",
+            questionId: "question-1",
+            status: "pending",
+            questions: [{ header: "Scope", question: "Continue?" }],
+          },
+          {
+            type: "subagent_task",
+            id: "task-1",
+            runtimeId: "kimi",
+            source: "agent",
+            description: "Inspect the lifecycle",
+            background: false,
+            status: "running",
+            startedAt: 100,
+          },
+        ],
+      }),
+    ]) as TextMessage[];
+
+    expect(result).toMatchObject({
+      runStatus: "cancelled",
+      content: "Partial answer",
+      parts: [
+        { type: "text", content: "Partial answer" },
+        { type: "plan_review", status: "interrupted" },
+        { type: "question", status: "interrupted" },
+        { type: "subagent_task", status: "interrupted" },
+      ],
+    });
+  });
 });

@@ -20,7 +20,7 @@ import {
   rememberWorkspaceSnapshot,
   setWorkspaceTransactionActive,
 } from "./workspace/workspaceIpc";
-import { createWorkspaceShutdown } from "./workspace/workspaceShutdown";
+import { createAppShutdown } from "./appShutdown";
 import {
   createProjectRelocationManager,
   isProjectDirectoryAvailable,
@@ -40,6 +40,7 @@ import { registerMcpServerIpc } from "./bridge/mcpServerIpc";
 import { registerSettingsIpc } from "./settings/settingsIpc";
 import { registerDialogIpc } from "./dialog/dialogIpc";
 import { spawn } from "node:child_process";
+import { createMainWindowLifecycle } from "./mainWindowLifecycle";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -52,8 +53,22 @@ function resolveIconPath() {
   return iconPath;
 }
 
+let mainWindow: BrowserWindow | null = null;
+let workspaceStore: WorkspaceStore | null = null;
+let chatSessionManager: ChatSessionManager | null = null;
+let waitForThreadDeletion: (() => Promise<void>) | null = null;
+
+const mainWindowLifecycle = createMainWindowLifecycle({
+  getMainWindow: () => mainWindow,
+});
+
 function createWindow(icon: string | undefined) {
-  const mainWindow = new BrowserWindow({
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindowLifecycle.focusMainWindow();
+    return mainWindow;
+  }
+
+  mainWindow = new BrowserWindow({
     width: 1280,
     height: 840,
     minWidth: 1080,
@@ -73,7 +88,21 @@ function createWindow(icon: string | undefined) {
   });
 
   mainWindow.on("ready-to-show", () => {
-    mainWindow.show();
+    mainWindow?.show();
+  });
+
+  mainWindow.on("close", (event) => {
+    if (appShutdown.isQuitting()) return;
+    event.preventDefault();
+    app.quit();
+  });
+
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+
+  mainWindow.webContents.on("did-start-loading", () => {
+    mainWindowLifecycle.handleRendererLoading();
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -83,162 +112,193 @@ function createWindow(icon: string | undefined) {
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
-    return;
+    return mainWindow;
   }
 
   mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+  return mainWindow;
 }
 
-let workspaceStore: WorkspaceStore | null = null;
-let chatSessionManager: ChatSessionManager | null = null;
-let waitForThreadDeletion: (() => Promise<void>) | null = null;
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
-app.whenReady().then(async () => {
-  ensureCliPaths();
-
-  const icon = resolveIconPath();
-
-  if (process.platform === "darwin" && icon && !app.isPackaged) {
-    app.dock?.setIcon(icon);
-  }
-
-  registerRuntimeIpc(ipcMain);
-
-  const userDataPath = app.getPath("userData");
-  const store = createWorkspaceStore(userDataPath);
-  workspaceStore = store;
-  registerWorkspaceIpc(ipcMain, store);
-
-  const attachmentStore = createAttachmentStore(userDataPath);
-  if (
-    !attachmentStore.prepareDeletion ||
-    !attachmentStore.commitDeletion ||
-    !attachmentStore.rollbackDeletion
-  ) {
-    throw new Error("Transactional attachment cleanup is unavailable.");
-  }
-  const transactionAttachmentStore = {
-    prepareDeletion: attachmentStore.prepareDeletion,
-    commitDeletion: attachmentStore.commitDeletion,
-    rollbackDeletion: attachmentStore.rollbackDeletion,
-  };
-  const threadDeletionJournalStore = createThreadDeletionJournalStore(userDataPath);
-  await recoverThreadDeletionTransaction({
-    journalStore: threadDeletionJournalStore,
-    workspaceStore: store,
-    attachmentStore: transactionAttachmentStore,
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.setAsDefaultProtocolClient("carrent");
+  app.on("second-instance", (_event, argv) => {
+    mainWindowLifecycle.handleSecondInstance(argv);
   });
-  await reconcileAttachmentsAfterValidStateLoad({
-    appState: await store.loadAppStateSnapshot(),
-    workspace: await store.loadWorkspaceSnapshot(),
-    deleteOrphanedAttachments: attachmentStore.deleteOrphanedAttachments,
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    mainWindowLifecycle.handleOpenUrl(url);
   });
-  registerAttachmentIpc(ipcMain, { attachmentStore });
-  registerSkillIpc(ipcMain);
-  registerGitIpc(ipcMain);
-  registerSettingsIpc(ipcMain);
-
-  const bridgeManager = createCarrentBridgeManager({
-    preferenceStore: createMcpServerPreferenceStore(app.getPath("userData")),
+  ipcMain.on("app:navigation-ready", () => {
+    mainWindowLifecycle.handleRendererReady();
   });
-  registerMcpServerIpc(ipcMain, bridgeManager);
-  await bridgeManager.initialize();
+  mainWindowLifecycle.handleSecondInstance(process.argv);
 
-  registerDialogIpc(ipcMain, () => dialog.showOpenDialog({ properties: ["openDirectory"] }));
+  app.whenReady().then(async () => {
+    ensureCliPaths();
 
-  ipcMain.handle("shell:open-path", async (_event, filePath: string) => {
-    const result = await shell.openPath(filePath);
-    return result;
-  });
+    const icon = resolveIconPath();
 
-  ipcMain.handle("clipboard:write-text", async (_event, text: string) => {
-    clipboard.writeText(text);
-  });
-
-  const emitChatEvent = (event: unknown) => {
-    BrowserWindow.getAllWindows().forEach((win) => {
-      win.webContents.send("chat:event", event);
-    });
-  };
-
-  const providerSessionsSnapshot = await store.loadProviderSessions();
-
-  const sessionManager = createChatSessionManager({
-    emit: emitChatEvent as (event: { type: string }) => void,
-    spawn,
-    providerSessions: createPersistentProviderSessionStore(store, providerSessionsSnapshot),
-    attachmentStore,
-    carrentBridgeFactory: async () => {
-      return bridgeManager.getRuntimeHandle();
-    },
-  });
-  if (!sessionManager.rollbackThreadDataDeletion) {
-    throw new Error("Thread data rollback is unavailable.");
-  }
-  if (
-    !sessionManager.hasLiveRunForThreads ||
-    !sessionManager.detachRuntimeSessions ||
-    !sessionManager.restoreRuntimeSessions ||
-    !sessionManager.completeRuntimeSessionDetachment
-  ) {
-    throw new Error("Project relocation Session cleanup is unavailable.");
-  }
-  const projectRelocationManager = createProjectRelocationManager({
-    workspaceStore: store,
-    sessionManager: {
-      hasLiveRunForThreads: sessionManager.hasLiveRunForThreads,
-      detachRuntimeSessions: sessionManager.detachRuntimeSessions,
-      restoreRuntimeSessions: sessionManager.restoreRuntimeSessions,
-      completeRuntimeSessionDetachment: sessionManager.completeRuntimeSessionDetachment,
-    },
-    onActiveChange: setWorkspaceTransactionActive,
-  });
-  registerProjectDirectoryIpc(ipcMain, { relocationManager: projectRelocationManager });
-  chatSessionManager = sessionManager;
-  const threadDeletionManager = createThreadDeletionTransactionManager({
-    journalStore: threadDeletionJournalStore,
-    workspaceStore: store,
-    attachmentStore: transactionAttachmentStore,
-    sessionManager: {
-      deleteThreadData: sessionManager.deleteThreadData,
-      rollbackThreadDataDeletion: sessionManager.rollbackThreadDataDeletion,
-    },
-    onCommitted: rememberWorkspaceSnapshot,
-    onActiveChange: setWorkspaceTransactionActive,
-  });
-  waitForThreadDeletion = threadDeletionManager.waitForIdle;
-  registerChatIpc(ipcMain, {
-    sessionManager,
-    isProjectDirectoryAvailable,
-    threadDeletionManager,
-  });
-  createWindow(icon);
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow(icon);
+    if (process.platform === "darwin" && icon && !app.isPackaged) {
+      app.dock?.setIcon(icon);
     }
-  });
-});
 
-const workspaceShutdown = createWorkspaceShutdown({
+    registerRuntimeIpc(ipcMain);
+
+    const userDataPath = app.getPath("userData");
+    const store = createWorkspaceStore(userDataPath);
+    workspaceStore = store;
+    registerWorkspaceIpc(ipcMain, store);
+
+    const attachmentStore = createAttachmentStore(userDataPath);
+    if (
+      !attachmentStore.prepareDeletion ||
+      !attachmentStore.commitDeletion ||
+      !attachmentStore.rollbackDeletion
+    ) {
+      throw new Error("Transactional attachment cleanup is unavailable.");
+    }
+    const transactionAttachmentStore = {
+      prepareDeletion: attachmentStore.prepareDeletion,
+      commitDeletion: attachmentStore.commitDeletion,
+      rollbackDeletion: attachmentStore.rollbackDeletion,
+    };
+    const threadDeletionJournalStore = createThreadDeletionJournalStore(userDataPath);
+    await recoverThreadDeletionTransaction({
+      journalStore: threadDeletionJournalStore,
+      workspaceStore: store,
+      attachmentStore: transactionAttachmentStore,
+    });
+    await reconcileAttachmentsAfterValidStateLoad({
+      appState: await store.loadAppStateSnapshot(),
+      workspace: await store.loadWorkspaceSnapshot(),
+      deleteOrphanedAttachments: attachmentStore.deleteOrphanedAttachments,
+    });
+    registerAttachmentIpc(ipcMain, { attachmentStore });
+    registerSkillIpc(ipcMain);
+    registerGitIpc(ipcMain);
+    registerSettingsIpc(ipcMain);
+
+    const bridgeManager = createCarrentBridgeManager({
+      preferenceStore: createMcpServerPreferenceStore(app.getPath("userData")),
+    });
+    registerMcpServerIpc(ipcMain, bridgeManager);
+    await bridgeManager.initialize();
+
+    registerDialogIpc(ipcMain, () => dialog.showOpenDialog({ properties: ["openDirectory"] }));
+
+    ipcMain.handle("shell:open-path", async (_event, filePath: string) => {
+      const result = await shell.openPath(filePath);
+      return result;
+    });
+
+    ipcMain.handle("clipboard:write-text", async (_event, text: string) => {
+      clipboard.writeText(text);
+    });
+
+    const emitChatEvent = (event: unknown) => {
+      mainWindow?.webContents.send("chat:event", event);
+    };
+
+    const providerSessionsSnapshot = await store.loadProviderSessions();
+
+    const sessionManager = createChatSessionManager({
+      emit: emitChatEvent as (event: { type: string }) => void,
+      spawn,
+      providerSessions: createPersistentProviderSessionStore(store, providerSessionsSnapshot),
+      attachmentStore,
+      carrentBridgeFactory: async () => {
+        return bridgeManager.getRuntimeHandle();
+      },
+    });
+    if (!sessionManager.rollbackThreadDataDeletion) {
+      throw new Error("Thread data rollback is unavailable.");
+    }
+    if (
+      !sessionManager.hasLiveRunForThreads ||
+      !sessionManager.detachRuntimeSessions ||
+      !sessionManager.restoreRuntimeSessions ||
+      !sessionManager.completeRuntimeSessionDetachment
+    ) {
+      throw new Error("Project relocation Session cleanup is unavailable.");
+    }
+    const projectRelocationManager = createProjectRelocationManager({
+      workspaceStore: store,
+      sessionManager: {
+        hasLiveRunForThreads: sessionManager.hasLiveRunForThreads,
+        detachRuntimeSessions: sessionManager.detachRuntimeSessions,
+        restoreRuntimeSessions: sessionManager.restoreRuntimeSessions,
+        completeRuntimeSessionDetachment: sessionManager.completeRuntimeSessionDetachment,
+      },
+      onActiveChange: setWorkspaceTransactionActive,
+    });
+    registerProjectDirectoryIpc(ipcMain, { relocationManager: projectRelocationManager });
+    chatSessionManager = sessionManager;
+    const threadDeletionManager = createThreadDeletionTransactionManager({
+      journalStore: threadDeletionJournalStore,
+      workspaceStore: store,
+      attachmentStore: transactionAttachmentStore,
+      sessionManager: {
+        deleteThreadData: sessionManager.deleteThreadData,
+        rollbackThreadDataDeletion: sessionManager.rollbackThreadDataDeletion,
+      },
+      onCommitted: rememberWorkspaceSnapshot,
+      onActiveChange: setWorkspaceTransactionActive,
+    });
+    waitForThreadDeletion = threadDeletionManager.waitForIdle;
+    registerChatIpc(ipcMain, {
+      sessionManager,
+      isProjectDirectoryAvailable,
+      threadDeletionManager,
+    });
+    createWindow(icon);
+
+    app.on("activate", () => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        createWindow(icon);
+      } else {
+        mainWindowLifecycle.focusMainWindow();
+      }
+    });
+  });
+}
+
+const appShutdown = createAppShutdown({
   getLastWorkspaceSnapshot,
   getWorkspaceStore: () => workspaceStore,
   quit: () => app.quit(),
-  reportSaveError: (error) => console.error("[workspace] failed to save before quit", error),
+  reportShutdownError: (error) => console.error("[app] failed to quit safely", error),
   beforeSave: async () => {
     await waitForThreadDeletion?.();
+  },
+  liveRunQuitPolicy: {
+    hasLiveRuns: () => chatSessionManager?.hasLiveRuns?.() ?? false,
+    confirmQuitWithLiveRuns: async () => {
+      const result = await dialog.showMessageBox({
+        type: "warning",
+        title: "Quit Carrent?",
+        message: "Runs are still active.",
+        detail: "Quitting Carrent will cancel all active Runs.",
+        buttons: ["Return to Carrent", "Cancel Runs and Quit"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      });
+      return result.response === 1;
+    },
+    cancelLiveRuns: async () => {
+      await chatSessionManager?.shutdown();
+    },
   },
 });
 
 app.on("before-quit", (event) => {
-  // End live runs first so pending question MCP calls flush before quit.
-  chatSessionManager?.shutdown();
-  void workspaceShutdown.beforeQuit(event);
+  void appShutdown.beforeQuit(event);
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  app.quit();
 });

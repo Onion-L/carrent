@@ -1,11 +1,18 @@
 import type { Message, MessagePart } from "../mock/uiShellData";
 
-function cancelRunningParts(parts: MessagePart[] | undefined): MessagePart[] | undefined {
-  return parts?.map((part) =>
-    (part.type === "reasoning" || part.type === "shell") && part.status === "running"
-      ? { ...part, status: "cancelled" as const }
-      : part,
-  );
+function reconcileRunningParts(parts: MessagePart[] | undefined): MessagePart[] | undefined {
+  return parts?.map((part) => {
+    if ((part.type === "reasoning" || part.type === "shell") && part.status === "running") {
+      return { ...part, status: "cancelled" as const };
+    }
+    if ((part.type === "plan_review" || part.type === "question") && part.status === "pending") {
+      return { ...part, status: "interrupted" as const };
+    }
+    if (part.type === "subagent_task" && part.status === "running") {
+      return { ...part, status: "interrupted" as const };
+    }
+    return part;
+  });
 }
 
 // A run that dies mid-flight (app quit, stop, error) can leave persisted
@@ -26,15 +33,16 @@ export function reconcileInterruptedRuns(messages: Message[]): Message[] {
         ...message,
         runStatus: "cancelled",
         runFinishedAt: message.runFinishedAt ?? Date.now(),
-        parts: cancelRunningParts(message.parts),
+        parts: reconcileRunningParts(message.parts),
       };
     }
 
     if (message.runStatus === "cancelled" || message.runStatus === "failed") {
-      const parts = cancelRunningParts(message.parts);
+      const parts = reconcileRunningParts(message.parts);
       return { ...message, parts };
     }
 
-    return message;
+    const parts = reconcileRunningParts(message.parts);
+    return parts === message.parts ? message : { ...message, parts };
   });
 }

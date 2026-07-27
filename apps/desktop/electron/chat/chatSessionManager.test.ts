@@ -49,6 +49,7 @@ class FakeKimiAcpTransport implements KimiAcpTransport {
     (details: { code: number | null; signal: NodeJS.Signals | null; stderr: string }) => void
   > = [];
   closed = false;
+  closeBarrier: Promise<void> | null = null;
 
   constructor(
     readonly cwd: string,
@@ -62,6 +63,7 @@ class FakeKimiAcpTransport implements KimiAcpTransport {
 
   close() {
     this.closed = true;
+    return this.closeBarrier ?? undefined;
   }
 
   onMessage(listener: (message: JsonMessage) => void) {
@@ -4732,13 +4734,21 @@ describe("question lifecycle and shutdown", () => {
     const { manager, transports } = createKimiQuestionManager(emitted);
 
     manager.start("run-shutdown", makeRequest({ runtimeId: "kimi" }));
+    expect(manager.hasLiveRuns?.()).toBe(true);
     const serverUrl = await waitFor(() => questionServerUrl(transports[0]!));
 
     const pendingResponse = callAskUserQuestion(serverUrl);
     await waitFor(() => emitted.find((event) => event.type === "question-requested"));
+    let finishTransportClose!: () => void;
+    transports[0]!.closeBarrier = new Promise<void>((resolve) => {
+      finishTransportClose = resolve;
+    });
+    let shutdownFinished = false;
 
-    manager.shutdown();
-    await waitForAsyncEvents();
+    const shutdown = manager.shutdown().then(() => {
+      shutdownFinished = true;
+    });
+    await Promise.resolve();
 
     const response = await pendingResponse;
     expect(response.result).toMatchObject({
@@ -4749,5 +4759,42 @@ describe("question lifecycle and shutdown", () => {
     expect(emitted.find((event) => event.type === "stopped")).toMatchObject({
       runId: "run-shutdown",
     });
+    expect(manager.hasLiveRuns?.()).toBe(false);
+    expect(shutdownFinished).toBe(false);
+
+    finishTransportClose();
+    await shutdown;
+    expect(shutdownFinished).toBe(true);
+  });
+
+  it("waits for live child termination and escalates shutdown when needed", async () => {
+    const child = createMockChildProcess();
+    const signals: NodeJS.Signals[] = [];
+    child.kill = (signal = "SIGTERM") => {
+      const normalizedSignal = typeof signal === "number" ? "SIGTERM" : signal;
+      signals.push(normalizedSignal);
+      if (normalizedSignal === "SIGKILL") {
+        setTimeout(() => child.emit("close", null, "SIGKILL"), 0);
+      }
+      return true;
+    };
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: () => child,
+      shutdownGracePeriodMs: 1,
+    });
+    manager.start("run-shutdown", makeRequest());
+    let finished = false;
+
+    const shutdown = manager.shutdown().then(() => {
+      finished = true;
+    });
+    await Promise.resolve();
+
+    expect(signals).toEqual(["SIGTERM"]);
+    expect(finished).toBe(false);
+    await shutdown;
+    expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(finished).toBe(true);
   });
 });

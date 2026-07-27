@@ -19,6 +19,14 @@ import { getWorkspaceRestorePath, resolveThreeLevelRoute } from "./lib/navigatio
 
 const LEGACY_ROUTE_PATTERN = /^\/(?:project\/[^/]+|thread\/[^/]+\/[^/]+|chat\/[^/]+)$/u;
 
+function MainWindowNavigation() {
+  const navigate = useNavigate();
+
+  useEffect(() => window.carrent.mainWindow.onNavigate((path) => navigate(path)), [navigate]);
+
+  return null;
+}
+
 function NavigationCoordinator() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -120,6 +128,7 @@ function AppRoutes() {
   if (workspaces.length === 0) {
     return (
       <ToastProvider>
+        <MainWindowNavigation />
         <NavigationCoordinator />
         <FirstUsePage />
       </ToastProvider>
@@ -128,6 +137,7 @@ function AppRoutes() {
 
   return (
     <ToastProvider>
+      <MainWindowNavigation />
       <NavigationCoordinator />
       <DesktopShell>
         <Routes>

@@ -25,10 +25,21 @@ import type {
   GitWorkspaceSnapshotResult,
 } from "./git/gitIpc";
 import type { RtkGainStats } from "../src/shared/rtk";
+import type { MainWindowApi } from "../src/shared/mainWindow";
+
+const mainWindow: MainWindowApi = {
+  onNavigate: (listener) => {
+    const wrapped = (_event: IpcRendererEvent, path: string) => listener(path);
+    ipcRenderer.on("app:navigate", wrapped);
+    ipcRenderer.send("app:navigation-ready");
+    return () => ipcRenderer.removeListener("app:navigate", wrapped);
+  },
+};
 
 const carrent = {
   platform: process.platform,
   electronVersion: process.versions.electron,
+  mainWindow,
   runtimes: {
     list: () => ipcRenderer.invoke("runtimes:list"),
     localCheck: (id: RuntimeId) => ipcRenderer.invoke("runtimes:local-check", id),

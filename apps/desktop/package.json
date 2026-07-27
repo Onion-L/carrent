@@ -39,6 +39,14 @@
   "build": {
     "appId": "com.carrent.desktop",
     "productName": "Carrent",
+    "protocols": [
+      {
+        "name": "Carrent",
+        "schemes": [
+          "carrent"
+        ]
+      }
+    ],
     "files": [
       "out/**/*",
       "package.json"

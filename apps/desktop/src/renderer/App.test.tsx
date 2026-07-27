@@ -42,6 +42,7 @@ let currentPathname = "";
 let currentNavigationType: NavigationType | null = null;
 let testNavigate: NavigateFunction | null = null;
 let emitChatEvent: ((event: ChatRunEvent) => void) | null = null;
+let emitMainWindowNavigation: ((path: string) => void) | null = null;
 
 function NavigationProbe() {
   const location = useLocation();
@@ -231,6 +232,14 @@ function installBridge(
         await saveWorkspace(request.afterWorkspace);
       },
     },
+    mainWindow: {
+      onNavigate: (listener: (path: string) => void) => {
+        emitMainWindowNavigation = listener;
+        return () => {
+          if (emitMainWindowNavigation === listener) emitMainWindowNavigation = null;
+        };
+      },
+    },
   } as unknown as Window["carrent"];
 }
 
@@ -357,6 +366,7 @@ afterEach(async () => {
   currentNavigationType = null;
   testNavigate = null;
   emitChatEvent = null;
+  emitMainWindowNavigation = null;
 });
 
 describe("Workspace App State foundation", () => {
@@ -607,6 +617,52 @@ describe("three-level navigation", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+  });
+
+  it("keeps Settings in the Main Window and returns to the entry location", async () => {
+    const entryPath = "/workspace/workspace-1/project/project-1/thread/thread-1";
+    await renderApp(
+      navigationState(),
+      entryPath,
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+    );
+
+    await click(buttonNamed("Settings"));
+    expect(currentPathname).toBe("/settings");
+    expect(container!.querySelector('nav[aria-label="Settings tabs"]')).not.toBe(null);
+    expect(buttonNamed("Personal")).not.toBe(null);
+
+    await click(buttonNamed("Settings"));
+    expect(currentPathname).toBe(entryPath);
+  });
+
+  it("navigates the existing Main Window from deep links and falls back invalid ownership", async () => {
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+    );
+
+    await act(async () => {
+      emitMainWindowNavigation?.("/workspace/workspace-2/project/project-1/thread/thread-2");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(currentPathname).toBe("/workspace/workspace-2/project/project-1/thread/thread-2");
+
+    await act(async () => {
+      emitMainWindowNavigation?.("/workspace/workspace-1/project/project-1/thread/thread-2");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+    expect(container!.textContent).toContain("Thread could not be found.");
   });
 
   it("opens global Thread search with Cmd/Ctrl+K and shows recent Threads across Workspaces", async () => {
@@ -1112,6 +1168,76 @@ describe("three-level navigation", () => {
     expect(container!.textContent).toContain("Personal Thread");
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
     expect(currentNavigationType).toBe("REPLACE");
+  });
+
+  it("persists interrupted restart state without discarding produced history", async () => {
+    const workspaceSnapshot = structuredClone(navigationWorkspaceSnapshot);
+    workspaceSnapshot.messages = [
+      {
+        id: "assistant-running",
+        role: "assistant",
+        threadId: "thread-1",
+        timestamp: "10:00",
+        content: "Partial answer",
+        runStatus: "running",
+        parts: [
+          { type: "text", content: "Partial answer" },
+          {
+            type: "reasoning",
+            id: "reasoning-1",
+            content: "Checking lifecycle",
+            status: "running",
+          },
+          {
+            type: "question",
+            id: "question-part-1",
+            questionId: "question-1",
+            status: "pending",
+            questions: [{ header: "Scope", question: "Continue?" }],
+          },
+          {
+            type: "subagent_task",
+            id: "task-1",
+            runtimeId: "kimi",
+            source: "agent",
+            description: "Inspect lifecycle",
+            background: false,
+            status: "running",
+            startedAt: 100,
+          },
+        ],
+      },
+    ];
+    const workspaceSaved: WorkspaceSnapshot[] = [];
+
+    await renderApp(
+      navigationState(),
+      "/",
+      [],
+      false,
+      [],
+      false,
+      workspaceSnapshot,
+      false,
+      [],
+      false,
+      undefined,
+      workspaceSaved,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 550));
+    });
+
+    expect(workspaceSaved.at(-1)?.messages[0]).toMatchObject({
+      content: "Partial answer",
+      runStatus: "cancelled",
+      parts: [
+        { type: "text", content: "Partial answer" },
+        { type: "reasoning", status: "cancelled" },
+        { type: "question", status: "interrupted" },
+        { type: "subagent_task", status: "interrupted" },
+      ],
+    });
   });
 
   it("pushes history when content-load recovery opens the parent overview", async () => {

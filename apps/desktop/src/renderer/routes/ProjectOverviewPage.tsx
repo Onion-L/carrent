@@ -6,6 +6,8 @@ import { Composer } from "../components/chat/Composer";
 import { runtimeIds, runtimeNameMap, type RuntimeId } from "../../shared/runtimes";
 import { type RuntimeMode } from "../../shared/runtimeMode";
 import type { AssociationThreadDraftRecord } from "../../shared/workspacePersistence";
+import { useWorkspace } from "../context/WorkspaceContext";
+import { useChatRun } from "../hooks/useChatRun";
 
 export function ProjectOverviewPage() {
   const { workspaceId, projectId } = useParams();
@@ -14,6 +16,7 @@ export function ProjectOverviewPage() {
     workspaces,
     projects,
     associations,
+    threads,
     threadDrafts,
     activeWorkspaceId,
     selectWorkspace,
@@ -27,7 +30,10 @@ export function ProjectOverviewPage() {
     prepareThreadDraftPromotion,
     commitThreadDraftPromotion,
     rollbackThreadDraftPromotion,
+    removeAssociation,
   } = useAppState();
+  const { deleteThreads } = useWorkspace();
+  const { runningThreadIds } = useChatRun();
   const workspace = workspaces.find((item) => item.id === workspaceId);
   const project = projects.find((item) => item.id === projectId);
   const association = associations.find(
@@ -46,6 +52,12 @@ export function ProjectOverviewPage() {
   const displayName = association.alias ?? project.name;
   const existingDraft = threadDrafts.find(
     (draft) => draft.workspaceId === workspace.id && draft.projectId === project.id,
+  );
+  const hasAffectedLiveRun = threads.some(
+    (thread) =>
+      thread.workspaceId === workspace.id &&
+      thread.projectId === project.id &&
+      runningThreadIds.includes(thread.id),
   );
   if (openDraft) {
     return (
@@ -158,10 +170,43 @@ export function ProjectOverviewPage() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-8 py-7">
-      <div className="border-b border-border pb-5">
-        <p className="text-app-12 text-subtle">{workspace.name}</p>
-        <h1 className="mt-1 text-app-22 font-semibold text-fg">{displayName}</h1>
-        <p className="mt-2 break-all text-app-12 text-muted">{project.workingDirectory}</p>
+      <div className="flex items-start justify-between gap-4 border-b border-border pb-5">
+        <div className="min-w-0">
+          <p className="text-app-12 text-subtle">{workspace.name}</p>
+          <h1 className="mt-1 text-app-22 font-semibold text-fg">{displayName}</h1>
+          <p className="mt-2 break-all text-app-12 text-muted">{project.workingDirectory}</p>
+        </div>
+        <button
+          type="button"
+          disabled={hasAffectedLiveRun}
+          title={hasAffectedLiveRun ? "Stop the affected live Run before removing" : undefined}
+          onClick={async () => {
+            const threadCount = threads.filter(
+              (thread) => thread.workspaceId === workspace.id && thread.projectId === project.id,
+            ).length;
+            if (
+              !window.confirm(
+                `Remove this Project from "${workspace.name}" and permanently delete ${threadCount} ${threadCount === 1 ? "Thread" : "Threads"}? The Project Working Directory, project files and Git state, and other Workspaces will not be changed.`,
+              )
+            ) {
+              return;
+            }
+            setSaveError(null);
+            let removed = false;
+            try {
+              removed = await removeAssociation(workspace.id, project.id, (threadIds, snapshots) =>
+                deleteThreads(threadIds, snapshots),
+              );
+            } catch (error) {
+              console.error("[associations] removal rollback failed", error);
+            }
+            if (removed) navigate(`/workspace/${workspace.id}`);
+            else setSaveError("Project could not be removed from this Workspace.");
+          }}
+          className="min-h-8 shrink-0 rounded-md border border-danger/50 px-3 text-app-12 font-medium text-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Remove from Workspace
+        </button>
       </div>
 
       <div className="grid max-w-2xl gap-8 py-7">

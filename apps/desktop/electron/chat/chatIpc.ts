@@ -4,6 +4,7 @@ import type {
   DeleteThreadDataRequest,
   KimiSessionStatus,
   ThreadDeletionTransactionRequest,
+  ThreadDeletionScope,
 } from "../../src/shared/chat";
 import {
   normalizeAppStateSnapshot,
@@ -57,7 +58,10 @@ function readNonEmptyStringArray(
   return value as string[];
 }
 
-export function parseDeleteThreadDataRequest(value: unknown): DeleteThreadDataRequest {
+export function parseDeleteThreadDataRequest(
+  value: unknown,
+  allowEmptyThreadIds = false,
+): DeleteThreadDataRequest {
   if (!value || typeof value !== "object") {
     throw new Error("Invalid thread data deletion request.");
   }
@@ -68,7 +72,7 @@ export function parseDeleteThreadDataRequest(value: unknown): DeleteThreadDataRe
       request.threadIds,
       "threadIds",
       MAX_DELETE_THREAD_IDS,
-      false,
+      allowEmptyThreadIds,
     ),
     attachmentStorageKeys: readNonEmptyStringArray(
       request.attachmentStorageKeys,
@@ -93,12 +97,46 @@ export function parseThreadDeletionTransactionRequest(
   if (!beforeAppState || !afterAppState || !beforeWorkspace || !afterWorkspace) {
     throw new Error("Invalid thread deletion transaction snapshots.");
   }
+  let scope: ThreadDeletionScope | undefined;
+  if (request.scope !== undefined) {
+    if (!request.scope || typeof request.scope !== "object") {
+      throw new Error("Invalid thread deletion scope.");
+    }
+    const candidate = request.scope as Record<string, unknown>;
+    if (candidate.kind === "threads") {
+      scope = { kind: "threads" };
+    } else if (
+      candidate.kind === "association" &&
+      typeof candidate.workspaceId === "string" &&
+      candidate.workspaceId.length > 0 &&
+      typeof candidate.projectId === "string" &&
+      candidate.projectId.length > 0
+    ) {
+      scope = {
+        kind: "association",
+        workspaceId: candidate.workspaceId,
+        projectId: candidate.projectId,
+      };
+    } else if (
+      candidate.kind === "workspace" &&
+      typeof candidate.workspaceId === "string" &&
+      candidate.workspaceId.length > 0
+    ) {
+      scope = { kind: "workspace", workspaceId: candidate.workspaceId };
+    } else {
+      throw new Error("Invalid thread deletion scope.");
+    }
+  }
   return {
     beforeAppState,
     afterAppState,
     beforeWorkspace,
     afterWorkspace,
-    threadData: parseDeleteThreadDataRequest(request.threadData),
+    threadData: parseDeleteThreadDataRequest(
+      request.threadData,
+      scope?.kind === "association" || scope?.kind === "workspace",
+    ),
+    ...(scope ? { scope } : {}),
   };
 }
 

@@ -59,8 +59,12 @@ import {
 } from "../hooks/chatMessageQueue";
 import type { RuntimeId } from "../../shared/runtimes";
 import { reconcileInterruptedRuns } from "../lib/interruptedRuns";
-import type { DeleteThreadDataRequest, AttachmentMetadata } from "../../shared/chat";
-import type { AppStateSnapshot, ThreadWorkSnapshot } from "../../shared/workspacePersistence";
+import type {
+  DeleteThreadDataRequest,
+  AttachmentMetadata,
+  ThreadDeletionAppStateSnapshots,
+} from "../../shared/chat";
+import type { ThreadWorkSnapshot } from "../../shared/workspacePersistence";
 import type { GitWorkspaceDiffResult } from "../../../electron/git/gitIpc";
 import type { RunChecklistEntry, RunChecklistOutcome } from "../../shared/runChecklist";
 import { useAppState } from "./AppStateContext";
@@ -163,11 +167,12 @@ export type WorkspaceContextValue = {
   deleteThread: (
     projectId: string,
     threadId: string,
-    appStateSnapshots?: {
-      beforeAppState: AppStateSnapshot;
-      afterAppState: AppStateSnapshot;
-    },
+    appStateSnapshots?: ThreadDeletionAppStateSnapshots,
   ) => Promise<string | null>;
+  deleteThreads: (
+    threadIds: string[],
+    appStateSnapshots: ThreadDeletionAppStateSnapshots,
+  ) => Promise<void>;
   createChat: (
     title: string,
     runtimeId?: RuntimeId,
@@ -283,6 +288,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   promoteDraftThread: () => {},
   toggleThreadPin: () => {},
   deleteThread: async () => null,
+  deleteThreads: async () => {},
   createChat: () => null,
   upsertChat: () => {},
   toggleChatPin: () => {},
@@ -1042,10 +1048,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const deleteThread = async (
     projectId: string,
     threadId: string,
-    appStateSnapshots?: {
-      beforeAppState: AppStateSnapshot;
-      afterAppState: AppStateSnapshot;
-    },
+    appStateSnapshots?: ThreadDeletionAppStateSnapshots,
   ) => {
     const result = deleteThreadInProjects(projects, projectId, threadId);
     const currentThreadWork = getThreadWorkSnapshot(allThreadIds);
@@ -1100,6 +1103,77 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setMessages((currentMessages) => removeMessagesForThreads(currentMessages, [threadId]));
     setActiveThreadId((prev) => (prev === threadId ? result.nextActiveThreadId : prev));
     return result.nextActiveThreadId;
+  };
+
+  const deleteThreads = async (
+    requestedThreadIds: string[],
+    appStateSnapshots: ThreadDeletionAppStateSnapshots,
+  ) => {
+    const threadIds = [...new Set(requestedThreadIds)];
+    const deletedThreadIds = new Set(threadIds);
+    const remainingProjectIds = new Set(
+      appStateSnapshots.afterAppState.projects.map(({ id }) => id),
+    );
+    const currentThreadWork = getThreadWorkSnapshot(allThreadIds);
+    const deletion = prepareThreadDataDeletion(messages, threadIds, currentThreadWork);
+    const remainingAppStateAttachmentKeys = new Set([
+      ...(appStateSnapshots.afterAppState.threadMessages ?? []).flatMap((message) =>
+        message.attachments.map((attachment) => attachment.storageKey),
+      ),
+      ...(appStateSnapshots.afterAppState.threadDrafts ?? []).flatMap((draft) =>
+        draft.attachments.map((attachment) => attachment.storageKey),
+      ),
+    ]);
+    const removedAppStateAttachmentKeys = [
+      ...(appStateSnapshots.beforeAppState.threadMessages ?? []).flatMap((message) =>
+        message.attachments.map((attachment) => attachment.storageKey),
+      ),
+      ...(appStateSnapshots.beforeAppState.threadDrafts ?? []).flatMap((draft) =>
+        draft.attachments.map((attachment) => attachment.storageKey),
+      ),
+    ].filter((storageKey) => !remainingAppStateAttachmentKeys.has(storageKey));
+    const attachmentStorageKeys = [
+      ...new Set([...deletion.request.attachmentStorageKeys, ...removedAppStateAttachmentKeys]),
+    ];
+    const nextProjects = projects
+      .filter((project) => remainingProjectIds.has(project.id))
+      .map((project) => ({
+        ...project,
+        threads: project.threads.filter((thread) => !deletedThreadIds.has(thread.id)),
+      }));
+    const nextChats = chats.filter((thread) => !deletedThreadIds.has(thread.id));
+    const nextActiveThreadId =
+      activeThreadId && deletedThreadIds.has(activeThreadId) ? null : activeThreadId;
+    const currentSnapshot = buildWorkspaceSnapshot({
+      projects,
+      chats,
+      messages,
+      activeThreadId,
+      threadWork: currentThreadWork,
+    });
+    const nextThreadIds = allThreadIds.filter((id) => !deletedThreadIds.has(id));
+    const nextSnapshot = buildWorkspaceSnapshot({
+      projects: nextProjects,
+      chats: nextChats,
+      messages: deletion.remainingMessages,
+      activeThreadId: nextActiveThreadId,
+      threadWork: getThreadWorkSnapshot(nextThreadIds),
+    });
+    if (!window.carrent.chat.deleteThreadTransaction) {
+      throw new Error("Thread deletion transaction is unavailable.");
+    }
+    await window.carrent.chat.deleteThreadTransaction({
+      ...appStateSnapshots,
+      beforeWorkspace: currentSnapshot,
+      afterWorkspace: nextSnapshot,
+      threadData: { ...deletion.request, attachmentStorageKeys },
+    });
+
+    removeThreadWork(threadIds);
+    setProjects(nextProjects);
+    setChats(nextChats);
+    setMessages(deletion.remainingMessages);
+    setActiveThreadId(nextActiveThreadId);
   };
 
   const setThreadRuntimeMode = (
@@ -1258,6 +1332,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         promoteDraftThread,
         toggleThreadPin,
         deleteThread,
+        deleteThreads,
         createChat,
         upsertChat,
         toggleChatPin,

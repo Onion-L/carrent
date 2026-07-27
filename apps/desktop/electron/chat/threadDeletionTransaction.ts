@@ -7,6 +7,7 @@ import type {
   ThreadDataDeletionReceipt,
   ThreadDeletionTransactionRequest,
 } from "../../src/shared/chat";
+import { applyThreadDeletionToAppState } from "../../src/shared/chat";
 import type {
   AppStateSnapshot,
   ProviderSessionSnapshot,
@@ -36,30 +37,6 @@ type TransactionWorkspaceStore = {
   saveAppStateSnapshot: (snapshot: AppStateSnapshot) => Promise<void>;
   saveWorkspaceSnapshot: (snapshot: WorkspaceSnapshot) => Promise<void>;
 };
-
-function removeThreadsFromAppState(
-  snapshot: AppStateSnapshot,
-  threadIds: string[],
-): AppStateSnapshot {
-  const ids = new Set(threadIds);
-  return {
-    ...snapshot,
-    threads: snapshot.threads?.filter((thread) => !ids.has(thread.id)),
-    threadDrafts: snapshot.threadDrafts?.filter((draft) => !ids.has(draft.threadId)),
-    threadMessages: snapshot.threadMessages?.filter((message) => !ids.has(message.threadId)),
-    threadRuns: snapshot.threadRuns?.filter((run) => !ids.has(run.threadId)),
-    threadPromotionIntents: snapshot.threadPromotionIntents?.filter(
-      (intent) => !ids.has(intent.threadId),
-    ),
-    lastThreadIdByWorkspace: snapshot.lastThreadIdByWorkspace
-      ? Object.fromEntries(
-          Object.entries(snapshot.lastThreadIdByWorkspace).filter(
-            ([, threadId]) => !ids.has(threadId),
-          ),
-        )
-      : undefined,
-  };
-}
 
 function removeThreadsFromWorkspace(
   snapshot: WorkspaceSnapshot,
@@ -249,16 +226,28 @@ export function createThreadDeletionTransactionManager(options: {
           if (!beforeAppState || !beforeWorkspace) {
             throw new Error("Thread deletion requires persisted App State and workspace data.");
           }
+          const afterAppState = applyThreadDeletionToAppState(
+            beforeAppState,
+            request.threadData.threadIds,
+            request.scope,
+          );
+          const afterWorkspaceWithoutThreads = removeThreadsFromWorkspace(
+            beforeWorkspace,
+            request.threadData.threadIds,
+            request.afterWorkspace.activeThreadId,
+          );
+          const remainingProjectIds = new Set(afterAppState.projects.map((project) => project.id));
           const transactionRequest: ThreadDeletionTransactionRequest = {
             ...request,
             beforeAppState,
-            afterAppState: removeThreadsFromAppState(beforeAppState, request.threadData.threadIds),
+            afterAppState,
             beforeWorkspace,
-            afterWorkspace: removeThreadsFromWorkspace(
-              beforeWorkspace,
-              request.threadData.threadIds,
-              request.afterWorkspace.activeThreadId,
-            ),
+            afterWorkspace: {
+              ...afterWorkspaceWithoutThreads,
+              projects: afterWorkspaceWithoutThreads.projects.filter((project) =>
+                remainingProjectIds.has(project.id),
+              ),
+            },
           };
           const providerSnapshot = await options.workspaceStore.loadProviderSessions();
           const journal: ThreadDeletionJournal = {
@@ -280,10 +269,13 @@ export function createThreadDeletionTransactionManager(options: {
               journal.operationId,
               transactionRequest.threadData.attachmentStorageKeys,
             );
-            const deletionReceipt = await options.sessionManager.deleteThreadData({
-              ...transactionRequest.threadData,
-              attachmentStorageKeys: [],
-            });
+            const deletionReceipt =
+              transactionRequest.threadData.threadIds.length > 0
+                ? await options.sessionManager.deleteThreadData({
+                    ...transactionRequest.threadData,
+                    attachmentStorageKeys: [],
+                  })
+                : undefined;
             receipt = deletionReceipt ?? {
               threadIds: transactionRequest.threadData.threadIds,
               removedProviderSessions: journal.removedProviderSessions,
@@ -322,8 +314,14 @@ export function createThreadDeletionTransactionManager(options: {
             throw error;
           }
 
-          await finishCommittedTransaction({ ...options, journal });
-          recoveryPending = false;
+          try {
+            await finishCommittedTransaction({ ...options, journal });
+            recoveryPending = false;
+          } catch {
+            // The snapshots are committed. Keep the journal for cleanup retry,
+            // but release the transaction lock so normal writes can continue.
+            recoveryPending = false;
+          }
         } finally {
           if (!recoveryPending) {
             options.onActiveChange?.(false);

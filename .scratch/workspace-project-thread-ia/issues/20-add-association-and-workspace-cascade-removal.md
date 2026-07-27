@@ -4,7 +4,7 @@
 
 **Blocked by:** 19 — 添加 Thread 归档、恢复与永久删除
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 移除 Association 会原子删除该 Workspace-Project 组合的 Thread Draft 和全部 Thread，包括其 Carrent-owned 附属数据。
 - [ ] 删除 Workspace 会原子删除其全部 Association、Thread Draft 和 Thread，不影响其他 Workspace 的 Association 或 Thread。

@@ -132,6 +132,21 @@ describe("registerChatIpc", () => {
         threadData: { threadIds: ["thread-1"], attachmentStorageKeys: [] },
       },
     );
+    await handlers.get("chat:delete-thread-transaction")?.(
+      {},
+      {
+        beforeAppState: appState,
+        afterAppState: appState,
+        beforeWorkspace: workspace,
+        afterWorkspace: workspace,
+        threadData: { threadIds: [], attachmentStorageKeys: [] },
+        scope: {
+          kind: "association",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+        },
+      },
+    );
 
     expect(deleted).toEqual([
       {
@@ -140,6 +155,18 @@ describe("registerChatIpc", () => {
         beforeWorkspace: workspace,
         afterWorkspace: workspace,
         threadData: { threadIds: ["thread-1"], attachmentStorageKeys: [] },
+      },
+      {
+        beforeAppState: appState,
+        afterAppState: appState,
+        beforeWorkspace: workspace,
+        afterWorkspace: workspace,
+        threadData: { threadIds: [], attachmentStorageKeys: [] },
+        scope: {
+          kind: "association",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+        },
       },
     ]);
   });

@@ -6,6 +6,8 @@ import { AddProjectButton } from "../components/workspace/AddProjectButton";
 import { useAppState } from "../context/AppStateContext";
 import { useNavigate } from "react-router-dom";
 import { getWorkspaceProjects } from "../lib/workspaceProjects";
+import { useWorkspace } from "../context/WorkspaceContext";
+import { useChatRun } from "../hooks/useChatRun";
 
 export function WorkspaceOverviewPage() {
   const { workspaceId } = useParams();
@@ -15,12 +17,19 @@ export function WorkspaceOverviewPage() {
     workspaces,
     projects,
     associations,
+    threads,
     renameWorkspace,
     selectWorkspace,
+    deleteWorkspace,
   } = useAppState();
+  const { deleteThreads } = useWorkspace();
+  const { runningThreadIds } = useChatRun();
   const [isRenaming, setIsRenaming] = useState(false);
   const workspace = workspaces.find((item) => item.id === workspaceId);
   const workspaceProjects = getWorkspaceProjects(projects, associations, workspaceId);
+  const hasAffectedLiveRun = threads.some(
+    (thread) => thread.workspaceId === workspace?.id && runningThreadIds.includes(thread.id),
+  );
 
   useEffect(() => {
     if (!workspace || workspace.id === activeWorkspaceId) return;
@@ -36,12 +45,53 @@ export function WorkspaceOverviewPage() {
       <div className="flex h-full flex-col px-8 py-7">
         <div className="flex items-center justify-between gap-4 border-b border-border pb-5">
           <h1 className="min-w-0 truncate text-app-22 font-semibold text-fg">{workspace.name}</h1>
-          <button
-            onClick={() => setIsRenaming(true)}
-            className="min-h-8 shrink-0 rounded-md border border-border-strong px-3 text-app-12 font-medium text-muted hover:bg-surface-hover hover:text-fg"
-          >
-            Rename Workspace
-          </button>
+          <div className="flex shrink-0 gap-2">
+            <button
+              onClick={() => setIsRenaming(true)}
+              className="min-h-8 rounded-md border border-border-strong px-3 text-app-12 font-medium text-muted hover:bg-surface-hover hover:text-fg"
+            >
+              Rename Workspace
+            </button>
+            <button
+              type="button"
+              disabled={hasAffectedLiveRun}
+              title={hasAffectedLiveRun ? "Stop the affected live Run before deleting" : undefined}
+              onClick={async () => {
+                const threadCount = threads.filter(
+                  (thread) => thread.workspaceId === workspace.id,
+                ).length;
+                if (
+                  !window.confirm(
+                    `Delete "${workspace.name}" and permanently delete ${threadCount} ${threadCount === 1 ? "Thread" : "Threads"}? Project Working Directories, project files and Git state, and other Workspaces will not be changed.`,
+                  )
+                ) {
+                  return;
+                }
+                const orderedWorkspaces = [...workspaces].sort(
+                  (left, right) => left.order - right.order,
+                );
+                const workspaceIndex = orderedWorkspaces.findIndex(
+                  (item) => item.id === workspace.id,
+                );
+                const nextWorkspace =
+                  orderedWorkspaces[workspaceIndex + 1] ??
+                  orderedWorkspaces[workspaceIndex - 1] ??
+                  null;
+                let deleted = false;
+                try {
+                  deleted = await deleteWorkspace(workspace.id, (threadIds, snapshots) =>
+                    deleteThreads(threadIds, snapshots),
+                  );
+                } catch (error) {
+                  console.error("[workspaces] deletion rollback failed", error);
+                }
+                if (deleted) navigate(nextWorkspace ? `/workspace/${nextWorkspace.id}` : "/");
+              }}
+              className="min-h-8 rounded-md border border-danger/50 px-3 text-app-12 font-medium text-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Delete Workspace
+            </button>
+          </div>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center">

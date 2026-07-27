@@ -29,6 +29,11 @@ import { DEFAULT_RUNTIME_MODE, type RuntimeMode } from "../../shared/runtimeMode
 import { DEFAULT_RUNTIME_ID, type RuntimeId } from "../../shared/runtimes";
 import { getQueuedMessages } from "../hooks/chatMessageQueue";
 import { hasLiveRunForThread } from "../hooks/useChatRun";
+import {
+  applyThreadDeletionToAppState,
+  type ThreadDeletionAppStateSnapshots,
+  type ThreadDeletionScope,
+} from "../../shared/chat";
 
 type WorkspaceMutationResult =
   | { ok: true; workspace: WorkspaceRecord }
@@ -48,6 +53,12 @@ type PromoteDraftInput = AppThreadRunStartInput & {
   title: string;
   draft: ThreadWorkDraftSnapshot;
 };
+
+type CascadeDeletionScope = Exclude<ThreadDeletionScope, { kind: "threads" }>;
+type CascadeCleanup = (
+  threadIds: string[],
+  snapshots: ThreadDeletionAppStateSnapshots,
+) => Promise<void>;
 
 type AppStateContextValue = {
   hasHydrated: boolean;
@@ -114,11 +125,14 @@ type AppStateContextValue = {
   restoreThread: (threadId: string) => Promise<boolean>;
   permanentlyDeleteThread: (
     threadId: string,
-    cleanup: (snapshots: {
-      beforeAppState: AppStateSnapshot;
-      afterAppState: AppStateSnapshot;
-    }) => Promise<void>,
+    cleanup: (snapshots: ThreadDeletionAppStateSnapshots) => Promise<void>,
   ) => Promise<boolean>;
+  removeAssociation: (
+    workspaceId: string,
+    projectId: string,
+    cleanup: CascadeCleanup,
+  ) => Promise<boolean>;
+  deleteWorkspace: (workspaceId: string, cleanup: CascadeCleanup) => Promise<boolean>;
 };
 
 const EMPTY_APP_STATE: AppStateSnapshot = {
@@ -913,10 +927,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const permanentlyDeleteThread = useCallback(
     async (
       threadId: string,
-      cleanup: (snapshots: {
-        beforeAppState: AppStateSnapshot;
-        afterAppState: AppStateSnapshot;
-      }) => Promise<void>,
+      cleanup: (snapshots: ThreadDeletionAppStateSnapshots) => Promise<void>,
     ) => {
       const current = snapshotRef.current;
       const thread = (current.threads ?? []).find((item) => item.id === threadId && item.archived);
@@ -937,6 +948,78 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       }
     },
     [],
+  );
+
+  const deleteCascade = useCallback(
+    async (scope: CascadeDeletionScope, cleanup: CascadeCleanup) => {
+      const current = snapshotRef.current;
+      const targetExists =
+        scope.kind === "association"
+          ? current.associations.some(
+              (association) =>
+                association.workspaceId === scope.workspaceId &&
+                association.projectId === scope.projectId,
+            )
+          : current.workspaces.some((workspace) => workspace.id === scope.workspaceId);
+      if (!targetExists) return false;
+
+      const affectedThreads = (current.threads ?? []).filter(
+        (thread) =>
+          thread.workspaceId === scope.workspaceId &&
+          (scope.kind === "workspace" || thread.projectId === scope.projectId),
+      );
+      const affectedDrafts = (current.threadDrafts ?? []).filter(
+        (draft) =>
+          draft.workspaceId === scope.workspaceId &&
+          (scope.kind === "workspace" || draft.projectId === scope.projectId),
+      );
+      const affectedThreadIds = [
+        ...affectedThreads.map((thread) => thread.id),
+        ...affectedDrafts.map((draft) => draft.threadId),
+      ];
+      if (
+        affectedThreads.some(
+          (thread) =>
+            mutatingThreadIdsRef.current.has(thread.id) ||
+            startingRunThreadIdsRef.current.has(thread.id) ||
+            hasLiveRunForThread(thread.id),
+        )
+      ) {
+        return false;
+      }
+      affectedThreadIds.forEach((threadId) => mutatingThreadIdsRef.current.add(threadId));
+
+      const next = applyThreadDeletionToAppState(current, affectedThreadIds, scope);
+
+      try {
+        await cleanup(affectedThreadIds, {
+          beforeAppState: current,
+          afterAppState: next,
+          scope,
+        });
+        snapshotRef.current = next;
+        setSnapshot(next);
+        return true;
+      } catch (error) {
+        if (error instanceof AggregateError) throw error;
+        return false;
+      } finally {
+        affectedThreadIds.forEach((threadId) => mutatingThreadIdsRef.current.delete(threadId));
+      }
+    },
+    [],
+  );
+
+  const removeAssociation = useCallback(
+    (workspaceId: string, projectId: string, cleanup: CascadeCleanup) =>
+      deleteCascade({ kind: "association", workspaceId, projectId }, cleanup),
+    [deleteCascade],
+  );
+
+  const deleteWorkspace = useCallback(
+    (workspaceId: string, cleanup: CascadeCleanup) =>
+      deleteCascade({ kind: "workspace", workspaceId }, cleanup),
+    [deleteCascade],
   );
 
   return (
@@ -975,6 +1058,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         archiveThread,
         restoreThread,
         permanentlyDeleteThread,
+        removeAssociation,
+        deleteWorkspace,
       }}
     >
       {children}

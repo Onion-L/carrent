@@ -2228,4 +2228,294 @@ describe("Archived Thread lifecycle", () => {
     expect(container!.textContent).toContain("Thread could not be permanently deleted");
     expect(container!.textContent).toContain("Primary Thread");
   });
+
+  it("removes one Association and its Thread data while preserving a shared Project", async () => {
+    const appState = lifecycleState();
+    appState.workspaces.push({ id: "workspace-2", name: "Work", order: 1 });
+    appState.associations.push({
+      workspaceId: "workspace-2",
+      projectId: "project-1",
+      order: 0,
+      defaultRuntimeId: "kimi",
+      defaultRuntimeMode: "approval-required",
+    });
+    appState.threads = appState.threads?.map((thread) =>
+      thread.id === "thread-2" ? { ...thread, workspaceId: "workspace-2" } : thread,
+    );
+    appState.threadDrafts = [
+      {
+        id: "draft-1",
+        threadId: "draft-thread-1",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        content: "Discard this draft",
+        attachedSkillNames: [],
+        attachments: [
+          {
+            id: "draft-attachment-1",
+            kind: "file",
+            name: "draft.txt",
+            mimeType: "text/plain",
+            size: 5,
+            storageKey: "draft-attachment-1.txt",
+          },
+        ],
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
+    ];
+    const cleanupRequests: DeleteThreadDataRequest[] = [];
+    let confirmation = "";
+    window.confirm = (message) => {
+      confirmation = String(message);
+      return true;
+    };
+    const saved = await renderApp(
+      appState,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      false,
+      [],
+      false,
+      lifecycleWorkspaceSnapshot(),
+      false,
+      cleanupRequests,
+    );
+
+    await click(buttonNamed("Remove from Workspace"));
+
+    expect(confirmation).toContain("1 Thread");
+    expect(confirmation).toContain("Project Working Directory");
+    expect(confirmation).toContain("project files and Git state");
+    expect(confirmation).toContain("other Workspaces");
+    expect(currentPathname).toBe("/workspace/workspace-1");
+    expect(cleanupRequests).toEqual([
+      {
+        threadIds: ["thread-1", "draft-thread-1"],
+        attachmentStorageKeys: ["attachment-1.txt", "draft-attachment-1.txt"],
+      },
+    ]);
+    expect(saved.at(-1)?.associations).toEqual([appState.associations[1]]);
+    expect(saved.at(-1)?.projects).toEqual(appState.projects);
+    expect(saved.at(-1)?.threads).toEqual([
+      appState.threads?.find((thread) => thread.id === "thread-2"),
+    ]);
+    expect(saved.at(-1)?.threadDrafts).toEqual([]);
+    expect(saved.at(-1)?.threadMessages).toEqual([]);
+    expect(saved.at(-1)?.threadRuns).toEqual([]);
+  });
+
+  it("deletes a Workspace cascade and selects the next Workspace", async () => {
+    const appState = lifecycleState();
+    appState.workspaces = [
+      { id: "workspace-1", name: "Personal", order: 0 },
+      { id: "workspace-2", name: "Client", order: 1 },
+      { id: "workspace-3", name: "Later", order: 2 },
+    ];
+    appState.associations = [
+      appState.associations[0]!,
+      {
+        workspaceId: "workspace-2",
+        projectId: "project-1",
+        order: 0,
+        defaultRuntimeId: "kimi",
+        defaultRuntimeMode: "approval-required",
+      },
+    ];
+    appState.threads = appState.threads?.map((thread) =>
+      thread.id === "thread-1" ? { ...thread, workspaceId: "workspace-2" } : thread,
+    );
+    appState.threadDrafts = [
+      {
+        id: "draft-2",
+        threadId: "draft-thread-2",
+        workspaceId: "workspace-2",
+        projectId: "project-1",
+        content: "Discard with Workspace",
+        attachedSkillNames: [],
+        attachments: [],
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
+    ];
+    appState.activeWorkspaceId = "workspace-2";
+    appState.lastThreadIdByWorkspace = {
+      "workspace-1": "thread-2",
+      "workspace-2": "thread-1",
+    };
+    const cleanupRequests: DeleteThreadDataRequest[] = [];
+    let confirmation = "";
+    window.confirm = (message) => {
+      confirmation = String(message);
+      return true;
+    };
+    const saved = await renderApp(
+      appState,
+      "/workspace/workspace-2",
+      [],
+      false,
+      [],
+      false,
+      lifecycleWorkspaceSnapshot(),
+      false,
+      cleanupRequests,
+    );
+
+    await click(buttonNamed("Delete Workspace"));
+
+    expect(confirmation).toContain("1 Thread");
+    expect(confirmation).toContain("Project Working Directories");
+    expect(confirmation).toContain("other Workspaces");
+    expect(currentPathname).toBe("/workspace/workspace-3");
+    expect(cleanupRequests).toEqual([
+      { threadIds: ["thread-1", "draft-thread-2"], attachmentStorageKeys: ["attachment-1.txt"] },
+    ]);
+    expect(saved.at(-1)?.workspaces.map((workspace) => workspace.id)).toEqual([
+      "workspace-1",
+      "workspace-3",
+    ]);
+    expect(saved.at(-1)?.activeWorkspaceId).toBe("workspace-3");
+    expect(saved.at(-1)?.associations).toEqual([appState.associations[0]]);
+    expect(saved.at(-1)?.projects).toEqual(appState.projects);
+    expect(saved.at(-1)?.threads?.map((thread) => thread.id)).toEqual(["thread-2"]);
+    expect(saved.at(-1)?.threadDrafts).toEqual([]);
+    expect(saved.at(-1)?.lastThreadIdByWorkspace).toEqual({ "workspace-1": "thread-2" });
+  });
+
+  it("selects the previous Workspace when deleting the last ordered Workspace", async () => {
+    window.confirm = () => true;
+    const saved = await renderApp(
+      {
+        version: 1,
+        workspaces: [
+          { id: "workspace-1", name: "Personal", order: 0 },
+          { id: "workspace-2", name: "Client", order: 1 },
+        ],
+        projects: [],
+        associations: [],
+        activeWorkspaceId: "workspace-2",
+      },
+      "/workspace/workspace-2",
+      [],
+      false,
+      [],
+      false,
+      { version: 1, projects: [], chats: [], messages: [], activeThreadId: null },
+    );
+
+    await click(buttonNamed("Delete Workspace"));
+
+    expect(currentPathname).toBe("/workspace/workspace-1");
+    expect(saved.at(-1)?.activeWorkspaceId).toBe("workspace-1");
+    expect(container!.querySelector("h1")?.textContent).toBe("Personal");
+  });
+
+  it("opens global first use after deleting the only Workspace", async () => {
+    window.confirm = () => true;
+    const saved = await renderApp(
+      {
+        version: 1,
+        workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+        projects: [],
+        associations: [],
+        activeWorkspaceId: "workspace-1",
+      },
+      "/workspace/workspace-1",
+      [],
+      false,
+      [],
+      false,
+      { version: 1, projects: [], chats: [], messages: [], activeThreadId: null },
+    );
+
+    await click(buttonNamed("Delete Workspace"));
+
+    expect(currentPathname).toBe("/");
+    expect(saved.at(-1)?.workspaces).toEqual([]);
+    expect(saved.at(-1)?.activeWorkspaceId).toBe(null);
+    expect(container!.textContent).toContain("Create your first Workspace");
+  });
+
+  it("blocks Association and Workspace removal before confirmation while an affected Run is live", async () => {
+    const requests: ChatTurnRequest[] = [];
+    let confirmationCount = 0;
+    window.confirm = () => {
+      confirmationCount += 1;
+      return true;
+    };
+    await renderApp(
+      lifecycleState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      requests,
+      false,
+      lifecycleWorkspaceSnapshot(),
+    );
+
+    await fillTextarea(container!.querySelector("textarea")!, "Keep this Run alive");
+    await click(composerSendButton());
+    await act(async () => {
+      testNavigate!("/workspace/workspace-1/project/project-1");
+    });
+
+    expect(buttonNamed("Remove from Workspace").disabled).toBe(true);
+    expect(buttonNamed("Remove from Workspace").title).toContain("live Run");
+    await act(async () => {
+      testNavigate!("/workspace/workspace-1");
+    });
+    expect(buttonNamed("Delete Workspace").disabled).toBe(true);
+    expect(buttonNamed("Delete Workspace").title).toContain("live Run");
+    expect(confirmationCount).toBe(0);
+
+    await act(async () => {
+      emitChatEvent?.({
+        type: "completed",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+        text: "Done",
+        finishedAt: "2026-07-27T10:01:00.000Z",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  });
+
+  it("removes the final Project record when an empty Association is removed", async () => {
+    const appState = lifecycleState();
+    appState.threads = [];
+    appState.threadMessages = [];
+    appState.threadRuns = [];
+    appState.lastThreadIdByWorkspace = {};
+    const workspaceSnapshot = lifecycleWorkspaceSnapshot();
+    workspaceSnapshot.projects[0]!.threads = [];
+    workspaceSnapshot.messages = [];
+    workspaceSnapshot.activeThreadId = null;
+    const cleanupRequests: DeleteThreadDataRequest[] = [];
+    const workspaceSaved: WorkspaceSnapshot[] = [];
+    window.confirm = () => true;
+    const saved = await renderApp(
+      appState,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      false,
+      [],
+      false,
+      workspaceSnapshot,
+      false,
+      cleanupRequests,
+      false,
+      undefined,
+      workspaceSaved,
+    );
+
+    await click(buttonNamed("Remove from Workspace"));
+
+    expect(cleanupRequests).toEqual([{ threadIds: [], attachmentStorageKeys: [] }]);
+    expect(saved.at(-1)?.projects).toEqual([]);
+    expect(saved.at(-1)?.associations).toEqual([]);
+    expect(workspaceSaved.at(-1)?.projects).toEqual([]);
+    expect(currentPathname).toBe("/workspace/workspace-1");
+  });
 });

@@ -218,6 +218,62 @@ describe("thread deletion transaction", () => {
     expect(harness.getJournal()).toBe(null);
   });
 
+  for (const testCase of [
+    {
+      name: "Association cascade",
+      scope: {
+        kind: "association" as const,
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+      },
+    },
+    {
+      name: "Workspace cascade",
+      scope: { kind: "workspace" as const, workspaceId: "workspace-1" },
+    },
+  ]) {
+    it(`rolls back the complete ${testCase.name} when persistence fails`, async () => {
+      const harness = createHarness();
+      let workspaceSaveAttempts = 0;
+      const manager = createThreadDeletionTransactionManager({
+        journalStore: harness.journalStore,
+        workspaceStore: {
+          ...harness.workspaceStore,
+          saveWorkspaceSnapshot: async (snapshot) => {
+            workspaceSaveAttempts += 1;
+            if (workspaceSaveAttempts === 1) throw new Error("disk full");
+            await harness.workspaceStore.saveWorkspaceSnapshot(snapshot);
+          },
+        },
+        attachmentStore: harness.attachmentStore,
+        sessionManager: {
+          deleteThreadData: async () => ({
+            threadIds: ["thread-1"],
+            removedProviderSessions: {},
+            detachedRuntimeSessions: {},
+          }),
+          rollbackThreadDataDeletion: async () => {},
+        },
+        createOperationId: () => `operation-${testCase.scope.kind}-rollback`,
+      });
+
+      let deletionError: unknown;
+      try {
+        await manager.deleteThread({ ...request(), scope: testCase.scope });
+      } catch (error) {
+        deletionError = error;
+      }
+      expect(String(deletionError)).toContain("disk full");
+
+      expect(harness.getAppState()).toEqual(beforeAppState);
+      expect(harness.getWorkspace()).toEqual(beforeWorkspace);
+      expect(harness.getJournal()).toBe(null);
+      expect(harness.attachmentEvents.at(-1)).toBe(
+        `rollback:operation-${testCase.scope.kind}-rollback`,
+      );
+    });
+  }
+
   it("keeps independent writes blocked while rollback recovery is pending", async () => {
     const harness = createHarness();
     const activeChanges: boolean[] = [];
@@ -365,6 +421,81 @@ describe("thread deletion transaction", () => {
     expect(harness.getWorkspace().messages.map((message) => message.id)).toEqual(["message-2"]);
   });
 
+  it("removes a Workspace cascade while preserving a shared Project", async () => {
+    const harness = createHarness();
+    const sharedAppState: AppStateSnapshot = {
+      ...beforeAppState,
+      workspaces: [...beforeAppState.workspaces, { id: "workspace-2", name: "Work", order: 1 }],
+      associations: [
+        ...beforeAppState.associations,
+        {
+          workspaceId: "workspace-2",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+    };
+    await harness.workspaceStore.saveAppStateSnapshot(sharedAppState);
+    const manager = createThreadDeletionTransactionManager({
+      journalStore: harness.journalStore,
+      workspaceStore: harness.workspaceStore,
+      attachmentStore: harness.attachmentStore,
+      sessionManager: {
+        deleteThreadData: async () => ({
+          threadIds: ["thread-1"],
+          removedProviderSessions: {},
+          detachedRuntimeSessions: {},
+        }),
+        rollbackThreadDataDeletion: async () => {},
+      },
+    });
+
+    await manager.deleteThread({
+      ...request(),
+      scope: { kind: "workspace", workspaceId: "workspace-1" },
+    });
+
+    expect(harness.getAppState().workspaces.map((workspace) => workspace.id)).toEqual([
+      "workspace-2",
+    ]);
+    expect(harness.getAppState().associations).toEqual([sharedAppState.associations[1]]);
+    expect(harness.getAppState().projects).toEqual(beforeAppState.projects);
+    expect(harness.getAppState().activeWorkspaceId).toBe("workspace-2");
+  });
+
+  it("removes the Project record with its final Association", async () => {
+    const harness = createHarness();
+    const manager = createThreadDeletionTransactionManager({
+      journalStore: harness.journalStore,
+      workspaceStore: harness.workspaceStore,
+      attachmentStore: harness.attachmentStore,
+      sessionManager: {
+        deleteThreadData: async () => ({
+          threadIds: ["thread-1"],
+          removedProviderSessions: {},
+          detachedRuntimeSessions: {},
+        }),
+        rollbackThreadDataDeletion: async () => {},
+      },
+    });
+
+    await manager.deleteThread({
+      ...request(),
+      scope: {
+        kind: "association",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+      },
+    });
+
+    expect(harness.getAppState().workspaces).toEqual(beforeAppState.workspaces);
+    expect(harness.getAppState().associations).toEqual([]);
+    expect(harness.getAppState().projects).toEqual([]);
+    expect(harness.getWorkspace().projects).toEqual([]);
+  });
+
   it("rolls back a preparing transaction during startup recovery", async () => {
     const harness = createHarness();
     harness.setJournal({
@@ -432,9 +563,10 @@ describe("thread deletion transaction", () => {
     expect(harness.getJournal()).toBe(null);
   });
 
-  it("retains a committed journal until attachment cleanup can be retried", async () => {
+  it("reports committed deletion as successful while attachment cleanup awaits recovery", async () => {
     const harness = createHarness();
     let commitAttempts = 0;
+    const activeChanges: boolean[] = [];
     const attachmentStore = {
       ...harness.attachmentStore,
       commitDeletion: async (operationId: string) => {
@@ -456,16 +588,15 @@ describe("thread deletion transaction", () => {
         rollbackThreadDataDeletion: async () => {},
       },
       createOperationId: () => "operation-5",
+      onActiveChange: (active) => activeChanges.push(active),
     });
 
-    let cleanupError: unknown;
-    try {
-      await manager.deleteThread(request());
-    } catch (error) {
-      cleanupError = error;
-    }
-    expect(String(cleanupError)).toContain("directory busy");
+    await manager.deleteThread(request());
+
+    expect(harness.getAppState()).toEqual(afterAppState);
+    expect(harness.getWorkspace()).toEqual(afterWorkspace);
     expect(harness.getJournal()?.phase).toBe("committed");
+    expect(activeChanges).toEqual([true, false]);
 
     await recoverThreadDeletionTransaction({
       journalStore: harness.journalStore,

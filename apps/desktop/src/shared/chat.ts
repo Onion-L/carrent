@@ -46,13 +46,98 @@ export type ThreadDataDeletionReceipt = {
   detachedRuntimeSessions: Record<string, string>;
 };
 
-export type ThreadDeletionTransactionRequest = {
+export type ThreadDeletionScope =
+  | { kind: "threads" }
+  | { kind: "association"; workspaceId: string; projectId: string }
+  | { kind: "workspace"; workspaceId: string };
+
+export type ThreadDeletionAppStateSnapshots = {
   beforeAppState: AppStateSnapshot;
   afterAppState: AppStateSnapshot;
+  scope?: ThreadDeletionScope;
+};
+
+export type ThreadDeletionTransactionRequest = ThreadDeletionAppStateSnapshots & {
   beforeWorkspace: WorkspaceSnapshot;
   afterWorkspace: WorkspaceSnapshot;
   threadData: DeleteThreadDataRequest;
 };
+
+export function applyThreadDeletionToAppState(
+  snapshot: AppStateSnapshot,
+  threadIds: string[],
+  scope?: ThreadDeletionScope,
+): AppStateSnapshot {
+  const ids = new Set(threadIds);
+  const lastThreadIdByWorkspace = snapshot.lastThreadIdByWorkspace
+    ? Object.fromEntries(
+        Object.entries(snapshot.lastThreadIdByWorkspace).filter(
+          ([, threadId]) => !ids.has(threadId),
+        ),
+      )
+    : undefined;
+  const withoutThreads: AppStateSnapshot = {
+    ...snapshot,
+    threads: snapshot.threads?.filter((thread) => !ids.has(thread.id)),
+    threadDrafts: snapshot.threadDrafts?.filter((draft) => !ids.has(draft.threadId)),
+    threadMessages: snapshot.threadMessages?.filter((message) => !ids.has(message.threadId)),
+    threadRuns: snapshot.threadRuns?.filter((run) => !ids.has(run.threadId)),
+    threadPromotionIntents: snapshot.threadPromotionIntents?.filter(
+      (intent) => !ids.has(intent.threadId),
+    ),
+    lastThreadIdByWorkspace,
+  };
+  if (!scope || scope.kind === "threads") return withoutThreads;
+
+  if (scope.kind === "association") {
+    const associations = withoutThreads.associations.filter(
+      (association) =>
+        association.workspaceId !== scope.workspaceId || association.projectId !== scope.projectId,
+    );
+    return {
+      ...withoutThreads,
+      projects: withoutThreads.projects.filter(
+        (project) =>
+          project.id !== scope.projectId ||
+          associations.some((association) => association.projectId === project.id),
+      ),
+      associations,
+      threadDrafts: withoutThreads.threadDrafts?.filter(
+        (draft) => draft.workspaceId !== scope.workspaceId || draft.projectId !== scope.projectId,
+      ),
+    };
+  }
+
+  const orderedWorkspaces = [...withoutThreads.workspaces].sort(
+    (left, right) => left.order - right.order,
+  );
+  const workspaceIndex = orderedWorkspaces.findIndex(
+    (workspace) => workspace.id === scope.workspaceId,
+  );
+  const nextWorkspace =
+    orderedWorkspaces[workspaceIndex + 1] ?? orderedWorkspaces[workspaceIndex - 1] ?? null;
+  const associations = withoutThreads.associations.filter(
+    (association) => association.workspaceId !== scope.workspaceId,
+  );
+  const nextLastThreadIdByWorkspace = { ...withoutThreads.lastThreadIdByWorkspace };
+  delete nextLastThreadIdByWorkspace[scope.workspaceId];
+  return {
+    ...withoutThreads,
+    workspaces: withoutThreads.workspaces.filter((workspace) => workspace.id !== scope.workspaceId),
+    projects: withoutThreads.projects.filter((project) =>
+      associations.some((association) => association.projectId === project.id),
+    ),
+    associations,
+    threadDrafts: withoutThreads.threadDrafts?.filter(
+      (draft) => draft.workspaceId !== scope.workspaceId,
+    ),
+    lastThreadIdByWorkspace: nextLastThreadIdByWorkspace,
+    activeWorkspaceId:
+      withoutThreads.activeWorkspaceId === scope.workspaceId
+        ? (nextWorkspace?.id ?? null)
+        : withoutThreads.activeWorkspaceId,
+  };
+}
 
 export interface ChatTurnRequest {
   requestKey?: string;

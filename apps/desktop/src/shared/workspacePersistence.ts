@@ -9,9 +9,9 @@ import type {
 import type { AttachmentKind, AttachmentMetadata } from "./chat";
 import { isSupportedImageMimeType, MAX_ATTACHMENT_COUNT } from "./attachment";
 import type { ChatPermissionOption } from "./chatPermissions";
-import { normalizeRuntimeMode } from "./runtimeMode";
+import { isRuntimeMode, normalizeRuntimeMode, type RuntimeMode } from "./runtimeMode";
 import { normalizeRuntimeId } from "./runtimes";
-import { runtimeIds } from "./runtimes";
+import { runtimeIds, type RuntimeId } from "./runtimes";
 import {
   normalizeRunChecklistEntries,
   type RunChecklistOutcome,
@@ -27,9 +27,27 @@ export type WorkspaceRecord = {
   order: number;
 };
 
+export type AppProjectRecord = {
+  id: string;
+  name: string;
+  workingDirectory: string;
+};
+
+export type WorkspaceProjectAssociationRecord = {
+  workspaceId: string;
+  projectId: string;
+  alias?: string;
+  order: number;
+  defaultRuntimeId: RuntimeId;
+  defaultRuntimeModelId?: string;
+  defaultRuntimeMode: RuntimeMode;
+};
+
 export type AppStateSnapshot = {
   version: typeof APP_STATE_SNAPSHOT_VERSION;
   workspaces: WorkspaceRecord[];
+  projects: AppProjectRecord[];
+  associations: WorkspaceProjectAssociationRecord[];
   activeWorkspaceId: string | null;
 };
 
@@ -78,10 +96,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function normalizeProjectWorkingDirectory(value: string): string {
+  const withForwardSlashes = value.replace(/\\/g, "/");
+  const drive = withForwardSlashes.match(/^([A-Za-z]:)(?:\/|$)/)?.[1] ?? "";
+  const isUnc = withForwardSlashes.startsWith("//");
+  const isAbsolute = isUnc || withForwardSlashes.startsWith("/") || Boolean(drive);
+  const segments: string[] = [];
+
+  for (const segment of withForwardSlashes.slice(drive.length).split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      if (segments.length > 0 && segments.at(-1) !== "..") {
+        segments.pop();
+      } else if (!isAbsolute) {
+        segments.push(segment);
+      }
+      continue;
+    }
+    segments.push(segment);
+  }
+
+  const prefix = drive ? `${drive}/` : isUnc ? "//" : isAbsolute ? "/" : "";
+  return `${prefix}${segments.join("/")}` || (isAbsolute ? prefix : "");
+}
+
 export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | null {
   if (!isRecord(value)) return null;
   if (value.version !== APP_STATE_SNAPSHOT_VERSION) return null;
   if (!Array.isArray(value.workspaces)) return null;
+  if (value.projects !== undefined && !Array.isArray(value.projects)) return null;
+  if (value.associations !== undefined && !Array.isArray(value.associations)) return null;
   if (typeof value.activeWorkspaceId !== "string" && value.activeWorkspaceId !== null) {
     return null;
   }
@@ -124,9 +168,107 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
   if (orders.size > 0 && Math.max(...orders) !== orders.size - 1) return null;
   if (value.activeWorkspaceId !== null && !ids.has(value.activeWorkspaceId)) return null;
 
+  const projects: AppProjectRecord[] = [];
+  const projectIds = new Set<string>();
+  const workingDirectories = new Set<string>();
+  for (const project of value.projects ?? []) {
+    if (!isRecord(project)) return null;
+    if (typeof project.id !== "string" || project.id.trim() !== project.id || !project.id) {
+      return null;
+    }
+    if (typeof project.name !== "string" || project.name.trim() !== project.name || !project.name) {
+      return null;
+    }
+    if (typeof project.workingDirectory !== "string" || !project.workingDirectory) return null;
+
+    const workingDirectory = normalizeProjectWorkingDirectory(project.workingDirectory);
+    const isAbsoluteWorkingDirectory =
+      workingDirectory.startsWith("/") || /^[A-Za-z]:\//.test(workingDirectory);
+    if (
+      !workingDirectory ||
+      !isAbsoluteWorkingDirectory ||
+      projectIds.has(project.id) ||
+      workingDirectories.has(workingDirectory)
+    ) {
+      return null;
+    }
+
+    projectIds.add(project.id);
+    workingDirectories.add(workingDirectory);
+    projects.push({ id: project.id, name: project.name, workingDirectory });
+  }
+
+  const associations: WorkspaceProjectAssociationRecord[] = [];
+  const associationKeys = new Set<string>();
+  const associationOrders = new Map<string, Set<number>>();
+  const associatedProjectIds = new Set<string>();
+  for (const association of value.associations ?? []) {
+    if (!isRecord(association)) return null;
+    if (
+      typeof association.workspaceId !== "string" ||
+      !ids.has(association.workspaceId) ||
+      typeof association.projectId !== "string" ||
+      !projectIds.has(association.projectId)
+    ) {
+      return null;
+    }
+    if (
+      association.alias !== undefined &&
+      (typeof association.alias !== "string" ||
+        association.alias.trim() !== association.alias ||
+        !association.alias)
+    ) {
+      return null;
+    }
+    if (
+      typeof association.order !== "number" ||
+      !Number.isInteger(association.order) ||
+      association.order < 0 ||
+      !runtimeIds.includes(association.defaultRuntimeId as RuntimeId) ||
+      !isRuntimeMode(association.defaultRuntimeMode)
+    ) {
+      return null;
+    }
+    if (
+      association.defaultRuntimeModelId !== undefined &&
+      (typeof association.defaultRuntimeModelId !== "string" ||
+        association.defaultRuntimeModelId.trim() !== association.defaultRuntimeModelId ||
+        !association.defaultRuntimeModelId)
+    ) {
+      return null;
+    }
+
+    const key = `${association.workspaceId}\u0000${association.projectId}`;
+    const orders = associationOrders.get(association.workspaceId) ?? new Set<number>();
+    if (associationKeys.has(key) || orders.has(association.order)) return null;
+
+    associationKeys.add(key);
+    orders.add(association.order);
+    associationOrders.set(association.workspaceId, orders);
+    associatedProjectIds.add(association.projectId);
+    associations.push({
+      workspaceId: association.workspaceId,
+      projectId: association.projectId,
+      ...(association.alias ? { alias: association.alias } : {}),
+      order: association.order,
+      defaultRuntimeId: association.defaultRuntimeId as RuntimeId,
+      ...(association.defaultRuntimeModelId
+        ? { defaultRuntimeModelId: association.defaultRuntimeModelId }
+        : {}),
+      defaultRuntimeMode: association.defaultRuntimeMode,
+    });
+  }
+
+  for (const orders of associationOrders.values()) {
+    if (orders.size > 0 && Math.max(...orders) !== orders.size - 1) return null;
+  }
+  if (projects.some((project) => !associatedProjectIds.has(project.id))) return null;
+
   return {
     version: APP_STATE_SNAPSHOT_VERSION,
     workspaces: workspaces.sort((left, right) => left.order - right.order),
+    projects,
+    associations,
     activeWorkspaceId: value.activeWorkspaceId,
   };
 }

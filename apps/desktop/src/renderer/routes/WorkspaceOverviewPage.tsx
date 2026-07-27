@@ -2,13 +2,30 @@ import { useEffect, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 
 import { WorkspaceNameDialog } from "../components/workspace/WorkspaceNameDialog";
+import { AddProjectButton } from "../components/workspace/AddProjectButton";
 import { useAppState } from "../context/AppStateContext";
+import { useNavigate } from "react-router-dom";
 
 export function WorkspaceOverviewPage() {
   const { workspaceId } = useParams();
-  const { activeWorkspaceId, workspaces, renameWorkspace, selectWorkspace } = useAppState();
+  const navigate = useNavigate();
+  const {
+    activeWorkspaceId,
+    workspaces,
+    projects,
+    associations,
+    renameWorkspace,
+    selectWorkspace,
+  } = useAppState();
   const [isRenaming, setIsRenaming] = useState(false);
   const workspace = workspaces.find((item) => item.id === workspaceId);
+  const workspaceProjects = associations
+    .filter((association) => association.workspaceId === workspaceId)
+    .sort((left, right) => left.order - right.order)
+    .flatMap((association) => {
+      const project = projects.find((item) => item.id === association.projectId);
+      return project ? [{ project, association }] : [];
+    });
 
   useEffect(() => {
     if (!workspace || workspace.id === activeWorkspaceId) return;
@@ -33,7 +50,41 @@ export function WorkspaceOverviewPage() {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center">
-          <p className="text-app-14 font-medium text-muted">This Workspace has no Projects yet.</p>
+          {workspaceProjects.length === 0 ? (
+            <>
+              <p className="text-app-14 font-medium text-muted">
+                This Workspace has no Projects yet.
+              </p>
+              <p className="mt-2 text-app-12 text-subtle">
+                Carrent never moves or copies the selected directory.
+              </p>
+              <div className="mt-5">
+                <AddProjectButton workspaceId={workspace.id} />
+              </div>
+            </>
+          ) : (
+            <div className="w-full max-w-xl text-left">
+              <div className="divide-y divide-border border-y border-border">
+                {workspaceProjects.map(({ project, association }) => (
+                  <button
+                    key={project.id}
+                    onClick={() => navigate(`/workspace/${workspace.id}/project/${project.id}`)}
+                    className="flex min-h-14 w-full items-center justify-between gap-4 px-2 text-left hover:bg-surface-hover"
+                  >
+                    <span className="truncate text-app-13 font-medium text-fg">
+                      {association.alias ?? project.name}
+                    </span>
+                    <span className="truncate text-app-12 text-subtle">
+                      {project.workingDirectory}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4 flex justify-center">
+                <AddProjectButton workspaceId={workspace.id} />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

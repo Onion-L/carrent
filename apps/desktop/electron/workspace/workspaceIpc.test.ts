@@ -41,6 +41,8 @@ describe("registerWorkspaceIpc", () => {
     const snapshot: AppStateSnapshot = {
       version: 1,
       workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [],
+      associations: [],
       activeWorkspaceId: "workspace-1",
     };
 

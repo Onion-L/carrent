@@ -13,6 +13,7 @@ import { WorkspaceProvider } from "./context/WorkspaceContext";
 import { AppStateProvider, useAppState } from "./context/AppStateContext";
 import { FirstUsePage } from "./routes/FirstUsePage";
 import { WorkspaceOverviewPage } from "./routes/WorkspaceOverviewPage";
+import { ProjectOverviewPage } from "./routes/ProjectOverviewPage";
 
 function WorkspaceRestoreRoute() {
   const { workspaces, activeWorkspaceId } = useAppState();
@@ -41,6 +42,10 @@ function AppRoutes() {
         <Routes>
           <Route element={<WorkspaceRestoreRoute />} path="/" />
           <Route element={<WorkspaceOverviewPage />} path="/workspace/:workspaceId" />
+          <Route
+            element={<ProjectOverviewPage />}
+            path="/workspace/:workspaceId/project/:projectId"
+          />
           <Route element={<HomePage />} path="/project/:projectId" />
           <Route element={<ThreadPage />} path="/thread/:projectId/:threadId" />
           <Route element={<ChatPage />} path="/chat/:threadId" />

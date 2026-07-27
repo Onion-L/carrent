@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 — 建立 Workspace 三层状态基础
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 空 Workspace 概览显示“添加 Project”主动作，并说明 Carrent 不会移动或复制所选目录。
 - [ ] 选择首次出现的目录时，Carrent 原子创建一个稳定 Project 和当前 Workspace 的 Association，然后打开 Project 概览。

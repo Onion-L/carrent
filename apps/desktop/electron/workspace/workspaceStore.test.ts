@@ -23,6 +23,25 @@ describe("createWorkspaceStore", () => {
         { id: "workspace-1", name: "Personal", order: 0 },
         { id: "workspace-2", name: "Client", order: 1 },
       ],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+        {
+          workspaceId: "workspace-2",
+          projectId: "project-1",
+          alias: "Client Carrent",
+          order: 0,
+          defaultRuntimeId: "codex",
+          defaultRuntimeModelId: "gpt-5",
+          defaultRuntimeMode: "auto-accept-edits",
+        },
+      ],
       activeWorkspaceId: "workspace-2",
     };
 
@@ -40,8 +59,32 @@ describe("createWorkspaceStore", () => {
         { id: "workspace-1", name: "Personal", order: 0 },
         { id: "workspace-2", name: " personal ", order: 1 },
       ],
+      projects: [],
+      associations: [],
       activeWorkspaceId: "workspace-1",
     } as AppStateSnapshot;
+
+    let saveError: unknown;
+    try {
+      await store.saveAppStateSnapshot(snapshot);
+    } catch (error) {
+      saveError = error;
+    }
+
+    expect(String(saveError)).toContain("Invalid App State snapshot");
+    expect(await readdir(baseDir)).not.toContain("app-state.json");
+  });
+
+  it("rejects App State with an orphaned Project before writing", async () => {
+    const baseDir = await makeTempDir();
+    const store = createWorkspaceStore(baseDir);
+    const snapshot: AppStateSnapshot = {
+      version: 1,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [],
+      activeWorkspaceId: "workspace-1",
+    };
 
     let saveError: unknown;
     try {

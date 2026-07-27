@@ -3,26 +3,56 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import {
   APP_STATE_SNAPSHOT_VERSION,
   normalizeAppStateSnapshot,
+  normalizeProjectWorkingDirectory,
+  type AppProjectRecord,
   type AppStateSnapshot,
+  type WorkspaceProjectAssociationRecord,
   type WorkspaceRecord,
 } from "../../shared/workspacePersistence";
+import { DEFAULT_RUNTIME_MODE, type RuntimeMode } from "../../shared/runtimeMode";
+import { DEFAULT_RUNTIME_ID, type RuntimeId } from "../../shared/runtimes";
 
 type WorkspaceMutationResult =
   | { ok: true; workspace: WorkspaceRecord }
   | { ok: false; error: string };
 
+type ProjectMutationResult =
+  | {
+      ok: true;
+      project: AppProjectRecord;
+      association: WorkspaceProjectAssociationRecord;
+      createdAssociation: boolean;
+    }
+  | { ok: false; error: string };
+
 type AppStateContextValue = {
   hasHydrated: boolean;
   workspaces: WorkspaceRecord[];
+  projects: AppProjectRecord[];
+  associations: WorkspaceProjectAssociationRecord[];
   activeWorkspaceId: string | null;
   createWorkspace: (name: string) => Promise<WorkspaceMutationResult>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceMutationResult>;
   selectWorkspace: (workspaceId: string) => Promise<boolean>;
+  addProject: (workspaceId: string, workingDirectory: string) => Promise<ProjectMutationResult>;
+  setProjectAlias: (workspaceId: string, projectId: string, alias: string) => Promise<boolean>;
+  renameSharedProject: (projectId: string, name: string) => Promise<boolean>;
+  setAssociationDefaults: (
+    workspaceId: string,
+    projectId: string,
+    defaults: {
+      runtimeId: RuntimeId;
+      runtimeModelId?: string;
+      runtimeMode: RuntimeMode;
+    },
+  ) => Promise<boolean>;
 };
 
 const EMPTY_APP_STATE: AppStateSnapshot = {
   version: APP_STATE_SNAPSHOT_VERSION,
   workspaces: [],
+  projects: [],
+  associations: [],
   activeWorkspaceId: null,
 };
 
@@ -44,6 +74,11 @@ function validateWorkspaceName(
   if (duplicate) return { name: trimmed, error: "Workspace names must be unique." };
 
   return { name: trimmed, error: null };
+}
+
+function projectNameFromWorkingDirectory(workingDirectory: string) {
+  const normalized = normalizeProjectWorkingDirectory(workingDirectory);
+  return normalized.split("/").at(-1) || normalized;
 }
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
@@ -92,7 +127,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
       try {
         await persist({
-          version: APP_STATE_SNAPSHOT_VERSION,
+          ...snapshot,
           workspaces: [...snapshot.workspaces, workspace],
           activeWorkspaceId: workspace.id,
         });
@@ -101,7 +136,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: "Workspace could not be saved." };
       }
     },
-    [persist, snapshot.workspaces],
+    [persist, snapshot],
   );
 
   const renameWorkspace = useCallback(
@@ -137,15 +172,155 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [persist, snapshot],
   );
 
+  const addProject = useCallback(
+    async (workspaceId: string, value: string): Promise<ProjectMutationResult> => {
+      if (!snapshot.workspaces.some((workspace) => workspace.id === workspaceId)) {
+        return { ok: false, error: "Workspace not found." };
+      }
+
+      const workingDirectory = normalizeProjectWorkingDirectory(value);
+      if (!workingDirectory) return { ok: false, error: "Project directory is required." };
+
+      const existingProject = snapshot.projects.find(
+        (project) => project.workingDirectory === workingDirectory,
+      );
+      const project: AppProjectRecord = existingProject ?? {
+        id: `project-${crypto.randomUUID()}`,
+        name: projectNameFromWorkingDirectory(workingDirectory),
+        workingDirectory,
+      };
+      const existingAssociation = snapshot.associations.find(
+        (association) =>
+          association.workspaceId === workspaceId && association.projectId === project.id,
+      );
+      if (existingAssociation) {
+        return {
+          ok: true,
+          project,
+          association: existingAssociation,
+          createdAssociation: false,
+        };
+      }
+
+      const association: WorkspaceProjectAssociationRecord = {
+        workspaceId,
+        projectId: project.id,
+        order: snapshot.associations.filter((item) => item.workspaceId === workspaceId).length,
+        defaultRuntimeId: DEFAULT_RUNTIME_ID,
+        defaultRuntimeMode: DEFAULT_RUNTIME_MODE,
+      };
+
+      try {
+        await persist({
+          ...snapshot,
+          projects: existingProject ? snapshot.projects : [...snapshot.projects, project],
+          associations: [...snapshot.associations, association],
+        });
+        return { ok: true, project, association, createdAssociation: true };
+      } catch {
+        return { ok: false, error: "Project could not be saved." };
+      }
+    },
+    [persist, snapshot],
+  );
+
+  const setProjectAlias = useCallback(
+    async (workspaceId: string, projectId: string, value: string) => {
+      const alias = value.trim();
+      const association = snapshot.associations.find(
+        (item) => item.workspaceId === workspaceId && item.projectId === projectId,
+      );
+      if (!association) return false;
+
+      try {
+        await persist({
+          ...snapshot,
+          associations: snapshot.associations.map((item) => {
+            if (item !== association) return item;
+            const { alias: _alias, ...withoutAlias } = item;
+            return alias ? { ...withoutAlias, alias } : withoutAlias;
+          }),
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [persist, snapshot],
+  );
+
+  const renameSharedProject = useCallback(
+    async (projectId: string, value: string) => {
+      const name = value.trim();
+      if (!name || !snapshot.projects.some((project) => project.id === projectId)) return false;
+      try {
+        await persist({
+          ...snapshot,
+          projects: snapshot.projects.map((project) =>
+            project.id === projectId ? { ...project, name } : project,
+          ),
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [persist, snapshot],
+  );
+
+  const setAssociationDefaults = useCallback(
+    async (
+      workspaceId: string,
+      projectId: string,
+      defaults: {
+        runtimeId: RuntimeId;
+        runtimeModelId?: string;
+        runtimeMode: RuntimeMode;
+      },
+    ) => {
+      const association = snapshot.associations.find(
+        (item) => item.workspaceId === workspaceId && item.projectId === projectId,
+      );
+      if (!association) return false;
+      const runtimeModelId = defaults.runtimeModelId?.trim() || undefined;
+
+      try {
+        await persist({
+          ...snapshot,
+          associations: snapshot.associations.map((item) => {
+            if (item !== association) return item;
+            const { defaultRuntimeModelId: _model, ...withoutModel } = item;
+            return {
+              ...withoutModel,
+              defaultRuntimeId: defaults.runtimeId,
+              ...(runtimeModelId ? { defaultRuntimeModelId: runtimeModelId } : {}),
+              defaultRuntimeMode: defaults.runtimeMode,
+            };
+          }),
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [persist, snapshot],
+  );
+
   return (
     <AppStateContext.Provider
       value={{
         hasHydrated,
         workspaces: snapshot.workspaces,
+        projects: snapshot.projects,
+        associations: snapshot.associations,
         activeWorkspaceId: snapshot.activeWorkspaceId,
         createWorkspace,
         renameWorkspace,
         selectWorkspace,
+        addProject,
+        setProjectAlias,
+        renameSharedProject,
+        setAssociationDefaults,
       }}
     >
       {children}

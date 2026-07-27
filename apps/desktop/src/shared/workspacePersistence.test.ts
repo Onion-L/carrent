@@ -1,8 +1,82 @@
 import { describe, expect, it } from "bun:test";
 
 import type { MessagePart } from "../renderer/mock/uiShellData";
-import { WORKSPACE_SNAPSHOT_VERSION, normalizeWorkspaceSnapshot } from "./workspacePersistence";
+import {
+  APP_STATE_SNAPSHOT_VERSION,
+  WORKSPACE_SNAPSHOT_VERSION,
+  normalizeAppStateSnapshot,
+  normalizeWorkspaceSnapshot,
+} from "./workspacePersistence";
 import { MAX_RUN_CHECKLIST_ITEM_BYTES, MAX_RUN_CHECKLIST_ITEMS } from "./runChecklist";
+
+describe("normalizeAppStateSnapshot", () => {
+  it("round-trips Projects and Workspace-Project Associations", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [
+        { id: "workspace-1", name: "Personal", order: 0 },
+        { id: "workspace-2", name: "Client", order: 1 },
+      ],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          alias: "Personal Carrent",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+        {
+          workspaceId: "workspace-2",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "codex",
+          defaultRuntimeModelId: "gpt-5",
+          defaultRuntimeMode: "auto-accept-edits",
+        },
+      ],
+      activeWorkspaceId: "workspace-2",
+    };
+
+    expect(normalizeAppStateSnapshot(snapshot)).toEqual(snapshot);
+  });
+
+  it("rejects duplicate Project directories and broken Association references", () => {
+    const base = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      activeWorkspaceId: "workspace-1",
+    };
+
+    expect(
+      normalizeAppStateSnapshot({
+        ...base,
+        projects: [
+          ...base.projects,
+          { id: "project-2", name: "Duplicate", workingDirectory: "/code/other/../carrent/" },
+        ],
+      }),
+    ).toBe(null);
+    expect(
+      normalizeAppStateSnapshot({
+        ...base,
+        associations: [{ ...base.associations[0], projectId: "missing-project" }],
+      }),
+    ).toBe(null);
+    expect(normalizeAppStateSnapshot({ ...base, associations: [] })).toBe(null);
+  });
+});
 
 describe("normalizeWorkspaceSnapshot", () => {
   it("accepts a valid current snapshot", () => {

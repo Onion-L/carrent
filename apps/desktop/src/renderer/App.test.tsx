@@ -20,12 +20,24 @@ const legacySnapshot: WorkspaceSnapshot = {
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 
-function installBridge(appState: AppStateSnapshot | null, saved: AppStateSnapshot[]) {
+function installBridge(
+  appState: AppStateSnapshot | null,
+  saved: AppStateSnapshot[],
+  selectedDirectories: string[] = [],
+) {
   window.carrent = {
     appState: {
       load: async () => appState,
       save: async (snapshot: AppStateSnapshot) => {
         saved.push(structuredClone(snapshot));
+      },
+    },
+    dialog: {
+      openDirectory: async () => {
+        const selected = selectedDirectories.shift();
+        return selected
+          ? { canceled: false, filePaths: [selected] }
+          : { canceled: true, filePaths: [] };
       },
     },
     workspace: {
@@ -54,9 +66,13 @@ function installBridge(appState: AppStateSnapshot | null, saved: AppStateSnapsho
   } as unknown as Window["carrent"];
 }
 
-async function renderApp(appState: AppStateSnapshot | null, initialEntry = "/") {
+async function renderApp(
+  appState: AppStateSnapshot | null,
+  initialEntry = "/",
+  selectedDirectories: string[] = [],
+) {
   const saved: AppStateSnapshot[] = [];
-  installBridge(appState, saved);
+  installBridge(appState, saved, selectedDirectories);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -137,6 +153,8 @@ describe("Workspace App State foundation", () => {
           { id: "workspace-1", name: "Personal", order: 0 },
           { id: "workspace-2", name: "Client", order: 1 },
         ],
+        projects: [],
+        associations: [],
         activeWorkspaceId: "workspace-1",
       },
       "/workspace/workspace-1",
@@ -184,6 +202,8 @@ describe("Workspace App State foundation", () => {
         { id: "workspace-1", name: "Personal", order: 0 },
         { id: "workspace-2", name: "Client", order: 1 },
       ],
+      projects: [],
+      associations: [],
       activeWorkspaceId: "workspace-2",
     });
 
@@ -200,6 +220,8 @@ describe("Workspace App State foundation", () => {
           { id: "workspace-1", name: "Personal", order: 0 },
           { id: "workspace-2", name: "Client", order: 1 },
         ],
+        projects: [],
+        associations: [],
         activeWorkspaceId: "workspace-1",
       },
       "/workspace/workspace-2",
@@ -212,5 +234,177 @@ describe("Workspace App State foundation", () => {
     expect(saved.at(-1)?.activeWorkspaceId).toBe("workspace-2");
     expect(container!.querySelector("h1")?.textContent).toBe("Client");
     expect(buttonNamed("Client").getAttribute("aria-current")).toBe("page");
+  });
+});
+
+describe("Workspace Projects and Associations", () => {
+  const emptyWorkspaceState: AppStateSnapshot = {
+    version: 1,
+    workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+    projects: [],
+    associations: [],
+    activeWorkspaceId: "workspace-1",
+  };
+
+  it("adds a new Project and Association atomically, then opens its overview", async () => {
+    const saved = await renderApp(emptyWorkspaceState, "/workspace/workspace-1", ["/code/carrent"]);
+
+    expect(container!.textContent).toContain(
+      "Carrent never moves or copies the selected directory.",
+    );
+    await click(buttonNamed("Add Project"));
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0].projects).toEqual([
+      {
+        id: saved[0].projects[0].id,
+        name: "carrent",
+        workingDirectory: "/code/carrent",
+      },
+    ]);
+    expect(saved[0].associations).toEqual([
+      {
+        workspaceId: "workspace-1",
+        projectId: saved[0].projects[0].id,
+        order: 0,
+        defaultRuntimeId: "kimi",
+        defaultRuntimeMode: "approval-required",
+      },
+    ]);
+    expect(container!.querySelector("h1")?.textContent).toBe("carrent");
+    expect(container!.textContent).toContain("/code/carrent");
+  });
+
+  it("reuses a known Project across Workspaces and ignores a duplicate Association", async () => {
+    const state: AppStateSnapshot = {
+      version: 1,
+      workspaces: [
+        { id: "workspace-1", name: "Personal", order: 0 },
+        { id: "workspace-2", name: "Client", order: 1 },
+      ],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      activeWorkspaceId: "workspace-2",
+    };
+    const saved = await renderApp(state, "/workspace/workspace-2", [
+      "/code/carrent",
+      "/code/carrent",
+    ]);
+
+    await click(buttonNamed("Add Project"));
+    expect(saved).toHaveLength(1);
+    expect(saved[0].projects).toEqual(state.projects);
+    expect(saved[0].associations).toHaveLength(2);
+    expect(saved[0].associations[1]).toMatchObject({
+      workspaceId: "workspace-2",
+      projectId: "project-1",
+      order: 0,
+    });
+
+    await click(buttonNamed("Add Project"));
+    expect(saved).toHaveLength(1);
+  });
+
+  function sharedProjectState(): AppStateSnapshot {
+    return {
+      version: 1,
+      workspaces: [
+        { id: "workspace-1", name: "Personal", order: 0 },
+        { id: "workspace-2", name: "Client", order: 1 },
+      ],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+        {
+          workspaceId: "workspace-2",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      activeWorkspaceId: "workspace-1",
+    };
+  }
+
+  it("sets and clears a Workspace-local Project alias", async () => {
+    const state = sharedProjectState();
+    const saved = await renderApp(state, "/workspace/workspace-1/project/project-1");
+
+    const aliasInput = container!.querySelector<HTMLInputElement>('input[name="projectAlias"]')!;
+    await fillInput(aliasInput, "Personal Carrent");
+    await click(buttonNamed("Save Alias"));
+
+    expect(saved.at(-1)?.associations[0].alias).toBe("Personal Carrent");
+    expect(saved.at(-1)?.associations[1]).toEqual(state.associations[1]);
+    expect(container!.querySelector("h1")?.textContent).toBe("Personal Carrent");
+
+    const savedAliasInput = container!.querySelector<HTMLInputElement>(
+      'input[name="projectAlias"]',
+    )!;
+    await fillInput(savedAliasInput, "");
+    await click(buttonNamed("Save Alias"));
+    expect(saved.at(-1)?.associations[0].alias).toBeUndefined();
+    expect(container!.querySelector("h1")?.textContent).toBe("Carrent");
+  });
+
+  it("updates Thread defaults for only the current Association", async () => {
+    const state = sharedProjectState();
+    const saved = await renderApp(state, "/workspace/workspace-1/project/project-1");
+
+    const runtimeSelect = container!.querySelector<HTMLSelectElement>(
+      'select[name="defaultRuntimeId"]',
+    )!;
+    await act(async () => {
+      runtimeSelect.value = "codex";
+      runtimeSelect.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+    const modelInput = container!.querySelector<HTMLInputElement>(
+      'input[name="defaultRuntimeModelId"]',
+    )!;
+    await fillInput(modelInput, "gpt-5");
+    const modeSelect = container!.querySelector<HTMLSelectElement>(
+      'select[name="defaultRuntimeMode"]',
+    )!;
+    await act(async () => {
+      modeSelect.value = "full-access";
+      modeSelect.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+    await click(buttonNamed("Save Thread Defaults"));
+
+    expect(saved.at(-1)?.associations[0]).toMatchObject({
+      defaultRuntimeId: "codex",
+      defaultRuntimeModelId: "gpt-5",
+      defaultRuntimeMode: "full-access",
+    });
+    expect(saved.at(-1)?.associations[1]).toEqual(state.associations[1]);
+  });
+
+  it("warns and renames the shared Project across Associations", async () => {
+    const saved = await renderApp(sharedProjectState(), "/workspace/workspace-1/project/project-1");
+
+    const sharedNameInput = container!.querySelector<HTMLInputElement>(
+      'input[name="sharedProjectName"]',
+    )!;
+    await fillInput(sharedNameInput, "Carrent Desktop");
+    expect(container!.textContent).toContain("affects every associated Workspace");
+    await click(buttonNamed("Save Shared Name"));
+
+    expect(saved.at(-1)?.projects[0].name).toBe("Carrent Desktop");
+    expect(container!.querySelector("h1")?.textContent).toBe("Carrent Desktop");
   });
 });

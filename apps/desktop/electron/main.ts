@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, dialog, clipboard } from "electron";
 import { existsSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -106,7 +107,10 @@ app.whenReady().then(async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openDirectory"],
     });
-    return result;
+    return {
+      ...result,
+      filePaths: await Promise.all(result.filePaths.map((filePath) => realpath(filePath))),
+    };
   });
 
   ipcMain.handle("shell:open-path", async (_event, filePath: string) => {

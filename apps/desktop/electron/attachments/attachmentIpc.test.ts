@@ -23,9 +23,16 @@ function createMockStore(): {
           storageKey: "attachment-1.png",
         };
       },
-      async readAttachment() {
+      async readAttachment(storageKey) {
+        if (typeof storageKey !== "string") throw new Error("Raw attachment reads are forbidden.");
         if (!stored) {
           throw new Error("Not found");
+        }
+        return stored;
+      },
+      async readVerifiedAttachment(attachment) {
+        if (!stored || stored.byteLength !== attachment.size) {
+          throw new Error("Attachment file is unavailable.");
         }
         return stored;
       },
@@ -35,7 +42,13 @@ function createMockStore(): {
       resolvePath(storageKey) {
         return `/tmp/attachments/${storageKey}`;
       },
+      resolveVerifiedPath(attachment) {
+        return `/tmp/attachments/${attachment.storageKey}`;
+      },
       async deleteAttachments() {},
+      async deleteOrphanedAttachments() {
+        return [];
+      },
     },
     lastStoreInput: () => lastInput,
   };
@@ -86,7 +99,7 @@ describe("registerAttachmentIpc", () => {
   it("attachments:read returns stored bytes", async () => {
     const { handlers } = registerWithMockStore();
 
-    await handlers.get("attachments:store")?.(
+    const metadata = await handlers.get("attachments:store")?.(
       {},
       {
         name: "test.png",
@@ -95,7 +108,7 @@ describe("registerAttachmentIpc", () => {
       },
     );
 
-    const read = (await handlers.get("attachments:read")?.({}, "attachment-1.png")) as Uint8Array;
+    const read = (await handlers.get("attachments:read")?.({}, metadata)) as Uint8Array;
     expect(read).toEqual(new Uint8Array([4, 5, 6]));
   });
 

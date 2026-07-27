@@ -166,6 +166,60 @@ function createChatSessionManager(
 }
 
 describe("createChatSessionManager", () => {
+  it("does not dispatch an unavailable attachment and still allows the next Run", () => {
+    const emitted: ChatRunEvent[] = [];
+    let spawnCount = 0;
+    const manager = createChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        spawnCount += 1;
+        return createMockChildProcess();
+      },
+      attachmentStore: {
+        storeAttachment: async () => {
+          throw new Error("not used");
+        },
+        readAttachment: async () => new Uint8Array(),
+        readVerifiedAttachment: async () => {
+          throw new Error("Attachment file is unavailable.");
+        },
+        resolveRoot: () => "/tmp/attachments",
+        resolvePath: (key) => `/tmp/attachments/${key}`,
+        resolveVerifiedPath: () => {
+          throw new Error("Attachment file is unavailable.");
+        },
+        deleteAttachments: async () => {},
+        deleteOrphanedAttachments: async () => [],
+      },
+    });
+
+    manager.start(
+      "run-unavailable",
+      makeRequest({
+        attachments: [
+          {
+            id: "attachment-1",
+            kind: "file",
+            name: "missing.ts",
+            mimeType: "text/plain",
+            size: 10,
+            storageKey: "missing.ts",
+          },
+        ],
+      }),
+    );
+    manager.start("run-next", makeRequest({ message: "Continue without it" }));
+
+    expect(spawnCount).toBe(1);
+    const failed = emitted.find((event) => event.type === "failed");
+    expect(failed).toEqual({
+      type: "failed",
+      runId: "run-unavailable",
+      requestKey: undefined,
+      error: "Attachment file is unavailable.",
+    });
+  });
+
   it("emits started, delta, and completed for a successful codex run", async () => {
     const mockChild = createMockChildProcess();
     const emitted: ChatRunEvent[] = [];
@@ -4164,11 +4218,14 @@ describe("createChatSessionManager", () => {
           throw new Error("not used");
         },
         readAttachment: async () => new Uint8Array(),
+        readVerifiedAttachment: async () => new Uint8Array(),
         resolveRoot: () => "/tmp/attachments",
         resolvePath: (key) => `/tmp/attachments/${key}`,
+        resolveVerifiedPath: (attachment) => `/tmp/attachments/${attachment.storageKey}`,
         deleteAttachments: async (keys) => {
           deletedAttachments.push(keys);
         },
+        deleteOrphanedAttachments: async () => [],
       },
     });
 
@@ -4302,11 +4359,14 @@ describe("createChatSessionManager", () => {
           throw new Error("not used");
         },
         readAttachment: async () => new Uint8Array(),
+        readVerifiedAttachment: async () => new Uint8Array(),
         resolveRoot: () => "/tmp/attachments",
         resolvePath: (storageKey) => `/tmp/attachments/${storageKey}`,
+        resolveVerifiedPath: (attachment) => `/tmp/attachments/${attachment.storageKey}`,
         deleteAttachments: async () => {
           throw new Error("attachment cleanup failed");
         },
+        deleteOrphanedAttachments: async () => [],
       },
     });
 
@@ -4355,11 +4415,14 @@ describe("createChatSessionManager", () => {
           throw new Error("not used");
         },
         readAttachment: async () => new Uint8Array(),
+        readVerifiedAttachment: async () => new Uint8Array(),
         resolveRoot: () => "/tmp/attachments",
         resolvePath: (storageKey) => `/tmp/attachments/${storageKey}`,
+        resolveVerifiedPath: (attachment) => `/tmp/attachments/${attachment.storageKey}`,
         deleteAttachments: async () => {
           throw new Error("attachment cleanup failed");
         },
+        deleteOrphanedAttachments: async () => [],
       },
     });
 

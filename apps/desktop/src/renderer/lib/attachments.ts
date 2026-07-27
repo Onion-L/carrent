@@ -17,6 +17,7 @@ export type PendingAttachment = {
   file: File;
   previewUrl?: string;
   metadata?: AttachmentMetadata;
+  unavailable?: true;
 };
 
 export function pendingAttachmentFromFile(
@@ -42,6 +43,21 @@ export function pendingAttachmentFromMetadata(
 ): PendingAttachment {
   const file = new File([data as BlobPart], metadata.name, { type: metadata.mimeType });
   return pendingAttachmentFromFile(file, metadata);
+}
+
+export function pendingAttachmentFromUnavailableMetadata(
+  metadata: AttachmentMetadata,
+): PendingAttachment {
+  return {
+    id: metadata.id,
+    file: new File([], metadata.name, { type: metadata.mimeType }),
+    metadata,
+    unavailable: true,
+  };
+}
+
+export function hasUnavailablePendingAttachments(attachments: PendingAttachment[]): boolean {
+  return attachments.some((attachment) => attachment.unavailable === true);
 }
 
 export function isPendingImageAttachment(attachment: PendingAttachment): boolean {

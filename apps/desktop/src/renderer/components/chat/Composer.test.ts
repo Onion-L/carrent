@@ -187,6 +187,18 @@ describe("canSubmitComposerContent", () => {
       }),
     ).toBe(true);
   });
+
+  it("blocks a Draft send while a persisted attachment is unavailable", () => {
+    expect(
+      canSubmitComposerContent({
+        content: "send this",
+        attachedSkillCount: 0,
+        attachmentCount: 1,
+        isPreparingAttachments: false,
+        hasUnavailableAttachments: true,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("shouldRemoveLastSkillOnBackspace", () => {
@@ -1236,6 +1248,23 @@ describe("thread draft persistence", () => {
     });
 
     expect(draft?.attachments).toEqual([]);
+  });
+
+  it("retains unavailable attachment metadata so the user can remove it", () => {
+    const draft = buildThreadDraftSnapshot({
+      content: "hi",
+      attachedSkills: [],
+      pendingAttachments: [
+        {
+          id: "missing",
+          file: new File([], "main.ts", { type: "text/plain" }),
+          metadata: fileMetadata,
+          unavailable: true,
+        },
+      ],
+    });
+
+    expect(draft?.attachments).toEqual([fileMetadata]);
   });
 });
 

@@ -20,9 +20,15 @@ export type AttachmentMetadata = {
   mimeType: string;
   size: number;
   storageKey: string;
+  sha256?: string;
   width?: number;
   height?: number;
 };
+
+export type AttachmentIntegrityMetadata = Pick<
+  AttachmentMetadata,
+  "storageKey" | "size" | "sha256"
+>;
 
 export type Attachment = AttachmentMetadata & {
   localPath?: string;

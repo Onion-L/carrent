@@ -457,9 +457,7 @@ export function prepareThreadDataDeletion(
     if (![...owners].some((threadId) => deletedThreadIds.has(threadId))) {
       continue;
     }
-    if (owners.size > 1) {
-      throw new Error("An attachment is shared by multiple threads and cannot be deleted safely.");
-    }
+    if ([...owners].some((threadId) => !deletedThreadIds.has(threadId))) continue;
     attachmentStorageKeys.push(storageKey);
   }
 
@@ -1123,6 +1121,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       ...(appStateSnapshots.afterAppState.threadDrafts ?? []).flatMap((draft) =>
         draft.attachments.map((attachment) => attachment.storageKey),
       ),
+      ...(appStateSnapshots.afterAppState.threadPromotionIntents ?? []).flatMap((intent) =>
+        intent.attachments.map((attachment) => attachment.storageKey),
+      ),
     ]);
     const removedAppStateAttachmentKeys = [
       ...(appStateSnapshots.beforeAppState.threadMessages ?? []).flatMap((message) =>
@@ -1131,10 +1132,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       ...(appStateSnapshots.beforeAppState.threadDrafts ?? []).flatMap((draft) =>
         draft.attachments.map((attachment) => attachment.storageKey),
       ),
+      ...(appStateSnapshots.beforeAppState.threadPromotionIntents ?? []).flatMap((intent) =>
+        intent.attachments.map((attachment) => attachment.storageKey),
+      ),
     ].filter((storageKey) => !remainingAppStateAttachmentKeys.has(storageKey));
     const attachmentStorageKeys = [
       ...new Set([...deletion.request.attachmentStorageKeys, ...removedAppStateAttachmentKeys]),
-    ];
+    ].filter((storageKey) => !remainingAppStateAttachmentKeys.has(storageKey));
     const nextProjects = projects
       .filter((project) => remainingProjectIds.has(project.id))
       .map((project) => ({

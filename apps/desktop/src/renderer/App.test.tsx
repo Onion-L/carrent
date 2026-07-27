@@ -2484,6 +2484,44 @@ describe("Archived Thread lifecycle", () => {
         runtimeMode: "approval-required",
         planMode: false,
       },
+      {
+        id: "draft-2",
+        threadId: "draft-thread-2",
+        workspaceId: "workspace-2",
+        projectId: "project-1",
+        content: "Keep this draft",
+        attachedSkillNames: [],
+        attachments: [],
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
+    ];
+    appState.threadPromotionIntents = [
+      {
+        draftId: "draft-2",
+        threadId: "draft-thread-2",
+        workspaceId: "workspace-2",
+        projectId: "project-1",
+        title: "Keep this promotion",
+        runId: "run-promotion-2",
+        messageId: "message-promotion-2",
+        message: "Keep this promotion",
+        attachments: [
+          {
+            id: "promotion-attachment-shared",
+            kind: "file",
+            name: "shared.txt",
+            mimeType: "text/plain",
+            size: 5,
+            storageKey: "attachment-1.txt",
+          },
+        ],
+        startedAt: "2026-07-27T02:00:00.000Z",
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
     ];
     const cleanupRequests: DeleteThreadDataRequest[] = [];
     let confirmation = "";
@@ -2513,7 +2551,7 @@ describe("Archived Thread lifecycle", () => {
     expect(cleanupRequests).toEqual([
       {
         threadIds: ["thread-1", "draft-thread-1"],
-        attachmentStorageKeys: ["attachment-1.txt", "draft-attachment-1.txt"],
+        attachmentStorageKeys: ["draft-attachment-1.txt"],
       },
     ]);
     expect(saved.at(-1)?.associations).toEqual([appState.associations[1]]);
@@ -2521,7 +2559,8 @@ describe("Archived Thread lifecycle", () => {
     expect(saved.at(-1)?.threads).toEqual([
       appState.threads?.find((thread) => thread.id === "thread-2"),
     ]);
-    expect(saved.at(-1)?.threadDrafts).toEqual([]);
+    expect(saved.at(-1)?.threadDrafts).toEqual([appState.threadDrafts[1]]);
+    expect(saved.at(-1)?.threadPromotionIntents).toEqual(appState.threadPromotionIntents);
     expect(saved.at(-1)?.threadMessages).toEqual([]);
     expect(saved.at(-1)?.threadRuns).toEqual([]);
   });

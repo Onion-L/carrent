@@ -13,6 +13,8 @@ export type StoredLightboxItem = {
   name: string;
   storageKey: string;
   mimeType?: string;
+  size: number;
+  sha256?: string;
 };
 
 export type LightboxItem = LightboxAttachmentItem | StoredLightboxItem;
@@ -46,12 +48,12 @@ export async function createStoredLightboxObjectUrl({
   isCancelled,
 }: {
   item: StoredLightboxItem;
-  readAttachment: (storageKey: string) => Promise<Uint8Array>;
+  readAttachment: (item: StoredLightboxItem) => Promise<Uint8Array>;
   createObjectUrl: (blob: Blob) => string;
   revokeObjectUrl: (url: string) => void;
   isCancelled: () => boolean;
 }): Promise<string | null> {
-  const data = await readAttachment(item.storageKey);
+  const data = await readAttachment(item);
   const blob = new Blob([data.slice()], { type: item.mimeType ?? "image/*" });
   const url = createObjectUrl(blob);
   if (isCancelled()) {
@@ -108,7 +110,7 @@ export function ImageAttachmentLightbox({
 
     void createStoredLightboxObjectUrl({
       item: currentItem,
-      readAttachment: (storageKey) => window.carrent.attachments.read(storageKey),
+      readAttachment: (storedItem) => window.carrent.attachments.read(storedItem),
       createObjectUrl: (blob) => URL.createObjectURL(blob),
       revokeObjectUrl: (url) => URL.revokeObjectURL(url),
       isCancelled: () => cancelled,

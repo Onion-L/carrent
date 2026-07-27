@@ -363,7 +363,7 @@ describe("thread data deletion", () => {
     expect(messages).toEqual([makeMessage({ id: "delete", threadId: "thread-1" })]);
   });
 
-  it("rejects deletion when an attachment is shared across threads", () => {
+  it("preserves an attachment shared with a surviving thread", () => {
     const messages = [
       makeMessage({
         id: "one",
@@ -377,15 +377,10 @@ describe("thread data deletion", () => {
       }),
     ];
 
-    let error: unknown;
-    try {
-      prepareThreadDataDeletion(messages, ["thread-1"]);
-    } catch (caught) {
-      error = caught;
-    }
-    expect(error instanceof Error ? error.message : String(error)).toContain(
-      "shared by multiple threads",
-    );
+    expect(prepareThreadDataDeletion(messages, ["thread-1"]).request).toEqual({
+      threadIds: ["thread-1"],
+      attachmentStorageKeys: [],
+    });
   });
 
   it("collects draft and queue attachment keys owned by a deleted thread", () => {
@@ -434,7 +429,7 @@ describe("thread data deletion", () => {
     });
   });
 
-  it("rejects deletion when a deleted thread's draft shares a key with a survivor", () => {
+  it("preserves a deleted thread draft attachment shared with a survivor", () => {
     const messages = [
       makeMessage({
         id: "keep",
@@ -453,15 +448,10 @@ describe("thread data deletion", () => {
       },
     };
 
-    let error: unknown;
-    try {
-      prepareThreadDataDeletion(messages, ["thread-1"], threadWork);
-    } catch (caught) {
-      error = caught;
-    }
-    expect(error instanceof Error ? error.message : String(error)).toContain(
-      "shared by multiple threads",
-    );
+    expect(prepareThreadDataDeletion(messages, ["thread-1"], threadWork).request).toEqual({
+      threadIds: ["thread-1"],
+      attachmentStorageKeys: [],
+    });
   });
 
   it("treats a deleted thread's message and its own queue as one owner", () => {

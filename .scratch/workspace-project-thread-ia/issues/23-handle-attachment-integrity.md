@@ -4,7 +4,7 @@
 
 **Blocked by:** 15 — 从 Association Draft 创建 Thread；20 — 添加 Association 与 Workspace 级联移除
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 已发送消息引用的附件缺失、损坏或无法读取时，消息和 Thread 历史继续显示，附件标记为“文件不可用”。
 - [ ] 不可用历史附件不能预览、读取或传给 Runtime，也不得回退读取原始来源路径，但不阻止 Thread 的后续 Run。

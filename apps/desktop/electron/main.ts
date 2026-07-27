@@ -28,6 +28,7 @@ import {
 } from "./workspace/projectDirectory";
 import type { WorkspaceStore } from "./workspace/workspaceStore";
 import { createAttachmentStore } from "./attachments/attachmentStore";
+import { reconcileAttachmentsAfterValidStateLoad } from "./attachments/attachmentReconciliation";
 import { registerAttachmentIpc } from "./attachments/attachmentIpc";
 import { registerSkillIpc } from "./skills/skillIpc";
 import { registerGitIpc } from "./git/gitIpc";
@@ -126,6 +127,11 @@ app.whenReady().then(async () => {
     journalStore: threadDeletionJournalStore,
     workspaceStore: store,
     attachmentStore: transactionAttachmentStore,
+  });
+  await reconcileAttachmentsAfterValidStateLoad({
+    appState: await store.loadAppStateSnapshot(),
+    workspace: await store.loadWorkspaceSnapshot(),
+    deleteOrphanedAttachments: attachmentStore.deleteOrphanedAttachments,
   });
   registerAttachmentIpc(ipcMain, { attachmentStore });
   registerSkillIpc(ipcMain);

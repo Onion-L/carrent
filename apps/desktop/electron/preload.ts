@@ -5,6 +5,7 @@ import type {
   DeleteThreadDataRequest,
   ThreadDeletionTransactionRequest,
   AttachmentMetadata,
+  AttachmentIntegrityMetadata,
 } from "../src/shared/chat";
 import type { ChatPermissionResponse } from "../src/shared/chatPermissions";
 import type { ChatQuestionResponse } from "../src/shared/chatQuestions";
@@ -73,8 +74,8 @@ const carrent = {
   attachments: {
     store: (input: { name: string; mimeType: string; data: Uint8Array }) =>
       ipcRenderer.invoke("attachments:store", input) as Promise<AttachmentMetadata>,
-    read: (storageKey: string) =>
-      ipcRenderer.invoke("attachments:read", storageKey) as Promise<Uint8Array>,
+    read: (metadata: AttachmentIntegrityMetadata) =>
+      ipcRenderer.invoke("attachments:read", metadata) as Promise<Uint8Array>,
   },
   skills: {
     list: () => ipcRenderer.invoke("skills:list") as Promise<SkillRecord[]>,

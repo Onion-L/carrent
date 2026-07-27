@@ -30,6 +30,7 @@ describe("ImageAttachmentLightbox", () => {
         name: "image.png",
         storageKey: "image-1.png",
         mimeType: "image/png",
+        size: 3,
       },
       readAttachment: async () => new Uint8Array([1, 2, 3]),
       createObjectUrl: (blob) => {
@@ -53,6 +54,7 @@ describe("ImageAttachmentLightbox", () => {
       name: "image.png",
       storageKey: "image-1.png",
       mimeType: "image/png",
+      size: 1,
     };
 
     const firstUrl = await createStoredLightboxObjectUrl({

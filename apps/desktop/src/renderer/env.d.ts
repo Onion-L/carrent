@@ -12,6 +12,7 @@ import type {
   DeleteThreadDataRequest,
   ThreadDeletionTransactionRequest,
   AttachmentMetadata,
+  AttachmentIntegrityMetadata,
   KimiSessionStatus,
 } from "../shared/chat";
 import type { ChatPermissionResponse } from "../shared/chatPermissions";
@@ -74,7 +75,7 @@ declare global {
           mimeType: string;
           data: Uint8Array;
         }) => Promise<AttachmentMetadata>;
-        read: (storageKey: string) => Promise<Uint8Array>;
+        read: (metadata: AttachmentIntegrityMetadata) => Promise<Uint8Array>;
       };
       skills: {
         list: () => Promise<SkillRecord[]>;

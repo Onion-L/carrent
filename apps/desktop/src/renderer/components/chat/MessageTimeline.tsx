@@ -133,7 +133,7 @@ function StoredAttachmentThumbnail({
     let objectUrl: string | null = null;
 
     window.carrent.attachments
-      .read(attachment.storageKey)
+      .read(attachment)
       .then((data) => {
         const blob = new Blob([data.slice()], { type: attachment.mimeType });
         objectUrl = URL.createObjectURL(blob);
@@ -162,7 +162,7 @@ function StoredAttachmentThumbnail({
         title={attachment.name}
         className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border-strong bg-surface text-app-11 text-muted"
       >
-        {failed ? "Missing" : "..."}
+        {failed ? "文件不可用" : "..."}
       </div>
     );
   }
@@ -174,13 +174,29 @@ function StoredAttachmentThumbnail({
       className="shrink-0 overflow-hidden rounded-lg border border-border-strong"
       title={attachment.name}
     >
-      <img src={url} alt={attachment.name} className="h-16 w-16 object-cover" />
+      <img
+        src={url}
+        alt={attachment.name}
+        className="h-16 w-16 object-cover"
+        onError={() => setFailed(true)}
+      />
     </button>
   );
 }
 
 function FileAttachmentRow({ attachment }: { attachment: AttachmentMetadata }) {
   const FileIcon = FILE_ATTACHMENT_ICONS[fileAttachmentIconKind(attachment.name)];
+  const [unavailable, setUnavailable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.carrent.attachments.read(attachment).catch(() => {
+      if (!cancelled) setUnavailable(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [attachment]);
 
   return (
     <div title={attachment.name} className="flex h-7 items-center gap-2">
@@ -189,7 +205,7 @@ function FileAttachmentRow({ attachment }: { attachment: AttachmentMetadata }) {
         {attachment.name}
       </span>
       <span className="shrink-0 text-app-11 leading-4 text-subtle">
-        {formatAttachmentSize(attachment.size)}
+        {unavailable ? "文件不可用" : formatAttachmentSize(attachment.size)}
       </span>
     </div>
   );
@@ -274,6 +290,8 @@ function UserMessage({
       name: attachment.name,
       storageKey: attachment.storageKey,
       mimeType: attachment.mimeType,
+      size: attachment.size,
+      ...(attachment.sha256 ? { sha256: attachment.sha256 } : {}),
     })) ?? [];
   const editedContent = buildUserMessageEditContent(editState.prefix, draftBody);
   const canSubmitEdit = !!editedContent.trim();

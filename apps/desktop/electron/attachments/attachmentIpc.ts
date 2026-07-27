@@ -1,9 +1,11 @@
 import type { AttachmentStore } from "./attachmentStore";
-import type { AttachmentKind } from "../../src/shared/chat";
+import type { AttachmentIntegrityMetadata, AttachmentKind } from "../../src/shared/chat";
 import {
   MAX_ATTACHMENT_MIME_TYPE_CHARS,
   MAX_ATTACHMENT_NAME_BYTES,
+  assertValidAttachmentStorageKey,
   classifyAttachmentBytes,
+  isValidAttachmentSha256,
   validateAttachmentSelection,
 } from "../../src/shared/attachment";
 
@@ -77,13 +79,35 @@ function readStoreInput(input: unknown): {
   };
 }
 
+function readIntegrityMetadata(input: unknown): AttachmentIntegrityMetadata {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new Error("Invalid attachment metadata.");
+  }
+  const record = input as Record<string, unknown>;
+  if (
+    typeof record.storageKey !== "string" ||
+    typeof record.size !== "number" ||
+    !Number.isFinite(record.size) ||
+    record.size < 0 ||
+    (record.sha256 !== undefined &&
+      !isValidAttachmentSha256(record.sha256))
+  ) {
+    throw new Error("Invalid attachment metadata.");
+  }
+  return {
+    storageKey: assertValidAttachmentStorageKey(record.storageKey),
+    size: record.size,
+    ...(typeof record.sha256 === "string" ? { sha256: record.sha256 } : {}),
+  };
+}
+
 export function registerAttachmentIpc(ipcMainLike: IpcMainLike, services: AttachmentIpcServices) {
   ipcMainLike.handle("attachments:store", async (_event, input) => {
     const { name, mimeType, kind, data } = readStoreInput(input);
     return services.attachmentStore.storeAttachment({ name, mimeType, kind, data });
   });
 
-  ipcMainLike.handle("attachments:read", async (_event, storageKey) => {
-    return services.attachmentStore.readAttachment(storageKey as string);
+  ipcMainLike.handle("attachments:read", async (_event, metadata) => {
+    return services.attachmentStore.readVerifiedAttachment(readIntegrityMetadata(metadata));
   });
 }

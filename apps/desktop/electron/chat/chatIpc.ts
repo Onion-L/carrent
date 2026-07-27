@@ -21,6 +21,7 @@ import {
   MAX_SINGLE_ATTACHMENT_BYTES,
   MAX_TOTAL_ATTACHMENT_BYTES,
   assertValidAttachmentStorageKey,
+  isValidAttachmentSha256,
 } from "../../src/shared/attachment";
 import { runtimeIds, runtimeNameMap, type RuntimeId } from "../../src/shared/runtimes";
 import type { ChatSessionManager } from "./chatSessionManager";
@@ -207,6 +208,12 @@ export function parseChatTurnAttachments(value: unknown): AttachmentMetadata[] |
     }
     assertValidAttachmentStorageKey(record.storageKey);
     if (
+      record.sha256 !== undefined &&
+      !isValidAttachmentSha256(record.sha256)
+    ) {
+      throw new Error("Invalid attachment metadata.");
+    }
+    if (
       !isFiniteNumber(record.size) ||
       record.size < 0 ||
       record.size > MAX_SINGLE_ATTACHMENT_BYTES
@@ -225,6 +232,7 @@ export function parseChatTurnAttachments(value: unknown): AttachmentMetadata[] |
       mimeType: record.mimeType,
       size: record.size,
       storageKey: record.storageKey,
+      ...(typeof record.sha256 === "string" ? { sha256: record.sha256 } : {}),
       ...(isFiniteNumber(record.width) ? { width: record.width } : {}),
       ...(isFiniteNumber(record.height) ? { height: record.height } : {}),
     };

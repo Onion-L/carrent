@@ -752,9 +752,12 @@ export function createChatSessionManager(options: {
       return request;
     }
 
+    if (!options.attachmentStore.resolveVerifiedPath) {
+      throw new Error("Attachment integrity verification is unavailable.");
+    }
     const attachments: Attachment[] = request.attachments.map((attachment) => ({
       ...attachment,
-      localPath: options.attachmentStore!.resolvePath(attachment.storageKey),
+      localPath: options.attachmentStore!.resolveVerifiedPath!(attachment),
     }));
 
     return { ...request, attachments };
@@ -808,7 +811,18 @@ export function createChatSessionManager(options: {
       return;
     }
 
-    const requestWithAttachments = resolveAttachmentPaths(request);
+    let requestWithAttachments: ChatTurnRequest;
+    try {
+      requestWithAttachments = resolveAttachmentPaths(request);
+    } catch (error) {
+      options.emit({
+        type: "failed",
+        runId,
+        requestKey: request.requestKey,
+        error: error instanceof Error ? error.message : "Attachment file is unavailable.",
+      });
+      return;
+    }
 
     if (requestWithAttachments.runtimeId === "kimi") {
       const requestSessionKey = buildRequestSessionKey(requestWithAttachments);

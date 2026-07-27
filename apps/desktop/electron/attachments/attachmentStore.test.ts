@@ -39,6 +39,7 @@ describe("createAttachmentStore", () => {
       expect(metadata.size).toBe(data.length);
       expect(metadata.storageKey.endsWith(".png")).toBe(true);
       expect(typeof metadata.id).toBe("string");
+      expect(/^[a-f0-9]{64}$/.test(metadata.sha256 ?? "")).toBe(true);
 
       const resolved = store.resolvePath(metadata.storageKey);
       expect(resolved.startsWith(baseDir)).toBe(true);
@@ -77,6 +78,40 @@ describe("createAttachmentStore", () => {
         expect(false).toBe(true);
       } catch {
         expect(true).toBe(true);
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("rejects a stored attachment whose bytes no longer match its metadata", async () => {
+    const { store, cleanup } = createTempStore();
+
+    try {
+      const metadata = await store.storeAttachment({
+        name: "snapshot.txt",
+        mimeType: "text/plain",
+        kind: "file",
+        data: new TextEncoder().encode("original"),
+      });
+      writeFileSync(store.resolvePath(metadata.storageKey), "tampered");
+
+      try {
+        await store.readVerifiedAttachment(metadata);
+        expect(false).toBe(true);
+      } catch (error) {
+        expect(error instanceof Error ? error.message : String(error)).toBe(
+          "Attachment file is unavailable.",
+        );
+      }
+
+      try {
+        store.resolveVerifiedPath(metadata);
+        expect(false).toBe(true);
+      } catch (error) {
+        expect(error instanceof Error ? error.message : String(error)).toBe(
+          "Attachment file is unavailable.",
+        );
       }
     } finally {
       cleanup();
@@ -335,6 +370,33 @@ describe("createAttachmentStore", () => {
         "Invalid attachment storage key",
       );
       expect(existsSync(validPath)).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("deletes only files not present in the trusted reference set", async () => {
+    const { store, cleanup } = createTempStore();
+
+    try {
+      const kept = await store.storeAttachment({
+        name: "kept.txt",
+        mimeType: "text/plain",
+        kind: "file",
+        data: new TextEncoder().encode("kept"),
+      });
+      const orphan = await store.storeAttachment({
+        name: "orphan.txt",
+        mimeType: "text/plain",
+        kind: "file",
+        data: new TextEncoder().encode("orphan"),
+      });
+
+      const deleted = await store.deleteOrphanedAttachments(new Set([kept.storageKey]));
+
+      expect(deleted).toEqual([orphan.storageKey]);
+      expect(existsSync(store.resolvePath(kept.storageKey))).toBe(true);
+      expect(existsSync(store.resolvePath(orphan.storageKey))).toBe(false);
     } finally {
       cleanup();
     }

@@ -37,9 +37,11 @@ import {
   FILE_ATTACHMENT_ICONS,
   fileAttachmentIconKind,
   formatAttachmentSize,
+  hasUnavailablePendingAttachments,
   metadataOnly,
   pendingAttachmentFromFile,
   pendingAttachmentFromMetadata,
+  pendingAttachmentFromUnavailableMetadata,
   pendingImageAttachments,
   validateAttachmentSelection,
   type PendingAttachment,
@@ -357,8 +359,12 @@ export function canSubmitComposerContent(input: {
   attachmentCount: number;
   isPreparingAttachments: boolean;
   isExternalSubmit?: boolean;
+  hasUnavailableAttachments?: boolean;
 }): boolean {
-  if (input.isPreparingAttachments && !input.isExternalSubmit) {
+  if (
+    (input.isPreparingAttachments || input.hasUnavailableAttachments) &&
+    !input.isExternalSubmit
+  ) {
     return false;
   }
   return (
@@ -1125,6 +1131,7 @@ export function Composer(props: ComposerProps) {
     attachedSkillCount: effectiveAttachedSkills.length,
     attachmentCount: pendingAttachments.length,
     isPreparingAttachments,
+    hasUnavailableAttachments: hasUnavailablePendingAttachments(pendingAttachments),
   });
   const canSend =
     (props.mode === "chat" ? hasSendableContent : hasSendableContent && !!project) &&
@@ -1555,6 +1562,7 @@ export function Composer(props: ComposerProps) {
       attachmentCount: externalSubmit?.attachments?.length ?? currentPendingAttachments.length,
       isPreparingAttachments: isPreparingAttachmentsRef.current,
       isExternalSubmit,
+      hasUnavailableAttachments: hasUnavailablePendingAttachments(currentPendingAttachments),
     });
     const canSendCurrent =
       (props.mode === "chat"
@@ -2216,10 +2224,11 @@ export function Composer(props: ComposerProps) {
       const failed: string[] = [];
       for (const metadata of persisted) {
         try {
-          const data = await window.carrent.attachments.read(metadata.storageKey);
+          const data = await window.carrent.attachments.read(metadata);
           restored.push(pendingAttachmentFromMetadata(metadata, data));
         } catch {
           failed.push(metadata.name);
+          restored.push(pendingAttachmentFromUnavailableMetadata(metadata));
         }
       }
       if (cancelled) {
@@ -2234,7 +2243,7 @@ export function Composer(props: ComposerProps) {
         setPendingAttachments((prev) => [...prev, ...restored]);
       }
       if (failed.length > 0) {
-        setAttachmentError(`Some attachments could not be restored: ${failed.join(", ")}`);
+        setAttachmentError(`文件不可用，请移除或重新添加：${failed.join(", ")}`);
       }
       draftRestoreCompleteRef.current = true;
     })();
@@ -2660,6 +2669,7 @@ export function Composer(props: ComposerProps) {
                 if (!attachment.previewUrl) {
                   const FileIcon =
                     FILE_ATTACHMENT_ICONS[fileAttachmentIconKind(attachment.file.name)];
+                  const displaySize = attachment.metadata?.size ?? attachment.file.size;
                   return (
                     <div
                       key={attachment.id}
@@ -2672,7 +2682,9 @@ export function Composer(props: ComposerProps) {
                           {attachment.file.name}
                         </div>
                         <div className="text-app-11 leading-4 text-subtle">
-                          {formatAttachmentSize(attachment.file.size)}
+                          {attachment.unavailable
+                            ? "文件不可用"
+                            : formatAttachmentSize(displaySize)}
                         </div>
                       </div>
                       <button

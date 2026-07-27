@@ -1048,6 +1048,7 @@ describe("normalizeWorkspaceSnapshot", () => {
               mimeType: "text/plain",
               size: 512,
               storageKey: "a2.ts",
+              sha256: "a".repeat(64),
             },
           ],
         },

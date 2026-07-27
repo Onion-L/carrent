@@ -1,7 +1,12 @@
+import { readFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
-import type { AttachmentKind, AttachmentMetadata } from "../../src/shared/chat";
+import { createHash, randomUUID } from "node:crypto";
+import type {
+  AttachmentIntegrityMetadata,
+  AttachmentKind,
+  AttachmentMetadata,
+} from "../../src/shared/chat";
 import {
   assertValidAttachmentStorageKey,
   storageExtensionForAttachment,
@@ -15,9 +20,12 @@ export type AttachmentStore = {
     data: Uint8Array;
   }) => Promise<AttachmentMetadata>;
   readAttachment: (storageKey: string) => Promise<Uint8Array>;
+  readVerifiedAttachment: (attachment: AttachmentIntegrityMetadata) => Promise<Uint8Array>;
   resolveRoot: () => string;
   resolvePath: (storageKey: string) => string;
+  resolveVerifiedPath: (attachment: AttachmentIntegrityMetadata) => string;
   deleteAttachments: (storageKeys: string[]) => Promise<void>;
+  deleteOrphanedAttachments: (referencedStorageKeys: Set<string>) => Promise<string[]>;
   prepareDeletion?: (operationId: string, storageKeys: string[]) => Promise<void>;
   commitDeletion?: (operationId: string) => Promise<void>;
   rollbackDeletion?: (operationId: string) => Promise<void>;
@@ -35,6 +43,16 @@ export function createAttachmentStore(
   const attachmentsDir = join(baseDir, "attachments");
   const copy = options?.copy ?? copyFile;
   const remove = options?.remove ?? rm;
+
+  function verifyAttachmentBytes(attachment: AttachmentIntegrityMetadata, data: Uint8Array) {
+    const digest = createHash("sha256").update(data).digest("hex");
+    if (
+      data.byteLength !== attachment.size ||
+      (attachment.sha256 !== undefined && digest !== attachment.sha256)
+    ) {
+      throw new Error("Attachment file is unavailable.");
+    }
+  }
 
   async function storeAttachment(input: {
     name: string;
@@ -62,6 +80,7 @@ export function createAttachmentStore(
       mimeType: input.mimeType,
       size: input.data.length,
       storageKey,
+      sha256: createHash("sha256").update(input.data).digest("hex"),
     };
   }
 
@@ -72,8 +91,28 @@ export function createAttachmentStore(
     return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
   }
 
+  async function readVerifiedAttachment(
+    attachment: AttachmentIntegrityMetadata,
+  ): Promise<Uint8Array> {
+    const data = await readAttachment(attachment.storageKey);
+    verifyAttachmentBytes(attachment, data);
+    return data;
+  }
+
   function resolvePath(storageKey: string): string {
     return join(attachmentsDir, assertValidAttachmentStorageKey(storageKey));
+  }
+
+  function resolveVerifiedPath(attachment: AttachmentIntegrityMetadata): string {
+    const path = resolvePath(attachment.storageKey);
+    let data: Uint8Array;
+    try {
+      data = readFileSync(path);
+    } catch {
+      throw new Error("Attachment file is unavailable.");
+    }
+    verifyAttachmentBytes(attachment, data);
+    return path;
   }
 
   function resolveRoot(): string {
@@ -197,12 +236,40 @@ export function createAttachmentStore(
     }
   }
 
+  async function deleteOrphanedAttachments(
+    referencedStorageKeys: Set<string>,
+  ): Promise<string[]> {
+    let storedEntries;
+    try {
+      storedEntries = await readdir(attachmentsDir, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+
+    const orphaned = storedEntries
+      .filter((entry) => entry.isFile() && !referencedStorageKeys.has(entry.name))
+      .flatMap((entry) => {
+        try {
+          return [assertValidAttachmentStorageKey(entry.name)];
+        } catch {
+          return [];
+        }
+      })
+      .sort();
+    await deleteAttachments(orphaned);
+    return orphaned;
+  }
+
   return {
     storeAttachment,
     readAttachment,
+    readVerifiedAttachment,
     resolveRoot,
     resolvePath,
+    resolveVerifiedPath,
     deleteAttachments,
+    deleteOrphanedAttachments,
     prepareDeletion,
     commitDeletion,
     rollbackDeletion,

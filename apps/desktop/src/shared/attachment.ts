@@ -184,6 +184,11 @@ export function storageExtensionForAttachment(input: {
 }
 
 const ATTACHMENT_STORAGE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const ATTACHMENT_SHA256_PATTERN = /^[a-f0-9]{64}$/u;
+
+export function isValidAttachmentSha256(value: unknown): value is string {
+  return typeof value === "string" && ATTACHMENT_SHA256_PATTERN.test(value);
+}
 
 export function assertValidAttachmentStorageKey(storageKey: string): string {
   if (

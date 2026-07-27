@@ -7,7 +7,11 @@ import type {
   ThreadRecord,
 } from "../renderer/mock/uiShellData";
 import type { AttachmentKind, AttachmentMetadata } from "./chat";
-import { isSupportedImageMimeType, MAX_ATTACHMENT_COUNT } from "./attachment";
+import {
+  isSupportedImageMimeType,
+  isValidAttachmentSha256,
+  MAX_ATTACHMENT_COUNT,
+} from "./attachment";
 import type { ChatPermissionOption } from "./chatPermissions";
 import { isRuntimeMode, normalizeRuntimeMode, type RuntimeMode } from "./runtimeMode";
 import { normalizeRuntimeId } from "./runtimes";
@@ -676,6 +680,12 @@ function normalizeAttachmentMetadata(value: unknown): AttachmentMetadata | null 
   if (typeof value.mimeType !== "string") return null;
   if (typeof value.size !== "number") return null;
   if (typeof value.storageKey !== "string") return null;
+  if (
+    value.sha256 !== undefined &&
+    !isValidAttachmentSha256(value.sha256)
+  ) {
+    return null;
+  }
 
   let kind: AttachmentKind;
   if (value.kind === "image" || value.kind === "file") {
@@ -694,6 +704,7 @@ function normalizeAttachmentMetadata(value: unknown): AttachmentMetadata | null 
     mimeType: value.mimeType,
     size: value.size,
     storageKey: value.storageKey,
+    ...(typeof value.sha256 === "string" ? { sha256: value.sha256 } : {}),
     ...(typeof value.width === "number" ? { width: value.width } : {}),
     ...(typeof value.height === "number" ? { height: value.height } : {}),
   };

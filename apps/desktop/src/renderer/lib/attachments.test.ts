@@ -4,7 +4,9 @@ import {
   formatAttachmentSize,
   metadataOnly,
   pendingAttachmentFromFile,
+  pendingAttachmentFromUnavailableMetadata,
   pendingImageAttachments,
+  hasUnavailablePendingAttachments,
   stripLocalPath,
 } from "./attachments";
 
@@ -88,6 +90,26 @@ describe("pendingImageAttachments", () => {
     expect(images).toEqual([imageA, imageC]);
     expect(images.indexOf(imageA)).toBe(0);
     expect(images.indexOf(imageC)).toBe(1);
+  });
+});
+
+describe("unavailable pending attachments", () => {
+  it("keeps persisted metadata removable without making it previewable", () => {
+    const metadata = {
+      id: "missing-1",
+      kind: "image" as const,
+      name: "missing.png",
+      mimeType: "image/png",
+      size: 42,
+      storageKey: "missing.png",
+    };
+
+    const pending = pendingAttachmentFromUnavailableMetadata(metadata);
+
+    expect(pending.metadata).toEqual(metadata);
+    expect(pending.unavailable).toBe(true);
+    expect(pending.previewUrl).toBeUndefined();
+    expect(hasUnavailablePendingAttachments([pending])).toBe(true);
   });
 });
 

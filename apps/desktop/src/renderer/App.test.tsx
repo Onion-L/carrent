@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, mock } from "bun:test";
 
 import "./test/registerHappyDom";
 
@@ -15,7 +15,9 @@ import {
 
 import type { AppStateSnapshot, WorkspaceSnapshot } from "../shared/workspacePersistence";
 import type { ChatRunEvent, ChatTurnRequest } from "../shared/chat";
-import App from "./App";
+
+mock.module("./assets/logo.png", () => ({ default: "logo.png" }));
+const { default: App } = await import("./App");
 
 const legacySnapshot: WorkspaceSnapshot = {
   version: 1,
@@ -516,6 +518,189 @@ describe("three-level navigation", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+  });
+
+  it("opens global Thread search with Cmd/Ctrl+K and shows recent Threads across Workspaces", async () => {
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, key: "k", metaKey: true }),
+      );
+    });
+
+    const dialog = container!.ownerDocument.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Search Threads"]',
+    );
+    expect(dialog).not.toBe(null);
+    expect(dialog!.textContent).toContain("Global");
+    expect(dialog!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
+    expect(dialog!.textContent).toContain("Client / Client Carrent / Client Thread");
+    expect(dialog!.textContent!.indexOf("Client Thread")).toBeLessThan(
+      dialog!.textContent!.indexOf("Personal Thread"),
+    );
+  });
+
+  it("opens Workspace and Project search scopes and keeps the scope in empty results", async () => {
+    const state = navigationState();
+    state.projects.push({
+      id: "project-2",
+      name: "Website",
+      workingDirectory: "/code/website",
+    });
+    state.associations.push({
+      workspaceId: "workspace-1",
+      projectId: "project-2",
+      order: 1,
+      defaultRuntimeId: "kimi",
+      defaultRuntimeMode: "approval-required",
+    });
+    state.threads!.push({
+      id: "thread-3",
+      workspaceId: "workspace-1",
+      projectId: "project-2",
+      title: "Website Thread",
+      createdAt: "2026-07-27T10:00:00.000Z",
+      lastActivityAt: "2026-07-27T10:00:00.000Z",
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+    });
+
+    await renderApp(
+      state,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+    );
+
+    await click(buttonNamed("Search Personal"));
+    let dialog = document.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Search Threads"]',
+    )!;
+    expect(dialog.textContent).toContain("Scope: Personal");
+    expect(dialog.textContent).toContain("Personal / Personal Carrent / Personal Thread");
+    expect(dialog.textContent).toContain("Personal / Website / Website Thread");
+    expect(dialog.textContent).not.toContain("Client Thread");
+
+    const projectScopeButton = [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Project",
+    )!;
+    await click(projectScopeButton);
+    dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Search Threads"]')!;
+    expect(dialog.textContent).toContain("Scope: Personal / Personal Carrent");
+    expect(dialog.textContent).not.toContain("Website Thread");
+
+    await fillInput(
+      dialog.querySelector<HTMLInputElement>('input[aria-label="Search Thread titles"]')!,
+      "missing",
+    );
+    expect(dialog.textContent).toContain("No matching Threads");
+    expect(dialog.textContent).toContain("Scope: Personal / Personal Carrent");
+
+    await act(async () => {
+      window.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+    });
+    await click(buttonNamed("Search Personal Carrent"));
+    dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Search Threads"]')!;
+    expect(dialog.textContent).toContain("Scope: Personal / Personal Carrent");
+    expect(dialog.textContent).not.toContain("Website Thread");
+
+    await act(async () => {
+      window.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+    });
+    await click(buttonNamed("Search Website"));
+    dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Search Threads"]')!;
+    expect(dialog.textContent).toContain("Scope: Personal / Website");
+    const scopeButtons = [...dialog.querySelectorAll<HTMLButtonElement>("button")];
+    await click(scopeButtons.find((button) => button.textContent?.trim() === "Global")!);
+    await click(scopeButtons.find((button) => button.textContent?.trim() === "Project")!);
+    expect(dialog.textContent).toContain("Scope: Personal / Website");
+  });
+
+  it("navigates to another search result but selecting the current Thread only closes search", async () => {
+    const saved = await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, key: "k", ctrlKey: true }),
+      );
+    });
+    let dialog = document.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Search Threads"]',
+    )!;
+    const clientResult = [...dialog.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
+      (button) => button.textContent?.includes("Client Thread"),
+    )!;
+    await click(clientResult);
+
+    expect(currentPathname).toBe("/workspace/workspace-2/project/project-1/thread/thread-2");
+    expect(currentNavigationType).toBe("PUSH");
+    expect(saved.at(-1)?.activeWorkspaceId).toBe("workspace-2");
+    expect(document.querySelector('[role="dialog"][aria-label="Search Threads"]')).toBe(null);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, key: "k", metaKey: true }),
+      );
+    });
+    dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Search Threads"]')!;
+    const currentResult = [...dialog.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
+      (button) => button.textContent?.includes("Client Thread"),
+    )!;
+    const navigationTypeBeforeSelection = currentNavigationType;
+    await click(currentResult);
+
+    expect(currentPathname).toBe("/workspace/workspace-2/project/project-1/thread/thread-2");
+    expect(currentNavigationType).toBe(navigationTypeBeforeSelection);
+    expect(document.querySelector('[role="dialog"][aria-label="Search Threads"]')).toBe(null);
+  });
+
+  it("switches from global search to an Association scope outside a Project route", async () => {
+    await renderApp(
+      navigationState(),
+      "/settings",
+      [],
+      false,
+      [],
+      false,
+      navigationWorkspaceSnapshot,
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, key: "k", metaKey: true }),
+      );
+    });
+    const dialog = document.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Search Threads"]',
+    )!;
+    const projectScopeButton = [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Project",
+    )!;
+
+    expect(projectScopeButton.disabled).toBe(false);
+    await click(projectScopeButton);
+    expect(dialog.textContent).toContain("Scope: Personal / Personal Carrent");
   });
 
   it("aggregates Attention across Workspaces without replacing the current content", async () => {

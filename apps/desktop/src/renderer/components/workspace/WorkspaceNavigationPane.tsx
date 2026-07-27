@@ -1,5 +1,5 @@
 import { useAppState } from "../../context/AppStateContext";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Search } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AddProjectButton } from "./AddProjectButton";
 import { getWorkspaceProjects } from "../../lib/workspaceProjects";
@@ -7,6 +7,7 @@ import { buildProjectPath, buildThreadPath, buildWorkspacePath } from "../../lib
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import { getThreadDisplayStatus, type ThreadDisplayStatus } from "../../lib/projectThreads";
+import type { ThreadSearchScope } from "../../../shared/threadSearch";
 
 const STATUS_LABELS: Record<ThreadDisplayStatus, string> = {
   approval: "Approval",
@@ -15,7 +16,11 @@ const STATUS_LABELS: Record<ThreadDisplayStatus, string> = {
   failed: "Failed",
 };
 
-export function WorkspaceNavigationPane() {
+export function WorkspaceNavigationPane({
+  onOpenSearch,
+}: {
+  onOpenSearch: (scope: ThreadSearchScope) => void;
+}) {
   const navigate = useNavigate();
   const location = useLocation();
   const { workspaces, projects, associations, threads, activeWorkspaceId, moveAssociation } =
@@ -28,13 +33,24 @@ export function WorkspaceNavigationPane() {
   return (
     <aside className="flex h-full min-h-0 flex-col border-r border-border bg-sidebar px-3 py-3">
       {workspace && (
-        <button
-          type="button"
-          onClick={() => navigate(buildWorkspacePath(workspace.id))}
-          className="truncate text-left text-app-13 font-semibold text-fg hover:text-muted"
-        >
-          {workspace.name}
-        </button>
+        <div className="flex min-h-7 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => navigate(buildWorkspacePath(workspace.id))}
+            className="min-w-0 flex-1 truncate text-left text-app-13 font-semibold text-fg hover:text-muted"
+          >
+            {workspace.name}
+          </button>
+          <button
+            type="button"
+            aria-label={`Search ${workspace.name}`}
+            title="Search Workspace"
+            onClick={() => onOpenSearch({ kind: "workspace", workspaceId: workspace.id })}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg"
+          >
+            <Search className="h-3.5 w-3.5" />
+          </button>
+        </div>
       )}
       <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto">
         {workspaceProjects.map(({ association, project }, index) => {
@@ -56,6 +72,20 @@ export function WorkspaceNavigationPane() {
                   }`}
                 >
                   <span className="block truncate">{association.alias ?? project.name}</span>
+                </button>
+                <button
+                  aria-label={`Search ${association.alias ?? project.name}`}
+                  title="Search Project"
+                  onClick={() =>
+                    onOpenSearch({
+                      kind: "association",
+                      workspaceId: association.workspaceId,
+                      projectId: project.id,
+                    })
+                  }
+                  className="flex h-7 w-7 items-center justify-center text-subtle hover:text-fg"
+                >
+                  <Search className="h-3.5 w-3.5" />
                 </button>
                 <button
                   aria-label={`Move ${association.alias ?? project.name} up`}

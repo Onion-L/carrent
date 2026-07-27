@@ -1,4 +1,4 @@
-import { Copy, Folder, Pencil, Pin, Search, SquarePen, Trash2 } from "lucide-react";
+import { Copy, Folder, Pencil, Pin, SquarePen, Trash2 } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -29,7 +29,6 @@ import { getChatRuntimeOptions } from "../../lib/runtimeSelection";
 import { findProjectIdForThread } from "../../lib/workspaceState";
 import type { ThreadRecord } from "../../mock/uiShellData";
 import { useToast } from "../toast/ToastContext";
-import { ThreadSearchDialog } from "./ThreadSearchDialog";
 
 const THREAD_STATUS_META: Record<ThreadDisplayStatus, { label: string; className: string }> = {
   running: { label: "Running", className: "text-success" },
@@ -141,7 +140,6 @@ export function ThreadHistoryPane() {
   const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
   const { runtimes } = useRuntimes();
   const defaultRuntimeId = getChatRuntimeOptions(runtimes)[0]?.id;
-  const [searchOpen, setSearchOpen] = useState(false);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const [threadContextMenu, setThreadContextMenu] = useState<ThreadContextMenuState | null>(null);
@@ -172,7 +170,6 @@ export function ThreadHistoryPane() {
   );
 
   useEffect(() => {
-    setSearchOpen(false);
     setEditingThreadId(null);
     setEditingThreadTitle("");
     setThreadContextMenu(null);
@@ -362,15 +359,6 @@ export function ThreadHistoryPane() {
           <SquarePen className="h-4 w-4 shrink-0" />
           New thread
         </button>
-        {selectedProject ? (
-          <button
-            onClick={() => setSearchOpen(true)}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-app-13 text-muted transition hover:bg-surface-hover hover:text-fg"
-          >
-            <Search className="h-4 w-4 shrink-0" />
-            Search
-          </button>
-        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-2 pb-3 pt-1">
@@ -538,19 +526,6 @@ export function ThreadHistoryPane() {
           </div>
         )}
       </div>
-
-      {searchOpen && selectedProject ? (
-        <ThreadSearchDialog
-          threads={allProjectThreads}
-          onSelect={(threadId) => {
-            if (!activeWorkspaceId) return;
-            setActiveThreadId(threadId);
-            navigate(buildThreadPath(activeWorkspaceId, selectedProject.id, threadId));
-            setSearchOpen(false);
-          }}
-          onClose={() => setSearchOpen(false)}
-        />
-      ) : null}
 
       {threadContextMenu && contextMenuThread && selectedProject
         ? createPortal(

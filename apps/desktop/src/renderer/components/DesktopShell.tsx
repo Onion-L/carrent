@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ThreadHistoryPane } from "./chat/ThreadHistoryPane";
 import { SettingsTabsPane } from "./settings/SettingsTabsPane";
 import { McpServerControl } from "./mcp/McpServerControl";
@@ -17,19 +17,31 @@ import { useWorkspace } from "../context/WorkspaceContext";
 import { useChatRun } from "../hooks/useChatRun";
 import { getAttentionGroups } from "../lib/projectThreads";
 import type { ThreadRecord } from "../mock/uiShellData";
+import { ThreadSearchDialog } from "./workspace/ThreadSearchDialog";
+import { buildThreadPath, getProjectIdFromPathname } from "../lib/navigation";
+import type { ThreadSearchScope } from "../../shared/threadSearch";
 
 const LEFT_SIDEBAR_WIDTH = 58;
 const MIN_SECONDARY_PANE_WIDTH = 200;
 const MAX_SECONDARY_PANE_WIDTH = 480;
 const DEFAULT_SECONDARY_PANE_WIDTH = 280;
 
+type ThreadSearchState = {
+  scope: ThreadSearchScope;
+  workspaceId?: string;
+  projectId?: string;
+};
+
 export function DesktopShell({ children }: { children: React.ReactNode }) {
+  const navigate = useNavigate();
   const [isSecondaryPaneCollapsed, setIsSecondaryPaneCollapsed] = useState(false);
   const [secondaryPaneWidth, setSecondaryPaneWidth] = useState(DEFAULT_SECONDARY_PANE_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const resizeStartRef = useRef({ x: 0, width: DEFAULT_SECONDARY_PANE_WIDTH });
   const location = useLocation();
-  const { workspaces, projects, associations, threads } = useAppState();
+  const { workspaces, projects, associations, threads, activeWorkspaceId, selectWorkspace } =
+    useAppState();
+  const [threadSearch, setThreadSearch] = useState<ThreadSearchState | null>(null);
   const { projects: contentProjects, messages } = useWorkspace();
   const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
   const attentionGroups = useMemo(() => {
@@ -37,7 +49,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
       contentProjects.flatMap((project) => project.threads.map((thread) => [thread.id, thread])),
     );
     const candidates = threads
-      .filter((thread) => !(thread as typeof thread & { archived?: boolean }).archived)
+      .filter((thread) => !thread.archived)
       .map((thread) => ({
         ...(contentThreads.get(thread.id) ?? {
           id: thread.id,
@@ -89,12 +101,25 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   const attentionCount = attentionGroups.reduce((count, group) => count + group.threads.length, 0);
   const attentionViewState = getAttentionViewState(location.state);
   const attentionViewOpen = attentionViewState !== null;
+  const openThreadSearch = useCallback(
+    (scope: ThreadSearchScope) => {
+      setThreadSearch({
+        scope,
+        workspaceId: scope.kind === "global" ? (activeWorkspaceId ?? undefined) : scope.workspaceId,
+        projectId:
+          scope.kind === "association"
+            ? scope.projectId
+            : (getProjectIdFromPathname(location.pathname) ?? undefined),
+      });
+    },
+    [activeWorkspaceId, location.pathname],
+  );
   const secondaryPane = attentionViewOpen ? (
     <AttentionPane groups={attentionViewState.groups ?? attentionGroups} />
   ) : location.pathname === "/settings" ? (
     <SettingsTabsPane />
   ) : location.pathname.startsWith("/workspace/") ? (
-    <WorkspaceNavigationPane />
+    <WorkspaceNavigationPane onOpenSearch={openThreadSearch} />
   ) : (
     <ThreadHistoryPane />
   );
@@ -102,6 +127,34 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   const toggleSecondaryPane = useCallback(() => {
     setIsSecondaryPaneCollapsed((collapsed) => !collapsed);
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "k") {
+        event.preventDefault();
+        openThreadSearch({ kind: "global" });
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [openThreadSearch]);
+
+  const workspaceScope = threadSearch?.workspaceId
+    ? ({ kind: "workspace", workspaceId: threadSearch.workspaceId } as const)
+    : null;
+  const associationScope =
+    threadSearch?.workspaceId &&
+    threadSearch.projectId &&
+    associations.some(
+      (item) =>
+        item.workspaceId === threadSearch.workspaceId && item.projectId === threadSearch.projectId,
+    )
+      ? ({
+          kind: "association",
+          workspaceId: threadSearch.workspaceId,
+          projectId: threadSearch.projectId,
+        } as const)
+      : null;
 
   const handleResizeStart = useCallback(
     (event: React.MouseEvent) => {
@@ -189,6 +242,54 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </div>
+      {threadSearch && (
+        <ThreadSearchDialog
+          threads={threads}
+          workspaces={workspaces}
+          projects={projects}
+          associations={associations}
+          scope={threadSearch.scope}
+          workspaceScope={workspaceScope}
+          associationScope={associationScope}
+          onScopeChange={(scope) =>
+            setThreadSearch((current) => {
+              if (!current) return null;
+              if (scope.kind === "global") return { ...current, scope };
+              if (scope.kind === "workspace") {
+                const projectStillApplies = associations.some(
+                  (association) =>
+                    association.workspaceId === scope.workspaceId &&
+                    association.projectId === current.projectId,
+                );
+                return {
+                  ...current,
+                  scope,
+                  workspaceId: scope.workspaceId,
+                  projectId: projectStillApplies ? current.projectId : undefined,
+                };
+              }
+              return {
+                ...current,
+                scope,
+                workspaceId: scope.workspaceId,
+                projectId: scope.projectId,
+              };
+            })
+          }
+          onClose={() => setThreadSearch(null)}
+          onSelect={async (entry) => {
+            setThreadSearch(null);
+            const path = buildThreadPath(
+              entry.thread.workspaceId,
+              entry.thread.projectId,
+              entry.thread.id,
+            );
+            if (path === location.pathname) return;
+            await selectWorkspace(entry.thread.workspaceId);
+            navigate(path);
+          }}
+        />
+      )}
     </div>
   );
 }

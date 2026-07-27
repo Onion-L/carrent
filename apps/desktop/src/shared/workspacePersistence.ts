@@ -50,6 +50,7 @@ export type AppThreadRecord = {
   title: string;
   createdAt: string;
   lastActivityAt: string;
+  archived?: boolean;
   runtimeId: RuntimeId;
   runtimeModelId?: string;
   runtimeMode: RuntimeMode;
@@ -373,6 +374,7 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
       thread.title.trim() !== thread.title ||
       !isIsoTimestamp(thread.createdAt) ||
       !isIsoTimestamp(thread.lastActivityAt) ||
+      (thread.archived !== undefined && typeof thread.archived !== "boolean") ||
       !runtimeIds.includes(thread.runtimeId as RuntimeId) ||
       !isRuntimeMode(thread.runtimeMode) ||
       typeof thread.planMode !== "boolean"
@@ -390,6 +392,7 @@ export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | nu
       title: thread.title,
       createdAt: thread.createdAt,
       lastActivityAt: thread.lastActivityAt,
+      ...(thread.archived === true ? { archived: true } : {}),
       runtimeId: thread.runtimeId as RuntimeId,
       ...(runtimeModelId ? { runtimeModelId } : {}),
       runtimeMode: thread.runtimeMode,

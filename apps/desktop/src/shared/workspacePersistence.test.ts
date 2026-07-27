@@ -170,6 +170,7 @@ describe("normalizeAppStateSnapshot", () => {
           title: "Implement draft promotion",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
+          archived: true,
           runtimeId: "kimi",
           runtimeModelId: "kimi-k2.5",
           runtimeMode: "approval-required",

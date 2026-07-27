@@ -4,7 +4,7 @@
 
 **Blocked by:** 16 — 完成三层导航与位置恢复
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Cmd/Ctrl+K 默认打开全局搜索；Workspace 和 Project 入口分别默认选择当前 Workspace 和当前 Association 范围。
 - [ ] 搜索界面始终显示当前范围，并允许在全局、Workspace 和 Association 三种范围间切换。

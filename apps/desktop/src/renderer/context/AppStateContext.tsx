@@ -148,10 +148,7 @@ type AppStateContextValue = {
     },
   ) => Promise<boolean>;
   discardThreadDraft: (draftId: string) => Promise<boolean>;
-  prepareThreadDraftPromotion: (
-    input: PromoteDraftInput,
-  ) => Promise<AppThreadPromotionIntentRecord | null>;
-  commitThreadDraftPromotion: (draftId: string, runId: string) => Promise<AppThreadRecord | null>;
+  prepareThreadDraftPromotion: (input: PromoteDraftInput) => Promise<AppThreadRecord | null>;
   rollbackThreadDraftPromotion: (draft: AssociationThreadDraftRecord) => Promise<boolean>;
   updateThreadConfig: (
     threadId: string,
@@ -600,7 +597,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       }
 
       const workingDirectory = normalizeProjectWorkingDirectory(value);
-      if (!workingDirectory) return { ok: false, error: "Project directory is required." };
+      if (!workingDirectory) {
+        return { ok: false, error: "Project Working Directory is required." };
+      }
 
       const workingDirectoryIdentity = getProjectWorkingDirectoryIdentity(workingDirectory);
       const existingProject = snapshot.projects.find(
@@ -951,86 +950,35 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         return null;
       }
 
-      const { draftId: _draftId, title, draft: preparedDraft, ...runInput } = input;
-      const intent: AppThreadPromotionIntentRecord = {
-        draftId: draft.id,
-        threadId: draft.threadId,
+      const thread: AppThreadRecord = {
+        id: draft.threadId,
         workspaceId: draft.workspaceId,
         projectId: draft.projectId,
-        title,
-        ...runInput,
-      };
-
-      try {
-        await persist({
-          ...current,
-          threadDrafts: (current.threadDrafts ?? []).map((item) =>
-            item.id === draft.id
-              ? {
-                  ...item,
-                  content: preparedDraft.content,
-                  attachedSkillNames: preparedDraft.attachedSkillNames,
-                  attachments: preparedDraft.attachments,
-                  runtimeId: input.runtimeId,
-                  ...(input.runtimeModelId
-                    ? { runtimeModelId: input.runtimeModelId }
-                    : { runtimeModelId: undefined }),
-                  runtimeMode: input.runtimeMode,
-                  planMode: input.planMode,
-                }
-              : item,
-          ),
-          threadPromotionIntents: [
-            ...(current.threadPromotionIntents ?? []).filter((item) => item.draftId !== draft.id),
-            intent,
-          ],
-        });
-        return intent;
-      } catch {
-        return null;
-      }
-    },
-    [persist],
-  );
-
-  const commitThreadDraftPromotion = useCallback(
-    async (draftId: string, runId: string) => {
-      const current = snapshotRef.current;
-      const intent = (current.threadPromotionIntents ?? []).find(
-        (item) => item.draftId === draftId && item.runId === runId,
-      );
-      const draft = (current.threadDrafts ?? []).find((item) => item.id === draftId);
-      if (!intent || !draft) return null;
-
-      const thread: AppThreadRecord = {
-        id: intent.threadId,
-        workspaceId: intent.workspaceId,
-        projectId: intent.projectId,
-        title: intent.title,
-        createdAt: intent.startedAt,
-        lastActivityAt: intent.startedAt,
-        runtimeId: intent.runtimeId,
-        ...(intent.runtimeModelId ? { runtimeModelId: intent.runtimeModelId } : {}),
-        runtimeMode: intent.runtimeMode,
-        planMode: intent.planMode,
+        title: input.title,
+        createdAt: input.startedAt,
+        lastActivityAt: input.startedAt,
+        runtimeId: input.runtimeId,
+        ...(input.runtimeModelId ? { runtimeModelId: input.runtimeModelId } : {}),
+        runtimeMode: input.runtimeMode,
+        planMode: input.planMode,
       };
       const message: AppThreadMessageRecord = {
-        id: intent.messageId,
-        threadId: intent.threadId,
+        id: input.messageId,
+        threadId: draft.threadId,
         role: "user",
-        content: intent.message,
-        createdAt: intent.startedAt,
-        attachments: intent.attachments,
+        content: input.message,
+        createdAt: input.startedAt,
+        attachments: input.attachments,
       };
       const run: AppThreadRunRecord = {
-        id: intent.runId,
-        threadId: intent.threadId,
-        messageId: intent.messageId,
-        startedAt: intent.startedAt,
-        runtimeId: intent.runtimeId,
-        ...(intent.runtimeModelId ? { runtimeModelId: intent.runtimeModelId } : {}),
-        runtimeMode: intent.runtimeMode,
-        planMode: intent.planMode,
+        id: input.runId,
+        threadId: draft.threadId,
+        messageId: input.messageId,
+        startedAt: input.startedAt,
+        runtimeId: input.runtimeId,
+        ...(input.runtimeModelId ? { runtimeModelId: input.runtimeModelId } : {}),
+        runtimeMode: input.runtimeMode,
+        planMode: input.planMode,
       };
 
       try {
@@ -1038,14 +986,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           ...current,
           threads: [...(current.threads ?? []), thread],
           threadDrafts: (current.threadDrafts ?? []).filter((item) => item.id !== draft.id),
-          threadMessages: (current.threadMessages ?? []).some(
-            (existing) => existing.id === message.id,
-          )
-            ? current.threadMessages
-            : [...(current.threadMessages ?? []), message],
+          threadMessages: [...(current.threadMessages ?? []), message],
           threadRuns: [...(current.threadRuns ?? []), run],
           threadPromotionIntents: (current.threadPromotionIntents ?? []).filter(
-            (item) => item.draftId !== draft.id,
+            (intent) => intent.draftId !== draft.id,
           ),
         });
         return thread;
@@ -1085,20 +1029,34 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const rollbackThreadDraftPromotion = useCallback(
     async (draft: AssociationThreadDraftRecord) => {
       const current = snapshotRef.current;
-      try {
-        await persist({
-          ...current,
-          threadDrafts: [
-            ...(current.threadDrafts ?? []).filter((item) => item.id !== draft.id),
-            draft,
-          ],
-          threadPromotionIntents: (current.threadPromotionIntents ?? []).filter(
-            (intent) => intent.draftId !== draft.id,
+      const restored: AppStateSnapshot = {
+        ...current,
+        threads: (current.threads ?? []).filter((thread) => thread.id !== draft.threadId),
+        threadDrafts: [
+          ...(current.threadDrafts ?? []).filter((item) => item.id !== draft.id),
+          draft,
+        ],
+        threadMessages: (current.threadMessages ?? []).filter(
+          (message) => message.threadId !== draft.threadId,
+        ),
+        threadRuns: (current.threadRuns ?? []).filter((run) => run.threadId !== draft.threadId),
+        threadWork: Object.fromEntries(
+          Object.entries(current.threadWork ?? {}).filter(
+            ([threadId]) => threadId !== draft.threadId,
           ),
-        });
+        ),
+        threadPromotionIntents: (current.threadPromotionIntents ?? []).filter(
+          (intent) => intent.draftId !== draft.id,
+        ),
+      };
+      try {
+        await persist(restored);
         return true;
       } catch {
-        return false;
+        snapshotRef.current = restored;
+        setSnapshot(restored);
+        window.carrent.appState.stage(restored);
+        return true;
       }
     },
     [persist],
@@ -1391,7 +1349,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         updateThreadDraftConfig,
         discardThreadDraft,
         prepareThreadDraftPromotion,
-        commitThreadDraftPromotion,
         rollbackThreadDraftPromotion,
         updateThreadConfig,
         updateThreadContent,

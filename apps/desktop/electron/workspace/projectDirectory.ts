@@ -5,6 +5,7 @@ import {
   type AppStateSnapshot,
   type ProjectRelocationRequest,
 } from "../../src/shared/workspacePersistence";
+import type { RewindRelocationReceipt } from "../rewind/rewindDataStore";
 
 export type RuntimeSessionDetachmentReceipt = {
   threadIds: string[];
@@ -23,6 +24,16 @@ type ProjectRelocationSessionManager = {
   detachRuntimeSessions: (threadIds: string[]) => Promise<RuntimeSessionDetachmentReceipt>;
   restoreRuntimeSessions: (receipt: RuntimeSessionDetachmentReceipt) => Promise<void>;
   completeRuntimeSessionDetachment: (receipt: RuntimeSessionDetachmentReceipt) => void;
+};
+
+type ProjectRelocationRewindStore = {
+  prepareProjectRelocation: (request: {
+    projectId: string;
+    sourceDirectory: string;
+    targetDirectory: string;
+  }) => Promise<RewindRelocationReceipt>;
+  rollbackProjectRelocation: (receipt: RewindRelocationReceipt) => Promise<void>;
+  completeProjectRelocation: (receipt: RewindRelocationReceipt) => void;
 };
 
 type IpcMainLike = {
@@ -56,6 +67,7 @@ async function retryTwice(operation: () => Promise<void>) {
 export function createProjectRelocationManager(options: {
   appStateStore: ProjectRelocationStore;
   sessionManager: ProjectRelocationSessionManager;
+  rewindStore: ProjectRelocationRewindStore;
   checkDirectory?: (workingDirectory: string) => Promise<boolean>;
   onActiveChange?: (active: boolean) => void;
 }) {
@@ -114,15 +126,28 @@ export function createProjectRelocationManager(options: {
               item.id === project.id ? { ...item, workingDirectory: targetDirectory } : item,
             ),
           };
-          const receipt = await options.sessionManager.detachRuntimeSessions(threadIds);
+          const rewindReceipt = await options.rewindStore.prepareProjectRelocation({
+            projectId: project.id,
+            sourceDirectory: project.workingDirectory,
+            targetDirectory,
+          });
+          let receipt: RuntimeSessionDetachmentReceipt;
+          try {
+            receipt = await options.sessionManager.detachRuntimeSessions(threadIds);
+          } catch (error) {
+            await options.rewindStore.rollbackProjectRelocation(rewindReceipt);
+            throw error;
+          }
           try {
             await options.appStateStore.saveAppStateSnapshot(afterAppState);
             options.sessionManager.completeRuntimeSessionDetachment(receipt);
+            options.rewindStore.completeProjectRelocation(rewindReceipt);
           } catch (error) {
             const rollbackErrors: unknown[] = [];
             for (const operation of [
               () => options.appStateStore.saveAppStateSnapshot(beforeAppState),
               () => options.sessionManager.restoreRuntimeSessions(receipt),
+              () => options.rewindStore.rollbackProjectRelocation(rewindReceipt),
             ]) {
               try {
                 await retryTwice(operation);

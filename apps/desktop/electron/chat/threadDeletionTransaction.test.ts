@@ -88,11 +88,17 @@ function createHarness() {
       attachmentEvents.push(`rollback:${operationId}`);
     },
   };
+  const rewindStore = {
+    prepareDeletion: async () => {},
+    commitDeletion: async () => {},
+    rollbackDeletion: async () => {},
+  };
 
   return {
     journalStore,
     appStateStore,
     attachmentStore,
+    rewindStore,
     attachmentEvents,
     getAppState: () => appState,
     getProviderSessions: () => providerSessions,
@@ -121,6 +127,7 @@ describe("thread deletion transaction", () => {
       journalStore: harness.journalStore,
       appStateStore: harness.appStateStore,
       attachmentStore: harness.attachmentStore,
+      rewindStore: harness.rewindStore,
       sessionManager: {
         deleteThreadData: async () => ({
           threadIds: ["thread-1"],
@@ -144,9 +151,55 @@ describe("thread deletion transaction", () => {
     expect(harness.getJournal()).toBe(null);
   });
 
+  it("commits Rewind data deletion through the same transaction journal", async () => {
+    const harness = createHarness();
+    const rewindEvents: unknown[] = [];
+    const manager = createThreadDeletionTransactionManager({
+      journalStore: harness.journalStore,
+      appStateStore: harness.appStateStore,
+      attachmentStore: harness.attachmentStore,
+      rewindStore: {
+        prepareDeletion: async (operationId, input) => {
+          rewindEvents.push(["prepare", operationId, input]);
+        },
+        commitDeletion: async (operationId) => {
+          rewindEvents.push(["commit", operationId]);
+        },
+        rollbackDeletion: async (operationId) => {
+          rewindEvents.push(["rollback", operationId]);
+        },
+      },
+      sessionManager: {
+        deleteThreadData: async () => ({
+          threadIds: ["thread-1"],
+          removedProviderSessions: {},
+          detachedRuntimeSessions: {},
+        }),
+        rollbackThreadDataDeletion: async () => {},
+      },
+      createOperationId: () => "operation-rewind",
+    });
+
+    await manager.deleteThread(request());
+
+    expect(rewindEvents).toEqual([
+      [
+        "prepare",
+        "operation-rewind",
+        {
+          threadIds: ["thread-1"],
+          projectDirectories: { "project-1": "/code/carrent" },
+        },
+      ],
+      ["commit", "operation-rewind"],
+    ]);
+  });
+
   it("rolls every store back when a pre-commit write fails", async () => {
     const harness = createHarness();
     let appStateSaveAttempts = 0;
+    let rewindNodeIds = ["run-1"];
+    const rewindEvents: string[] = [];
     const manager = createThreadDeletionTransactionManager({
       journalStore: harness.journalStore,
       appStateStore: {
@@ -158,6 +211,19 @@ describe("thread deletion transaction", () => {
         },
       },
       attachmentStore: harness.attachmentStore,
+      rewindStore: {
+        prepareDeletion: async (operationId) => {
+          rewindEvents.push(`prepare:${operationId}`);
+          rewindNodeIds = [];
+        },
+        commitDeletion: async (operationId) => {
+          rewindEvents.push(`commit:${operationId}`);
+        },
+        rollbackDeletion: async (operationId) => {
+          rewindEvents.push(`rollback:${operationId}`);
+          rewindNodeIds = ["run-1"];
+        },
+      },
       sessionManager: {
         deleteThreadData: async () => ({
           threadIds: ["thread-1"],
@@ -184,6 +250,8 @@ describe("thread deletion transaction", () => {
       "prepare:operation-2:attachment.png",
       "rollback:operation-2",
     ]);
+    expect(rewindEvents).toEqual(["prepare:operation-2", "rollback:operation-2"]);
+    expect(rewindNodeIds).toEqual(["run-1"]);
     expect(harness.getJournal()).toBe(null);
   });
 
@@ -215,6 +283,7 @@ describe("thread deletion transaction", () => {
           },
         },
         attachmentStore: harness.attachmentStore,
+        rewindStore: harness.rewindStore,
         sessionManager: {
           deleteThreadData: async () => ({
             threadIds: ["thread-1"],
@@ -259,6 +328,7 @@ describe("thread deletion transaction", () => {
           throw new Error("backup unavailable");
         },
       },
+      rewindStore: harness.rewindStore,
       sessionManager: {
         deleteThreadData: async () => ({
           threadIds: ["thread-1"],
@@ -327,6 +397,7 @@ describe("thread deletion transaction", () => {
         },
       },
       attachmentStore: harness.attachmentStore,
+      rewindStore: harness.rewindStore,
       sessionManager: {
         deleteThreadData: async () => ({
           threadIds: ["thread-1"],
@@ -368,6 +439,7 @@ describe("thread deletion transaction", () => {
       journalStore: harness.journalStore,
       appStateStore: harness.appStateStore,
       attachmentStore: harness.attachmentStore,
+      rewindStore: harness.rewindStore,
       sessionManager: {
         deleteThreadData: async () => ({
           threadIds: ["thread-1"],
@@ -397,6 +469,7 @@ describe("thread deletion transaction", () => {
       journalStore: harness.journalStore,
       appStateStore: harness.appStateStore,
       attachmentStore: harness.attachmentStore,
+      rewindStore: harness.rewindStore,
       sessionManager: {
         deleteThreadData: async () => ({
           threadIds: ["thread-1"],
@@ -442,6 +515,7 @@ describe("thread deletion transaction", () => {
       journalStore: harness.journalStore,
       appStateStore: harness.appStateStore,
       attachmentStore: harness.attachmentStore,
+      rewindStore: harness.rewindStore,
     });
 
     expect(harness.getAppState()).toEqual(beforeAppState);
@@ -474,6 +548,7 @@ describe("thread deletion transaction", () => {
       journalStore: harness.journalStore,
       appStateStore: harness.appStateStore,
       attachmentStore: harness.attachmentStore,
+      rewindStore: harness.rewindStore,
     });
 
     expect(harness.getAppState()).toEqual(afterAppState);
@@ -500,6 +575,7 @@ describe("thread deletion transaction", () => {
       journalStore: harness.journalStore,
       appStateStore: harness.appStateStore,
       attachmentStore,
+      rewindStore: harness.rewindStore,
       sessionManager: {
         deleteThreadData: async () => ({
           threadIds: ["thread-1"],
@@ -522,6 +598,7 @@ describe("thread deletion transaction", () => {
       journalStore: harness.journalStore,
       appStateStore: harness.appStateStore,
       attachmentStore,
+      rewindStore: harness.rewindStore,
     });
 
     expect(commitAttempts).toBe(3);

@@ -41,6 +41,15 @@ type TransactionAttachmentStore = {
   rollbackDeletion: (operationId: string) => Promise<void>;
 };
 
+type TransactionRewindStore = {
+  prepareDeletion: (
+    operationId: string,
+    input: { threadIds: string[]; projectDirectories: Record<string, string> },
+  ) => Promise<void>;
+  commitDeletion: (operationId: string) => Promise<void>;
+  rollbackDeletion: (operationId: string) => Promise<void>;
+};
+
 type TransactionSessionManager = {
   deleteThreadData: (request: DeleteThreadDataRequest) => Promise<ThreadDataDeletionReceipt | void>;
   rollbackThreadDataDeletion: (receipt: ThreadDataDeletionReceipt) => Promise<void>;
@@ -100,6 +109,7 @@ async function restorePreparingTransaction(options: {
   journalStore: ThreadDeletionJournalStore;
   appStateStore: TransactionAppStateStore;
   attachmentStore: TransactionAttachmentStore;
+  rewindStore: TransactionRewindStore;
 }) {
   const rollbackErrors: unknown[] = [];
   const { journal } = options;
@@ -113,6 +123,7 @@ async function restorePreparingTransaction(options: {
       });
     },
     () => options.attachmentStore.rollbackDeletion(journal.operationId),
+    () => options.rewindStore.rollbackDeletion(journal.operationId),
   ];
   for (const operation of operations) {
     try {
@@ -132,10 +143,12 @@ async function finishCommittedTransaction(options: {
   journalStore: ThreadDeletionJournalStore;
   appStateStore: TransactionAppStateStore;
   attachmentStore: TransactionAttachmentStore;
+  rewindStore: TransactionRewindStore;
 }) {
   const { journal } = options;
   await retryTwice(async () => {
     await options.attachmentStore.commitDeletion(journal.operationId);
+    await options.rewindStore.commitDeletion(journal.operationId);
     await options.journalStore.clear();
   });
 }
@@ -144,6 +157,7 @@ export async function recoverThreadDeletionTransaction(options: {
   journalStore: ThreadDeletionJournalStore;
   appStateStore: TransactionAppStateStore;
   attachmentStore: TransactionAttachmentStore;
+  rewindStore: TransactionRewindStore;
 }) {
   const journal = await options.journalStore.load();
   if (!journal) return;
@@ -158,6 +172,7 @@ export function createThreadDeletionTransactionManager(options: {
   journalStore: ThreadDeletionJournalStore;
   appStateStore: TransactionAppStateStore;
   attachmentStore: TransactionAttachmentStore;
+  rewindStore: TransactionRewindStore;
   sessionManager: TransactionSessionManager;
   createOperationId?: () => string;
   onActiveChange?: (active: boolean) => void;
@@ -224,6 +239,20 @@ export function createThreadDeletionTransactionManager(options: {
               journal.operationId,
               transactionRequest.threadData.attachmentStorageKeys,
             );
+            const deletedThreadIds = new Set(transactionRequest.threadData.threadIds);
+            const deletedProjectIds = new Set(
+              (beforeAppState.threads ?? [])
+                .filter((thread) => deletedThreadIds.has(thread.id))
+                .map((thread) => thread.projectId),
+            );
+            await options.rewindStore.prepareDeletion(journal.operationId, {
+              threadIds: transactionRequest.threadData.threadIds,
+              projectDirectories: Object.fromEntries(
+                beforeAppState.projects
+                  .filter((project) => deletedProjectIds.has(project.id))
+                  .map((project) => [project.id, project.workingDirectory]),
+              ),
+            });
             const deletionReceipt =
               transactionRequest.threadData.threadIds.length > 0
                 ? await options.sessionManager.deleteThreadData({
@@ -246,6 +275,7 @@ export function createThreadDeletionTransactionManager(options: {
                 ? [() => options.sessionManager.rollbackThreadDataDeletion(receipt!)]
                 : []),
               () => options.attachmentStore.rollbackDeletion(journal.operationId),
+              () => options.rewindStore.rollbackDeletion(journal.operationId),
             ];
             for (const operation of operations) {
               try {

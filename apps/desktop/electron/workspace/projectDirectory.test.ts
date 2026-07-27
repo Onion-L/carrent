@@ -3,6 +3,16 @@ import { describe, expect, it } from "bun:test";
 import { registerProjectDirectoryIpc } from "./projectDirectory";
 import { createProjectRelocationManager } from "./projectDirectory";
 import type { AppStateSnapshot } from "../../src/shared/workspacePersistence";
+import type { RewindDataSnapshot } from "../rewind/rewindDataStore";
+
+function createEmptyRewindStore() {
+  const before: RewindDataSnapshot = { version: 1, nodes: [] };
+  return {
+    prepareProjectRelocation: async () => ({ before }),
+    rollbackProjectRelocation: async () => {},
+    completeProjectRelocation: () => {},
+  };
+}
 
 function relocationSnapshots() {
   const appState: AppStateSnapshot = {
@@ -121,6 +131,7 @@ describe("createProjectRelocationManager", () => {
     let appState = structuredClone(before.appState);
     const detached: string[][] = [];
     const manager = createProjectRelocationManager({
+      rewindStore: createEmptyRewindStore(),
       appStateStore: {
         waitForWrites: async () => {},
         loadAppStateSnapshot: async () => appState,
@@ -160,6 +171,7 @@ describe("createProjectRelocationManager", () => {
     const before = relocationSnapshots();
     let detached = false;
     const manager = createProjectRelocationManager({
+      rewindStore: createEmptyRewindStore(),
       appStateStore: {
         waitForWrites: async () => {},
         loadAppStateSnapshot: async () => before.appState,
@@ -194,6 +206,7 @@ describe("createProjectRelocationManager", () => {
     const before = relocationSnapshots();
     let detached = false;
     const manager = createProjectRelocationManager({
+      rewindStore: createEmptyRewindStore(),
       appStateStore: {
         waitForWrites: async () => {},
         loadAppStateSnapshot: async () => before.appState,
@@ -226,6 +239,7 @@ describe("createProjectRelocationManager", () => {
     const before = relocationSnapshots();
     const savedAppStates: AppStateSnapshot[] = [];
     const manager = createProjectRelocationManager({
+      rewindStore: createEmptyRewindStore(),
       appStateStore: {
         waitForWrites: async () => {},
         loadAppStateSnapshot: async () => before.appState,
@@ -264,6 +278,7 @@ describe("createProjectRelocationManager", () => {
       runtimeSessions: {},
     };
     const manager = createProjectRelocationManager({
+      rewindStore: createEmptyRewindStore(),
       appStateStore: {
         waitForWrites: async () => {},
         loadAppStateSnapshot: async () => appState,
@@ -294,5 +309,66 @@ describe("createProjectRelocationManager", () => {
     expect(appState).toEqual(before.appState);
     expect(restored).toBe(true);
     expect(completed).toBe(false);
+  });
+
+  it("rolls back Rewind validation when the relocated path cannot be committed", async () => {
+    const before = relocationSnapshots();
+    let appState = structuredClone(before.appState);
+    let appStateSaveAttempts = 0;
+    let rewindState = "ready";
+    let rewindCompleted = false;
+    const relocationRequests: unknown[] = [];
+    const rewindReceipt = { before: { version: 1 as const, nodes: [] } };
+    const manager = createProjectRelocationManager({
+      appStateStore: {
+        waitForWrites: async () => {},
+        loadAppStateSnapshot: async () => appState,
+        saveAppStateSnapshot: async (next) => {
+          appStateSaveAttempts += 1;
+          if (appStateSaveAttempts === 1) throw new Error("disk full");
+          appState = structuredClone(next);
+        },
+      },
+      sessionManager: {
+        hasLiveRunForThreads: () => false,
+        detachRuntimeSessions: async (threadIds) => ({
+          threadIds,
+          providerSessions: {},
+          runtimeSessions: {},
+        }),
+        restoreRuntimeSessions: async () => {},
+        completeRuntimeSessionDetachment: () => {},
+      },
+      rewindStore: {
+        prepareProjectRelocation: async (request) => {
+          relocationRequests.push(request);
+          rewindState = "barrier";
+          return rewindReceipt;
+        },
+        rollbackProjectRelocation: async (receipt) => {
+          expect(receipt).toEqual(rewindReceipt);
+          rewindState = "ready";
+        },
+        completeProjectRelocation: () => {
+          rewindCompleted = true;
+        },
+      },
+      checkDirectory: async () => true,
+    });
+
+    await manager
+      .relocate({ projectId: "project-1", targetDirectory: "/new/carrent" })
+      .catch(() => {});
+
+    expect(relocationRequests).toEqual([
+      {
+        projectId: "project-1",
+        sourceDirectory: "/old/carrent",
+        targetDirectory: "/new/carrent",
+      },
+    ]);
+    expect(appState).toEqual(before.appState);
+    expect(rewindState).toBe("ready");
+    expect(rewindCompleted).toBe(false);
   });
 });

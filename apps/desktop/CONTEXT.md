@@ -185,7 +185,7 @@ A condition detected before restoration where reversing Run Changes would overwr
 _Avoid_: Git conflict, partial rewind
 
 **Rewind Barrier**:
-A run whose project state could not be recorded reliably, or whose recorded rewind data cannot be validated after a Project directory relocation, preventing a complete Thread Rewind across that point while leaving normal work unaffected.
+A run whose project state could not be recorded reliably, or whose recorded rewind data cannot be validated after a Project Working Directory relocation, preventing a complete Thread Rewind across that point while leaving normal work unaffected.
 _Avoid_: Failed run, context-only rewind
 
 **File Attachment**:

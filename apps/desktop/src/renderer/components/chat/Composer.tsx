@@ -275,7 +275,6 @@ type ComposerProps =
       draftRequest?: ComposerDraftRequest;
       onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void;
       onPromote: (input: AssociationDraftPromotionInput) => Promise<boolean>;
-      onPromotionAccepted: (runId: string) => Promise<boolean>;
       onPromotionRejected: (draft: ThreadWorkDraftSnapshot) => Promise<void>;
       onPromoted: (threadId: string) => void;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
@@ -1949,7 +1948,6 @@ export function Composer(props: ComposerProps) {
           }
         },
         onQuestionRequested: (question) => {
-          markThreadActivity(threadId, Date.parse(question.createdAt));
           updateMessageParts(assistantMsg.id, {
             kind: "upsert-question",
             question: {
@@ -2074,13 +2072,6 @@ export function Composer(props: ComposerProps) {
     }
 
     if (props.mode === "association-draft") {
-      const committed = await props.onPromotionAccepted(startedRunId);
-      if (!committed) {
-        await stop(threadId);
-        removeThreadFromState(props.threadId);
-        removeMessages([userMessageId, assistantMsg.id]);
-        return false;
-      }
       upsertMessages([assistantMsg]);
       props.onPromoted(props.threadId);
     }

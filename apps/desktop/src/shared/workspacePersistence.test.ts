@@ -215,7 +215,7 @@ describe("normalizeAppStateSnapshot", () => {
     expect(normalizeAppStateSnapshot({ ...base, associations: [] })).toBe(null);
   });
 
-  it("treats Windows Project directory identity as case-insensitive", () => {
+  it("treats Windows Project Working Directory identity as case-insensitive", () => {
     expect(
       normalizeAppStateSnapshot({
         version: APP_STATE_SNAPSHOT_VERSION,

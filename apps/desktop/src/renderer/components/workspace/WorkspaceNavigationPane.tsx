@@ -1,12 +1,17 @@
+import { useState } from "react";
 import { useAppState } from "../../context/AppStateContext";
-import { ArrowDown, ArrowUp, Search, TriangleAlert } from "lucide-react";
+import { ArrowDown, ArrowUp, Pencil, Pin, Search, TriangleAlert } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AddProjectButton } from "./AddProjectButton";
 import { getWorkspaceProjects } from "../../lib/workspaceProjects";
 import { buildProjectPath, buildThreadPath, buildWorkspacePath } from "../../lib/navigation";
 import { useThreadContent } from "../../context/ThreadContentContext";
 import { useChatRun } from "../../hooks/useChatRun";
-import { getThreadDisplayStatus, type ThreadDisplayStatus } from "../../lib/projectThreads";
+import {
+  getThreadDisplayStatus,
+  splitProjectThreads,
+  type ThreadDisplayStatus,
+} from "../../lib/projectThreads";
 import type { ThreadSearchScope } from "../../../shared/threadSearch";
 
 const STATUS_LABELS: Record<ThreadDisplayStatus, string> = {
@@ -32,8 +37,10 @@ export function WorkspaceNavigationPane({
     moveAssociation,
     projectDirectoryStatusById,
   } = useAppState();
-  const { messages } = useThreadContent();
+  const { messages, renameThread, toggleThreadPin } = useThreadContent();
   const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+  const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
   const workspaceProjects = getWorkspaceProjects(projects, associations, activeWorkspaceId);
 
@@ -62,14 +69,15 @@ export function WorkspaceNavigationPane({
       <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto">
         {workspaceProjects.map(({ association, project }, index) => {
           const projectPath = buildProjectPath(association.workspaceId, project.id);
-          const projectThreads = threads
-            .filter(
+          const projectThreads = splitProjectThreads(
+            threads.filter(
               (thread) =>
                 thread.workspaceId === association.workspaceId &&
                 thread.projectId === project.id &&
                 !thread.archived,
-            )
-            .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt));
+            ),
+            messages,
+          ).active;
 
           return (
             <section key={project.id}>
@@ -141,23 +149,83 @@ export function WorkspaceNavigationPane({
                     messages,
                   });
                   return (
-                    <button
+                    <div
                       key={thread.id}
-                      type="button"
-                      onClick={() => navigate(threadPath)}
-                      className={`flex min-h-7 w-full items-center gap-2 rounded-md px-2 text-left text-app-12 hover:bg-surface-hover hover:text-fg ${
+                      className={`group flex min-h-7 w-full items-center gap-1 rounded-md px-2 text-app-12 hover:bg-surface-hover hover:text-fg ${
                         location.pathname === threadPath
                           ? "bg-surface-hover text-fg"
                           : "text-subtle"
                       }`}
                     >
-                      <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-                      {status && (
-                        <span className="shrink-0 text-app-10 text-subtle">
-                          {STATUS_LABELS[status]}
-                        </span>
+                      {editingThreadId === thread.id ? (
+                        <input
+                          autoFocus
+                          aria-label={`Rename ${thread.title}`}
+                          value={editingThreadTitle}
+                          onChange={(event) => setEditingThreadTitle(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              renameThread(project.id, thread.id, editingThreadTitle);
+                              setEditingThreadId(null);
+                              setEditingThreadTitle("");
+                            } else if (event.key === "Escape") {
+                              event.preventDefault();
+                              setEditingThreadId(null);
+                              setEditingThreadTitle("");
+                            }
+                          }}
+                          onBlur={() => {
+                            renameThread(project.id, thread.id, editingThreadTitle);
+                            setEditingThreadId(null);
+                            setEditingThreadTitle("");
+                          }}
+                          className="h-6 min-w-0 flex-1 rounded border border-border-strong bg-bg px-1.5 text-app-12 text-fg outline-none"
+                        />
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            aria-label={`Open ${thread.title}`}
+                            onClick={() => navigate(threadPath)}
+                            className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch text-left"
+                          >
+                            {thread.pinned && <Pin className="h-3 w-3 shrink-0" />}
+                            <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+                            {status && (
+                              <span className="shrink-0 text-app-10 text-subtle">
+                                {STATUS_LABELS[status]}
+                              </span>
+                            )}
+                          </button>
+                          <div className="flex shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                            <button
+                              type="button"
+                              aria-label={
+                                thread.pinned ? `Unpin ${thread.title}` : `Pin ${thread.title}`
+                              }
+                              title={thread.pinned ? "Unpin" : "Pin"}
+                              onClick={() => toggleThreadPin(project.id, thread.id)}
+                              className="flex h-6 w-6 items-center justify-center rounded text-subtle hover:bg-surface-raised hover:text-fg"
+                            >
+                              <Pin className="h-3 w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Rename ${thread.title}`}
+                              title="Rename"
+                              onClick={() => {
+                                setEditingThreadId(thread.id);
+                                setEditingThreadTitle(thread.title);
+                              }}
+                              className="flex h-6 w-6 items-center justify-center rounded text-subtle hover:bg-surface-raised hover:text-fg"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>

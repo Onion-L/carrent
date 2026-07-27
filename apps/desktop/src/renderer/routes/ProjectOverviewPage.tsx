@@ -30,7 +30,6 @@ export function ProjectOverviewPage() {
     updateThreadDraftConfig,
     discardThreadDraft,
     prepareThreadDraftPromotion,
-    commitThreadDraftPromotion,
     rollbackThreadDraftPromotion,
     removeAssociation,
   } = useAppState();
@@ -160,9 +159,6 @@ export function ProjectOverviewPage() {
               }}
               onPromote={async (input) =>
                 (await prepareThreadDraftPromotion({ draftId: openDraft.id, ...input })) !== null
-              }
-              onPromotionAccepted={async (runId) =>
-                (await commitThreadDraftPromotion(openDraft.id, runId)) !== null
               }
               onPromotionRejected={async (draft) => {
                 const restoredDraft = { ...openDraft, ...draft };

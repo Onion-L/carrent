@@ -752,6 +752,139 @@ describe("three-level navigation", () => {
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
   });
 
+  it("renames and pins Threads from the Workspace navigation pane", async () => {
+    const state = navigationState();
+    state.threads!.push({
+      id: "thread-3",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      title: "Recent Thread",
+      createdAt: "2026-07-27T10:00:00.000Z",
+      lastActivityAt: "2026-07-27T10:00:00.000Z",
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+    });
+    const saved = await renderApp(
+      state,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+    );
+    const navigationPane = container!.querySelector("aside.border-r")!;
+
+    expect(navigationPane.textContent!.indexOf("Recent Thread")).toBeLessThan(
+      navigationPane.textContent!.indexOf("Personal Thread"),
+    );
+
+    await click(buttonNamed("Pin Personal Thread"));
+    expect(navigationPane.textContent!.indexOf("Personal Thread")).toBeLessThan(
+      navigationPane.textContent!.indexOf("Recent Thread"),
+    );
+
+    await click(buttonNamed("Rename Personal Thread"));
+    const renameInput = container!.querySelector<HTMLInputElement>(
+      'input[aria-label="Rename Personal Thread"]',
+    )!;
+    await fillInput(renameInput, "Pinned Work");
+    await act(async () => {
+      renameInput.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+
+    expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")).toMatchObject({
+      title: "Pinned Work",
+      pinned: true,
+    });
+    expect(buttonNamed("Unpin Pinned Work")).not.toBe(null);
+  });
+
+  it("does not change Thread Activity Time for question requests", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const saved = await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      requests,
+      false,
+    );
+
+    await fillTextarea(container!.querySelector("textarea")!, "Track meaningful activity");
+    await click(composerSendButton());
+    const activityAfterSubmit = saved
+      .at(-1)
+      ?.threads?.find((thread) => thread.id === "thread-1")?.lastActivityAt;
+
+    await act(async () => {
+      emitChatEvent!({
+        type: "question-requested",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+        question: {
+          id: "question-activity",
+          runId: requests[0].runId!,
+          requestKey: requests[0].requestKey,
+          threadId: "thread-1",
+          provider: "kimi",
+          source: "native-acp",
+          questions: [
+            {
+              header: "Choice",
+              question: "Continue?",
+              options: [{ optionId: "yes", label: "Yes" }],
+              multiSelect: false,
+            },
+          ],
+          createdAt: "2099-01-01T00:00:00.000Z",
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+
+    expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.lastActivityAt).toBe(
+      activityAfterSubmit,
+    );
+
+    await act(async () => {
+      emitChatEvent!({
+        type: "permission-requested",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+        permission: {
+          id: "permission-activity",
+          runId: requests[0].runId!,
+          requestKey: requests[0].requestKey,
+          threadId: "thread-1",
+          provider: "kimi",
+          action: "edit",
+          title: "Edit file",
+          options: [],
+          createdAt: "2099-01-02T00:00:00.000Z",
+          expiresAt: "2099-01-02T00:01:00.000Z",
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+
+    expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.lastActivityAt).toBe(
+      "2099-01-02T00:00:00.000Z",
+    );
+
+    await act(async () => {
+      emitChatEvent!({
+        type: "stopped",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  });
+
   it("keeps Settings in the Main Window and returns to the entry location", async () => {
     const entryPath = "/workspace/workspace-1/project/project-1/thread/thread-1";
     await renderApp(navigationState(), entryPath, [], false, [], false);
@@ -1739,6 +1872,48 @@ describe("Association Thread Drafts", () => {
     });
   });
 
+  it("atomically persists the promoted Thread before the first Runtime dispatch", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const saved = await renderApp(
+      state,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      false,
+      requests,
+    );
+    let appStateAtDispatch: AppStateSnapshot | undefined;
+    const send = window.carrent.chat.send;
+    window.carrent.chat.send = async (request) => {
+      appStateAtDispatch = structuredClone(saved.at(-1));
+      return send(request);
+    };
+
+    await click(buttonNamed("New Thread"));
+    await fillTextarea(container!.querySelector("textarea")!, "Persist before dispatch");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+    await click(composerSendButton());
+
+    expect(requests).toHaveLength(1);
+    expect(appStateAtDispatch?.threadDrafts).toEqual([]);
+    expect(appStateAtDispatch?.threads?.[0]).toMatchObject({
+      id: requests[0].threadId,
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+    });
+    expect(appStateAtDispatch?.threadMessages?.[0]).toMatchObject({
+      threadId: requests[0].threadId,
+      role: "user",
+      content: "Persist before dispatch",
+    });
+    expect(appStateAtDispatch?.threadRuns?.[0]).toMatchObject({
+      id: requests[0].runId,
+      threadId: requests[0].threadId,
+      messageId: appStateAtDispatch?.threadMessages?.[0].id,
+    });
+  });
+
   it("keeps the Draft retryable when the first dispatch is rejected", async () => {
     const saved = await renderApp(
       state,
@@ -1764,7 +1939,7 @@ describe("Association Thread Drafts", () => {
     });
   });
 
-  it("keeps the Draft persisted when dispatch rejection cleanup cannot be saved", async () => {
+  it("keeps the Draft retryable when dispatch rejection rollback initially fails", async () => {
     const saved = await renderApp(
       state,
       "/workspace/workspace-1/project/project-1",
@@ -1776,6 +1951,7 @@ describe("Association Thread Drafts", () => {
 
     await click(buttonNamed("New Thread"));
     await fillTextarea(container!.querySelector("textarea")!, "Retry after cleanup failure");
+    await click(composerSendButton());
     await click(composerSendButton());
 
     expect(saved.at(-1)?.threads).toEqual([]);
@@ -1810,32 +1986,6 @@ describe("Association Thread Drafts", () => {
     expect(saved.at(-1)?.threads).toEqual([]);
     expect(saved.at(-1)?.threadDrafts?.[0]).toMatchObject({
       content: "Persist this before promotion",
-      workspaceId: "workspace-1",
-      projectId: "project-1",
-    });
-  });
-
-  it("keeps the Draft persisted when final promotion commit fails", async () => {
-    const requests: ChatTurnRequest[] = [];
-    const saved = await renderApp(
-      state,
-      "/workspace/workspace-1/project/project-1",
-      [],
-      4,
-      requests,
-    );
-
-    await click(buttonNamed("New Thread"));
-    await fillTextarea(container!.querySelector("textarea")!, "Keep the finalization retryable");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 350));
-    });
-    await click(composerSendButton());
-
-    expect(requests).toHaveLength(1);
-    expect(saved.at(-1)?.threads).toEqual([]);
-    expect(saved.at(-1)?.threadDrafts?.[0]).toMatchObject({
-      content: "Keep the finalization retryable",
       workspaceId: "workspace-1",
       projectId: "project-1",
     });

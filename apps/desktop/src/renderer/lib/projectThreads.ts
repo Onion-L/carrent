@@ -121,13 +121,8 @@ export function getAttentionGroups<T extends AppThreadRecord>({
     .filter((group) => group.threads.length > 0);
 }
 
-export function splitProjectThreads(threads: AppThreadRecord[], messages: Message[] = []) {
-  const pinned = threads.filter((thread) => thread.pinned);
-  const regular = threads.filter((thread) => !thread.pinned);
-
-  return {
-    active: [...sortByActivity(pinned, messages), ...sortByActivity(regular, messages)],
-  };
+export function getProjectThreads(threads: AppThreadRecord[]) {
+  return threads;
 }
 
 export function filterProjectThreads(threads: AppThreadRecord[], query: string) {

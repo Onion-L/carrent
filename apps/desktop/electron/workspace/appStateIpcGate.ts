@@ -27,8 +27,12 @@ export function createAppStateIpcGate<T extends { handle: unknown; on: unknown }
   initialResult: AppStateLoadResult,
 ) {
   let blocked = initialResult.status === "recovery-required";
-  const registerHandle = ipcMainLike.handle as (channel: string, listener: IpcListener) => void;
-  const registerListener = ipcMainLike.on as (channel: string, listener: IpcListener) => void;
+  const registerHandle = (
+    ipcMainLike.handle as (channel: string, listener: IpcListener) => void
+  ).bind(ipcMainLike);
+  const registerListener = (
+    ipcMainLike.on as (channel: string, listener: IpcListener) => void
+  ).bind(ipcMainLike);
 
   const assertAvailable = (channel: string) => {
     if (blocked && !RECOVERY_CHANNELS.has(channel)) {

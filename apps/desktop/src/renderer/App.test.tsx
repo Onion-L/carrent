@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, mock } from "bun:test";
 
 import "./test/registerHappyDom";
 
-import { act } from "react";
+import { StrictMode, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
   MemoryRouter,
@@ -222,18 +222,19 @@ function installBridge(
   } as unknown as Window["carrent"];
 }
 
-async function mountInstalledBridge(initialEntry = "/") {
+async function mountInstalledBridge(initialEntry = "/", strictMode = false) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
 
   await act(async () => {
-    root!.render(
+    const app = (
       <MemoryRouter initialEntries={[initialEntry]}>
         <App />
         <NavigationProbe />
-      </MemoryRouter>,
+      </MemoryRouter>
     );
+    root!.render(strictMode ? <StrictMode>{app}</StrictMode> : app);
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
@@ -272,6 +273,7 @@ type RenderAppOptions = {
   deleteThreadTransactionGate?: Promise<void>;
   projectDirectoryAvailable?: boolean | boolean[] | (() => boolean);
   projectRelocationRequests?: ProjectRelocationRequest[];
+  strictMode?: boolean;
 };
 
 async function renderApp(
@@ -308,7 +310,7 @@ async function renderApp(
     options.projectDirectoryAvailable,
     options.projectRelocationRequests,
   );
-  await mountInstalledBridge(initialEntry);
+  await mountInstalledBridge(initialEntry, options.strictMode);
 
   return saved;
 }
@@ -476,7 +478,7 @@ describe("Workspace App State foundation", () => {
   });
 
   it("creates the first Workspace from the global first-use state", async () => {
-    const saved = await renderApp(null);
+    const saved = await renderApp(null, "/", [], false, [], false, { strictMode: true });
 
     expect(container!.textContent).toContain("Create your first Workspace");
     expect(container!.textContent).not.toContain("Select a thread to start");
@@ -490,6 +492,8 @@ describe("Workspace App State foundation", () => {
       { id: saved[0].workspaces[0].id, name: "Personal", order: 0 },
     ]);
     expect(saved[0].activeWorkspaceId).toBe(saved[0].workspaces[0].id);
+    expect(currentPathname).toBe(`/workspace/${saved[0].workspaces[0].id}`);
+    expect(container!.textContent).not.toContain("Workspace could not be found.");
     expect(container!.textContent).toContain("Personal");
     expect(container!.textContent).toContain("This Workspace has no Projects yet.");
   });
@@ -721,7 +725,7 @@ describe("three-level navigation", () => {
     expect(currentPathname).toBe("/workspace/workspace-2/project/project-1/thread/thread-2");
   });
 
-  it("groups the current Workspace's Threads, shows the full path, and preserves push history", async () => {
+  it("groups Threads by Project and toggles the Project's Thread List", async () => {
     await renderApp(
       navigationState(),
       "/workspace/workspace-1/project/project-1/thread/thread-1",
@@ -732,27 +736,57 @@ describe("three-level navigation", () => {
     );
 
     const navigationPane = container!.querySelector("aside.border-r")!;
+    expect(navigationPane.className).toContain("rounded-xl");
     expect(navigationPane.textContent).toContain("Personal Carrent");
     expect(navigationPane.textContent).toContain("Personal Thread");
     expect(navigationPane.textContent).not.toContain("Client Thread");
+    expect(navigationPane.querySelector('[aria-label="New thread in Personal Carrent"]')).not.toBe(
+      null,
+    );
+    expect(navigationPane.querySelector('[aria-label="Search Personal Carrent"]')).toBe(null);
+    const projectActionLabels = [...navigationPane.querySelectorAll("button")].map((button) =>
+      button.getAttribute("aria-label"),
+    );
+    expect(projectActionLabels.indexOf("More actions for Personal Carrent")).toBeLessThan(
+      projectActionLabels.indexOf("New thread in Personal Carrent"),
+    );
+    expect(navigationPane.querySelector('[aria-label="Move Personal Carrent up"]')).toBe(null);
     expect(container!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
 
-    await click(buttonNamed("Personal Carrent"));
-    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
-    expect(currentNavigationType).toBe("PUSH");
-
-    await click(buttonNamed("Personal Thread"));
+    await click(buttonNamed("Collapse Personal Carrent"));
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
-    expect(currentNavigationType).toBe("PUSH");
+    expect(navigationPane.textContent).not.toContain("Personal Thread");
+    expect(container!.textContent).not.toContain("Shared Project name");
 
-    await act(async () => {
-      testNavigate!(-1);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
+    await click(buttonNamed("Expand Personal Carrent"));
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(navigationPane.textContent).toContain("Personal Thread");
+
+    await click(buttonNamed("More actions for Personal Carrent"));
+    expect(
+      document.querySelector('[role="menu"][aria-label="Actions for Personal Carrent"]'),
+    ).not.toBe(null);
+    await click(buttonNamed("Project settings"));
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
   });
 
-  it("renames and pins Threads from the Workspace navigation pane", async () => {
+  it("opens a Project Thread Draft from the restored middle pane action", async () => {
+    const saved = await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+    );
+
+    await click(buttonNamed("New thread in Personal Carrent"));
+
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+    expect(saved.at(-1)?.threadDrafts?.[0]).toMatchObject({
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+    });
+    expect(container!.textContent).toContain("Thread Draft");
+  });
+
+  it("keeps and renames Threads in persisted order", async () => {
     const state = navigationState();
     state.threads!.push({
       id: "thread-3",
@@ -775,11 +809,6 @@ describe("three-level navigation", () => {
     );
     const navigationPane = container!.querySelector("aside.border-r")!;
 
-    expect(navigationPane.textContent!.indexOf("Recent Thread")).toBeLessThan(
-      navigationPane.textContent!.indexOf("Personal Thread"),
-    );
-
-    await click(buttonNamed("Pin Personal Thread"));
     expect(navigationPane.textContent!.indexOf("Personal Thread")).toBeLessThan(
       navigationPane.textContent!.indexOf("Recent Thread"),
     );
@@ -788,7 +817,7 @@ describe("three-level navigation", () => {
     const renameInput = container!.querySelector<HTMLInputElement>(
       'input[aria-label="Rename Personal Thread"]',
     )!;
-    await fillInput(renameInput, "Pinned Work");
+    await fillInput(renameInput, "Renamed Work");
     await act(async () => {
       renameInput.dispatchEvent(
         new window.KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
@@ -797,10 +826,9 @@ describe("three-level navigation", () => {
     });
 
     expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")).toMatchObject({
-      title: "Pinned Work",
-      pinned: true,
+      title: "Renamed Work",
     });
-    expect(buttonNamed("Unpin Pinned Work")).not.toBe(null);
+    expect(navigationPane.querySelector('[aria-label^="Pin "]')).toBe(null);
   });
 
   it("does not change Thread Activity Time for question requests", async () => {
@@ -950,7 +978,7 @@ describe("three-level navigation", () => {
     );
   });
 
-  it("opens Workspace and Project search scopes and keeps the scope in empty results", async () => {
+  it("opens Workspace search and keeps a selected Project scope in empty results", async () => {
     const state = navigationState();
     state.projects.push({
       id: "project-2",
@@ -1008,25 +1036,6 @@ describe("three-level navigation", () => {
     );
     expect(dialog.textContent).toContain("No matching Threads");
     expect(dialog.textContent).toContain("Scope: Personal / Personal Carrent");
-
-    await act(async () => {
-      window.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
-    });
-    await click(buttonNamed("Search Personal Carrent"));
-    dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Search Threads"]')!;
-    expect(dialog.textContent).toContain("Scope: Personal / Personal Carrent");
-    expect(dialog.textContent).not.toContain("Website Thread");
-
-    await act(async () => {
-      window.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
-    });
-    await click(buttonNamed("Search Website"));
-    dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Search Threads"]')!;
-    expect(dialog.textContent).toContain("Scope: Personal / Website");
-    const scopeButtons = [...dialog.querySelectorAll<HTMLButtonElement>("button")];
-    await click(scopeButtons.find((button) => button.textContent?.trim() === "Global")!);
-    await click(scopeButtons.find((button) => button.textContent?.trim() === "Project")!);
-    expect(dialog.textContent).toContain("Scope: Personal / Website");
   });
 
   it("navigates to another search result but selecting the current Thread only closes search", async () => {
@@ -1690,7 +1699,7 @@ describe("Workspace Projects and Associations", () => {
     expect(container!.querySelector("h1")?.textContent).toBe("Carrent Desktop");
   });
 
-  it("reorders Projects inside one Workspace without affecting another Association", async () => {
+  it("does not expose Project sorting controls", async () => {
     const state = sharedProjectState();
     state.projects.push({
       id: "project-2",
@@ -1704,15 +1713,10 @@ describe("Workspace Projects and Associations", () => {
       defaultRuntimeId: "kimi",
       defaultRuntimeMode: "approval-required",
     });
-    const saved = await renderApp(state, "/workspace/workspace-1");
+    await renderApp(state, "/workspace/workspace-1");
 
-    await click(buttonNamed("Move Website up"));
-
-    expect(saved.at(-1)?.associations).toEqual([
-      { ...state.associations[0], order: 1 },
-      state.associations[1],
-      { ...state.associations[2], order: 0 },
-    ]);
+    expect(container!.querySelector('[aria-label="Move Website up"]')).toBe(null);
+    expect(container!.querySelector('[aria-label="Move Personal Carrent down"]')).toBe(null);
   });
 
   it("shows a Project settings save failure without changing displayed state", async () => {

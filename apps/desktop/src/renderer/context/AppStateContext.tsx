@@ -128,11 +128,6 @@ type AppStateContextValue = {
       runtimeMode: RuntimeMode;
     },
   ) => Promise<boolean>;
-  moveAssociation: (
-    workspaceId: string,
-    projectId: string,
-    direction: "up" | "down",
-  ) => Promise<boolean>;
   openThreadDraft: (
     workspaceId: string,
     projectId: string,
@@ -485,6 +480,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    mountedRef.current = true;
     const flushPendingThreadContent = () => {
       if (threadContentSaveTimerRef.current !== null) {
         window.clearTimeout(threadContentSaveTimerRef.current);
@@ -767,36 +763,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
               ...(runtimeModelId ? { defaultRuntimeModelId: runtimeModelId } : {}),
               defaultRuntimeMode: defaults.runtimeMode,
             };
-          }),
-        });
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    [persist, snapshot],
-  );
-
-  const moveAssociation = useCallback(
-    async (workspaceId: string, projectId: string, direction: "up" | "down") => {
-      const workspaceAssociations = snapshot.associations
-        .filter((association) => association.workspaceId === workspaceId)
-        .sort((left, right) => left.order - right.order);
-      const currentIndex = workspaceAssociations.findIndex(
-        (association) => association.projectId === projectId,
-      );
-      const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
-      const current = workspaceAssociations[currentIndex];
-      const target = workspaceAssociations[targetIndex];
-      if (!current || !target) return false;
-
-      try {
-        await persist({
-          ...snapshot,
-          associations: snapshot.associations.map((association) => {
-            if (association === current) return { ...association, order: target.order };
-            if (association === target) return { ...association, order: current.order };
-            return association;
           }),
         });
         return true;
@@ -1343,7 +1309,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         setProjectAlias,
         renameSharedProject,
         setAssociationDefaults,
-        moveAssociation,
         openThreadDraft,
         updateThreadDraft,
         updateThreadDraftConfig,

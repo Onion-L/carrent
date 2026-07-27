@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { EventEmitter } from "node:events";
 
 import type { AppStateLoadResult } from "../../src/shared/workspacePersistence";
 import { createAppStateIpcGate, loadProviderSessionsForAppState } from "./appStateIpcGate";
@@ -20,6 +21,25 @@ const ready: AppStateLoadResult = {
 };
 
 describe("createAppStateIpcGate", () => {
+  it("preserves the IPC receiver when registering handlers and listeners", () => {
+    class IpcMainLike extends EventEmitter {
+      handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+
+      handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown) {
+        this.handlers.set(channel, listener);
+      }
+    }
+
+    const ipcMainLike = new IpcMainLike();
+    const gate = createAppStateIpcGate(ipcMainLike, ready);
+
+    gate.ipcMain.handle("app-state:load", () => undefined);
+    gate.ipcMain.on("app-state:stage", () => undefined);
+
+    expect(ipcMainLike.handlers.has("app-state:load")).toBe(true);
+    expect(ipcMainLike.listenerCount("app-state:stage")).toBe(1);
+  });
+
   it("does not load Runtime Session mappings while initial App State is blocked", async () => {
     let loadCalls = 0;
     const store = {

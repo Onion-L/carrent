@@ -1,4 +1,4 @@
-import { Copy, Folder, Pencil, Pin, SquarePen, Trash2 } from "lucide-react";
+import { Copy, Folder, Pencil, SquarePen, Trash2 } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -24,7 +24,7 @@ import { buildProjectPath, buildThreadPath, getProjectIdFromPathname } from "../
 import {
   getThreadActivityTime,
   getThreadDisplayStatus,
-  splitProjectThreads,
+  getProjectThreads,
   type ThreadDisplayStatus,
 } from "../../lib/projectThreads";
 import { useToast } from "../toast/ToastContext";
@@ -124,14 +124,8 @@ export function ThreadHistoryPane() {
   const navigate = useNavigate();
   const location = useLocation();
   const { activeWorkspaceId, projects, threads, openThreadDraft } = useAppState();
-  const {
-    messages,
-    selectedThreadId,
-    setSelectedThreadId,
-    toggleThreadPin,
-    deleteThread,
-    renameThread,
-  } = useThreadContent();
+  const { messages, selectedThreadId, setSelectedThreadId, deleteThread, renameThread } =
+    useThreadContent();
   const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
@@ -157,17 +151,16 @@ export function ThreadHistoryPane() {
   const allProjectThreads = useMemo(
     () =>
       selectedProject && activeWorkspaceId
-        ? splitProjectThreads(
+        ? getProjectThreads(
             threads.filter(
               (thread) =>
                 thread.workspaceId === activeWorkspaceId &&
                 thread.projectId === selectedProject.id &&
                 !thread.archived,
             ),
-            messages,
-          ).active
+          )
         : [],
-    [activeWorkspaceId, messages, selectedProject, threads],
+    [activeWorkspaceId, selectedProject, threads],
   );
 
   useEffect(() => {
@@ -413,11 +406,7 @@ export function ThreadHistoryPane() {
                       >
                         {isEditing ? (
                           <div className="flex h-full min-w-0 flex-1 items-center gap-2">
-                            {thread.pinned ? (
-                              <Pin className="h-3.5 w-3.5 shrink-0 text-subtle" />
-                            ) : (
-                              <span className="h-2 w-2 shrink-0 rounded-full border border-subtle/70" />
-                            )}
+                            <span className="h-2 w-2 shrink-0 rounded-full border border-subtle/70" />
                             <input
                               autoFocus
                               value={editingThreadTitle}
@@ -456,11 +445,7 @@ export function ThreadHistoryPane() {
                             }}
                             className="flex min-w-0 flex-1 self-stretch items-center gap-2 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20"
                           >
-                            {thread.pinned ? (
-                              <Pin className="h-3.5 w-3.5 shrink-0 text-subtle" />
-                            ) : (
-                              <span className="h-2 w-2 shrink-0 rounded-full border border-subtle/70" />
-                            )}
+                            <span className="h-2 w-2 shrink-0 rounded-full border border-subtle/70" />
                             <span className="min-w-0 flex-1 truncate text-app-13 font-medium">
                               {thread.title}
                             </span>
@@ -485,17 +470,6 @@ export function ThreadHistoryPane() {
 
                         {!isEditing && (
                           <div className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleThreadPin(selectedProject.id, thread.id);
-                              }}
-                              className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
-                              aria-label={thread.pinned ? "Unpin thread" : "Pin thread"}
-                              title={thread.pinned ? "Unpin" : "Pin"}
-                            >
-                              <Pin className="h-3.5 w-3.5" />
-                            </button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();

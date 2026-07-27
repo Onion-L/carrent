@@ -4,7 +4,7 @@ import {
   getAttentionGroups,
   getThreadActivityTime,
   getThreadDisplayStatus,
-  splitProjectThreads,
+  getProjectThreads,
 } from "./projectThreads";
 import type { Message } from "../../shared/threadContent";
 import type { AppThreadRecord } from "../../shared/workspacePersistence";
@@ -24,7 +24,7 @@ function makeThread(overrides: Partial<AppThreadRecord> = {}): AppThreadRecord {
   };
 }
 
-describe("splitProjectThreads", () => {
+describe("project Threads", () => {
   it("groups attention Threads by intervention priority and activity", () => {
     const threads = [
       makeThread({ id: "approval-old", lastActivityAt: "2026-01-01T00:00:00Z" }),
@@ -62,7 +62,7 @@ describe("splitProjectThreads", () => {
     ]);
   });
 
-  it("sorts pinned threads ahead of regular threads", () => {
+  it("keeps the persisted order", () => {
     const threads = [
       makeThread({ id: "a", title: "Regular A" }),
       makeThread({ id: "b", title: "Pinned B", pinned: true }),
@@ -70,36 +70,7 @@ describe("splitProjectThreads", () => {
       makeThread({ id: "d", title: "Pinned D", pinned: true }),
     ];
 
-    const { active } = splitProjectThreads(threads);
-    expect(active.map((t) => t.id)).toEqual(["b", "d", "a", "c"]);
-  });
-
-  it("keeps original order within pinned and regular groups", () => {
-    const threads = [
-      makeThread({ id: "p2", title: "Pinned 2", pinned: true }),
-      makeThread({ id: "r1", title: "Regular 1" }),
-      makeThread({ id: "p1", title: "Pinned 1", pinned: true }),
-      makeThread({ id: "r2", title: "Regular 2" }),
-    ];
-
-    const { active } = splitProjectThreads(threads);
-    expect(active.map((t) => t.id)).toEqual(["p2", "p1", "r1", "r2"]);
-  });
-
-  it("sorts each pin group by activity time", () => {
-    const threads = [
-      makeThread({ id: "old-pinned", pinned: true, lastActivityAt: "2026-01-01T00:00:00Z" }),
-      makeThread({ id: "new-regular", lastActivityAt: "2026-04-01T00:00:00Z" }),
-      makeThread({ id: "new-pinned", pinned: true, lastActivityAt: "2026-03-01T00:00:00Z" }),
-      makeThread({ id: "old-regular", lastActivityAt: "2026-02-01T00:00:00Z" }),
-    ];
-
-    expect(splitProjectThreads(threads).active.map((thread) => thread.id)).toEqual([
-      "new-pinned",
-      "old-pinned",
-      "new-regular",
-      "old-regular",
-    ]);
+    expect(getProjectThreads(threads).map((thread) => thread.id)).toEqual(["a", "b", "c", "d"]);
   });
 
   it("resolves activity from persisted Thread Activity Time", () => {

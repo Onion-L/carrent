@@ -12,7 +12,10 @@ describe("registerDialogIpc", () => {
         },
       },
       async () => ({ canceled: false, filePaths: ["/linked/project"] }),
-      async (filePath) => `/real${filePath}`,
+      async (filePath, ...extraArguments: unknown[]) => {
+        expect(extraArguments).toEqual([]);
+        return `/real${filePath}`;
+      },
     );
 
     expect(await handlers.get("dialog:open-directory")?.()).toEqual({

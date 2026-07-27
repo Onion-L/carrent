@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { useAppState } from "../context/AppStateContext";
 import { Composer } from "../components/chat/Composer";
@@ -12,6 +12,7 @@ import { useChatRun } from "../hooks/useChatRun";
 
 export function ProjectOverviewPage() {
   const { workspaceId, projectId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const {
     workspaces,
@@ -42,6 +43,36 @@ export function ProjectOverviewPage() {
   );
   const [saveError, setSaveError] = useState<string | null>(null);
   const [openDraft, setOpenDraft] = useState<AssociationThreadDraftRecord | null>(null);
+  useEffect(() => {
+    const navigationState =
+      location.state && typeof location.state === "object"
+        ? (location.state as Record<string, unknown>)
+        : null;
+    const requestedDraftId = navigationState?.openThreadDraftId;
+    if (!navigationState || typeof requestedDraftId !== "string") return;
+    const requestedDraft = threadDrafts.find(
+      (draft) =>
+        draft.id === requestedDraftId &&
+        draft.workspaceId === workspaceId &&
+        draft.projectId === projectId,
+    );
+    if (!requestedDraft) return;
+
+    setOpenDraft(requestedDraft);
+    const { openThreadDraftId: _openThreadDraftId, ...remainingState } = navigationState;
+    navigate(`${location.pathname}${location.search}`, {
+      replace: true,
+      state: Object.keys(remainingState).length > 0 ? remainingState : null,
+    });
+  }, [
+    location.pathname,
+    location.search,
+    location.state,
+    navigate,
+    projectId,
+    threadDrafts,
+    workspaceId,
+  ]);
   useEffect(() => {
     if (!workspace || workspace.id === activeWorkspaceId) return;
     void selectWorkspace(workspace.id);

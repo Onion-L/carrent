@@ -1,24 +1,34 @@
-import { useState } from "react";
-import { useAppState } from "../../context/AppStateContext";
-import { ArrowDown, ArrowUp, Pencil, Pin, Search, TriangleAlert } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  Ellipsis,
+  Folder,
+  FolderOpen,
+  Pencil,
+  Search,
+  Settings,
+  SquarePen,
+  TriangleAlert,
+} from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { AddProjectButton } from "./AddProjectButton";
-import { getWorkspaceProjects } from "../../lib/workspaceProjects";
-import { buildProjectPath, buildThreadPath, buildWorkspacePath } from "../../lib/navigation";
+
+import type { ThreadSearchScope } from "../../../shared/threadSearch";
+import { useAppState } from "../../context/AppStateContext";
 import { useThreadContent } from "../../context/ThreadContentContext";
 import { useChatRun } from "../../hooks/useChatRun";
+import { buildProjectPath, buildThreadPath, buildWorkspacePath } from "../../lib/navigation";
 import {
   getThreadDisplayStatus,
-  splitProjectThreads,
+  getProjectThreads,
   type ThreadDisplayStatus,
 } from "../../lib/projectThreads";
-import type { ThreadSearchScope } from "../../../shared/threadSearch";
+import { getWorkspaceProjects } from "../../lib/workspaceProjects";
+import { AddProjectButton } from "./AddProjectButton";
 
-const STATUS_LABELS: Record<ThreadDisplayStatus, string> = {
-  approval: "Approval",
-  question: "Question",
-  running: "Running",
-  failed: "Failed",
+const STATUS_META: Record<ThreadDisplayStatus, { label: string; className: string }> = {
+  approval: { label: "Approval", className: "font-medium text-warning" },
+  question: { label: "Question", className: "font-medium text-warning" },
+  running: { label: "Running", className: "text-success" },
+  failed: { label: "Failed", className: "font-medium text-danger" },
 };
 
 export function WorkspaceNavigationPane({
@@ -34,24 +44,46 @@ export function WorkspaceNavigationPane({
     associations,
     threads,
     activeWorkspaceId,
-    moveAssociation,
+    openThreadDraft,
     projectDirectoryStatusById,
   } = useAppState();
-  const { messages, renameThread, toggleThreadPin } = useThreadContent();
+  const { messages, renameThread } = useThreadContent();
   const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
+  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
+  const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
   const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
   const workspaceProjects = getWorkspaceProjects(projects, associations, activeWorkspaceId);
 
+  useEffect(() => {
+    if (!openProjectMenuId) return;
+
+    const closeMenu = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest("[data-project-menu]")) {
+        setOpenProjectMenuId(null);
+      }
+    };
+    const closeMenuWithKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenProjectMenuId(null);
+    };
+
+    document.addEventListener("pointerdown", closeMenu);
+    document.addEventListener("keydown", closeMenuWithKeyboard);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenu);
+      document.removeEventListener("keydown", closeMenuWithKeyboard);
+    };
+  }, [openProjectMenuId]);
+
   return (
-    <aside className="flex h-full min-h-0 flex-col border-r border-border bg-sidebar px-3 py-3">
+    <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-r border-border bg-bg">
       {workspace && (
-        <div className="flex min-h-7 items-center gap-1">
+        <div className="flex min-h-12 shrink-0 items-center gap-1 px-3 pb-1 pt-2">
           <button
             type="button"
             onClick={() => navigate(buildWorkspacePath(workspace.id))}
-            className="min-w-0 flex-1 truncate text-left text-app-13 font-semibold text-fg hover:text-muted"
+            className="min-w-0 flex-1 truncate text-left text-app-13 font-semibold text-fg transition hover:text-muted"
           >
             {workspace.name}
           </button>
@@ -60,183 +92,246 @@ export function WorkspaceNavigationPane({
             aria-label={`Search ${workspace.name}`}
             title="Search Workspace"
             onClick={() => onOpenSearch({ kind: "workspace", workspaceId: workspace.id })}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
           >
             <Search className="h-3.5 w-3.5" />
           </button>
         </div>
       )}
-      <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto">
-        {workspaceProjects.map(({ association, project }, index) => {
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        {workspaceProjects.map(({ association, project }) => {
           const projectPath = buildProjectPath(association.workspaceId, project.id);
-          const projectThreads = splitProjectThreads(
+          const projectThreads = getProjectThreads(
             threads.filter(
               (thread) =>
                 thread.workspaceId === association.workspaceId &&
                 thread.projectId === project.id &&
                 !thread.archived,
             ),
-            messages,
-          ).active;
+          );
+          const projectUnavailable = projectDirectoryStatusById[project.id] === "unavailable";
+          const expanded = !collapsedProjectIds.has(project.id);
 
           return (
-            <section key={project.id}>
-              <div className="flex min-h-8 items-center gap-1 rounded-md hover:bg-surface-hover">
+            <section key={project.id} className="py-0.5">
+              <div className="group/project flex min-h-9 items-center gap-1 rounded-md px-1.5 text-fg transition hover:bg-surface-hover">
                 <button
-                  onClick={() => navigate(projectPath)}
-                  className={`min-w-0 flex-1 px-2 text-left text-app-12 font-medium hover:text-fg ${
-                    location.pathname === projectPath ? "text-fg" : "text-muted"
-                  }`}
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-label={`${expanded ? "Collapse" : "Expand"} ${association.alias ?? project.name}`}
+                  onClick={() =>
+                    setCollapsedProjectIds((current) => {
+                      const next = new Set(current);
+                      if (next.has(project.id)) {
+                        next.delete(project.id);
+                      } else {
+                        next.add(project.id);
+                      }
+                      return next;
+                    })
+                  }
+                  title={project.workingDirectory}
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20"
                 >
-                  <span className="block truncate">{association.alias ?? project.name}</span>
+                  {expanded ? (
+                    <FolderOpen className="h-4 w-4 shrink-0 text-muted" />
+                  ) : (
+                    <Folder className="h-4 w-4 shrink-0 text-muted" />
+                  )}
+                  <span className="truncate text-app-13 font-medium">
+                    {association.alias ?? project.name}
+                  </span>
                 </button>
-                {projectDirectoryStatusById[project.id] === "unavailable" && (
+                {projectUnavailable && (
                   <button
                     type="button"
                     aria-label={`${association.alias ?? project.name} directory unavailable`}
                     title="Project Working Directory unavailable"
                     onClick={() => navigate(projectPath)}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center text-danger"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-danger transition hover:bg-danger/10"
                   >
                     <TriangleAlert className="h-3.5 w-3.5" />
                   </button>
                 )}
-                <button
-                  aria-label={`Search ${association.alias ?? project.name}`}
-                  title="Search Project"
-                  onClick={() =>
-                    onOpenSearch({
-                      kind: "association",
-                      workspaceId: association.workspaceId,
-                      projectId: project.id,
-                    })
-                  }
-                  className="flex h-7 w-7 items-center justify-center text-subtle hover:text-fg"
-                >
-                  <Search className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  aria-label={`Move ${association.alias ?? project.name} up`}
-                  title="Move up"
-                  disabled={index === 0}
-                  onClick={() => void moveAssociation(association.workspaceId, project.id, "up")}
-                  className="flex h-7 w-7 items-center justify-center text-subtle hover:text-fg disabled:opacity-25"
-                >
-                  <ArrowUp className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  aria-label={`Move ${association.alias ?? project.name} down`}
-                  title="Move down"
-                  disabled={index === workspaceProjects.length - 1}
-                  onClick={() => void moveAssociation(association.workspaceId, project.id, "down")}
-                  className="flex h-7 w-7 items-center justify-center text-subtle hover:text-fg disabled:opacity-25"
-                >
-                  <ArrowDown className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <div className="mt-0.5 space-y-0.5 pl-2">
-                {projectThreads.map((thread) => {
-                  const threadPath = buildThreadPath(
-                    association.workspaceId,
-                    project.id,
-                    thread.id,
-                  );
-                  const status = getThreadDisplayStatus({
-                    threadId: thread.id,
-                    runningThreadIds,
-                    pendingApprovals: pendingPermissions,
-                    pendingQuestions,
-                    messages,
-                  });
-                  return (
-                    <div
-                      key={thread.id}
-                      className={`group flex min-h-7 w-full items-center gap-1 rounded-md px-2 text-app-12 hover:bg-surface-hover hover:text-fg ${
-                        location.pathname === threadPath
-                          ? "bg-surface-hover text-fg"
-                          : "text-subtle"
-                      }`}
+                <div className="flex shrink-0 opacity-0 transition group-hover/project:opacity-100 group-focus-within/project:opacity-100">
+                  <div className="relative" data-project-menu>
+                    <button
+                      type="button"
+                      aria-label={`More actions for ${association.alias ?? project.name}`}
+                      aria-haspopup="menu"
+                      aria-expanded={openProjectMenuId === project.id}
+                      title="More actions"
+                      onClick={() =>
+                        setOpenProjectMenuId((current) =>
+                          current === project.id ? null : project.id,
+                        )
+                      }
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
                     >
-                      {editingThreadId === thread.id ? (
-                        <input
-                          autoFocus
-                          aria-label={`Rename ${thread.title}`}
-                          value={editingThreadTitle}
-                          onChange={(event) => setEditingThreadTitle(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              renameThread(project.id, thread.id, editingThreadTitle);
-                              setEditingThreadId(null);
-                              setEditingThreadTitle("");
-                            } else if (event.key === "Escape") {
-                              event.preventDefault();
-                              setEditingThreadId(null);
-                              setEditingThreadTitle("");
-                            }
+                      <Ellipsis className="h-3.5 w-3.5" />
+                    </button>
+                    {openProjectMenuId === project.id && (
+                      <div
+                        role="menu"
+                        aria-label={`Actions for ${association.alias ?? project.name}`}
+                        className="absolute right-0 top-8 z-20 w-40 rounded-lg border border-border-strong bg-surface py-1 shadow-xl"
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenProjectMenuId(null);
+                            navigate(projectPath);
                           }}
-                          onBlur={() => {
-                            renameThread(project.id, thread.id, editingThreadTitle);
-                            setEditingThreadId(null);
-                            setEditingThreadTitle("");
-                          }}
-                          className="h-6 min-w-0 flex-1 rounded border border-border-strong bg-bg px-1.5 text-app-12 text-fg outline-none"
-                        />
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            aria-label={`Open ${thread.title}`}
-                            onClick={() => navigate(threadPath)}
-                            className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch text-left"
-                          >
-                            {thread.pinned && <Pin className="h-3 w-3 shrink-0" />}
-                            <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-                            {status && (
-                              <span className="shrink-0 text-app-10 text-subtle">
-                                {STATUS_LABELS[status]}
-                              </span>
-                            )}
-                          </button>
-                          <div className="flex shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
-                            <button
-                              type="button"
-                              aria-label={
-                                thread.pinned ? `Unpin ${thread.title}` : `Pin ${thread.title}`
-                              }
-                              title={thread.pinned ? "Unpin" : "Pin"}
-                              onClick={() => toggleThreadPin(project.id, thread.id)}
-                              className="flex h-6 w-6 items-center justify-center rounded text-subtle hover:bg-surface-raised hover:text-fg"
-                            >
-                              <Pin className="h-3 w-3" />
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={`Rename ${thread.title}`}
-                              title="Rename"
-                              onClick={() => {
-                                setEditingThreadId(thread.id);
-                                setEditingThreadTitle(thread.title);
-                              }}
-                              className="flex h-6 w-6 items-center justify-center rounded text-subtle hover:bg-surface-raised hover:text-fg"
-                            >
-                              <Pencil className="h-3 w-3" />
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+                        >
+                          <Settings className="h-3.5 w-3.5 shrink-0 text-muted" />
+                          Project settings
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={projectUnavailable}
+                    aria-label={`New thread in ${association.alias ?? project.name}`}
+                    title={
+                      projectUnavailable ? "Project Working Directory unavailable" : "New thread"
+                    }
+                    onClick={async () => {
+                      const draft = await openThreadDraft(association.workspaceId, project.id);
+                      if (!draft) return;
+                      navigate(projectPath, { state: { openThreadDraftId: draft.id } });
+                    }}
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <SquarePen className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
+
+              {expanded && (
+                <div className="space-y-0.5">
+                  {projectThreads.length === 0 ? (
+                    <p className="flex min-h-9 items-center pl-12 pr-3 text-app-12 text-subtle">
+                      No threads yet
+                    </p>
+                  ) : (
+                    <>
+                      {projectThreads.map((thread) => {
+                        const threadPath = buildThreadPath(
+                          association.workspaceId,
+                          project.id,
+                          thread.id,
+                        );
+                        const status = getThreadDisplayStatus({
+                          threadId: thread.id,
+                          runningThreadIds,
+                          pendingApprovals: pendingPermissions,
+                          pendingQuestions,
+                          messages,
+                        });
+                        const statusMeta = status ? STATUS_META[status] : null;
+                        const active = location.pathname === threadPath;
+
+                        return (
+                          <div key={thread.id} className="group/thread">
+                            <div
+                              className={`flex min-h-9 items-center gap-1 rounded-md pl-12 pr-3 text-left transition ${
+                                active
+                                  ? "bg-surface-raised text-fg"
+                                  : "text-muted hover:bg-surface-hover hover:text-fg"
+                              }`}
+                            >
+                              {editingThreadId === thread.id ? (
+                                <div className="flex min-w-0 flex-1 items-center">
+                                  <input
+                                    autoFocus
+                                    aria-label={`Rename ${thread.title}`}
+                                    value={editingThreadTitle}
+                                    onChange={(event) => setEditingThreadTitle(event.target.value)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") {
+                                        event.preventDefault();
+                                        event.currentTarget.blur();
+                                      } else if (event.key === "Escape") {
+                                        event.preventDefault();
+                                        setEditingThreadId(null);
+                                        setEditingThreadTitle("");
+                                      }
+                                    }}
+                                    onBlur={() => {
+                                      renameThread(project.id, thread.id, editingThreadTitle);
+                                      setEditingThreadId(null);
+                                      setEditingThreadTitle("");
+                                    }}
+                                    className="h-7 min-w-0 flex-1 rounded-md border border-border-strong bg-bg px-2 text-app-13 font-medium text-fg outline-none ring-2 ring-fg/10"
+                                  />
+                                </div>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    aria-label={thread.title}
+                                    onClick={() => navigate(threadPath)}
+                                    className="flex min-w-0 flex-1 self-stretch items-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20"
+                                  >
+                                    <span
+                                      className={`min-w-0 flex-1 truncate text-app-13 ${active ? "font-semibold" : "font-normal"}`}
+                                    >
+                                      {thread.title}
+                                    </span>
+                                    {statusMeta ? (
+                                      <span
+                                        className={`shrink-0 text-app-11 group-hover/thread:hidden ${statusMeta.className}`}
+                                        title={statusMeta.label}
+                                      >
+                                        {statusMeta.label}
+                                      </span>
+                                    ) : null}
+                                  </button>
+                                  <div className="hidden shrink-0 group-hover/thread:flex group-focus-within/thread:flex">
+                                    <button
+                                      type="button"
+                                      aria-label={`Rename ${thread.title}`}
+                                      title="Rename"
+                                      onClick={() => {
+                                        setEditingThreadId(thread.id);
+                                        setEditingThreadTitle(thread.title);
+                                      }}
+                                      className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-raised hover:text-fg"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
+                </div>
+              )}
             </section>
           );
         })}
+
         {workspaceProjects.length === 0 && (
-          <p className="px-2 py-1 text-app-12 text-subtle">No Projects</p>
+          <div className="px-4 py-8 text-center">
+            <p className="text-app-13 text-muted">No Projects</p>
+            <p className="mt-1 text-app-12 text-subtle">Add a Project Working Directory first</p>
+          </div>
         )}
       </div>
-      {workspace && <AddProjectButton compact workspaceId={workspace.id} />}
+
+      {workspace && (
+        <div className="shrink-0 border-t border-border px-2 py-2">
+          <AddProjectButton compact workspaceId={workspace.id} />
+        </div>
+      )}
     </aside>
   );
 }

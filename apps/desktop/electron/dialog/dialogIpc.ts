@@ -18,7 +18,7 @@ export function registerDialogIpc(
     const result = await showOpenDirectory();
     return {
       ...result,
-      filePaths: await Promise.all(result.filePaths.map(canonicalizePath)),
+      filePaths: await Promise.all(result.filePaths.map((filePath) => canonicalizePath(filePath))),
     };
   });
 }

@@ -10,6 +10,7 @@ type MainWindowLike = {
 
 type MainWindowLifecycleDependencies = {
   getMainWindow: () => MainWindowLike | null;
+  onRendererLoading?: () => void;
 };
 
 type DeepLinkResolution = { kind: "valid"; path: string } | { kind: "invalid" } | null;
@@ -37,7 +38,10 @@ function resolveDeepLink(values: string[]): DeepLinkResolution {
   return hasInvalidDeepLink ? { kind: "invalid" } : null;
 }
 
-export function createMainWindowLifecycle({ getMainWindow }: MainWindowLifecycleDependencies) {
+export function createMainWindowLifecycle({
+  getMainWindow,
+  onRendererLoading,
+}: MainWindowLifecycleDependencies) {
   let pendingNavigation: string | null = null;
   let rendererReady = false;
 
@@ -79,6 +83,7 @@ export function createMainWindowLifecycle({ getMainWindow }: MainWindowLifecycle
     },
     handleRendererLoading() {
       rendererReady = false;
+      onRendererLoading?.();
     },
     handleRendererReady() {
       rendererReady = true;

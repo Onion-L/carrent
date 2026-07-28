@@ -67,6 +67,21 @@ describe("createMainWindowLifecycle", () => {
     expect(fake.navigations).toEqual(["/workspace/missing-workspace"]);
   });
 
+  it("notifies the Main Process when the Renderer starts loading", () => {
+    const fake = createWindow();
+    let loadingCount = 0;
+    const lifecycle = createMainWindowLifecycle({
+      getMainWindow: () => fake.window,
+      onRendererLoading: () => {
+        loadingCount += 1;
+      },
+    });
+
+    lifecycle.handleRendererLoading();
+
+    expect(loadingCount).toBe(1);
+  });
+
   it("focuses and routes an unsupported Carrent URL through the established fallback", () => {
     const fake = createWindow();
     const lifecycle = createMainWindowLifecycle({ getMainWindow: () => fake.window });

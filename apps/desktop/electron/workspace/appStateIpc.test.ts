@@ -259,6 +259,40 @@ describe("registerAppStateIpc", () => {
     expect(String(saveError)).toContain("Invalid App State snapshot");
   });
 
+  it("loads the latest saved Project after the Renderer reloads", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const snapshot: AppStateSnapshot = {
+      version: 1,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [],
+      activeWorkspaceId: "workspace-1",
+    };
+
+    registerAppStateIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      createAppStateStoreStub(),
+      readyAppStateResult,
+      preserveAppStateResult,
+    );
+
+    await handlers.get("app-state:save")?.({}, snapshot);
+
+    expect(await handlers.get("app-state:load")?.({})).toEqual({
+      status: "ready",
+      snapshot,
+    });
+  });
+
   it("rejects App State image attachments without an explicit kind before saving", () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     let saveCalls = 0;

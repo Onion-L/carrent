@@ -77,6 +77,7 @@ export function registerAppStateIpc(
     }
     const stagedRevisionBeforeSave = stagedAppState?.revision;
     return store.saveAppStateSnapshot(normalized).then(() => {
+      appStateResult = { status: "ready", snapshot: normalized };
       if (stagedAppState?.revision === stagedRevisionBeforeSave) {
         clearStagedAppStateSnapshot();
       }

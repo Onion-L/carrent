@@ -303,6 +303,7 @@ function ThreadPageContent() {
             projectPath={inspectorInput?.projectPath}
             selectedTaskId={selectedTaskId}
             onSelectTask={setSelectedTaskId}
+            onClose={() => setInspectorOpen(false)}
           />
         </div>
       ) : null}

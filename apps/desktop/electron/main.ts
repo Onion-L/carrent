@@ -50,6 +50,10 @@ import {
 } from "./workspace/appStateIpcGate";
 import { createAppStateLifecycle } from "./workspace/appStateLifecycle";
 import { createGitRewindCheckpointAccess, createRewindDataStore } from "./rewind/rewindDataStore";
+import {
+  createLiveRunQuitWarning,
+  createLiveRunQuitWarningPreferenceStore,
+} from "./liveRunQuitWarning";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -66,9 +70,15 @@ let mainWindow: BrowserWindow | null = null;
 let appStateStore: AppStateStore | null = null;
 let chatSessionManager: ChatSessionManager | null = null;
 let waitForThreadDeletion: (() => Promise<void>) | null = null;
+let liveRunQuitWarning: ReturnType<typeof createLiveRunQuitWarning> | null = null;
 
 const mainWindowLifecycle = createMainWindowLifecycle({
   getMainWindow: () => mainWindow,
+  onRendererLoading: () => {
+    void chatSessionManager?.shutdown().catch((error) => {
+      console.error("[app] failed to stop Runs while reloading the Renderer", error);
+    });
+  },
 });
 
 function createWindow(icon: string | undefined) {
@@ -156,6 +166,13 @@ if (!hasSingleInstanceLock) {
     }
 
     const userDataPath = app.getPath("userData");
+    liveRunQuitWarning = createLiveRunQuitWarning({
+      preferenceStore: createLiveRunQuitWarningPreferenceStore(userDataPath),
+      showMessageBox: (options) => dialog.showMessageBox(options),
+      reportError: (error) =>
+        console.error("[app] failed to persist quit warning preference", error),
+    });
+    await liveRunQuitWarning.initialize();
     const rewindStore = createRewindDataStore(userDataPath, createGitRewindCheckpointAccess());
     const store = createAppStateStore(userDataPath, { appVersion: app.getVersion() });
     const appStateInitialization = await store.initializeAppState();
@@ -326,19 +343,7 @@ const appShutdown = createAppShutdown({
   },
   liveRunQuitPolicy: {
     hasLiveRuns: () => chatSessionManager?.hasLiveRuns?.() ?? false,
-    confirmQuitWithLiveRuns: async () => {
-      const result = await dialog.showMessageBox({
-        type: "warning",
-        title: "Quit Carrent?",
-        message: "Runs are still active.",
-        detail: "Quitting Carrent will cancel all active Runs.",
-        buttons: ["Return to Carrent", "Cancel Runs and Quit"],
-        defaultId: 0,
-        cancelId: 0,
-        noLink: true,
-      });
-      return result.response === 1;
-    },
+    confirmQuitWithLiveRuns: () => liveRunQuitWarning?.confirmQuit() ?? Promise.resolve(true),
     cancelLiveRuns: async () => {
       await chatSessionManager?.shutdown();
     },

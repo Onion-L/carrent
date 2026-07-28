@@ -44,6 +44,7 @@ function renderContent(props: Partial<Parameters<typeof ThreadInspectorContent>[
       branch={null}
       selectedTaskId={null}
       onSelectTask={() => {}}
+      onClose={() => {}}
       {...props}
     />,
   );
@@ -206,12 +207,14 @@ describe("ThreadInspectorContent", () => {
     expect(open).toContain('aria-pressed="true"');
   });
 
-  it("does not duplicate the header toggle inside the card", () => {
+  it("renders a close button in the card header", () => {
     const html = renderContent({ messages: [] });
-    expect(html).not.toContain("Close subagents pane");
+    expect(html).toContain('aria-label="Close thread inspector"');
+    expect(html).toContain('title="Close"');
+    expect(html).toContain("lucide-x");
   });
 
-  it("keeps navigation in the detail header without a duplicate close button", () => {
+  it("keeps navigation and close actions in the detail header", () => {
     const html = renderContent({
       messages: [
         makeAssistantMessage([makeTask({ id: "detail", status: "completed", finishedAt: 2_000 })]),
@@ -220,7 +223,7 @@ describe("ThreadInspectorContent", () => {
     });
 
     expect(html).toContain('aria-label="Back to subagents"');
-    expect(html).not.toContain('aria-label="Close subagents pane"');
+    expect(html).toContain('aria-label="Close thread inspector"');
   });
 
   it("renders status cues for running, completed, failed, interrupted, and detached", () => {
@@ -344,7 +347,7 @@ describe("ThreadInspectorContent", () => {
       branch: "main",
       onOpenDiff: () => {},
     });
-    expect(withDiff).toContain("<button");
+    expect(withDiff.match(/<button/gu)).toHaveLength(2);
 
     const { snapshot: _snapshot, ...legacyMessage } = changesMessage;
     const withoutDiff = renderContent({
@@ -354,7 +357,7 @@ describe("ThreadInspectorContent", () => {
       onOpenDiff: () => {},
     });
     expect(withoutDiff).toContain('aria-disabled="true"');
-    expect(withoutDiff).not.toContain("<button");
+    expect(withoutDiff.match(/<button/gu)).toHaveLength(1);
 
     const noChanges = renderContent({
       messages: [],

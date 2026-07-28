@@ -11,6 +11,7 @@ import {
   Laptop,
   Loader2,
   SlidersHorizontal,
+  X,
   XCircle,
 } from "lucide-react";
 
@@ -185,6 +186,20 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function InspectorCloseButton({ onClose }: { onClose: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClose}
+      aria-label="Close thread inspector"
+      title="Close"
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+    >
+      <X className="h-4 w-4" />
+    </button>
+  );
+}
+
 function SubagentTaskRow({
   task,
   onSelect,
@@ -209,7 +224,15 @@ function SubagentTaskRow({
   );
 }
 
-function SubagentTaskDetail({ task, onBack }: { task: SubagentTaskPart; onBack: () => void }) {
+function SubagentTaskDetail({
+  task,
+  onBack,
+  onClose,
+}: {
+  task: SubagentTaskPart;
+  onBack: () => void;
+  onClose: () => void;
+}) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-2">
@@ -225,6 +248,7 @@ function SubagentTaskDetail({ task, onBack }: { task: SubagentTaskPart; onBack: 
         <h2 className="min-w-0 flex-1 truncate text-app-15 font-semibold text-fg">
           {task.description}
         </h2>
+        <InspectorCloseButton onClose={onClose} />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
@@ -262,6 +286,7 @@ export function ThreadInspectorContent({
   selectedTaskId,
   onSelectTask,
   onOpenDiff,
+  onClose,
 }: {
   messages: Message[];
   projectPath?: string;
@@ -269,6 +294,7 @@ export function ThreadInspectorContent({
   selectedTaskId: string | null;
   onSelectTask: (taskId: string | null) => void;
   onOpenDiff?: (message: ChangedFilesMessage) => void;
+  onClose: () => void;
 }) {
   const tasks = collectSubagentTasks(messages);
   const { active, settled } = sortSubagentTasks(tasks);
@@ -279,7 +305,11 @@ export function ThreadInspectorContent({
   if (selectedTask) {
     return (
       <div className={INSPECTOR_CARD_CLASS} role="complementary" aria-label="Thread inspector">
-        <SubagentTaskDetail task={selectedTask} onBack={() => onSelectTask(null)} />
+        <SubagentTaskDetail
+          task={selectedTask}
+          onBack={() => onSelectTask(null)}
+          onClose={onClose}
+        />
       </div>
     );
   }
@@ -292,7 +322,10 @@ export function ThreadInspectorContent({
     <div className={INSPECTOR_CARD_CLASS} role="complementary" aria-label="Thread inspector">
       {projectPath && (
         <section className="shrink-0 px-3 pb-1 pt-3">
-          <h2 className="mb-2 px-1 text-app-13 font-medium text-muted">Environment</h2>
+          <div className="mb-2 flex h-7 items-center justify-between px-1">
+            <h2 className="text-app-13 font-medium text-muted">Environment</h2>
+            <InspectorCloseButton onClose={onClose} />
+          </div>
           <Card className="space-y-0.5 p-1.5">
             {canOpenDiff ? (
               <button
@@ -351,6 +384,7 @@ export function ThreadInspectorContent({
               </span>
             )}
           </div>
+          {!projectPath && <InspectorCloseButton onClose={onClose} />}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           {tasks.length === 0 ? (
@@ -386,11 +420,13 @@ export function ThreadInspectorPane({
   projectPath,
   selectedTaskId,
   onSelectTask,
+  onClose,
 }: {
   messages: Message[];
   projectPath?: string;
   selectedTaskId: string | null;
   onSelectTask: (taskId: string | null) => void;
+  onClose: () => void;
 }) {
   const [branch, setBranch] = useState<string | null>(null);
   const { openDiff } = useThreadContentDiff();
@@ -428,6 +464,7 @@ export function ThreadInspectorPane({
       branch={branch}
       selectedTaskId={selectedTaskId}
       onSelectTask={onSelectTask}
+      onClose={onClose}
       onOpenDiff={(message) => {
         if (message.snapshot) {
           openDiff(message.snapshot, message.changedFiles);

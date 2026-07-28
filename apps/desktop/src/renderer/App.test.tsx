@@ -453,7 +453,6 @@ describe("Workspace App State foundation", () => {
     expect(dialog.textContent).toContain("Project Working Directories");
     expect(dialog.textContent).toContain("project files");
     expect(dialog.textContent).toContain("Git state");
-    expect(dialog.textContent).toContain("private refs");
     expect(dialog.textContent).toContain("legacy projectless chat data");
     expect(container!.textContent).not.toContain("Create your first Workspace");
 

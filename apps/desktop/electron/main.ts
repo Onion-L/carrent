@@ -49,7 +49,6 @@ import {
   loadProviderSessionsForAppState,
 } from "./workspace/appStateIpcGate";
 import { createAppStateLifecycle } from "./workspace/appStateLifecycle";
-import { createGitRewindCheckpointAccess, createRewindDataStore } from "./rewind/rewindDataStore";
 import {
   createLiveRunQuitWarning,
   createLiveRunQuitWarningPreferenceStore,
@@ -173,7 +172,6 @@ if (!hasSingleInstanceLock) {
         console.error("[app] failed to persist quit warning preference", error),
     });
     await liveRunQuitWarning.initialize();
-    const rewindStore = createRewindDataStore(userDataPath, createGitRewindCheckpointAccess());
     const store = createAppStateStore(userDataPath, { appVersion: app.getVersion() });
     const appStateInitialization = await store.initializeAppState();
     const appStateIpcGate = createAppStateIpcGate(ipcMain, {
@@ -215,7 +213,6 @@ if (!hasSingleInstanceLock) {
           journalStore: threadDeletionJournalStore,
           appStateStore: store,
           attachmentStore: transactionAttachmentStore,
-          rewindStore,
         }),
       reloadAppState: () => store.initializeAppState(),
       reconcileAttachments: async (snapshot) => {
@@ -295,7 +292,6 @@ if (!hasSingleInstanceLock) {
         restoreRuntimeSessions: sessionManager.restoreRuntimeSessions,
         completeRuntimeSessionDetachment: sessionManager.completeRuntimeSessionDetachment,
       },
-      rewindStore,
       onActiveChange: setAppStateTransactionActive,
     });
     registerProjectDirectoryIpc(guardedIpcMain, { relocationManager: projectRelocationManager });
@@ -304,7 +300,6 @@ if (!hasSingleInstanceLock) {
       journalStore: threadDeletionJournalStore,
       appStateStore: store,
       attachmentStore: transactionAttachmentStore,
-      rewindStore,
       sessionManager: {
         deleteThreadData: sessionManager.deleteThreadData,
         rollbackThreadDataDeletion: sessionManager.rollbackThreadDataDeletion,

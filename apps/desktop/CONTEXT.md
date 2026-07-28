@@ -41,15 +41,15 @@ A Carrent-owned conversation with an automatically generated, user-editable titl
 _Avoid_: Session, chat
 
 **Archived Thread**:
-A losslessly suspended Thread removed from normal navigation. It preserves its identity, title, history, attachments, draft, run configuration, Runtime Sessions, rewind data, and pin state, but cannot start a Run while archived. Only an idle Thread with no queued messages can be archived; restoring it returns it to its original Workspace and Project without changing its Thread Activity Time. Archiving is reversible and applies only to Threads; Workspaces, Projects, and Workspace-Project Associations do not have an archived lifecycle state.
+A losslessly suspended Thread removed from normal navigation. It preserves its identity, title, history, attachments, draft, run configuration, Runtime Sessions, and pin state, but cannot start a Run while archived. Only an idle Thread with no queued messages can be archived; restoring it returns it to its original Workspace and Project without changing its Thread Activity Time. Archiving is reversible and applies only to Threads; Workspaces, Projects, and Workspace-Project Associations do not have an archived lifecycle state.
 _Avoid_: Deleted Thread, hidden Project, archived Workspace
 
 **Permanent Thread Deletion**:
-The irreversible removal of a Thread and all Carrent-owned data attached to it, including messages, attachment snapshots, drafts, queued work, Run Checklists, Runtime Session mappings, and rewind data. A single active Thread can reach this operation only through the archive area; deleting a Workspace also applies it to every Thread scoped by that Workspace. It never reverses Run Changes or modifies project files, Git branches, commits, the index, or stashes, and it succeeds atomically or leaves the containing operation intact.
-_Avoid_: Thread Rewind, project cleanup, archive
+The irreversible removal of a Thread and all Carrent-owned data attached to it, including messages, attachment snapshots, drafts, queued work, Run Checklists, and Runtime Session mappings. A single active Thread can reach this operation only through the archive area; deleting a Workspace also applies it to every Thread scoped by that Workspace. It never reverses Run Changes or modifies project files, Git branches, commits, the index, or stashes, and it succeeds atomically or leaves the containing operation intact.
+_Avoid_: project cleanup, archive
 
 **Runtime Session**:
-A replaceable, Runtime-specific continuity handle associated with a Carrent Thread so later Runs can resume that Runtime's internal context. It does not own the Thread's identity or user-visible history, and is detached when its Thread is permanently deleted or rewound, or when the owning Project is explicitly relocated to another directory path.
+A replaceable, Runtime-specific continuity handle associated with a Carrent Thread so later Runs can resume that Runtime's internal context. It does not own the Thread's identity or user-visible history, and is detached when its Thread is permanently deleted or when the owning Project is explicitly relocated to another directory path.
 _Avoid_: Thread, Carrent session
 
 **Run**:
@@ -91,6 +91,10 @@ _Avoid_: Runtime error, diagnostics, onboarding
 **Agent Loop**:
 The decision loop that turns a user request into model calls, tool use, file edits, shell commands, and follow-up reasoning.
 _Avoid_: Chat completion, single API call
+
+**Thread Action**:
+A user-invoked command that changes the current Thread or how its next Run proceeds, such as compacting context or enabling Plan Mode. The user-facing Chinese label is `会话操作`.
+_Avoid_: Feature Tool, Agent Tool, Session Tool
 
 **Plan Mode**:
 A coding agent run posture that limits the agent to exploration and design until it presents a plan and returns control to the conversation.
@@ -171,18 +175,6 @@ _Avoid_: Preview image, uploaded file, file attachment
 **Thread Attachment**:
 A user-added resource, such as an image, file, or pasted text, that becomes available to the coding agent for the current thread. Adding the resource is the user's authorization for Carrent and the selected runtime to read it in that thread.
 _Avoid_: Upload, project file, workspace file
-
-**Thread Rewind**:
-An interaction that returns a thread to the boundary immediately before a chosen run, reverses that run's and later runs' Run Changes, removes the chosen request and later history from the thread, and returns that request as an unsent draft. All Runtime Sessions for the thread are detached so discarded context cannot be resumed.
-_Avoid_: Session rollback, undo, user message edit
-
-**Rewind Conflict**:
-A condition detected before restoration where reversing Run Changes would overwrite unrelated project file changes. A Thread Rewind with any such conflict leaves both the thread and project files unchanged.
-_Avoid_: Git conflict, partial rewind
-
-**Rewind Barrier**:
-A run whose project state could not be recorded reliably, or whose recorded rewind data cannot be validated after a Project Working Directory relocation, preventing a complete Thread Rewind across that point while leaving normal work unaffected.
-_Avoid_: Failed run, context-only rewind
 
 **File Attachment**:
 A local file added to a thread as a thread attachment, whether it is inside or outside the active project. Carrent stores a snapshot of single-file attachments so the thread can keep using them if the original file changes, moves, or disappears; folders are represented as additional local directories instead.

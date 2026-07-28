@@ -13,5 +13,5 @@
 - [ ] 无效映射不阻止 Thread 历史、其他 Thread、其他 Runtime 映射或后续新 Session Run。
 - [ ] Runtime 报告 Session 不存在或拒绝恢复时，本次 Run 以可见失败结束，不自动使用新 Session 重放请求。
 - [ ] 失败状态提供“移除 Runtime Session 并重试”，只删除对应映射，并由用户动作重新提交本次请求。
-- [ ] Thread 永久删除和既定 Rewind 操作继续解除该 Thread 的相关 Runtime Session。
+- [ ] Thread 永久删除继续解除该 Thread 的相关 Runtime Session。
 - [ ] Provider-session store 和 session-manager 测试覆盖键、不同行为分支、隔离范围及无静默重复 dispatch。

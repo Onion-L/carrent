@@ -1,3 +1,0 @@
-# Allow Thread Rewind during other live Runs
-
-Carrent will allow a user to rewind an idle Thread while another Thread in the same Project has a live Run, prioritizing explicit user control over a Project-wide lockout. The confirmation must warn that concurrent Runtime writes can race with restoration, so this case is best-effort and cannot carry the strict atomicity guarantee used when no other Run is writing the Project Working Directory. A Thread cannot rewind while its own Run is live. Carrent also allows Runs in the same Project to overlap, but every overlapping Run becomes a Rewind Barrier because shared-worktree snapshots cannot attribute their changes to one Thread reliably.

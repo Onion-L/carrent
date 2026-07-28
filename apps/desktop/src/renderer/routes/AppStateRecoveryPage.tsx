@@ -86,8 +86,7 @@ export function AppStateRecoveryPage() {
                   projectless chat data.
                 </p>
                 <p className="mt-3 text-app-13 leading-5 text-muted">
-                  Project Working Directories, project files, Git state, and Carrent private refs
-                  are not changed.
+                  Project Working Directories, project files, and Git state are not changed.
                 </p>
               </div>
               <button

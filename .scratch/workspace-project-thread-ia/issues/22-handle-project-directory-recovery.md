@@ -12,7 +12,6 @@
 - [ ] 再次检查成功后以 replace 返回触发错误前的位置；失败继续留在当前状态。
 - [ ] 重新定位要求该 Project 没有 live Run，并拒绝已绑定其他 Project 的目标目录。
 - [ ] 成功重新定位原子更新共享 Project 路径，使全部 Association 和 Thread 的后续 Run 使用新目录，并解除该 Project 的全部 Runtime Session。
-- [ ] 可验证仍属于同一 repository 的 Rewind 数据保留；无法验证的旧节点成为 Rewind Barrier。
 - [ ] 取消、校验失败、Runtime Session 清理失败或路径写入失败均保留旧路径与完整原状态。
 - [ ] 重新定位和不可用状态从不移动、复制或编辑目录内容和 Git 状态。
 - [ ] Renderer 测试覆盖局部状态、Run 阻塞、检查/定位落点；持久化和 Runtime 测试覆盖原子更新、映射解除及失败回滚。

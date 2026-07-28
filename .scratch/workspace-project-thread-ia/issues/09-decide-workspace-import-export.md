@@ -7,7 +7,7 @@ Blocked by: 05, 07
 
 ## Question
 
-Carrent 是否提供 Workspace 导出与导入；若提供，导出物包含哪些 Workspace、Association、Thread、消息、附件、草稿、运行配置、Runtime Session 与 Rewind 数据，如何处理本地 Project Working Directory 路径、已有 Workspace 名称与 Project 身份冲突、缺失目录、版本兼容和敏感数据，并明确导入是恢复原身份、创建副本还是只导入结构？
+Carrent 是否提供 Workspace 导出与导入；若提供，导出物包含哪些 Workspace、Association、Thread、消息、附件、草稿、运行配置与 Runtime Session，如何处理本地 Project Working Directory 路径、已有 Workspace 名称与 Project 身份冲突、缺失目录、版本兼容和敏感数据，并明确导入是恢复原身份、创建副本还是只导入结构？
 
 ## Answer
 
@@ -18,4 +18,4 @@ Carrent 是否提供 Workspace 导出与导入；若提供，导出物包含哪�
 
 ## Comments
 
-- 2026-07-26: 确认目标版本不支持 Workspace 导入导出；因此附件、草稿、运行配置、Runtime Session、Rewind 数据与 Project Working Directory 路径等导出内容和导入冲突规则均无需定义。
+- 2026-07-26: 确认目标版本不支持 Workspace 导入导出；因此附件、草稿、运行配置、Runtime Session 与 Project Working Directory 路径等导出内容和导入冲突规则均无需定义。

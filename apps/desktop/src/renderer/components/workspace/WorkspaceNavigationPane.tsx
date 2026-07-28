@@ -1,19 +1,21 @@
 import { useEffect, useState } from "react";
 import {
   Ellipsis,
+  ExternalLink,
   Folder,
   FolderOpen,
+  Link,
   Pencil,
-  Search,
-  Settings,
+  Pin,
   SquarePen,
+  Trash2,
   TriangleAlert,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import type { ThreadSearchScope } from "../../../shared/threadSearch";
 import { useAppState } from "../../context/AppStateContext";
 import { useThreadContent } from "../../context/ThreadContentContext";
+import { getQueuedMessages } from "../../hooks/chatMessageQueue";
 import { useChatRun } from "../../hooks/useChatRun";
 import { buildProjectPath, buildThreadPath, buildWorkspacePath } from "../../lib/navigation";
 import {
@@ -22,6 +24,7 @@ import {
   type ThreadDisplayStatus,
 } from "../../lib/projectThreads";
 import { getWorkspaceProjects } from "../../lib/workspaceProjects";
+import { useToast } from "../toast/ToastContext";
 import { AddProjectButton } from "./AddProjectButton";
 
 const STATUS_META: Record<ThreadDisplayStatus, { label: string; className: string }> = {
@@ -31,13 +34,10 @@ const STATUS_META: Record<ThreadDisplayStatus, { label: string; className: strin
   failed: { label: "Failed", className: "font-medium text-danger" },
 };
 
-export function WorkspaceNavigationPane({
-  onOpenSearch,
-}: {
-  onOpenSearch: (scope: ThreadSearchScope) => void;
-}) {
+export function WorkspaceNavigationPane() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { showToast } = useToast();
   const {
     workspaces,
     projects,
@@ -45,16 +45,40 @@ export function WorkspaceNavigationPane({
     threads,
     activeWorkspaceId,
     openThreadDraft,
+    archiveThread,
+    setProjectAlias,
+    removeAssociation,
     projectDirectoryStatusById,
   } = useAppState();
-  const { messages, renameThread } = useThreadContent();
+  const { messages, renameThread, toggleThreadPin, deleteThreads } = useThreadContent();
   const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editingProjectName, setEditingProjectName] = useState("");
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
+  const [archiveNavigation, setArchiveNavigation] = useState<{
+    threadId: string;
+    path: string;
+  } | null>(null);
   const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
   const workspaceProjects = getWorkspaceProjects(projects, associations, activeWorkspaceId);
+
+  const commitProjectRename = async (
+    workspaceId: string,
+    projectId: string,
+    currentName: string,
+  ) => {
+    const nextName = editingProjectName.trim();
+    setEditingProjectId(null);
+    setEditingProjectName("");
+    if (!nextName || nextName === currentName) return;
+
+    if (!(await setProjectAlias(workspaceId, projectId, nextName))) {
+      showToast("Project could not be renamed.", "error");
+    }
+  };
 
   useEffect(() => {
     if (!openProjectMenuId) return;
@@ -76,6 +100,17 @@ export function WorkspaceNavigationPane({
     };
   }, [openProjectMenuId]);
 
+  useEffect(() => {
+    if (
+      archiveNavigation &&
+      threads.some((thread) => thread.id === archiveNavigation.threadId && thread.archived)
+    ) {
+      const path = archiveNavigation.path;
+      setArchiveNavigation(null);
+      navigate(path);
+    }
+  }, [archiveNavigation, navigate, threads]);
+
   return (
     <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-r border-border bg-bg">
       {workspace && (
@@ -87,21 +122,14 @@ export function WorkspaceNavigationPane({
           >
             {workspace.name}
           </button>
-          <button
-            type="button"
-            aria-label={`Search ${workspace.name}`}
-            title="Search Workspace"
-            onClick={() => onOpenSearch({ kind: "workspace", workspaceId: workspace.id })}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
-          >
-            <Search className="h-3.5 w-3.5" />
-          </button>
+          <AddProjectButton iconOnly workspaceId={workspace.id} />
         </div>
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {workspaceProjects.map(({ association, project }) => {
           const projectPath = buildProjectPath(association.workspaceId, project.id);
+          const displayName = association.alias ?? project.name;
           const projectThreads = getProjectThreads(
             threads.filter(
               (thread) =>
@@ -112,41 +140,77 @@ export function WorkspaceNavigationPane({
           );
           const projectUnavailable = projectDirectoryStatusById[project.id] === "unavailable";
           const expanded = !collapsedProjectIds.has(project.id);
+          const hasAffectedLiveRun = threads.some(
+            (thread) =>
+              thread.workspaceId === association.workspaceId &&
+              thread.projectId === project.id &&
+              runningThreadIds.includes(thread.id),
+          );
+          const projectIsActive =
+            location.pathname === projectPath || location.pathname.startsWith(`${projectPath}/`);
 
           return (
             <section key={project.id} className="py-0.5">
               <div className="group/project flex min-h-9 items-center gap-1 rounded-md px-1.5 text-fg transition hover:bg-surface-hover">
-                <button
-                  type="button"
-                  aria-expanded={expanded}
-                  aria-label={`${expanded ? "Collapse" : "Expand"} ${association.alias ?? project.name}`}
-                  onClick={() =>
-                    setCollapsedProjectIds((current) => {
-                      const next = new Set(current);
-                      if (next.has(project.id)) {
-                        next.delete(project.id);
-                      } else {
-                        next.add(project.id);
+                {editingProjectId === project.id ? (
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    {expanded ? (
+                      <FolderOpen className="h-4 w-4 shrink-0 text-muted" />
+                    ) : (
+                      <Folder className="h-4 w-4 shrink-0 text-muted" />
+                    )}
+                    <input
+                      autoFocus
+                      aria-label={`Rename project ${displayName}`}
+                      value={editingProjectName}
+                      onChange={(event) => setEditingProjectName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        } else if (event.key === "Escape") {
+                          event.preventDefault();
+                          setEditingProjectId(null);
+                          setEditingProjectName("");
+                        }
+                      }}
+                      onBlur={() =>
+                        void commitProjectRename(association.workspaceId, project.id, displayName)
                       }
-                      return next;
-                    })
-                  }
-                  title={project.workingDirectory}
-                  className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20"
-                >
-                  {expanded ? (
-                    <FolderOpen className="h-4 w-4 shrink-0 text-muted" />
-                  ) : (
-                    <Folder className="h-4 w-4 shrink-0 text-muted" />
-                  )}
-                  <span className="truncate text-app-13 font-medium">
-                    {association.alias ?? project.name}
-                  </span>
-                </button>
+                      className="h-7 min-w-0 flex-1 rounded-md border border-border-strong bg-bg px-2 text-app-13 font-medium text-fg outline-none ring-2 ring-fg/10"
+                    />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    aria-label={`${expanded ? "Collapse" : "Expand"} ${displayName}`}
+                    onClick={() =>
+                      setCollapsedProjectIds((current) => {
+                        const next = new Set(current);
+                        if (next.has(project.id)) {
+                          next.delete(project.id);
+                        } else {
+                          next.add(project.id);
+                        }
+                        return next;
+                      })
+                    }
+                    title={project.workingDirectory}
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20"
+                  >
+                    {expanded ? (
+                      <FolderOpen className="h-4 w-4 shrink-0 text-muted" />
+                    ) : (
+                      <Folder className="h-4 w-4 shrink-0 text-muted" />
+                    )}
+                    <span className="truncate text-app-13 font-medium">{displayName}</span>
+                  </button>
+                )}
                 {projectUnavailable && (
                   <button
                     type="button"
-                    aria-label={`${association.alias ?? project.name} directory unavailable`}
+                    aria-label={`${displayName} directory unavailable`}
                     title="Project Working Directory unavailable"
                     onClick={() => navigate(projectPath)}
                     className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-danger transition hover:bg-danger/10"
@@ -158,7 +222,7 @@ export function WorkspaceNavigationPane({
                   <div className="relative" data-project-menu>
                     <button
                       type="button"
-                      aria-label={`More actions for ${association.alias ?? project.name}`}
+                      aria-label={`More actions for ${displayName}`}
                       aria-haspopup="menu"
                       aria-expanded={openProjectMenuId === project.id}
                       title="More actions"
@@ -174,20 +238,102 @@ export function WorkspaceNavigationPane({
                     {openProjectMenuId === project.id && (
                       <div
                         role="menu"
-                        aria-label={`Actions for ${association.alias ?? project.name}`}
-                        className="absolute right-0 top-8 z-20 w-40 rounded-lg border border-border-strong bg-surface py-1 shadow-xl"
+                        aria-label={`Actions for ${displayName}`}
+                        className="absolute right-0 top-8 z-20 w-52 rounded-xl border border-border-strong bg-surface p-1.5 shadow-xl"
                       >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={async () => {
+                            setOpenProjectMenuId(null);
+                            try {
+                              const error = await window.carrent.shell.openPath(
+                                project.workingDirectory,
+                              );
+                              if (error) showToast(error, "error");
+                            } catch {
+                              showToast("Project could not be opened in Finder.", "error");
+                            }
+                          }}
+                          className="flex min-h-9 w-full items-center gap-3 rounded-md px-2.5 text-left text-app-13 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+                        >
+                          <ExternalLink className="h-4 w-4 shrink-0 text-muted" />
+                          Open in Finder
+                        </button>
                         <button
                           type="button"
                           role="menuitem"
                           onClick={() => {
                             setOpenProjectMenuId(null);
-                            navigate(projectPath);
+                            setEditingProjectId(project.id);
+                            setEditingProjectName(displayName);
                           }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+                          className="flex min-h-9 w-full items-center gap-3 rounded-md px-2.5 text-left text-app-13 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
                         >
-                          <Settings className="h-3.5 w-3.5 shrink-0 text-muted" />
-                          Project settings
+                          <Pencil className="h-4 w-4 shrink-0 text-muted" />
+                          Rename project
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={async () => {
+                            try {
+                              await window.carrent.clipboard.writeText(project.workingDirectory);
+                              setOpenProjectMenuId(null);
+                              showToast("Project path copied.", "success");
+                            } catch {
+                              showToast("Failed to copy Project path.", "error");
+                            }
+                          }}
+                          className="flex min-h-9 w-full items-center gap-3 rounded-md px-2.5 text-left text-app-13 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+                        >
+                          <Link className="h-4 w-4 shrink-0 text-muted" />
+                          Copy path
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={hasAffectedLiveRun}
+                          title={
+                            hasAffectedLiveRun
+                              ? "Stop the affected live Run before deleting"
+                              : undefined
+                          }
+                          onClick={async () => {
+                            const threadCount = threads.filter(
+                              (thread) =>
+                                thread.workspaceId === association.workspaceId &&
+                                thread.projectId === project.id,
+                            ).length;
+                            if (
+                              !window.confirm(
+                                `Delete "${displayName}" from "${workspace?.name ?? "Workspace"}" and permanently delete ${threadCount} ${threadCount === 1 ? "Thread" : "Threads"}? The Project Working Directory, project files and Git state, and other Workspaces will not be changed.`,
+                              )
+                            ) {
+                              return;
+                            }
+
+                            setOpenProjectMenuId(null);
+                            let removed = false;
+                            try {
+                              removed = await removeAssociation(
+                                association.workspaceId,
+                                project.id,
+                                (threadIds, snapshots) => deleteThreads(threadIds, snapshots),
+                              );
+                            } catch (error) {
+                              console.error("[associations] removal rollback failed", error);
+                            }
+                            if (removed && projectIsActive) {
+                              navigate(buildWorkspacePath(association.workspaceId));
+                            } else if (!removed) {
+                              showToast("Project could not be deleted.", "error");
+                            }
+                          }}
+                          className="flex min-h-9 w-full items-center gap-3 rounded-md px-2.5 text-left text-app-13 text-danger transition hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-danger/30 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Trash2 className="h-4 w-4 shrink-0" />
+                          Delete
                         </button>
                       </div>
                     )}
@@ -195,14 +341,14 @@ export function WorkspaceNavigationPane({
                   <button
                     type="button"
                     disabled={projectUnavailable}
-                    aria-label={`New thread in ${association.alias ?? project.name}`}
+                    aria-label={`New thread in ${displayName}`}
                     title={
                       projectUnavailable ? "Project Working Directory unavailable" : "New thread"
                     }
                     onClick={async () => {
                       const draft = await openThreadDraft(association.workspaceId, project.id);
                       if (!draft) return;
-                      navigate(projectPath, { state: { openThreadDraftId: draft.id } });
+                      navigate(projectPath);
                     }}
                     className="flex h-7 w-7 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-35"
                   >
@@ -234,6 +380,37 @@ export function WorkspaceNavigationPane({
                         });
                         const statusMeta = status ? STATUS_META[status] : null;
                         const active = location.pathname === threadPath;
+                        const archiveBlockedReason = runningThreadIds.includes(thread.id)
+                          ? "Stop the live Run before archiving"
+                          : getQueuedMessages(thread.id).length > 0
+                            ? "Remove queued messages before archiving"
+                            : null;
+
+                        const handleArchive = async () => {
+                          if (archiveBlockedReason) return;
+                          const nextThread = projectThreads
+                            .filter((item) => item.id !== thread.id)
+                            .sort((left, right) =>
+                              right.lastActivityAt.localeCompare(left.lastActivityAt),
+                            )[0];
+                          if (active) {
+                            setArchiveNavigation({
+                              threadId: thread.id,
+                              path: nextThread
+                                ? buildThreadPath(
+                                    association.workspaceId,
+                                    project.id,
+                                    nextThread.id,
+                                  )
+                                : projectPath,
+                            });
+                          }
+                          const archived = await archiveThread(thread.id);
+                          if (!archived) {
+                            if (active) setArchiveNavigation(null);
+                            showToast("Thread could not be archived.", "error");
+                          }
+                        };
 
                         return (
                           <div key={thread.id} className="group/thread">
@@ -280,6 +457,9 @@ export function WorkspaceNavigationPane({
                                     <span
                                       className={`min-w-0 flex-1 truncate text-app-13 ${active ? "font-semibold" : "font-normal"}`}
                                     >
+                                      {thread.pinned && (
+                                        <Pin className="mr-1 inline h-3 w-3 align-[-1px]" />
+                                      )}
                                       {thread.title}
                                     </span>
                                     {statusMeta ? (
@@ -294,6 +474,22 @@ export function WorkspaceNavigationPane({
                                   <div className="hidden shrink-0 group-hover/thread:flex group-focus-within/thread:flex">
                                     <button
                                       type="button"
+                                      aria-label={
+                                        thread.pinned
+                                          ? `Unpin ${thread.title}`
+                                          : `Pin ${thread.title}`
+                                      }
+                                      aria-pressed={thread.pinned === true}
+                                      title={thread.pinned ? "Unpin" : "Pin"}
+                                      onClick={() => toggleThreadPin(project.id, thread.id)}
+                                      className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-raised hover:text-fg"
+                                    >
+                                      <Pin
+                                        className={`h-3.5 w-3.5 ${thread.pinned ? "fill-current" : ""}`}
+                                      />
+                                    </button>
+                                    <button
+                                      type="button"
                                       aria-label={`Rename ${thread.title}`}
                                       title="Rename"
                                       onClick={() => {
@@ -303,6 +499,16 @@ export function WorkspaceNavigationPane({
                                       className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-raised hover:text-fg"
                                     >
                                       <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={archiveBlockedReason !== null}
+                                      aria-label={`Archive ${thread.title}`}
+                                      title={archiveBlockedReason ?? "Archive"}
+                                      onClick={() => void handleArchive()}
+                                      className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-raised hover:text-fg disabled:cursor-not-allowed disabled:opacity-35"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
                                     </button>
                                   </div>
                                 </>
@@ -326,12 +532,6 @@ export function WorkspaceNavigationPane({
           </div>
         )}
       </div>
-
-      {workspace && (
-        <div className="shrink-0 border-t border-border px-2 py-2">
-          <AddProjectButton compact workspaceId={workspace.id} />
-        </div>
-      )}
     </aside>
   );
 }

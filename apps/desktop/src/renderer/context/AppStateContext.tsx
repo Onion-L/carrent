@@ -107,7 +107,10 @@ type AppStateContextValue = {
   rereadAppState: () => Promise<boolean>;
   fullResetAppState: () => Promise<boolean>;
   clearRecoveryNotice: () => void;
-  createWorkspace: (name: string) => Promise<WorkspaceMutationResult>;
+  createWorkspace: (
+    name: string,
+    projectDirectories?: string[],
+  ) => Promise<WorkspaceMutationResult>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceMutationResult>;
   selectWorkspace: (workspaceId: string) => Promise<boolean>;
   rememberThreadLocation: (workspaceId: string, threadId: string) => Promise<boolean>;
@@ -503,7 +506,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createWorkspace = useCallback(
-    async (value: string): Promise<WorkspaceMutationResult> => {
+    async (value: string, projectDirectories: string[] = []): Promise<WorkspaceMutationResult> => {
       const validation = validateWorkspaceName(snapshot.workspaces, value);
       if (validation.error) return { ok: false, error: validation.error };
 
@@ -512,11 +515,43 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         name: validation.name,
         order: snapshot.workspaces.length,
       };
+      const projects = [...snapshot.projects];
+      const associations = [...snapshot.associations];
+      const seenDirectoryIdentities = new Set<string>();
+
+      projectDirectories.forEach((value) => {
+        const workingDirectory = normalizeProjectWorkingDirectory(value);
+        if (!workingDirectory) return;
+        const workingDirectoryIdentity = getProjectWorkingDirectoryIdentity(workingDirectory);
+        if (seenDirectoryIdentities.has(workingDirectoryIdentity)) return;
+        seenDirectoryIdentities.add(workingDirectoryIdentity);
+
+        const existingProject = projects.find(
+          (project) =>
+            getProjectWorkingDirectoryIdentity(project.workingDirectory) ===
+            workingDirectoryIdentity,
+        );
+        const project: AppProjectRecord = existingProject ?? {
+          id: `project-${crypto.randomUUID()}`,
+          name: projectNameFromWorkingDirectory(workingDirectory),
+          workingDirectory,
+        };
+        if (!existingProject) projects.push(project);
+        associations.push({
+          workspaceId: workspace.id,
+          projectId: project.id,
+          order: seenDirectoryIdentities.size - 1,
+          defaultRuntimeId: DEFAULT_RUNTIME_ID,
+          defaultRuntimeMode: DEFAULT_RUNTIME_MODE,
+        });
+      });
 
       try {
         await persist({
           ...snapshot,
           workspaces: [...snapshot.workspaces, workspace],
+          projects,
+          associations,
           activeWorkspaceId: workspace.id,
         });
         return { ok: true, workspace };

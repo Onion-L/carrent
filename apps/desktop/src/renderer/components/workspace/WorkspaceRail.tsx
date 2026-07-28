@@ -1,13 +1,12 @@
-import { CircleAlert, Plus, Settings } from "lucide-react";
+import { Plus, Settings } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAppState } from "../../context/AppStateContext";
-import { WorkspaceNameDialog } from "./WorkspaceNameDialog";
+import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
 import { buildWorkspacePath, getWorkspaceRestorePath } from "../../lib/navigation";
-import { getAttentionViewState } from "./AttentionPane";
 
-export function WorkspaceRail({ attentionCount }: { attentionCount: number }) {
+export function WorkspaceRail() {
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -34,27 +33,6 @@ export function WorkspaceRail({ attentionCount }: { attentionCount: number }) {
   return (
     <>
       <aside className="flex h-full min-h-0 flex-col items-center bg-sidebar px-1.5 py-1">
-        <button
-          aria-label="Attention"
-          aria-pressed={getAttentionViewState(location.state) !== null}
-          title="Attention"
-          onClick={() => {
-            if (getAttentionViewState(location.state)) return;
-            navigate(`${location.pathname}${location.search}`, {
-              state: {
-                ...(location.state && typeof location.state === "object" ? location.state : {}),
-                attentionView: { scrollTop: 0, selectedThreadId: null, groups: null },
-              },
-            });
-          }}
-          className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
-        >
-          <CircleAlert className="h-4 w-4" />
-          <span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-danger px-1 text-center text-[10px] leading-4 text-white">
-            {attentionCount}
-          </span>
-        </button>
-
         <button
           aria-label="Create Workspace"
           title="Create Workspace"
@@ -135,12 +113,10 @@ export function WorkspaceRail({ attentionCount }: { attentionCount: number }) {
       </aside>
 
       {isCreating && (
-        <WorkspaceNameDialog
-          title="Create Workspace"
-          submitLabel="Create"
+        <CreateWorkspaceDialog
           onCancel={() => setIsCreating(false)}
-          onSubmit={async (name) => {
-            const result = await createWorkspace(name);
+          onSubmit={async (name, projectDirectories) => {
+            const result = await createWorkspace(name, projectDirectories);
             if (!result.ok) return result.error;
             setIsCreating(false);
             navigate(buildWorkspacePath(result.workspace.id));

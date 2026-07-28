@@ -162,7 +162,7 @@ The palette is nearly achromatic but deliberately warm, with semantic color rese
 ### Secondary
 
 - **Measured Green** (#46aa6e Night / #32965a Paper): Success and healthy runtime state only.
-- **Warm Signal** (#e87d5a Night / #d26e46 Paper): Warnings and attention states that are actionable but not destructive.
+- **Warm Signal** (#e87d5a Night / #d26e46 Paper): Warnings and blocking states that are actionable but not destructive.
 - **Muted Red** (#c85050 Night / #b43c3c Paper): Errors, destructive commands, and failed runtime state.
 
 ### Neutral

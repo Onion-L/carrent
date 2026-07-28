@@ -87,7 +87,10 @@ import {
   type ChatSubagentTaskPayload,
 } from "../../../shared/chat";
 import type { SkillRecord } from "../../../shared/skills";
-import type { ChatPermissionRequest } from "../../../shared/chatPermissions";
+import type {
+  ChatPermissionOptionKind,
+  ChatPermissionRequest,
+} from "../../../shared/chatPermissions";
 import {
   DEFAULT_RUNTIME_MODE,
   getRuntimeModeLabel,
@@ -695,7 +698,7 @@ export function getActionablePermissionsForThread({
 
 export function getPermissionOption(
   permission: ChatPermissionRequest,
-  kind: "allow_once" | "reject_once",
+  kind: ChatPermissionOptionKind,
 ) {
   return permission.options.find((option) => option.kind === kind) ?? null;
 }
@@ -708,6 +711,22 @@ export function getPermissionDetail(permission: ChatPermissionRequest) {
     permission.toolName ??
     permission.action
   );
+}
+
+// Approval-mode keyboard shortcuts: y allows once, a allows for the session,
+// n rejects once.
+export function getPermissionShortcutKind(key: string): ChatPermissionOptionKind | null {
+  const normalized = key.toLowerCase();
+  if (normalized === "y") {
+    return "allow_once";
+  }
+  if (normalized === "a") {
+    return "allow_always";
+  }
+  if (normalized === "n") {
+    return "reject_once";
+  }
+  return null;
 }
 
 export function getSkillSlashTrigger(
@@ -2331,7 +2350,61 @@ export function Composer(props: ComposerProps) {
     });
   };
   const isCenteredPlacement = props.placement === "centered";
-  const hasAttachedStatusLayer = threadPermissions.length > 0;
+  // A pending permission turns the Composer into approval mode: the text
+  // input is replaced by the request plus Allow/Deny controls until the user
+  // responds. Only the first pending request is shown at a time.
+  const activePermission = threadPermissions[0] ?? null;
+  const allowOnceOption = activePermission
+    ? getPermissionOption(activePermission, "allow_once")
+    : null;
+  const allowAlwaysOption = activePermission
+    ? getPermissionOption(activePermission, "allow_always")
+    : null;
+  const rejectOnceOption = activePermission
+    ? getPermissionOption(activePermission, "reject_once")
+    : null;
+  const approvalShortcutHint = [
+    allowOnceOption ? "y" : null,
+    allowAlwaysOption ? "a" : null,
+    rejectOnceOption ? "n" : null,
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
+  // Approval-mode keyboard flow: y allows, n denies. Ignored while the user
+  // is typing in another field (e.g. editing a queued message).
+  useEffect(() => {
+    if (!activePermission) {
+      return;
+    }
+    const handleApprovalKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
+      ) {
+        return;
+      }
+      const kind = getPermissionShortcutKind(event.key);
+      if (!kind) {
+        return;
+      }
+      const option = getPermissionOption(activePermission, kind);
+      if (option) {
+        event.preventDefault();
+        void respondToPermission({
+          runId: activePermission.runId,
+          permissionId: activePermission.id,
+          optionId: option.optionId,
+        });
+      }
+    };
+    window.addEventListener("keydown", handleApprovalKeyDown);
+    return () => window.removeEventListener("keydown", handleApprovalKeyDown);
+  }, [activePermission, respondToPermission]);
   const runChecklistPanel = runChecklist ? (
     <RunChecklist
       checklist={runChecklist}
@@ -2435,55 +2508,6 @@ export function Composer(props: ComposerProps) {
                 <div className="px-3 py-2 text-app-12 text-subtle">No skills found.</div>
               ) : null}
             </div>
-          </div>
-        ) : null}
-        {hasAttachedStatusLayer ? (
-          <div className="-mb-px divide-y divide-border rounded-t-xl border border-border bg-bg/45 px-3 py-1">
-            {threadPermissions.map((permission) => (
-              <div key={permission.id} className="flex items-center gap-2.5 py-1.5">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-app-12 font-medium text-fg">{permission.title}</div>
-                  <div className="break-words text-app-11 text-subtle">
-                    {getPermissionDetail(permission)}
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {getPermissionOption(permission, "reject_once") ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handlePermissionResponse(
-                          permission,
-                          getPermissionOption(permission, "reject_once")!.optionId,
-                        )
-                      }
-                      aria-label={`Deny: ${permission.title}`}
-                      className="flex h-7 w-7 items-center justify-center rounded-full border border-border-strong text-muted transition hover:bg-surface-hover hover:text-fg active:scale-95"
-                      title="Deny"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                  {getPermissionOption(permission, "allow_once") ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handlePermissionResponse(
-                          permission,
-                          getPermissionOption(permission, "allow_once")!.optionId,
-                        )
-                      }
-                      aria-label={`Approve: ${permission.title}`}
-                      className="flex h-7 w-7 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 active:scale-95"
-                      title="Approve"
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ))}
           </div>
         ) : null}
         {queuedMessages.map((item, index) => {
@@ -2595,8 +2619,10 @@ export function Composer(props: ComposerProps) {
           );
         })}
         <div
-          className={`relative border border-border bg-surface-raised/90 p-3 shadow-[0_18px_60px_rgb(0_0_0/0.18)] transition-colors duration-200 focus-within:border-border-strong ${
-            hasAttachedStatusLayer ? "rounded-b-xl" : "rounded-xl"
+          className={`relative rounded-xl border bg-surface-raised/90 p-3 shadow-[0_18px_60px_rgb(0_0_0/0.18)] transition-colors duration-200 ${
+            activePermission
+              ? "border-warning/40"
+              : "border-border focus-within:border-border-strong"
           }`}
         >
           {pendingAttachments.length > 0 && (
@@ -2715,100 +2741,163 @@ export function Composer(props: ComposerProps) {
               </div>
             </div>
           ) : null}
-          <div className="flex min-h-20 flex-wrap items-start gap-x-1.5 gap-y-1">
-            {attachedSkills.map((skill) => (
-              <span
-                key={skill.path}
-                title={skill.path}
-                className={`inline-flex h-6 max-w-full shrink-0 items-center gap-2 text-app-14 font-medium leading-6 text-skill-reference ${
-                  localMcpSkillsDisabled ? "opacity-50" : ""
-                }`}
-              >
-                <Box className="h-4 w-4 shrink-0" strokeWidth={2} />
-                <span className="truncate">{formatSkillLabel(skill.name)}</span>
-              </span>
-            ))}
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-                setTextareaCursor(e.target.selectionStart);
-                setDismissedSkillInput(null);
-              }}
-              onFocus={(event) => {
-                setIsTextareaFocused(true);
-                setTextareaCursor(event.currentTarget.selectionStart);
-              }}
-              onBlur={() => {
-                setIsTextareaFocused(false);
-              }}
-              onClick={updateTextareaCursor}
-              onSelect={updateTextareaCursor}
-              placeholder={attachedSkills.length > 0 ? "" : "Message..."}
-              className="min-h-20 min-w-32 flex-1 resize-none bg-transparent text-app-15 leading-6 text-fg placeholder:text-subtle outline-none"
-              rows={1}
-              onKeyDown={(e) => {
-                if (
-                  shouldRemoveLastSkillOnBackspace({
-                    key: e.key,
-                    isComposing: e.nativeEvent.isComposing,
-                    selectionStart: e.currentTarget.selectionStart,
-                    selectionEnd: e.currentTarget.selectionEnd,
-                    attachedSkillCount: attachedSkills.length,
-                  })
-                ) {
-                  e.preventDefault();
-                  setAttachedSkills((currentSkills) => currentSkills.slice(0, -1));
-                  return;
-                }
-
-                if (showSlashMenu) {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setSelectedSkillIndex((index) =>
-                      slashMenuItemCount === 0 ? 0 : (index + 1) % slashMenuItemCount,
-                    );
-                    return;
-                  }
-
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setSelectedSkillIndex((index) =>
-                      slashMenuItemCount === 0
-                        ? 0
-                        : (index - 1 + slashMenuItemCount) % slashMenuItemCount,
-                    );
-                    return;
-                  }
-
-                  if ((e.key === "Enter" || e.key === "Tab") && slashMenuItemCount > 0) {
-                    e.preventDefault();
-                    if (showPlanSuggestion && selectedSkillIndex === 0) {
-                      handlePlanInsert();
-                    } else {
-                      const skillIndex = selectedSkillIndex - (showPlanSuggestion ? 1 : 0);
-                      handleSkillInsert(filteredSkills[skillIndex] ?? filteredSkills[0]);
+          {activePermission ? (
+            <div className="flex min-h-20 flex-col justify-center gap-3">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-app-13 font-medium leading-5 text-fg">
+                    {activePermission.title}
+                  </div>
+                  <div className="mt-0.5 break-words text-app-12 leading-5 text-subtle">
+                    {getPermissionDetail(activePermission)}
+                  </div>
+                </div>
+                {threadPermissions.length > 1 ? (
+                  <span className="shrink-0 text-app-11 text-subtle">
+                    +{threadPermissions.length - 1} more
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                {allowOnceOption ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePermissionResponse(activePermission, allowOnceOption.optionId)
                     }
-                    return;
-                  }
-
-                  if (e.key === "Escape") {
+                    aria-label={`Approve: ${activePermission.title}`}
+                    className="flex h-8 items-center gap-1.5 rounded-full bg-fg px-3.5 text-app-12 font-medium text-bg transition hover:opacity-90 active:scale-95"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    {allowOnceOption.name || "Allow"}
+                  </button>
+                ) : null}
+                {allowAlwaysOption ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePermissionResponse(activePermission, allowAlwaysOption.optionId)
+                    }
+                    aria-label={`Approve for this session: ${activePermission.title}`}
+                    className="flex h-8 items-center gap-1.5 rounded-full border border-warning/40 px-3.5 text-app-12 text-warning transition hover:bg-warning/10 active:scale-95"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    {allowAlwaysOption.name || "Allow for session"}
+                  </button>
+                ) : null}
+                {rejectOnceOption ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePermissionResponse(activePermission, rejectOnceOption.optionId)
+                    }
+                    aria-label={`Deny: ${activePermission.title}`}
+                    className="flex h-8 items-center gap-1.5 rounded-full border border-border-strong px-3.5 text-app-12 text-muted transition hover:bg-surface-hover hover:text-fg active:scale-95"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    {rejectOnceOption.name || "Deny"}
+                  </button>
+                ) : null}
+                <span className="ml-1 text-app-11 text-subtle">{approvalShortcutHint}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex min-h-20 flex-wrap items-start gap-x-1.5 gap-y-1">
+              {attachedSkills.map((skill) => (
+                <span
+                  key={skill.path}
+                  title={skill.path}
+                  className={`inline-flex h-6 max-w-full shrink-0 items-center gap-2 text-app-14 font-medium leading-6 text-skill-reference ${
+                    localMcpSkillsDisabled ? "opacity-50" : ""
+                  }`}
+                >
+                  <Box className="h-4 w-4 shrink-0" strokeWidth={2} />
+                  <span className="truncate">{formatSkillLabel(skill.name)}</span>
+                </span>
+              ))}
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  setTextareaCursor(e.target.selectionStart);
+                  setDismissedSkillInput(null);
+                }}
+                onFocus={(event) => {
+                  setIsTextareaFocused(true);
+                  setTextareaCursor(event.currentTarget.selectionStart);
+                }}
+                onBlur={() => {
+                  setIsTextareaFocused(false);
+                }}
+                onClick={updateTextareaCursor}
+                onSelect={updateTextareaCursor}
+                placeholder={attachedSkills.length > 0 ? "" : "Message..."}
+                className="min-h-20 min-w-32 flex-1 resize-none bg-transparent text-app-15 leading-6 text-fg placeholder:text-subtle outline-none"
+                rows={1}
+                onKeyDown={(e) => {
+                  if (
+                    shouldRemoveLastSkillOnBackspace({
+                      key: e.key,
+                      isComposing: e.nativeEvent.isComposing,
+                      selectionStart: e.currentTarget.selectionStart,
+                      selectionEnd: e.currentTarget.selectionEnd,
+                      attachedSkillCount: attachedSkills.length,
+                    })
+                  ) {
                     e.preventDefault();
-                    setDismissedSkillInput(input);
+                    setAttachedSkills((currentSkills) => currentSkills.slice(0, -1));
                     return;
                   }
-                }
 
-                if (shouldSubmitComposerOnKeyDown(e)) {
-                  e.preventDefault();
-                  if (canSend) {
-                    void handleSend();
+                  if (showSlashMenu) {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setSelectedSkillIndex((index) =>
+                        slashMenuItemCount === 0 ? 0 : (index + 1) % slashMenuItemCount,
+                      );
+                      return;
+                    }
+
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setSelectedSkillIndex((index) =>
+                        slashMenuItemCount === 0
+                          ? 0
+                          : (index - 1 + slashMenuItemCount) % slashMenuItemCount,
+                      );
+                      return;
+                    }
+
+                    if ((e.key === "Enter" || e.key === "Tab") && slashMenuItemCount > 0) {
+                      e.preventDefault();
+                      if (showPlanSuggestion && selectedSkillIndex === 0) {
+                        handlePlanInsert();
+                      } else {
+                        const skillIndex = selectedSkillIndex - (showPlanSuggestion ? 1 : 0);
+                        handleSkillInsert(filteredSkills[skillIndex] ?? filteredSkills[0]);
+                      }
+                      return;
+                    }
+
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setDismissedSkillInput(input);
+                      return;
+                    }
                   }
-                }
-              }}
-            />
-          </div>
+
+                  if (shouldSubmitComposerOnKeyDown(e)) {
+                    e.preventDefault();
+                    if (canSend) {
+                      void handleSend();
+                    }
+                  }
+                }}
+              />
+            </div>
+          )}
           {attachmentError && <div className="mt-2 text-app-12 text-danger">{attachmentError}</div>}
           <div className="mt-3 flex items-end justify-between gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-1">

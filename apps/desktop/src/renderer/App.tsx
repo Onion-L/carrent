@@ -16,6 +16,7 @@ import { ProjectOverviewPage } from "./routes/ProjectOverviewPage";
 import { AppStateRecoveryPage } from "./routes/AppStateRecoveryPage";
 import { useToast } from "./components/toast/ToastContext";
 import { getWorkspaceRestorePath, resolveThreeLevelRoute } from "./lib/navigation";
+import { useChatRun } from "./hooks/useChatRun";
 
 const LEGACY_ROUTE_PATTERN = /^\/(?:project\/[^/]+|thread\/[^/]+\/[^/]+|chat\/[^/]+)$/u;
 
@@ -134,6 +135,7 @@ function WorkspaceRestoreRoute() {
 function AppRoutes() {
   const { hasHydrated: hasThreadContentHydrated } = useThreadContent();
   const { hasHydrated, workspaces } = useAppState();
+  useChatRun();
 
   if (!hasHydrated || !hasThreadContentHydrated) {
     return (

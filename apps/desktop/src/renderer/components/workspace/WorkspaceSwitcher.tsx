@@ -1,0 +1,135 @@
+import { Check, ChevronDown, FolderPlus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+import { useAppState } from "../../context/AppStateContext";
+import { buildWorkspacePath, getWorkspaceRestorePath } from "../../lib/navigation";
+import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
+
+export function WorkspaceSwitcher() {
+  const navigate = useNavigate();
+  const {
+    workspaces,
+    threads,
+    lastThreadIdByWorkspace,
+    activeWorkspaceId,
+    createWorkspace,
+    selectWorkspace,
+  } = useAppState();
+  const [isOpen, setIsOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setIsOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  if (!activeWorkspace) return null;
+
+  return (
+    <>
+      <div ref={containerRef} className="relative min-w-0">
+        <button
+          type="button"
+          aria-label="Select Workspace"
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+          title="Select Workspace"
+          onClick={() => setIsOpen((open) => !open)}
+          className="flex h-8 max-w-56 items-center gap-2 rounded-md border border-border bg-surface px-2.5 text-app-13 font-medium text-fg transition hover:border-border-strong hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20"
+        >
+          <span
+            aria-hidden="true"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-fg text-app-11 font-semibold text-bg"
+          >
+            {activeWorkspace.name.slice(0, 1).toUpperCase()}
+          </span>
+          <span className="min-w-0 flex-1 truncate">{activeWorkspace.name}</span>
+          <ChevronDown
+            className={`h-3.5 w-3.5 shrink-0 text-subtle transition-transform duration-150 ${isOpen ? "rotate-180" : ""}`}
+          />
+        </button>
+
+        {isOpen && (
+          <div
+            role="menu"
+            aria-label="Workspaces"
+            className="absolute left-0 top-[calc(100%+0.375rem)] z-50 w-64 overflow-hidden rounded-lg border border-border-strong bg-surface py-1.5 shadow-xl"
+          >
+            {workspaces.map((workspace) => {
+              const active = workspace.id === activeWorkspace.id;
+              return (
+                <button
+                  key={workspace.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={active}
+                  aria-label={workspace.name}
+                  onClick={async () => {
+                    setIsOpen(false);
+                    if (active || !(await selectWorkspace(workspace.id))) return;
+                    navigate(
+                      getWorkspaceRestorePath(workspace.id, threads, lastThreadIdByWorkspace),
+                    );
+                  }}
+                  className="flex min-h-10 w-full items-center gap-3 px-3 text-left text-app-14 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-fg text-app-12 font-semibold text-bg"
+                  >
+                    {workspace.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
+                  {active && <Check className="h-4 w-4 shrink-0" />}
+                </button>
+              );
+            })}
+
+            <div className="my-1 border-t border-border" />
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setIsOpen(false);
+                setIsCreating(true);
+              }}
+              className="flex min-h-10 w-full items-center gap-3 px-3 text-left text-app-14 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+            >
+              <FolderPlus className="h-5 w-5 shrink-0 text-muted" />
+              <span>Add Workspace...</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {isCreating && (
+        <CreateWorkspaceDialog
+          onCancel={() => setIsCreating(false)}
+          onSubmit={async (name, projectDirectories) => {
+            const result = await createWorkspace(name, projectDirectories);
+            if (!result.ok) return result.error;
+            setIsCreating(false);
+            navigate(buildWorkspacePath(result.workspace.id));
+            return null;
+          }}
+        />
+      )}
+    </>
+  );
+}

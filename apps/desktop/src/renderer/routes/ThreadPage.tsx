@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Archive } from "lucide-react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
 
 import { ChatHeader } from "../components/chat/ChatHeader";
 import {
@@ -31,9 +30,7 @@ import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
 import type { Message } from "../../shared/threadContent";
 import { useChatRun } from "../hooks/useChatRun";
-import { useQueuedMessages } from "../hooks/chatMessageQueue";
 import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
-import { buildProjectPath, buildThreadPath } from "../lib/navigation";
 import { useToast } from "../components/toast/ToastContext";
 
 export function resolveThreadRouteData(
@@ -60,7 +57,6 @@ export function getThreadInspectorInput(
 
 function ThreadPageContent() {
   const { workspaceId, projectId, threadId } = useParams();
-  const navigate = useNavigate();
   const { showToast } = useToast();
   const [submitRequest, setSubmitRequest] = useState<
     { threadId: string; request: ComposerSubmitRequest } | undefined
@@ -68,7 +64,6 @@ function ThreadPageContent() {
   const [draftRequest, setDraftRequest] = useState<
     { threadId: string; request: ComposerDraftRequest } | undefined
   >();
-  const [archiveTargetPath, setArchiveTargetPath] = useState<string | null>(null);
   const draftRequestIdRef = useRef(0);
   const { getThreadRouteData, setSelectedThreadId } = useThreadContent();
   const {
@@ -79,11 +74,9 @@ function ThreadPageContent() {
     updateThreadConfig,
     recordThreadRun,
     rollbackThreadRun,
-    archiveThread,
     projectDirectoryStatusById,
   } = useAppState();
   const { runningThreadIds } = useChatRun();
-  const queuedMessages = useQueuedMessages(threadId ?? "");
   const appThread = workspaceId
     ? threads.find(
         (thread) =>
@@ -233,42 +226,6 @@ function ThreadPageContent() {
   ) : null;
 
   const rightPane = resolveRightPane({ diffOpen: diffState.open, inspectorOpen });
-  const archiveBlockedReason = appThread
-    ? runningThreadIds.includes(appThread.id)
-      ? "Stop the live Run before archiving"
-      : queuedMessages.length > 0
-        ? "Remove queued messages before archiving"
-        : null
-    : null;
-
-  useEffect(() => {
-    if (appThread?.archived && archiveTargetPath) {
-      navigate(archiveTargetPath);
-    }
-  }, [appThread?.archived, archiveTargetPath, navigate]);
-
-  const handleArchive = async () => {
-    if (!appThread || archiveBlockedReason) return;
-    const nextThread = threads
-      .filter(
-        (thread) =>
-          thread.id !== appThread.id &&
-          !thread.archived &&
-          thread.workspaceId === appThread.workspaceId &&
-          thread.projectId === appThread.projectId,
-      )
-      .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))[0];
-    setArchiveTargetPath(
-      nextThread
-        ? buildThreadPath(appThread.workspaceId, appThread.projectId, nextThread.id)
-        : buildProjectPath(appThread.workspaceId, appThread.projectId),
-    );
-    const archived = await archiveThread(appThread.id);
-    if (!archived) {
-      setArchiveTargetPath(null);
-      showToast("Thread could not be archived.", "error");
-    }
-  };
 
   if (workspaceId && !appThread) {
     return <Navigate replace to={`/workspace/${workspaceId}/project/${projectId}`} />;
@@ -288,20 +245,6 @@ function ThreadPageContent() {
 
   return (
     <div className="relative flex h-full w-full">
-      {appThread && !appThread.archived ? (
-        <DesktopHeaderPortal>
-          <button
-            type="button"
-            aria-label="Archive Thread"
-            title={archiveBlockedReason ?? "Archive Thread"}
-            disabled={archiveBlockedReason !== null}
-            onClick={() => void handleArchive()}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-35"
-          >
-            <Archive className="h-4 w-4" />
-          </button>
-        </DesktopHeaderPortal>
-      ) : null}
       {shouldShowInspectorToggle({
         hasProjectEnvironment: !!inspectorInput,
         taskCount: inspectorTasks.length,

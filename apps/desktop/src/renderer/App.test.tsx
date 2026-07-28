@@ -109,6 +109,9 @@ function installBridge(
           : { canceled: true, filePaths: [] };
       },
     },
+    shell: {
+      openPath: async () => "",
+    },
     clipboard: {
       writeText: async () => {},
     },
@@ -362,6 +365,15 @@ function composerSendButton() {
   return button;
 }
 
+async function waitForProjectDraft() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  const textarea = container!.querySelector<HTMLTextAreaElement>("textarea");
+  if (!textarea) throw new Error("Project Draft Composer not found");
+  return textarea;
+}
+
 afterEach(async () => {
   if (root) {
     await act(async () => root!.unmount());
@@ -511,6 +523,7 @@ describe("Workspace App State foundation", () => {
         activeWorkspaceId: "workspace-1",
       },
       "/workspace/workspace-1",
+      ["/tmp/research-project"],
     );
 
     await click(buttonNamed("Rename Workspace"));
@@ -527,7 +540,12 @@ describe("Workspace App State foundation", () => {
       { id: "workspace-2", name: "Client", order: 1 },
     ]);
 
-    await click(buttonNamed("Client"));
+    await click(buttonNamed("Select Workspace"));
+    const workspaceMenu = container!.querySelector('[role="menu"][aria-label="Workspaces"]')!;
+    expect(workspaceMenu.textContent).toContain("Home");
+    expect(workspaceMenu.textContent).toContain("Client");
+    expect(workspaceMenu.textContent).toContain("Add Workspace...");
+    await click(workspaceMenu.querySelector<HTMLButtonElement>('button[aria-label="Client"]')!);
     expect(saved.at(-1)?.activeWorkspaceId).toBe("workspace-2");
     expect(container!.querySelector("h1")?.textContent).toBe("Client");
 
@@ -535,7 +553,15 @@ describe("Workspace App State foundation", () => {
     await click(buttonNamed("Client"));
     expect(saved).toHaveLength(saveCount);
 
-    await click(buttonNamed("Create Workspace"));
+    await click(buttonNamed("Select Workspace"));
+    await click(buttonNamed("Add Workspace..."));
+    const createWorkspaceDialog = container!.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Create Workspace"]',
+    )!;
+    await click(
+      createWorkspaceDialog.querySelector<HTMLButtonElement>('button[aria-label="Add Project"]')!,
+    );
+    expect(createWorkspaceDialog.textContent).toContain("research-project");
     const createInput = container!.querySelector<HTMLInputElement>('input[name="workspaceName"]')!;
     await fillInput(createInput, "Research");
     await click(buttonNamed("Create"));
@@ -545,6 +571,22 @@ describe("Workspace App State foundation", () => {
       name: "Research",
       order: 2,
     });
+    expect(saved.at(-1)?.projects).toEqual([
+      {
+        id: saved.at(-1)!.projects[0].id,
+        name: "research-project",
+        workingDirectory: "/tmp/research-project",
+      },
+    ]);
+    expect(saved.at(-1)?.associations).toEqual([
+      {
+        workspaceId: saved.at(-1)!.activeWorkspaceId,
+        projectId: saved.at(-1)!.projects[0].id,
+        order: 0,
+        defaultRuntimeId: "kimi",
+        defaultRuntimeMode: "approval-required",
+      },
+    ]);
     expect(container!.querySelector("h1")?.textContent).toBe("Research");
   });
 
@@ -726,7 +768,7 @@ describe("three-level navigation", () => {
   });
 
   it("groups Threads by Project and toggles the Project's Thread List", async () => {
-    await renderApp(
+    const saved = await renderApp(
       navigationState(),
       "/workspace/workspace-1/project/project-1/thread/thread-1",
       [],
@@ -763,11 +805,63 @@ describe("three-level navigation", () => {
     expect(navigationPane.textContent).toContain("Personal Thread");
 
     await click(buttonNamed("More actions for Personal Carrent"));
+    const projectMenu = document.querySelector<HTMLElement>(
+      '[role="menu"][aria-label="Actions for Personal Carrent"]',
+    )!;
     expect(
-      document.querySelector('[role="menu"][aria-label="Actions for Personal Carrent"]'),
-    ).not.toBe(null);
-    await click(buttonNamed("Project settings"));
-    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+      [...projectMenu.querySelectorAll('[role="menuitem"]')].map((item) =>
+        item.textContent?.trim(),
+      ),
+    ).toEqual(["Open in Finder", "Rename project", "Copy path", "Delete"]);
+
+    const openedPaths: string[] = [];
+    window.carrent.shell.openPath = async (path) => {
+      openedPaths.push(path);
+      return "";
+    };
+    await click(buttonNamed("Open in Finder"));
+    expect(openedPaths).toEqual(["/code/carrent"]);
+
+    const copiedPaths: string[] = [];
+    window.carrent.clipboard.writeText = async (path) => {
+      copiedPaths.push(path);
+    };
+    await click(buttonNamed("More actions for Personal Carrent"));
+    await click(buttonNamed("Copy path"));
+    expect(copiedPaths).toEqual(["/code/carrent"]);
+
+    await click(buttonNamed("More actions for Personal Carrent"));
+    await click(buttonNamed("Rename project"));
+    const renameProjectInput = container!.querySelector<HTMLInputElement>(
+      'input[aria-label="Rename project Personal Carrent"]',
+    )!;
+    await fillInput(renameProjectInput, "Renamed Carrent");
+    await act(async () => {
+      renameProjectInput.blur();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(saved.at(-1)?.associations[0].alias).toBe("Renamed Carrent");
+    expect(navigationPane.textContent).toContain("Renamed Carrent");
+  });
+
+  it("deletes a Project from its actions menu", async () => {
+    const saved = await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+    );
+    window.confirm = () => true;
+
+    await click(buttonNamed("More actions for Personal Carrent"));
+    await click(buttonNamed("Delete"));
+
+    expect(
+      saved.at(-1)?.associations.map(({ workspaceId, projectId }) => ({
+        workspaceId,
+        projectId,
+      })),
+    ).toEqual([{ workspaceId: "workspace-2", projectId: "project-1" }]);
+    expect(saved.at(-1)?.threads?.some((thread) => thread.id === "thread-1")).toBe(false);
+    expect(currentPathname).toBe("/workspace/workspace-1");
   });
 
   it("opens a Project Thread Draft from the restored middle pane action", async () => {
@@ -783,7 +877,12 @@ describe("three-level navigation", () => {
       workspaceId: "workspace-1",
       projectId: "project-1",
     });
-    expect(container!.textContent).toContain("Thread Draft");
+    expect(container!.querySelector("h1")?.textContent).toBe("New thread");
+    const prompt = container!.querySelector<HTMLElement>("[data-empty-thread-prompt]")!;
+    expect(prompt.textContent).toBe("What should we build in Personal Carrent?");
+    expect(prompt.querySelector(".text-muted")?.textContent).toBe("What should we build");
+    expect(prompt.querySelector(".text-fg")?.textContent).toBe("Personal Carrent");
+    expect(container!.textContent).not.toContain("Thread Draft");
   });
 
   it("keeps and renames Threads in persisted order", async () => {
@@ -812,6 +911,13 @@ describe("three-level navigation", () => {
     expect(navigationPane.textContent!.indexOf("Personal Thread")).toBeLessThan(
       navigationPane.textContent!.indexOf("Recent Thread"),
     );
+    expect(buttonNamed("Archive Personal Thread")).not.toBe(null);
+
+    await click(buttonNamed("Pin Personal Thread"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+    expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.pinned).toBe(true);
 
     await click(buttonNamed("Rename Personal Thread"));
     const renameInput = container!.querySelector<HTMLInputElement>(
@@ -828,7 +934,7 @@ describe("three-level navigation", () => {
     expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")).toMatchObject({
       title: "Renamed Work",
     });
-    expect(navigationPane.querySelector('[aria-label^="Pin "]')).toBe(null);
+    expect(buttonNamed("Unpin Renamed Work")).not.toBe(null);
   });
 
   it("does not change Thread Activity Time for question requests", async () => {
@@ -1103,231 +1209,6 @@ describe("three-level navigation", () => {
     expect(dialog.textContent).toContain("Scope: Personal / Personal Carrent");
   });
 
-  it("aggregates Attention across Workspaces without replacing the current content", async () => {
-    const state = navigationState();
-    const chatRequests: ChatTurnRequest[] = [];
-    state.threadMessages = [
-      {
-        id: "failure-1",
-        role: "assistant",
-        threadId: "thread-1",
-        content: "Personal failed",
-        createdAt: "2026-07-27T08:00:00.000Z",
-        attachments: [],
-        runStatus: "failed",
-      },
-      {
-        id: "failure-2",
-        role: "assistant",
-        threadId: "thread-2",
-        content: "Client failed",
-        createdAt: "2026-07-27T09:00:00.000Z",
-        attachments: [],
-        runStatus: "failed",
-      },
-    ];
-
-    await renderApp(
-      state,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      chatRequests,
-      false,
-    );
-
-    expect(buttonNamed("Attention").textContent).toContain("2");
-    expect(container!.querySelector("aside.border-r")!.textContent).toContain("Failed");
-    expect(container!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
-
-    await click(buttonNamed("Attention"));
-
-    const attentionPane = container!.querySelector<HTMLElement>(
-      'aside[aria-label="Attention View"]',
-    );
-    expect(attentionPane).not.toBe(null);
-    expect(attentionPane!.textContent).toContain("Failed");
-    expect(attentionPane!.textContent).toContain("Personal / Personal Carrent");
-    expect(attentionPane!.textContent).toContain("Client / Client Carrent");
-    expect(attentionPane!.textContent!.indexOf("Client Thread")).toBeLessThan(
-      attentionPane!.textContent!.indexOf("Personal Thread"),
-    );
-    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
-    expect(container!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
-
-    const attentionList = attentionPane!.querySelector<HTMLElement>('[role="listbox"]')!;
-    attentionList.scrollTop = 73;
-    await click(buttonNamed("Client Thread"));
-
-    expect(currentPathname).toBe("/workspace/workspace-2/project/project-1/thread/thread-2");
-    expect(currentNavigationType).toBe("PUSH");
-    expect(container!.querySelector('aside[aria-label="Attention View"]')).toBe(null);
-
-    await fillTextarea(container!.querySelector<HTMLTextAreaElement>("textarea")!, "Retry failure");
-    await click(composerSendButton());
-    expect(chatRequests).toHaveLength(1);
-
-    await act(async () => {
-      testNavigate!(-1);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-
-    const restoredPane = container!.querySelector<HTMLElement>(
-      'aside[aria-label="Attention View"]',
-    )!;
-    expect(restoredPane.textContent).toContain("Failed");
-    expect(restoredPane.querySelector<HTMLElement>('[role="listbox"]')!.scrollTop).toBe(73);
-    expect(
-      [...restoredPane.querySelectorAll<HTMLElement>('[role="option"]')]
-        .find((item) => item.textContent?.includes("Client Thread"))
-        ?.getAttribute("aria-selected"),
-    ).toBe("true");
-    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
-    expect(container!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
-
-    await act(async () => {
-      emitChatEvent!({
-        type: "stopped",
-        runId: chatRequests[0].runId!,
-        requestKey: chatRequests[0].requestKey,
-      });
-    });
-  });
-
-  it("includes approval and answer waits while excluding a running-only Thread", async () => {
-    const state = navigationState();
-    state.threads!.push({
-      id: "thread-3",
-      workspaceId: "workspace-1",
-      projectId: "project-1",
-      title: "Running Thread",
-      createdAt: "2026-07-27T10:00:00.000Z",
-      lastActivityAt: "2026-07-27T10:00:00.000Z",
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
-    });
-    const chatRequests: ChatTurnRequest[] = [];
-    await renderApp(
-      state,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      chatRequests,
-      false,
-    );
-
-    const startRun = async (path: string, message: string) => {
-      await act(async () => {
-        testNavigate!(path);
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      });
-      await fillTextarea(container!.querySelector<HTMLTextAreaElement>("textarea")!, message);
-      await click(composerSendButton());
-      return chatRequests.at(-1)!;
-    };
-
-    const approvalRun = await startRun(
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      "Need approval",
-    );
-    await act(async () => {
-      emitChatEvent!({
-        type: "permission-requested",
-        runId: approvalRun.runId!,
-        requestKey: approvalRun.requestKey,
-        permission: {
-          id: "permission-1",
-          runId: approvalRun.runId!,
-          requestKey: approvalRun.requestKey,
-          threadId: "thread-1",
-          provider: "kimi",
-          action: "edit",
-          title: "Edit file",
-          options: [],
-          createdAt: "2026-07-27T10:00:00.000Z",
-          expiresAt: "2026-07-27T10:01:00.000Z",
-        },
-      });
-    });
-
-    const questionRun = await startRun(
-      "/workspace/workspace-2/project/project-1/thread/thread-2",
-      "Need answer",
-    );
-    await act(async () => {
-      emitChatEvent!({
-        type: "question-requested",
-        runId: questionRun.runId!,
-        requestKey: questionRun.requestKey,
-        question: {
-          id: "question-1",
-          runId: questionRun.runId!,
-          requestKey: questionRun.requestKey,
-          threadId: "thread-2",
-          provider: "kimi",
-          source: "native-acp",
-          questions: [
-            {
-              header: "Choice",
-              question: "Continue?",
-              options: [{ optionId: "yes", label: "Yes" }],
-              multiSelect: false,
-            },
-          ],
-          createdAt: "2026-07-27T10:00:00.000Z",
-        },
-      });
-    });
-
-    const runningRun = await startRun(
-      "/workspace/workspace-1/project/project-1/thread/thread-3",
-      "Keep running",
-    );
-
-    expect(buttonNamed("Attention").textContent).toContain("2");
-    await click(buttonNamed("Attention"));
-    const attentionPane = container!.querySelector<HTMLElement>(
-      'aside[aria-label="Attention View"]',
-    )!;
-    expect(attentionPane.textContent).toContain("Waiting for approval");
-    expect(attentionPane.textContent).toContain("Waiting for answer");
-    expect(attentionPane.textContent).not.toContain("Running Thread");
-    expect(attentionPane.textContent!.indexOf("Personal Thread")).toBeLessThan(
-      attentionPane.textContent!.indexOf("Client Thread"),
-    );
-
-    await act(async () => {
-      for (const request of [approvalRun, questionRun, runningRun]) {
-        emitChatEvent!({ type: "stopped", runId: request.runId!, requestKey: request.requestKey });
-      }
-    });
-  });
-
-  it("keeps the right pane visible when Attention is empty", async () => {
-    await renderApp(
-      navigationState(),
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      [],
-      false,
-    );
-
-    expect(buttonNamed("Attention").textContent).toContain("0");
-    await click(buttonNamed("Attention"));
-
-    const attentionPane = container!.querySelector<HTMLElement>(
-      'aside[aria-label="Attention View"]',
-    )!;
-    expect(attentionPane.textContent).toContain("Nothing needs attention");
-    expect(attentionPane.textContent).toContain(
-      "Approval requests, questions, and failed Threads will appear here.",
-    );
-    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
-    expect(container!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
-  });
-
   it("falls back to the Workspace overview when the saved Thread reference is stale", async () => {
     const state = navigationState();
     state.lastThreadIdByWorkspace = { "workspace-1": "missing-thread" };
@@ -1460,9 +1341,30 @@ describe("three-level navigation", () => {
 
     const navigationPane = container!.querySelector("aside.border-r")!;
     const middlePane = navigationPane.parentElement as HTMLDivElement;
+    const rightContent = middlePane.parentElement!.parentElement as HTMLDivElement;
+    const desktopHeader = container!.querySelector("header")!;
     const workspaceRail = container!.querySelector<HTMLDivElement>('div[style*="width: 58px"]');
     expect(workspaceRail).not.toBe(null);
+    expect(
+      desktopHeader.classList.contains("h-[calc(env(titlebar-area-height,38px)+0.375rem)]"),
+    ).toBe(true);
+    expect(rightContent.classList.contains("p-1.5")).toBe(false);
     expect(middlePane.style.width).toBe("280px");
+    const addProjectButton = buttonNamed("Add Project");
+    const collapseSidebarButton = buttonNamed("Collapse sidebar");
+    const searchWorkspaceButton = buttonNamed("Search Personal");
+    const workspaceSelect = buttonNamed("Select Workspace");
+    expect(addProjectButton.querySelector(".lucide-plus")).not.toBe(null);
+    expect(navigationPane.contains(addProjectButton)).toBe(true);
+    expect(navigationPane.contains(searchWorkspaceButton)).toBe(false);
+    expect(
+      collapseSidebarButton.compareDocumentPosition(searchWorkspaceButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    expect(
+      searchWorkspaceButton.compareDocumentPosition(workspaceSelect) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
 
     await click(buttonNamed("Collapse sidebar"));
     expect(middlePane.style.width).toBe("0px");
@@ -1537,15 +1439,16 @@ describe("Workspace Projects and Associations", () => {
     activeWorkspaceId: "workspace-1",
   };
 
-  it("adds a new Project and Association atomically, then opens its overview", async () => {
+  it("adds a new Project and Association atomically, then opens New Thread", async () => {
     const saved = await renderApp(emptyWorkspaceState, "/workspace/workspace-1", ["/code/carrent"]);
 
     expect(container!.textContent).toContain(
       "Carrent never moves or copies the selected directory.",
     );
     await click(buttonNamed("Add Project"));
+    await waitForProjectDraft();
 
-    expect(saved).toHaveLength(1);
+    expect(saved.length).toBeGreaterThan(1);
     expect(saved[0].projects).toEqual([
       {
         id: saved[0].projects[0].id,
@@ -1562,8 +1465,11 @@ describe("Workspace Projects and Associations", () => {
         defaultRuntimeMode: "approval-required",
       },
     ]);
-    expect(container!.querySelector("h1")?.textContent).toBe("carrent");
-    expect(container!.textContent).toContain("/code/carrent");
+    expect(container!.querySelector("h1")?.textContent).toBe("New thread");
+    expect(container!.querySelector("[data-empty-thread-prompt]")?.textContent).toBe(
+      "What should we build in carrent?",
+    );
+    expect(saved.at(-1)?.threadDrafts).toHaveLength(1);
   });
 
   it("reuses a known Project across Workspaces and ignores a duplicate Association", async () => {
@@ -1591,7 +1497,7 @@ describe("Workspace Projects and Associations", () => {
     ]);
 
     await click(buttonNamed("Add Project"));
-    expect(saved).toHaveLength(1);
+    await waitForProjectDraft();
     expect(saved[0].projects).toEqual(state.projects);
     expect(saved[0].associations).toHaveLength(2);
     expect(saved[0].associations[1]).toMatchObject({
@@ -1599,9 +1505,10 @@ describe("Workspace Projects and Associations", () => {
       projectId: "project-1",
       order: 0,
     });
+    const saveCount = saved.length;
 
     await click(buttonNamed("Add Project"));
-    expect(saved).toHaveLength(1);
+    expect(saved).toHaveLength(saveCount);
   });
 
   function sharedProjectState(): AppStateSnapshot {
@@ -1632,73 +1539,6 @@ describe("Workspace Projects and Associations", () => {
     };
   }
 
-  it("sets and clears a Workspace-local Project alias", async () => {
-    const state = sharedProjectState();
-    const saved = await renderApp(state, "/workspace/workspace-1/project/project-1");
-
-    const aliasInput = container!.querySelector<HTMLInputElement>('input[name="projectAlias"]')!;
-    await fillInput(aliasInput, "Personal Carrent");
-    await click(buttonNamed("Save Alias"));
-
-    expect(saved.at(-1)?.associations[0].alias).toBe("Personal Carrent");
-    expect(saved.at(-1)?.associations[1]).toEqual(state.associations[1]);
-    expect(container!.querySelector("h1")?.textContent).toBe("Personal Carrent");
-
-    const savedAliasInput = container!.querySelector<HTMLInputElement>(
-      'input[name="projectAlias"]',
-    )!;
-    await fillInput(savedAliasInput, "");
-    await click(buttonNamed("Save Alias"));
-    expect(saved.at(-1)?.associations[0].alias).toBeUndefined();
-    expect(container!.querySelector("h1")?.textContent).toBe("Carrent");
-  });
-
-  it("updates Thread defaults for only the current Association", async () => {
-    const state = sharedProjectState();
-    const saved = await renderApp(state, "/workspace/workspace-1/project/project-1");
-
-    const runtimeSelect = container!.querySelector<HTMLSelectElement>(
-      'select[name="defaultRuntimeId"]',
-    )!;
-    await act(async () => {
-      runtimeSelect.value = "codex";
-      runtimeSelect.dispatchEvent(new window.Event("change", { bubbles: true }));
-    });
-    const modelInput = container!.querySelector<HTMLInputElement>(
-      'input[name="defaultRuntimeModelId"]',
-    )!;
-    await fillInput(modelInput, "gpt-5");
-    const modeSelect = container!.querySelector<HTMLSelectElement>(
-      'select[name="defaultRuntimeMode"]',
-    )!;
-    await act(async () => {
-      modeSelect.value = "full-access";
-      modeSelect.dispatchEvent(new window.Event("change", { bubbles: true }));
-    });
-    await click(buttonNamed("Save Thread Defaults"));
-
-    expect(saved.at(-1)?.associations[0]).toMatchObject({
-      defaultRuntimeId: "codex",
-      defaultRuntimeModelId: "gpt-5",
-      defaultRuntimeMode: "full-access",
-    });
-    expect(saved.at(-1)?.associations[1]).toEqual(state.associations[1]);
-  });
-
-  it("warns and renames the shared Project across Associations", async () => {
-    const saved = await renderApp(sharedProjectState(), "/workspace/workspace-1/project/project-1");
-
-    const sharedNameInput = container!.querySelector<HTMLInputElement>(
-      'input[name="sharedProjectName"]',
-    )!;
-    await fillInput(sharedNameInput, "Carrent Desktop");
-    expect(container!.textContent).toContain("affects every associated Workspace");
-    await click(buttonNamed("Save Shared Name"));
-
-    expect(saved.at(-1)?.projects[0].name).toBe("Carrent Desktop");
-    expect(container!.querySelector("h1")?.textContent).toBe("Carrent Desktop");
-  });
-
   it("does not expose Project sorting controls", async () => {
     const state = sharedProjectState();
     state.projects.push({
@@ -1717,24 +1557,6 @@ describe("Workspace Projects and Associations", () => {
 
     expect(container!.querySelector('[aria-label="Move Website up"]')).toBe(null);
     expect(container!.querySelector('[aria-label="Move Personal Carrent down"]')).toBe(null);
-  });
-
-  it("shows a Project settings save failure without changing displayed state", async () => {
-    const saved = await renderApp(
-      sharedProjectState(),
-      "/workspace/workspace-1/project/project-1",
-      [],
-      true,
-    );
-    const sharedNameInput = container!.querySelector<HTMLInputElement>(
-      'input[name="sharedProjectName"]',
-    )!;
-    await fillInput(sharedNameInput, "Carrent Desktop");
-    await click(buttonNamed("Save Shared Name"));
-
-    expect(saved).toHaveLength(0);
-    expect(container!.textContent).toContain("Project settings could not be saved.");
-    expect(container!.querySelector("h1")?.textContent).toBe("Carrent");
   });
 });
 
@@ -1763,7 +1585,7 @@ describe("Association Thread Drafts", () => {
   it("persists one recoverable Draft without creating a Thread", async () => {
     const saved = await renderApp(state, "/workspace/workspace-1/project/project-1");
 
-    await click(buttonNamed("New Thread"));
+    await waitForProjectDraft();
 
     expect(saved.at(-1)?.threads).toEqual([]);
     expect(saved.at(-1)?.threadDrafts).toHaveLength(1);
@@ -1806,7 +1628,7 @@ describe("Association Thread Drafts", () => {
     };
     const saved = await renderApp(restoredState, "/workspace/workspace-1/project/project-1");
 
-    await click(buttonNamed("Resume Draft"));
+    await waitForProjectDraft();
 
     expect(container!.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
       "Recovered request",
@@ -1824,7 +1646,7 @@ describe("Association Thread Drafts", () => {
       requests,
     );
 
-    await click(buttonNamed("New Thread"));
+    await waitForProjectDraft();
     await fillTextarea(container!.querySelector("textarea")!, "Implement association drafts");
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 350));
@@ -1892,7 +1714,7 @@ describe("Association Thread Drafts", () => {
       return send(request);
     };
 
-    await click(buttonNamed("New Thread"));
+    await waitForProjectDraft();
     await fillTextarea(container!.querySelector("textarea")!, "Persist before dispatch");
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 350));
@@ -1928,7 +1750,7 @@ describe("Association Thread Drafts", () => {
       true,
     );
 
-    await click(buttonNamed("New Thread"));
+    await waitForProjectDraft();
     await fillTextarea(container!.querySelector("textarea")!, "Retry this request");
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 350));
@@ -1953,7 +1775,7 @@ describe("Association Thread Drafts", () => {
       true,
     );
 
-    await click(buttonNamed("New Thread"));
+    await waitForProjectDraft();
     await fillTextarea(container!.querySelector("textarea")!, "Retry after cleanup failure");
     await click(composerSendButton());
     await click(composerSendButton());
@@ -1975,11 +1797,11 @@ describe("Association Thread Drafts", () => {
       state,
       "/workspace/workspace-1/project/project-1",
       [],
-      3,
+      4,
       requests,
     );
 
-    await click(buttonNamed("New Thread"));
+    await waitForProjectDraft();
     await fillTextarea(container!.querySelector("textarea")!, "Persist this before promotion");
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 350));
@@ -2318,7 +2140,8 @@ describe("Archived Thread lifecycle", () => {
       false,
     );
 
-    await click(buttonNamed("Archive Thread"));
+    expect(container!.querySelector('header [aria-label^="Archive "]')).toBe(null);
+    await click(buttonNamed("Archive Primary Thread"));
 
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-2");
     expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.archived).toBe(true);
@@ -2337,8 +2160,8 @@ describe("Archived Thread lifecycle", () => {
       false,
     );
 
-    expect(buttonNamed("Archive Thread").disabled).toBe(true);
-    expect(buttonNamed("Archive Thread").title).toContain("queued messages");
+    expect(buttonNamed("Archive Primary Thread").disabled).toBe(true);
+    expect(buttonNamed("Archive Primary Thread").title).toContain("queued messages");
   });
 
   it("blocks archive while the Thread has a live Run", async () => {
@@ -2355,8 +2178,8 @@ describe("Archived Thread lifecycle", () => {
     await fillTextarea(container!.querySelector("textarea")!, "Keep this Run visible");
     await click(composerSendButton());
 
-    expect(buttonNamed("Archive Thread").disabled).toBe(true);
-    expect(buttonNamed("Archive Thread").title).toContain("live Run");
+    expect(buttonNamed("Archive Primary Thread").disabled).toBe(true);
+    expect(buttonNamed("Archive Primary Thread").title).toContain("live Run");
 
     await act(async () => {
       emitChatEvent?.({
@@ -2386,7 +2209,7 @@ describe("Archived Thread lifecycle", () => {
       { appStateSaveGate: saveGate },
     );
 
-    await click(buttonNamed("Archive Thread"));
+    await click(buttonNamed("Archive Primary Thread"));
     await fillTextarea(container!.querySelector("textarea")!, "Do not race this archive");
     await click(composerSendButton());
 
@@ -2409,12 +2232,12 @@ describe("Archived Thread lifecycle", () => {
       false,
     );
 
-    await click(buttonNamed("Archive Thread"));
+    await click(buttonNamed("Archive Primary Thread"));
 
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
   });
 
-  it("does not open an Archived Thread or expose its Composer", async () => {
+  it("opens New Thread instead of an Archived Thread", async () => {
     await renderApp(
       lifecycleState(["thread-1"]),
       "/workspace/workspace-1/project/project-1/thread/thread-1",
@@ -2425,7 +2248,9 @@ describe("Archived Thread lifecycle", () => {
     );
 
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
-    expect(container!.querySelector("textarea")).toBe(null);
+    await waitForProjectDraft();
+    expect(container!.querySelector("h1")?.textContent).toBe("New thread");
+    expect(container!.querySelector("textarea")).not.toBe(null);
   });
 
   it("restores an Archived Thread in Settings and opens it only on request", async () => {
@@ -2710,7 +2535,8 @@ describe("Archived Thread lifecycle", () => {
       { deleteThreadDataRequests: cleanupRequests },
     );
 
-    await click(buttonNamed("Remove from Workspace"));
+    await click(buttonNamed("More actions for Carrent"));
+    await click(buttonNamed("Delete"));
 
     expect(confirmation).toContain("1 Thread");
     expect(confirmation).toContain("Project Working Directory");
@@ -2874,12 +2700,10 @@ describe("Archived Thread lifecycle", () => {
 
     await fillTextarea(container!.querySelector("textarea")!, "Keep this Run alive");
     await click(composerSendButton());
-    await act(async () => {
-      testNavigate!("/workspace/workspace-1/project/project-1");
-    });
 
-    expect(buttonNamed("Remove from Workspace").disabled).toBe(true);
-    expect(buttonNamed("Remove from Workspace").title).toContain("live Run");
+    await click(buttonNamed("More actions for Carrent"));
+    expect(buttonNamed("Delete").disabled).toBe(true);
+    expect(buttonNamed("Delete").title).toContain("live Run");
     await act(async () => {
       testNavigate!("/workspace/workspace-1");
     });
@@ -2907,17 +2731,12 @@ describe("Archived Thread lifecycle", () => {
     appState.lastThreadIdByWorkspace = {};
     const cleanupRequests: DeleteThreadDataRequest[] = [];
     window.confirm = () => true;
-    const saved = await renderApp(
-      appState,
-      "/workspace/workspace-1/project/project-1",
-      [],
-      false,
-      [],
-      false,
-      { deleteThreadDataRequests: cleanupRequests },
-    );
+    const saved = await renderApp(appState, "/workspace/workspace-1", [], false, [], false, {
+      deleteThreadDataRequests: cleanupRequests,
+    });
 
-    await click(buttonNamed("Remove from Workspace"));
+    await click(buttonNamed("More actions for Carrent"));
+    await click(buttonNamed("Delete"));
 
     expect(cleanupRequests).toEqual([{ threadIds: [], attachmentStorageKeys: [] }]);
     expect(saved.at(-1)?.projects).toEqual([]);

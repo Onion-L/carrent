@@ -41,7 +41,7 @@ A Carrent-owned conversation with an automatically generated, user-editable titl
 _Avoid_: Session, chat
 
 **Archived Thread**:
-A losslessly suspended Thread removed from normal navigation and active attention views. It preserves its identity, title, history, attachments, draft, run configuration, Runtime Sessions, rewind data, and pin state, but cannot start a Run while archived. Only an idle Thread with no queued messages can be archived; restoring it returns it to its original Workspace and Project without changing its Thread Activity Time. Archiving is reversible and applies only to Threads; Workspaces, Projects, and Workspace-Project Associations do not have an archived lifecycle state.
+A losslessly suspended Thread removed from normal navigation. It preserves its identity, title, history, attachments, draft, run configuration, Runtime Sessions, rewind data, and pin state, but cannot start a Run while archived. Only an idle Thread with no queued messages can be archived; restoring it returns it to its original Workspace and Project without changing its Thread Activity Time. Archiving is reversible and applies only to Threads; Workspaces, Projects, and Workspace-Project Associations do not have an archived lifecycle state.
 _Avoid_: Deleted Thread, hidden Project, archived Workspace
 
 **Permanent Thread Deletion**:
@@ -65,12 +65,8 @@ The project file changes associated with one run, regardless of whether the run 
 _Avoid_: Workspace snapshot, Git diff
 
 **Thread Status**:
-The single attention state shown for a thread. Waiting for approval takes precedence over waiting for an answer, which takes precedence over running, which takes precedence over failed; both waiting states and running exist only while a run is live, and an interrupted run without an explicit failure returns to idle. A failed result remains visible until the thread's next run begins, while an idle thread without a failure has no status.
+The single status shown for a thread. Waiting for approval takes precedence over waiting for an answer, which takes precedence over running, which takes precedence over failed; both waiting states and running exist only while a run is live, and an interrupted run without an explicit failure returns to idle. A failed result remains visible until the thread's next run begins, while an idle thread without a failure has no status.
 _Avoid_: Runtime status, message status
-
-**Attention View**:
-An app-level projection across all Workspaces of active Threads that currently need user intervention: waiting for approval, waiting for an answer, or failed. Running Threads, pinned Threads, recent activity, search results, Archived Threads, and Thread Drafts are excluded unless they also have one of those attention states.
-_Avoid_: Inbox, recent Threads, running Threads, notification center
 
 **Thread Activity Time**:
 The time of a thread's most recent meaningful interaction: a submitted user message, a run ending, or an approval request. Opening, renaming, pinning, and individual streaming updates are not thread activity.

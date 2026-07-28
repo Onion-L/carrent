@@ -667,10 +667,20 @@ function ChangedFilesMessageItem({
   );
 }
 
-export function EmptyThreadPrompt() {
+export function EmptyThreadPrompt({ projectName }: { projectName?: string }) {
   return (
-    <p className="text-center text-app-32 font-semibold leading-tight text-fg sm:text-app-36">
-      What should we build?
+    <p
+      data-empty-thread-prompt
+      className="text-center text-app-32 font-semibold leading-tight sm:text-app-36"
+    >
+      <span className={projectName ? "text-muted" : "text-fg"}>What should we build</span>
+      {projectName && (
+        <>
+          <span className="text-muted"> in </span>
+          <span className="text-fg">{projectName}</span>
+        </>
+      )}
+      <span className={projectName ? "text-muted" : "text-fg"}>?</span>
     </p>
   );
 }

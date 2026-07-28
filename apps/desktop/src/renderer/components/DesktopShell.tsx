@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ThreadHistoryPane } from "./chat/ThreadHistoryPane";
 import { SettingsTabsPane } from "./settings/SettingsTabsPane";
@@ -7,16 +7,9 @@ import { McpServerControl } from "./mcp/McpServerControl";
 import { DesktopHeaderActionsSlot } from "./DesktopHeaderActions";
 import { WorkspaceNavigationPane } from "./workspace/WorkspaceNavigationPane";
 import { WorkspaceRail } from "./workspace/WorkspaceRail";
-import {
-  AttentionPane,
-  getAttentionViewState,
-  type AttentionEntry,
-} from "./workspace/AttentionPane";
 import { useAppState } from "../context/AppStateContext";
-import { useThreadContent } from "../context/ThreadContentContext";
-import { useChatRun } from "../hooks/useChatRun";
-import { getAttentionGroups } from "../lib/projectThreads";
 import { ThreadSearchDialog } from "./workspace/ThreadSearchDialog";
+import { WorkspaceSwitcher } from "./workspace/WorkspaceSwitcher";
 import { buildThreadPath, getProjectIdFromPathname } from "../lib/navigation";
 import type { ThreadSearchScope } from "../../shared/threadSearch";
 
@@ -40,50 +33,8 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { workspaces, projects, associations, threads, activeWorkspaceId, selectWorkspace } =
     useAppState();
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
   const [threadSearch, setThreadSearch] = useState<ThreadSearchState | null>(null);
-  const { messages } = useThreadContent();
-  const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
-  const attentionGroups = useMemo(() => {
-    const candidates = threads.filter((thread) => !thread.archived).map((thread) => thread);
-
-    return getAttentionGroups({
-      threads: candidates,
-      runningThreadIds,
-      pendingApprovals: pendingPermissions,
-      pendingQuestions,
-      messages,
-    }).map((group) => ({
-      status: group.status,
-      threads: group.threads.flatMap((thread) => {
-        const workspace = workspaces.find((item) => item.id === thread.workspaceId);
-        const project = projects.find((item) => item.id === thread.projectId);
-        const association = associations.find(
-          (item) => item.workspaceId === thread.workspaceId && item.projectId === thread.projectId,
-        );
-        return workspace && project && association
-          ? [
-              {
-                ...thread,
-                workspaceName: workspace.name,
-                projectName: association.alias ?? project.name,
-              } satisfies AttentionEntry,
-            ]
-          : [];
-      }),
-    }));
-  }, [
-    associations,
-    messages,
-    pendingPermissions,
-    pendingQuestions,
-    projects,
-    runningThreadIds,
-    threads,
-    workspaces,
-  ]);
-  const attentionCount = attentionGroups.reduce((count, group) => count + group.threads.length, 0);
-  const attentionViewState = getAttentionViewState(location.state);
-  const attentionViewOpen = attentionViewState !== null;
   const openThreadSearch = useCallback(
     (scope: ThreadSearchScope) => {
       setThreadSearch({
@@ -97,15 +48,14 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     },
     [activeWorkspaceId, location.pathname],
   );
-  const secondaryPane = attentionViewOpen ? (
-    <AttentionPane groups={attentionViewState.groups ?? attentionGroups} />
-  ) : location.pathname === "/settings" ? (
-    <SettingsTabsPane />
-  ) : location.pathname.startsWith("/workspace/") ? (
-    <WorkspaceNavigationPane onOpenSearch={openThreadSearch} />
-  ) : (
-    <ThreadHistoryPane />
-  );
+  const secondaryPane =
+    location.pathname === "/settings" ? (
+      <SettingsTabsPane />
+    ) : location.pathname.startsWith("/workspace/") ? (
+      <WorkspaceNavigationPane />
+    ) : (
+      <ThreadHistoryPane />
+    );
 
   const toggleSecondaryPane = useCallback(() => {
     setIsSecondaryPaneCollapsed((collapsed) => !collapsed);
@@ -172,14 +122,13 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     <div className="h-screen w-screen overflow-hidden bg-bg text-fg">
       <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border bg-sidebar shadow-[0_0_0_1px_rgb(255_255_255/0.02),0_18px_48px_rgb(0_0_0/0.18)]">
         <header
-          className="drag-region flex shrink-0 items-stretch justify-between bg-sidebar"
+          className="drag-region flex h-[calc(env(titlebar-area-height,38px)+0.375rem)] shrink-0 items-stretch justify-between bg-sidebar"
           style={{
-            height: "env(titlebar-area-height, 38px)",
             paddingLeft: "92px",
             paddingRight: "16px",
           }}
         >
-          <div className="no-drag flex h-full items-center">
+          <div className="no-drag flex h-full items-center gap-1">
             <button
               aria-label={isSecondaryPaneCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               title={isSecondaryPaneCollapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -192,6 +141,25 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
                 <PanelLeftClose className="h-4 w-4" />
               )}
             </button>
+            {activeWorkspace && (
+              <>
+                <button
+                  type="button"
+                  aria-label={`Search ${activeWorkspace.name}`}
+                  title="Search Workspace"
+                  onClick={() =>
+                    openThreadSearch({
+                      kind: "workspace",
+                      workspaceId: activeWorkspace.id,
+                    })
+                  }
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
+                >
+                  <Search className="h-3.5 w-3.5" />
+                </button>
+                <WorkspaceSwitcher />
+              </>
+            )}
           </div>
 
           <div className="no-drag flex h-full items-center gap-1">
@@ -202,10 +170,10 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
 
         <div className="flex min-h-0 flex-1 bg-bg">
           <div className="min-h-0 shrink-0" style={{ width: LEFT_SIDEBAR_WIDTH }}>
-            <WorkspaceRail attentionCount={attentionCount} />
+            <WorkspaceRail />
           </div>
 
-          <div className="min-h-0 min-w-0 flex-1 bg-sidebar p-1.5 pl-0">
+          <div className="min-h-0 min-w-0 flex-1 bg-sidebar pb-1.5 pr-1.5">
             <div className="flex h-full min-h-0">
               <div
                 className={`min-h-0 shrink-0 overflow-hidden ${isResizing ? "" : "transition-[width] duration-200 ease-out"}`}

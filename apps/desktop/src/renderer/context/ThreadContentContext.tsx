@@ -112,6 +112,7 @@ export type ThreadContentContextValue = {
   upsertThread: (projectId: string, thread: AppThreadRecord) => void;
   removeThreadFromState: (threadId: string) => void;
   removeMessages: (messageIds: string[]) => void;
+  toggleThreadPin: (projectId: string, threadId: string) => void;
   deleteThread: (
     threadId: string,
     appStateSnapshots?: ThreadDeletionAppStateSnapshots,
@@ -195,6 +196,7 @@ const ThreadContentContext = createContext<ThreadContentContextValue>({
   upsertThread: () => {},
   removeThreadFromState: () => {},
   removeMessages: () => {},
+  toggleThreadPin: () => {},
   deleteThread: async () => null,
   deleteThreads: async () => {},
   upsertMessages: () => {},
@@ -705,6 +707,17 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
     }));
   };
 
+  const toggleThreadPin = (projectId: string, threadId: string) => {
+    updateThreadContent((content) => ({
+      ...content,
+      threads: content.threads.map((thread) =>
+        thread.id === threadId && thread.projectId === projectId
+          ? { ...thread, pinned: !thread.pinned || undefined }
+          : thread,
+      ),
+    }));
+  };
+
   const deleteThread = async (
     threadId: string,
     appStateSnapshots?: ThreadDeletionAppStateSnapshots,
@@ -905,6 +918,7 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
         upsertThread,
         removeThreadFromState,
         removeMessages,
+        toggleThreadPin,
         deleteThread,
         deleteThreads,
         upsertMessages,

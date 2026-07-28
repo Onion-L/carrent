@@ -53,6 +53,49 @@ describe("registerChatIpc", () => {
       "chat:remove-runtime-session",
       "chat:send",
       "chat:stop",
+      "chat:thread-action",
+    ]);
+  });
+
+  it("validates and forwards a Thread Action", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const requests: import("../../src/shared/threadActions").ThreadActionRequest[] = [];
+    registerChatIpc(
+      {
+        handle: (channel, listener) => handlers.set(channel, listener),
+      },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          removeRuntimeSession: async () => {},
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: async () => {},
+          getStatus: async () => null,
+          executeThreadAction: async (request) => {
+            requests.push(request);
+            return { ...request, completedAt: "2026-07-27T08:02:00.000Z" };
+          },
+        },
+      },
+    );
+
+    await handlers.get("chat:thread-action")!(null, {
+      action: "compact",
+      threadId: "thread-1",
+      runtimeId: "kimi",
+      workingDirectory: "/repo",
+    });
+
+    expect(requests).toEqual([
+      {
+        action: "compact",
+        threadId: "thread-1",
+        runtimeId: "kimi",
+        workingDirectory: "/repo",
+      },
     ]);
   });
 

@@ -118,6 +118,14 @@ export type AppThreadRunRecord = {
   planMode: boolean;
 };
 
+export type AppThreadActionRecord = {
+  id: string;
+  threadId: string;
+  action: "compact";
+  runtimeId: RuntimeId;
+  completedAt: string;
+};
+
 export type AppThreadRunStartInput = {
   runId: string;
   messageId: string;
@@ -147,6 +155,7 @@ export type AppStateSnapshot = {
   threadDrafts?: AssociationThreadDraftRecord[];
   threadMessages?: AppThreadMessageRecord[];
   threadRuns?: AppThreadRunRecord[];
+  threadActions?: AppThreadActionRecord[];
   threadPromotionIntents?: AppThreadPromotionIntentRecord[];
   threadWork?: Record<string, ThreadWorkSnapshot>;
   lastThreadIdByWorkspace?: Record<string, string>;
@@ -163,6 +172,7 @@ export function createEmptyAppStateSnapshot(): AppStateSnapshot {
     threadDrafts: [],
     threadMessages: [],
     threadRuns: [],
+    threadActions: [],
     threadPromotionIntents: [],
     threadWork: {},
     lastThreadIdByWorkspace: {},
@@ -173,6 +183,8 @@ export function createEmptyAppStateSnapshot(): AppStateSnapshot {
 const MAX_PATCH_BYTES = 256 * 1024;
 const MAX_PLAN_REVIEW_BYTES = 256 * 1024;
 const MAX_PLAN_REVIEW_OPTIONS = 5;
+const MAX_THREAD_ACTIONS = 10_000;
+const MAX_THREAD_ACTION_ID_CHARS = 256;
 const MAX_QUESTION_ITEMS = 10;
 const MAX_QUESTION_TEXT_BYTES = 8 * 1024;
 export const MAX_SUBAGENT_TASK_TEXT_LENGTH = 12_000;
@@ -611,6 +623,37 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
     });
   }
 
+  const threadActions: AppThreadActionRecord[] = [];
+  const actionIds = new Set<string>();
+  const actionValues = Array.isArray(value.threadActions)
+    ? value.threadActions.slice(0, MAX_THREAD_ACTIONS)
+    : [];
+  for (const action of actionValues) {
+    if (
+      !isRecord(action) ||
+      typeof action.id !== "string" ||
+      !action.id ||
+      action.id.length > MAX_THREAD_ACTION_ID_CHARS ||
+      action.id.trim() !== action.id ||
+      actionIds.has(action.id) ||
+      typeof action.threadId !== "string" ||
+      !threadIds.has(action.threadId) ||
+      action.action !== "compact" ||
+      !runtimeIds.includes(action.runtimeId as RuntimeId) ||
+      !isIsoTimestamp(action.completedAt)
+    ) {
+      continue;
+    }
+    actionIds.add(action.id);
+    threadActions.push({
+      id: action.id,
+      threadId: action.threadId,
+      action: "compact",
+      runtimeId: action.runtimeId as RuntimeId,
+      completedAt: action.completedAt,
+    });
+  }
+
   const threadPromotionIntents: AppThreadPromotionIntentRecord[] = [];
   const intentDraftIds = new Set<string>();
   const intentRunIds = new Set<string>();
@@ -693,6 +736,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
     ...(value.threadDrafts !== undefined ? { threadDrafts } : {}),
     ...(value.threadMessages !== undefined ? { threadMessages } : {}),
     ...(value.threadRuns !== undefined ? { threadRuns } : {}),
+    ...(value.threadActions !== undefined ? { threadActions } : {}),
     ...(value.threadPromotionIntents !== undefined ? { threadPromotionIntents } : {}),
     ...(value.threadWork !== undefined ? { threadWork: threadWork ?? {} } : {}),
     ...(value.lastThreadIdByWorkspace !== undefined ? { lastThreadIdByWorkspace } : {}),
@@ -705,6 +749,7 @@ export function normalizePersistedAppStateSnapshot(value: unknown): AppStateSnap
   if (!Array.isArray(value.projects) || !Array.isArray(value.associations)) return null;
   if (!Array.isArray(value.threads) || !Array.isArray(value.threadDrafts)) return null;
   if (!Array.isArray(value.threadMessages) || !Array.isArray(value.threadRuns)) return null;
+  if (value.threadActions !== undefined && !Array.isArray(value.threadActions)) return null;
   if (!Array.isArray(value.threadPromotionIntents)) return null;
   return normalizeAppStateSnapshotForWrite({
     ...value,

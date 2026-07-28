@@ -33,6 +33,7 @@ const THREAD_STATUS_META: Record<ThreadDisplayStatus, { label: string; className
   running: { label: "Running", className: "text-success" },
   approval: { label: "Approval", className: "font-medium text-warning" },
   question: { label: "Question", className: "font-medium text-warning" },
+  compacting: { label: "Compacting", className: "text-success" },
   failed: { label: "Failed", className: "font-medium text-danger" },
 };
 

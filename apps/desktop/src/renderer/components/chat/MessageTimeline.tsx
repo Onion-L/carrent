@@ -5,6 +5,7 @@ import {
   type MessagePart,
   type AttachmentMetadata,
 } from "../../../shared/threadContent";
+import type { AppThreadActionRecord } from "../../../shared/workspacePersistence";
 import { isFileAttachment, isImageAttachment } from "../../../shared/attachment";
 import {
   FILE_ATTACHMENT_ICONS,
@@ -695,11 +696,13 @@ function EmptyState() {
 
 export function MessageTimeline({
   messages,
+  threadActions = [],
   threadId,
   onSubmitUserEdit,
   onRemoveRuntimeSessionAndRetry,
 }: {
   messages: Message[];
+  threadActions?: AppThreadActionRecord[];
   threadId?: string;
   onSubmitUserEdit?: (draft: UserMessageEditDraft) => void;
   onRemoveRuntimeSessionAndRetry?: (request: RuntimeSessionRetryRequest) => Promise<void> | void;
@@ -749,7 +752,7 @@ export function MessageTimeline({
     if (distanceToBottom < threshold) {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     }
-  }, [messages]);
+  }, [messages, threadActions]);
 
   const scrollToBottom = () => {
     const el = scrollRef.current;
@@ -757,14 +760,40 @@ export function MessageTimeline({
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
 
+  const timelineItems = [
+    ...messages.map((message) => ({ kind: "message" as const, at: message.createdAt, message })),
+    ...threadActions.map((action) => ({
+      kind: "thread-action" as const,
+      at: action.completedAt,
+      action,
+    })),
+  ].sort((left, right) => {
+    const leftAt = typeof left.at === "number" ? left.at : Date.parse(left.at ?? "");
+    const rightAt = typeof right.at === "number" ? right.at : Date.parse(right.at ?? "");
+    return (Number.isFinite(leftAt) ? leftAt : 0) - (Number.isFinite(rightAt) ? rightAt : 0);
+  });
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} className="flex flex-1 flex-col overflow-auto">
-        {messages.length === 0 ? (
+        {timelineItems.length === 0 ? (
           <EmptyState />
         ) : (
           <div className="mx-auto flex w-full max-w-[56rem] flex-col pb-4">
-            {messages.map((msg) => {
+            {timelineItems.map((item) => {
+              if (item.kind === "thread-action") {
+                return (
+                  <div
+                    key={item.action.id}
+                    className="flex items-center gap-3 px-6 py-4 text-app-12 text-subtle"
+                  >
+                    <span className="h-px flex-1 bg-border" />
+                    <span>Context compacted</span>
+                    <span className="h-px flex-1 bg-border" />
+                  </div>
+                );
+              }
+              const msg = item.message;
               if (msg.role === "user") {
                 const editDraft = getUserMessageEditDraft(msg);
                 return (

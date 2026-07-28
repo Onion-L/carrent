@@ -90,6 +90,136 @@ export type KimiAcpRunHandle = {
   respondToQuestion: (response: ChatQuestionResponse) => void;
 };
 
+export class KimiRuntimeSessionError extends Error {}
+
+function readAvailableCommandNames(update: JsonObject | null | undefined): string[] {
+  const commands = Array.isArray(update?.availableCommands)
+    ? update.availableCommands
+    : Array.isArray(update?.commands)
+      ? update.commands
+      : [];
+  return commands.flatMap((command) => {
+    const name = readString(readObject(command)?.name);
+    return name ? [name] : [];
+  });
+}
+
+export async function executeKimiCompact(options: {
+  sessionId: string;
+  cwd: string;
+  transportFactory: KimiAcpTransportFactory;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}): Promise<{ completedAt: string }> {
+  const transport = options.transportFactory({ cwd: options.cwd });
+  const pending = new Map<
+    JsonRpcId,
+    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+  >();
+  const availableCommands = new Set<string>();
+  let nextId = 1;
+  let settled = false;
+  let phase: "initialize" | "resume" | "prompt" = "initialize";
+
+  const close = () => Promise.resolve(transport.close()).catch(() => {});
+  const finish = async <T>(callback: () => T) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeoutHandle);
+    options.signal?.removeEventListener("abort", handleAbort);
+    await close();
+    return callback();
+  };
+  let rejectOperation: (error: Error) => void = () => {};
+  const handleAbort = () => rejectOperation(new Error("Compact was interrupted."));
+  const timeoutHandle = setTimeout(
+    () => rejectOperation(new Error("Compact timed out after five minutes.")),
+    options.timeoutMs ?? 5 * 60_000,
+  );
+
+  return new Promise((resolve, reject) => {
+    const fail = (error: Error) => {
+      void finish(() => reject(error));
+    };
+    rejectOperation = fail;
+    options.signal?.addEventListener("abort", handleAbort, { once: true });
+    if (options.signal?.aborted) {
+      handleAbort();
+      return;
+    }
+
+    transport.onMessage((message) => {
+      if (message.id != null && pending.has(message.id as JsonRpcId)) {
+        const handler = pending.get(message.id as JsonRpcId)!;
+        pending.delete(message.id as JsonRpcId);
+        if (message.error) {
+          const errorObject = readObject(message.error);
+          const detail = readString(errorObject?.message) ?? JSON.stringify(message.error);
+          handler.reject(
+            phase === "resume"
+              ? new KimiRuntimeSessionError(
+                  `Kimi Code could not resume the Runtime Session: ${detail}`,
+                )
+              : new Error(detail),
+          );
+        } else {
+          handler.resolve(message.result);
+        }
+        return;
+      }
+
+      if (message.method !== "session/update") return;
+      const params = readObject(message.params);
+      const update = readObject(params?.update);
+      if (readString(update?.sessionUpdate) !== "available_commands_update") return;
+      readAvailableCommandNames(update).forEach((name) => availableCommands.add(name));
+    });
+    transport.onError(fail);
+    transport.onClose(({ code, signal, stderr }) => {
+      if (settled) return;
+      const detail = stderr.trim() || signal || (code == null ? "unknown" : `code ${code}`);
+      fail(new Error(`Kimi ACP exited before Compact completed: ${detail}`));
+    });
+
+    const request = (method: string, params: JsonObject) => {
+      const id = nextId++;
+      return new Promise<unknown>((requestResolve, requestReject) => {
+        pending.set(id, { resolve: requestResolve, reject: requestReject });
+        transport.send({ jsonrpc: "2.0", id, method, params });
+      });
+    };
+
+    void (async () => {
+      try {
+        await request("initialize", {
+          protocolVersion: 1,
+          clientCapabilities: {
+            fs: { readTextFile: true, writeTextFile: false },
+            terminal: false,
+          },
+        });
+        phase = "resume";
+        await request("session/resume", {
+          sessionId: options.sessionId,
+          cwd: options.cwd,
+          mcpServers: [],
+        });
+        if (!availableCommands.has("compact")) {
+          throw new Error("Kimi Code does not support Compact for this Runtime Session.");
+        }
+        phase = "prompt";
+        await request("session/prompt", {
+          sessionId: options.sessionId,
+          prompt: [{ type: "text", text: "/compact" }],
+        });
+        await finish(() => resolve({ completedAt: new Date().toISOString() }));
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error(String(error)));
+      }
+    })();
+  });
+}
+
 // A pending question resolves either an upstream ACP permission request or a
 // Run-scoped MCP ask_user_question call waiting on its HTTP response.
 type PendingQuestion =
@@ -232,6 +362,7 @@ export async function getKimiSessionStatus(options: {
   const transport = transportFactory({ cwd });
 
   let statusText = "";
+  const availableCommands = new Set<string>();
   let nextId = 1;
   const pending = new Map<
     JsonRpcId,
@@ -268,6 +399,9 @@ export async function getKimiSessionStatus(options: {
         const payload = readObject(message.params);
         const update = readObject(payload?.update);
         const updateType = readString(update?.sessionUpdate);
+        if (updateType === "available_commands_update") {
+          readAvailableCommandNames(update).forEach((name) => availableCommands.add(name));
+        }
         const text = readTextContent(update?.content);
         if (updateType === "agent_message_chunk" && text) {
           statusText += text;
@@ -290,7 +424,7 @@ export async function getKimiSessionStatus(options: {
         );
         return;
       }
-      resolve(parseKimiStatusText(statusText));
+      resolve(parseKimiStatusText(statusText, availableCommands));
     });
 
     const send = (method: string, params: JsonObject): Promise<unknown> => {
@@ -317,7 +451,7 @@ export async function getKimiSessionStatus(options: {
           prompt: [{ type: "text", text: "/status" }],
         });
         cleanup();
-        resolve(parseKimiStatusText(statusText));
+        resolve(parseKimiStatusText(statusText, availableCommands));
       } catch (error) {
         cleanup();
         reject(error instanceof Error ? error : new Error(String(error)));
@@ -326,7 +460,10 @@ export async function getKimiSessionStatus(options: {
   });
 }
 
-function parseKimiStatusText(text: string): KimiSessionStatus | null {
+function parseKimiStatusText(
+  text: string,
+  availableCommands: ReadonlySet<string> = new Set(),
+): KimiSessionStatus | null {
   const match = /Context:\s*([\d,]+)\s*\/\s*([\d,]+)\s*\(([\d.]+)%\)/u.exec(text);
   if (!match) {
     return null;
@@ -342,6 +479,7 @@ function parseKimiStatusText(text: string): KimiSessionStatus | null {
     used,
     total,
     percentage,
+    threadActions: availableCommands.has("compact") ? ["compact"] : [],
   };
 }
 

@@ -56,6 +56,7 @@ describe("createAppStateStore", () => {
         threadDrafts: [],
         threadMessages: [],
         threadRuns: [],
+        threadActions: [],
         threadPromotionIntents: [],
         threadWork: {},
         lastThreadIdByWorkspace: {},

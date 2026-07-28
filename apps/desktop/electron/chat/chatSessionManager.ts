@@ -16,7 +16,9 @@ import { buildChatPrompt } from "./chatPrompt";
 import { getRuntimeCommand, getRuntimeCommandUnavailableMessage } from "./chatRunner";
 import {
   createKimiAcpProcessTransportFactory,
+  executeKimiCompact,
   getKimiSessionStatus,
+  KimiRuntimeSessionError,
   startKimiAcpChatRun,
   type KimiAcpTransportFactory,
   type KimiAcpRunHandle,
@@ -29,6 +31,7 @@ import type { AttachmentStore } from "../attachments/attachmentStore";
 import { buildProviderSessionKey } from "../../src/shared/providerSessions";
 import type { RuntimeSessionDetachmentReceipt } from "../workspace/projectDirectory";
 import { terminateChildProcess } from "./terminateChildProcess";
+import type { ThreadActionRequest, ThreadActionResult } from "../../src/shared/threadActions";
 
 interface ChatSession {
   runId: string;
@@ -70,6 +73,7 @@ export interface ChatSessionManager {
   getStatus: (
     request: ChatTurnRequest,
   ) => Promise<import("../../src/shared/chat").KimiSessionStatus | null>;
+  executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>;
 }
 
 type ClaudeStreamState = {
@@ -727,6 +731,7 @@ export function createChatSessionManager(options: {
   questionMcpServerFactory?: QuestionMcpServerFactory;
   attachmentStore?: AttachmentStore;
   shutdownGracePeriodMs?: number;
+  threadActionTimeoutMs?: number;
 }): ChatSessionManager {
   const sessions = new Map<string, ChatSession>();
   const kimiSessions = new Map<string, { handle: KimiAcpRunHandle; threadId: string }>();
@@ -734,6 +739,8 @@ export function createChatSessionManager(options: {
   const pendingKimiRunTasks = new Map<string, Promise<void>>();
   const stoppedPendingKimiRuns = new Set<string>();
   const runtimeSessions = new Map<string, string>();
+  const activeThreadActions = new Map<string, AbortController>();
+  const activeThreadActionTasks = new Set<Promise<unknown>>();
   const deletedThreadIds = new Set<string>();
   const relocatingThreadIds = new Set<string>();
   const TIMEOUT_MS = 120_000;
@@ -1285,6 +1292,10 @@ export function createChatSessionManager(options: {
   // App shutdown ends every live run immediately so Run-scoped question
   // servers flush their pending MCP calls and close before the process exits.
   async function shutdown() {
+    activeThreadActions.forEach((controller) => controller.abort());
+    if (activeThreadActionTasks.size > 0) {
+      await Promise.allSettled(activeThreadActionTasks);
+    }
     for (const runId of pendingKimiRuns.keys()) {
       stoppedPendingKimiRuns.add(runId);
     }
@@ -1304,6 +1315,56 @@ export function createChatSessionManager(options: {
     await Promise.all(terminations);
     kimiSessions.clear();
     sessions.clear();
+  }
+
+  async function executeThreadAction(request: ThreadActionRequest): Promise<ThreadActionResult> {
+    if (request.action !== "compact" || request.runtimeId !== "kimi") {
+      throw new Error("Compact is not supported by the selected Runtime.");
+    }
+    if (!request.workingDirectory) {
+      throw new Error("Project Working Directory is unavailable.");
+    }
+    if (deletedThreadIds.has(request.threadId)) {
+      throw new Error("Thread has been deleted.");
+    }
+    if (hasLiveRunForThreads([request.threadId])) {
+      throw new Error("Compact is unavailable while the Thread has a live Run.");
+    }
+    if (activeThreadActions.has(request.threadId)) {
+      throw new Error("This Thread is already compacting.");
+    }
+
+    const key = buildProviderSessionKey(request.runtimeId, request.threadId);
+    const sessionId = runtimeSessions.get(key) ?? options.providerSessions?.get(key);
+    if (!sessionId) {
+      throw new Error("Compact requires an existing Runtime Session.");
+    }
+
+    const controller = new AbortController();
+    let actionTask: ReturnType<typeof executeKimiCompact> | null = null;
+    activeThreadActions.set(request.threadId, controller);
+    try {
+      actionTask = executeKimiCompact({
+        sessionId,
+        cwd: request.workingDirectory,
+        transportFactory:
+          options.kimiAcpTransportFactory ?? createKimiAcpProcessTransportFactory(options.spawn),
+        timeoutMs: options.threadActionTimeoutMs,
+        signal: controller.signal,
+      });
+      activeThreadActionTasks.add(actionTask);
+      const result = await actionTask;
+      return { ...request, completedAt: result.completedAt };
+    } catch (error) {
+      if (error instanceof KimiRuntimeSessionError) {
+        runtimeSessions.delete(key);
+        await options.providerSessions?.delete?.(key, sessionId);
+      }
+      throw error;
+    } finally {
+      activeThreadActions.delete(request.threadId);
+      if (actionTask) activeThreadActionTasks.delete(actionTask);
+    }
   }
 
   async function deleteThreadData(request: DeleteThreadDataRequest) {
@@ -1601,5 +1662,6 @@ export function createChatSessionManager(options: {
     respondToPermission,
     respondToQuestion,
     getStatus,
+    executeThreadAction,
   };
 }

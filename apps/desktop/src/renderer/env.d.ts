@@ -32,6 +32,7 @@ import type {
 } from "../shared/workspacePersistence";
 import type { RtkGainStats } from "../shared/rtk";
 import type { MainWindowApi } from "../shared/mainWindow";
+import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
 
 declare global {
   interface Window {
@@ -60,6 +61,7 @@ declare global {
       chat: {
         send: (request: ChatTurnRequest) => Promise<{ runId: string }>;
         stop: (runId: string) => Promise<void>;
+        executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>;
         removeRuntimeSession: (
           request: import("../shared/chat").RuntimeSessionRecovery,
         ) => Promise<void>;

@@ -22,6 +22,7 @@ import {
 } from "../../src/shared/attachment";
 import { runtimeIds, runtimeNameMap, type RuntimeId } from "../../src/shared/runtimes";
 import type { ChatSessionManager } from "./chatSessionManager";
+import type { ThreadActionRequest } from "../../src/shared/threadActions";
 
 interface IpcMainLike {
   handle: (
@@ -96,6 +97,29 @@ export function parseRuntimeSessionRecovery(value: unknown): RuntimeSessionRecov
     throw new Error("Invalid Runtime Session recovery request.");
   }
   return { runtimeId: request.runtimeId as RuntimeId, threadId: request.threadId };
+}
+
+export function parseThreadActionRequest(value: unknown): ThreadActionRequest {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid Thread Action request.");
+  }
+  const request = value as Record<string, unknown>;
+  if (
+    request.action !== "compact" ||
+    !runtimeIds.includes(request.runtimeId as RuntimeId) ||
+    typeof request.threadId !== "string" ||
+    request.threadId.trim().length === 0 ||
+    typeof request.workingDirectory !== "string" ||
+    request.workingDirectory.trim().length === 0
+  ) {
+    throw new Error("Invalid Thread Action request.");
+  }
+  return {
+    action: "compact",
+    runtimeId: request.runtimeId as RuntimeId,
+    threadId: request.threadId,
+    workingDirectory: request.workingDirectory,
+  };
 }
 
 export function parseThreadDeletionTransactionRequest(
@@ -348,6 +372,13 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
   ipcMainLike.handle("chat:stop", async (_event, runId) => {
     services.sessionManager.stop(runId as string);
     return undefined;
+  });
+
+  ipcMainLike.handle("chat:thread-action", async (_event, request) => {
+    if (!services.sessionManager.executeThreadAction) {
+      throw new Error("Thread Actions are unavailable. Restart Carrent and try again.");
+    }
+    return services.sessionManager.executeThreadAction(parseThreadActionRequest(request));
   });
 
   ipcMainLike.handle("chat:remove-runtime-session", async (_event, request) => {

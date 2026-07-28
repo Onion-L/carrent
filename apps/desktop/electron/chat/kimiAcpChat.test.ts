@@ -699,6 +699,17 @@ describe("startKimiAcpChatRun", () => {
       }
 
       if (message.method === "session/resume") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "available_commands_update",
+              availableCommands: [{ name: "compact" }],
+            },
+          },
+        });
         respondAcp(fakeTransport, message, { sessionId: "session-1" });
         return;
       }
@@ -733,6 +744,7 @@ describe("startKimiAcpChatRun", () => {
       used: 21169,
       total: 262144,
       percentage: 8.1,
+      threadActions: ["compact"],
     });
   });
 

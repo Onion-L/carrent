@@ -328,6 +328,7 @@ const appShutdown = createAppShutdown({
   quit: () => app.quit(),
   reportShutdownError: (error) => console.error("[app] failed to quit safely", error),
   beforeSave: async () => {
+    await chatSessionManager?.shutdown();
     await waitForThreadDeletion?.();
     const stagedAppState = getStagedAppStateSnapshot();
     if (stagedAppState && appStateStore) {

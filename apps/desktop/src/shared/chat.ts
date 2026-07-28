@@ -42,6 +42,7 @@ export type KimiSessionStatus = {
   used: number;
   total: number;
   percentage: number;
+  threadActions?: import("./threadActions").ThreadActionKind[];
 };
 
 export type DeleteThreadDataRequest = {
@@ -89,6 +90,7 @@ export function applyThreadDeletionToAppState(
     threadDrafts: snapshot.threadDrafts?.filter((draft) => !ids.has(draft.threadId)),
     threadMessages: snapshot.threadMessages?.filter((message) => !ids.has(message.threadId)),
     threadRuns: snapshot.threadRuns?.filter((run) => !ids.has(run.threadId)),
+    threadActions: snapshot.threadActions?.filter((action) => !ids.has(action.threadId)),
     threadPromotionIntents: snapshot.threadPromotionIntents?.filter(
       (intent) => !ids.has(intent.threadId),
     ),

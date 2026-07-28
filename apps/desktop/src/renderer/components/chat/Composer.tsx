@@ -32,7 +32,10 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 
 import type { AttachmentMetadata, KimiSessionStatus } from "../../../shared/chat";
-import type { AppThreadRunStartInput } from "../../../shared/workspacePersistence";
+import type {
+  AppThreadActionRecord,
+  AppThreadRunStartInput,
+} from "../../../shared/workspacePersistence";
 import {
   FILE_ATTACHMENT_ICONS,
   fileAttachmentIconKind,
@@ -58,6 +61,12 @@ import {
 import { useThreadContent } from "../../context/ThreadContentContext";
 import { useAppState } from "../../context/AppStateContext";
 import { useChatRun } from "../../hooks/useChatRun";
+import { useThreadActions } from "../../hooks/useThreadActions";
+import {
+  getCompactAvailability,
+  getCompactUnavailableMessage,
+  parseLeadingCompactCommand,
+} from "../../lib/threadActions";
 import { QuestionPanel, getPendingQuestionForThread } from "./QuestionPanel";
 import { RunChecklist } from "./RunChecklist";
 import {
@@ -883,7 +892,7 @@ export function Composer(props: ComposerProps) {
     removeThreadFromState,
     removeMessages,
   } = useThreadContent();
-  const { projects, threads } = useAppState();
+  const { projects, threads, threadRuns, threadActions, recordThreadAction } = useAppState();
   const {
     runningThreadIds,
     pendingPermissions,
@@ -892,6 +901,7 @@ export function Composer(props: ComposerProps) {
     send,
     stop,
   } = useChatRun();
+  const { compactingThreadIds, execute: executeThreadAction } = useThreadActions();
   const { runtimes, loading: runtimesLoading, refresh: refreshRuntimes } = useRuntimes();
   const { skills, loading: skillsLoading, error: skillsError } = useSkills();
   const { status: mcpServerStatus } = useMcpServer();
@@ -929,8 +939,12 @@ export function Composer(props: ComposerProps) {
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [isPreparingAttachments, setIsPreparingAttachments] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [threadActionError, setThreadActionError] = useState<string | null>(null);
   const [lightboxAttachmentIndex, setLightboxAttachmentIndex] = useState<number | null>(null);
   const [kimiStatus, setKimiStatus] = useState<KimiSessionStatus | null>(null);
+  const [latestCompactBoundary, setLatestCompactBoundary] = useState<AppThreadActionRecord | null>(
+    null,
+  );
   const [gitBranches, setGitBranches] = useState<string[]>([]);
   const [gitBranchWorktrees, setGitBranchWorktrees] = useState<GitBranchWorktree[]>([]);
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
@@ -1026,21 +1040,23 @@ export function Composer(props: ComposerProps) {
       workspaceId: props.workspaceId,
     };
 
-    const status = await window.carrent.chat.getKimiStatus({
-      context,
-      threadId,
-      runtimeId: props.runtimeId,
-      runtimeModelId: getRuntimeModelIdForSend({
+    try {
+      const status = await window.carrent.chat.getKimiStatus({
+        context,
+        threadId,
         runtimeId: props.runtimeId,
-        runtimeModelId: props.runtimeModelId,
-      }),
-      runtimeMode: props.runtimeMode,
-      planMode: false,
-      transcript: [],
-      message: "",
-    });
-    if (status) {
+        runtimeModelId: getRuntimeModelIdForSend({
+          runtimeId: props.runtimeId,
+          runtimeModelId: props.runtimeModelId,
+        }),
+        runtimeMode: props.runtimeMode,
+        planMode: false,
+        transcript: [],
+        message: "",
+      });
       setKimiStatus(status);
+    } catch {
+      setKimiStatus(null);
     }
   }, [
     props.mode,
@@ -1106,16 +1122,51 @@ export function Composer(props: ComposerProps) {
         : [],
     [localMcpSkillsDisabled, skillTrigger, skills],
   );
+  const isThreadCompacting = compactingThreadIds.includes(threadId);
+  const isThreadSending = runningThreadIds.includes(threadId);
+  const compactAvailability = useMemo(
+    () =>
+      getCompactAvailability({
+        runtimeId: props.runtimeId,
+        status: kimiStatus,
+        running: isThreadSending,
+        compacting: isThreadCompacting,
+        messages: props.messages,
+        runs: threadRuns.filter((run) => run.threadId === threadId),
+        actions: [
+          ...threadActions.filter((action) => action.threadId === threadId),
+          ...(latestCompactBoundary?.threadId === threadId ? [latestCompactBoundary] : []),
+        ],
+      }),
+    [
+      isThreadCompacting,
+      isThreadSending,
+      kimiStatus,
+      latestCompactBoundary,
+      props.messages,
+      props.runtimeId,
+      threadActions,
+      threadId,
+      threadRuns,
+    ],
+  );
   const showPlanSuggestion =
+    !isThreadCompacting &&
     dismissedSkillInput !== input &&
     shouldShowPlanSlashSuggestion(props.runtimeId, input, skillTrigger);
+  const showCompactSuggestion =
+    compactAvailability.available &&
+    !!skillTrigger &&
+    dismissedSkillInput !== input &&
+    "compact".startsWith(skillTrigger.query.toLocaleLowerCase());
   const showSkills =
     !!skillTrigger &&
     !localMcpSkillsDisabled &&
     dismissedSkillInput !== input &&
     (skillsLoading || !!skillsError || filteredSkills.length > 0 || skillTrigger.query.length > 0);
-  const showSlashMenu = showPlanSuggestion || showSkills;
-  const slashMenuItemCount = (showPlanSuggestion ? 1 : 0) + filteredSkills.length;
+  const showSlashMenu = showPlanSuggestion || showCompactSuggestion || showSkills;
+  const threadActionMenuItemCount = (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0);
+  const slashMenuItemCount = threadActionMenuItemCount + filteredSkills.length;
 
   const effectiveAttachedSkills = localMcpSkillsDisabled ? [] : attachedSkills;
   const hasSendableContent = canSubmitComposerContent({
@@ -1125,8 +1176,8 @@ export function Composer(props: ComposerProps) {
     isPreparingAttachments,
     hasUnavailableAttachments: hasUnavailablePendingAttachments(pendingAttachments),
   });
-  const canSend = hasSendableContent && !!project && isSelectedRuntimeAvailable;
-  const isThreadSending = runningThreadIds.includes(threadId);
+  const canSend =
+    hasSendableContent && !!project && isSelectedRuntimeAvailable && !isThreadCompacting;
   const threadPermissions = useMemo(
     () => getActionablePermissionsForThread({ pendingPermissions, threadId }),
     [pendingPermissions, threadId],
@@ -1531,6 +1582,51 @@ export function Composer(props: ComposerProps) {
     [handleAddFiles],
   );
 
+  const handleCompact = async (removeMenuQuery = false) => {
+    if (removeMenuQuery && skillTrigger) {
+      const nextInput = `${input.slice(0, skillTrigger.start)}${input.slice(skillTrigger.end)}`;
+      setInput(nextInput);
+      setTextareaCursor(skillTrigger.start);
+    }
+    setDismissedSkillInput(input);
+    if (!compactAvailability.available) {
+      setThreadActionError(getCompactUnavailableMessage(compactAvailability.reason));
+      return false;
+    }
+    if (!project?.workingDirectory) {
+      setThreadActionError("Project Working Directory is unavailable.");
+      return false;
+    }
+
+    setThreadActionError(null);
+    try {
+      const result = await executeThreadAction({
+        action: "compact",
+        threadId,
+        runtimeId: props.runtimeId,
+        workingDirectory: project.workingDirectory,
+      });
+      const boundary: AppThreadActionRecord = {
+        id: `thread-action-${crypto.randomUUID()}`,
+        threadId: result.threadId,
+        action: result.action,
+        runtimeId: result.runtimeId,
+        completedAt: result.completedAt,
+      };
+      setLatestCompactBoundary(boundary);
+      const recorded = await recordThreadAction(boundary);
+      if (!recorded) {
+        throw new Error("Compact completed, but its history boundary could not be saved.");
+      }
+      await refreshKimiStatus();
+      return true;
+    } catch (error) {
+      await refreshKimiStatus();
+      setThreadActionError(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  };
+
   const handleSend = async (override?: {
     messageId?: string;
     content: string;
@@ -1538,6 +1634,13 @@ export function Composer(props: ComposerProps) {
   }) => {
     const externalSubmit = override;
     const isExternalSubmit = externalSubmit !== undefined;
+    const compactCommand = isExternalSubmit ? null : parseLeadingCompactCommand(input);
+    if (compactCommand) {
+      setInput(compactCommand.draft);
+      setTextareaCursor(compactCommand.draft.length);
+      return handleCompact();
+    }
+    if (isThreadCompacting) return false;
     const currentPendingAttachments = externalSubmit ? [] : pendingAttachments;
     const currentAttachedSkills = externalSubmit ? [] : effectiveAttachedSkills;
     const planSubmission = getPlanSubmissionState(input, props.runtimeId, props.planMode);
@@ -2452,11 +2555,41 @@ export function Composer(props: ComposerProps) {
                     selectedSkillIndex === 0 ? "bg-surface-hover" : "hover:bg-surface-raised"
                   }`}
                 >
-                  <ListChecks className="h-4 w-4 shrink-0 text-muted" />
                   <span className="min-w-0 flex-1 truncate text-app-13 font-medium text-fg">
                     Plan mode
                   </span>
                   <span className="shrink-0 text-app-12 text-subtle">Enable plan mode</span>
+                </button>
+              ) : null}
+              {showCompactSuggestion ? (
+                <button
+                  ref={(element) => {
+                    const index = showPlanSuggestion ? 1 : 0;
+                    if (element) {
+                      skillItemRefs.current.set(index, element);
+                    } else {
+                      skillItemRefs.current.delete(index);
+                    }
+                  }}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    void handleCompact(true);
+                  }}
+                  onMouseEnter={() => setSelectedSkillIndex(showPlanSuggestion ? 1 : 0)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left transition ${
+                    selectedSkillIndex === (showPlanSuggestion ? 1 : 0)
+                      ? "bg-surface-hover"
+                      : "hover:bg-surface-raised"
+                  }`}
+                >
+                  <span className="min-w-0 flex-1 truncate text-app-13 font-medium text-fg">
+                    Compact
+                  </span>
+                  <span className="shrink-0 text-app-12 text-subtle">
+                    Compress this thread&apos;s context ({Math.round(kimiStatus?.percentage ?? 0)}%
+                    used)
+                  </span>
                 </button>
               ) : null}
               {showSkills ? (
@@ -2468,7 +2601,7 @@ export function Composer(props: ComposerProps) {
                 <div className="px-3 py-2 text-app-12 text-danger">{skillsError}</div>
               ) : showSkills && filteredSkills.length > 0 ? (
                 filteredSkills.map((skill, index) => {
-                  const menuIndex = index + (showPlanSuggestion ? 1 : 0);
+                  const menuIndex = index + threadActionMenuItemCount;
                   const isSelected = menuIndex === selectedSkillIndex;
 
                   return (
@@ -2504,7 +2637,7 @@ export function Composer(props: ComposerProps) {
                     </button>
                   );
                 })
-              ) : !showPlanSuggestion ? (
+              ) : !showPlanSuggestion && !showCompactSuggestion ? (
                 <div className="px-3 py-2 text-app-12 text-subtle">No skills found.</div>
               ) : null}
             </div>
@@ -2874,8 +3007,13 @@ export function Composer(props: ComposerProps) {
                       e.preventDefault();
                       if (showPlanSuggestion && selectedSkillIndex === 0) {
                         handlePlanInsert();
+                      } else if (
+                        showCompactSuggestion &&
+                        selectedSkillIndex === (showPlanSuggestion ? 1 : 0)
+                      ) {
+                        void handleCompact(true);
                       } else {
-                        const skillIndex = selectedSkillIndex - (showPlanSuggestion ? 1 : 0);
+                        const skillIndex = selectedSkillIndex - threadActionMenuItemCount;
                         handleSkillInsert(filteredSkills[skillIndex] ?? filteredSkills[0]);
                       }
                       return;
@@ -2890,7 +3028,7 @@ export function Composer(props: ComposerProps) {
 
                   if (shouldSubmitComposerOnKeyDown(e)) {
                     e.preventDefault();
-                    if (canSend) {
+                    if (canSend || parseLeadingCompactCommand(input)) {
                       void handleSend();
                     }
                   }
@@ -2898,6 +3036,16 @@ export function Composer(props: ComposerProps) {
               />
             </div>
           )}
+          {isThreadCompacting ? (
+            <div className="mt-2 text-app-12 text-subtle" role="status">
+              Compacting
+            </div>
+          ) : null}
+          {threadActionError ? (
+            <div className="mt-2 text-app-12 text-danger" role="alert">
+              {threadActionError}
+            </div>
+          ) : null}
           {attachmentError && <div className="mt-2 text-app-12 text-danger">{attachmentError}</div>}
           <div className="mt-3 flex items-end justify-between gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-1">
@@ -2905,7 +3053,7 @@ export function Composer(props: ComposerProps) {
                 <div ref={runtimePickerRef} className="relative">
                   <button
                     onClick={() => {
-                      if (!isThreadSending) {
+                      if (!isThreadSending && !isThreadCompacting) {
                         setShowRuntimePicker((v) => {
                           if (v) {
                             closeRuntimePicker();
@@ -2916,11 +3064,15 @@ export function Composer(props: ComposerProps) {
                         });
                       }
                     }}
-                    disabled={isThreadSending}
+                    disabled={isThreadSending || isThreadCompacting}
                     className={`flex max-w-[14rem] items-center gap-1.5 rounded-md px-2 py-1 text-app-12 transition disabled:opacity-40 ${
                       showRuntimePicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
                     }`}
-                    title={isThreadSending ? "Locked while runtime is running" : "Runtime"}
+                    title={
+                      isThreadSending || isThreadCompacting
+                        ? "Locked while the Thread is busy"
+                        : "Runtime"
+                    }
                   >
                     <RuntimeIcon
                       name={
@@ -3151,11 +3303,11 @@ export function Composer(props: ComposerProps) {
                 <div ref={modePickerRef} className="relative">
                   <button
                     onClick={() => {
-                      if (!isThreadSending) {
+                      if (!isThreadSending && !isThreadCompacting) {
                         setShowModePicker((v) => !v);
                       }
                     }}
-                    disabled={isThreadSending}
+                    disabled={isThreadSending || isThreadCompacting}
                     className={`flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 text-app-12 transition disabled:opacity-40 ${
                       showModePicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
                     }`}
@@ -3208,11 +3360,11 @@ export function Composer(props: ComposerProps) {
                   <button
                     type="button"
                     onClick={() => {
-                      if (!isThreadSending) {
+                      if (!isThreadSending && !isThreadCompacting) {
                         props.onPlanModeChange?.(false);
                       }
                     }}
-                    disabled={isThreadSending}
+                    disabled={isThreadSending || isThreadCompacting}
                     className="flex h-4 w-4 items-center justify-center rounded-full text-muted transition hover:bg-surface-raised hover:text-fg disabled:opacity-40"
                     title={
                       isThreadSending ? "Locked while runtime is running" : "Disable plan mode"

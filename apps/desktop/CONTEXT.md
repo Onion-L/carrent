@@ -65,11 +65,11 @@ The project file changes associated with one run, regardless of whether the run 
 _Avoid_: Workspace snapshot, Git diff
 
 **Thread Status**:
-The single status shown for a thread. Waiting for approval takes precedence over waiting for an answer, which takes precedence over running, which takes precedence over failed; both waiting states and running exist only while a run is live, and an interrupted run without an explicit failure returns to idle. A failed result remains visible until the thread's next run begins, while an idle thread without a failure has no status.
+The single status shown for a thread. Waiting for approval takes precedence over waiting for an answer, which takes precedence over running, which takes precedence over failed; both waiting states and running exist only while a run is live, and an interrupted run without an explicit failure returns to idle. Compacting is a transient Thread Action status outside the Run lifecycle. A failed result remains visible until the thread's next run begins, while an idle thread without a failure has no status.
 _Avoid_: Runtime status, message status
 
 **Thread Activity Time**:
-The time of a thread's most recent meaningful interaction: a submitted user message, a run ending, or an approval request. Opening, renaming, pinning, and individual streaming updates are not thread activity.
+The time of a thread's most recent meaningful interaction: a submitted user message, a run ending, an approval request, or a successfully persisted Thread Action. Opening, renaming, pinning, starting or failing a Thread Action, and individual streaming updates are not thread activity.
 _Avoid_: Updated time, viewed time, modified time
 
 **Approval Request**:

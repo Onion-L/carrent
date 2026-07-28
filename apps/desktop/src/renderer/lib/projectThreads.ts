@@ -1,7 +1,7 @@
 import type { Message } from "../../shared/threadContent";
 import type { AppThreadRecord } from "../../shared/workspacePersistence";
 
-export type ThreadDisplayStatus = "running" | "approval" | "question" | "failed";
+export type ThreadDisplayStatus = "running" | "approval" | "question" | "compacting" | "failed";
 
 function parseTimestamp(value: string | undefined) {
   if (!value) {
@@ -33,12 +33,14 @@ export function getThreadActivityTime(thread: AppThreadRecord, messages: Message
 export function getThreadDisplayStatus({
   threadId,
   runningThreadIds,
+  compactingThreadIds = [],
   pendingApprovals,
   pendingQuestions,
   messages,
 }: {
   threadId: string;
   runningThreadIds: string[];
+  compactingThreadIds?: string[];
   pendingApprovals: Array<{ threadId: string }>;
   pendingQuestions: Array<{ threadId: string }>;
   messages: Message[];
@@ -53,6 +55,9 @@ export function getThreadDisplayStatus({
   }
   if (runningThreadIds.includes(threadId)) {
     return "running";
+  }
+  if (compactingThreadIds.includes(threadId)) {
+    return "compacting";
   }
 
   let latestAssistantMessage: Message | undefined;

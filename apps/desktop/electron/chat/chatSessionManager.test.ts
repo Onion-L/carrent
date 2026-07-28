@@ -134,6 +134,15 @@ function waitForAsyncEvents() {
   return new Promise((resolve) => setTimeout(resolve, 20));
 }
 
+async function getErrorMessage(promise: Promise<unknown>) {
+  try {
+    await promise;
+    return "";
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 function createMockChildProcess(): MockChildProcess {
   const stdout = new EventEmitter();
   const stderr = new EventEmitter();
@@ -169,6 +178,236 @@ function createChatSessionManager(
 }
 
 describe("createChatSessionManager", () => {
+  it("executes Compact against the existing Kimi Runtime Session without Run events", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const providerSessions = new Map([["kimi:thread-1", "session-1"]]);
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/resume") {
+        emitAcpUpdate(transport, {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [{ name: "compact", description: "Compact context" }],
+        });
+        respondAcp(transport, message, {});
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        emitAcpUpdate(transport, {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Compacted runtime output" },
+        });
+        respondAcp(transport, message, { stopReason: "end_turn" });
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: {
+        get: (key) => providerSessions.get(key),
+        set: async (key, value) => {
+          providerSessions.set(key, value);
+        },
+      },
+    });
+
+    const result = await manager.executeThreadAction!({
+      action: "compact",
+      threadId: "thread-1",
+      runtimeId: "kimi",
+      workingDirectory: "/repo",
+    });
+
+    expect(result).toMatchObject({ action: "compact", runtimeId: "kimi", threadId: "thread-1" });
+    expect(
+      transports[0]?.sent.map((message) => ({
+        method: message.method,
+        params: message.params,
+      })),
+    ).toEqual([
+      {
+        method: "initialize",
+        params: {
+          protocolVersion: 1,
+          clientCapabilities: { fs: { readTextFile: true, writeTextFile: false }, terminal: false },
+        },
+      },
+      {
+        method: "session/resume",
+        params: {
+          sessionId: "session-1",
+          cwd: "/repo",
+          mcpServers: [],
+        },
+      },
+      {
+        method: "session/prompt",
+        params: {
+          sessionId: "session-1",
+          prompt: [{ type: "text", text: "/compact" }],
+        },
+      },
+    ]);
+    expect(emitted).toEqual([]);
+    expect(transports[0]?.closed).toBe(true);
+  });
+
+  it("rejects Compact when the Runtime Session does not advertise the capability", async () => {
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+      } else if (message.method === "session/resume") {
+        emitAcpUpdate(transport, {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [{ name: "status" }],
+        });
+        respondAcp(transport, message, {});
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("not used");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: { get: () => "session-1", set: async () => {} },
+    });
+
+    expect(
+      await getErrorMessage(
+        manager.executeThreadAction!({
+          action: "compact",
+          threadId: "thread-1",
+          runtimeId: "kimi",
+          workingDirectory: "/repo",
+        }),
+      ),
+    ).toContain("does not support Compact");
+    expect(transports[0]?.sent.some((message) => message.method === "session/prompt")).toBe(false);
+  });
+
+  it("removes only the rejected Runtime Session mapping after Compact resume failure", async () => {
+    const sessions = new Map([
+      ["kimi:thread-1", "session-1"],
+      ["kimi:thread-2", "session-2"],
+    ]);
+    const deleted: string[] = [];
+    const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+      } else if (message.method === "session/resume") {
+        failAcp(transport, message, "invalid session");
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("not used");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: {
+        get: (key) => sessions.get(key),
+        set: async () => {},
+        delete: async (key) => {
+          deleted.push(key);
+          sessions.delete(key);
+        },
+      },
+    });
+
+    expect(
+      await getErrorMessage(
+        manager.executeThreadAction!({
+          action: "compact",
+          threadId: "thread-1",
+          runtimeId: "kimi",
+          workingDirectory: "/repo",
+        }),
+      ),
+    ).toContain("could not resume");
+    expect(deleted).toEqual(["kimi:thread-1"]);
+    expect(sessions.get("kimi:thread-2")).toBe("session-2");
+  });
+
+  it("times out Compact once and closes its transport", async () => {
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+      } else if (message.method === "session/resume") {
+        emitAcpUpdate(transport, {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [{ name: "compact" }],
+        });
+        respondAcp(transport, message, {});
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("not used");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: { get: () => "session-1", set: async () => {} },
+      threadActionTimeoutMs: 5,
+    });
+
+    expect(
+      await getErrorMessage(
+        manager.executeThreadAction!({
+          action: "compact",
+          threadId: "thread-1",
+          runtimeId: "kimi",
+          workingDirectory: "/repo",
+        }),
+      ),
+    ).toContain("timed out after five minutes");
+    expect(transports).toHaveLength(1);
+    expect(transports[0]?.closed).toBe(true);
+  });
+
+  it("terminates an in-flight Compact during application shutdown", async () => {
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+      } else if (message.method === "session/resume") {
+        emitAcpUpdate(transport, {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [{ name: "compact" }],
+        });
+        respondAcp(transport, message, {});
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("not used");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: { get: () => "session-1", set: async () => {} },
+    });
+    const actionError = getErrorMessage(
+      manager.executeThreadAction!({
+        action: "compact",
+        threadId: "thread-1",
+        runtimeId: "kimi",
+        workingDirectory: "/repo",
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await manager.shutdown();
+
+    expect(await actionError).toContain("interrupted");
+    expect(transports[0]?.closed).toBe(true);
+  });
+
   it("does not dispatch an unavailable attachment and still allows the next Run", () => {
     const emitted: ChatRunEvent[] = [];
     let spawnCount = 0;
@@ -2918,7 +3157,13 @@ describe("createChatSessionManager", () => {
         }
 
         if (message.method === "session/resume") {
-          queueMicrotask(() => respondAcp(fakeTransport, message, { sessionId: "session-status" }));
+          queueMicrotask(() => {
+            emitAcpUpdate(fakeTransport, {
+              sessionUpdate: "available_commands_update",
+              availableCommands: [{ name: "compact" }],
+            });
+            respondAcp(fakeTransport, message, { sessionId: "session-status" });
+          });
           return;
         }
 
@@ -2958,6 +3203,7 @@ describe("createChatSessionManager", () => {
       used: 21169,
       total: 262144,
       percentage: 8.1,
+      threadActions: ["compact"],
     });
     expect(bridgeCalls).toBe(0);
     expect(transport.sent.map((message) => message.method)).toEqual([

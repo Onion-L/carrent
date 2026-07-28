@@ -8,6 +8,68 @@ import {
 } from "./workspacePersistence";
 
 describe("normalizeAppStateSnapshot", () => {
+  it("round-trips valid Compact history and drops malformed Thread Action records", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Compact history",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:03:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      threadMessages: [
+        {
+          id: "message-1",
+          threadId: "thread-1",
+          role: "user",
+          content: "Before Compact",
+          createdAt: "2026-07-27T08:01:00.000Z",
+          attachments: [],
+        },
+      ],
+      threadActions: [
+        {
+          id: "action-1",
+          threadId: "thread-1",
+          action: "compact",
+          runtimeId: "kimi",
+          completedAt: "2026-07-27T08:02:00.000Z",
+        },
+      ],
+      activeWorkspaceId: "workspace-1",
+    };
+
+    expect(normalizeAppStateSnapshot(snapshot)).toEqual(snapshot);
+    expect(
+      normalizeAppStateSnapshot({
+        ...snapshot,
+        threadActions: [
+          ...snapshot.threadActions,
+          { ...snapshot.threadActions[0], id: "bad-action", threadId: "other-thread" },
+          { ...snapshot.threadActions[0], id: "unknown-action", action: "unknown" },
+        ],
+      }),
+    ).toEqual(snapshot);
+  });
+
   it("round-trips valid per-Workspace last Thread locations", () => {
     const snapshot = {
       version: APP_STATE_SNAPSHOT_VERSION,

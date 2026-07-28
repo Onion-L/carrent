@@ -26,6 +26,7 @@ import type {
 } from "./git/gitIpc";
 import type { RtkGainStats } from "../src/shared/rtk";
 import type { MainWindowApi } from "../src/shared/mainWindow";
+import type { ThreadActionRequest, ThreadActionResult } from "../src/shared/threadActions";
 
 const mainWindow: MainWindowApi = {
   onNavigate: (listener) => {
@@ -62,6 +63,8 @@ const carrent = {
     send: (request: ChatTurnRequest) =>
       ipcRenderer.invoke("chat:send", request) as Promise<{ runId: string }>,
     stop: (runId: string) => ipcRenderer.invoke("chat:stop", runId) as Promise<void>,
+    executeThreadAction: (request: ThreadActionRequest) =>
+      ipcRenderer.invoke("chat:thread-action", request) as Promise<ThreadActionResult>,
     removeRuntimeSession: (request: import("../src/shared/chat").RuntimeSessionRecovery) =>
       ipcRenderer.invoke("chat:remove-runtime-session", request) as Promise<void>,
     deleteThreadData: (request: DeleteThreadDataRequest) =>

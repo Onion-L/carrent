@@ -71,6 +71,7 @@ function ThreadPageContent() {
     projects,
     associations,
     threads,
+    threadActions,
     updateThreadConfig,
     recordThreadRun,
     rollbackThreadRun,
@@ -269,6 +270,9 @@ function ThreadPageContent() {
           <>
             <MessageTimeline
               messages={routeData?.messages ?? []}
+              threadActions={threadActions.filter(
+                (action) => action.threadId === routeData?.thread.id,
+              )}
               threadId={routeData?.thread.id}
               onSubmitUserEdit={handleSubmitUserEdit}
               onRemoveRuntimeSessionAndRetry={handleRuntimeSessionRetry}

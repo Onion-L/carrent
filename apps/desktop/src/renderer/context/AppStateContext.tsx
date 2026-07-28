@@ -18,6 +18,7 @@ import {
   type AppStateLoadResult,
   type AppStateSnapshot,
   type AppThreadMessageRecord,
+  type AppThreadActionRecord,
   type AppThreadPromotionIntentRecord,
   type AppThreadRecord,
   type AppThreadRunStartInput,
@@ -32,6 +33,7 @@ import { DEFAULT_RUNTIME_MODE, type RuntimeMode } from "../../shared/runtimeMode
 import { DEFAULT_RUNTIME_ID, type RuntimeId } from "../../shared/runtimes";
 import { getQueuedMessages } from "../hooks/chatMessageQueue";
 import { hasLiveRunForThread } from "../hooks/useChatRun";
+import { hasActiveThreadActionForThread } from "../hooks/useThreadActions";
 import {
   applyThreadDeletionToAppState,
   type ThreadDeletionAppStateSnapshots,
@@ -99,6 +101,7 @@ type AppStateContextValue = {
   threadDrafts: AssociationThreadDraftRecord[];
   threadMessages: AppThreadMessageRecord[];
   threadRuns: AppThreadRunRecord[];
+  threadActions: AppThreadActionRecord[];
   threadPromotionIntents: AppThreadPromotionIntentRecord[];
   threadWork: Record<string, ThreadWorkSnapshot>;
   lastThreadIdByWorkspace: Record<string, string>;
@@ -167,6 +170,7 @@ type AppStateContextValue = {
   ) => void;
   recordThreadRun: (input: AppThreadRunStartInput & { threadId: string }) => Promise<boolean>;
   rollbackThreadRun: (threadId: string, runId: string, messageId: string) => Promise<boolean>;
+  recordThreadAction: (action: AppThreadActionRecord) => Promise<boolean>;
   archiveThread: (threadId: string) => Promise<boolean>;
   restoreThread: (threadId: string) => Promise<boolean>;
   permanentlyDeleteThread: (
@@ -434,6 +438,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
               contentAtStart.threadMessages ?? [],
               normalized.threadMessages ?? [],
               latest.threadMessages ?? [],
+            ),
+            threadActions: mergeRecordList(
+              contentAtStart.threadActions ?? [],
+              normalized.threadActions ?? [],
+              latest.threadActions ?? [],
             ),
             threadWork: mergeThreadWork(
               contentAtStart.threadWork ?? {},
@@ -1145,6 +1154,30 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [persist, snapshot],
   );
 
+  const recordThreadAction = useCallback(
+    async (action: AppThreadActionRecord) => {
+      const current = snapshotRef.current;
+      if (!(current.threads ?? []).some((thread) => thread.id === action.threadId)) {
+        return false;
+      }
+      try {
+        await persist({
+          ...current,
+          threads: (current.threads ?? []).map((thread) =>
+            thread.id === action.threadId
+              ? { ...thread, lastActivityAt: action.completedAt }
+              : thread,
+          ),
+          threadActions: [...(current.threadActions ?? []), action],
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [persist],
+  );
+
   const archiveThread = useCallback(
     async (threadId: string) => {
       const current = snapshotRef.current;
@@ -1154,6 +1187,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         mutatingThreadIdsRef.current.has(threadId) ||
         startingRunThreadIdsRef.current.has(threadId) ||
         hasLiveRunForThread(threadId) ||
+        hasActiveThreadActionForThread(threadId) ||
         getQueuedMessages(threadId).length > 0
       ) {
         return false;
@@ -1268,7 +1302,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           (thread) =>
             mutatingThreadIdsRef.current.has(thread.id) ||
             startingRunThreadIdsRef.current.has(thread.id) ||
-            hasLiveRunForThread(thread.id),
+            hasLiveRunForThread(thread.id) ||
+            hasActiveThreadActionForThread(thread.id),
         )
       ) {
         return false;
@@ -1326,6 +1361,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         threadDrafts: snapshot.threadDrafts ?? [],
         threadMessages: snapshot.threadMessages ?? [],
         threadRuns: snapshot.threadRuns ?? [],
+        threadActions: snapshot.threadActions ?? [],
         threadPromotionIntents: snapshot.threadPromotionIntents ?? [],
         threadWork: snapshot.threadWork ?? {},
         lastThreadIdByWorkspace: snapshot.lastThreadIdByWorkspace ?? {},
@@ -1354,6 +1390,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         updateThreadContent,
         recordThreadRun,
         rollbackThreadRun,
+        recordThreadAction,
         archiveThread,
         restoreThread,
         permanentlyDeleteThread,

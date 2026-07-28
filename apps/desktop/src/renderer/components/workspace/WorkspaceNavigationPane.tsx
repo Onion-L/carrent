@@ -17,6 +17,7 @@ import { useAppState } from "../../context/AppStateContext";
 import { useThreadContent } from "../../context/ThreadContentContext";
 import { getQueuedMessages } from "../../hooks/chatMessageQueue";
 import { useChatRun } from "../../hooks/useChatRun";
+import { useThreadActions } from "../../hooks/useThreadActions";
 import { buildProjectPath, buildThreadPath, buildWorkspacePath } from "../../lib/navigation";
 import {
   getThreadDisplayStatus,
@@ -31,6 +32,7 @@ const STATUS_META: Record<ThreadDisplayStatus, { label: string; className: strin
   approval: { label: "Approval", className: "font-medium text-warning" },
   question: { label: "Question", className: "font-medium text-warning" },
   running: { label: "Running", className: "text-success" },
+  compacting: { label: "Compacting", className: "text-success" },
   failed: { label: "Failed", className: "font-medium text-danger" },
 };
 
@@ -52,6 +54,7 @@ export function WorkspaceNavigationPane() {
   } = useAppState();
   const { messages, renameThread, toggleThreadPin, deleteThreads } = useThreadContent();
   const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
+  const { compactingThreadIds } = useThreadActions();
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingProjectName, setEditingProjectName] = useState("");
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
@@ -374,6 +377,7 @@ export function WorkspaceNavigationPane() {
                         const status = getThreadDisplayStatus({
                           threadId: thread.id,
                           runningThreadIds,
+                          compactingThreadIds,
                           pendingApprovals: pendingPermissions,
                           pendingQuestions,
                           messages,
@@ -382,9 +386,11 @@ export function WorkspaceNavigationPane() {
                         const active = location.pathname === threadPath;
                         const archiveBlockedReason = runningThreadIds.includes(thread.id)
                           ? "Stop the live Run before archiving"
-                          : getQueuedMessages(thread.id).length > 0
-                            ? "Remove queued messages before archiving"
-                            : null;
+                          : compactingThreadIds.includes(thread.id)
+                            ? "Wait for Compact to finish before archiving"
+                            : getQueuedMessages(thread.id).length > 0
+                              ? "Remove queued messages before archiving"
+                              : null;
 
                         const handleArchive = async () => {
                           if (archiveBlockedReason) return;

@@ -23,7 +23,9 @@ import type {
   ChatTurnRequest,
   DeleteThreadDataRequest,
   ThreadDeletionTransactionRequest,
+  KimiSessionStatus,
 } from "../shared/chat";
+import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
 
 mock.module("./assets/logo.png", () => ({ default: "logo.png" }));
 const { default: App } = await import("./App");
@@ -73,6 +75,8 @@ function installBridge(
   deleteThreadTransactionGate?: Promise<void>,
   projectDirectoryAvailable: boolean | boolean[] | (() => boolean) = true,
   projectRelocationRequests: ProjectRelocationRequest[] = [],
+  kimiStatus: KimiSessionStatus | null | (() => KimiSessionStatus | null) = null,
+  executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>,
 ) {
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
   let saveAttempt = 0;
@@ -193,9 +197,10 @@ function installBridge(
         return { runId };
       },
       stop: async () => {},
+      executeThreadAction,
       respondToPermission: async () => {},
       respondToQuestion: async () => {},
-      getKimiStatus: async () => null,
+      getKimiStatus: async () => (typeof kimiStatus === "function" ? kimiStatus() : kimiStatus),
       onEvent: (listener: (event: import("../shared/chat").ChatRunEvent) => void) => {
         chatListener = listener;
         emitChatEvent = (event) => chatListener?.(event);
@@ -277,6 +282,8 @@ type RenderAppOptions = {
   projectDirectoryAvailable?: boolean | boolean[] | (() => boolean);
   projectRelocationRequests?: ProjectRelocationRequest[];
   strictMode?: boolean;
+  kimiStatus?: KimiSessionStatus | null | (() => KimiSessionStatus | null);
+  executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>;
 };
 
 async function renderApp(
@@ -312,6 +319,8 @@ async function renderApp(
     options.deleteThreadTransactionGate,
     options.projectDirectoryAvailable,
     options.projectRelocationRequests,
+    options.kimiStatus,
+    options.executeThreadAction,
   );
   await mountInstalledBridge(initialEntry, options.strictMode);
 
@@ -1887,6 +1896,273 @@ describe("Association Thread Drafts", () => {
 
     expect(requests).toHaveLength(0);
     expect(saved).toHaveLength(0);
+  });
+});
+
+describe("Compact Thread Action", () => {
+  const compactAppState: AppStateSnapshot = {
+    version: 1,
+    workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+    projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+    associations: [
+      {
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        order: 0,
+        defaultRuntimeId: "kimi",
+        defaultRuntimeMode: "approval-required",
+      },
+    ],
+    threads: [
+      {
+        id: "thread-1",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        title: "Compact me",
+        createdAt: "2026-07-27T08:00:00.000Z",
+        lastActivityAt: "2026-07-27T08:01:00.000Z",
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
+    ],
+    threadMessages: [
+      {
+        id: "message-1",
+        threadId: "thread-1",
+        role: "user",
+        content: "Finish the work",
+        createdAt: "2026-07-27T08:00:00.000Z",
+        attachments: [],
+      },
+      {
+        id: "message-2",
+        threadId: "thread-1",
+        role: "assistant",
+        content: "Done",
+        createdAt: "2026-07-27T08:01:00.000Z",
+        runStatus: "completed",
+        attachments: [],
+      },
+    ],
+    threadRuns: [
+      {
+        id: "run-1",
+        threadId: "thread-1",
+        messageId: "message-1",
+        startedAt: "2026-07-27T08:00:00.000Z",
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
+    ],
+    activeWorkspaceId: "workspace-1",
+  };
+
+  it("runs from the slash menu without a Run and persists the owning Thread boundary", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const actionRequests: ThreadActionRequest[] = [];
+    let finishCompact!: () => void;
+    const compactGate = new Promise<void>((resolve) => {
+      finishCompact = resolve;
+    });
+    const saved = await renderApp(
+      compactAppState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      requests,
+      false,
+      {
+        kimiStatus: {
+          used: 34,
+          total: 100,
+          percentage: 34,
+          threadActions: ["compact"],
+        },
+        executeThreadAction: async (request) => {
+          actionRequests.push(structuredClone(request));
+          await compactGate;
+          return { ...request, completedAt: "2026-07-27T08:02:00.000Z" };
+        },
+      },
+    );
+    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+    await fillTextarea(textarea, "/");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const menuButtons = [...container!.querySelectorAll<HTMLButtonElement>("button")].filter(
+      (button) =>
+        button.textContent?.includes("Enable plan mode") ||
+        button.textContent?.includes("34% used"),
+    );
+    expect(menuButtons.map((button) => button.textContent?.trim())).toEqual([
+      "Plan modeEnable plan mode",
+      "CompactCompress this thread's context (34% used)",
+    ]);
+    expect(menuButtons.every((button) => button.querySelector("svg") === null)).toBe(true);
+
+    await act(async () => {
+      menuButtons[1]!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(actionRequests).toEqual([
+      {
+        action: "compact",
+        threadId: "thread-1",
+        runtimeId: "kimi",
+        workingDirectory: "/code/carrent",
+      },
+    ]);
+    expect(requests).toEqual([]);
+    expect(container!.textContent).toContain("Compacting");
+    expect(composerSendButton().disabled).toBe(true);
+    expect(textarea.value).toBe("");
+
+    await fillTextarea(textarea, "/compact Keep this draft");
+    await act(async () => {
+      textarea.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(textarea.value).toBe("Keep this draft");
+    expect(actionRequests).toHaveLength(1);
+    expect(container!.textContent).toContain("already compacting");
+
+    await fillTextarea(textarea, "Next request");
+
+    await act(async () => {
+      finishCompact();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(container!.textContent).toContain("Context compacted");
+    expect(textarea.value).toBe("Next request");
+    expect(saved.at(-1)?.threadActions?.[0]).toMatchObject({
+      threadId: "thread-1",
+      action: "compact",
+      runtimeId: "kimi",
+      completedAt: "2026-07-27T08:02:00.000Z",
+    });
+    expect(saved.at(-1)?.threadActions?.[0]?.id.startsWith("thread-action-")).toBe(true);
+    expect(saved.at(-1)?.threads?.[0]?.lastActivityAt).toBe("2026-07-27T08:02:00.000Z");
+
+    await fillTextarea(textarea, "/compact Keep this draft");
+    await act(async () => {
+      textarea.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(textarea.value).toBe("Keep this draft");
+    expect(actionRequests).toHaveLength(1);
+    expect(requests).toEqual([]);
+    expect(container!.textContent).toContain("requires a completed user and Agent exchange");
+
+    await fillTextarea(textarea, "/");
+    expect(
+      [...container!.querySelectorAll<HTMLButtonElement>("button")].some((button) =>
+        button.textContent?.includes("Compress this thread's context"),
+      ),
+    ).toBe(false);
+  });
+
+  it("clears Compact availability after the Runtime Session becomes invalid", async () => {
+    const actionRequests: ThreadActionRequest[] = [];
+    let sessionAvailable = true;
+    await renderApp(
+      compactAppState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      {
+        kimiStatus: () =>
+          sessionAvailable
+            ? { used: 34, total: 100, percentage: 34, threadActions: ["compact"] }
+            : null,
+        executeThreadAction: async (request) => {
+          actionRequests.push(structuredClone(request));
+          sessionAvailable = false;
+          throw new Error("Kimi Code could not resume the Runtime Session.");
+        },
+      },
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+    await fillTextarea(textarea, "/compact Keep this draft");
+    await act(async () => {
+      textarea.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(textarea.value).toBe("Keep this draft");
+    expect(actionRequests).toHaveLength(1);
+
+    await fillTextarea(textarea, "/compact Try again");
+    await act(async () => {
+      textarea.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(textarea.value).toBe("Try again");
+    expect(actionRequests).toHaveLength(1);
+    expect(container!.textContent).toContain("requires a resumable Runtime Session");
+  });
+
+  it("blocks repeated Compact after Runtime success when boundary persistence fails", async () => {
+    const actionRequests: ThreadActionRequest[] = [];
+    const saved = await renderApp(
+      compactAppState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      true,
+      [],
+      false,
+      {
+        kimiStatus: { used: 34, total: 100, percentage: 34, threadActions: ["compact"] },
+        executeThreadAction: async (request) => {
+          actionRequests.push(structuredClone(request));
+          return { ...request, completedAt: "2026-07-27T08:02:00.000Z" };
+        },
+      },
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+    await fillTextarea(textarea, "/compact Keep this draft");
+    await act(async () => {
+      textarea.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(textarea.value).toBe("Keep this draft");
+    expect(actionRequests).toHaveLength(1);
+    expect(saved).toHaveLength(0);
+    expect(container!.textContent).toContain("history boundary could not be saved");
+
+    await fillTextarea(textarea, "/compact Try again");
+    await act(async () => {
+      textarea.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(textarea.value).toBe("Try again");
+    expect(actionRequests).toHaveLength(1);
+    expect(container!.textContent).toContain("requires a completed user and Agent exchange");
   });
 });
 

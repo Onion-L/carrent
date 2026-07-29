@@ -20,6 +20,7 @@ import type { RuntimeRecord } from "../../shared/runtimes";
 import { resolveSettingsTabId, SETTINGS_TABS } from "../lib/settingsTabs";
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, parseFontSizeInput, stepFontSize } from "../lib/fontSize";
 import { RuntimeIcon } from "../components/RuntimeIcon";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useRuntimeModels } from "../hooks/useRuntimeModels";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { buildThreadPath } from "../lib/navigation";
@@ -883,6 +884,7 @@ function ArchivedThreadsPanel({
   const [restoredThread, setRestoredThread] = useState<AppThreadRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<"restore" | "delete" | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
     if (!archivedThreads.some((thread) => thread.id === selectedThreadId)) {
@@ -917,14 +919,7 @@ function ArchivedThreadsPanel({
 
   const handlePermanentDelete = async () => {
     if (!selectedThread || pendingAction) return;
-    if (
-      !window.confirm(
-        `Permanently delete "${selectedThread.title}" and all Carrent-owned history? Project files and Git state will not be changed.`,
-      )
-    ) {
-      return;
-    }
-
+    setConfirmingDelete(false);
     setError(null);
     setPendingAction("delete");
     const selectedIndex = archivedThreads.findIndex((thread) => thread.id === selectedThread.id);
@@ -1021,7 +1016,7 @@ function ArchivedThreadsPanel({
                   <button
                     type="button"
                     disabled={pendingAction !== null}
-                    onClick={() => void handlePermanentDelete()}
+                    onClick={() => setConfirmingDelete(true)}
                     className="min-h-8 rounded-md border border-danger/50 px-3 text-app-12 font-medium text-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Permanently Delete
@@ -1032,6 +1027,16 @@ function ArchivedThreadsPanel({
           </div>
         </div>
       )}
+
+      {confirmingDelete && selectedThread ? (
+        <ConfirmDialog
+          title="Permanently Delete Thread?"
+          message={`Permanently delete "${selectedThread.title}" and all Carrent-owned history? Project files and Git state will not be changed.`}
+          confirmLabel="Delete"
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() => void handlePermanentDelete()}
+        />
+      ) : null}
     </Section>
   );
 }

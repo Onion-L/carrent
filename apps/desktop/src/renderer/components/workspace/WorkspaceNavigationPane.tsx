@@ -26,6 +26,7 @@ import {
 } from "../../lib/projectThreads";
 import { getWorkspaceProjects } from "../../lib/workspaceProjects";
 import { useToast } from "../toast/ToastContext";
+import { ConfirmDialog } from "../ConfirmDialog";
 import { AddProjectButton } from "./AddProjectButton";
 
 const STATUS_META: Record<ThreadDisplayStatus, { label: string; className: string }> = {
@@ -63,8 +64,20 @@ export function WorkspaceNavigationPane() {
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
+  const [pendingProjectRemoval, setPendingProjectRemoval] = useState<{
+    workspaceId: string;
+    projectId: string;
+    displayName: string;
+  } | null>(null);
   const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
   const workspaceProjects = getWorkspaceProjects(projects, associations, activeWorkspaceId);
+  const pendingRemovalThreadCount = pendingProjectRemoval
+    ? threads.filter(
+        (thread) =>
+          thread.workspaceId === pendingProjectRemoval.workspaceId &&
+          thread.projectId === pendingProjectRemoval.projectId,
+      ).length
+    : 0;
 
   const commitProjectRename = async (
     workspaceId: string,
@@ -78,6 +91,28 @@ export function WorkspaceNavigationPane() {
 
     if (!(await setProjectAlias(workspaceId, projectId, nextName))) {
       showToast("Project could not be renamed.", "error");
+    }
+  };
+
+  const confirmProjectRemoval = async () => {
+    if (!pendingProjectRemoval) return;
+    const { workspaceId, projectId } = pendingProjectRemoval;
+    setPendingProjectRemoval(null);
+    const projectPath = buildProjectPath(workspaceId, projectId);
+    const projectIsActive =
+      location.pathname === projectPath || location.pathname.startsWith(`${projectPath}/`);
+    let removed = false;
+    try {
+      removed = await removeAssociation(workspaceId, projectId, (threadIds, snapshots) =>
+        deleteThreads(threadIds, snapshots),
+      );
+    } catch (error) {
+      console.error("[associations] removal rollback failed", error);
+    }
+    if (removed && projectIsActive) {
+      navigate(buildWorkspacePath(workspaceId));
+    } else if (!removed) {
+      showToast("Project could not be deleted.", "error");
     }
   };
 
@@ -147,8 +182,6 @@ export function WorkspaceNavigationPane() {
               thread.projectId === project.id &&
               runningThreadIds.includes(thread.id),
           );
-          const projectIsActive =
-            location.pathname === projectPath || location.pathname.startsWith(`${projectPath}/`);
 
           return (
             <section key={project.id} className="py-0.5">
@@ -300,36 +333,13 @@ export function WorkspaceNavigationPane() {
                               ? "Stop the affected live Run before deleting"
                               : undefined
                           }
-                          onClick={async () => {
-                            const threadCount = threads.filter(
-                              (thread) =>
-                                thread.workspaceId === association.workspaceId &&
-                                thread.projectId === project.id,
-                            ).length;
-                            if (
-                              !window.confirm(
-                                `Remove "${displayName}" from "${workspace?.name ?? "Workspace"}"? This permanently deletes ${threadCount} ${threadCount === 1 ? "Thread" : "Threads"}. Project files, Git state, and other Workspaces stay unchanged.`,
-                              )
-                            ) {
-                              return;
-                            }
-
+                          onClick={() => {
                             setOpenProjectMenuId(null);
-                            let removed = false;
-                            try {
-                              removed = await removeAssociation(
-                                association.workspaceId,
-                                project.id,
-                                (threadIds, snapshots) => deleteThreads(threadIds, snapshots),
-                              );
-                            } catch (error) {
-                              console.error("[associations] removal rollback failed", error);
-                            }
-                            if (removed && projectIsActive) {
-                              navigate(buildWorkspacePath(association.workspaceId));
-                            } else if (!removed) {
-                              showToast("Project could not be deleted.", "error");
-                            }
+                            setPendingProjectRemoval({
+                              workspaceId: association.workspaceId,
+                              projectId: project.id,
+                              displayName,
+                            });
                           }}
                           className="flex min-h-9 w-full items-center gap-3 rounded-md px-2.5 text-left text-app-13 text-danger transition hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-danger/30 disabled:cursor-not-allowed disabled:opacity-40"
                         >
@@ -537,6 +547,16 @@ export function WorkspaceNavigationPane() {
           </div>
         )}
       </div>
+
+      {pendingProjectRemoval ? (
+        <ConfirmDialog
+          title="Delete Project?"
+          message={`Remove "${pendingProjectRemoval.displayName}" from "${workspace?.name ?? "Workspace"}"? This permanently deletes ${pendingRemovalThreadCount} ${pendingRemovalThreadCount === 1 ? "Thread" : "Threads"}. Project files, Git state, and other Workspaces stay unchanged.`}
+          confirmLabel="Delete Project"
+          onCancel={() => setPendingProjectRemoval(null)}
+          onConfirm={() => void confirmProjectRemoval()}
+        />
+      ) : null}
     </aside>
   );
 }

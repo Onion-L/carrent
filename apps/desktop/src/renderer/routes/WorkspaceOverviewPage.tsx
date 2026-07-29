@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 
 import { WorkspaceNameDialog } from "../components/workspace/WorkspaceNameDialog";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { AddProjectButton } from "../components/workspace/AddProjectButton";
 import { useAppState } from "../context/AppStateContext";
 import { useNavigate } from "react-router-dom";
@@ -25,6 +26,7 @@ export function WorkspaceOverviewPage() {
   const { deleteThreads } = useThreadContent();
   const { runningThreadIds } = useChatRun();
   const [isRenaming, setIsRenaming] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const workspace = workspaces.find((item) => item.id === workspaceId);
   const workspaceProjects = getWorkspaceProjects(projects, associations, workspaceId);
   const hasAffectedLiveRun = threads.some(
@@ -39,6 +41,25 @@ export function WorkspaceOverviewPage() {
   }, [activeWorkspaceId, selectWorkspace, workspace]);
 
   if (!workspace) return <Navigate replace to="/" />;
+
+  const threadCount = threads.filter((thread) => thread.workspaceId === workspace.id).length;
+
+  const handleDeleteWorkspace = async () => {
+    setConfirmingDelete(false);
+    const orderedWorkspaces = [...workspaces].sort((left, right) => left.order - right.order);
+    const workspaceIndex = orderedWorkspaces.findIndex((item) => item.id === workspace.id);
+    const nextWorkspace =
+      orderedWorkspaces[workspaceIndex + 1] ?? orderedWorkspaces[workspaceIndex - 1] ?? null;
+    let deleted = false;
+    try {
+      deleted = await deleteWorkspace(workspace.id, (threadIds, snapshots) =>
+        deleteThreads(threadIds, snapshots),
+      );
+    } catch (error) {
+      console.error("[workspaces] deletion rollback failed", error);
+    }
+    if (deleted) navigate(nextWorkspace ? `/workspace/${nextWorkspace.id}` : "/");
+  };
 
   return (
     <>
@@ -56,37 +77,7 @@ export function WorkspaceOverviewPage() {
               type="button"
               disabled={hasAffectedLiveRun}
               title={hasAffectedLiveRun ? "Stop the affected live Run before deleting" : undefined}
-              onClick={async () => {
-                const threadCount = threads.filter(
-                  (thread) => thread.workspaceId === workspace.id,
-                ).length;
-                if (
-                  !window.confirm(
-                    `Delete "${workspace.name}" and permanently delete ${threadCount} ${threadCount === 1 ? "Thread" : "Threads"}? Project Working Directories, project files and Git state, and other Workspaces will not be changed.`,
-                  )
-                ) {
-                  return;
-                }
-                const orderedWorkspaces = [...workspaces].sort(
-                  (left, right) => left.order - right.order,
-                );
-                const workspaceIndex = orderedWorkspaces.findIndex(
-                  (item) => item.id === workspace.id,
-                );
-                const nextWorkspace =
-                  orderedWorkspaces[workspaceIndex + 1] ??
-                  orderedWorkspaces[workspaceIndex - 1] ??
-                  null;
-                let deleted = false;
-                try {
-                  deleted = await deleteWorkspace(workspace.id, (threadIds, snapshots) =>
-                    deleteThreads(threadIds, snapshots),
-                  );
-                } catch (error) {
-                  console.error("[workspaces] deletion rollback failed", error);
-                }
-                if (deleted) navigate(nextWorkspace ? `/workspace/${nextWorkspace.id}` : "/");
-              }}
+              onClick={() => setConfirmingDelete(true)}
               className="min-h-8 rounded-md border border-danger/50 px-3 text-app-12 font-medium text-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Delete Workspace
@@ -145,6 +136,16 @@ export function WorkspaceOverviewPage() {
             setIsRenaming(false);
             return null;
           }}
+        />
+      )}
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title="Delete Workspace?"
+          message={`Delete "${workspace.name}" and permanently delete ${threadCount} ${threadCount === 1 ? "Thread" : "Threads"}? Project Working Directories, project files and Git state, and other Workspaces will not be changed.`}
+          confirmLabel="Delete"
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() => void handleDeleteWorkspace()}
         />
       )}
     </>

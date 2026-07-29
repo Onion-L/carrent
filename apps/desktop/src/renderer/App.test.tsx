@@ -883,10 +883,10 @@ describe("three-level navigation", () => {
       navigationState(),
       "/workspace/workspace-1/project/project-1/thread/thread-1",
     );
-    window.confirm = () => true;
 
     await click(buttonNamed("More actions for Personal Carrent"));
     await click(buttonNamed("Delete"));
+    await click(buttonNamed("Delete Project"));
 
     expect(
       saved.at(-1)?.associations.map(({ workspaceId, projectId }) => ({
@@ -3255,26 +3255,23 @@ describe("Archived Thread lifecycle", () => {
 
   it("keeps an Archived Thread when permanent deletion confirmation is canceled", async () => {
     const cleanupRequests: DeleteThreadDataRequest[] = [];
-    let confirmation = "";
-    window.confirm = (message) => {
-      confirmation = String(message);
-      return false;
-    };
     await renderApp(lifecycleState(["thread-1"]), "/settings?tab=archives", [], false, [], false, {
       deleteThreadDataRequests: cleanupRequests,
     });
 
     await click(buttonNamed("Permanently Delete"));
 
-    expect(confirmation).toContain('Permanently delete "Primary Thread"');
-    expect(confirmation).toContain("Project files and Git state will not be changed");
+    expect(container!.textContent).toContain('Permanently delete "Primary Thread"');
+    expect(container!.textContent).toContain("Project files and Git state will not be changed");
+
+    await click(buttonNamed("Cancel"));
+
     expect(cleanupRequests).toHaveLength(0);
     expect(container!.textContent).toContain("Primary Thread");
   });
 
   it("permanently deletes only from Archives and keeps the next item selected", async () => {
     const cleanupRequests: DeleteThreadDataRequest[] = [];
-    window.confirm = () => true;
     const saved = await renderApp(
       lifecycleState(["thread-1", "thread-2"]),
       "/settings?tab=archives",
@@ -3286,6 +3283,7 @@ describe("Archived Thread lifecycle", () => {
     );
 
     await click(buttonNamed("Permanently Delete"));
+    await click(buttonNamed("Delete"));
 
     expect(currentPathname).toBe("/settings");
     expect(cleanupRequests).toEqual([
@@ -3303,7 +3301,6 @@ describe("Archived Thread lifecycle", () => {
       releaseDeletion = resolve;
     });
     const requests: ChatTurnRequest[] = [];
-    window.confirm = () => true;
     await renderApp(
       lifecycleState(["thread-1"]),
       "/workspace/workspace-1/project/project-1/thread/thread-2",
@@ -3320,6 +3317,7 @@ describe("Archived Thread lifecycle", () => {
       testNavigate!("/settings?tab=archives");
     });
     await click(buttonNamed("Permanently Delete"));
+    await click(buttonNamed("Delete"));
 
     await act(async () => {
       emitChatEvent?.({
@@ -3344,7 +3342,6 @@ describe("Archived Thread lifecycle", () => {
   });
 
   it("selects the following Archived Thread after deleting a middle item", async () => {
-    window.confirm = () => true;
     const appState = lifecycleState(["thread-1", "thread-2"]);
     appState.threads = [
       ...(appState.threads ?? []),
@@ -3370,6 +3367,7 @@ describe("Archived Thread lifecycle", () => {
     if (!secondaryButton) throw new Error("Secondary Archived Thread was not found");
     await click(secondaryButton);
     await click(buttonNamed("Permanently Delete"));
+    await click(buttonNamed("Delete"));
 
     const tertiaryButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent?.includes("Tertiary Thread"),
@@ -3379,7 +3377,6 @@ describe("Archived Thread lifecycle", () => {
 
   it("keeps an Archived Thread when permanent cleanup fails", async () => {
     const cleanupRequests: DeleteThreadDataRequest[] = [];
-    window.confirm = () => true;
     const saved = await renderApp(
       lifecycleState(["thread-1"]),
       "/settings?tab=archives",
@@ -3391,6 +3388,7 @@ describe("Archived Thread lifecycle", () => {
     );
 
     await click(buttonNamed("Permanently Delete"));
+    await click(buttonNamed("Delete"));
 
     expect(cleanupRequests).toHaveLength(1);
     expect(saved).toHaveLength(0);
@@ -3473,11 +3471,6 @@ describe("Archived Thread lifecycle", () => {
       },
     ];
     const cleanupRequests: DeleteThreadDataRequest[] = [];
-    let confirmation = "";
-    window.confirm = (message) => {
-      confirmation = String(message);
-      return true;
-    };
     const saved = await renderApp(
       appState,
       "/workspace/workspace-1/project/project-1",
@@ -3491,10 +3484,13 @@ describe("Archived Thread lifecycle", () => {
     await click(buttonNamed("More actions for Carrent"));
     await click(buttonNamed("Delete"));
 
-    expect(confirmation).toContain("1 Thread");
-    expect(confirmation).toContain('Remove "Carrent" from "Personal"');
-    expect(confirmation).toContain("Project files, Git state");
-    expect(confirmation).toContain("other Workspaces");
+    expect(container!.textContent).toContain("1 Thread");
+    expect(container!.textContent).toContain('Remove "Carrent" from "Personal"');
+    expect(container!.textContent).toContain("Project files, Git state");
+    expect(container!.textContent).toContain("other Workspaces");
+
+    await click(buttonNamed("Delete Project"));
+
     expect(currentPathname).toBe("/workspace/workspace-1");
     expect(cleanupRequests).toEqual([
       {
@@ -3553,20 +3549,18 @@ describe("Archived Thread lifecycle", () => {
       "workspace-2": "thread-1",
     };
     const cleanupRequests: DeleteThreadDataRequest[] = [];
-    let confirmation = "";
-    window.confirm = (message) => {
-      confirmation = String(message);
-      return true;
-    };
     const saved = await renderApp(appState, "/workspace/workspace-2", [], false, [], false, {
       deleteThreadDataRequests: cleanupRequests,
     });
 
     await click(buttonNamed("Delete Workspace"));
 
-    expect(confirmation).toContain("1 Thread");
-    expect(confirmation).toContain("Project Working Directories");
-    expect(confirmation).toContain("other Workspaces");
+    expect(container!.textContent).toContain("1 Thread");
+    expect(container!.textContent).toContain("Project Working Directories");
+    expect(container!.textContent).toContain("other Workspaces");
+
+    await click(buttonNamed("Delete"));
+
     expect(currentPathname).toBe("/workspace/workspace-3");
     expect(cleanupRequests).toEqual([
       { threadIds: ["thread-1", "draft-thread-2"], attachmentStorageKeys: ["attachment-1.txt"] },
@@ -3584,7 +3578,6 @@ describe("Archived Thread lifecycle", () => {
   });
 
   it("selects the previous Workspace when deleting the last ordered Workspace", async () => {
-    window.confirm = () => true;
     const saved = await renderApp(
       {
         version: 1,
@@ -3604,6 +3597,7 @@ describe("Archived Thread lifecycle", () => {
     );
 
     await click(buttonNamed("Delete Workspace"));
+    await click(buttonNamed("Delete"));
 
     expect(currentPathname).toBe("/workspace/workspace-1");
     expect(saved.at(-1)?.activeWorkspaceId).toBe("workspace-1");
@@ -3611,7 +3605,6 @@ describe("Archived Thread lifecycle", () => {
   });
 
   it("opens global first use after deleting the only Workspace", async () => {
-    window.confirm = () => true;
     const saved = await renderApp(
       {
         version: 1,
@@ -3628,6 +3621,7 @@ describe("Archived Thread lifecycle", () => {
     );
 
     await click(buttonNamed("Delete Workspace"));
+    await click(buttonNamed("Delete"));
 
     expect(currentPathname).toBe("/");
     expect(saved.at(-1)?.workspaces).toEqual([]);
@@ -3637,11 +3631,6 @@ describe("Archived Thread lifecycle", () => {
 
   it("blocks Association and Workspace removal before confirmation while an affected Run is live", async () => {
     const requests: ChatTurnRequest[] = [];
-    let confirmationCount = 0;
-    window.confirm = () => {
-      confirmationCount += 1;
-      return true;
-    };
     await renderApp(
       lifecycleState(),
       "/workspace/workspace-1/project/project-1/thread/thread-1",
@@ -3662,7 +3651,7 @@ describe("Archived Thread lifecycle", () => {
     });
     expect(buttonNamed("Delete Workspace").disabled).toBe(true);
     expect(buttonNamed("Delete Workspace").title).toContain("live Run");
-    expect(confirmationCount).toBe(0);
+    expect(container!.querySelector('[role="dialog"]')).toBe(null);
 
     await act(async () => {
       emitChatEvent?.({
@@ -3683,13 +3672,13 @@ describe("Archived Thread lifecycle", () => {
     appState.threadRuns = [];
     appState.lastThreadIdByWorkspace = {};
     const cleanupRequests: DeleteThreadDataRequest[] = [];
-    window.confirm = () => true;
     const saved = await renderApp(appState, "/workspace/workspace-1", [], false, [], false, {
       deleteThreadDataRequests: cleanupRequests,
     });
 
     await click(buttonNamed("More actions for Carrent"));
     await click(buttonNamed("Delete"));
+    await click(buttonNamed("Delete Project"));
 
     expect(cleanupRequests).toEqual([{ threadIds: [], attachmentStorageKeys: [] }]);
     expect(saved.at(-1)?.projects).toEqual([]);

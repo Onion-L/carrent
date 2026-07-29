@@ -106,6 +106,7 @@ function createWindow(icon: string | undefined) {
   });
 
   mainWindow.on("ready-to-show", () => {
+    mainWindow?.maximize();
     mainWindow?.show();
   });
 

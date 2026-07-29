@@ -23,6 +23,11 @@ type WindowCloseEvent = {
   preventDefault: () => void;
 };
 
+type RendererNavigationStart = {
+  isSameDocument: boolean;
+  isMainFrame: boolean;
+};
+
 type DeepLinkResolution = { kind: "valid"; path: string } | { kind: "invalid" } | null;
 
 function resolveDeepLink(values: string[]): DeepLinkResolution {
@@ -108,7 +113,8 @@ export function createMainWindowLifecycle({
         navigate("/workspace");
       }
     },
-    handleRendererLoading() {
+    handleRendererNavigationStart(navigation: RendererNavigationStart) {
+      if (navigation.isSameDocument || !navigation.isMainFrame) return;
       rendererReady = false;
       onRendererLoading?.();
     },

@@ -120,8 +120,8 @@ function createWindow(icon: string | undefined) {
     mainWindow = null;
   });
 
-  mainWindow.webContents.on("did-start-loading", () => {
-    mainWindowLifecycle.handleRendererLoading();
+  mainWindow.webContents.on("did-start-navigation", (event) => {
+    mainWindowLifecycle.handleRendererNavigationStart(event);
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

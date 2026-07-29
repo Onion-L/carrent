@@ -162,9 +162,24 @@ describe("createMainWindowLifecycle", () => {
       },
     });
 
-    lifecycle.handleRendererLoading();
+    lifecycle.handleRendererNavigationStart({ isSameDocument: false, isMainFrame: true });
 
     expect(loadingCount).toBe(1);
+  });
+
+  it("does not treat an in-page route navigation as a Renderer reload", () => {
+    const fake = createWindow();
+    let loadingCount = 0;
+    const lifecycle = createMainWindowLifecycle({
+      getMainWindow: () => fake.window,
+      onRendererLoading: () => {
+        loadingCount += 1;
+      },
+    });
+
+    lifecycle.handleRendererNavigationStart({ isSameDocument: true, isMainFrame: true });
+
+    expect(loadingCount).toBe(0);
   });
 
   it("focuses and routes an unsupported Carrent URL through the established fallback", () => {

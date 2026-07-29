@@ -3160,7 +3160,7 @@ describe("createChatSessionManager", () => {
           queueMicrotask(() => {
             emitAcpUpdate(fakeTransport, {
               sessionUpdate: "available_commands_update",
-              availableCommands: [{ name: "compact" }],
+              availableCommands: [{ name: "compact" }, { name: "status" }],
             });
             respondAcp(fakeTransport, message, { sessionId: "session-status" });
           });
@@ -3199,11 +3199,13 @@ describe("createChatSessionManager", () => {
     });
 
     expect(await manager.getStatus(makeRequest({ runtimeId: "kimi" }))).toEqual({
+      sessionId: "session-status",
       model: "kimi-code/kimi-for-coding",
       used: 21169,
       total: 262144,
       percentage: 8.1,
       threadActions: ["compact"],
+      supportedCommands: ["compact", "status"],
     });
     expect(bridgeCalls).toBe(0);
     expect(transport.sent.map((message) => message.method)).toEqual([
@@ -3212,6 +3214,202 @@ describe("createChatSessionManager", () => {
       "session/prompt",
     ]);
     expect((transport.sent[1]!.params as { mcpServers?: unknown[] }).mcpServers).toEqual([]);
+  });
+
+  it("does not create or launch a Runtime Session when status has no mapping", async () => {
+    let transportCalls = 0;
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Status must not spawn a Runtime Session.");
+      },
+      kimiAcpTransportFactory: () => {
+        transportCalls += 1;
+        throw new Error("Status must not launch ACP without a mapping.");
+      },
+      providerSessions: {
+        get: () => undefined,
+        set: () => {},
+      },
+    });
+
+    expect(await manager.inspectStatus!(makeRequest({ runtimeId: "kimi" }))).toBe(null);
+    expect(transportCalls).toBe(0);
+  });
+
+  it("removes only the rejected Runtime Session mapping after Status resume failure", async () => {
+    const sessions = new Map([
+      ["kimi:thread-1", "session-1"],
+      ["kimi:thread-2", "session-2"],
+    ]);
+    const deleted: string[] = [];
+    const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(transport, message, { protocolVersion: 1 });
+      } else if (message.method === "session/resume") {
+        failAcp(transport, message, "invalid session");
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("not used");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: {
+        get: (key) => sessions.get(key),
+        set: async () => {},
+        delete: async (key) => {
+          deleted.push(key);
+          sessions.delete(key);
+        },
+      },
+    });
+
+    expect(
+      await getErrorMessage(manager.inspectStatus!(makeRequest({ runtimeId: "kimi" }))),
+    ).toContain("could not resume");
+    expect(deleted).toEqual(["kimi:thread-1"]);
+    expect(sessions.get("kimi:thread-2")).toBe("session-2");
+  });
+
+  it("isolates an active status request from conflicting work on the same Thread", async () => {
+    const emitted: ChatRunEvent[] = [];
+    let completeStatus!: () => void;
+    const transport = new FakeKimiAcpTransport("/code/carrent", (fakeTransport, message) => {
+      if (message.method === "initialize") {
+        queueMicrotask(() => respondAcp(fakeTransport, message, { protocolVersion: 1 }));
+        return;
+      }
+      if (message.method === "session/resume") {
+        queueMicrotask(() => {
+          emitAcpUpdate(fakeTransport, {
+            sessionUpdate: "available_commands_update",
+            availableCommands: [{ name: "compact" }, { name: "status" }],
+          });
+          respondAcp(fakeTransport, message, { sessionId: "session-status" });
+        });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        completeStatus = () => {
+          emitAcpUpdate(fakeTransport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Context: 10 / 100 (10%)" },
+          });
+          respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+        };
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: (event) => emitted.push(event),
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: () => transport,
+      providerSessions: {
+        get: (key) => (key === "kimi:thread-1" ? "session-status" : undefined),
+        set: () => {},
+      },
+    });
+
+    const statusTask = manager.inspectStatus!(makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    let duplicateError: unknown;
+    try {
+      await manager.inspectStatus!(makeRequest({ runtimeId: "kimi" }));
+    } catch (error) {
+      duplicateError = error;
+    }
+    expect(duplicateError instanceof Error ? duplicateError.message : String(duplicateError)).toBe(
+      "Session status is already loading.",
+    );
+
+    let compactError: unknown;
+    try {
+      await manager.executeThreadAction!({
+        action: "compact",
+        threadId: "thread-1",
+        runtimeId: "kimi",
+        workingDirectory: "/code/carrent",
+      });
+    } catch (error) {
+      compactError = error;
+    }
+    expect(compactError instanceof Error ? compactError.message : String(compactError)).toBe(
+      "Session status is loading.",
+    );
+
+    manager.start("run-conflict", makeRequest({ runtimeId: "kimi" }));
+    expect(emitted.at(-1)).toMatchObject({
+      type: "failed",
+      runId: "run-conflict",
+      error: "Session status is loading.",
+    });
+
+    expect(
+      await manager.inspectStatus!(makeRequest({ runtimeId: "kimi", threadId: "thread-2" })),
+    ).toBe(null);
+
+    completeStatus();
+    expect(await statusTask).toMatchObject({ sessionId: "session-status" });
+  });
+
+  it("registers passive Context refreshes as active status requests", async () => {
+    let completeStatus!: () => void;
+    let transportCalls = 0;
+    const transport = new FakeKimiAcpTransport("/code/carrent", (fakeTransport, message) => {
+      if (message.method === "initialize") {
+        queueMicrotask(() => respondAcp(fakeTransport, message, { protocolVersion: 1 }));
+        return;
+      }
+      if (message.method === "session/resume") {
+        queueMicrotask(() => {
+          emitAcpUpdate(fakeTransport, {
+            sessionUpdate: "available_commands_update",
+            availableCommands: [{ name: "status" }],
+          });
+          respondAcp(fakeTransport, message, { sessionId: "session-status" });
+        });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        completeStatus = () => {
+          emitAcpUpdate(fakeTransport, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Context: 10 / 100 (10%)" },
+          });
+          respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+        };
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: () => {
+        transportCalls += 1;
+        if (transportCalls > 1) throw new Error("Concurrent status transport started.");
+        return transport;
+      },
+      providerSessions: {
+        get: () => "session-status",
+        set: () => {},
+      },
+    });
+
+    const passiveTask = manager.getStatus(makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    expect(await getErrorMessage(manager.inspectStatus!(makeRequest({ runtimeId: "kimi" })))).toBe(
+      "Session status is already loading.",
+    );
+    expect(transportCalls).toBe(1);
+
+    completeStatus();
+    expect(await passiveTask).toMatchObject({ sessionId: "session-status" });
   });
 
   it("emits a clear failure for legacy runtimes without spawning", async () => {

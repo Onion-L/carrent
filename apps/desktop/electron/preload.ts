@@ -79,6 +79,10 @@ const carrent = {
       ipcRenderer.invoke("chat:kimi-status", request) as Promise<
         import("../src/shared/chat").KimiSessionStatus | null
       >,
+    getSessionStatus: (request: ChatTurnRequest) =>
+      ipcRenderer.invoke("chat:session-status", request) as Promise<
+        import("../src/shared/chat").KimiSessionStatus | null
+      >,
     onEvent: (listener: (event: ChatRunEvent) => void) => {
       const wrapped = (_event: IpcRendererEvent, evt: ChatRunEvent) => listener(evt);
       ipcRenderer.on("chat:event", wrapped);

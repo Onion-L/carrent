@@ -11,7 +11,9 @@ import type {
   ChatSubagentTaskStatus,
   ChatTurnRequest,
   Attachment,
-  KimiSessionStatus,
+  RuntimeQuotaWindow,
+  RuntimeSessionCommand,
+  RuntimeSessionStatusData,
 } from "../../src/shared/chat";
 import {
   CHAT_PERMISSION_TIMEOUT_MS,
@@ -54,6 +56,10 @@ type JsonObject = Record<string, unknown>;
 const MAX_TOOL_OUTPUT_LENGTH = 12_000;
 const MAX_TEXT_FILE_WRITE_BYTES = 4 * 1024 * 1024;
 const STOP_FALLBACK_MS = 5_000;
+const SUPPORTED_SESSION_COMMANDS = [
+  "compact",
+  "status",
+] as const satisfies readonly RuntimeSessionCommand[];
 
 class RuntimeSessionResumeError extends Error {}
 
@@ -357,13 +363,14 @@ export async function getKimiSessionStatus(options: {
   cwd: string;
   transportFactory: KimiAcpTransportFactory;
   requestTimeoutMs?: number;
-}): Promise<KimiSessionStatus | null> {
+}): Promise<RuntimeSessionStatusData | null> {
   const { sessionId, cwd, transportFactory, requestTimeoutMs = 30_000 } = options;
   const transport = transportFactory({ cwd });
 
   let statusText = "";
   const availableCommands = new Set<string>();
   let nextId = 1;
+  let phase: "initialize" | "resume" | "prompt" = "initialize";
   const pending = new Map<
     JsonRpcId,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
@@ -386,8 +393,13 @@ export async function getKimiSessionStatus(options: {
         pending.delete(message.id as JsonRpcId);
         if (message.error) {
           const errorObject = readObject(message.error);
+          const detail = readString(errorObject?.message) ?? JSON.stringify(message.error);
           handler.reject(
-            new Error(readString(errorObject?.message) ?? JSON.stringify(message.error)),
+            phase === "resume"
+              ? new KimiRuntimeSessionError(
+                  `Kimi Code could not resume the Runtime Session: ${detail}`,
+                )
+              : new Error(detail),
           );
         } else {
           handler.resolve(message.result);
@@ -445,7 +457,14 @@ export async function getKimiSessionStatus(options: {
             terminal: false,
           },
         });
+        phase = "resume";
         await send("session/resume", { sessionId, cwd, mcpServers: [] });
+        if (!availableCommands.has("status")) {
+          cleanup();
+          resolve(null);
+          return;
+        }
+        phase = "prompt";
         await send("session/prompt", {
           sessionId,
           prompt: [{ type: "text", text: "/status" }],
@@ -463,7 +482,7 @@ export async function getKimiSessionStatus(options: {
 function parseKimiStatusText(
   text: string,
   availableCommands: ReadonlySet<string> = new Set(),
-): KimiSessionStatus | null {
+): RuntimeSessionStatusData | null {
   const match = /Context:\s*([\d,]+)\s*\/\s*([\d,]+)\s*\(([\d.]+)%\)/u.exec(text);
   if (!match) {
     return null;
@@ -472,7 +491,24 @@ function parseKimiStatusText(
   const used = Number.parseInt(match[1].replace(/,/gu, ""), 10);
   const total = Number.parseInt(match[2].replace(/,/gu, ""), 10);
   const percentage = Number.parseFloat(match[3]);
+  if (
+    !Number.isSafeInteger(used) ||
+    !Number.isSafeInteger(total) ||
+    total <= 0 ||
+    used < 0 ||
+    used > total ||
+    !Number.isFinite(percentage) ||
+    percentage < 0 ||
+    percentage > 100
+  ) {
+    return null;
+  }
   const modelMatch = /Model:\s*(.+)/u.exec(text);
+  const supportedCommands = SUPPORTED_SESSION_COMMANDS.filter((command) =>
+    availableCommands.has(command),
+  );
+  const weekly = parseQuotaWindow(text, "Weekly");
+  const fiveHour = parseQuotaWindow(text, "5h");
 
   return {
     model: modelMatch ? modelMatch[1].trim() : undefined,
@@ -480,6 +516,41 @@ function parseKimiStatusText(
     total,
     percentage,
     threadActions: availableCommands.has("compact") ? ["compact"] : [],
+    supportedCommands,
+    ...(weekly || fiveHour
+      ? {
+          planUsage: {
+            ...(weekly ? { weekly } : {}),
+            ...(fiveHour ? { fiveHour } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+function parseQuotaWindow(text: string, label: "Weekly" | "5h"): RuntimeQuotaWindow | undefined {
+  const escapedLabel = label === "5h" ? "5h" : "Weekly";
+  const lineMatch = new RegExp(`(?:^|\\n)\\s*-?\\s*${escapedLabel}\\s*:\\s*([^\\n]+)`, "iu").exec(
+    text,
+  );
+  if (!lineMatch) return undefined;
+
+  const detail = lineMatch[1].trim();
+  const percentageMatch = /(?:\bused\s*:?\s*([\d.]+)%|([\d.]+)%\s*used\b)/iu.exec(detail);
+  let usedPercentage: number | undefined;
+  if (percentageMatch) {
+    const parsed = Number.parseFloat(percentageMatch[1] ?? percentageMatch[2]);
+    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 100) {
+      usedPercentage = parsed;
+    }
+  }
+
+  const resetMatch = /\breset(?:s)?\s+((?:in|at)\s+.+)$/iu.exec(detail);
+  const reset = resetMatch?.[1]?.trim();
+  if (usedPercentage === undefined && !reset) return undefined;
+  return {
+    ...(usedPercentage === undefined ? {} : { usedPercentage }),
+    ...(reset ? { reset } : {}),
   };
 }
 

@@ -73,6 +73,9 @@ export interface ChatSessionManager {
   getStatus: (
     request: ChatTurnRequest,
   ) => Promise<import("../../src/shared/chat").KimiSessionStatus | null>;
+  inspectStatus?: (
+    request: ChatTurnRequest,
+  ) => Promise<import("../../src/shared/chat").KimiSessionStatus | null>;
   executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>;
 }
 
@@ -741,6 +744,10 @@ export function createChatSessionManager(options: {
   const runtimeSessions = new Map<string, string>();
   const activeThreadActions = new Map<string, AbortController>();
   const activeThreadActionTasks = new Set<Promise<unknown>>();
+  const activeStatusRequests = new Map<
+    string,
+    Promise<import("../../src/shared/chat").KimiSessionStatus | null>
+  >();
   const deletedThreadIds = new Set<string>();
   const relocatingThreadIds = new Set<string>();
   const TIMEOUT_MS = 120_000;
@@ -795,6 +802,15 @@ export function createChatSessionManager(options: {
         runId,
         requestKey: request.requestKey,
         error: "Project relocation is in progress.",
+      });
+      return;
+    }
+    if (activeStatusRequests.has(request.threadId)) {
+      options.emit({
+        type: "failed",
+        runId,
+        requestKey: request.requestKey,
+        error: "Session status is loading.",
       });
       return;
     }
@@ -1333,6 +1349,9 @@ export function createChatSessionManager(options: {
     if (activeThreadActions.has(request.threadId)) {
       throw new Error("This Thread is already compacting.");
     }
+    if (activeStatusRequests.has(request.threadId)) {
+      throw new Error("Session status is loading.");
+    }
 
     const key = buildProviderSessionKey(request.runtimeId, request.threadId);
     const sessionId = runtimeSessions.get(key) ?? options.providerSessions?.get(key);
@@ -1597,8 +1616,33 @@ export function createChatSessionManager(options: {
     });
   }
 
+  async function loadStatus(request: ChatTurnRequest, sessionId: string) {
+    const transportFactory =
+      options.kimiAcpTransportFactory ?? createKimiAcpProcessTransportFactory(options.spawn);
+    const status = await getKimiSessionStatus({
+      sessionId,
+      cwd: request.context.workingDirectory,
+      transportFactory,
+      requestTimeoutMs: 30_000,
+    });
+    if (!status || deletedThreadIds.has(request.threadId)) return null;
+    return { ...status, sessionId };
+  }
+
+  async function removeRejectedStatusSession(key: string, sessionId: string) {
+    runtimeSessions.delete(key);
+    await options.providerSessions?.delete?.(key, sessionId);
+  }
+
   async function getStatus(request: ChatTurnRequest) {
-    if (request.runtimeId !== "kimi" || deletedThreadIds.has(request.threadId)) {
+    if (
+      request.runtimeId !== "kimi" ||
+      deletedThreadIds.has(request.threadId) ||
+      relocatingThreadIds.has(request.threadId) ||
+      hasLiveRunForThreads([request.threadId]) ||
+      activeThreadActions.has(request.threadId) ||
+      activeStatusRequests.has(request.threadId)
+    ) {
       return null;
     }
 
@@ -1609,18 +1653,58 @@ export function createChatSessionManager(options: {
       return null;
     }
 
-    const transportFactory =
-      options.kimiAcpTransportFactory ?? createKimiAcpProcessTransportFactory(options.spawn);
-
+    const task = loadStatus(request, sessionId);
+    activeStatusRequests.set(request.threadId, task);
     try {
-      return await getKimiSessionStatus({
-        sessionId,
-        cwd: request.context.workingDirectory,
-        transportFactory,
-        requestTimeoutMs: 30_000,
-      });
-    } catch {
+      return await task;
+    } catch (error) {
+      if (error instanceof KimiRuntimeSessionError) {
+        await removeRejectedStatusSession(requestSessionKey, sessionId);
+      }
       return null;
+    } finally {
+      if (activeStatusRequests.get(request.threadId) === task) {
+        activeStatusRequests.delete(request.threadId);
+      }
+    }
+  }
+
+  async function inspectStatus(request: ChatTurnRequest) {
+    if (
+      request.runtimeId !== "kimi" ||
+      deletedThreadIds.has(request.threadId) ||
+      relocatingThreadIds.has(request.threadId)
+    ) {
+      return null;
+    }
+    if (hasLiveRunForThreads([request.threadId])) {
+      throw new Error("Session status is unavailable while the Thread has a live Run.");
+    }
+    if (activeThreadActions.has(request.threadId)) {
+      throw new Error("Session status is unavailable while Compact is running.");
+    }
+    if (activeStatusRequests.has(request.threadId)) {
+      throw new Error("Session status is already loading.");
+    }
+
+    const requestSessionKey = buildRequestSessionKey(request);
+    const sessionId =
+      runtimeSessions.get(requestSessionKey) ?? options.providerSessions?.get(requestSessionKey);
+    if (!sessionId) return null;
+
+    const task = loadStatus(request, sessionId);
+    activeStatusRequests.set(request.threadId, task);
+    try {
+      return await task;
+    } catch (error) {
+      if (error instanceof KimiRuntimeSessionError) {
+        await removeRejectedStatusSession(requestSessionKey, sessionId);
+      }
+      throw error;
+    } finally {
+      if (activeStatusRequests.get(request.threadId) === task) {
+        activeStatusRequests.delete(request.threadId);
+      }
     }
   }
 
@@ -1662,6 +1746,7 @@ export function createChatSessionManager(options: {
     respondToPermission,
     respondToQuestion,
     getStatus,
+    inspectStatus,
     executeThreadAction,
   };
 }

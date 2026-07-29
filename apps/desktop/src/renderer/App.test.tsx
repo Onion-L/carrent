@@ -77,6 +77,12 @@ function installBridge(
   projectRelocationRequests: ProjectRelocationRequest[] = [],
   kimiStatus: KimiSessionStatus | null | (() => KimiSessionStatus | null) = null,
   executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>,
+  sessionStatus:
+    | KimiSessionStatus
+    | null
+    | ((
+        request: ChatTurnRequest,
+      ) => KimiSessionStatus | null | Promise<KimiSessionStatus | null>) = null,
 ) {
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
   let saveAttempt = 0;
@@ -201,6 +207,8 @@ function installBridge(
       respondToPermission: async () => {},
       respondToQuestion: async () => {},
       getKimiStatus: async () => (typeof kimiStatus === "function" ? kimiStatus() : kimiStatus),
+      getSessionStatus: async (request: ChatTurnRequest) =>
+        typeof sessionStatus === "function" ? sessionStatus(request) : sessionStatus,
       onEvent: (listener: (event: import("../shared/chat").ChatRunEvent) => void) => {
         chatListener = listener;
         emitChatEvent = (event) => chatListener?.(event);
@@ -284,6 +292,10 @@ type RenderAppOptions = {
   strictMode?: boolean;
   kimiStatus?: KimiSessionStatus | null | (() => KimiSessionStatus | null);
   executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>;
+  sessionStatus?:
+    | KimiSessionStatus
+    | null
+    | ((request: ChatTurnRequest) => KimiSessionStatus | null | Promise<KimiSessionStatus | null>);
 };
 
 async function renderApp(
@@ -321,6 +333,7 @@ async function renderApp(
     options.projectRelocationRequests,
     options.kimiStatus,
     options.executeThreadAction,
+    options.sessionStatus,
   );
   await mountInstalledBridge(initialEntry, options.strictMode);
 
@@ -1975,10 +1988,12 @@ describe("Compact Thread Action", () => {
       false,
       {
         kimiStatus: {
+          sessionId: "session-compact",
           used: 34,
           total: 100,
           percentage: 34,
           threadActions: ["compact"],
+          supportedCommands: ["compact"],
         },
         executeThreadAction: async (request) => {
           actionRequests.push(structuredClone(request));
@@ -2083,7 +2098,14 @@ describe("Compact Thread Action", () => {
       {
         kimiStatus: () =>
           sessionAvailable
-            ? { used: 34, total: 100, percentage: 34, threadActions: ["compact"] }
+            ? {
+                sessionId: "session-compact",
+                used: 34,
+                total: 100,
+                percentage: 34,
+                threadActions: ["compact"],
+                supportedCommands: ["compact"],
+              }
             : null,
         executeThreadAction: async (request) => {
           actionRequests.push(structuredClone(request));
@@ -2129,7 +2151,14 @@ describe("Compact Thread Action", () => {
       [],
       false,
       {
-        kimiStatus: { used: 34, total: 100, percentage: 34, threadActions: ["compact"] },
+        kimiStatus: {
+          sessionId: "session-compact",
+          used: 34,
+          total: 100,
+          percentage: 34,
+          threadActions: ["compact"],
+          supportedCommands: ["compact"],
+        },
         executeThreadAction: async (request) => {
           actionRequests.push(structuredClone(request));
           return { ...request, completedAt: "2026-07-27T08:02:00.000Z" };
@@ -2163,6 +2192,408 @@ describe("Compact Thread Action", () => {
     expect(textarea.value).toBe("Try again");
     expect(actionRequests).toHaveLength(1);
     expect(container!.textContent).toContain("requires a completed user and Agent exchange");
+  });
+});
+
+describe("Runtime Session Status", () => {
+  const statusAppState: AppStateSnapshot = {
+    version: 1,
+    workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+    projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+    associations: [
+      {
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        order: 0,
+        defaultRuntimeId: "kimi",
+        defaultRuntimeMode: "approval-required",
+      },
+    ],
+    threads: [
+      {
+        id: "thread-1",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        title: "Inspect status",
+        createdAt: "2026-07-27T08:00:00.000Z",
+        lastActivityAt: "2026-07-27T08:01:00.000Z",
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
+    ],
+    threadMessages: [
+      {
+        id: "message-1",
+        threadId: "thread-1",
+        role: "user",
+        content: "Finish the work",
+        createdAt: "2026-07-27T08:00:00.000Z",
+        attachments: [],
+      },
+      {
+        id: "message-2",
+        threadId: "thread-1",
+        role: "assistant",
+        content: "Done",
+        createdAt: "2026-07-27T08:01:00.000Z",
+        runStatus: "completed",
+        attachments: [],
+      },
+    ],
+    threadRuns: [
+      {
+        id: "run-1",
+        threadId: "thread-1",
+        messageId: "message-1",
+        startedAt: "2026-07-27T08:00:00.000Z",
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
+    ],
+    activeWorkspaceId: "workspace-1",
+  };
+  const passiveStatus: KimiSessionStatus = {
+    sessionId: "session-1234567890",
+    used: 35193,
+    total: 1048576,
+    percentage: 3.4,
+    threadActions: ["compact"],
+    supportedCommands: ["compact", "status"],
+  };
+
+  async function submitTextarea(textarea: HTMLTextAreaElement) {
+    await act(async () => {
+      textarea.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+  }
+
+  it("executes Status from the slash menu and renders normalized values without a Run", async () => {
+    const chatRequests: ChatTurnRequest[] = [];
+    const statusRequests: ChatTurnRequest[] = [];
+    await renderApp(
+      statusAppState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      chatRequests,
+      false,
+      {
+        kimiStatus: passiveStatus,
+        sessionStatus: async (request) => {
+          statusRequests.push(structuredClone(request));
+          return {
+            ...passiveStatus,
+            planUsage: {
+              weekly: { usedPercentage: 24.5, reset: "in 3d 8h" },
+              fiveHour: { reset: "at 14:30" },
+            },
+          };
+        },
+      },
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const usageIndicator = container!.querySelector<HTMLElement>('[title="Kimi context usage"]')!;
+    usageIndicator.click();
+    expect(statusRequests).toHaveLength(0);
+
+    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+    await fillTextarea(textarea, "Keep this /st");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(
+      [...container!.querySelectorAll<HTMLButtonElement>("button")].some((button) =>
+        button.textContent?.startsWith("Status"),
+      ),
+    ).toBe(false);
+
+    await fillTextarea(textarea, "/");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const commandLabels = [...container!.querySelectorAll<HTMLButtonElement>("button")]
+      .map((button) => button.textContent?.trim() ?? "")
+      .filter(
+        (label) =>
+          label.startsWith("Plan mode") ||
+          label.startsWith("Compact") ||
+          label.startsWith("Status"),
+      );
+    expect(commandLabels).toEqual([
+      "Plan modeEnable plan mode",
+      "CompactCompress this thread's context (3% used)",
+      "StatusInspect this Runtime Session",
+    ]);
+
+    const statusButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.startsWith("Status"),
+    )!;
+    await act(async () => {
+      statusButton.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(statusRequests).toHaveLength(1);
+    expect(statusRequests[0]).toMatchObject({
+      threadId: "thread-1",
+      runtimeId: "kimi",
+      message: "",
+      transcript: [],
+    });
+    expect(chatRequests).toEqual([]);
+    expect(textarea.value).toBe("");
+    expect(container!.textContent).toContain("Status");
+    expect(container!.textContent).toContain("Session");
+    expect(container!.textContent).toContain("session-1234567890");
+    expect(container!.textContent).toContain("Remaining 96.6% (35,193 used / 1M total)");
+    expect(container!.textContent).toContain("Plan usage");
+    expect(container!.textContent).toContain("Weekly");
+    expect(container!.textContent).toContain("Used 24.5% · Remaining 75.5% · Resets in 3d 8h");
+    expect(container!.textContent).toContain("5h");
+    expect(container!.textContent).toContain("5hResets at 14:30");
+    expect(container!.querySelector('[role="dialog"]')).toBe(null);
+    expect(buttonNamed("Close")).toBeDefined();
+    expect(
+      [...container!.querySelectorAll<HTMLButtonElement>("button")].some((button) =>
+        button.textContent?.includes("Copy"),
+      ),
+    ).toBe(false);
+  });
+
+  it("preserves an open snapshot and draft when an explicit refresh fails", async () => {
+    let statusCall = 0;
+    let rejectRefresh!: (error: Error) => void;
+    const refreshGate = new Promise<KimiSessionStatus | null>((_resolve, reject) => {
+      rejectRefresh = reject;
+    });
+    await renderApp(
+      statusAppState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      {
+        kimiStatus: passiveStatus,
+        sessionStatus: async () => {
+          statusCall += 1;
+          if (statusCall === 1) return passiveStatus;
+          if (statusCall === 2) return refreshGate;
+          return { ...passiveStatus, used: 40000, percentage: 4 };
+        },
+      },
+    );
+    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+
+    await fillTextarea(textarea, "/status");
+    await submitTextarea(textarea);
+    expect(container!.textContent).toContain("35,193 used");
+
+    await fillTextarea(textarea, "/status Keep this draft");
+    await act(async () => {
+      textarea.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(statusCall).toBe(2);
+    expect(textarea.value).toBe("Keep this draft");
+    expect(container!.textContent).toContain("35,193 used");
+    expect(composerSendButton().disabled).toBe(true);
+    expect(container!.querySelector('[aria-busy="true"]')).not.toBe(null);
+
+    rejectRefresh(new Error("transport failed"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(container!.textContent).toContain("35,193 used");
+    expect(container!.textContent).toContain("Unable to load session status.");
+    expect(textarea.value).toBe("Keep this draft");
+    expect(composerSendButton().disabled).toBe(false);
+
+    await fillTextarea(textarea, "/status");
+    await submitTextarea(textarea);
+    expect(statusCall).toBe(3);
+    expect(container!.textContent).toContain("40,000 used");
+    expect(container!.textContent).not.toContain("Unable to load session status.");
+  });
+
+  it("intercepts unavailable manual Status but preserves normal word-boundary sending", async () => {
+    const chatRequests: ChatTurnRequest[] = [];
+    let statusCalls = 0;
+    await renderApp(
+      statusAppState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      chatRequests,
+      false,
+      {
+        kimiStatus: null,
+        sessionStatus: async () => {
+          statusCalls += 1;
+          return null;
+        },
+      },
+    );
+    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+
+    await fillTextarea(textarea, "/status Keep this draft");
+    await submitTextarea(textarea);
+    expect(textarea.value).toBe("Keep this draft");
+    expect(container!.textContent).toContain("Status is unavailable for this runtime.");
+    expect(statusCalls).toBe(0);
+    expect(chatRequests).toEqual([]);
+
+    await fillTextarea(textarea, "/status-report");
+    await submitTextarea(textarea);
+    expect(chatRequests).toHaveLength(1);
+    expect(chatRequests[0]?.message).toBe("/status-report");
+    expect(statusCalls).toBe(0);
+    await act(async () => {
+      emitChatEvent?.({
+        type: "completed",
+        runId: chatRequests[0]!.runId!,
+        requestKey: chatRequests[0]!.requestKey,
+        text: "Done",
+        finishedAt: "2026-07-27T08:02:00.000Z",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  });
+
+  it("dismisses the panel with Close and Escape", async () => {
+    await renderApp(
+      statusAppState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      { kimiStatus: passiveStatus, sessionStatus: passiveStatus },
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+
+    await fillTextarea(textarea, "/status");
+    await submitTextarea(textarea);
+    expect(container!.textContent).toContain("session-1234567890");
+    await click(buttonNamed("Close"));
+    expect(container!.textContent).not.toContain("session-1234567890");
+
+    await fillTextarea(textarea, "/status");
+    await submitTextarea(textarea);
+    await act(async () => {
+      window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(container!.textContent).not.toContain("session-1234567890");
+  });
+
+  it("keeps an in-flight result with its owning Thread across navigation", async () => {
+    let resolveStatus!: (status: KimiSessionStatus) => void;
+    const statusGate = new Promise<KimiSessionStatus>((resolve) => {
+      resolveStatus = resolve;
+    });
+    const twoThreadState: AppStateSnapshot = {
+      ...statusAppState,
+      threads: [
+        ...(statusAppState.threads ?? []),
+        {
+          id: "thread-2",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Other thread",
+          createdAt: "2026-07-27T08:02:00.000Z",
+          lastActivityAt: "2026-07-27T08:02:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+    };
+    await renderApp(
+      twoThreadState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      { kimiStatus: passiveStatus, sessionStatus: () => statusGate },
+    );
+    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+
+    await fillTextarea(textarea, "/status");
+    await act(async () => {
+      textarea.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      testNavigate?.("/workspace/workspace-1/project/project-1/thread/thread-2");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(container!.textContent).toContain("Other thread");
+    expect(container!.textContent).not.toContain("session-1234567890");
+
+    resolveStatus(passiveStatus);
+    await act(async () => {
+      await statusGate;
+      testNavigate?.("/workspace/workspace-1/project/project-1/thread/thread-1");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(container!.textContent).toContain("session-1234567890");
+  });
+
+  it("does not reopen a panel closed while refresh is loading", async () => {
+    let statusCall = 0;
+    let resolveRefresh!: (status: KimiSessionStatus) => void;
+    const refreshGate = new Promise<KimiSessionStatus>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    await renderApp(
+      statusAppState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      {
+        kimiStatus: passiveStatus,
+        sessionStatus: () => {
+          statusCall += 1;
+          return statusCall === 1 ? passiveStatus : refreshGate;
+        },
+      },
+    );
+    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+
+    await fillTextarea(textarea, "/status");
+    await submitTextarea(textarea);
+    await fillTextarea(textarea, "/status");
+    await act(async () => {
+      textarea.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    await click(buttonNamed("Close"));
+    resolveRefresh({ ...passiveStatus, used: 40000, percentage: 4 });
+    await act(async () => {
+      await refreshGate;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(container!.textContent).not.toContain("session-1234567890");
+    expect(container!.textContent).not.toContain("40,000 used");
   });
 });
 

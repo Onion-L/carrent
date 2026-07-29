@@ -31,7 +31,11 @@ import {
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 
-import type { AttachmentMetadata, KimiSessionStatus } from "../../../shared/chat";
+import type {
+  AttachmentMetadata,
+  KimiSessionStatus,
+  RuntimeQuotaWindow,
+} from "../../../shared/chat";
 import type {
   AppThreadActionRecord,
   AppThreadRunStartInput,
@@ -61,11 +65,13 @@ import {
 import { useThreadContent } from "../../context/ThreadContentContext";
 import { useAppState } from "../../context/AppStateContext";
 import { useChatRun } from "../../hooks/useChatRun";
+import { useSessionStatus } from "../../hooks/useSessionStatus";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import {
   getCompactAvailability,
   getCompactUnavailableMessage,
   parseLeadingCompactCommand,
+  parseLeadingStatusCommand,
 } from "../../lib/threadActions";
 import { QuestionPanel, getPendingQuestionForThread } from "./QuestionPanel";
 import { RunChecklist } from "./RunChecklist";
@@ -204,6 +210,98 @@ function ContextUsageIndicator({
         </div>
       )}
     </div>
+  );
+}
+
+function formatPercentage(value: number) {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1);
+}
+
+function formatCompactTokens(value: number) {
+  return new Intl.NumberFormat("en", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function formatQuotaWindow(window: RuntimeQuotaWindow) {
+  const details: string[] = [];
+  if (window.usedPercentage !== undefined) {
+    const used = Math.min(100, Math.max(0, window.usedPercentage));
+    details.push(`Used ${formatPercentage(used)}%`, `Remaining ${formatPercentage(100 - used)}%`);
+  }
+  if (window.reset) {
+    details.push(`Resets ${window.reset}`);
+  }
+  return details.join(" · ");
+}
+
+function SessionStatusPanel({
+  status,
+  loading,
+  onClose,
+}: {
+  status: KimiSessionStatus;
+  loading: boolean;
+  onClose: () => void;
+}) {
+  const remaining = Math.min(100, Math.max(0, 100 - status.percentage));
+  const planUsage = status.planUsage;
+
+  return (
+    <section
+      aria-labelledby="session-status-title"
+      aria-busy={loading}
+      className="mb-2 rounded-lg border border-border-strong bg-surface px-4 py-3 shadow-lg"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="session-status-title" className="text-app-13 font-semibold text-fg">
+          Status
+        </h2>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          title="Close"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-hover hover:text-fg"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <dl className="mt-3 grid gap-3 text-app-12">
+        <div>
+          <dt className="text-muted">Session</dt>
+          <dd className="mt-1 select-text break-all font-mono text-fg">{status.sessionId}</dd>
+        </div>
+        <div>
+          <dt className="text-muted">Context</dt>
+          <dd className="mt-1 text-fg">
+            Remaining {formatPercentage(remaining)}% ({status.used.toLocaleString("en-US")} used /{" "}
+            {formatCompactTokens(status.total)} total)
+          </dd>
+        </div>
+        {planUsage?.weekly || planUsage?.fiveHour ? (
+          <div>
+            <dt className="text-muted">Plan usage</dt>
+            <dd className="mt-1 grid gap-1.5 text-fg">
+              {planUsage.weekly ? (
+                <div>
+                  <span className="font-medium">Weekly</span>
+                  <span className="ml-2 text-muted">{formatQuotaWindow(planUsage.weekly)}</span>
+                </div>
+              ) : null}
+              {planUsage.fiveHour ? (
+                <div>
+                  <span className="font-medium">5h</span>
+                  <span className="ml-2 text-muted">{formatQuotaWindow(planUsage.fiveHour)}</span>
+                </div>
+              ) : null}
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+    </section>
   );
 }
 
@@ -988,6 +1086,28 @@ export function Composer(props: ComposerProps) {
     props.mode === "association-draft"
       ? null
       : (threads.find((item) => item.id === threadId && item.projectId === projectId) ?? null);
+  const sessionStatusContextKey = [
+    props.workspaceId,
+    projectId,
+    project?.workingDirectory ?? "",
+    threadId,
+    props.runtimeId,
+    props.runtimeModelId ?? "",
+    props.runtimeMode,
+  ].join("\0");
+  const {
+    snapshot: sessionStatusSnapshot,
+    loading: isSessionStatusLoading,
+    error: sessionStatusError,
+    begin: beginSessionStatus,
+    succeed: succeedSessionStatus,
+    fail: failSessionStatus,
+    dismiss: dismissSessionStatus,
+    clear: clearSessionStatus,
+    reportError: reportSessionStatusError,
+  } = useSessionStatus(threadId, sessionStatusContextKey);
+  const sessionStatusContextKeyRef = useRef(sessionStatusContextKey);
+  sessionStatusContextKeyRef.current = sessionStatusContextKey;
   const runChecklist = thread?.runChecklist;
   const queuedMessages = useQueuedMessages(threadId);
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
@@ -1131,6 +1251,7 @@ export function Composer(props: ComposerProps) {
         status: kimiStatus,
         running: isThreadSending,
         compacting: isThreadCompacting,
+        statusLoading: isSessionStatusLoading,
         messages: props.messages,
         runs: threadRuns.filter((run) => run.threadId === threadId),
         actions: [
@@ -1141,6 +1262,7 @@ export function Composer(props: ComposerProps) {
     [
       isThreadCompacting,
       isThreadSending,
+      isSessionStatusLoading,
       kimiStatus,
       latestCompactBoundary,
       props.messages,
@@ -1159,14 +1281,30 @@ export function Composer(props: ComposerProps) {
     !!skillTrigger &&
     dismissedSkillInput !== input &&
     "compact".startsWith(skillTrigger.query.toLocaleLowerCase());
+  const statusAvailable =
+    props.mode === "thread" &&
+    props.runtimeId === "kimi" &&
+    !!project?.workingDirectory &&
+    !!kimiStatus?.supportedCommands.includes("status") &&
+    !isThreadSending &&
+    !isThreadCompacting &&
+    !isSessionStatusLoading;
+  const showStatusSuggestion =
+    statusAvailable &&
+    !!skillTrigger &&
+    input.slice(0, skillTrigger.start).trim().length === 0 &&
+    dismissedSkillInput !== input &&
+    "status".startsWith(skillTrigger.query.toLocaleLowerCase());
   const showSkills =
     !!skillTrigger &&
     !localMcpSkillsDisabled &&
     dismissedSkillInput !== input &&
     (skillsLoading || !!skillsError || filteredSkills.length > 0 || skillTrigger.query.length > 0);
-  const showSlashMenu = showPlanSuggestion || showCompactSuggestion || showSkills;
-  const threadActionMenuItemCount = (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0);
-  const slashMenuItemCount = threadActionMenuItemCount + filteredSkills.length;
+  const showSlashMenu =
+    showPlanSuggestion || showCompactSuggestion || showStatusSuggestion || showSkills;
+  const carrentCommandMenuItemCount =
+    (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0) + (showStatusSuggestion ? 1 : 0);
+  const slashMenuItemCount = carrentCommandMenuItemCount + filteredSkills.length;
 
   const effectiveAttachedSkills = localMcpSkillsDisabled ? [] : attachedSkills;
   const hasSendableContent = canSubmitComposerContent({
@@ -1177,7 +1315,11 @@ export function Composer(props: ComposerProps) {
     hasUnavailableAttachments: hasUnavailablePendingAttachments(pendingAttachments),
   });
   const canSend =
-    hasSendableContent && !!project && isSelectedRuntimeAvailable && !isThreadCompacting;
+    hasSendableContent &&
+    !!project &&
+    isSelectedRuntimeAvailable &&
+    !isThreadCompacting &&
+    !isSessionStatusLoading;
   const threadPermissions = useMemo(
     () => getActionablePermissionsForThread({ pendingPermissions, threadId }),
     [pendingPermissions, threadId],
@@ -1261,7 +1403,7 @@ export function Composer(props: ComposerProps) {
 
   useEffect(() => {
     setKimiStatus(null);
-  }, [threadId]);
+  }, [threadId, props.runtimeId, projectId, project?.workingDirectory]);
 
   useEffect(() => {
     void refreshKimiStatus();
@@ -1273,6 +1415,16 @@ export function Composer(props: ComposerProps) {
     }
     wasSendingRef.current = isThreadSending;
   }, [isThreadSending, refreshKimiStatus]);
+
+  useEffect(() => {
+    if (!sessionStatusSnapshot) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      dismissSessionStatus();
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [dismissSessionStatus, sessionStatusSnapshot]);
 
   useEffect(() => {
     if (!project?.workingDirectory) {
@@ -1409,7 +1561,13 @@ export function Composer(props: ComposerProps) {
 
   useEffect(() => {
     setSelectedSkillIndex(0);
-  }, [skillTrigger?.query, filteredSkills.length, showPlanSuggestion]);
+  }, [
+    skillTrigger?.query,
+    filteredSkills.length,
+    showPlanSuggestion,
+    showCompactSuggestion,
+    showStatusSuggestion,
+  ]);
 
   useEffect(() => {
     if (!showSlashMenu) {
@@ -1582,6 +1740,52 @@ export function Composer(props: ComposerProps) {
     [handleAddFiles],
   );
 
+  const handleStatus = async (removeMenuQuery = false) => {
+    if (removeMenuQuery && skillTrigger) {
+      const nextInput = `${input.slice(0, skillTrigger.start)}${input.slice(skillTrigger.end)}`;
+      setInput(nextInput);
+      setTextareaCursor(skillTrigger.start);
+    }
+    setDismissedSkillInput(input);
+    if (!statusAvailable || !project?.workingDirectory) {
+      reportSessionStatusError("Status is unavailable for this runtime.");
+      return false;
+    }
+
+    const requestId = beginSessionStatus();
+    if (requestId === null) return false;
+    const requestContextKey = sessionStatusContextKey;
+    try {
+      const status = await window.carrent.chat.getSessionStatus({
+        context: {
+          kind: "project",
+          projectId: props.projectId,
+          workingDirectory: project.workingDirectory,
+          workspaceId: props.workspaceId,
+        },
+        threadId,
+        runtimeId: props.runtimeId,
+        runtimeModelId: getRuntimeModelIdForSend({
+          runtimeId: props.runtimeId,
+          runtimeModelId: props.runtimeModelId,
+        }),
+        runtimeMode: props.runtimeMode,
+        planMode: false,
+        transcript: [],
+        message: "",
+      });
+      if (!status) throw new Error("Session status is unavailable.");
+      const displayed = succeedSessionStatus(requestId, status);
+      if (displayed && sessionStatusContextKeyRef.current === requestContextKey) {
+        setKimiStatus(status);
+      }
+      return displayed;
+    } catch {
+      failSessionStatus(requestId, "Unable to load session status.");
+      return false;
+    }
+  };
+
   const handleCompact = async (removeMenuQuery = false) => {
     if (removeMenuQuery && skillTrigger) {
       const nextInput = `${input.slice(0, skillTrigger.start)}${input.slice(skillTrigger.end)}`;
@@ -1634,13 +1838,19 @@ export function Composer(props: ComposerProps) {
   }) => {
     const externalSubmit = override;
     const isExternalSubmit = externalSubmit !== undefined;
+    const statusCommand = isExternalSubmit ? null : parseLeadingStatusCommand(input);
+    if (statusCommand) {
+      setInput(statusCommand.draft);
+      setTextareaCursor(statusCommand.draft.length);
+      return handleStatus();
+    }
     const compactCommand = isExternalSubmit ? null : parseLeadingCompactCommand(input);
     if (compactCommand) {
       setInput(compactCommand.draft);
       setTextareaCursor(compactCommand.draft.length);
       return handleCompact();
     }
-    if (isThreadCompacting) return false;
+    if (isThreadCompacting || isSessionStatusLoading) return false;
     const currentPendingAttachments = externalSubmit ? [] : pendingAttachments;
     const currentAttachedSkills = externalSubmit ? [] : effectiveAttachedSkills;
     const planSubmission = getPlanSubmissionState(input, props.runtimeId, props.planMode);
@@ -1669,6 +1879,8 @@ export function Composer(props: ComposerProps) {
     }
 
     if (!canSendCurrent) return false;
+
+    clearSessionStatus();
 
     // External submits (message edit resend) rewrite history; never let one
     // through while a run is active — it would prune messages and then be
@@ -2531,8 +2743,15 @@ export function Composer(props: ComposerProps) {
 
   return (
     <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"} onPaste={handlePaste}>
-      <div className="relative mx-auto w-full max-w-[48rem]">
+      <div className="relative mx-auto w-full max-w-[48rem]" aria-busy={isSessionStatusLoading}>
         {runChecklistPanel}
+        {sessionStatusSnapshot ? (
+          <SessionStatusPanel
+            status={sessionStatusSnapshot}
+            loading={isSessionStatusLoading}
+            onClose={dismissSessionStatus}
+          />
+        ) : null}
         {showSlashMenu ? (
           <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border-strong bg-surface shadow-[0_18px_60px_rgb(0_0_0/0.28)]">
             <div className="max-h-80 overflow-y-auto p-1">
@@ -2592,6 +2811,41 @@ export function Composer(props: ComposerProps) {
                   </span>
                 </button>
               ) : null}
+              {showStatusSuggestion ? (
+                <button
+                  ref={(element) => {
+                    const index = (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0);
+                    if (element) {
+                      skillItemRefs.current.set(index, element);
+                    } else {
+                      skillItemRefs.current.delete(index);
+                    }
+                  }}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    void handleStatus(true);
+                  }}
+                  onMouseEnter={() =>
+                    setSelectedSkillIndex(
+                      (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0),
+                    )
+                  }
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left transition ${
+                    selectedSkillIndex ===
+                    (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0)
+                      ? "bg-surface-hover"
+                      : "hover:bg-surface-raised"
+                  }`}
+                >
+                  <span className="min-w-0 flex-1 truncate text-app-13 font-medium text-fg">
+                    Status
+                  </span>
+                  <span className="shrink-0 text-app-12 text-subtle">
+                    Inspect this Runtime Session
+                  </span>
+                </button>
+              ) : null}
               {showSkills ? (
                 <div className="px-3 pb-1 pt-2 text-app-12 font-medium text-muted">Skills</div>
               ) : null}
@@ -2601,7 +2855,7 @@ export function Composer(props: ComposerProps) {
                 <div className="px-3 py-2 text-app-12 text-danger">{skillsError}</div>
               ) : showSkills && filteredSkills.length > 0 ? (
                 filteredSkills.map((skill, index) => {
-                  const menuIndex = index + threadActionMenuItemCount;
+                  const menuIndex = index + carrentCommandMenuItemCount;
                   const isSelected = menuIndex === selectedSkillIndex;
 
                   return (
@@ -2637,7 +2891,7 @@ export function Composer(props: ComposerProps) {
                     </button>
                   );
                 })
-              ) : !showPlanSuggestion && !showCompactSuggestion ? (
+              ) : !showPlanSuggestion && !showCompactSuggestion && !showStatusSuggestion ? (
                 <div className="px-3 py-2 text-app-12 text-subtle">No skills found.</div>
               ) : null}
             </div>
@@ -3012,8 +3266,14 @@ export function Composer(props: ComposerProps) {
                         selectedSkillIndex === (showPlanSuggestion ? 1 : 0)
                       ) {
                         void handleCompact(true);
+                      } else if (
+                        showStatusSuggestion &&
+                        selectedSkillIndex ===
+                          (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0)
+                      ) {
+                        void handleStatus(true);
                       } else {
-                        const skillIndex = selectedSkillIndex - threadActionMenuItemCount;
+                        const skillIndex = selectedSkillIndex - carrentCommandMenuItemCount;
                         handleSkillInsert(filteredSkills[skillIndex] ?? filteredSkills[0]);
                       }
                       return;
@@ -3028,7 +3288,11 @@ export function Composer(props: ComposerProps) {
 
                   if (shouldSubmitComposerOnKeyDown(e)) {
                     e.preventDefault();
-                    if (canSend || parseLeadingCompactCommand(input)) {
+                    if (
+                      canSend ||
+                      parseLeadingCompactCommand(input) ||
+                      parseLeadingStatusCommand(input)
+                    ) {
                       void handleSend();
                     }
                   }
@@ -3044,6 +3308,16 @@ export function Composer(props: ComposerProps) {
           {threadActionError ? (
             <div className="mt-2 text-app-12 text-danger" role="alert">
               {threadActionError}
+            </div>
+          ) : null}
+          {isSessionStatusLoading ? (
+            <div className="mt-2 text-app-12 text-subtle" role="status">
+              Loading session status...
+            </div>
+          ) : null}
+          {sessionStatusError ? (
+            <div className="mt-2 text-app-12 text-danger" role="alert">
+              {sessionStatusError}
             </div>
           ) : null}
           {attachmentError && <div className="mt-2 text-app-12 text-danger">{attachmentError}</div>}

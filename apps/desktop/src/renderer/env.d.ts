@@ -70,6 +70,7 @@ declare global {
         respondToPermission: (response: ChatPermissionResponse) => Promise<void>;
         respondToQuestion: (response: ChatQuestionResponse) => Promise<void>;
         getKimiStatus: (request: ChatTurnRequest) => Promise<KimiSessionStatus | null>;
+        getSessionStatus: (request: ChatTurnRequest) => Promise<KimiSessionStatus | null>;
         onEvent: (listener: (event: ChatRunEvent) => void) => VoidFunction;
       };
       attachments: {

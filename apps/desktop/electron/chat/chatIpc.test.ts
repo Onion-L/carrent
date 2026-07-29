@@ -52,6 +52,7 @@ describe("registerChatIpc", () => {
       "chat:question-response",
       "chat:remove-runtime-session",
       "chat:send",
+      "chat:session-status",
       "chat:stop",
       "chat:thread-action",
     ]);
@@ -675,10 +676,12 @@ describe("registerChatIpc", () => {
           respondToQuestion: () => {},
           shutdown: async () => {},
           getStatus: async () => ({
+            sessionId: "session-status",
             model: "kimi-code/kimi-for-coding",
             used: 1000,
             total: 200000,
             percentage: 0.5,
+            supportedCommands: ["status"],
           }),
         },
       },
@@ -713,10 +716,12 @@ describe("registerChatIpc", () => {
           getStatus: async (request) => {
             requested.push(request);
             return {
+              sessionId: "session-status",
               model: "kimi-code/kimi-for-coding",
               used: 21169,
               total: 262144,
               percentage: 8.1,
+              supportedCommands: ["status"],
             };
           },
         },
@@ -728,11 +733,50 @@ describe("registerChatIpc", () => {
     expect(requested).toHaveLength(1);
     expect(requested[0].threadId).toBe("thread-1");
     expect(result).toEqual({
+      sessionId: "session-status",
       model: "kimi-code/kimi-for-coding",
       used: 21169,
       total: 262144,
       percentage: 8.1,
+      supportedCommands: ["status"],
     });
+  });
+
+  it("chat:session-status forwards explicit inspection without using normal chat sending", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const requested: ChatTurnRequest[] = [];
+    registerChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          removeRuntimeSession: async () => {},
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: async () => {},
+          getStatus: async () => null,
+          inspectStatus: async (request) => {
+            requested.push(request);
+            return {
+              sessionId: "session-status",
+              used: 35193,
+              total: 1048576,
+              percentage: 3.4,
+              supportedCommands: ["status"],
+            };
+          },
+        },
+      },
+    );
+
+    const request = makeRequest();
+    expect(await handlers.get("chat:session-status")?.({}, request)).toMatchObject({
+      sessionId: "session-status",
+      used: 35193,
+    });
+    expect(requested).toEqual([request]);
   });
 
   it("chat:permission-response forwards selected options to the session manager", async () => {

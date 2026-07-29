@@ -13,11 +13,18 @@ export type CompactAvailability =
         | "unsupported-capability"
         | "running"
         | "compacting"
+        | "status-loading"
         | "missing-exchange";
     };
 
 export function parseLeadingCompactCommand(input: string): { draft: string } | null {
   const match = /^\s*\/compact(?=\s|$)/u.exec(input);
+  if (!match) return null;
+  return { draft: input.slice(match[0].length).replace(/^[ \t]+/u, "") };
+}
+
+export function parseLeadingStatusCommand(input: string): { draft: string } | null {
+  const match = /^\s*\/status(?=\s|$)/u.exec(input);
   if (!match) return null;
   return { draft: input.slice(match[0].length).replace(/^[ \t]+/u, "") };
 }
@@ -64,6 +71,7 @@ export function getCompactAvailability(input: {
   status: KimiSessionStatus | null;
   running: boolean;
   compacting: boolean;
+  statusLoading?: boolean;
   messages: Message[];
   runs: AppThreadRunRecord[];
   actions: AppThreadActionRecord[];
@@ -71,6 +79,7 @@ export function getCompactAvailability(input: {
   if (input.runtimeId !== "kimi") return { available: false, reason: "unsupported-runtime" };
   if (input.running) return { available: false, reason: "running" };
   if (input.compacting) return { available: false, reason: "compacting" };
+  if (input.statusLoading) return { available: false, reason: "status-loading" };
   if (!input.status) return { available: false, reason: "missing-session" };
   if (!input.status.threadActions?.includes("compact")) {
     return { available: false, reason: "unsupported-capability" };
@@ -89,6 +98,8 @@ export function getCompactUnavailableMessage(
       return "Compact is unavailable while the Thread has a live Run.";
     case "compacting":
       return "This Thread is already compacting.";
+    case "status-loading":
+      return "Compact is unavailable while Session Status is loading.";
     case "missing-session":
       return "Compact requires a resumable Runtime Session.";
     case "missing-exchange":

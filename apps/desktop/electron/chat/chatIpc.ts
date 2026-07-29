@@ -419,6 +419,15 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
 
     return services.sessionManager.getStatus(req) as Promise<KimiSessionStatus | null>;
   });
+
+  ipcMainLike.handle("chat:session-status", async (_event, request) => {
+    const req = request as ChatTurnRequest;
+    if (req.runtimeId !== "kimi" || !services.sessionManager.inspectStatus) {
+      return null;
+    }
+
+    return services.sessionManager.inspectStatus(req) as Promise<KimiSessionStatus | null>;
+  });
 }
 
 function getV1UnavailableRuntimeMessage(runtimeId: RuntimeId) {

@@ -37,13 +37,31 @@ export type Attachment = AttachmentMetadata & {
   localPath?: string;
 };
 
-export type KimiSessionStatus = {
+export type RuntimeSessionCommand = "compact" | "status";
+
+export type RuntimeQuotaWindow = {
+  usedPercentage?: number;
+  reset?: string;
+};
+
+export type RuntimeSessionStatusData = {
   model?: string;
   used: number;
   total: number;
   percentage: number;
   threadActions?: import("./threadActions").ThreadActionKind[];
+  supportedCommands: RuntimeSessionCommand[];
+  planUsage?: {
+    weekly?: RuntimeQuotaWindow;
+    fiveHour?: RuntimeQuotaWindow;
+  };
 };
+
+export type RuntimeSessionStatus = RuntimeSessionStatusData & {
+  sessionId: string;
+};
+
+export type KimiSessionStatus = RuntimeSessionStatus;
 
 export type DeleteThreadDataRequest = {
   threadIds: string[];

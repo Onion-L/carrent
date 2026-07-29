@@ -253,7 +253,7 @@ function SessionStatusPanel({
     <section
       aria-labelledby="session-status-title"
       aria-busy={loading}
-      className="mb-2 rounded-lg border border-border-strong bg-surface px-4 py-3 shadow-lg"
+      className="absolute bottom-full left-0 right-0 z-50 mb-2 max-h-80 overflow-y-auto rounded-xl border border-border-strong bg-surface px-4 py-3 shadow-[0_18px_60px_rgb(0_0_0/0.28)]"
     >
       <div className="flex items-center justify-between gap-3">
         <h2 id="session-status-title" className="text-app-13 font-semibold text-fg">

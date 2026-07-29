@@ -76,7 +76,9 @@ export function getThreadDisplayStatus({
 }
 
 export function getProjectThreads(threads: AppThreadRecord[]) {
-  return threads;
+  return [...threads].sort((left, right) =>
+    right.lastActivityAt.localeCompare(left.lastActivityAt),
+  );
 }
 
 export function filterProjectThreads(threads: AppThreadRecord[], query: string) {

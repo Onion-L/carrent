@@ -919,7 +919,7 @@ describe("three-level navigation", () => {
     expect(container!.textContent).not.toContain("Thread Draft");
   });
 
-  it("keeps and renames Threads in persisted order", async () => {
+  it("orders Threads by latest activity and renames them", async () => {
     const state = navigationState();
     state.threads!.push({
       id: "thread-3",
@@ -942,8 +942,8 @@ describe("three-level navigation", () => {
     );
     const navigationPane = container!.querySelector("aside.border-r")!;
 
-    expect(navigationPane.textContent!.indexOf("Personal Thread")).toBeLessThan(
-      navigationPane.textContent!.indexOf("Recent Thread"),
+    expect(navigationPane.textContent!.indexOf("Recent Thread")).toBeLessThan(
+      navigationPane.textContent!.indexOf("Personal Thread"),
     );
     expect(buttonNamed("Archive Personal Thread")).not.toBe(null);
 

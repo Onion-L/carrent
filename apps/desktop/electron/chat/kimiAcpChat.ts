@@ -126,6 +126,11 @@ export async function executeKimiCompact(options: {
   let nextId = 1;
   let settled = false;
   let phase: "initialize" | "resume" | "prompt" = "initialize";
+  let receivedAvailableCommands = false;
+  let availableCommandsWaiter: {
+    resolve: () => void;
+    reject: (error: Error) => void;
+  } | null = null;
 
   const close = () => Promise.resolve(transport.close()).catch(() => {});
   const finish = async <T>(callback: () => T) => {
@@ -145,6 +150,8 @@ export async function executeKimiCompact(options: {
 
   return new Promise((resolve, reject) => {
     const fail = (error: Error) => {
+      availableCommandsWaiter?.reject(error);
+      availableCommandsWaiter = null;
       void finish(() => reject(error));
     };
     rejectOperation = fail;
@@ -178,7 +185,10 @@ export async function executeKimiCompact(options: {
       const params = readObject(message.params);
       const update = readObject(params?.update);
       if (readString(update?.sessionUpdate) !== "available_commands_update") return;
+      receivedAvailableCommands = true;
       readAvailableCommandNames(update).forEach((name) => availableCommands.add(name));
+      availableCommandsWaiter?.resolve();
+      availableCommandsWaiter = null;
     });
     transport.onError(fail);
     transport.onClose(({ code, signal, stderr }) => {
@@ -192,6 +202,13 @@ export async function executeKimiCompact(options: {
       return new Promise<unknown>((requestResolve, requestReject) => {
         pending.set(id, { resolve: requestResolve, reject: requestReject });
         transport.send({ jsonrpc: "2.0", id, method, params });
+      });
+    };
+
+    const waitForAvailableCommands = () => {
+      if (receivedAvailableCommands) return Promise.resolve();
+      return new Promise<void>((waitResolve, waitReject) => {
+        availableCommandsWaiter = { resolve: waitResolve, reject: waitReject };
       });
     };
 
@@ -210,6 +227,7 @@ export async function executeKimiCompact(options: {
           cwd: options.cwd,
           mcpServers: [],
         });
+        await waitForAvailableCommands();
         if (!availableCommands.has("compact")) {
           throw new Error("Kimi Code does not support Compact for this Runtime Session.");
         }

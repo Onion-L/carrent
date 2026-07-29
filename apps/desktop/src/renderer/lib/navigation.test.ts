@@ -90,6 +90,23 @@ describe("three-level navigation", () => {
     });
   });
 
+  it("redirects archived Thread routes to the Project without a notice", () => {
+    const state = {
+      workspaces,
+      projects,
+      associations,
+      threads: threads.map((thread) => ({ ...thread, archived: true })),
+    };
+
+    expect(
+      resolveThreeLevelRoute(state, "/workspace/workspace-1/project/project-1/thread/thread-1"),
+    ).toEqual({
+      kind: "fallback",
+      to: "/workspace/workspace-1/project/project-1",
+      notice: null,
+    });
+  });
+
   it("rejects Workspace, Project, and Thread routes with extra path segments", () => {
     const state = { workspaces, projects, associations, threads };
 
@@ -98,11 +115,13 @@ describe("three-level navigation", () => {
       to: "/workspace/workspace-1",
       notice: "Project is not available in this Workspace.",
     });
-    expect(resolveThreeLevelRoute(state, "/workspace/workspace-1/project/project-1/extra")).toEqual({
-      kind: "fallback",
-      to: "/workspace/workspace-1/project/project-1",
-      notice: "Thread could not be found.",
-    });
+    expect(resolveThreeLevelRoute(state, "/workspace/workspace-1/project/project-1/extra")).toEqual(
+      {
+        kind: "fallback",
+        to: "/workspace/workspace-1/project/project-1",
+        notice: "Thread could not be found.",
+      },
+    );
     expect(
       resolveThreeLevelRoute(
         state,

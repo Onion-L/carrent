@@ -26,6 +26,7 @@ import type {
   KimiSessionStatus,
 } from "../shared/chat";
 import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
+import type { SkillRecord } from "../shared/skills";
 
 mock.module("./assets/logo.png", () => ({ default: "logo.png" }));
 const { default: App } = await import("./App");
@@ -83,6 +84,8 @@ function installBridge(
     | ((
         request: ChatTurnRequest,
       ) => KimiSessionStatus | null | Promise<KimiSessionStatus | null>) = null,
+  chatStopRequests: string[] = [],
+  skills: SkillRecord[] = [],
 ) {
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
   let saveAttempt = 0;
@@ -173,7 +176,7 @@ function installBridge(
         return { appState: relocatedAppState };
       },
     },
-    skills: { list: async () => [] },
+    skills: { list: async () => skills },
     attachments: {
       store: async () => {
         throw new Error("not used");
@@ -202,7 +205,9 @@ function installBridge(
         });
         return { runId };
       },
-      stop: async () => {},
+      stop: async (runId: string) => {
+        chatStopRequests.push(runId);
+      },
       executeThreadAction,
       respondToPermission: async () => {},
       respondToQuestion: async () => {},
@@ -296,6 +301,8 @@ type RenderAppOptions = {
     | KimiSessionStatus
     | null
     | ((request: ChatTurnRequest) => KimiSessionStatus | null | Promise<KimiSessionStatus | null>);
+  chatStopRequests?: string[];
+  skills?: SkillRecord[];
 };
 
 async function renderApp(
@@ -334,6 +341,8 @@ async function renderApp(
     options.kimiStatus,
     options.executeThreadAction,
     options.sessionStatus,
+    options.chatStopRequests,
+    options.skills,
   );
   await mountInstalledBridge(initialEntry, options.strictMode);
 
@@ -385,6 +394,10 @@ function composerSendButton() {
   const button = icon?.closest<HTMLButtonElement>("button");
   if (!button) throw new Error("Composer send button not found");
   return button;
+}
+
+function composerStopButton() {
+  return buttonNamed("Stop run");
 }
 
 async function waitForProjectDraft() {
@@ -1048,9 +1061,110 @@ describe("three-level navigation", () => {
     expect(currentPathname).toBe("/settings");
     expect(container!.querySelector('nav[aria-label="Settings tabs"]')).not.toBe(null);
     expect(buttonNamed("Personal")).not.toBe(null);
+    expect(buttonNamed("Personal").getAttribute("aria-current")).toBe(null);
+    expect(buttonNamed("Client").getAttribute("aria-current")).toBe(null);
+    expect(buttonNamed("Settings").getAttribute("aria-current")).toBe("page");
+    expect(
+      [buttonNamed("Personal"), buttonNamed("Client"), buttonNamed("Settings")].filter(
+        (button) => button.getAttribute("aria-current") === "page",
+      ),
+    ).toHaveLength(1);
 
     await click(buttonNamed("Settings"));
     expect(currentPathname).toBe(entryPath);
+    expect(buttonNamed("Personal").getAttribute("aria-current")).toBe("page");
+    expect(buttonNamed("Settings").getAttribute("aria-current")).toBe(null);
+  });
+
+  it("switches the active Workspace directly from Settings", async () => {
+    const saved = await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+    );
+
+    await click(buttonNamed("Settings"));
+    await click(buttonNamed("Client"));
+
+    expect(currentPathname).toBe("/workspace/workspace-2/project/project-1/thread/thread-2");
+    expect(saved.at(-1)?.activeWorkspaceId).toBe("workspace-2");
+    expect(buttonNamed("Client").getAttribute("aria-current")).toBe("page");
+    expect(buttonNamed("Settings").getAttribute("aria-current")).toBe(null);
+  });
+
+  it("does not let rapid Send clicks stop the Run they start", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const stopRequests: string[] = [];
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      requests,
+      false,
+      { chatStopRequests: stopRequests },
+    );
+
+    await fillTextarea(container!.querySelector("textarea")!, "Keep this Run alive");
+    const sendButton = composerSendButton();
+    await act(async () => {
+      sendButton.click();
+      sendButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(stopRequests).toHaveLength(0);
+    expect(composerStopButton().disabled).toBe(true);
+
+    composerStopButton().click();
+    expect(stopRequests).toHaveLength(0);
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    });
+    expect(composerStopButton().disabled).toBe(false);
+    await click(composerStopButton());
+    expect(stopRequests).toEqual([requests[0].runId]);
+
+    await act(async () => {
+      emitChatEvent?.({
+        type: "stopped",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  });
+
+  it("does not let an archive transition suppress an invalid ownership route", async () => {
+    let releaseSave!: () => void;
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      { appStateSaveGate: saveGate },
+    );
+
+    await click(buttonNamed("Archive Personal Thread"));
+    await act(async () => {
+      testNavigate!("/workspace/workspace-2/project/project-1/thread/thread-1");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(currentPathname).toBe("/workspace/workspace-2/project/project-1");
+    expect(container!.textContent).toContain("Thread could not be found.");
+
+    releaseSave();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(currentPathname).toBe("/workspace/workspace-2/project/project-1");
   });
 
   it("navigates the existing Main Window from deep links and falls back invalid ownership", async () => {
@@ -1717,6 +1831,71 @@ describe("Association Thread Drafts", () => {
       runtimeModelId: "kimi-k2.5",
       runtimeMode: "approval-required",
     });
+  });
+
+  it("keeps the first user message before Stopped after App State reload", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const saved = await renderApp(
+      state,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      false,
+      requests,
+    );
+
+    await waitForProjectDraft();
+    await fillTextarea(container!.querySelector("textarea")!, "First cancelled request");
+    await click(composerSendButton());
+    await act(async () => {
+      emitChatEvent?.({
+        type: "stopped",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+
+    const persisted = structuredClone(saved.at(-1)!);
+    const threadId = requests[0].threadId;
+    const persistedMessages = persisted.threadMessages?.filter(
+      (message) => message.threadId === threadId,
+    );
+    expect(persistedMessages?.map((message) => message.role)).toEqual(["user", "assistant"]);
+    expect(persistedMessages?.[1]?.runStatus).toBe("cancelled");
+
+    await act(async () => root!.unmount());
+    container!.remove();
+    root = null;
+    container = null;
+    await renderApp(persisted, `/workspace/workspace-1/project/project-1/thread/${threadId}`);
+
+    const renderedText = container!.textContent ?? "";
+    expect(renderedText.indexOf("First cancelled request")).toBeLessThan(
+      renderedText.indexOf("Stopped"),
+    );
+  });
+
+  it("keeps the first user message before an empty failed response", async () => {
+    const requests: ChatTurnRequest[] = [];
+    await renderApp(state, "/workspace/workspace-1/project/project-1", [], false, requests);
+
+    await waitForProjectDraft();
+    await fillTextarea(container!.querySelector("textarea")!, "First failed request");
+    await click(composerSendButton());
+    await act(async () => {
+      emitChatEvent?.({
+        type: "failed",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+        error: "Runtime failed before replying",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const renderedText = container!.textContent ?? "";
+    expect(renderedText.indexOf("First failed request")).toBeLessThan(
+      renderedText.indexOf("Runtime failed before replying"),
+    );
   });
 
   it("atomically persists the promoted Thread before the first Runtime dispatch", async () => {
@@ -2854,6 +3033,7 @@ describe("Archived Thread lifecycle", () => {
     expect(saved.at(-1)?.threadMessages).toEqual(lifecycleState().threadMessages);
     expect(saved.at(-1)?.threadRuns).toEqual(lifecycleState().threadRuns);
     expect(container!.textContent).not.toContain("Primary Thread");
+    expect(container!.textContent).not.toContain("Thread could not be found.");
   });
 
   it("blocks archive while a Thread has queued messages", async () => {
@@ -2905,27 +3085,92 @@ describe("Archived Thread lifecycle", () => {
       releaseSave = resolve;
     });
     const requests: ChatTurnRequest[] = [];
+    const stopRequests: string[] = [];
+    const state = lifecycleState();
+    state.threadWork = {
+      "thread-1": {
+        draft: {
+          content: "Do not race this archive",
+          attachedSkillNames: ["tdd"],
+          attachments: [
+            {
+              id: "draft-attachment",
+              kind: "file",
+              name: "notes.txt",
+              mimeType: "text/plain",
+              size: 5,
+              storageKey: "draft-notes.txt",
+            },
+          ],
+        },
+        queuedMessages: [],
+      },
+    };
     const saved = await renderApp(
-      lifecycleState(),
+      state,
       "/workspace/workspace-1/project/project-1/thread/thread-1",
       [],
       false,
       requests,
       false,
-      { appStateSaveGate: saveGate },
+      {
+        appStateSaveGate: saveGate,
+        chatStopRequests: stopRequests,
+        skills: [
+          {
+            name: "tdd",
+            description: "Test-driven development",
+            path: "/skills/tdd/SKILL.md",
+            source: "agents",
+          },
+        ],
+      },
     );
 
-    await click(buttonNamed("Archive Primary Thread"));
-    await fillTextarea(container!.querySelector("textarea")!, "Do not race this archive");
-    await click(composerSendButton());
-
-    releaseSave();
+    await click(buttonNamed("Secondary Thread"));
+    await click(buttonNamed("Primary Thread"));
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
+    expect(container!.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+      "Do not race this archive",
+    );
+    await click(buttonNamed("Archive Primary Thread"));
+    await click(composerSendButton());
 
     expect(requests).toHaveLength(0);
+    expect(stopRequests).toHaveLength(0);
+    expect(container!.textContent).toContain(
+      "This thread is being updated and cannot accept messages right now.",
+    );
+    expect(container!.querySelector('[aria-label="Stop run"]')).toBe(null);
+
+    releaseSave();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
+
     expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.archived).toBe(true);
+    expect(saved.at(-1)?.threadWork?.["thread-1"]?.draft).toEqual(
+      state.threadWork["thread-1"].draft,
+    );
+    expect(saved.at(-1)?.threadMessages).toEqual(state.threadMessages);
+    expect(saved.at(-1)?.threadRuns).toEqual(state.threadRuns);
+  });
+
+  it("keeps the current route and shows only the archive error when archiving fails", async () => {
+    await renderApp(
+      lifecycleState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      true,
+    );
+
+    await click(buttonNamed("Archive Primary Thread"));
+
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(container!.textContent).toContain("Thread could not be archived.");
+    expect(container!.textContent).not.toContain("Thread could not be found.");
   });
 
   it("opens the Project overview when archiving the last active Thread", async () => {
@@ -2941,6 +3186,7 @@ describe("Archived Thread lifecycle", () => {
     await click(buttonNamed("Archive Primary Thread"));
 
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+    expect(container!.textContent).not.toContain("Thread could not be found.");
   });
 
   it("opens New Thread instead of an Archived Thread", async () => {
@@ -2954,6 +3200,7 @@ describe("Archived Thread lifecycle", () => {
     );
 
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1");
+    expect(container!.textContent).not.toContain("Thread could not be found.");
     await waitForProjectDraft();
     expect(container!.querySelector("h1")?.textContent).toBe("New thread");
     expect(container!.querySelector("textarea")).not.toBe(null);

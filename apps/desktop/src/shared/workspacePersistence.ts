@@ -132,6 +132,10 @@ export type AppThreadRunStartInput = {
   message: string;
   attachments: AttachmentMetadata[];
   startedAt: string;
+  // Original createdAt of the optimistic user message, when one exists. Run
+  // recording and draft promotion persist it so the user message cannot sort
+  // after the assistant placeholder created alongside it.
+  messageCreatedAt?: string;
   runtimeId: RuntimeId;
   runtimeModelId?: string;
   runtimeMode: RuntimeMode;

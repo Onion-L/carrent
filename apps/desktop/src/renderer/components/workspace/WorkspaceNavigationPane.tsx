@@ -48,6 +48,8 @@ export function WorkspaceNavigationPane() {
     activeWorkspaceId,
     openThreadDraft,
     archiveThread,
+    archiveNavigation,
+    setArchiveNavigation,
     setProjectAlias,
     removeAssociation,
     projectDirectoryStatusById,
@@ -61,10 +63,6 @@ export function WorkspaceNavigationPane() {
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
-  const [archiveNavigation, setArchiveNavigation] = useState<{
-    threadId: string;
-    path: string;
-  } | null>(null);
   const workspace = workspaces.find((item) => item.id === activeWorkspaceId);
   const workspaceProjects = getWorkspaceProjects(projects, associations, activeWorkspaceId);
 
@@ -108,9 +106,9 @@ export function WorkspaceNavigationPane() {
       archiveNavigation &&
       threads.some((thread) => thread.id === archiveNavigation.threadId && thread.archived)
     ) {
-      const path = archiveNavigation.path;
-      setArchiveNavigation(null);
-      navigate(path);
+      // archiveNavigation is cleared by the NavigationCoordinator once the
+      // route has actually moved off the archived Thread.
+      navigate(archiveNavigation.destinationPath, { replace: true });
     }
   }, [archiveNavigation, navigate, threads]);
 
@@ -402,7 +400,8 @@ export function WorkspaceNavigationPane() {
                           if (active) {
                             setArchiveNavigation({
                               threadId: thread.id,
-                              path: nextThread
+                              sourcePath: threadPath,
+                              destinationPath: nextThread
                                 ? buildThreadPath(
                                     association.workspaceId,
                                     project.id,

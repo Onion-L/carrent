@@ -50,7 +50,15 @@ function NavigationCoordinator() {
   const location = useLocation();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { workspaces, projects, associations, threads, rememberThreadLocation } = useAppState();
+  const {
+    workspaces,
+    projects,
+    associations,
+    threads,
+    rememberThreadLocation,
+    archiveNavigation,
+    setArchiveNavigation,
+  } = useAppState();
   const notifiedLocations = useRef(new Set<string>());
 
   useEffect(() => {
@@ -65,7 +73,17 @@ function NavigationCoordinator() {
         { workspaces, projects, associations, threads },
         location.pathname,
       );
+      if (archiveNavigation && location.pathname !== archiveNavigation.sourcePath) {
+        // The archive transition navigated away (or the user beat it to the
+        // destination); hand route control back.
+        setArchiveNavigation(null);
+      }
       if (resolution.kind === "fallback") {
+        if (archiveNavigation && location.pathname === archiveNavigation.sourcePath) {
+          // Archiving the open Thread briefly leaves this route stale; the archive
+          // transition performs its own navigation to the chosen destination.
+          return;
+        }
         target = resolution.to;
         notice = resolution.notice;
       } else if (resolution.kind === "thread") {
@@ -75,18 +93,20 @@ function NavigationCoordinator() {
       }
     }
 
-    if (!target || !notice) return;
-    if (!notifiedLocations.current.has(location.pathname)) {
+    if (!target) return;
+    if (notice && !notifiedLocations.current.has(location.pathname)) {
       notifiedLocations.current.add(location.pathname);
       showToast(notice, "info");
     }
     navigate(target, { replace: true });
   }, [
+    archiveNavigation,
     associations,
     location.pathname,
     navigate,
     projects,
     rememberThreadLocation,
+    setArchiveNavigation,
     showToast,
     threads,
     workspaces,

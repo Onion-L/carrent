@@ -422,6 +422,30 @@ type GitBridge = {
 
 const CREATE_BRANCH_DEFAULT_NAME = "carrent/";
 
+// Stop replaces Send in place; keep it disabled briefly so the same rapid
+// click sequence that started the run cannot immediately stop it.
+const STOP_GUARD_MS = 500;
+const stopGuardUntilByThread = new Map<string, number>();
+const stopGuardCleanupByThread = new Map<string, number>();
+
+function getStopGuardRemainingMs(threadId: string) {
+  return Math.max(0, (stopGuardUntilByThread.get(threadId) ?? 0) - Date.now());
+}
+
+function beginStopGuard(threadId: string) {
+  const guardedUntil = Date.now() + STOP_GUARD_MS;
+  const existingCleanup = stopGuardCleanupByThread.get(threadId);
+  if (existingCleanup !== undefined) window.clearTimeout(existingCleanup);
+  stopGuardUntilByThread.set(threadId, guardedUntil);
+  const cleanup = window.setTimeout(() => {
+    if (stopGuardUntilByThread.get(threadId) === guardedUntil) {
+      stopGuardUntilByThread.delete(threadId);
+    }
+    stopGuardCleanupByThread.delete(threadId);
+  }, STOP_GUARD_MS);
+  stopGuardCleanupByThread.set(threadId, cleanup);
+}
+
 function getAttachmentStoreBridge(attachments: unknown): AttachmentStoreBridge {
   if (
     typeof attachments !== "object" ||
@@ -1066,6 +1090,7 @@ export function Composer(props: ComposerProps) {
   const activeAssistantMessageIdRef = useRef<string | null>(null);
   const flushTypewriterRef = useRef<VoidFunction | null>(null);
   const wasSendingRef = useRef(false);
+  const [stopGuarded, setStopGuarded] = useState(() => getStopGuardRemainingMs(props.threadId) > 0);
   const lastSubmitRequestIdRef = useRef<number | null>(null);
   const lastDraftRequestIdRef = useRef<number | null>(null);
   const steerItemRef = useRef<QueuedChatMessage | null>(null);
@@ -1244,6 +1269,23 @@ export function Composer(props: ComposerProps) {
   );
   const isThreadCompacting = compactingThreadIds.includes(threadId);
   const isThreadSending = runningThreadIds.includes(threadId);
+  useEffect(() => {
+    if (!isThreadSending) return;
+    const remainingMs = getStopGuardRemainingMs(threadId);
+    if (remainingMs <= 0) {
+      setStopGuarded(false);
+      return;
+    }
+    setStopGuarded(true);
+    const guardedUntil = stopGuardUntilByThread.get(threadId);
+    const timeout = window.setTimeout(() => {
+      if (stopGuardUntilByThread.get(threadId) === guardedUntil) {
+        stopGuardUntilByThread.delete(threadId);
+      }
+      setStopGuarded(false);
+    }, remainingMs);
+    return () => window.clearTimeout(timeout);
+  }, [isThreadSending, threadId]);
   const compactAvailability = useMemo(
     () =>
       getCompactAvailability({
@@ -2085,10 +2127,18 @@ export function Composer(props: ComposerProps) {
     });
 
     let userMessageId = externalSubmit?.messageId ?? "";
+    let userMessageCreatedAt: string | undefined;
     if (externalSubmit?.messageId) {
       updateMessageAndPruneAfter(externalSubmit.messageId, messageText);
     } else {
-      userMessageId = appendLocalMessage("user", messageText, attachmentMetadata).id;
+      const userMessage = appendLocalMessage("user", messageText, attachmentMetadata);
+      userMessageId = userMessage.id;
+      userMessageCreatedAt =
+        userMessage.createdAt == null
+          ? undefined
+          : typeof userMessage.createdAt === "string"
+            ? userMessage.createdAt
+            : new Date(userMessage.createdAt).toISOString();
     }
     markThreadActivity(threadId);
 
@@ -2165,6 +2215,7 @@ export function Composer(props: ComposerProps) {
       message: messageText,
       attachments: attachmentMetadata,
       startedAt,
+      messageCreatedAt: userMessageCreatedAt,
       runtimeId: props.runtimeId,
       runtimeModelId: runtimeModelIdForSend,
       runtimeMode: props.runtimeMode,
@@ -2187,10 +2238,24 @@ export function Composer(props: ComposerProps) {
       preparedPersistentRun = await props.onRunPrepared(runInput);
       if (!preparedPersistentRun) {
         removeMessages([userMessageId, assistantMsg.id]);
+        // Run preparation was rejected (the thread is archived or mid-mutation).
+        // The input state still holds the text; restore the persisted draft so
+        // a remount cannot lose the message either.
+        setThreadDraft(
+          threadId,
+          buildThreadDraftSnapshot({
+            content: currentInput,
+            attachedSkills: currentAttachedSkills,
+            pendingAttachments: currentPendingAttachments,
+          })!,
+        );
+        showToast("This thread is being updated and cannot accept messages right now.", "error");
         return false;
       }
     }
 
+    beginStopGuard(threadId);
+    setStopGuarded(true);
     const startedRunId = await send(
       {
         runId: requestedRunId,
@@ -3684,13 +3749,16 @@ export function Composer(props: ComposerProps) {
               ) : null}
               {isThreadSending ? (
                 <button
-                  onClick={() => stop(threadId)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition hover:opacity-90 active:scale-95"
+                  aria-label="Stop run"
+                  onClick={() => void stop(threadId)}
+                  disabled={stopGuarded}
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition hover:opacity-90 active:scale-95 disabled:opacity-40"
                 >
                   <div className="h-3 w-3 rounded-[2px] bg-current" />
                 </button>
               ) : (
                 <button
+                  aria-label="Send message"
                   onClick={() => void handleSend()}
                   disabled={!canSend || isThreadSending}
                   className="flex h-9 w-9 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-90 active:scale-95 disabled:opacity-30"

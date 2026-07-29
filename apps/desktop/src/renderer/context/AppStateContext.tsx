@@ -57,6 +57,12 @@ type ProjectRelocationMutationResult = { ok: true } | { ok: false; error: string
 
 export type ProjectDirectoryStatus = "checking" | "available" | "unavailable";
 
+type ArchiveNavigationIntent = {
+  threadId: string;
+  sourcePath: string;
+  destinationPath: string;
+};
+
 type PromoteDraftInput = AppThreadRunStartInput & {
   draftId: string;
   title: string;
@@ -107,6 +113,8 @@ type AppStateContextValue = {
   lastThreadIdByWorkspace: Record<string, string>;
   activeWorkspaceId: string | null;
   projectDirectoryStatusById: Record<string, ProjectDirectoryStatus>;
+  archiveNavigation: ArchiveNavigationIntent | null;
+  setArchiveNavigation: (navigation: ArchiveNavigationIntent | null) => void;
   rereadAppState: () => Promise<boolean>;
   fullResetAppState: () => Promise<boolean>;
   clearRecoveryNotice: () => void;
@@ -292,6 +300,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [projectDirectoryStatusById, setProjectDirectoryStatusById] = useState<
     Record<string, ProjectDirectoryStatus>
   >({});
+  const [archiveNavigation, setArchiveNavigation] = useState<ArchiveNavigationIntent | null>(null);
   const threadContentSaveTimerRef = useRef<number | null>(null);
 
   const applyLoadResult = useCallback((result: AppStateLoadResult) => {
@@ -977,7 +986,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         threadId: draft.threadId,
         role: "user",
         content: input.message,
-        createdAt: input.startedAt,
+        createdAt: input.messageCreatedAt ?? input.startedAt,
         attachments: input.attachments,
       };
       const run: AppThreadRunRecord = {
@@ -1087,7 +1096,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         threadId: input.threadId,
         role: "user",
         content: input.message,
-        createdAt: input.startedAt,
+        // Preserve the optimistic user message's createdAt so it cannot sort
+        // after the assistant placeholder created alongside it.
+        createdAt: input.messageCreatedAt ?? input.startedAt,
         attachments: input.attachments,
       };
       const run: AppThreadRunRecord = {
@@ -1367,6 +1378,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         lastThreadIdByWorkspace: snapshot.lastThreadIdByWorkspace ?? {},
         activeWorkspaceId: snapshot.activeWorkspaceId,
         projectDirectoryStatusById,
+        archiveNavigation,
+        setArchiveNavigation,
         rereadAppState,
         fullResetAppState,
         clearRecoveryNotice: () => setRecoveryNotice(null),

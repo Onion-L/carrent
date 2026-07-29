@@ -49,7 +49,7 @@ export type ThreeLevelRouteResolution =
   | { kind: "workspace"; workspaceId: string }
   | { kind: "project"; workspaceId: string; projectId: string }
   | { kind: "thread"; workspaceId: string; projectId: string; threadId: string }
-  | { kind: "fallback"; to: string; notice: string }
+  | { kind: "fallback"; to: string; notice: string | null }
   | { kind: "other" };
 
 export function resolveThreeLevelRoute(
@@ -83,16 +83,22 @@ export function resolveThreeLevelRoute(
   const threadId = parts[5] === "thread" ? parts[6] : undefined;
   const thread = state.threads.find(
     (item) =>
-      item.id === threadId &&
-      item.workspaceId === workspaceId &&
-      item.projectId === projectId &&
-      !item.archived,
+      item.id === threadId && item.workspaceId === workspaceId && item.projectId === projectId,
   );
   if (parts.length !== 7 || !threadId || !thread) {
     return {
       kind: "fallback",
       to: buildProjectPath(workspaceId, projectId),
       notice: "Thread could not be found.",
+    };
+  }
+  if (thread.archived) {
+    // Archiving the open thread transitions through this state, and direct links
+    // to archived threads are expected to land on the Project instead.
+    return {
+      kind: "fallback",
+      to: buildProjectPath(workspaceId, projectId),
+      notice: null,
     };
   }
 

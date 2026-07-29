@@ -18,6 +18,7 @@ export function WorkspaceRail() {
     selectWorkspace,
   } = useAppState();
   const [isCreating, setIsCreating] = useState(false);
+  const isSettingsRoute = location.pathname === "/settings";
   const settingsReturnLocation =
     location.pathname === "/settings" &&
     location.state &&
@@ -44,7 +45,9 @@ export function WorkspaceRail() {
 
         <div className="mt-1 min-h-0 flex-1 space-y-1 overflow-y-auto py-1">
           {workspaces.map((workspace) => {
-            const active = workspace.id === activeWorkspaceId;
+            // Settings is its own primary-navigation destination; the stored
+            // active Workspace is only restore context, not the current page.
+            const active = !isSettingsRoute && workspace.id === activeWorkspaceId;
             return (
               <button
                 key={workspace.id}
@@ -75,7 +78,7 @@ export function WorkspaceRail() {
 
         <button
           aria-label="Settings"
-          aria-current={location.pathname === "/settings" ? "page" : undefined}
+          aria-current={isSettingsRoute ? "page" : undefined}
           title="Settings"
           onClick={() => {
             if (
@@ -106,7 +109,11 @@ export function WorkspaceRail() {
               },
             });
           }}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md transition ${
+            isSettingsRoute
+              ? "bg-surface-hover text-fg"
+              : "text-subtle hover:bg-surface-hover hover:text-fg"
+          }`}
         >
           <Settings className="h-4 w-4" />
         </button>

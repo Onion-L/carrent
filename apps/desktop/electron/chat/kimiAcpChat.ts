@@ -371,6 +371,11 @@ export async function getKimiSessionStatus(options: {
   const availableCommands = new Set<string>();
   let nextId = 1;
   let phase: "initialize" | "resume" | "prompt" = "initialize";
+  let receivedAvailableCommands = false;
+  let availableCommandsWaiter: {
+    resolve: () => void;
+    reject: (error: Error) => void;
+  } | null = null;
   const pending = new Map<
     JsonRpcId,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
@@ -378,8 +383,11 @@ export async function getKimiSessionStatus(options: {
 
   return new Promise((resolve, reject) => {
     const timeoutTimer = setTimeout(() => {
+      const error = new Error("Timed out waiting for Kimi session status.");
+      availableCommandsWaiter?.reject(error);
+      availableCommandsWaiter = null;
       transport.close();
-      reject(new Error("Timed out waiting for Kimi session status."));
+      reject(error);
     }, requestTimeoutMs);
 
     const cleanup = () => {
@@ -412,7 +420,10 @@ export async function getKimiSessionStatus(options: {
         const update = readObject(payload?.update);
         const updateType = readString(update?.sessionUpdate);
         if (updateType === "available_commands_update") {
+          receivedAvailableCommands = true;
           readAvailableCommandNames(update).forEach((name) => availableCommands.add(name));
+          availableCommandsWaiter?.resolve();
+          availableCommandsWaiter = null;
         }
         const text = readTextContent(update?.content);
         if (updateType === "agent_message_chunk" && text) {
@@ -422,6 +433,8 @@ export async function getKimiSessionStatus(options: {
     });
 
     transport.onError((error) => {
+      availableCommandsWaiter?.reject(error);
+      availableCommandsWaiter = null;
       cleanup();
       reject(error);
     });
@@ -448,6 +461,13 @@ export async function getKimiSessionStatus(options: {
       });
     };
 
+    const waitForAvailableCommands = () => {
+      if (receivedAvailableCommands) return Promise.resolve();
+      return new Promise<void>((waitResolve, waitReject) => {
+        availableCommandsWaiter = { resolve: waitResolve, reject: waitReject };
+      });
+    };
+
     void (async () => {
       try {
         await send("initialize", {
@@ -459,6 +479,7 @@ export async function getKimiSessionStatus(options: {
         });
         phase = "resume";
         await send("session/resume", { sessionId, cwd, mcpServers: [] });
+        await waitForAvailableCommands();
         if (!availableCommands.has("status")) {
           cleanup();
           resolve(null);

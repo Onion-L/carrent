@@ -793,6 +793,62 @@ describe("startKimiAcpChatRun", () => {
     expect(transport.sent.some((message) => message.method === "session/prompt")).toBe(false);
   });
 
+  it("waits for commands advertised after the resume response", async () => {
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/resume") {
+        respondAcp(fakeTransport, message, { configOptions: [] });
+        setTimeout(() => {
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-1",
+              update: {
+                sessionUpdate: "available_commands_update",
+                availableCommands: [{ name: "status" }],
+              },
+            },
+          });
+        }, 0);
+        return;
+      }
+
+      if (message.method === "session/prompt") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Context: 35,193 / 1,048,576 (3.4%)" },
+            },
+          },
+        });
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    const status = await getKimiSessionStatus({
+      sessionId: "session-1",
+      cwd: "/code/carrent",
+      transportFactory: () => transport,
+    });
+
+    expect(status).toMatchObject({
+      used: 35193,
+      total: 1048576,
+      percentage: 3.4,
+      supportedCommands: ["status"],
+    });
+    expect(transport.sent.some((message) => message.method === "session/prompt")).toBe(true);
+  });
+
   it("normalizes chunked optional plan usage independently", async () => {
     const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
       if (message.method === "initialize") {

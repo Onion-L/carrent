@@ -74,11 +74,6 @@ export async function listInstalledSkills(homeDir = os.homedir()): Promise<Skill
       source: "codex",
       maxDepth: 3,
     },
-    {
-      path: path.join(homeDir, ".codex", "plugins", "cache"),
-      source: "plugin",
-      maxDepth: 8,
-    },
   ];
 
   const skillFiles = (

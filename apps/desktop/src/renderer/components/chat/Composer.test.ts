@@ -638,8 +638,8 @@ describe("skill slash helpers", () => {
     {
       name: "browser:control-in-app-browser",
       description: "Control the in-app Browser.",
-      path: "/Users/test/.codex/plugins/cache/browser/SKILL.md",
-      source: "plugin",
+      path: "/Users/test/.agents/skills/control-in-app-browser/SKILL.md",
+      source: "agents",
     },
     {
       name: "openai-docs",

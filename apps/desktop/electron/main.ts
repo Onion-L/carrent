@@ -73,6 +73,8 @@ let liveRunQuitWarning: ReturnType<typeof createLiveRunQuitWarning> | null = nul
 
 const mainWindowLifecycle = createMainWindowLifecycle({
   getMainWindow: () => mainWindow,
+  isQuitting: () => appShutdown.isQuitting(),
+  requestQuit: () => app.quit(),
   onRendererLoading: () => {
     void chatSessionManager?.shutdown().catch((error) => {
       console.error("[app] failed to stop Runs while reloading the Renderer", error);
@@ -111,9 +113,7 @@ function createWindow(icon: string | undefined) {
   });
 
   mainWindow.on("close", (event) => {
-    if (appShutdown.isQuitting()) return;
-    event.preventDefault();
-    app.quit();
+    mainWindowLifecycle.handleWindowClose(event);
   });
 
   mainWindow.on("closed", () => {

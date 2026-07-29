@@ -5,6 +5,7 @@ function createWindow() {
   const events: string[] = [];
   const navigations: string[] = [];
   let minimized = false;
+  let visible = true;
 
   return {
     events,
@@ -12,12 +13,24 @@ function createWindow() {
     setMinimized(value: boolean) {
       minimized = value;
     },
+    setVisible(value: boolean) {
+      visible = value;
+    },
     window: {
       isDestroyed: () => false,
       isMinimized: () => minimized,
+      isVisible: () => visible,
       restore: () => {
         minimized = false;
         events.push("restore");
+      },
+      show: () => {
+        visible = true;
+        events.push("show");
+      },
+      hide: () => {
+        visible = false;
+        events.push("hide");
       },
       focus: () => events.push("focus"),
       webContents: {
@@ -37,6 +50,78 @@ describe("createMainWindowLifecycle", () => {
 
     expect(fake.events).toEqual(["restore", "focus"]);
     expect(fake.navigations).toEqual([]);
+  });
+
+  it("shows a hidden Main Window when Carrent is activated again", () => {
+    const fake = createWindow();
+    fake.setVisible(false);
+    const lifecycle = createMainWindowLifecycle({ getMainWindow: () => fake.window });
+
+    lifecycle.focusMainWindow();
+
+    expect(fake.events).toEqual(["show", "focus"]);
+  });
+
+  it("hides the Main Window instead of quitting when it is closed on macOS", () => {
+    const fake = createWindow();
+    let quitCount = 0;
+    let preventDefaultCount = 0;
+    const lifecycle = createMainWindowLifecycle({
+      getMainWindow: () => fake.window,
+      platform: "darwin",
+      isQuitting: () => false,
+      requestQuit: () => {
+        quitCount += 1;
+      },
+    });
+
+    lifecycle.handleWindowClose({
+      preventDefault: () => {
+        preventDefaultCount += 1;
+      },
+    });
+
+    expect(preventDefaultCount).toBe(1);
+    expect(fake.events).toEqual(["hide"]);
+    expect(quitCount).toBe(0);
+  });
+
+  it("allows the Main Window to close while Carrent is quitting", () => {
+    const fake = createWindow();
+    let preventDefaultCount = 0;
+    const lifecycle = createMainWindowLifecycle({
+      getMainWindow: () => fake.window,
+      platform: "darwin",
+      isQuitting: () => true,
+      requestQuit: () => {},
+    });
+
+    lifecycle.handleWindowClose({
+      preventDefault: () => {
+        preventDefaultCount += 1;
+      },
+    });
+
+    expect(preventDefaultCount).toBe(0);
+    expect(fake.events).toEqual([]);
+  });
+
+  it("quits Carrent when the Main Window is closed outside macOS", () => {
+    const fake = createWindow();
+    let quitCount = 0;
+    const lifecycle = createMainWindowLifecycle({
+      getMainWindow: () => fake.window,
+      platform: "win32",
+      isQuitting: () => false,
+      requestQuit: () => {
+        quitCount += 1;
+      },
+    });
+
+    lifecycle.handleWindowClose({ preventDefault: () => {} });
+
+    expect(fake.events).toEqual([]);
+    expect(quitCount).toBe(1);
   });
 
   it("focuses and navigates the existing Main Window for a three-level deep link", () => {

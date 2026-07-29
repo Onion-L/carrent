@@ -13,7 +13,7 @@ The app-owned persisted representation used to restore Carrent state across laun
 _Avoid_: Workspace
 
 **Main Window**:
-The single user-visible top-level Carrent window that owns the current route, selection, and browsing history for Workspace, Project, Thread, and Settings views. Carrent reuses it for repeated launches and deep links; closing it exits the app rather than leaving Runs active without a visible control surface.
+The single user-visible top-level Carrent window that owns the current route, selection, and browsing history for Workspace, Project, Thread, and Settings views. Carrent reuses it for repeated launches and deep links. On macOS, closing it hides Carrent while explicit Quit ends the app and any live Runs; on other platforms, closing it exits the app.
 _Avoid_: Workspace, Settings window, background runner
 
 **Project Working Directory**:

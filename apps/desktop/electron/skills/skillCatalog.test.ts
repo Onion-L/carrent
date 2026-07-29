@@ -55,7 +55,7 @@ description: Use official OpenAI docs.
 });
 
 describe("listInstalledSkills", () => {
-  it("lists skills from agents, codex, and plugin cache roots", async () => {
+  it("lists skills from agents and codex roots while ignoring plugin caches", async () => {
     const homeDir = await createTempHome();
     try {
       const grillingPath = await writeSkill(
@@ -76,7 +76,7 @@ description: Use official OpenAI docs.
 ---
 `,
       );
-      const browserPath = await writeSkill(
+      await writeSkill(
         homeDir,
         ".codex/plugins/cache/openai-bundled/browser/1/skills/control-in-app-browser/SKILL.md",
         `---
@@ -89,16 +89,6 @@ description: Control the in-app Browser.
       const skills = await listInstalledSkills(homeDir);
 
       expect(skills).toEqual([
-        {
-          name: "browser:control-in-app-browser",
-          description: "Control the in-app Browser.",
-          path: browserPath,
-          source: "plugin",
-          declaredPath: browserPath,
-          realPath: await realpath(browserPath),
-          declaredRootPath: path.dirname(browserPath),
-          realRootPath: await realpath(path.dirname(browserPath)),
-        },
         {
           name: "grilling",
           description: "Interview the user relentlessly.",

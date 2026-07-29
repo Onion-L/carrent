@@ -3245,8 +3245,8 @@ describe("Archived Thread lifecycle", () => {
     await click(buttonNamed("Delete"));
 
     expect(confirmation).toContain("1 Thread");
-    expect(confirmation).toContain("Project Working Directory");
-    expect(confirmation).toContain("project files and Git state");
+    expect(confirmation).toContain('Remove "Carrent" from "Personal"');
+    expect(confirmation).toContain("Project files, Git state");
     expect(confirmation).toContain("other Workspaces");
     expect(currentPathname).toBe("/workspace/workspace-1");
     expect(cleanupRequests).toEqual([

@@ -310,7 +310,7 @@ export function WorkspaceNavigationPane() {
                             ).length;
                             if (
                               !window.confirm(
-                                `Delete "${displayName}" from "${workspace?.name ?? "Workspace"}" and permanently delete ${threadCount} ${threadCount === 1 ? "Thread" : "Threads"}? The Project Working Directory, project files and Git state, and other Workspaces will not be changed.`,
+                                `Remove "${displayName}" from "${workspace?.name ?? "Workspace"}"? This permanently deletes ${threadCount} ${threadCount === 1 ? "Thread" : "Threads"}. Project files, Git state, and other Workspaces stay unchanged.`,
                               )
                             ) {
                               return;

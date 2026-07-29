@@ -1,7 +1,10 @@
 type MainWindowLike = {
   isDestroyed: () => boolean;
   isMinimized: () => boolean;
+  isVisible: () => boolean;
   restore: () => void;
+  show: () => void;
+  hide: () => void;
   focus: () => void;
   webContents: {
     send: (channel: string, path: string) => void;
@@ -11,6 +14,13 @@ type MainWindowLike = {
 type MainWindowLifecycleDependencies = {
   getMainWindow: () => MainWindowLike | null;
   onRendererLoading?: () => void;
+  platform?: NodeJS.Platform;
+  isQuitting?: () => boolean;
+  requestQuit?: () => void;
+};
+
+type WindowCloseEvent = {
+  preventDefault: () => void;
 };
 
 type DeepLinkResolution = { kind: "valid"; path: string } | { kind: "invalid" } | null;
@@ -41,6 +51,9 @@ function resolveDeepLink(values: string[]): DeepLinkResolution {
 export function createMainWindowLifecycle({
   getMainWindow,
   onRendererLoading,
+  platform = process.platform,
+  isQuitting = () => false,
+  requestQuit = () => {},
 }: MainWindowLifecycleDependencies) {
   let pendingNavigation: string | null = null;
   let rendererReady = false;
@@ -49,6 +62,7 @@ export function createMainWindowLifecycle({
     const mainWindow = getMainWindow();
     if (!mainWindow || mainWindow.isDestroyed()) return null;
     if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
     mainWindow.focus();
     return mainWindow;
   };
@@ -63,6 +77,19 @@ export function createMainWindowLifecycle({
   };
 
   return {
+    handleWindowClose(event: WindowCloseEvent) {
+      if (isQuitting()) return;
+
+      event.preventDefault();
+      if (platform !== "darwin") {
+        requestQuit();
+        return;
+      }
+
+      const mainWindow = getMainWindow();
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.hide();
+    },
     handleSecondInstance(argv: string[]) {
       const resolution = resolveDeepLink(argv);
       if (resolution?.kind === "valid") {

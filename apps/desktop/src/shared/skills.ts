@@ -1,4 +1,4 @@
-export type SkillSource = "agents" | "codex" | "plugin";
+export type SkillSource = "agents" | "codex";
 
 export interface SkillRecord {
   name: string;

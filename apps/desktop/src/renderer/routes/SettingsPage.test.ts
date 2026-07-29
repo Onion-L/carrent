@@ -1,8 +1,12 @@
 import { describe, expect, it } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
+  KimiCliSetupNotice,
   canCheckKimiConnection,
   formatGlobalAgentInstructionsSize,
   getGlobalAgentInstructionsByteLength,
+  getRuntimeVersionLabel,
   readGlobalAgentInstructions,
   readRtkGainStats,
   writeGlobalAgentInstructions,
@@ -32,6 +36,33 @@ describe("canCheckKimiConnection", () => {
         configuration: "missing",
       }),
     ).toBe(false);
+  });
+});
+
+describe("Kimi CLI setup guidance", () => {
+  it("replaces the unknown version and explains how to finish setup when Kimi is unavailable", () => {
+    const runtime = {
+      id: "kimi" as const,
+      availability: "unavailable" as const,
+    };
+
+    expect(getRuntimeVersionLabel(runtime)).toBe("Not installed");
+
+    const markup = renderToStaticMarkup(createElement(KimiCliSetupNotice, { runtime }));
+    expect(markup).toContain("Kimi CLI was not detected on this computer.");
+    expect(markup).toContain("Download and install Kimi Code");
+    expect(markup).toContain("sign in before checking again");
+  });
+
+  it("keeps the setup guidance hidden when Kimi is detected", () => {
+    const runtime = {
+      id: "kimi" as const,
+      availability: "detected" as const,
+      version: "1.2.3",
+    };
+
+    expect(getRuntimeVersionLabel(runtime)).toBe("1.2.3");
+    expect(renderToStaticMarkup(createElement(KimiCliSetupNotice, { runtime }))).toBe("");
   });
 });
 

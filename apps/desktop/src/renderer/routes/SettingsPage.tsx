@@ -360,8 +360,9 @@ function RuntimeStatusPanel() {
                 <div className="min-w-0 flex-1">
                   <h3 className="truncate text-app-13 font-medium text-fg">{runtime.name}</h3>
                   <div className="mt-0.5 truncate font-mono text-app-11 text-subtle">
-                    {runtime.version ?? "Unknown"}
+                    {getRuntimeVersionLabel(runtime)}
                   </div>
+                  <KimiCliSetupNotice runtime={runtime} />
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                   <button
@@ -404,6 +405,40 @@ export function canCheckKimiConnection(
 }
 
 const KIMI_DOCS_URL = "https://moonshotai.github.io/kimi-code/en/guides/getting-started";
+
+export function getRuntimeVersionLabel(
+  runtime: Pick<RuntimeRecord, "id" | "availability" | "version">,
+) {
+  if (runtime.id === "kimi" && runtime.availability === "unavailable") {
+    return "Not installed";
+  }
+
+  return runtime.version ?? "Unknown";
+}
+
+export function KimiCliSetupNotice({
+  runtime,
+}: {
+  runtime: Pick<RuntimeRecord, "id" | "availability">;
+}) {
+  if (runtime.id !== "kimi" || runtime.availability !== "unavailable") {
+    return null;
+  }
+
+  return (
+    <p className="mt-1 text-app-11 leading-relaxed text-danger">
+      Kimi CLI was not detected on this computer.{" "}
+      <button
+        type="button"
+        onClick={() => window.open(KIMI_DOCS_URL, "_blank", "noopener,noreferrer")}
+        className="underline underline-offset-2 transition-opacity hover:opacity-80"
+      >
+        Download and install Kimi Code
+      </button>
+      , then sign in before checking again.
+    </p>
+  );
+}
 
 /* -------------------------------------------------------------------------- */
 /*  RTK check panel                                                           */

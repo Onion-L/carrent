@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { getWorkspaceProjects } from "../lib/workspaceProjects";
 import { useThreadContent } from "../context/ThreadContentContext";
 import { useChatRun } from "../hooks/useChatRun";
+import { useToast } from "../components/toast/ToastContext";
 
 export function WorkspaceOverviewPage() {
   const { workspaceId } = useParams();
@@ -25,6 +26,7 @@ export function WorkspaceOverviewPage() {
   } = useAppState();
   const { deleteThreads } = useThreadContent();
   const { runningThreadIds } = useChatRun();
+  const { showToast } = useToast();
   const [isRenaming, setIsRenaming] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -51,14 +53,26 @@ export function WorkspaceOverviewPage() {
     const nextWorkspace =
       orderedWorkspaces[workspaceIndex + 1] ?? orderedWorkspaces[workspaceIndex - 1] ?? null;
     let deleted = false;
+    let deletionError: string | null = null;
     try {
       deleted = await deleteWorkspace(workspace.id, (threadIds, snapshots) =>
         deleteThreads(threadIds, snapshots),
       );
     } catch (error) {
       console.error("[workspaces] deletion rollback failed", error);
+      deletionError = error instanceof Error ? error.message : String(error);
     }
-    if (deleted) navigate(nextWorkspace ? `/workspace/${nextWorkspace.id}` : "/");
+    if (!deleted) {
+      setConfirmingDelete(true);
+      showToast(
+        deletionError
+          ? `Workspace could not be deleted: ${deletionError}`
+          : "Workspace could not be deleted.",
+        "error",
+      );
+      return;
+    }
+    navigate(nextWorkspace ? `/workspace/${nextWorkspace.id}` : "/");
   };
 
   return (

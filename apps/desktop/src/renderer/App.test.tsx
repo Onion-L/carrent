@@ -3916,6 +3916,37 @@ describe("Archived Thread lifecycle", () => {
     expect(container!.textContent).toContain("Create your first Workspace");
   });
 
+  it("keeps the confirmation open and shows an error when Workspace deletion fails", async () => {
+    const cleanupRequests: DeleteThreadDataRequest[] = [];
+    const saved = await renderApp(
+      {
+        version: 1,
+        workspaces: [
+          { id: "workspace-1", name: "Personal", order: 0 },
+          { id: "workspace-2", name: "Client", order: 1 },
+        ],
+        projects: [],
+        associations: [],
+        activeWorkspaceId: "workspace-1",
+      },
+      "/workspace/workspace-1",
+      [],
+      false,
+      [],
+      false,
+      { deleteThreadDataRequests: cleanupRequests, deleteThreadDataFails: true },
+    );
+
+    await click(buttonNamed("Delete Workspace"));
+    await click(buttonNamed("Delete"));
+
+    expect(cleanupRequests).toHaveLength(1);
+    expect(saved).toHaveLength(0);
+    expect(currentPathname).toBe("/workspace/workspace-1");
+    expect(container!.textContent).toContain("Workspace could not be deleted: cleanup failed");
+    expect(container!.textContent).toContain("Delete Workspace?");
+  });
+
   it("blocks Association and Workspace removal before confirmation while an affected Run is live", async () => {
     const requests: ChatTurnRequest[] = [];
     await renderApp(

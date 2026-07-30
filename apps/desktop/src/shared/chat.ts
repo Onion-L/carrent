@@ -148,6 +148,9 @@ export function applyThreadDeletionToAppState(
   );
   const nextWorkspace =
     orderedWorkspaces[workspaceIndex + 1] ?? orderedWorkspaces[workspaceIndex - 1] ?? null;
+  const workspaces = orderedWorkspaces
+    .filter((workspace) => workspace.id !== scope.workspaceId)
+    .map((workspace, order) => ({ ...workspace, order }));
   const associations = withoutThreads.associations.filter(
     (association) => association.workspaceId !== scope.workspaceId,
   );
@@ -155,7 +158,7 @@ export function applyThreadDeletionToAppState(
   delete nextLastThreadIdByWorkspace[scope.workspaceId];
   return {
     ...withoutThreads,
-    workspaces: withoutThreads.workspaces.filter((workspace) => workspace.id !== scope.workspaceId),
+    workspaces,
     projects: withoutThreads.projects.filter((project) =>
       associations.some((association) => association.projectId === project.id),
     ),

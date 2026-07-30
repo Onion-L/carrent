@@ -1339,9 +1339,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         snapshotRef.current = committed;
         setSnapshot(committed);
         return true;
-      } catch (error) {
-        if (error instanceof AggregateError) throw error;
-        return false;
       } finally {
         affectedThreadIds.forEach((threadId) => mutatingThreadIdsRef.current.delete(threadId));
       }

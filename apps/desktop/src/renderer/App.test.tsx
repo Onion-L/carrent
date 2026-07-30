@@ -369,11 +369,12 @@ async function fillInput(input: HTMLInputElement, value: string) {
 }
 
 async function fillComposerEditor(editor: HTMLElement, value: string) {
+  const text = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
   await act(async () => {
-    editor.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
-    editor.querySelector<HTMLElement>("[data-composer-text='true']")!.textContent = value;
-    editor.dispatchEvent(new window.Event("input", { bubbles: true }));
-    editor.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "a" }));
+    text.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+    text.textContent = value;
+    text.dispatchEvent(new window.Event("input", { bubbles: true }));
+    text.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "a" }));
   });
 }
 

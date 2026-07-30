@@ -166,9 +166,9 @@ async function insertSkill(input: string, cursor: number, description: string) {
   const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
   const text = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
   await act(async () => {
-    editor.focus();
+    text.focus();
     text.textContent = input;
-    editor.dispatchEvent(
+    text.dispatchEvent(
       new window.InputEvent("input", { bubbles: true, inputType: "insertText" }),
     );
     const range = document.createRange();
@@ -177,7 +177,7 @@ async function insertSkill(input: string, cursor: number, description: string) {
     const selection = window.getSelection()!;
     selection.removeAllRanges();
     selection.addRange(range);
-    editor.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "a" }));
+    text.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "a" }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
@@ -200,6 +200,26 @@ afterEach(async () => {
 });
 
 describe("Composer inline Skills", () => {
+  it("keeps first input inside the text editor and opens the slash menu", async () => {
+    await renderComposer();
+
+    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
+    const text = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
+
+    expect(editor.contentEditable).not.toBe("true");
+    expect(text.contentEditable).toBe("true");
+
+    await act(async () => {
+      text.focus();
+      text.textContent = "/";
+      text.dispatchEvent(new window.InputEvent("input", { bubbles: true, inputType: "insertText" }));
+      text.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "/" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container!.textContent).toContain("Plan mode");
+  });
+
   it("preserves surrounding text and keeps multiple Skills inside the editable flow", async () => {
     await renderComposer();
 
@@ -219,7 +239,8 @@ describe("Composer inline Skills", () => {
     const markers = editor.querySelectorAll<HTMLElement>("[data-skill-marker='true']");
     expect(markers).toHaveLength(3);
     expect([...markers].every((marker) => marker.contentEditable === "false")).toBe(true);
-    expect(editor.contentEditable).toBe("true");
+    expect(editor.contentEditable).not.toBe("true");
+    expect(text.contentEditable).toBe("true");
     expect([...editor.children].at(-1)).toBe(text);
     expect(editor.className).not.toContain("flex");
     expect(markers[0]!.className).toContain("inline-flex");
@@ -229,6 +250,7 @@ describe("Composer inline Skills", () => {
   it("restores a pasted Skill by name and path", async () => {
     await renderComposer();
     const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
+    const text = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
     const pasteEvent = new window.Event("paste", { bubbles: true, cancelable: true });
     Object.defineProperty(pasteEvent, "clipboardData", {
       value: {
@@ -238,15 +260,13 @@ describe("Composer inline Skills", () => {
     });
 
     await act(async () => {
-      editor.dispatchEvent(pasteEvent);
+      text.dispatchEvent(pasteEvent);
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     });
 
     expect(editor.querySelector<HTMLElement>("[data-skill-marker='true']")?.title).toBe(
       "/skills/grilling/SKILL.md",
     );
-    expect(editor.querySelector<HTMLElement>("[data-composer-text='true']")?.textContent).toBe(
-      "Keep this text",
-    );
+    expect(text.textContent).toBe("Keep this text");
   });
 });

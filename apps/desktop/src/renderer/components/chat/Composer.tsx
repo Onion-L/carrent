@@ -1196,7 +1196,7 @@ export function Composer(props: ComposerProps) {
       if (!editor || !text) {
         return;
       }
-      editor.focus();
+      text.focus();
       setEditableSelection(text, position);
     });
   }, []);
@@ -3390,12 +3390,7 @@ export function Composer(props: ComposerProps) {
           ) : (
             <div
               ref={editorRef}
-              role="textbox"
-              aria-label="Message"
-              aria-multiline="true"
               data-composer-editor="true"
-              contentEditable
-              suppressContentEditableWarning
               className="min-h-20 cursor-text whitespace-pre-wrap break-words text-app-15 leading-6 text-fg"
               onMouseDown={(event) => {
                 if (event.target !== event.currentTarget) {
@@ -3519,8 +3514,13 @@ export function Composer(props: ComposerProps) {
               ))}
               <span
                 ref={editorTextRef}
+                role="textbox"
+                aria-label="Message"
+                aria-multiline="true"
                 data-composer-text="true"
                 data-placeholder={attachedSkills.length > 0 ? "" : "Message..."}
+                contentEditable
+                suppressContentEditableWarning
                 className="inline whitespace-pre-wrap break-words outline-none empty:before:text-subtle empty:before:content-[attr(data-placeholder)]"
               >
                 {input}

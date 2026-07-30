@@ -168,12 +168,12 @@ async function submitComposerMessage(message: string, runId: string) {
   const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
   const editorText = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
   await act(async () => {
-    editor.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+    editorText.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
     editorText.textContent = message;
-    editor.dispatchEvent(
+    editorText.dispatchEvent(
       new window.InputEvent("input", { bubbles: true, inputType: "insertText" }),
     );
-    editor.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "k" }));
+    editorText.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "k" }));
   });
   const sendButton = container!.querySelector<SVGElement>(".lucide-arrow-up")?.closest("button");
   expect(sendButton?.disabled).toBe(false);
@@ -301,12 +301,12 @@ describe("RunChecklist", () => {
     const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
     const editorText = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
     await act(async () => {
-      editor.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+      editorText.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
       editorText.textContent = "Continue the work";
-      editor.dispatchEvent(
+      editorText.dispatchEvent(
         new window.InputEvent("input", { bubbles: true, inputType: "insertText" }),
       );
-      editor.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "k" }));
+      editorText.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "k" }));
     });
     expect(container!.textContent).toContain("Implement the checklist");
 

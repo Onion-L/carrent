@@ -146,6 +146,59 @@ describe("registerGitIpc", () => {
     }
   });
 
+  it("lists and checks out remote branches", async () => {
+    const root = mkdtempSync(join(tmpdir(), "carrent-git-ipc-"));
+    const remote = join(root, "remote.git");
+    const upstream = join(root, "upstream.git");
+    const seed = join(root, "seed");
+    const repo = join(root, "repo");
+
+    try {
+      git(root, "init", "--bare", remote);
+      git(root, "init", "--bare", upstream);
+      git(root, "init", seed);
+      git(seed, "config", "user.email", "test@example.com");
+      git(seed, "config", "user.name", "Test User");
+      writeFileSync(join(seed, "README.md"), "hello\n");
+      git(seed, "add", "README.md");
+      git(seed, "commit", "-m", "init");
+      git(seed, "branch", "-M", "main");
+      git(seed, "remote", "add", "origin", remote);
+      git(seed, "remote", "add", "upstream", upstream);
+      git(seed, "push", "-u", "origin", "main");
+      git(remote, "symbolic-ref", "HEAD", "refs/heads/main");
+      git(root, "clone", remote, repo);
+      git(repo, "remote", "add", "upstream", upstream);
+      git(repo, "branch", "local-only");
+      git(seed, "branch", "remote-only");
+      git(seed, "push", "origin", "remote-only");
+      git(seed, "push", "upstream", "remote-only");
+
+      const handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>();
+      registerGitIpc({
+        handle: (channel, listener) => {
+          handlers.set(channel, listener);
+        },
+      });
+
+      const branchesHandler = handlers.get("git:branches")!;
+      expect(await branchesHandler({}, repo)).toEqual({
+        current: "main",
+        branches: ["local-only", "main", "origin/remote-only", "upstream/remote-only"],
+        branchWorktrees: [],
+      });
+
+      const checkoutHandler = handlers.get("git:checkout")!;
+      expect(await checkoutHandler({}, repo, "origin/remote-only")).toEqual({
+        current: "remote-only",
+        branches: ["local-only", "main", "remote-only"],
+        branchWorktrees: [],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects checkout for a branch that is already checked out in another worktree", async () => {
     const root = mkdtempSync(join(tmpdir(), "carrent-git-ipc-"));
     const repo = join(root, "repo");

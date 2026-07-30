@@ -77,7 +77,7 @@ export function registerGitIpc(ipcMainLike: IpcMainLike): void {
     if (!path) {
       throw new Error("Project path is required.");
     }
-    return getBranches(path);
+    return getBranches(path, true);
   });
 
   ipcMainLike.handle("git:checkout", async (_event, projectPath, branch) => {
@@ -117,7 +117,10 @@ export function registerGitIpc(ipcMainLike: IpcMainLike): void {
   });
 }
 
-async function getBranches(cwd: string): Promise<GitBranchInfo> {
+async function getBranches(cwd: string, refreshRemotes = false): Promise<GitBranchInfo> {
+  if (refreshRemotes) {
+    await refreshRemoteBranches(cwd);
+  }
   const branches = await listBranchNames(cwd);
   const current = await getCurrentBranch(cwd);
   const branchWorktrees = (await listBranchWorktrees(cwd)).filter(
@@ -126,20 +129,57 @@ async function getBranches(cwd: string): Promise<GitBranchInfo> {
   return { current, branches, branchWorktrees };
 }
 
+async function refreshRemoteBranches(cwd: string): Promise<void> {
+  try {
+    await runGit(cwd, ["fetch", "--all", "--prune", "--no-recurse-submodules"], {
+      timeout: GIT_TIMEOUT_MS,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+  } catch {
+    // Keep local and cached remote branches available while offline.
+  }
+}
+
 function listBranchNames(cwd: string): Promise<string[]> {
   return new Promise((resolve, reject) => {
-    execFile("git", ["branch", "--format=%(refname:short)"], { cwd }, (error, stdout) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve(
-        stdout
-          .split("\n")
-          .map((line) => line.trim())
-          .filter((line) => line.length > 0),
-      );
-    });
+    execFile(
+      "git",
+      ["for-each-ref", "--format=%(refname)%09%(symref)", "refs/heads", "refs/remotes"],
+      { cwd },
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        const localBranches = new Set<string>();
+        const remoteBranches = new Map<string, string>();
+        for (const line of stdout.split("\n")) {
+          const [refName, symbolicTarget] = line.trim().split("\t");
+          if (!refName || symbolicTarget) {
+            continue;
+          }
+          if (refName.startsWith("refs/heads/")) {
+            localBranches.add(refName.slice("refs/heads/".length));
+            continue;
+          }
+          if (refName.startsWith("refs/remotes/")) {
+            const remoteBranch = refName.slice("refs/remotes/".length);
+            const separatorIndex = remoteBranch.indexOf("/");
+            if (separatorIndex !== -1) {
+              remoteBranches.set(remoteBranch, remoteBranch.slice(separatorIndex + 1));
+            }
+          }
+        }
+        const branches = [...localBranches];
+        for (const [qualifiedName, branchName] of remoteBranches) {
+          if (!localBranches.has(branchName)) {
+            branches.push(qualifiedName);
+          }
+        }
+        resolve(branches.sort());
+      },
+    );
   });
 }
 
@@ -211,13 +251,24 @@ async function checkoutBranch(cwd: string, branch: string): Promise<void> {
     throw new Error(`Branch "${branch}" is already checked out at ${occupiedWorktree.path}.`);
   }
 
+  const isLocalBranch = await hasGitRef(cwd, `refs/heads/${branch}`);
+  const checkoutArgs = isLocalBranch ? ["checkout", branch] : ["checkout", "--track", branch];
+
   return new Promise((resolve, reject) => {
-    execFile("git", ["checkout", branch], { cwd }, (error) => {
+    execFile("git", checkoutArgs, { cwd }, (error) => {
       if (error) {
         reject(error);
         return;
       }
       resolve();
+    });
+  });
+}
+
+function hasGitRef(cwd: string, refName: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile("git", ["show-ref", "--verify", "--quiet", refName], { cwd }, (error) => {
+      resolve(!error);
     });
   });
 }

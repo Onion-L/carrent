@@ -6,6 +6,7 @@ import {
   buildUserMessageEditContent,
   getAssistantMessagePresentation,
   getUserMessageEditDraft,
+  MessageTimeline,
   parseSkillReferenceSegments,
   splitLeadingSkillReferences,
   UserMessageAttachmentList,
@@ -43,6 +44,26 @@ describe("parseSkillReferenceSegments", () => {
       { type: "text", content: " and " },
       { type: "skill", name: "two", path: "/tmp/two/SKILL.md" },
     ]);
+  });
+
+  it("renders a formatted skill label without the reference marker", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MessageTimeline, {
+        messages: [
+          {
+            id: "msg-1",
+            threadId: "thread-1",
+            role: "user" as const,
+            content: "[$improve](/Users/test/.agents/skills/improve/SKILL.md)",
+            timestamp: "09:00",
+            type: "text" as const,
+          },
+        ],
+      }),
+    );
+
+    expect(markup).toContain("Improve");
+    expect(markup).not.toContain("$improve");
   });
 });
 

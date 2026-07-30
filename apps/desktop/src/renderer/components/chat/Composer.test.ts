@@ -12,7 +12,6 @@ import {
   createWorkspaceDiffCapture,
   filterSkillsForQuery,
   formatKimiModelLabel,
-  formatSkillLabel,
   getComposerRuntimeLabel,
   getGitBridge,
   getGitToastMessage,
@@ -697,9 +696,6 @@ describe("skill slash helpers", () => {
     const trigger = getSkillSlashTrigger("please /grill now", 13);
     expect(trigger).toEqual({ start: 7, end: 13, query: "grill" });
 
-    expect(formatSkillLabel("browser:control-in-app-browser")).toBe(
-      "Browser: Control In App Browser",
-    );
     expect(buildSkillReference(skills[0])).toBe(
       "[$grilling](/Users/test/.agents/skills/grilling/SKILL.md)",
     );

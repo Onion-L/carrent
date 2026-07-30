@@ -19,6 +19,7 @@ import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachm
 import { MarkdownContent } from "./MarkdownContent";
 import { PlanReviewBlock } from "./PlanReviewBlock";
 import { QuestionBlock } from "./QuestionBlock";
+import { formatSkillLabel } from "./skillLabel";
 
 type UserMessageSegment =
   | { type: "text"; content: string }
@@ -114,7 +115,7 @@ function SkillBadge({ name, path }: { name: string; path: string }) {
       className="inline-flex max-w-full items-center gap-1.5 align-middle font-medium text-skill-reference"
     >
       <Box className="h-4 w-4 shrink-0" strokeWidth={2} />
-      <span className="truncate">${name}</span>
+      <span className="truncate">{formatSkillLabel(name)}</span>
     </span>
   );
 }

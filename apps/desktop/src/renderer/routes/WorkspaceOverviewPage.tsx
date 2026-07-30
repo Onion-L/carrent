@@ -23,6 +23,7 @@ export function WorkspaceOverviewPage() {
     renameWorkspace,
     selectWorkspace,
     deleteWorkspace,
+    setDeletionNavigation,
   } = useAppState();
   const { deleteThreads } = useThreadContent();
   const { runningThreadIds } = useChatRun();
@@ -54,6 +55,9 @@ export function WorkspaceOverviewPage() {
       orderedWorkspaces[workspaceIndex + 1] ?? orderedWorkspaces[workspaceIndex - 1] ?? null;
     let deleted = false;
     let deletionError: string | null = null;
+    // Deleting the open Workspace briefly leaves this route stale; the route
+    // guard would otherwise report it as missing. This flow navigates itself.
+    setDeletionNavigation({ sourcePath: `/workspace/${workspace.id}` });
     try {
       deleted = await deleteWorkspace(workspace.id, (threadIds, snapshots) =>
         deleteThreads(threadIds, snapshots),
@@ -63,6 +67,7 @@ export function WorkspaceOverviewPage() {
       deletionError = error instanceof Error ? error.message : String(error);
     }
     if (!deleted) {
+      setDeletionNavigation(null);
       setConfirmingDelete(true);
       showToast(
         deletionError

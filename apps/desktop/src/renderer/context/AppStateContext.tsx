@@ -63,6 +63,10 @@ type ArchiveNavigationIntent = {
   destinationPath: string;
 };
 
+type DeletionNavigationIntent = {
+  sourcePath: string;
+};
+
 type PromoteDraftInput = AppThreadRunStartInput & {
   draftId: string;
   title: string;
@@ -115,6 +119,8 @@ type AppStateContextValue = {
   projectDirectoryStatusById: Record<string, ProjectDirectoryStatus>;
   archiveNavigation: ArchiveNavigationIntent | null;
   setArchiveNavigation: (navigation: ArchiveNavigationIntent | null) => void;
+  deletionNavigation: DeletionNavigationIntent | null;
+  setDeletionNavigation: (navigation: DeletionNavigationIntent | null) => void;
   rereadAppState: () => Promise<boolean>;
   fullResetAppState: () => Promise<boolean>;
   clearRecoveryNotice: () => void;
@@ -301,6 +307,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     Record<string, ProjectDirectoryStatus>
   >({});
   const [archiveNavigation, setArchiveNavigation] = useState<ArchiveNavigationIntent | null>(null);
+  const [deletionNavigation, setDeletionNavigation] = useState<DeletionNavigationIntent | null>(
+    null,
+  );
   const threadContentSaveTimerRef = useRef<number | null>(null);
 
   const applyLoadResult = useCallback((result: AppStateLoadResult) => {
@@ -1379,6 +1388,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         projectDirectoryStatusById,
         archiveNavigation,
         setArchiveNavigation,
+        deletionNavigation,
+        setDeletionNavigation,
         rereadAppState,
         fullResetAppState,
         clearRecoveryNotice: () => setRecoveryNotice(null),

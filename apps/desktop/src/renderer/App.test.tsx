@@ -3793,6 +3793,7 @@ describe("Archived Thread lifecycle", () => {
     await click(buttonNamed("Delete"));
 
     expect(currentPathname).toBe("/workspace/workspace-3");
+    expect(container!.textContent).not.toContain("Workspace could not be found.");
     expect(cleanupRequests).toEqual([
       { threadIds: ["thread-1", "draft-thread-2"], attachmentStorageKeys: ["attachment-1.txt"] },
     ]);
@@ -3855,6 +3856,7 @@ describe("Archived Thread lifecycle", () => {
     await click(buttonNamed("Delete"));
 
     expect(currentPathname).toBe("/");
+    expect(container!.textContent).not.toContain("Workspace could not be found.");
     expect(saved.at(-1)?.workspaces).toEqual([]);
     expect(saved.at(-1)?.activeWorkspaceId).toBe(null);
     expect(container!.textContent).toContain("Create your first Workspace");

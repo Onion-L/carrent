@@ -58,6 +58,8 @@ function NavigationCoordinator() {
     rememberThreadLocation,
     archiveNavigation,
     setArchiveNavigation,
+    deletionNavigation,
+    setDeletionNavigation,
   } = useAppState();
   const notifiedLocations = useRef(new Set<string>());
 
@@ -78,10 +80,19 @@ function NavigationCoordinator() {
         // destination); hand route control back.
         setArchiveNavigation(null);
       }
+      if (deletionNavigation && location.pathname !== deletionNavigation.sourcePath) {
+        // The deletion transition navigated away; hand route control back.
+        setDeletionNavigation(null);
+      }
       if (resolution.kind === "fallback") {
         if (archiveNavigation && location.pathname === archiveNavigation.sourcePath) {
           // Archiving the open Thread briefly leaves this route stale; the archive
           // transition performs its own navigation to the chosen destination.
+          return;
+        }
+        if (deletionNavigation && location.pathname === deletionNavigation.sourcePath) {
+          // Deleting the open Workspace briefly leaves this route stale; the
+          // deletion flow performs its own navigation to the next Workspace.
           return;
         }
         target = resolution.to;
@@ -102,11 +113,13 @@ function NavigationCoordinator() {
   }, [
     archiveNavigation,
     associations,
+    deletionNavigation,
     location.pathname,
     navigate,
     projects,
     rememberThreadLocation,
     setArchiveNavigation,
+    setDeletionNavigation,
     showToast,
     threads,
     workspaces,

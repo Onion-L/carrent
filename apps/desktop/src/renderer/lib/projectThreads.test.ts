@@ -24,15 +24,33 @@ function makeThread(overrides: Partial<AppThreadRecord> = {}): AppThreadRecord {
 }
 
 describe("project Threads", () => {
-  it("sorts threads by latest activity first", () => {
+  it("sorts pinned Threads first and each group by Thread Activity Time", () => {
     const threads = [
-      makeThread({ id: "a", title: "Regular A", lastActivityAt: "2026-01-01T00:00:00Z" }),
-      makeThread({ id: "b", title: "Pinned B", lastActivityAt: "2026-03-01T00:00:00Z" }),
-      makeThread({ id: "c", title: "Regular C", lastActivityAt: "2026-02-01T00:00:00Z" }),
-      makeThread({ id: "d", title: "Pinned D", lastActivityAt: "2026-04-01T00:00:00Z" }),
+      makeThread({
+        id: "a",
+        title: "Regular A",
+        lastActivityAt: "2026-04-01T00:00:00Z",
+      }),
+      makeThread({
+        id: "b",
+        title: "Pinned B",
+        lastActivityAt: "2026-02-01T00:00:00Z",
+        pinned: true,
+      }),
+      makeThread({
+        id: "c",
+        title: "Regular C",
+        lastActivityAt: "2026-03-01T00:00:00Z",
+      }),
+      makeThread({
+        id: "d",
+        title: "Pinned D",
+        lastActivityAt: "2026-01-01T00:00:00Z",
+        pinned: true,
+      }),
     ];
 
-    expect(getProjectThreads(threads).map((thread) => thread.id)).toEqual(["d", "b", "c", "a"]);
+    expect(getProjectThreads(threads).map((thread) => thread.id)).toEqual(["b", "d", "a", "c"]);
   });
 
   it("resolves activity from persisted Thread Activity Time", () => {

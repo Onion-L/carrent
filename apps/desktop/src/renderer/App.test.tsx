@@ -3016,8 +3016,21 @@ describe("Archived Thread lifecycle", () => {
   }
 
   it("archives an idle Thread and opens the next active sibling", async () => {
+    const state = lifecycleState();
+    state.threads?.push({
+      id: "thread-3",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      title: "Pinned Sibling",
+      createdAt: "2026-07-27T06:00:00.000Z",
+      lastActivityAt: "2026-07-27T08:00:00.000Z",
+      pinned: true,
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+    });
     const saved = await renderApp(
-      lifecycleState(),
+      state,
       "/workspace/workspace-1/project/project-1/thread/thread-1",
       [],
       false,
@@ -3028,7 +3041,7 @@ describe("Archived Thread lifecycle", () => {
     expect(container!.querySelector('header [aria-label^="Archive "]')).toBe(null);
     await click(buttonNamed("Archive Primary Thread"));
 
-    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-2");
+    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-3");
     expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.archived).toBe(true);
     expect(saved.at(-1)?.threadMessages).toEqual(lifecycleState().threadMessages);
     expect(saved.at(-1)?.threadRuns).toEqual(lifecycleState().threadRuns);

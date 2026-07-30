@@ -76,9 +76,12 @@ export function getThreadDisplayStatus({
 }
 
 export function getProjectThreads(threads: AppThreadRecord[]) {
-  return [...threads].sort((left, right) =>
-    right.lastActivityAt.localeCompare(left.lastActivityAt),
-  );
+  return [...threads].sort((left, right) => {
+    if (Boolean(left.pinned) !== Boolean(right.pinned)) {
+      return left.pinned ? -1 : 1;
+    }
+    return right.lastActivityAt.localeCompare(left.lastActivityAt);
+  });
 }
 
 export function filterProjectThreads(threads: AppThreadRecord[], query: string) {

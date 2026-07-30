@@ -465,11 +465,7 @@ export function WorkspaceNavigationPane() {
 
                         const handleArchive = async () => {
                           if (archiveBlockedReason) return;
-                          const nextThread = projectThreads
-                            .filter((item) => item.id !== thread.id)
-                            .sort((left, right) =>
-                              right.lastActivityAt.localeCompare(left.lastActivityAt),
-                            )[0];
+                          const nextThread = projectThreads.find((item) => item.id !== thread.id);
                           if (active) {
                             setArchiveNavigation({
                               threadId: thread.id,

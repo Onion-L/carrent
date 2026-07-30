@@ -78,6 +78,7 @@ function ThreadPageContent() {
     projectDirectoryStatusById,
   } = useAppState();
   const { runningThreadIds } = useChatRun();
+  const hasLiveRun = threadId ? runningThreadIds.includes(threadId) : false;
   const appThread = workspaceId
     ? threads.find(
         (thread) =>
@@ -274,7 +275,7 @@ function ThreadPageContent() {
                 (action) => action.threadId === routeData?.thread.id,
               )}
               threadId={routeData?.thread.id}
-              onSubmitUserEdit={handleSubmitUserEdit}
+              onSubmitUserEdit={hasLiveRun ? undefined : handleSubmitUserEdit}
               onRemoveRuntimeSessionAndRetry={handleRuntimeSessionRetry}
             />
             {composer}

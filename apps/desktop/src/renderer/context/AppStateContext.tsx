@@ -1026,11 +1026,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         Pick<AppThreadRecord, "runtimeId" | "runtimeModelId" | "runtimeMode" | "planMode">
       >,
     ) => {
-      if (!(snapshot.threads ?? []).some((item) => item.id === threadId)) return false;
+      const current = snapshotRef.current;
+      if (!(current.threads ?? []).some((item) => item.id === threadId)) return false;
       try {
         await persist({
-          ...snapshot,
-          threads: (snapshot.threads ?? []).map((thread) => {
+          ...current,
+          threads: (current.threads ?? []).map((thread) => {
             if (thread.id !== threadId) return thread;
             const next = { ...thread, ...config };
             if (!next.runtimeModelId) delete next.runtimeModelId;
@@ -1042,7 +1043,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         return false;
       }
     },
-    [persist, snapshot],
+    [persist],
   );
 
   const rollbackThreadDraftPromotion = useCallback(

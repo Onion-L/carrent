@@ -1136,6 +1136,53 @@ describe("three-level navigation", () => {
     });
   });
 
+  it("does not offer history editing while the Thread has a live Run", async () => {
+    const state = navigationState();
+    const requests: ChatTurnRequest[] = [];
+    state.threadMessages = [
+      {
+        id: "message-1",
+        threadId: "thread-1",
+        role: "user",
+        content: "Original request",
+        createdAt: "2026-07-27T08:00:00.000Z",
+        attachments: [],
+      },
+    ];
+    await renderApp(
+      state,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      requests,
+    );
+
+    await fillTextarea(container!.querySelector("textarea")!, "Start live Run");
+    await click(composerSendButton());
+
+    const originalBubble = [...container!.querySelectorAll<HTMLDivElement>(".bg-user-bubble")].find(
+      (element) => element.textContent?.trim() === "Original request",
+    )!.parentElement!.parentElement!;
+    await act(async () => {
+      originalBubble.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
+    });
+
+    expect(
+      [...container!.querySelectorAll<HTMLButtonElement>("button")].some(
+        (button) => button.title === "Edit",
+      ),
+    ).toBe(false);
+
+    await act(async () => {
+      emitChatEvent?.({
+        type: "stopped",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  });
+
   it("does not let an archive transition suppress an invalid ownership route", async () => {
     let releaseSave!: () => void;
     const saveGate = new Promise<void>((resolve) => {
@@ -1717,6 +1764,43 @@ describe("Association Thread Drafts", () => {
     activeWorkspaceId: "workspace-1",
   };
 
+  const existingThreadState = (): AppStateSnapshot => ({
+    ...state,
+    threads: [
+      {
+        id: "thread-1",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        title: "Existing Thread",
+        createdAt: "2026-07-27T08:00:00.000Z",
+        lastActivityAt: "2026-07-27T08:01:00.000Z",
+        runtimeId: "kimi",
+        runtimeModelId: "kimi-k2.5",
+        runtimeMode: "approval-required",
+        planMode: true,
+      },
+    ],
+    threadMessages: [
+      {
+        id: "message-1",
+        threadId: "thread-1",
+        role: "user",
+        content: "Original request",
+        createdAt: "2026-07-27T08:00:00.000Z",
+        attachments: [],
+      },
+      {
+        id: "message-2",
+        threadId: "thread-1",
+        role: "assistant",
+        content: "Original response",
+        createdAt: "2026-07-27T08:01:00.000Z",
+        runStatus: "completed",
+        attachments: [],
+      },
+    ],
+  });
+
   it("persists one recoverable Draft without creating a Thread", async () => {
     const saved = await renderApp(state, "/workspace/workspace-1/project/project-1");
 
@@ -2054,6 +2138,94 @@ describe("Association Thread Drafts", () => {
     expect(container!.textContent).toContain("Recovered Thread");
     expect(container!.textContent).toContain("Recovered message");
     expect(container!.querySelector("textarea") !== null).toBe(true);
+  });
+
+  it("keeps a new Thread message when the Runtime synchronizes Plan mode", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const saved = await renderApp(
+      existingThreadState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      requests,
+    );
+
+    await fillTextarea(container!.querySelector("textarea")!, "New request");
+    await click(composerSendButton());
+    await act(async () => {
+      emitChatEvent?.({
+        type: "plan-mode-changed",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+        enabled: false,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(container!.textContent).toContain("New request");
+    expect(saved.at(-1)?.threadMessages?.some((message) => message.content === "New request")).toBe(
+      true,
+    );
+    expect(saved.at(-1)?.threadRuns?.some((run) => run.id === requests[0].runId)).toBe(true);
+    await act(async () => {
+      emitChatEvent?.({
+        type: "stopped",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  });
+
+  it("keeps an edited Thread message when the Runtime synchronizes Plan mode", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const saved = await renderApp(
+      existingThreadState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      requests,
+    );
+    const originalBubble = [...container!.querySelectorAll<HTMLDivElement>(".bg-user-bubble")].find(
+      (element) => element.textContent?.trim() === "Original request",
+    )!.parentElement!.parentElement!;
+    await act(async () => {
+      originalBubble.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
+    });
+    await click(
+      [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.title === "Edit",
+      )!,
+    );
+    await fillTextarea(
+      container!.querySelectorAll<HTMLTextAreaElement>("textarea")[0],
+      "Edited request",
+    );
+    await click(
+      [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "发送",
+      )!,
+    );
+    await act(async () => {
+      emitChatEvent?.({
+        type: "plan-mode-changed",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+        enabled: false,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(container!.textContent).toContain("Edited request");
+    expect(saved.at(-1)?.threadMessages?.[0]?.content).toBe("Edited request");
+    await act(async () => {
+      emitChatEvent?.({
+        type: "stopped",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   });
 
   it("does not dispatch an existing Thread Run when App State persistence fails", async () => {

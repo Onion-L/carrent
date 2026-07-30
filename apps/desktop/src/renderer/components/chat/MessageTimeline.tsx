@@ -711,6 +711,14 @@ export function MessageTimeline({
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const initialScrollThreadRef = useRef<string | null>(null);
+  const latestUserMessageRef = useRef<{ threadId: string; messageId: string | null } | null>(null);
+  let latestUserMessageId: string | null = null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "user") {
+      latestUserMessageId = messages[index].id;
+      break;
+    }
+  }
 
   // Entering a thread pins the view to the latest message. Without this the
   // scroll container starts at the top and the near-bottom effect below can
@@ -720,14 +728,35 @@ export function MessageTimeline({
     if (!el || threadId === undefined || messages.length === 0) return;
     if (initialScrollThreadRef.current === threadId) return;
     initialScrollThreadRef.current = threadId;
+    latestUserMessageRef.current = { threadId, messageId: latestUserMessageId };
     el.scrollTo({ top: el.scrollHeight });
-  }, [threadId, messages]);
+  }, [threadId, messages, latestUserMessageId]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || threadId === undefined) return;
+    const previous = latestUserMessageRef.current;
+    latestUserMessageRef.current = { threadId, messageId: latestUserMessageId };
+    if (
+      previous?.threadId === threadId &&
+      latestUserMessageId !== null &&
+      previous.messageId !== latestUserMessageId
+    ) {
+      el.scrollTo({ top: el.scrollHeight });
+    }
+  }, [threadId, latestUserMessageId]);
 
   useEffect(() => {
     if (editingMessageId && !messages.some((message) => message.id === editingMessageId)) {
       setEditingMessageId(null);
     }
   }, [editingMessageId, messages]);
+
+  useEffect(() => {
+    if (!onSubmitUserEdit) {
+      setEditingMessageId(null);
+    }
+  }, [onSubmitUserEdit]);
 
   useEffect(() => {
     const el = scrollRef.current;

@@ -47,7 +47,7 @@ The existing Context usage indicator remains unchanged and is not an entry point
 25. As a Carrent user, I want pending attachments preserved when I invoke Status, so that inspection does not alter my next request.
 26. As a Carrent user, I want the complete Runtime Session ID displayed, so that I can identify the exact continuity handle in diagnostics.
 27. As a Carrent user, I want the Session ID selectable as text, so that I can copy it using normal text selection when needed.
-28. As a Carrent user, I want no dedicated copy button in this delivery, so that the panel remains focused on inspection.
+28. As a Carrent user, I want no dedicated copy button in the Status panel, so that the panel remains focused on inspection while Thread context menus may offer copy actions.
 29. As a Carrent user, I want Context remaining capacity displayed first, so that the most actionable value is easy to scan.
 30. As a Carrent user, I want remaining Context percentage derived from the Runtime-reported used percentage, so that Carrent can present the requested perspective without inventing source data.
 31. As a Carrent user, I want remaining Context percentage shown with at most one decimal place, so that values such as `96.6%` retain useful precision without showing `.0` unnecessarily.
@@ -124,7 +124,7 @@ The existing Context usage indicator remains unchanged and is not an entry point
 - Remaining Context percentage is `100 - used percentage`, bounded to the valid percentage range and formatted with at most one decimal place. Integer results omit `.0`.
 - Used Context tokens use locale grouping. Total Context capacity uses compact English notation, producing values such as `258K` and `1M`.
 - The Context line uses copy equivalent to `Remaining 96.6% (35,193 used / 1M total)`.
-- Session ID is rendered in full and remains text-selectable. No dedicated copy control is added.
+- Session ID is rendered in full and remains text-selectable. The Status panel adds no dedicated copy control; Thread context menus may offer a Session ID copy action.
 - Optional Plan usage is represented as independent Weekly and 5h windows. Each valid window may contain a Runtime-reported used percentage and Runtime-reported reset text or duration.
 - When a quota used percentage exists, Carrent may derive remaining percentage as `100 - used percentage`; it does not infer the used percentage itself.
 - Reset information is displayed only from explicit Runtime data. Carrent does not calculate reset timestamps from account type, local time, previous values, or assumptions.
@@ -190,7 +190,7 @@ The existing Context usage indicator remains unchanged and is not an entry point
 - Creating a Runtime Session to detect capability or produce Status for a new Thread.
 - Allowing Status during a live Run, Compact operation, or another Status request.
 - Sending `/status` as an ordinary Coding Agent prompt when unavailable.
-- Adding a dedicated Session ID copy button.
+- Adding a dedicated Session ID copy button to the Status panel.
 - Changing the existing Context usage circle's presentation or hover content beyond compatibility work required by the normalized status contract.
 - Adding Status adapters for disabled non-Kimi V1 Runtimes in the first delivery.
 

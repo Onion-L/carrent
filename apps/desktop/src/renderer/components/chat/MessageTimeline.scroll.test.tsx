@@ -21,6 +21,18 @@ function userMessage(id: string, content: string): Message {
   };
 }
 
+function assistantMessage(id: string, content: string): Message {
+  return {
+    id,
+    threadId: "thread-1",
+    role: "assistant",
+    type: "text",
+    content,
+    timestamp: "09:00",
+    createdAt: 1000,
+  };
+}
+
 type ScrollCall = { top?: number; behavior?: string };
 
 let container: HTMLDivElement | null = null;
@@ -78,14 +90,25 @@ describe("MessageTimeline initial scroll", () => {
     expect(instantScrollCalls()).toHaveLength(2);
   });
 
-  it("does not re-jump for new messages in the same thread", () => {
+  it("does not re-jump for assistant updates in the same thread", () => {
     Element.prototype.scrollTo = function (options?: ScrollToOptions) {
       scrollCalls.push(options ?? {});
     } as typeof Element.prototype.scrollTo;
 
     renderTimeline([userMessage("m1", "hello")], "thread-1");
-    renderTimeline([userMessage("m1", "hello"), userMessage("m2", "streamed")], "thread-1");
+    renderTimeline([userMessage("m1", "hello"), assistantMessage("m2", "streamed")], "thread-1");
 
     expect(instantScrollCalls()).toHaveLength(1);
+  });
+
+  it("jumps to a new user message in the current thread", () => {
+    Element.prototype.scrollTo = function (options?: ScrollToOptions) {
+      scrollCalls.push(options ?? {});
+    } as typeof Element.prototype.scrollTo;
+
+    renderTimeline([userMessage("m1", "hello")], "thread-1");
+    renderTimeline([userMessage("m1", "hello"), userMessage("m2", "follow-up")], "thread-1");
+
+    expect(instantScrollCalls()).toHaveLength(2);
   });
 });

@@ -91,6 +91,7 @@ export type AssociationThreadDraftRecord = {
   workspaceId: string;
   projectId: string;
   content: string;
+  composerState?: string;
   attachedSkillNames: string[];
   attachments: AttachmentMetadata[];
   runtimeId: RuntimeId;
@@ -197,6 +198,7 @@ const MAX_THREAD_WORK_QUEUE_ITEMS = 50;
 
 export type ThreadWorkDraftSnapshot = {
   content: string;
+  composerState?: string;
   attachedSkillNames: string[];
   attachments: AttachmentMetadata[];
 };
@@ -515,6 +517,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       !associationKeys.has(associationKey) ||
       draftAssociationKeys.has(associationKey) ||
       typeof draft.content !== "string" ||
+      (draft.composerState !== undefined && typeof draft.composerState !== "string") ||
       !Array.isArray(draft.attachedSkillNames) ||
       draft.attachedSkillNames.some(
         (name) => typeof name !== "string" || !name || name.trim() !== name,
@@ -543,6 +546,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       workspaceId: draft.workspaceId,
       projectId: draft.projectId,
       content: draft.content,
+      ...(draft.composerState ? { composerState: draft.composerState } : {}),
       attachedSkillNames: [...draft.attachedSkillNames],
       attachments: attachments as AttachmentMetadata[],
       runtimeId: draft.runtimeId as RuntimeId,
@@ -1206,6 +1210,13 @@ function normalizeThreadWorkDraft(value: unknown): ThreadWorkDraftSnapshot | nul
   if (!isRecord(value)) return null;
   if (typeof value.content !== "string") return null;
   if (utf8ByteLength(value.content) > MAX_THREAD_WORK_TEXT_BYTES) return null;
+  if (value.composerState !== undefined && typeof value.composerState !== "string") return null;
+  if (
+    typeof value.composerState === "string" &&
+    utf8ByteLength(value.composerState) > MAX_THREAD_WORK_TEXT_BYTES
+  ) {
+    return null;
+  }
   if (!Array.isArray(value.attachedSkillNames)) return null;
   if (!value.attachedSkillNames.every((name) => typeof name === "string")) return null;
 
@@ -1214,6 +1225,9 @@ function normalizeThreadWorkDraft(value: unknown): ThreadWorkDraftSnapshot | nul
 
   return {
     content: value.content,
+    ...(typeof value.composerState === "string" && value.composerState
+      ? { composerState: value.composerState }
+      : {}),
     attachedSkillNames: [...value.attachedSkillNames],
     attachments,
   };

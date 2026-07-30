@@ -4,6 +4,7 @@ import "./test/registerHappyDom";
 
 import { StrictMode, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { $createParagraphNode, $createTextNode, $getRoot, type LexicalEditor } from "lexical";
 import {
   MemoryRouter,
   useLocation,
@@ -370,16 +371,27 @@ async function fillInput(input: HTMLInputElement, value: string) {
 
 async function fillComposerEditor(editor: HTMLElement, value: string) {
   const text = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
+  const lexicalEditor = (text as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
   await act(async () => {
-    text.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
-    text.textContent = value;
-    text.dispatchEvent(new window.Event("input", { bubbles: true }));
-    text.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "a" }));
+    lexicalEditor.update(() => {
+      const root = $getRoot();
+      root.clear();
+      const paragraph = $createParagraphNode();
+      const textNode = $createTextNode(value);
+      paragraph.append(textNode);
+      root.append(paragraph);
+      textNode.selectEnd();
+    });
+    text.focus();
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
 function getComposerEditorText(editor: HTMLElement) {
-  return editor.querySelector<HTMLElement>("[data-composer-text='true']")!.textContent;
+  const text = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
+  const copy = text.cloneNode(true) as HTMLElement;
+  copy.querySelectorAll("[data-skill-marker='true']").forEach((marker) => marker.remove());
+  return copy.textContent;
 }
 
 async function fillNativeTextarea(nativeTextarea: HTMLTextAreaElement, value: string) {
@@ -2448,9 +2460,11 @@ describe("Compact Thread Action", () => {
 
     await fillComposerEditor(editor, "/compact Keep this draft");
     await act(async () => {
-      editor.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-      );
+      editor
+        .querySelector<HTMLElement>("[data-composer-text='true']")!
+        .dispatchEvent(
+          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+        );
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     expect(getComposerEditorText(editor)).toBe("Keep this draft");
@@ -2477,9 +2491,11 @@ describe("Compact Thread Action", () => {
 
     await fillComposerEditor(editor, "/compact Keep this draft");
     await act(async () => {
-      editor.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-      );
+      editor
+        .querySelector<HTMLElement>("[data-composer-text='true']")!
+        .dispatchEvent(
+          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+        );
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     expect(getComposerEditorText(editor)).toBe("Keep this draft");
@@ -2531,9 +2547,11 @@ describe("Compact Thread Action", () => {
     const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
     await fillComposerEditor(editor, "/compact Keep this draft");
     await act(async () => {
-      editor.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-      );
+      editor
+        .querySelector<HTMLElement>("[data-composer-text='true']")!
+        .dispatchEvent(
+          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+        );
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     expect(getComposerEditorText(editor)).toBe("Keep this draft");
@@ -2541,9 +2559,11 @@ describe("Compact Thread Action", () => {
 
     await fillComposerEditor(editor, "/compact Try again");
     await act(async () => {
-      editor.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-      );
+      editor
+        .querySelector<HTMLElement>("[data-composer-text='true']")!
+        .dispatchEvent(
+          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+        );
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     expect(getComposerEditorText(editor)).toBe("Try again");
@@ -2582,9 +2602,11 @@ describe("Compact Thread Action", () => {
     const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
     await fillComposerEditor(editor, "/compact Keep this draft");
     await act(async () => {
-      editor.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-      );
+      editor
+        .querySelector<HTMLElement>("[data-composer-text='true']")!
+        .dispatchEvent(
+          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+        );
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     expect(getComposerEditorText(editor)).toBe("Keep this draft");
@@ -2594,9 +2616,11 @@ describe("Compact Thread Action", () => {
 
     await fillComposerEditor(editor, "/compact Try again");
     await act(async () => {
-      editor.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-      );
+      editor
+        .querySelector<HTMLElement>("[data-composer-text='true']")!
+        .dispatchEvent(
+          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+        );
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     expect(getComposerEditorText(editor)).toBe("Try again");
@@ -2675,9 +2699,11 @@ describe("Runtime Session Status", () => {
 
   async function submitEditor(editor: HTMLElement) {
     await act(async () => {
-      editor.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-      );
+      editor
+        .querySelector<HTMLElement>("[data-composer-text='true']")!
+        .dispatchEvent(
+          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+        );
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
   }
@@ -2809,9 +2835,11 @@ describe("Runtime Session Status", () => {
 
     await fillComposerEditor(editor, "/status Keep this draft");
     await act(async () => {
-      editor.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-      );
+      editor
+        .querySelector<HTMLElement>("[data-composer-text='true']")!
+        .dispatchEvent(
+          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+        );
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     expect(statusCall).toBe(2);
@@ -2944,9 +2972,11 @@ describe("Runtime Session Status", () => {
 
     await fillComposerEditor(editor, "/status");
     await act(async () => {
-      editor.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-      );
+      editor
+        .querySelector<HTMLElement>("[data-composer-text='true']")!
+        .dispatchEvent(
+          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+        );
       await new Promise((resolve) => setTimeout(resolve, 10));
       testNavigate?.("/workspace/workspace-1/project/project-1/thread/thread-2");
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -2990,9 +3020,11 @@ describe("Runtime Session Status", () => {
     await submitEditor(editor);
     await fillComposerEditor(editor, "/status");
     await act(async () => {
-      editor.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-      );
+      editor
+        .querySelector<HTMLElement>("[data-composer-text='true']")!
+        .dispatchEvent(
+          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+        );
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     await click(buttonNamed("Close"));
@@ -3382,9 +3414,11 @@ describe("Archived Thread lifecycle", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
-    expect(container!.querySelector<HTMLElement>("[data-composer-text='true']")?.textContent).toBe(
-      "Do not race this archive",
-    );
+    expect(
+      getComposerEditorText(
+        container!.querySelector<HTMLElement>("[data-composer-editor='true']")!,
+      ),
+    ).toBe("Do not race this archive");
     await click(buttonNamed("Archive Primary Thread"));
     await click(composerSendButton());
 
@@ -3401,7 +3435,7 @@ describe("Archived Thread lifecycle", () => {
     });
 
     expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.archived).toBe(true);
-    expect(saved.at(-1)?.threadWork?.["thread-1"]?.draft).toEqual(
+    expect(saved.at(-1)?.threadWork?.["thread-1"]?.draft).toMatchObject(
       state.threadWork["thread-1"].draft,
     );
     expect(saved.at(-1)?.threadMessages).toEqual(state.threadMessages);

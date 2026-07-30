@@ -14,7 +14,9 @@
   },
   "dependencies": {
     "@carrent/ui": "workspace:*",
+    "@lexical/react": "0.41.0",
     "katex": "^0.16.25",
+    "lexical": "0.41.0",
     "lucide-react": "^1.8.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",

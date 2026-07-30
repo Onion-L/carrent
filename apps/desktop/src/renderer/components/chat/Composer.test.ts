@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
+import "../../test/registerHappyDom";
+
 import {
   PLAN_REVIEW_FOLLOW_UP_TEXT,
   buildThreadDraftSnapshot,
@@ -1304,10 +1306,12 @@ describe("thread draft persistence", () => {
       content: "Follow up",
       attachedSkills: [draftSkills[0]],
       pendingAttachments: [pending],
+      composerState: '{"root":{"type":"root"}}',
     });
 
     expect(draft).toEqual({
       content: "Follow up",
+      composerState: '{"root":{"type":"root"}}',
       attachedSkillNames: ["grilling"],
       attachments: [fileMetadata],
     });

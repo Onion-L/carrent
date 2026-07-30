@@ -108,6 +108,7 @@ export function ProjectOverviewPage() {
               threadId={openDraft.threadId}
               initialDraft={{
                 content: openDraft.content,
+                composerState: openDraft.composerState,
                 attachedSkillNames: openDraft.attachedSkillNames,
                 attachments: openDraft.attachments,
               }}
@@ -120,6 +121,7 @@ export function ProjectOverviewPage() {
                 setOpenDraft({
                   ...openDraft,
                   content: draft?.content ?? "",
+                  composerState: draft?.composerState,
                   attachedSkillNames: draft?.attachedSkillNames ?? [],
                   attachments: draft?.attachments ?? [],
                 });

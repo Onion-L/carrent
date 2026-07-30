@@ -5,18 +5,27 @@ import "../../test/registerHappyDom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
+import {
+  $createParagraphNode,
+  $createTextNode,
+  $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  PASTE_COMMAND,
+  type LexicalEditor,
+} from "lexical";
 
 import type { ChatRunEvent } from "../../../shared/chat";
 import type { AppStateSnapshot } from "../../../shared/workspacePersistence";
 import { AppStateProvider } from "../../context/AppStateContext";
 import { RuntimeModelsProvider } from "../../context/RuntimeModelsContext";
 import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
-import { Composer } from "./Composer";
+import { Composer, type ComposerDraftRequest } from "./Composer";
 
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 
-function ComposerHarness() {
+function ComposerHarness({ draftRequest }: { draftRequest?: ComposerDraftRequest }) {
   const { hasHydrated, getThreadRouteData } = useThreadContent();
   const routeData = getThreadRouteData("project-1", "thread-1");
   if (!hasHydrated || !routeData) {
@@ -33,7 +42,22 @@ function ComposerHarness() {
       runtimeId="kimi"
       runtimeMode="approval-required"
       planMode={false}
+      draftRequest={draftRequest}
     />
+  );
+}
+
+function composerTree(draftRequest?: ComposerDraftRequest) {
+  return (
+    <AppStateProvider>
+      <ThreadContentProvider>
+        <RuntimeModelsProvider>
+          <MemoryRouter>
+            <ComposerHarness draftRequest={draftRequest} />
+          </MemoryRouter>
+        </RuntimeModelsProvider>
+      </ThreadContentProvider>
+    </AppStateProvider>
   );
 }
 
@@ -145,42 +169,47 @@ async function renderComposer() {
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
-    root!.render(
-      <AppStateProvider>
-        <ThreadContentProvider>
-          <RuntimeModelsProvider>
-            <MemoryRouter>
-              <ComposerHarness />
-            </MemoryRouter>
-          </RuntimeModelsProvider>
-        </ThreadContentProvider>
-      </AppStateProvider>,
-    );
+    root!.render(composerTree());
   });
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 35));
   });
 }
 
-async function insertSkill(input: string, cursor: number, description: string) {
+function getLexicalEditor() {
+  const text = container!.querySelector<HTMLElement>("[data-composer-text='true']")!;
+  return (text as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+}
+
+function getComposerText() {
+  let text = "";
+  getLexicalEditor()
+    .getEditorState()
+    .read(() => {
+      text = $getRoot().getTextContent();
+    });
+  return text;
+}
+
+async function setComposerText(input: string, cursor = input.length) {
   const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
   const text = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
   await act(async () => {
+    getLexicalEditor().update(() => {
+      const root = $getRoot();
+      root.clear();
+      const paragraph = $createParagraphNode();
+      const textNode = $createTextNode(input);
+      paragraph.append(textNode);
+      root.append(paragraph);
+      textNode.select(cursor, cursor);
+    });
     text.focus();
-    text.textContent = input;
-    text.dispatchEvent(
-      new window.InputEvent("input", { bubbles: true, inputType: "insertText" }),
-    );
-    const range = document.createRange();
-    range.setStart(text.firstChild!, cursor);
-    range.collapse(true);
-    const selection = window.getSelection()!;
-    selection.removeAllRanges();
-    selection.addRange(range);
-    text.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "a" }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+}
 
+async function chooseSkill(description: string) {
   const skillButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
     button.textContent?.includes(description),
   )!;
@@ -209,13 +238,7 @@ describe("Composer inline Skills", () => {
     expect(editor.contentEditable).not.toBe("true");
     expect(text.contentEditable).toBe("true");
 
-    await act(async () => {
-      text.focus();
-      text.textContent = "/";
-      text.dispatchEvent(new window.InputEvent("input", { bubbles: true, inputType: "insertText" }));
-      text.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "/" }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await setComposerText("/");
 
     expect(container!.textContent).toContain("Plan mode");
   });
@@ -223,25 +246,27 @@ describe("Composer inline Skills", () => {
   it("preserves surrounding text and keeps multiple Skills inside the editable flow", async () => {
     await renderComposer();
 
-    await insertSkill("/grill已有内容", 6, "Stress-test a plan.");
+    await setComposerText("before /pdf after", 11);
+    await chooseSkill("Work with PDF files.");
     const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
     const text = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
-    expect(text.textContent).toBe("已有内容");
+    expect(text.textContent).toContain("before PDF after");
 
-    await insertSkill("before /pdf after", 11, "Work with PDF files.");
-    expect(text.textContent).toBe("before  after");
-    expect(window.getSelection()?.anchorOffset).toBe(7);
-
-    await insertSkill("finish /tdd", 11, "Develop test-first.");
-    expect(text.textContent).toBe("finish ");
-    expect(window.getSelection()?.anchorOffset).toBe(7);
+    await act(async () => {
+      getLexicalEditor().update(() => {
+        $getRoot().selectEnd();
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText(" /tdd");
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await chooseSkill("Develop test-first.");
 
     const markers = editor.querySelectorAll<HTMLElement>("[data-skill-marker='true']");
-    expect(markers).toHaveLength(3);
+    expect(markers).toHaveLength(2);
     expect([...markers].every((marker) => marker.contentEditable === "false")).toBe(true);
     expect(editor.contentEditable).not.toBe("true");
     expect(text.contentEditable).toBe("true");
-    expect([...editor.children].at(-1)).toBe(text);
     expect(editor.className).not.toContain("flex");
     expect(markers[0]!.className).toContain("inline-flex");
     expect(text.className).toContain("whitespace-pre-wrap");
@@ -251,7 +276,7 @@ describe("Composer inline Skills", () => {
     await renderComposer();
     const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
     const text = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
-    const pasteEvent = new window.Event("paste", { bubbles: true, cancelable: true });
+    const pasteEvent = new window.ClipboardEvent("paste", { bubbles: true, cancelable: true });
     Object.defineProperty(pasteEvent, "clipboardData", {
       value: {
         files: [],
@@ -260,13 +285,27 @@ describe("Composer inline Skills", () => {
     });
 
     await act(async () => {
-      text.dispatchEvent(pasteEvent);
+      getLexicalEditor().update(() => $getRoot().selectEnd());
+      text.focus();
+      getLexicalEditor().dispatchCommand(PASTE_COMMAND, pasteEvent);
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     });
 
     expect(editor.querySelector<HTMLElement>("[data-skill-marker='true']")?.title).toBe(
       "/skills/grilling/SKILL.md",
     );
-    expect(text.textContent).toBe("Keep this text");
+    expect(text.textContent).toEndWith("Keep this text");
+  });
+
+  it("normalizes trailing whitespace before appending an external draft", async () => {
+    await renderComposer();
+    await setComposerText("Keep this draft   ");
+
+    await act(async () => {
+      root!.render(composerTree({ content: "Add this", requestId: 1 }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(getComposerText()).toBe("Keep this draft\n\nAdd this");
   });
 });

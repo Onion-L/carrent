@@ -93,6 +93,7 @@ export function updateQueuedChatMessage(threadId: string, id: string, content: s
 function copyDraft(draft: ThreadWorkDraftSnapshot): ThreadWorkDraftSnapshot {
   return {
     content: draft.content,
+    ...(draft.composerState ? { composerState: draft.composerState } : {}),
     attachedSkillNames: [...draft.attachedSkillNames],
     attachments: draft.attachments.map((attachment) => ({ ...attachment })),
   };

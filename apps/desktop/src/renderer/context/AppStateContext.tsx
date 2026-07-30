@@ -884,6 +884,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
               ? {
                   ...item,
                   content: draft?.content ?? "",
+                  composerState: draft?.composerState,
                   attachedSkillNames: draft?.attachedSkillNames ?? [],
                   attachments: draft?.attachments ?? [],
                 }

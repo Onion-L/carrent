@@ -25,7 +25,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ClipboardEvent,
   type FormEvent,
 } from "react";
 import { createPortal } from "react-dom";
@@ -124,6 +123,11 @@ import { useSkills } from "../../hooks/useSkills";
 import { useMcpServer } from "../../hooks/useMcpServer";
 import { getChatRuntimeOptions, isChatRuntimeAvailable } from "../../lib/runtimeSelection";
 import { useToast } from "../toast/ToastContext";
+import {
+  ComposerEditor,
+  type ComposerEditorHandle,
+  type ComposerEditorTrigger,
+} from "./ComposerEditor";
 
 export const PLAN_REVIEW_FOLLOW_UP_TEXT =
   "Does this plan look good? Reply naturally to start execution or describe what you want changed.";
@@ -524,6 +528,7 @@ export function buildThreadDraftSnapshot(input: {
   content: string;
   attachedSkills: SkillRecord[];
   pendingAttachments: PendingAttachment[];
+  composerState?: string;
 }): ThreadWorkDraftSnapshot | null {
   const attachments = metadataOnly(
     input.pendingAttachments.flatMap((pending) => (pending.metadata ? [pending.metadata] : [])),
@@ -532,7 +537,12 @@ export function buildThreadDraftSnapshot(input: {
   if (!input.content.trim() && attachedSkillNames.length === 0 && attachments.length === 0) {
     return null;
   }
-  return { content: input.content, attachedSkillNames, attachments };
+  return {
+    content: input.content,
+    attachedSkillNames,
+    attachments,
+    ...(input.composerState ? { composerState: input.composerState } : {}),
+  };
 }
 
 export function getGitBridge(carrent: unknown): GitBridge {
@@ -901,63 +911,6 @@ export function getSkillSlashTrigger(
   };
 }
 
-function getEditableSelection(element: HTMLElement) {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) {
-    return null;
-  }
-
-  const range = selection.getRangeAt(0);
-  if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) {
-    return null;
-  }
-
-  const getOffset = (container: Node, offset: number) => {
-    const before = document.createRange();
-    before.selectNodeContents(element);
-    before.setEnd(container, offset);
-    return before.toString().length;
-  };
-
-  return {
-    start: getOffset(range.startContainer, range.startOffset),
-    end: getOffset(range.endContainer, range.endOffset),
-  };
-}
-
-function getEditableText(element: HTMLElement) {
-  const readNode = (node: Node): string => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      return node.textContent ?? "";
-    }
-    if (node.nodeName === "BR") {
-      return "\n";
-    }
-    return Array.from(node.childNodes, readNode).join("");
-  };
-
-  return Array.from(element.childNodes, readNode).join("");
-}
-
-function setEditableSelection(element: HTMLElement, start: number, end = start) {
-  const textNode = element.firstChild;
-  if (!textNode) {
-    return;
-  }
-
-  const selection = window.getSelection();
-  if (!selection) {
-    return;
-  }
-
-  const length = textNode.textContent?.length ?? 0;
-  const range = document.createRange();
-  range.setStart(textNode, Math.min(start, length));
-  range.setEnd(textNode, Math.min(end, length));
-  selection.removeAllRanges();
-  selection.addRange(range);
-}
-
 export function parseLeadingPlanCommand(input: string) {
   const match = /^\s*\/plan(?=$|\s)(?:[ \t]+)?([\s\S]*)$/u.exec(input);
   if (!match) {
@@ -1138,8 +1091,8 @@ export function Composer(props: ComposerProps) {
   >(props.mode === "association-draft" ? props.onDraftChange : null);
   associationDraftChangeRef.current =
     props.mode === "association-draft" ? props.onDraftChange : null;
-  const [editorCursor, setEditorCursor] = useState(0);
-  const [isEditorFocused, setIsEditorFocused] = useState(false);
+  const [skillTrigger, setSkillTrigger] = useState<ComposerEditorTrigger | null>(null);
+  const [editorStateJson, setEditorStateJson] = useState(initialDraft?.composerState);
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
   const [dismissedSkillInput, setDismissedSkillInput] = useState<string | null>(null);
   const [attachedSkills, setAttachedSkills] = useState<SkillRecord[]>([]);
@@ -1169,8 +1122,7 @@ export function Composer(props: ComposerProps) {
   const [newBranchName, setNewBranchName] = useState(CREATE_BRANCH_DEFAULT_NAME);
   const [creatingBranch, setCreatingBranch] = useState(false);
   const [showCreateBranchInput, setShowCreateBranchInput] = useState(false);
-  const editorRef = useRef<HTMLDivElement>(null);
-  const editorTextRef = useRef<HTMLSpanElement>(null);
+  const editorRef = useRef<ComposerEditorHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const runtimePickerRef = useRef<HTMLDivElement>(null);
   const cascadingPanelRef = useRef<HTMLDivElement>(null);
@@ -1189,17 +1141,6 @@ export function Composer(props: ComposerProps) {
   const lastDraftRequestIdRef = useRef<number | null>(null);
   const steerItemRef = useRef<QueuedChatMessage | null>(null);
   const editingQueuedIdRef = useRef<string | null>(null);
-  const focusEditorAt = useCallback((position: number) => {
-    requestAnimationFrame(() => {
-      const editor = editorRef.current;
-      const text = editorTextRef.current;
-      if (!editor || !text) {
-        return;
-      }
-      text.focus();
-      setEditableSelection(text, position);
-    });
-  }, []);
   const projectId = props.projectId;
   const project =
     props.mode === "association-draft"
@@ -1360,10 +1301,6 @@ export function Composer(props: ComposerProps) {
             modelName: activeRuntimeModel?.name,
           })
         : "Select runtime";
-  const skillTrigger = useMemo(
-    () => (isEditorFocused ? getSkillSlashTrigger(input, editorCursor) : null),
-    [input, isEditorFocused, editorCursor],
-  );
   const localMcpSkillsDisabled = props.runtimeId === "kimi" && !mcpServerStatus.enabled;
   const filteredSkills = useMemo(
     () =>
@@ -1870,34 +1807,11 @@ export function Composer(props: ComposerProps) {
     });
   }, []);
 
-  const handlePaste = useCallback(
-    (event: ClipboardEvent<HTMLDivElement>) => {
-      const files = event.clipboardData?.files;
-      if (files && files.length > 0) {
-        event.preventDefault();
-        void handleAddFiles(files);
-        return;
-      }
-
-      if (!editorRef.current?.contains(event.target as Node)) {
-        return;
-      }
-
-      if (localMcpSkillsDisabled) {
-        return;
-      }
-
-      // A copied sent message starts with `[$name](path)` Skill references.
-      // Restore resolvable ones as Skill chips instead of pasting raw text.
-      const text = event.clipboardData?.getData("text/plain");
-      if (!text) {
-        return;
-      }
-
+  const resolvePastedComposerContent = useCallback(
+    (text: string) => {
+      if (localMcpSkillsDisabled) return null;
       const { references, rest } = parseLeadingSkillReferences(text);
-      if (references.length === 0) {
-        return;
-      }
+      if (references.length === 0) return null;
 
       const resolvedSkills: SkillRecord[] = [];
       const unresolvedReferences: string[] = [];
@@ -1911,35 +1825,18 @@ export function Composer(props: ComposerProps) {
           resolvedSkills.push(skill);
         }
       }
-      if (resolvedSkills.length === 0) {
-        return;
-      }
-
-      event.preventDefault();
-      setAttachedSkills((current) => [
-        ...current,
-        ...resolvedSkills.filter((skill) => !current.some((item) => item.path === skill.path)),
-      ]);
-
-      const pastedText = [...unresolvedReferences, rest].filter(Boolean).join(" ");
-      const textElement = editorTextRef.current;
-      const selection = textElement ? getEditableSelection(textElement) : null;
-      const selectionStart = selection?.start ?? input.length;
-      const selectionEnd = selection?.end ?? selectionStart;
-      const nextInput = `${input.slice(0, selectionStart)}${pastedText}${input.slice(selectionEnd)}`;
-      const nextCursor = selectionStart + pastedText.length;
-      setInput(nextInput);
-      setEditorCursor(nextCursor);
-      focusEditorAt(nextCursor);
+      if (resolvedSkills.length === 0) return null;
+      return {
+        skills: resolvedSkills,
+        text: [...unresolvedReferences, rest].filter(Boolean).join(" "),
+      };
     },
-    [focusEditorAt, handleAddFiles, input, localMcpSkillsDisabled, skills],
+    [localMcpSkillsDisabled, skills],
   );
 
   const handleStatus = async (removeMenuQuery = false) => {
     if (removeMenuQuery && skillTrigger) {
-      const nextInput = `${input.slice(0, skillTrigger.start)}${input.slice(skillTrigger.end)}`;
-      setInput(nextInput);
-      setEditorCursor(skillTrigger.start);
+      editorRef.current?.removeSlashTrigger();
     }
     setDismissedSkillInput(input);
     if (!statusAvailable || !project?.workingDirectory) {
@@ -1983,9 +1880,7 @@ export function Composer(props: ComposerProps) {
 
   const handleCompact = async (removeMenuQuery = false) => {
     if (removeMenuQuery && skillTrigger) {
-      const nextInput = `${input.slice(0, skillTrigger.start)}${input.slice(skillTrigger.end)}`;
-      setInput(nextInput);
-      setEditorCursor(skillTrigger.start);
+      editorRef.current?.removeSlashTrigger();
     }
     setDismissedSkillInput(input);
     if (!compactAvailability.available) {
@@ -2036,13 +1931,13 @@ export function Composer(props: ComposerProps) {
     const statusCommand = isExternalSubmit ? null : parseLeadingStatusCommand(input);
     if (statusCommand) {
       setInput(statusCommand.draft);
-      setEditorCursor(statusCommand.draft.length);
+      editorRef.current?.replaceTextPreservingSkills(statusCommand.draft);
       return handleStatus();
     }
     const compactCommand = isExternalSubmit ? null : parseLeadingCompactCommand(input);
     if (compactCommand) {
       setInput(compactCommand.draft);
-      setEditorCursor(compactCommand.draft.length);
+      editorRef.current?.replaceTextPreservingSkills(compactCommand.draft);
       return handleCompact();
     }
     if (isThreadCompacting || isSessionStatusLoading) return false;
@@ -2069,7 +1964,7 @@ export function Composer(props: ComposerProps) {
     if (planCommand && planSubmission.attachOnly) {
       props.onPlanModeChange?.(true);
       setInput("");
-      setEditorCursor(0);
+      editorRef.current?.clear();
       return true;
     }
 
@@ -2125,6 +2020,7 @@ export function Composer(props: ComposerProps) {
       });
       setInput("");
       setAttachedSkills([]);
+      editorRef.current?.clear();
       setPendingAttachments((prev) => {
         prev.forEach((pending) => {
           if (pending.previewUrl) {
@@ -2359,6 +2255,7 @@ export function Composer(props: ComposerProps) {
             content: currentInput,
             attachedSkills: currentAttachedSkills,
             pendingAttachments: currentPendingAttachments,
+            composerState: editorStateJson,
           })!
         : null;
     const startedAt = new Date().toISOString();
@@ -2400,6 +2297,7 @@ export function Composer(props: ComposerProps) {
             content: currentInput,
             attachedSkills: currentAttachedSkills,
             pendingAttachments: currentPendingAttachments,
+            composerState: editorStateJson,
           })!,
         );
         showToast("This thread is being updated and cannot accept messages right now.", "error");
@@ -2631,6 +2529,7 @@ export function Composer(props: ComposerProps) {
     if (!isExternalSubmit) {
       setInput("");
       setAttachedSkills([]);
+      editorRef.current?.clear();
       setPendingAttachments((prev) => {
         prev.forEach((pending) => {
           if (pending.previewUrl) {
@@ -2747,9 +2646,13 @@ export function Composer(props: ComposerProps) {
     if (pendingDraftSkillNames === null || skillsLoading) {
       return;
     }
-    setAttachedSkills(resolveDraftSkillRecords(skills, pendingDraftSkillNames));
+    const restoredSkills = resolveDraftSkillRecords(skills, pendingDraftSkillNames);
+    setAttachedSkills(restoredSkills);
+    if (!initialDraft?.composerState) {
+      editorRef.current?.restoreSkills(restoredSkills);
+    }
     setPendingDraftSkillNames(null);
-  }, [pendingDraftSkillNames, skills, skillsLoading]);
+  }, [initialDraft?.composerState, pendingDraftSkillNames, skills, skillsLoading]);
 
   useEffect(() => {
     // Debounce draft persistence; the workspace save path applies its own
@@ -2762,6 +2665,7 @@ export function Composer(props: ComposerProps) {
         content: input,
         attachedSkills,
         pendingAttachments,
+        composerState: editorStateJson,
       });
       if (props.mode === "association-draft") {
         associationDraftChangeRef.current?.(draft);
@@ -2772,7 +2676,15 @@ export function Composer(props: ComposerProps) {
       }
     }, 300);
     return () => clearTimeout(timeout);
-  }, [threadId, input, attachedSkills, pendingAttachments, pendingDraftSkillNames, props.mode]);
+  }, [
+    threadId,
+    input,
+    attachedSkills,
+    pendingAttachments,
+    pendingDraftSkillNames,
+    editorStateJson,
+    props.mode,
+  ]);
 
   useEffect(() => {
     if (!props.submitRequest || lastSubmitRequestIdRef.current === props.submitRequest.requestId) {
@@ -2794,47 +2706,21 @@ export function Composer(props: ComposerProps) {
     }
 
     lastDraftRequestIdRef.current = draftRequest.requestId;
-    setInput((current) => {
-      const nextInput = mergeComposerDraftContent(current, draftRequest.content);
-      setEditorCursor(nextInput.length);
-      focusEditorAt(nextInput.length);
-      return nextInput;
-    });
-  }, [focusEditorAt, props.draftRequest?.requestId, props.draftRequest?.content]);
-
-  const updateEditorCursor = () => {
-    const text = editorTextRef.current;
-    if (!text) {
-      return;
+    const nextInput = mergeComposerDraftContent(input, draftRequest.content);
+    setInput(nextInput);
+    if (input.trim()) {
+      editorRef.current?.appendText(`\n\n${draftRequest.content}`);
+    } else {
+      editorRef.current?.replaceTextPreservingSkills(draftRequest.content);
     }
-
-    const selection = getEditableSelection(text);
-    if (selection) {
-      setEditorCursor(selection.start);
-    }
-  };
+  }, [input, props.draftRequest?.requestId, props.draftRequest?.content]);
 
   const handleSkillInsert = (skill: SkillRecord) => {
     if (!skillTrigger) {
       return;
     }
-
-    setAttachedSkills((prev) => {
-      if (prev.some((s) => s.path === skill.path)) {
-        return prev;
-      }
-      return [...prev, skill];
-    });
-
-    const beforeTrigger = input.slice(0, skillTrigger.start);
-    const afterTrigger = input.slice(skillTrigger.end);
-    const nextInput = `${beforeTrigger}${afterTrigger}`;
-    const nextCursor = beforeTrigger.length;
-    setInput(nextInput);
     setDismissedSkillInput(null);
-    setEditorCursor(nextCursor);
-
-    focusEditorAt(nextCursor);
+    editorRef.current?.insertSkill(skill);
   };
 
   const handlePlanInsert = () => {
@@ -2842,17 +2728,26 @@ export function Composer(props: ComposerProps) {
       return;
     }
 
-    const beforeTrigger = input.slice(0, skillTrigger.start).replace(/\s+$/u, "");
-    const afterTrigger = input.slice(skillTrigger.end).replace(/^\s+/u, "");
-    const separator = beforeTrigger && afterTrigger ? " " : "";
-    const nextInput = `${beforeTrigger}${separator}${afterTrigger}`;
-    const nextCursor = beforeTrigger.length + (separator ? 1 : 0);
     props.onPlanModeChange?.(true);
-    setInput(nextInput);
     setDismissedSkillInput(null);
-    setEditorCursor(nextCursor);
+    editorRef.current?.removeSlashTrigger();
+  };
 
-    focusEditorAt(nextCursor);
+  const selectActiveSlashMenuItem = () => {
+    if (showPlanSuggestion && selectedSkillIndex === 0) {
+      handlePlanInsert();
+    } else if (showCompactSuggestion && selectedSkillIndex === (showPlanSuggestion ? 1 : 0)) {
+      void handleCompact(true);
+    } else if (
+      showStatusSuggestion &&
+      selectedSkillIndex === (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0)
+    ) {
+      void handleStatus(true);
+    } else {
+      const skillIndex = selectedSkillIndex - carrentCommandMenuItemCount;
+      const skill = filteredSkills[skillIndex] ?? filteredSkills[0];
+      if (skill) handleSkillInsert(skill);
+    }
   };
 
   const handlePermissionResponse = (permission: ChatPermissionRequest, optionId: string) => {
@@ -2940,7 +2835,7 @@ export function Composer(props: ComposerProps) {
   }
 
   return (
-    <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"} onPaste={handlePaste}>
+    <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"}>
       <div className="relative mx-auto w-full max-w-[48rem]" aria-busy={isSessionStatusLoading}>
         {runChecklistPanel}
         {sessionStatusSnapshot ? (
@@ -2951,7 +2846,12 @@ export function Composer(props: ComposerProps) {
           />
         ) : null}
         {showSlashMenu ? (
-          <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border-strong bg-surface shadow-[0_18px_60px_rgb(0_0_0/0.28)]">
+          <div
+            id="composer-slash-menu"
+            role="listbox"
+            aria-label="Composer commands and Skills"
+            className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border-strong bg-surface shadow-[0_18px_60px_rgb(0_0_0/0.28)]"
+          >
             <div className="max-h-80 overflow-y-auto p-1">
               {showPlanSuggestion ? (
                 <button
@@ -2962,6 +2862,9 @@ export function Composer(props: ComposerProps) {
                       skillItemRefs.current.delete(0);
                     }
                   }}
+                  id="composer-slash-menu-item-0"
+                  role="option"
+                  aria-selected={selectedSkillIndex === 0}
                   type="button"
                   onMouseDown={(event) => {
                     event.preventDefault();
@@ -2988,6 +2891,9 @@ export function Composer(props: ComposerProps) {
                       skillItemRefs.current.delete(index);
                     }
                   }}
+                  id={`composer-slash-menu-item-${showPlanSuggestion ? 1 : 0}`}
+                  role="option"
+                  aria-selected={selectedSkillIndex === (showPlanSuggestion ? 1 : 0)}
                   type="button"
                   onMouseDown={(event) => {
                     event.preventDefault();
@@ -3019,6 +2925,14 @@ export function Composer(props: ComposerProps) {
                       skillItemRefs.current.delete(index);
                     }
                   }}
+                  id={`composer-slash-menu-item-${
+                    (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0)
+                  }`}
+                  role="option"
+                  aria-selected={
+                    selectedSkillIndex ===
+                    (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0)
+                  }
                   type="button"
                   onMouseDown={(event) => {
                     event.preventDefault();
@@ -3066,6 +2980,9 @@ export function Composer(props: ComposerProps) {
                           skillItemRefs.current.delete(menuIndex);
                         }
                       }}
+                      id={`composer-slash-menu-item-${menuIndex}`}
+                      role="option"
+                      aria-selected={isSelected}
                       type="button"
                       onMouseDown={(event) => {
                         event.preventDefault();
@@ -3388,144 +3305,48 @@ export function Composer(props: ComposerProps) {
               </div>
             </div>
           ) : (
-            <div
+            <ComposerEditor
               ref={editorRef}
-              data-composer-editor="true"
-              className="min-h-20 cursor-text whitespace-pre-wrap break-words text-app-15 leading-6 text-fg"
-              onMouseDown={(event) => {
-                if (event.target !== event.currentTarget) {
-                  return;
-                }
-                event.preventDefault();
-                focusEditorAt(input.length);
-              }}
-              onInput={() => {
-                const text = editorTextRef.current;
-                if (!text) {
-                  return;
-                }
-                const nextInput = getEditableText(text).replace(/\r\n?/gu, "\n");
-                const selection = getEditableSelection(text);
-                setInput(nextInput);
-                setEditorCursor(selection?.start ?? nextInput.length);
+              initialContent={input}
+              initialSkills={attachedSkills}
+              initialSerializedState={editorStateJson}
+              menuOpen={showSlashMenu}
+              menuItemCount={slashMenuItemCount}
+              controlsId="composer-slash-menu"
+              activeDescendantId={
+                showSlashMenu && slashMenuItemCount > 0
+                  ? `composer-slash-menu-item-${selectedSkillIndex}`
+                  : undefined
+              }
+              skillsDisabled={localMcpSkillsDisabled}
+              onSnapshot={(snapshot) => {
+                setInput(snapshot.content);
+                setAttachedSkills(snapshot.skills);
+                setEditorStateJson(snapshot.serializedState);
                 setDismissedSkillInput(null);
               }}
-              onFocus={() => {
-                setIsEditorFocused(true);
-                const text = editorTextRef.current;
-                const selection = text ? getEditableSelection(text) : null;
-                setEditorCursor(selection?.start ?? input.length);
+              onTriggerChange={setSkillTrigger}
+              onMenuMove={(direction) => {
+                setSelectedSkillIndex((index) =>
+                  slashMenuItemCount === 0
+                    ? 0
+                    : (index + direction + slashMenuItemCount) % slashMenuItemCount,
+                );
               }}
-              onBlur={() => {
-                setIsEditorFocused(false);
-              }}
-              onClick={updateEditorCursor}
-              onKeyUp={updateEditorCursor}
-              onKeyDown={(e) => {
-                const text = editorTextRef.current;
-                const selection = text ? getEditableSelection(text) : null;
+              onMenuSelect={selectActiveSlashMenuItem}
+              onMenuDismiss={() => setDismissedSkillInput(input)}
+              onSubmit={() => {
                 if (
-                  shouldRemoveLastSkillOnBackspace({
-                    key: e.key,
-                    isComposing: e.nativeEvent.isComposing,
-                    selectionStart: selection?.start ?? editorCursor,
-                    selectionEnd: selection?.end ?? editorCursor,
-                    attachedSkillCount: attachedSkills.length,
-                  })
+                  canSend ||
+                  parseLeadingCompactCommand(input) ||
+                  parseLeadingStatusCommand(input)
                 ) {
-                  e.preventDefault();
-                  setAttachedSkills((currentSkills) => currentSkills.slice(0, -1));
-                  return;
-                }
-
-                if (showSlashMenu) {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setSelectedSkillIndex((index) =>
-                      slashMenuItemCount === 0 ? 0 : (index + 1) % slashMenuItemCount,
-                    );
-                    return;
-                  }
-
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setSelectedSkillIndex((index) =>
-                      slashMenuItemCount === 0
-                        ? 0
-                        : (index - 1 + slashMenuItemCount) % slashMenuItemCount,
-                    );
-                    return;
-                  }
-
-                  if ((e.key === "Enter" || e.key === "Tab") && slashMenuItemCount > 0) {
-                    e.preventDefault();
-                    if (showPlanSuggestion && selectedSkillIndex === 0) {
-                      handlePlanInsert();
-                    } else if (
-                      showCompactSuggestion &&
-                      selectedSkillIndex === (showPlanSuggestion ? 1 : 0)
-                    ) {
-                      void handleCompact(true);
-                    } else if (
-                      showStatusSuggestion &&
-                      selectedSkillIndex ===
-                        (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0)
-                    ) {
-                      void handleStatus(true);
-                    } else {
-                      const skillIndex = selectedSkillIndex - carrentCommandMenuItemCount;
-                      handleSkillInsert(filteredSkills[skillIndex] ?? filteredSkills[0]);
-                    }
-                    return;
-                  }
-
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setDismissedSkillInput(input);
-                    return;
-                  }
-                }
-
-                if (shouldSubmitComposerOnKeyDown(e)) {
-                  e.preventDefault();
-                  if (
-                    canSend ||
-                    parseLeadingCompactCommand(input) ||
-                    parseLeadingStatusCommand(input)
-                  ) {
-                    void handleSend();
-                  }
+                  void handleSend();
                 }
               }}
-            >
-              {attachedSkills.map((skill) => (
-                <span
-                  key={skill.path}
-                  title={skill.path}
-                  data-skill-marker="true"
-                  contentEditable={false}
-                  className={`mr-2 inline-flex h-6 max-w-full items-center gap-2 align-top text-app-14 font-medium leading-6 text-skill-reference ${
-                    localMcpSkillsDisabled ? "opacity-50" : ""
-                  }`}
-                >
-                  <Box className="h-4 w-4 shrink-0" strokeWidth={2} />
-                  <span className="truncate">{formatSkillLabel(skill.name)}</span>
-                </span>
-              ))}
-              <span
-                ref={editorTextRef}
-                role="textbox"
-                aria-label="Message"
-                aria-multiline="true"
-                data-composer-text="true"
-                data-placeholder={attachedSkills.length > 0 ? "" : "Message..."}
-                contentEditable
-                suppressContentEditableWarning
-                className="inline whitespace-pre-wrap break-words outline-none empty:before:text-subtle empty:before:content-[attr(data-placeholder)]"
-              >
-                {input}
-              </span>
-            </div>
+              onPasteFiles={(files) => void handleAddFiles(files)}
+              resolvePastedContent={resolvePastedComposerContent}
+            />
           )}
           {isThreadCompacting ? (
             <div className="mt-2 text-app-12 text-subtle" role="status">

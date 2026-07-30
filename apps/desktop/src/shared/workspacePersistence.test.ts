@@ -440,7 +440,12 @@ describe("normalizeAppStateSnapshot", () => {
       threadPromotionIntents: [],
       threadWork: {
         "thread-1": {
-          draft: { content: "Follow up", attachedSkillNames: [], attachments: [] },
+          draft: {
+            content: "Follow up",
+            composerState: '{"root":{"type":"root"}}',
+            attachedSkillNames: [],
+            attachments: [],
+          },
           queuedMessages: [{ id: "queued-1", content: "Next request", requiresConfirmation: true }],
         },
       },

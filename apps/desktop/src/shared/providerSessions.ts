@@ -1,7 +1,15 @@
 import { runtimeIds, type RuntimeId } from "./runtimes";
+import type { AppThreadRecord, ProviderSessionSnapshot } from "./workspacePersistence";
 
 export function buildProviderSessionKey(runtimeId: RuntimeId, threadId: string) {
   return `${runtimeId}:${threadId}`;
+}
+
+export function getThreadRuntimeSessionId(
+  snapshot: ProviderSessionSnapshot,
+  thread: AppThreadRecord,
+) {
+  return snapshot.sessions[buildProviderSessionKey(thread.runtimeId, thread.id)] ?? null;
 }
 
 export function isInconsistentProviderSessionKey(

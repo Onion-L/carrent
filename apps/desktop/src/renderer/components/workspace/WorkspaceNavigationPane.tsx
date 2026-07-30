@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Ellipsis,
   ExternalLink,
@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
+import { getThreadRuntimeSessionId } from "../../../shared/providerSessions";
+import type { AppThreadRecord } from "../../../shared/workspacePersistence";
 import { useAppState } from "../../context/AppStateContext";
 import { useThreadContent } from "../../context/ThreadContentContext";
 import { getQueuedMessages } from "../../hooks/chatMessageQueue";
@@ -28,6 +30,7 @@ import { getWorkspaceProjects } from "../../lib/workspaceProjects";
 import { useToast } from "../toast/ToastContext";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { AddProjectButton } from "./AddProjectButton";
+import { ThreadContextMenu } from "./ThreadContextMenu";
 
 const STATUS_META: Record<ThreadDisplayStatus, { label: string; className: string }> = {
   approval: { label: "Approval", className: "font-medium text-warning" },
@@ -64,6 +67,13 @@ export function WorkspaceNavigationPane() {
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
+  const [threadMenu, setThreadMenu] = useState<{
+    threadId: string;
+    x: number;
+    y: number;
+    sessionId: string | null | undefined;
+  } | null>(null);
+  const threadMenuTriggerRef = useRef<HTMLElement | null>(null);
   const [pendingProjectRemoval, setPendingProjectRemoval] = useState<{
     workspaceId: string;
     projectId: string;
@@ -115,6 +125,66 @@ export function WorkspaceNavigationPane() {
       showToast("Project could not be deleted.", "error");
     }
   };
+
+  const closeThreadMenu = useCallback((returnFocus = false) => {
+    setThreadMenu(null);
+    if (returnFocus) {
+      window.requestAnimationFrame(() => threadMenuTriggerRef.current?.focus());
+    }
+  }, []);
+
+  const openThreadMenu = (thread: AppThreadRecord, event: React.MouseEvent<HTMLElement>) => {
+    if (event.target instanceof Element && event.target.closest('[data-thread-menu="true"]')) {
+      // Right-clicking inside the open menu bubbles through the portal to the
+      // row's onContextMenu; keep the current menu as is.
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const trigger = event.target instanceof Element ? event.target.closest("button") : null;
+    threadMenuTriggerRef.current = trigger instanceof HTMLElement ? trigger : null;
+    const triggerRect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX || triggerRect.left + 12;
+    const y = event.clientY || triggerRect.top + 12;
+    setThreadMenu({ threadId: thread.id, x, y, sessionId: undefined });
+
+    void window.carrent.providerSessions
+      .load()
+      .then((snapshot) => {
+        const sessionId = getThreadRuntimeSessionId(snapshot, thread);
+        setThreadMenu((current) =>
+          current?.threadId === thread.id ? { ...current, sessionId } : current,
+        );
+      })
+      .catch(() => {
+        setThreadMenu((current) =>
+          current?.threadId === thread.id ? { ...current, sessionId: null } : current,
+        );
+      });
+  };
+
+  const copyThreadMenuValue = async (value: string, successMessage: string) => {
+    try {
+      await window.carrent.clipboard.writeText(value);
+      closeThreadMenu();
+      showToast(successMessage, "success");
+    } catch {
+      showToast("Failed to copy to clipboard", "error");
+    }
+  };
+
+  const openInFinder = async (workingDirectory: string) => {
+    try {
+      const error = await window.carrent.shell.openPath(workingDirectory);
+      if (error) showToast(error, "error");
+    } catch {
+      showToast("Project could not be opened in Finder.", "error");
+    }
+  };
+
+  useEffect(() => {
+    closeThreadMenu();
+  }, [closeThreadMenu, workspace?.id]);
 
   useEffect(() => {
     if (!openProjectMenuId) return;
@@ -278,16 +348,9 @@ export function WorkspaceNavigationPane() {
                         <button
                           type="button"
                           role="menuitem"
-                          onClick={async () => {
+                          onClick={() => {
                             setOpenProjectMenuId(null);
-                            try {
-                              const error = await window.carrent.shell.openPath(
-                                project.workingDirectory,
-                              );
-                              if (error) showToast(error, "error");
-                            } catch {
-                              showToast("Project could not be opened in Finder.", "error");
-                            }
+                            void openInFinder(project.workingDirectory);
                           }}
                           className="flex min-h-9 w-full items-center gap-3 rounded-md px-2.5 text-left text-app-13 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
                         >
@@ -428,7 +491,11 @@ export function WorkspaceNavigationPane() {
                         };
 
                         return (
-                          <div key={thread.id} className="group/thread">
+                          <div
+                            key={thread.id}
+                            className="group/thread"
+                            onContextMenu={(event) => openThreadMenu(thread, event)}
+                          >
                             <div
                               className={`flex min-h-9 items-center gap-1 rounded-md pl-12 pr-3 text-left transition ${
                                 active
@@ -529,6 +596,39 @@ export function WorkspaceNavigationPane() {
                                 </>
                               )}
                             </div>
+                            {threadMenu?.threadId === thread.id ? (
+                              <ThreadContextMenu
+                                anchor={{ x: threadMenu.x, y: threadMenu.y }}
+                                threadTitle={thread.title}
+                                pinned={thread.pinned === true}
+                                sessionId={threadMenu.sessionId}
+                                archiveBlockedReason={archiveBlockedReason}
+                                onClose={closeThreadMenu}
+                                onPin={() => {
+                                  toggleThreadPin(project.id, thread.id);
+                                  closeThreadMenu();
+                                }}
+                                onRename={() => {
+                                  closeThreadMenu();
+                                  setEditingThreadId(thread.id);
+                                  setEditingThreadTitle(thread.title);
+                                }}
+                                onArchive={() => {
+                                  closeThreadMenu();
+                                  void handleArchive();
+                                }}
+                                onRevealInFinder={() => {
+                                  closeThreadMenu();
+                                  void openInFinder(project.workingDirectory);
+                                }}
+                                onCopySessionId={() => {
+                                  const sessionId = threadMenu.sessionId;
+                                  if (sessionId) {
+                                    void copyThreadMenuValue(sessionId, "Session ID copied");
+                                  }
+                                }}
+                              />
+                            ) : null}
                           </div>
                         );
                       })}

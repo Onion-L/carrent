@@ -11,11 +11,8 @@ import {
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { buildProviderSessionKey } from "../../../shared/providerSessions";
-import type {
-  AppThreadRecord,
-  ProviderSessionSnapshot,
-} from "../../../shared/workspacePersistence";
+import { getThreadRuntimeSessionId } from "../../../shared/providerSessions";
+import type { AppThreadRecord } from "../../../shared/workspacePersistence";
 import { useAppState } from "../../context/AppStateContext";
 import { useThreadContent } from "../../context/ThreadContentContext";
 import { useChatRun } from "../../hooks/useChatRun";
@@ -55,13 +52,6 @@ export function getThreadContextMenuPosition(
       Math.max(margin, viewport.height - menuSize.height - margin),
     ),
   };
-}
-
-export function getThreadRuntimeSessionId(
-  snapshot: ProviderSessionSnapshot,
-  thread: AppThreadRecord,
-) {
-  return snapshot.sessions[buildProviderSessionKey(thread.runtimeId, thread.id)] ?? null;
 }
 
 export function ThreadContextMenu({

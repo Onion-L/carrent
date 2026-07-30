@@ -2,11 +2,8 @@ import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { ProviderSessionSnapshot } from "../../../shared/workspacePersistence";
-import {
-  getThreadContextMenuPosition,
-  getThreadRuntimeSessionId,
-  ThreadContextMenu,
-} from "./ThreadHistoryPane";
+import { getThreadRuntimeSessionId } from "../../../shared/providerSessions";
+import { getThreadContextMenuPosition, ThreadContextMenu } from "./ThreadHistoryPane";
 
 describe("getThreadContextMenuPosition", () => {
   it("keeps the menu inside the viewport", () => {

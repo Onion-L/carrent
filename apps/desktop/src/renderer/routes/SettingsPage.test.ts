@@ -9,6 +9,7 @@ import {
   getRuntimeVersionLabel,
   readGlobalAgentInstructions,
   readRtkGainStats,
+  revealInFinder,
   writeGlobalAgentInstructions,
   writeGlobalRtkInstructions,
 } from "./SettingsPage";
@@ -89,6 +90,33 @@ describe("readRtkGainStats", () => {
 
     expect(stats.available).toBe(true);
     expect(stats.tokensSaved).toBe(800);
+  });
+});
+
+describe("revealInFinder", () => {
+  it("returns a restart hint when the preload does not expose revealPath", async () => {
+    await revealInFinder({}, "/Users/test/.agents/AGENTS.md")
+      .then(() => {
+        throw new Error("Expected reveal to fail.");
+      })
+      .catch((error) => {
+        expect((error as Error).message).toContain("Restart Carrent");
+      });
+  });
+
+  it("reveals the file in Finder through the preload API", async () => {
+    const revealed: string[] = [];
+
+    await revealInFinder(
+      {
+        revealPath: async (filePath) => {
+          revealed.push(filePath);
+        },
+      },
+      "/Users/test/.agents/AGENTS.md",
+    );
+
+    expect(revealed).toEqual(["/Users/test/.agents/AGENTS.md"]);
   });
 });
 

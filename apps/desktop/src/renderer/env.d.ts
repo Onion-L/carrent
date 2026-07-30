@@ -89,6 +89,7 @@ declare global {
       };
       shell: {
         openPath: (filePath: string) => Promise<string>;
+        revealPath: (filePath: string) => Promise<void>;
       };
       clipboard: {
         writeText: (text: string) => Promise<void>;

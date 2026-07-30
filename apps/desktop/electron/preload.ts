@@ -108,6 +108,8 @@ const carrent = {
   shell: {
     openPath: (filePath: string) =>
       ipcRenderer.invoke("shell:open-path", filePath) as Promise<string>,
+    revealPath: (filePath: string) =>
+      ipcRenderer.invoke("shell:reveal-path", filePath) as Promise<void>,
   },
   clipboard: {
     writeText: (text: string) => ipcRenderer.invoke("clipboard:write-text", text),

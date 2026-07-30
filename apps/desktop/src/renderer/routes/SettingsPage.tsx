@@ -738,9 +738,11 @@ function GlobalAgentInstructionsPanel() {
 
   async function openFile() {
     if (!snapshot?.exists) return;
-    const result = await window.carrent.shell.openPath(snapshot.path);
-    if (result) {
-      setError(result);
+    setError(null);
+    try {
+      await revealInFinder(window.carrent.shell, snapshot.path);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reveal the file in Finder.");
     }
   }
 
@@ -815,6 +817,17 @@ export async function writeGlobalRtkInstructions(
   }
 
   return settingsApi.writeGlobalRtkInstructions(content);
+}
+
+export async function revealInFinder(
+  shellApi: { revealPath?: (filePath: string) => Promise<unknown> },
+  filePath: string,
+): Promise<void> {
+  if (typeof shellApi.revealPath !== "function") {
+    throw new Error("Reveal in Finder support is not loaded. Restart Carrent and try again.");
+  }
+
+  await shellApi.revealPath(filePath);
 }
 
 export async function readGlobalAgentInstructions(

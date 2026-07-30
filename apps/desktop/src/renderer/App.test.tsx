@@ -125,6 +125,7 @@ function installBridge(
     },
     shell: {
       openPath: async () => "",
+      revealPath: async () => {},
     },
     clipboard: {
       writeText: async () => {},

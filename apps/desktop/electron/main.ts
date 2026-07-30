@@ -250,6 +250,11 @@ if (!hasSingleInstanceLock) {
       return result;
     });
 
+    guardedIpcMain.handle("shell:reveal-path", async (_event, filePath) => {
+      if (typeof filePath !== "string") throw new Error("Invalid file path.");
+      shell.showItemInFolder(filePath);
+    });
+
     guardedIpcMain.handle("clipboard:write-text", async (_event, text) => {
       if (typeof text !== "string") throw new Error("Invalid clipboard text.");
       clipboard.writeText(text);

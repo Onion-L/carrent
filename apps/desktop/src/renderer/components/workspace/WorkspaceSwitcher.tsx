@@ -71,35 +71,37 @@ export function WorkspaceSwitcher() {
             aria-label="Workspaces"
             className="absolute left-0 top-[calc(100%+0.375rem)] z-50 w-64 overflow-hidden rounded-lg border border-border-strong bg-surface py-1.5 shadow-xl"
           >
-            {workspaces.map((workspace) => {
-              const active = workspace.id === activeWorkspace.id;
-              return (
-                <button
-                  key={workspace.id}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={active}
-                  aria-label={workspace.name}
-                  onClick={async () => {
-                    setIsOpen(false);
-                    if (active || !(await selectWorkspace(workspace.id))) return;
-                    navigate(
-                      getWorkspaceRestorePath(workspace.id, threads, lastThreadIdByWorkspace),
-                    );
-                  }}
-                  className="flex min-h-10 w-full items-center gap-3 px-3 text-left text-app-14 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
-                >
-                  <span
-                    aria-hidden="true"
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-fg text-app-12 font-semibold text-bg"
+            <div className="max-h-[min(20rem,60vh)] overflow-y-auto">
+              {workspaces.map((workspace) => {
+                const active = workspace.id === activeWorkspace.id;
+                return (
+                  <button
+                    key={workspace.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={active}
+                    aria-label={workspace.name}
+                    onClick={async () => {
+                      setIsOpen(false);
+                      if (active || !(await selectWorkspace(workspace.id))) return;
+                      navigate(
+                        getWorkspaceRestorePath(workspace.id, threads, lastThreadIdByWorkspace),
+                      );
+                    }}
+                    className="flex min-h-10 w-full items-center gap-3 px-3 text-left text-app-14 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
                   >
-                    {workspace.name.slice(0, 1).toUpperCase()}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
-                  {active && <Check className="h-4 w-4 shrink-0" />}
-                </button>
-              );
-            })}
+                    <span
+                      aria-hidden="true"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-fg text-app-12 font-semibold text-bg"
+                    >
+                      {workspace.name.slice(0, 1).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
+                    {active && <Check className="h-4 w-4 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
 
             <div className="my-1 border-t border-border" />
             <button

@@ -10,19 +10,12 @@ import { WorkspaceRail } from "./workspace/WorkspaceRail";
 import { useAppState } from "../context/AppStateContext";
 import { ThreadSearchDialog } from "./workspace/ThreadSearchDialog";
 import { WorkspaceSwitcher } from "./workspace/WorkspaceSwitcher";
-import { buildThreadPath, getProjectIdFromPathname } from "../lib/navigation";
-import type { ThreadSearchScope } from "../../shared/threadSearch";
+import { buildThreadPath } from "../lib/navigation";
 
 const LEFT_SIDEBAR_WIDTH = 58;
 const MIN_SECONDARY_PANE_WIDTH = 200;
 const MAX_SECONDARY_PANE_WIDTH = 480;
 const DEFAULT_SECONDARY_PANE_WIDTH = 280;
-
-type ThreadSearchState = {
-  scope: ThreadSearchScope;
-  workspaceId?: string;
-  projectId?: string;
-};
 
 export function DesktopShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
@@ -34,20 +27,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   const { workspaces, projects, associations, threads, activeWorkspaceId, selectWorkspace } =
     useAppState();
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
-  const [threadSearch, setThreadSearch] = useState<ThreadSearchState | null>(null);
-  const openThreadSearch = useCallback(
-    (scope: ThreadSearchScope) => {
-      setThreadSearch({
-        scope,
-        workspaceId: scope.kind === "global" ? (activeWorkspaceId ?? undefined) : scope.workspaceId,
-        projectId:
-          scope.kind === "association"
-            ? scope.projectId
-            : (getProjectIdFromPathname(location.pathname) ?? undefined),
-      });
-    },
-    [activeWorkspaceId, location.pathname],
-  );
+  const [isThreadSearchOpen, setIsThreadSearchOpen] = useState(false);
   const secondaryPane =
     location.pathname === "/settings" ? (
       <SettingsTabsPane />
@@ -65,29 +45,12 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "k") {
         event.preventDefault();
-        openThreadSearch({ kind: "global" });
+        setIsThreadSearchOpen(true);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [openThreadSearch]);
-
-  const workspaceScope = threadSearch?.workspaceId
-    ? ({ kind: "workspace", workspaceId: threadSearch.workspaceId } as const)
-    : null;
-  const associationScope =
-    threadSearch?.workspaceId &&
-    threadSearch.projectId &&
-    associations.some(
-      (item) =>
-        item.workspaceId === threadSearch.workspaceId && item.projectId === threadSearch.projectId,
-    )
-      ? ({
-          kind: "association",
-          workspaceId: threadSearch.workspaceId,
-          projectId: threadSearch.projectId,
-        } as const)
-      : null;
+  }, []);
 
   const handleResizeStart = useCallback(
     (event: React.MouseEvent) => {
@@ -141,25 +104,16 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
                 <PanelLeftClose className="h-4 w-4" />
               )}
             </button>
-            {activeWorkspace && (
-              <>
-                <button
-                  type="button"
-                  aria-label={`Search ${activeWorkspace.name}`}
-                  title="Search Workspace"
-                  onClick={() =>
-                    openThreadSearch({
-                      kind: "workspace",
-                      workspaceId: activeWorkspace.id,
-                    })
-                  }
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
-                >
-                  <Search className="h-3.5 w-3.5" />
-                </button>
-                <WorkspaceSwitcher />
-              </>
-            )}
+            <button
+              type="button"
+              aria-label="Search Threads"
+              title="Search Threads"
+              onClick={() => setIsThreadSearchOpen(true)}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
+            >
+              <Search className="h-3.5 w-3.5" />
+            </button>
+            {activeWorkspace && <WorkspaceSwitcher />}
           </div>
 
           <div className="no-drag flex h-full items-center gap-1">
@@ -193,43 +147,15 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </div>
-      {threadSearch && (
+      {isThreadSearchOpen && (
         <ThreadSearchDialog
           threads={threads}
           workspaces={workspaces}
           projects={projects}
           associations={associations}
-          scope={threadSearch.scope}
-          workspaceScope={workspaceScope}
-          associationScope={associationScope}
-          onScopeChange={(scope) =>
-            setThreadSearch((current) => {
-              if (!current) return null;
-              if (scope.kind === "global") return { ...current, scope };
-              if (scope.kind === "workspace") {
-                const projectStillApplies = associations.some(
-                  (association) =>
-                    association.workspaceId === scope.workspaceId &&
-                    association.projectId === current.projectId,
-                );
-                return {
-                  ...current,
-                  scope,
-                  workspaceId: scope.workspaceId,
-                  projectId: projectStillApplies ? current.projectId : undefined,
-                };
-              }
-              return {
-                ...current,
-                scope,
-                workspaceId: scope.workspaceId,
-                projectId: scope.projectId,
-              };
-            })
-          }
-          onClose={() => setThreadSearch(null)}
+          onClose={() => setIsThreadSearchOpen(false)}
           onSelect={async (entry) => {
-            setThreadSearch(null);
+            setIsThreadSearchOpen(false);
             const path = buildThreadPath(
               entry.thread.workspaceId,
               entry.thread.projectId,

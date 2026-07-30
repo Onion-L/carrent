@@ -6,7 +6,6 @@ import type {
   WorkspaceProjectAssociationRecord,
   WorkspaceRecord,
 } from "../../shared/workspacePersistence";
-import type { ThreadSearchScope } from "../../shared/threadSearch";
 import { searchThreads } from "./threadSearch";
 
 const workspaces: WorkspaceRecord[] = [
@@ -65,14 +64,8 @@ function makeThread(
   };
 }
 
-const scopes: Record<"global" | "workspace" | "association", ThreadSearchScope> = {
-  global: { kind: "global" },
-  workspace: { kind: "workspace", workspaceId: "workspace-1" },
-  association: { kind: "association", workspaceId: "workspace-1", projectId: "project-1" },
-};
-
 describe("searchThreads", () => {
-  it("filters active Threads to the selected hierarchy scope", () => {
+  it("returns active Threads across all Workspaces and Projects without scoping", () => {
     const threads = [
       makeThread("personal-carrent", "Personal Carrent", "workspace-1", "project-1", "2026-01-01"),
       makeThread("personal-site", "Personal Website", "workspace-1", "project-2", "2026-01-02"),
@@ -80,18 +73,16 @@ describe("searchThreads", () => {
       makeThread("archived", "Archived Carrent", "workspace-1", "project-1", "2026-01-04", true),
     ];
 
-    const input = { threads, workspaces, projects, associations, query: "", scope: scopes.global };
-    expect(searchThreads(input).map((entry) => entry.thread.id)).toEqual([
+    const input = { threads, workspaces, projects, associations };
+    expect(searchThreads({ ...input, query: "" }).map((entry) => entry.thread.id)).toEqual([
       "client-carrent",
       "personal-site",
       "personal-carrent",
     ]);
-    expect(
-      searchThreads({ ...input, scope: scopes.workspace }).map((entry) => entry.thread.id),
-    ).toEqual(["personal-site", "personal-carrent"]);
-    expect(
-      searchThreads({ ...input, scope: scopes.association }).map((entry) => entry.thread.id),
-    ).toEqual(["personal-carrent"]);
+    expect(searchThreads({ ...input, query: "carrent" }).map((entry) => entry.thread.id)).toEqual([
+      "client-carrent",
+      "personal-carrent",
+    ]);
   });
 
   it("ranks trimmed case-insensitive exact, prefix, and substring title matches", () => {
@@ -110,7 +101,6 @@ describe("searchThreads", () => {
         projects,
         associations,
         query: "  search  ",
-        scope: scopes.global,
       }).map((entry) => entry.thread.id),
     ).toEqual(["exact", "prefix-new", "prefix-old", "substring"]);
   });
@@ -125,7 +115,7 @@ describe("searchThreads", () => {
         new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
       ),
     );
-    const input = { threads, workspaces, projects, associations, scope: scopes.global };
+    const input = { threads, workspaces, projects, associations };
 
     expect(searchThreads({ ...input, query: "" })).toHaveLength(20);
     expect(searchThreads({ ...input, query: "matching" })).toHaveLength(25);

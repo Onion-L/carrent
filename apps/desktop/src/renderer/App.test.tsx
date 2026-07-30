@@ -1299,7 +1299,6 @@ describe("three-level navigation", () => {
       '[role="dialog"][aria-label="Search Threads"]',
     );
     expect(dialog).not.toBe(null);
-    expect(dialog!.textContent).toContain("Global");
     expect(dialog!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
     expect(dialog!.textContent).toContain("Client / Client Carrent / Client Thread");
     expect(dialog!.textContent!.indexOf("Client Thread")).toBeLessThan(
@@ -1307,34 +1306,9 @@ describe("three-level navigation", () => {
     );
   });
 
-  it("opens Workspace search and keeps a selected Project scope in empty results", async () => {
-    const state = navigationState();
-    state.projects.push({
-      id: "project-2",
-      name: "Website",
-      workingDirectory: "/code/website",
-    });
-    state.associations.push({
-      workspaceId: "workspace-1",
-      projectId: "project-2",
-      order: 1,
-      defaultRuntimeId: "kimi",
-      defaultRuntimeMode: "approval-required",
-    });
-    state.threads!.push({
-      id: "thread-3",
-      workspaceId: "workspace-1",
-      projectId: "project-2",
-      title: "Website Thread",
-      createdAt: "2026-07-27T10:00:00.000Z",
-      lastActivityAt: "2026-07-27T10:00:00.000Z",
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
-    });
-
+  it("opens Thread search from the header button and shows matches across all Workspaces", async () => {
     await renderApp(
-      state,
+      navigationState(),
       "/workspace/workspace-1/project/project-1/thread/thread-1",
       [],
       false,
@@ -1342,29 +1316,18 @@ describe("three-level navigation", () => {
       false,
     );
 
-    await click(buttonNamed("Search Personal"));
-    let dialog = document.querySelector<HTMLElement>(
+    await click(buttonNamed("Search Threads"));
+    const dialog = document.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="Search Threads"]',
     )!;
-    expect(dialog.textContent).toContain("Scope: Personal");
     expect(dialog.textContent).toContain("Personal / Personal Carrent / Personal Thread");
-    expect(dialog.textContent).toContain("Personal / Website / Website Thread");
-    expect(dialog.textContent).not.toContain("Client Thread");
-
-    const projectScopeButton = [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent?.trim() === "Project",
-    )!;
-    await click(projectScopeButton);
-    dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Search Threads"]')!;
-    expect(dialog.textContent).toContain("Scope: Personal / Personal Carrent");
-    expect(dialog.textContent).not.toContain("Website Thread");
+    expect(dialog.textContent).toContain("Client / Client Carrent / Client Thread");
 
     await fillInput(
       dialog.querySelector<HTMLInputElement>('input[aria-label="Search Thread titles"]')!,
       "missing",
     );
     expect(dialog.textContent).toContain("No matching Threads");
-    expect(dialog.textContent).toContain("Scope: Personal / Personal Carrent");
   });
 
   it("navigates to another search result but selecting the current Thread only closes search", async () => {
@@ -1410,26 +1373,6 @@ describe("three-level navigation", () => {
     expect(currentPathname).toBe("/workspace/workspace-2/project/project-1/thread/thread-2");
     expect(currentNavigationType).toBe(navigationTypeBeforeSelection);
     expect(document.querySelector('[role="dialog"][aria-label="Search Threads"]')).toBe(null);
-  });
-
-  it("switches from global search to an Association scope outside a Project route", async () => {
-    await renderApp(navigationState(), "/settings", [], false, [], false);
-
-    await act(async () => {
-      window.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, key: "k", metaKey: true }),
-      );
-    });
-    const dialog = document.querySelector<HTMLElement>(
-      '[role="dialog"][aria-label="Search Threads"]',
-    )!;
-    const projectScopeButton = [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent?.trim() === "Project",
-    )!;
-
-    expect(projectScopeButton.disabled).toBe(false);
-    await click(projectScopeButton);
-    expect(dialog.textContent).toContain("Scope: Personal / Personal Carrent");
   });
 
   it("falls back to the Workspace overview when the saved Thread reference is stale", async () => {
@@ -1575,17 +1518,17 @@ describe("three-level navigation", () => {
     expect(middlePane.style.width).toBe("280px");
     const addProjectButton = buttonNamed("Add Project");
     const collapseSidebarButton = buttonNamed("Collapse sidebar");
-    const searchWorkspaceButton = buttonNamed("Search Personal");
+    const searchThreadsButton = buttonNamed("Search Threads");
     const workspaceSelect = buttonNamed("Select Workspace");
     expect(addProjectButton.querySelector(".lucide-plus")).not.toBe(null);
     expect(navigationPane.contains(addProjectButton)).toBe(true);
-    expect(navigationPane.contains(searchWorkspaceButton)).toBe(false);
+    expect(navigationPane.contains(searchThreadsButton)).toBe(false);
     expect(
-      collapseSidebarButton.compareDocumentPosition(searchWorkspaceButton) &
+      collapseSidebarButton.compareDocumentPosition(searchThreadsButton) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
     expect(
-      searchWorkspaceButton.compareDocumentPosition(workspaceSelect) &
+      searchThreadsButton.compareDocumentPosition(workspaceSelect) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
 

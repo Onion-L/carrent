@@ -4,7 +4,7 @@ import type {
   WorkspaceProjectAssociationRecord,
   WorkspaceRecord,
 } from "../../shared/workspacePersistence";
-import type { ThreadSearchEntry, ThreadSearchScope } from "../../shared/threadSearch";
+import type { ThreadSearchEntry } from "../../shared/threadSearch";
 
 type SearchThreadsInput = {
   threads: AppThreadRecord[];
@@ -12,14 +12,7 @@ type SearchThreadsInput = {
   projects: AppProjectRecord[];
   associations: WorkspaceProjectAssociationRecord[];
   query: string;
-  scope: ThreadSearchScope;
 };
-
-function isInScope(thread: AppThreadRecord, scope: ThreadSearchScope) {
-  if (scope.kind === "global") return true;
-  if (thread.workspaceId !== scope.workspaceId) return false;
-  return scope.kind === "workspace" || thread.projectId === scope.projectId;
-}
 
 function getMatchRank(title: string, query: string) {
   const normalizedTitle = title.toLocaleLowerCase();
@@ -39,11 +32,10 @@ export function searchThreads({
   projects,
   associations,
   query,
-  scope,
 }: SearchThreadsInput): ThreadSearchEntry[] {
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const entries = threads.flatMap((thread) => {
-    if (thread.archived || !isInScope(thread, scope)) return [];
+    if (thread.archived) return [];
 
     const workspace = workspaces.find((item) => item.id === thread.workspaceId);
     const project = projects.find((item) => item.id === thread.projectId);

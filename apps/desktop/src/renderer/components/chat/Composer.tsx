@@ -425,25 +425,40 @@ const CREATE_BRANCH_DEFAULT_NAME = "carrent/";
 // Stop replaces Send in place; keep it disabled briefly so the same rapid
 // click sequence that started the run cannot immediately stop it.
 const STOP_GUARD_MS = 500;
-const stopGuardUntilByThread = new Map<string, number>();
-const stopGuardCleanupByThread = new Map<string, number>();
+type StopGuardEntry = {
+  guardedUntil: number;
+  expiryTimeoutId: number | null;
+};
+const stopGuardByThread = new Map<string, StopGuardEntry>();
 
 function getStopGuardRemainingMs(threadId: string) {
-  return Math.max(0, (stopGuardUntilByThread.get(threadId) ?? 0) - Date.now());
+  return Math.max(0, (stopGuardByThread.get(threadId)?.guardedUntil ?? 0) - Date.now());
+}
+
+function scheduleStopGuardExpiry(threadId: string, entry: StopGuardEntry, onExpire?: VoidFunction) {
+  if (stopGuardByThread.get(threadId) !== entry) return;
+  if (entry.expiryTimeoutId !== null) window.clearTimeout(entry.expiryTimeoutId);
+  entry.expiryTimeoutId = window.setTimeout(
+    () => {
+      if (stopGuardByThread.get(threadId) !== entry) return;
+      stopGuardByThread.delete(threadId);
+      onExpire?.();
+    },
+    Math.max(0, entry.guardedUntil - Date.now()),
+  );
 }
 
 function beginStopGuard(threadId: string) {
-  const guardedUntil = Date.now() + STOP_GUARD_MS;
-  const existingCleanup = stopGuardCleanupByThread.get(threadId);
-  if (existingCleanup !== undefined) window.clearTimeout(existingCleanup);
-  stopGuardUntilByThread.set(threadId, guardedUntil);
-  const cleanup = window.setTimeout(() => {
-    if (stopGuardUntilByThread.get(threadId) === guardedUntil) {
-      stopGuardUntilByThread.delete(threadId);
-    }
-    stopGuardCleanupByThread.delete(threadId);
-  }, STOP_GUARD_MS);
-  stopGuardCleanupByThread.set(threadId, cleanup);
+  const existing = stopGuardByThread.get(threadId);
+  if (existing && existing.expiryTimeoutId !== null) {
+    window.clearTimeout(existing.expiryTimeoutId);
+  }
+  const entry: StopGuardEntry = {
+    guardedUntil: Date.now() + STOP_GUARD_MS,
+    expiryTimeoutId: null,
+  };
+  stopGuardByThread.set(threadId, entry);
+  scheduleStopGuardExpiry(threadId, entry);
 }
 
 function getAttachmentStoreBridge(attachments: unknown): AttachmentStoreBridge {
@@ -1277,14 +1292,10 @@ export function Composer(props: ComposerProps) {
       return;
     }
     setStopGuarded(true);
-    const guardedUntil = stopGuardUntilByThread.get(threadId);
-    const timeout = window.setTimeout(() => {
-      if (stopGuardUntilByThread.get(threadId) === guardedUntil) {
-        stopGuardUntilByThread.delete(threadId);
-      }
-      setStopGuarded(false);
-    }, remainingMs);
-    return () => window.clearTimeout(timeout);
+    const entry = stopGuardByThread.get(threadId);
+    if (!entry) return;
+    scheduleStopGuardExpiry(threadId, entry, () => setStopGuarded(false));
+    return () => scheduleStopGuardExpiry(threadId, entry);
   }, [isThreadSending, threadId]);
   const compactAvailability = useMemo(
     () =>

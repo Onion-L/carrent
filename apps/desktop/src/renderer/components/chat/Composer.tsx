@@ -894,14 +894,68 @@ export function getSkillSlashTrigger(
     return null;
   }
 
-  const right = input.slice(cursor);
-  const nextWhitespace = /\s/u.exec(right);
-
   return {
     start: tokenStart,
-    end: nextWhitespace ? cursor + nextWhitespace.index : input.length,
+    end: cursor,
     query,
   };
+}
+
+function getEditableSelection(element: HTMLElement) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) {
+    return null;
+  }
+
+  const range = selection.getRangeAt(0);
+  if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) {
+    return null;
+  }
+
+  const getOffset = (container: Node, offset: number) => {
+    const before = document.createRange();
+    before.selectNodeContents(element);
+    before.setEnd(container, offset);
+    return before.toString().length;
+  };
+
+  return {
+    start: getOffset(range.startContainer, range.startOffset),
+    end: getOffset(range.endContainer, range.endOffset),
+  };
+}
+
+function getEditableText(element: HTMLElement) {
+  const readNode = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent ?? "";
+    }
+    if (node.nodeName === "BR") {
+      return "\n";
+    }
+    return Array.from(node.childNodes, readNode).join("");
+  };
+
+  return Array.from(element.childNodes, readNode).join("");
+}
+
+function setEditableSelection(element: HTMLElement, start: number, end = start) {
+  const textNode = element.firstChild;
+  if (!textNode) {
+    return;
+  }
+
+  const selection = window.getSelection();
+  if (!selection) {
+    return;
+  }
+
+  const length = textNode.textContent?.length ?? 0;
+  const range = document.createRange();
+  range.setStart(textNode, Math.min(start, length));
+  range.setEnd(textNode, Math.min(end, length));
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 export function parseLeadingPlanCommand(input: string) {
@@ -982,6 +1036,30 @@ export function buildSkillReference(skill: SkillRecord) {
   return `[$${skill.name}](${skill.path})`;
 }
 
+type ParsedSkillReference = {
+  name: string;
+  path: string;
+};
+
+// Sent messages prefix Skill references as `[$name](path)`. When such a
+// message is pasted back into the Composer, the leading references are
+// parsed so they can be restored as Skill chips instead of raw text.
+export function parseLeadingSkillReferences(text: string): {
+  references: ParsedSkillReference[];
+  rest: string;
+} {
+  const references: ParsedSkillReference[] = [];
+  let rest = text;
+  const pattern = /^\[\$([^\]\n]+)\]\(([^)\n]+)\)(?:\s+|$)/u;
+  let match = pattern.exec(rest);
+  while (match) {
+    references.push({ name: match[1], path: match[2] });
+    rest = rest.slice(match[0].length);
+    match = pattern.exec(rest);
+  }
+  return { references, rest };
+}
+
 export function replaceSkillSlashTrigger(
   input: string,
   trigger: SkillSlashTrigger,
@@ -1060,8 +1138,8 @@ export function Composer(props: ComposerProps) {
   >(props.mode === "association-draft" ? props.onDraftChange : null);
   associationDraftChangeRef.current =
     props.mode === "association-draft" ? props.onDraftChange : null;
-  const [textareaCursor, setTextareaCursor] = useState(0);
-  const [isTextareaFocused, setIsTextareaFocused] = useState(false);
+  const [editorCursor, setEditorCursor] = useState(0);
+  const [isEditorFocused, setIsEditorFocused] = useState(false);
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
   const [dismissedSkillInput, setDismissedSkillInput] = useState<string | null>(null);
   const [attachedSkills, setAttachedSkills] = useState<SkillRecord[]>([]);
@@ -1091,7 +1169,8 @@ export function Composer(props: ComposerProps) {
   const [newBranchName, setNewBranchName] = useState(CREATE_BRANCH_DEFAULT_NAME);
   const [creatingBranch, setCreatingBranch] = useState(false);
   const [showCreateBranchInput, setShowCreateBranchInput] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const editorTextRef = useRef<HTMLSpanElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const runtimePickerRef = useRef<HTMLDivElement>(null);
   const cascadingPanelRef = useRef<HTMLDivElement>(null);
@@ -1110,6 +1189,17 @@ export function Composer(props: ComposerProps) {
   const lastDraftRequestIdRef = useRef<number | null>(null);
   const steerItemRef = useRef<QueuedChatMessage | null>(null);
   const editingQueuedIdRef = useRef<string | null>(null);
+  const focusEditorAt = useCallback((position: number) => {
+    requestAnimationFrame(() => {
+      const editor = editorRef.current;
+      const text = editorTextRef.current;
+      if (!editor || !text) {
+        return;
+      }
+      editor.focus();
+      setEditableSelection(text, position);
+    });
+  }, []);
   const projectId = props.projectId;
   const project =
     props.mode === "association-draft"
@@ -1271,8 +1361,8 @@ export function Composer(props: ComposerProps) {
           })
         : "Select runtime";
   const skillTrigger = useMemo(
-    () => (isTextareaFocused ? getSkillSlashTrigger(input, textareaCursor) : null),
-    [input, isTextareaFocused, textareaCursor],
+    () => (isEditorFocused ? getSkillSlashTrigger(input, editorCursor) : null),
+    [input, isEditorFocused, editorCursor],
   );
   const localMcpSkillsDisabled = props.runtimeId === "kimi" && !mcpServerStatus.enabled;
   const filteredSkills = useMemo(
@@ -1783,21 +1873,73 @@ export function Composer(props: ComposerProps) {
   const handlePaste = useCallback(
     (event: ClipboardEvent<HTMLDivElement>) => {
       const files = event.clipboardData?.files;
-      if (!files || files.length === 0) {
+      if (files && files.length > 0) {
+        event.preventDefault();
+        void handleAddFiles(files);
+        return;
+      }
+
+      if (!editorRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      if (localMcpSkillsDisabled) {
+        return;
+      }
+
+      // A copied sent message starts with `[$name](path)` Skill references.
+      // Restore resolvable ones as Skill chips instead of pasting raw text.
+      const text = event.clipboardData?.getData("text/plain");
+      if (!text) {
+        return;
+      }
+
+      const { references, rest } = parseLeadingSkillReferences(text);
+      if (references.length === 0) {
+        return;
+      }
+
+      const resolvedSkills: SkillRecord[] = [];
+      const unresolvedReferences: string[] = [];
+      for (const reference of references) {
+        const skill = skills.find(
+          (item) => item.name === reference.name && item.path === reference.path,
+        );
+        if (!skill) {
+          unresolvedReferences.push(`[$${reference.name}](${reference.path})`);
+        } else if (!resolvedSkills.some((item) => item.path === skill.path)) {
+          resolvedSkills.push(skill);
+        }
+      }
+      if (resolvedSkills.length === 0) {
         return;
       }
 
       event.preventDefault();
-      void handleAddFiles(files);
+      setAttachedSkills((current) => [
+        ...current,
+        ...resolvedSkills.filter((skill) => !current.some((item) => item.path === skill.path)),
+      ]);
+
+      const pastedText = [...unresolvedReferences, rest].filter(Boolean).join(" ");
+      const textElement = editorTextRef.current;
+      const selection = textElement ? getEditableSelection(textElement) : null;
+      const selectionStart = selection?.start ?? input.length;
+      const selectionEnd = selection?.end ?? selectionStart;
+      const nextInput = `${input.slice(0, selectionStart)}${pastedText}${input.slice(selectionEnd)}`;
+      const nextCursor = selectionStart + pastedText.length;
+      setInput(nextInput);
+      setEditorCursor(nextCursor);
+      focusEditorAt(nextCursor);
     },
-    [handleAddFiles],
+    [focusEditorAt, handleAddFiles, input, localMcpSkillsDisabled, skills],
   );
 
   const handleStatus = async (removeMenuQuery = false) => {
     if (removeMenuQuery && skillTrigger) {
       const nextInput = `${input.slice(0, skillTrigger.start)}${input.slice(skillTrigger.end)}`;
       setInput(nextInput);
-      setTextareaCursor(skillTrigger.start);
+      setEditorCursor(skillTrigger.start);
     }
     setDismissedSkillInput(input);
     if (!statusAvailable || !project?.workingDirectory) {
@@ -1843,7 +1985,7 @@ export function Composer(props: ComposerProps) {
     if (removeMenuQuery && skillTrigger) {
       const nextInput = `${input.slice(0, skillTrigger.start)}${input.slice(skillTrigger.end)}`;
       setInput(nextInput);
-      setTextareaCursor(skillTrigger.start);
+      setEditorCursor(skillTrigger.start);
     }
     setDismissedSkillInput(input);
     if (!compactAvailability.available) {
@@ -1894,13 +2036,13 @@ export function Composer(props: ComposerProps) {
     const statusCommand = isExternalSubmit ? null : parseLeadingStatusCommand(input);
     if (statusCommand) {
       setInput(statusCommand.draft);
-      setTextareaCursor(statusCommand.draft.length);
+      setEditorCursor(statusCommand.draft.length);
       return handleStatus();
     }
     const compactCommand = isExternalSubmit ? null : parseLeadingCompactCommand(input);
     if (compactCommand) {
       setInput(compactCommand.draft);
-      setTextareaCursor(compactCommand.draft.length);
+      setEditorCursor(compactCommand.draft.length);
       return handleCompact();
     }
     if (isThreadCompacting || isSessionStatusLoading) return false;
@@ -1927,7 +2069,7 @@ export function Composer(props: ComposerProps) {
     if (planCommand && planSubmission.attachOnly) {
       props.onPlanModeChange?.(true);
       setInput("");
-      setTextareaCursor(0);
+      setEditorCursor(0);
       return true;
     }
 
@@ -2652,28 +2794,24 @@ export function Composer(props: ComposerProps) {
     }
 
     lastDraftRequestIdRef.current = draftRequest.requestId;
-    setInput((current) => mergeComposerDraftContent(current, draftRequest.content));
-
-    requestAnimationFrame(() => {
-      const textarea = textareaRef.current;
-      if (!textarea) {
-        return;
-      }
-
-      const end = textarea.value.length;
-      textarea.focus();
-      textarea.setSelectionRange(end, end);
-      setTextareaCursor(end);
+    setInput((current) => {
+      const nextInput = mergeComposerDraftContent(current, draftRequest.content);
+      setEditorCursor(nextInput.length);
+      focusEditorAt(nextInput.length);
+      return nextInput;
     });
-  }, [props.draftRequest?.requestId, props.draftRequest?.content]);
+  }, [focusEditorAt, props.draftRequest?.requestId, props.draftRequest?.content]);
 
-  const updateTextareaCursor = () => {
-    const textarea = textareaRef.current;
-    if (!textarea) {
+  const updateEditorCursor = () => {
+    const text = editorTextRef.current;
+    if (!text) {
       return;
     }
 
-    setTextareaCursor(textarea.selectionStart);
+    const selection = getEditableSelection(text);
+    if (selection) {
+      setEditorCursor(selection.start);
+    }
   };
 
   const handleSkillInsert = (skill: SkillRecord) => {
@@ -2688,24 +2826,15 @@ export function Composer(props: ComposerProps) {
       return [...prev, skill];
     });
 
-    const beforeTrigger = input.slice(0, skillTrigger.start).replace(/\s+$/u, "");
-    const afterTrigger = input.slice(skillTrigger.end).replace(/^\s+/u, "");
-    const separator = beforeTrigger && afterTrigger ? " " : "";
-    const nextInput = `${beforeTrigger}${separator}${afterTrigger}`;
-    const nextCursor = beforeTrigger.length + (separator ? 1 : 0);
+    const beforeTrigger = input.slice(0, skillTrigger.start);
+    const afterTrigger = input.slice(skillTrigger.end);
+    const nextInput = `${beforeTrigger}${afterTrigger}`;
+    const nextCursor = beforeTrigger.length;
     setInput(nextInput);
     setDismissedSkillInput(null);
-    setTextareaCursor(nextCursor);
+    setEditorCursor(nextCursor);
 
-    requestAnimationFrame(() => {
-      const textarea = textareaRef.current;
-      if (!textarea) {
-        return;
-      }
-
-      textarea.focus();
-      textarea.setSelectionRange(nextCursor, nextCursor);
-    });
+    focusEditorAt(nextCursor);
   };
 
   const handlePlanInsert = () => {
@@ -2721,16 +2850,9 @@ export function Composer(props: ComposerProps) {
     props.onPlanModeChange?.(true);
     setInput(nextInput);
     setDismissedSkillInput(null);
-    setTextareaCursor(nextCursor);
+    setEditorCursor(nextCursor);
 
-    requestAnimationFrame(() => {
-      const textarea = textareaRef.current;
-      if (!textarea) {
-        return;
-      }
-      textarea.focus();
-      textarea.setSelectionRange(nextCursor, nextCursor);
-    });
+    focusEditorAt(nextCursor);
   };
 
   const handlePermissionResponse = (permission: ChatPermissionRequest, optionId: string) => {
@@ -3266,12 +3388,128 @@ export function Composer(props: ComposerProps) {
               </div>
             </div>
           ) : (
-            <div className="flex min-h-20 flex-wrap items-start gap-x-1.5 gap-y-1">
+            <div
+              ref={editorRef}
+              role="textbox"
+              aria-label="Message"
+              aria-multiline="true"
+              data-composer-editor="true"
+              contentEditable
+              suppressContentEditableWarning
+              className="min-h-20 cursor-text whitespace-pre-wrap break-words text-app-15 leading-6 text-fg"
+              onMouseDown={(event) => {
+                if (event.target !== event.currentTarget) {
+                  return;
+                }
+                event.preventDefault();
+                focusEditorAt(input.length);
+              }}
+              onInput={() => {
+                const text = editorTextRef.current;
+                if (!text) {
+                  return;
+                }
+                const nextInput = getEditableText(text).replace(/\r\n?/gu, "\n");
+                const selection = getEditableSelection(text);
+                setInput(nextInput);
+                setEditorCursor(selection?.start ?? nextInput.length);
+                setDismissedSkillInput(null);
+              }}
+              onFocus={() => {
+                setIsEditorFocused(true);
+                const text = editorTextRef.current;
+                const selection = text ? getEditableSelection(text) : null;
+                setEditorCursor(selection?.start ?? input.length);
+              }}
+              onBlur={() => {
+                setIsEditorFocused(false);
+              }}
+              onClick={updateEditorCursor}
+              onKeyUp={updateEditorCursor}
+              onKeyDown={(e) => {
+                const text = editorTextRef.current;
+                const selection = text ? getEditableSelection(text) : null;
+                if (
+                  shouldRemoveLastSkillOnBackspace({
+                    key: e.key,
+                    isComposing: e.nativeEvent.isComposing,
+                    selectionStart: selection?.start ?? editorCursor,
+                    selectionEnd: selection?.end ?? editorCursor,
+                    attachedSkillCount: attachedSkills.length,
+                  })
+                ) {
+                  e.preventDefault();
+                  setAttachedSkills((currentSkills) => currentSkills.slice(0, -1));
+                  return;
+                }
+
+                if (showSlashMenu) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setSelectedSkillIndex((index) =>
+                      slashMenuItemCount === 0 ? 0 : (index + 1) % slashMenuItemCount,
+                    );
+                    return;
+                  }
+
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setSelectedSkillIndex((index) =>
+                      slashMenuItemCount === 0
+                        ? 0
+                        : (index - 1 + slashMenuItemCount) % slashMenuItemCount,
+                    );
+                    return;
+                  }
+
+                  if ((e.key === "Enter" || e.key === "Tab") && slashMenuItemCount > 0) {
+                    e.preventDefault();
+                    if (showPlanSuggestion && selectedSkillIndex === 0) {
+                      handlePlanInsert();
+                    } else if (
+                      showCompactSuggestion &&
+                      selectedSkillIndex === (showPlanSuggestion ? 1 : 0)
+                    ) {
+                      void handleCompact(true);
+                    } else if (
+                      showStatusSuggestion &&
+                      selectedSkillIndex ===
+                        (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0)
+                    ) {
+                      void handleStatus(true);
+                    } else {
+                      const skillIndex = selectedSkillIndex - carrentCommandMenuItemCount;
+                      handleSkillInsert(filteredSkills[skillIndex] ?? filteredSkills[0]);
+                    }
+                    return;
+                  }
+
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setDismissedSkillInput(input);
+                    return;
+                  }
+                }
+
+                if (shouldSubmitComposerOnKeyDown(e)) {
+                  e.preventDefault();
+                  if (
+                    canSend ||
+                    parseLeadingCompactCommand(input) ||
+                    parseLeadingStatusCommand(input)
+                  ) {
+                    void handleSend();
+                  }
+                }
+              }}
+            >
               {attachedSkills.map((skill) => (
                 <span
                   key={skill.path}
                   title={skill.path}
-                  className={`inline-flex h-6 max-w-full shrink-0 items-center gap-2 text-app-14 font-medium leading-6 text-skill-reference ${
+                  data-skill-marker="true"
+                  contentEditable={false}
+                  className={`mr-2 inline-flex h-6 max-w-full items-center gap-2 align-top text-app-14 font-medium leading-6 text-skill-reference ${
                     localMcpSkillsDisabled ? "opacity-50" : ""
                   }`}
                 >
@@ -3279,101 +3517,14 @@ export function Composer(props: ComposerProps) {
                   <span className="truncate">{formatSkillLabel(skill.name)}</span>
                 </span>
               ))}
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  setTextareaCursor(e.target.selectionStart);
-                  setDismissedSkillInput(null);
-                }}
-                onFocus={(event) => {
-                  setIsTextareaFocused(true);
-                  setTextareaCursor(event.currentTarget.selectionStart);
-                }}
-                onBlur={() => {
-                  setIsTextareaFocused(false);
-                }}
-                onClick={updateTextareaCursor}
-                onSelect={updateTextareaCursor}
-                placeholder={attachedSkills.length > 0 ? "" : "Message..."}
-                className="min-h-20 min-w-32 flex-1 resize-none bg-transparent text-app-15 leading-6 text-fg placeholder:text-subtle outline-none"
-                rows={1}
-                onKeyDown={(e) => {
-                  if (
-                    shouldRemoveLastSkillOnBackspace({
-                      key: e.key,
-                      isComposing: e.nativeEvent.isComposing,
-                      selectionStart: e.currentTarget.selectionStart,
-                      selectionEnd: e.currentTarget.selectionEnd,
-                      attachedSkillCount: attachedSkills.length,
-                    })
-                  ) {
-                    e.preventDefault();
-                    setAttachedSkills((currentSkills) => currentSkills.slice(0, -1));
-                    return;
-                  }
-
-                  if (showSlashMenu) {
-                    if (e.key === "ArrowDown") {
-                      e.preventDefault();
-                      setSelectedSkillIndex((index) =>
-                        slashMenuItemCount === 0 ? 0 : (index + 1) % slashMenuItemCount,
-                      );
-                      return;
-                    }
-
-                    if (e.key === "ArrowUp") {
-                      e.preventDefault();
-                      setSelectedSkillIndex((index) =>
-                        slashMenuItemCount === 0
-                          ? 0
-                          : (index - 1 + slashMenuItemCount) % slashMenuItemCount,
-                      );
-                      return;
-                    }
-
-                    if ((e.key === "Enter" || e.key === "Tab") && slashMenuItemCount > 0) {
-                      e.preventDefault();
-                      if (showPlanSuggestion && selectedSkillIndex === 0) {
-                        handlePlanInsert();
-                      } else if (
-                        showCompactSuggestion &&
-                        selectedSkillIndex === (showPlanSuggestion ? 1 : 0)
-                      ) {
-                        void handleCompact(true);
-                      } else if (
-                        showStatusSuggestion &&
-                        selectedSkillIndex ===
-                          (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0)
-                      ) {
-                        void handleStatus(true);
-                      } else {
-                        const skillIndex = selectedSkillIndex - carrentCommandMenuItemCount;
-                        handleSkillInsert(filteredSkills[skillIndex] ?? filteredSkills[0]);
-                      }
-                      return;
-                    }
-
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      setDismissedSkillInput(input);
-                      return;
-                    }
-                  }
-
-                  if (shouldSubmitComposerOnKeyDown(e)) {
-                    e.preventDefault();
-                    if (
-                      canSend ||
-                      parseLeadingCompactCommand(input) ||
-                      parseLeadingStatusCommand(input)
-                    ) {
-                      void handleSend();
-                    }
-                  }
-                }}
-              />
+              <span
+                ref={editorTextRef}
+                data-composer-text="true"
+                data-placeholder={attachedSkills.length > 0 ? "" : "Message..."}
+                className="inline whitespace-pre-wrap break-words outline-none empty:before:text-subtle empty:before:content-[attr(data-placeholder)]"
+              >
+                {input}
+              </span>
             </div>
           )}
           {isThreadCompacting ? (

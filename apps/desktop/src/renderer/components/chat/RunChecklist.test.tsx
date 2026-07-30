@@ -165,16 +165,15 @@ async function rerenderComposer(threadId: string) {
 
 async function submitComposerMessage(message: string, runId: string) {
   nextRunId = runId;
-  const textarea = container!.querySelector("textarea")!;
-  const valueSetter = Object.getOwnPropertyDescriptor(
-    window.HTMLTextAreaElement.prototype,
-    "value",
-  )!.set!;
+  const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
+  const editorText = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
   await act(async () => {
-    textarea.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
-    valueSetter.call(textarea, message);
-    textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
-    textarea.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "k" }));
+    editor.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+    editorText.textContent = message;
+    editor.dispatchEvent(
+      new window.InputEvent("input", { bubbles: true, inputType: "insertText" }),
+    );
+    editor.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "k" }));
   });
   const sendButton = container!.querySelector<SVGElement>(".lucide-arrow-up")?.closest("button");
   expect(sendButton?.disabled).toBe(false);
@@ -299,16 +298,15 @@ describe("RunChecklist", () => {
     expect(container!.textContent).not.toContain("Implement the checklist");
     await rerenderComposer("thread-1");
 
-    const textarea = container!.querySelector("textarea")!;
-    const valueSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLTextAreaElement.prototype,
-      "value",
-    )!.set!;
+    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
+    const editorText = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
     await act(async () => {
-      textarea.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
-      valueSetter.call(textarea, "Continue the work");
-      textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
-      textarea.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "k" }));
+      editor.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+      editorText.textContent = "Continue the work";
+      editor.dispatchEvent(
+        new window.InputEvent("input", { bubbles: true, inputType: "insertText" }),
+      );
+      editor.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "k" }));
     });
     expect(container!.textContent).toContain("Implement the checklist");
 

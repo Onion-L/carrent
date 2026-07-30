@@ -368,17 +368,30 @@ async function fillInput(input: HTMLInputElement, value: string) {
   });
 }
 
-async function fillTextarea(textarea: HTMLTextAreaElement, value: string) {
+async function fillComposerEditor(editor: HTMLElement, value: string) {
+  await act(async () => {
+    editor.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+    editor.querySelector<HTMLElement>("[data-composer-text='true']")!.textContent = value;
+    editor.dispatchEvent(new window.Event("input", { bubbles: true }));
+    editor.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "a" }));
+  });
+}
+
+function getComposerEditorText(editor: HTMLElement) {
+  return editor.querySelector<HTMLElement>("[data-composer-text='true']")!.textContent;
+}
+
+async function fillNativeTextarea(nativeTextarea: HTMLTextAreaElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
     window.HTMLTextAreaElement.prototype,
     "value",
   )!.set!;
   await act(async () => {
-    textarea.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
-    setter.call(textarea, value);
-    textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
-    textarea.dispatchEvent(new window.Event("change", { bubbles: true }));
-    textarea.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "a" }));
+    nativeTextarea.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+    setter.call(nativeTextarea, value);
+    nativeTextarea.dispatchEvent(new window.Event("input", { bubbles: true }));
+    nativeTextarea.dispatchEvent(new window.Event("change", { bubbles: true }));
+    nativeTextarea.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "a" }));
   });
 }
 
@@ -404,9 +417,9 @@ async function waitForProjectDraft() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
-  const textarea = container!.querySelector<HTMLTextAreaElement>("textarea");
-  if (!textarea) throw new Error("Project Draft Composer not found");
-  return textarea;
+  const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']");
+  if (!editor) throw new Error("Project Draft Composer not found");
+  return editor;
 }
 
 afterEach(async () => {
@@ -739,7 +752,10 @@ describe("three-level navigation", () => {
       "/workspace/workspace-1/project/project-1/thread/thread-1",
     );
 
-    await fillTextarea(container!.querySelector("textarea")!, "Save before closing");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Save before closing",
+    );
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 320));
       window.dispatchEvent(new window.Event("beforeunload"));
@@ -768,7 +784,10 @@ describe("three-level navigation", () => {
       testNavigate!("/workspace/workspace-2/project/project-1/thread/thread-2");
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    await fillTextarea(container!.querySelector("textarea")!, "Keep the newer draft");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Keep the newer draft",
+    );
 
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 320));
@@ -982,7 +1001,10 @@ describe("three-level navigation", () => {
       false,
     );
 
-    await fillTextarea(container!.querySelector("textarea")!, "Track meaningful activity");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Track meaningful activity",
+    );
     await click(composerSendButton());
     const activityAfterSubmit = saved
       .at(-1)
@@ -1104,7 +1126,10 @@ describe("three-level navigation", () => {
       { chatStopRequests: stopRequests },
     );
 
-    await fillTextarea(container!.querySelector("textarea")!, "Keep this Run alive");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Keep this Run alive",
+    );
     const sendButton = composerSendButton();
     await act(async () => {
       sendButton.click();
@@ -1157,7 +1182,10 @@ describe("three-level navigation", () => {
       requests,
     );
 
-    await fillTextarea(container!.querySelector("textarea")!, "Start live Run");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Start live Run",
+    );
     await click(composerSendButton());
 
     const originalBubble = [...container!.querySelectorAll<HTMLDivElement>(".bg-user-bubble")].find(
@@ -1817,7 +1845,10 @@ describe("Association Thread Drafts", () => {
       runtimeMode: "approval-required",
     });
 
-    await fillTextarea(container!.querySelector("textarea")!, "Keep this across navigation");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Keep this across navigation",
+    );
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 350));
     });
@@ -1849,7 +1880,7 @@ describe("Association Thread Drafts", () => {
 
     await waitForProjectDraft();
 
-    expect(container!.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+    expect(container!.querySelector<HTMLElement>("[data-composer-text='true']")?.textContent).toBe(
       "Recovered request",
     );
     expect(saved).toHaveLength(0);
@@ -1866,7 +1897,10 @@ describe("Association Thread Drafts", () => {
     );
 
     await waitForProjectDraft();
-    await fillTextarea(container!.querySelector("textarea")!, "Implement association drafts");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Implement association drafts",
+    );
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 350));
     });
@@ -1928,7 +1962,10 @@ describe("Association Thread Drafts", () => {
     );
 
     await waitForProjectDraft();
-    await fillTextarea(container!.querySelector("textarea")!, "First cancelled request");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "First cancelled request",
+    );
     await click(composerSendButton());
     await act(async () => {
       emitChatEvent?.({
@@ -1964,7 +2001,10 @@ describe("Association Thread Drafts", () => {
     await renderApp(state, "/workspace/workspace-1/project/project-1", [], false, requests);
 
     await waitForProjectDraft();
-    await fillTextarea(container!.querySelector("textarea")!, "First failed request");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "First failed request",
+    );
     await click(composerSendButton());
     await act(async () => {
       emitChatEvent?.({
@@ -1999,7 +2039,10 @@ describe("Association Thread Drafts", () => {
     };
 
     await waitForProjectDraft();
-    await fillTextarea(container!.querySelector("textarea")!, "Persist before dispatch");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Persist before dispatch",
+    );
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 350));
     });
@@ -2035,7 +2078,10 @@ describe("Association Thread Drafts", () => {
     );
 
     await waitForProjectDraft();
-    await fillTextarea(container!.querySelector("textarea")!, "Retry this request");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Retry this request",
+    );
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 350));
     });
@@ -2060,7 +2106,10 @@ describe("Association Thread Drafts", () => {
     );
 
     await waitForProjectDraft();
-    await fillTextarea(container!.querySelector("textarea")!, "Retry after cleanup failure");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Retry after cleanup failure",
+    );
     await click(composerSendButton());
     await click(composerSendButton());
 
@@ -2070,7 +2119,7 @@ describe("Association Thread Drafts", () => {
       projectId: "project-1",
       content: "Retry after cleanup failure",
     });
-    expect(container!.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+    expect(container!.querySelector<HTMLElement>("[data-composer-text='true']")?.textContent).toBe(
       "Retry after cleanup failure",
     );
   });
@@ -2086,7 +2135,10 @@ describe("Association Thread Drafts", () => {
     );
 
     await waitForProjectDraft();
-    await fillTextarea(container!.querySelector("textarea")!, "Persist this before promotion");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Persist this before promotion",
+    );
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 350));
     });
@@ -2137,7 +2189,7 @@ describe("Association Thread Drafts", () => {
 
     expect(container!.textContent).toContain("Recovered Thread");
     expect(container!.textContent).toContain("Recovered message");
-    expect(container!.querySelector("textarea") !== null).toBe(true);
+    expect(container!.querySelector("[data-composer-editor='true']") !== null).toBe(true);
   });
 
   it("keeps a new Thread message when the Runtime synchronizes Plan mode", async () => {
@@ -2150,7 +2202,10 @@ describe("Association Thread Drafts", () => {
       requests,
     );
 
-    await fillTextarea(container!.querySelector("textarea")!, "New request");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "New request",
+    );
     await click(composerSendButton());
     await act(async () => {
       emitChatEvent?.({
@@ -2197,7 +2252,7 @@ describe("Association Thread Drafts", () => {
         (button) => button.title === "Edit",
       )!,
     );
-    await fillTextarea(
+    await fillNativeTextarea(
       container!.querySelectorAll<HTMLTextAreaElement>("textarea")[0],
       "Edited request",
     );
@@ -2255,7 +2310,10 @@ describe("Association Thread Drafts", () => {
       requests,
       false,
     );
-    await fillTextarea(container!.querySelector("textarea")!, "Do not dispatch this");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Do not dispatch this",
+    );
     await click(composerSendButton());
 
     expect(requests).toHaveLength(0);
@@ -2353,8 +2411,8 @@ describe("Compact Thread Action", () => {
         },
       },
     );
-    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
-    await fillTextarea(textarea, "/");
+    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
+    await fillComposerEditor(editor, "/");
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
@@ -2385,20 +2443,20 @@ describe("Compact Thread Action", () => {
     expect(requests).toEqual([]);
     expect(container!.textContent).toContain("Compacting");
     expect(composerSendButton().disabled).toBe(true);
-    expect(textarea.value).toBe("");
+    expect(getComposerEditorText(editor)).toBe("");
 
-    await fillTextarea(textarea, "/compact Keep this draft");
+    await fillComposerEditor(editor, "/compact Keep this draft");
     await act(async () => {
-      textarea.dispatchEvent(
+      editor.dispatchEvent(
         new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
       );
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
-    expect(textarea.value).toBe("Keep this draft");
+    expect(getComposerEditorText(editor)).toBe("Keep this draft");
     expect(actionRequests).toHaveLength(1);
     expect(container!.textContent).toContain("already compacting");
 
-    await fillTextarea(textarea, "Next request");
+    await fillComposerEditor(editor, "Next request");
 
     await act(async () => {
       finishCompact();
@@ -2406,7 +2464,7 @@ describe("Compact Thread Action", () => {
     });
 
     expect(container!.textContent).toContain("Context compacted");
-    expect(textarea.value).toBe("Next request");
+    expect(getComposerEditorText(editor)).toBe("Next request");
     expect(saved.at(-1)?.threadActions?.[0]).toMatchObject({
       threadId: "thread-1",
       action: "compact",
@@ -2416,19 +2474,19 @@ describe("Compact Thread Action", () => {
     expect(saved.at(-1)?.threadActions?.[0]?.id.startsWith("thread-action-")).toBe(true);
     expect(saved.at(-1)?.threads?.[0]?.lastActivityAt).toBe("2026-07-27T08:02:00.000Z");
 
-    await fillTextarea(textarea, "/compact Keep this draft");
+    await fillComposerEditor(editor, "/compact Keep this draft");
     await act(async () => {
-      textarea.dispatchEvent(
+      editor.dispatchEvent(
         new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
       );
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
-    expect(textarea.value).toBe("Keep this draft");
+    expect(getComposerEditorText(editor)).toBe("Keep this draft");
     expect(actionRequests).toHaveLength(1);
     expect(requests).toEqual([]);
     expect(container!.textContent).toContain("requires a completed user and Agent exchange");
 
-    await fillTextarea(textarea, "/");
+    await fillComposerEditor(editor, "/");
     expect(
       [...container!.querySelectorAll<HTMLButtonElement>("button")].some((button) =>
         button.textContent?.includes("Compress this thread's context"),
@@ -2469,25 +2527,25 @@ describe("Compact Thread Action", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
 
-    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
-    await fillTextarea(textarea, "/compact Keep this draft");
+    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
+    await fillComposerEditor(editor, "/compact Keep this draft");
     await act(async () => {
-      textarea.dispatchEvent(
+      editor.dispatchEvent(
         new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
       );
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
-    expect(textarea.value).toBe("Keep this draft");
+    expect(getComposerEditorText(editor)).toBe("Keep this draft");
     expect(actionRequests).toHaveLength(1);
 
-    await fillTextarea(textarea, "/compact Try again");
+    await fillComposerEditor(editor, "/compact Try again");
     await act(async () => {
-      textarea.dispatchEvent(
+      editor.dispatchEvent(
         new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
       );
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
-    expect(textarea.value).toBe("Try again");
+    expect(getComposerEditorText(editor)).toBe("Try again");
     expect(actionRequests).toHaveLength(1);
     expect(container!.textContent).toContain("requires a resumable Runtime Session");
   });
@@ -2520,27 +2578,27 @@ describe("Compact Thread Action", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
 
-    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
-    await fillTextarea(textarea, "/compact Keep this draft");
+    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
+    await fillComposerEditor(editor, "/compact Keep this draft");
     await act(async () => {
-      textarea.dispatchEvent(
+      editor.dispatchEvent(
         new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
       );
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
-    expect(textarea.value).toBe("Keep this draft");
+    expect(getComposerEditorText(editor)).toBe("Keep this draft");
     expect(actionRequests).toHaveLength(1);
     expect(saved).toHaveLength(0);
     expect(container!.textContent).toContain("history boundary could not be saved");
 
-    await fillTextarea(textarea, "/compact Try again");
+    await fillComposerEditor(editor, "/compact Try again");
     await act(async () => {
-      textarea.dispatchEvent(
+      editor.dispatchEvent(
         new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
       );
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
-    expect(textarea.value).toBe("Try again");
+    expect(getComposerEditorText(editor)).toBe("Try again");
     expect(actionRequests).toHaveLength(1);
     expect(container!.textContent).toContain("requires a completed user and Agent exchange");
   });
@@ -2614,9 +2672,9 @@ describe("Runtime Session Status", () => {
     supportedCommands: ["compact", "status"],
   };
 
-  async function submitTextarea(textarea: HTMLTextAreaElement) {
+  async function submitEditor(editor: HTMLElement) {
     await act(async () => {
-      textarea.dispatchEvent(
+      editor.dispatchEvent(
         new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
       );
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -2655,8 +2713,8 @@ describe("Runtime Session Status", () => {
     usageIndicator.click();
     expect(statusRequests).toHaveLength(0);
 
-    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
-    await fillTextarea(textarea, "Keep this /st");
+    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
+    await fillComposerEditor(editor, "Keep this /st");
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
@@ -2666,7 +2724,7 @@ describe("Runtime Session Status", () => {
       ),
     ).toBe(false);
 
-    await fillTextarea(textarea, "/");
+    await fillComposerEditor(editor, "/");
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
@@ -2700,7 +2758,7 @@ describe("Runtime Session Status", () => {
       transcript: [],
     });
     expect(chatRequests).toEqual([]);
-    expect(textarea.value).toBe("");
+    expect(getComposerEditorText(editor)).toBe("");
     expect(container!.textContent).toContain("Status");
     expect(container!.textContent).toContain("Session");
     expect(container!.textContent).toContain("session-1234567890");
@@ -2742,21 +2800,21 @@ describe("Runtime Session Status", () => {
         },
       },
     );
-    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
 
-    await fillTextarea(textarea, "/status");
-    await submitTextarea(textarea);
+    await fillComposerEditor(editor, "/status");
+    await submitEditor(editor);
     expect(container!.textContent).toContain("35,193 used");
 
-    await fillTextarea(textarea, "/status Keep this draft");
+    await fillComposerEditor(editor, "/status Keep this draft");
     await act(async () => {
-      textarea.dispatchEvent(
+      editor.dispatchEvent(
         new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
       );
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     expect(statusCall).toBe(2);
-    expect(textarea.value).toBe("Keep this draft");
+    expect(getComposerEditorText(editor)).toBe("Keep this draft");
     expect(container!.textContent).toContain("35,193 used");
     expect(composerSendButton().disabled).toBe(true);
     expect(container!.querySelector('[aria-busy="true"]')).not.toBe(null);
@@ -2767,11 +2825,11 @@ describe("Runtime Session Status", () => {
     });
     expect(container!.textContent).toContain("35,193 used");
     expect(container!.textContent).toContain("Unable to load session status.");
-    expect(textarea.value).toBe("Keep this draft");
+    expect(getComposerEditorText(editor)).toBe("Keep this draft");
     expect(composerSendButton().disabled).toBe(false);
 
-    await fillTextarea(textarea, "/status");
-    await submitTextarea(textarea);
+    await fillComposerEditor(editor, "/status");
+    await submitEditor(editor);
     expect(statusCall).toBe(3);
     expect(container!.textContent).toContain("40,000 used");
     expect(container!.textContent).not.toContain("Unable to load session status.");
@@ -2795,17 +2853,17 @@ describe("Runtime Session Status", () => {
         },
       },
     );
-    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
 
-    await fillTextarea(textarea, "/status Keep this draft");
-    await submitTextarea(textarea);
-    expect(textarea.value).toBe("Keep this draft");
+    await fillComposerEditor(editor, "/status Keep this draft");
+    await submitEditor(editor);
+    expect(getComposerEditorText(editor)).toBe("Keep this draft");
     expect(container!.textContent).toContain("Status is unavailable for this runtime.");
     expect(statusCalls).toBe(0);
     expect(chatRequests).toEqual([]);
 
-    await fillTextarea(textarea, "/status-report");
-    await submitTextarea(textarea);
+    await fillComposerEditor(editor, "/status-report");
+    await submitEditor(editor);
     expect(chatRequests).toHaveLength(1);
     expect(chatRequests[0]?.message).toBe("/status-report");
     expect(statusCalls).toBe(0);
@@ -2834,16 +2892,16 @@ describe("Runtime Session Status", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
-    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
 
-    await fillTextarea(textarea, "/status");
-    await submitTextarea(textarea);
+    await fillComposerEditor(editor, "/status");
+    await submitEditor(editor);
     expect(container!.textContent).toContain("session-1234567890");
     await click(buttonNamed("Close"));
     expect(container!.textContent).not.toContain("session-1234567890");
 
-    await fillTextarea(textarea, "/status");
-    await submitTextarea(textarea);
+    await fillComposerEditor(editor, "/status");
+    await submitEditor(editor);
     await act(async () => {
       window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }));
     });
@@ -2881,11 +2939,11 @@ describe("Runtime Session Status", () => {
       false,
       { kimiStatus: passiveStatus, sessionStatus: () => statusGate },
     );
-    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
 
-    await fillTextarea(textarea, "/status");
+    await fillComposerEditor(editor, "/status");
     await act(async () => {
-      textarea.dispatchEvent(
+      editor.dispatchEvent(
         new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
       );
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -2925,13 +2983,13 @@ describe("Runtime Session Status", () => {
         },
       },
     );
-    const textarea = container!.querySelector<HTMLTextAreaElement>("textarea")!;
+    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
 
-    await fillTextarea(textarea, "/status");
-    await submitTextarea(textarea);
-    await fillTextarea(textarea, "/status");
+    await fillComposerEditor(editor, "/status");
+    await submitEditor(editor);
+    await fillComposerEditor(editor, "/status");
     await act(async () => {
-      textarea.dispatchEvent(
+      editor.dispatchEvent(
         new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
       );
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -2997,7 +3055,7 @@ describe("Project Working Directory recovery", () => {
     expect(buttonNamed("Recheck")).toBeDefined();
     expect(buttonNamed("Relocate Directory")).toBeDefined();
     expect(buttonNamed("Carrent directory unavailable")).toBeDefined();
-    expect(container!.querySelector("textarea")).toBe(null);
+    expect(container!.querySelector("[data-composer-editor='true']")).toBe(null);
   });
 
   it("rechecks successfully and replaces the unavailable Thread location", async () => {
@@ -3020,7 +3078,7 @@ describe("Project Working Directory recovery", () => {
 
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
     expect(currentNavigationType).toBe("REPLACE");
-    expect(container!.querySelector("textarea")).not.toBe(null);
+    expect(container!.querySelector("[data-composer-editor='true']")).not.toBe(null);
   });
 
   it("relocates explicitly and replaces the unavailable Thread location", async () => {
@@ -3049,9 +3107,12 @@ describe("Project Working Directory recovery", () => {
     expect(relocations).toEqual([{ projectId: "project-1", targetDirectory: "/new/carrent" }]);
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
     expect(currentNavigationType).toBe("REPLACE");
-    expect(container!.querySelector("textarea")).not.toBe(null);
+    expect(container!.querySelector("[data-composer-editor='true']")).not.toBe(null);
 
-    await fillTextarea(container!.querySelector("textarea")!, "Use the relocated directory");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Use the relocated directory",
+    );
     await click(composerSendButton());
 
     expect(requests[0]?.context).toEqual({
@@ -3088,7 +3149,7 @@ describe("Project Working Directory recovery", () => {
 
     expect(relocations).toHaveLength(0);
     expect(container!.textContent).toContain("Project Working Directory is unavailable");
-    expect(container!.querySelector("textarea")).toBe(null);
+    expect(container!.querySelector("[data-composer-editor='true']")).toBe(null);
   });
 });
 
@@ -3246,7 +3307,10 @@ describe("Archived Thread lifecycle", () => {
       false,
     );
 
-    await fillTextarea(container!.querySelector("textarea")!, "Keep this Run visible");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Keep this Run visible",
+    );
     await click(composerSendButton());
 
     expect(buttonNamed("Archive Primary Thread").disabled).toBe(true);
@@ -3317,7 +3381,7 @@ describe("Archived Thread lifecycle", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
-    expect(container!.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+    expect(container!.querySelector<HTMLElement>("[data-composer-text='true']")?.textContent).toBe(
       "Do not race this archive",
     );
     await click(buttonNamed("Archive Primary Thread"));
@@ -3388,7 +3452,7 @@ describe("Archived Thread lifecycle", () => {
     expect(container!.textContent).not.toContain("Thread could not be found.");
     await waitForProjectDraft();
     expect(container!.querySelector("h1")?.textContent).toBe("New thread");
-    expect(container!.querySelector("textarea")).not.toBe(null);
+    expect(container!.querySelector("[data-composer-editor='true']")).not.toBe(null);
   });
 
   it("restores an Archived Thread in Settings and opens it only on request", async () => {
@@ -3496,7 +3560,10 @@ describe("Archived Thread lifecycle", () => {
       { deleteThreadTransactionGate: deletionGate },
     );
 
-    await fillTextarea(container!.querySelector("textarea")!, "Keep this live update");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Keep this live update",
+    );
     await click(composerSendButton());
     await act(async () => {
       testNavigate!("/settings?tab=archives");
@@ -3825,7 +3892,10 @@ describe("Archived Thread lifecycle", () => {
       false,
     );
 
-    await fillTextarea(container!.querySelector("textarea")!, "Keep this Run alive");
+    await fillComposerEditor(
+      container!.querySelector("[data-composer-editor='true']")!,
+      "Keep this Run alive",
+    );
     await click(composerSendButton());
 
     await click(buttonNamed("More actions for Carrent"));

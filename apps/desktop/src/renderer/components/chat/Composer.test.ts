@@ -25,6 +25,7 @@ import {
   getChatHistoryMode,
   mergeComposerDraftContent,
   normalizeGitBranchInfo,
+  parseLeadingSkillReferences,
   replaceSkillSlashTrigger,
   resolveDraftSkillRecords,
   shouldShowPlanSlashSuggestion,
@@ -662,6 +663,11 @@ describe("skill slash helpers", () => {
       end: 10,
       query: "grill",
     });
+    expect(getSkillSlashTrigger("/triage已有内容", 7)).toEqual({
+      start: 0,
+      end: 7,
+      query: "triage",
+    });
     expect(getSkillSlashTrigger("use /Users/test", 15)).toEqual(null);
   });
 
@@ -698,6 +704,94 @@ describe("skill slash helpers", () => {
     expect(replaceSkillSlashTrigger("please /grill now", trigger!, skills[0])).toBe(
       "please [$grilling](/Users/test/.agents/skills/grilling/SKILL.md) now",
     );
+  });
+
+  it("replaces only the query before the caret", () => {
+    const trigger = getSkillSlashTrigger("/triage已有内容", 7);
+
+    expect(replaceSkillSlashTrigger("/triage已有内容", trigger!, skills[0])).toBe(
+      "[$grilling](/Users/test/.agents/skills/grilling/SKILL.md) 已有内容",
+    );
+  });
+
+  it("preserves surrounding text when inserting in the middle", () => {
+    const input = "before /grillafter";
+    const trigger = getSkillSlashTrigger(input, 13);
+
+    expect(replaceSkillSlashTrigger(input, trigger!, skills[0])).toBe(
+      "before [$grilling](/Users/test/.agents/skills/grilling/SKILL.md) after",
+    );
+  });
+
+  it("inserts at the end without adding or deleting other text", () => {
+    const input = "before /grill";
+    const trigger = getSkillSlashTrigger(input);
+
+    expect(replaceSkillSlashTrigger(input, trigger!, skills[0])).toBe(
+      "before [$grilling](/Users/test/.agents/skills/grilling/SKILL.md) ",
+    );
+  });
+
+  it("preserves Latin text after a query without whitespace", () => {
+    const input = "/grillfollowup";
+    const trigger = getSkillSlashTrigger(input, 6);
+
+    expect(replaceSkillSlashTrigger(input, trigger!, skills[0])).toBe(
+      "[$grilling](/Users/test/.agents/skills/grilling/SKILL.md) followup",
+    );
+  });
+});
+
+describe("parseLeadingSkillReferences", () => {
+  it("returns the original text when there is no leading reference", () => {
+    expect(parseLeadingSkillReferences("hello world")).toEqual({
+      references: [],
+      rest: "hello world",
+    });
+  });
+
+  it("parses a single leading reference", () => {
+    expect(
+      parseLeadingSkillReferences(
+        "[$grilling](/Users/test/.agents/skills/grilling/SKILL.md) review this",
+      ),
+    ).toEqual({
+      references: [{ name: "grilling", path: "/Users/test/.agents/skills/grilling/SKILL.md" }],
+      rest: "review this",
+    });
+  });
+
+  it("parses multiple consecutive leading references", () => {
+    expect(
+      parseLeadingSkillReferences("[$a](/p/a/SKILL.md) [$b](/p/b/SKILL.md) do things"),
+    ).toEqual({
+      references: [
+        { name: "a", path: "/p/a/SKILL.md" },
+        { name: "b", path: "/p/b/SKILL.md" },
+      ],
+      rest: "do things",
+    });
+  });
+
+  it("ignores references that do not lead the text", () => {
+    expect(parseLeadingSkillReferences("hey [$a](/p/a) there")).toEqual({
+      references: [],
+      rest: "hey [$a](/p/a) there",
+    });
+  });
+
+  it("keeps text after the leading references intact", () => {
+    expect(parseLeadingSkillReferences("[$a](/p/a) see [$b](/p/b) later")).toEqual({
+      references: [{ name: "a", path: "/p/a" }],
+      rest: "see [$b](/p/b) later",
+    });
+  });
+
+  it("handles a reference with no following text", () => {
+    expect(parseLeadingSkillReferences("[$a](/p/a)")).toEqual({
+      references: [{ name: "a", path: "/p/a" }],
+      rest: "",
+    });
   });
 });
 

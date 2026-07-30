@@ -282,7 +282,7 @@ export function buildChangedFilesMessage({
     role: "assistant",
     threadId,
     timestamp: formatTimeFn(new Date(now)),
-    createdAt: now,
+    createdAt: new Date(now).toISOString(),
     type: "changed_files",
     content: "Workspace changes",
     changedFiles: result.files.map((file) => ({

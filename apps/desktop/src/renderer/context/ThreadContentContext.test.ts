@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { Message } from "../../shared/threadContent";
-import type { AppThreadRecord } from "../../shared/workspacePersistence";
+import { normalizeAppStateSnapshot, type AppThreadRecord } from "../../shared/workspacePersistence";
 import {
   applyRunChecklistUpdate,
   applyMessagePartUpdate,
@@ -171,6 +171,7 @@ describe("buildChangedFilesMessage", () => {
     expect(message.type).toBe("changed_files");
     expect(message.threadId).toBe("thread-1");
     expect(message.content).toBe("Workspace changes");
+    expect(message.createdAt).toBe("2023-11-14T22:13:20.000Z");
     expect(message.changedFiles).toEqual([
       { path: "a.txt", additions: 1, deletions: 2, binary: false, untracked: false },
       { path: "b.bin", additions: 0, deletions: 0, binary: true, untracked: false },
@@ -183,6 +184,37 @@ describe("buildChangedFilesMessage", () => {
       patch: "diff --git a/a.txt b/a.txt\n...",
       truncated: true,
     });
+    expect(
+      normalizeAppStateSnapshot({
+        version: 1,
+        workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+        projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+        associations: [
+          {
+            workspaceId: "workspace-1",
+            projectId: "project-1",
+            order: 0,
+            defaultRuntimeId: "kimi",
+            defaultRuntimeMode: "approval-required",
+          },
+        ],
+        threads: [
+          {
+            id: "thread-1",
+            workspaceId: "workspace-1",
+            projectId: "project-1",
+            title: "First",
+            createdAt: "2023-11-14T22:00:00.000Z",
+            lastActivityAt: "2023-11-14T22:13:20.000Z",
+            runtimeId: "kimi",
+            runtimeMode: "approval-required",
+            planMode: false,
+          },
+        ],
+        threadMessages: [{ ...message, attachments: [] }],
+        activeWorkspaceId: "workspace-1",
+      }),
+    ).not.toBe(null);
   });
 });
 

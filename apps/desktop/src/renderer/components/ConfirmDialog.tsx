@@ -29,15 +29,15 @@ export function ConfirmDialog({
       <section
         aria-labelledby="confirm-dialog-title"
         aria-modal="true"
-        className="w-full max-w-sm rounded-md border border-border bg-surface-raised p-5 shadow-xl"
+        className="w-full max-w-md rounded-md border border-border bg-surface-raised p-6 shadow-xl"
         role="dialog"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <h2 className="text-app-16 font-semibold" id="confirm-dialog-title">
           {title}
         </h2>
-        <p className="mt-3 text-app-13 leading-5 text-muted">{message}</p>
-        <div className="mt-6 flex justify-end gap-2">
+        <p className="mt-4 text-app-13 leading-5 text-muted">{message}</p>
+        <div className="mt-8 flex justify-end gap-2">
           <button
             className="h-9 rounded-md border border-border px-3 text-app-13 font-medium hover:bg-surface-hover"
             onClick={onCancel}

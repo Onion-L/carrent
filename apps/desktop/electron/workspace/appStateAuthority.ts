@@ -4,40 +4,22 @@ import {
   type AppStateLoadResult,
   type AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
+import type {
+  AppStateAuthorityState,
+  AppStateCommand,
+  AppStateCommandReducer,
+  AppStateCommandRejectionReason,
+  AppStateCommandResult,
+} from "../../src/shared/appStateAuthority";
 import type { AppStateStore } from "./appStateStore";
 
-export type AppStateCommand = {
-  commandId: string;
-  type: string;
-  payload?: unknown;
-  baseRevision?: number;
-};
-
-export type AppStateCommandRejectionReason =
-  | "duplicate"
-  | "stale"
-  | "invalid"
-  | "unavailable"
-  | "persistence-failed";
-
-export type AppStateCommandResult =
-  | { status: "accepted"; revision: number }
-  | {
-      status: "rejected";
-      reason: AppStateCommandRejectionReason;
-      revision: number;
-      message?: string;
-    };
-
-export type AppStateAuthorityState = {
-  revision: number;
-  snapshot: AppStateSnapshot;
-};
-
-export type AppStateCommandReducer = (
-  snapshot: AppStateSnapshot,
-  payload: unknown,
-) => AppStateSnapshot | null;
+export type {
+  AppStateAuthorityState,
+  AppStateCommand,
+  AppStateCommandRejectionReason,
+  AppStateCommandReducer,
+  AppStateCommandResult,
+} from "../../src/shared/appStateAuthority";
 
 interface IpcMainLike {
   handle: (
@@ -153,6 +135,20 @@ export function createAppStateAuthority(options: {
         available = true;
       } else {
         available = false;
+      }
+    },
+
+    // Adopts a snapshot written outside the command path (the legacy
+    // full-snapshot `app-state:save` channel) so subscribers converge on what
+    // is actually persisted. Bumps the revision and broadcasts like an
+    // accepted command.
+    adoptExternalSnapshot(next: AppStateSnapshot) {
+      if (!available) return;
+      snapshot = next;
+      revision += 1;
+      const state = currentState();
+      for (const subscriberId of subscribers) {
+        options.publish(subscriberId, state);
       }
     },
 

@@ -320,11 +320,17 @@ if (!hasSingleInstanceLock) {
       setAppStateTransactionActive(active);
       appStateAuthority.setTransactionActive(active);
     };
-    registerAppStateIpc(guardedIpcMain, store, startupAppStateResult, async (result, source) => {
-      const applied = await appStateLifecycle.apply(result, source);
-      appStateAuthority.replaceState(applied);
-      return applied;
-    });
+    registerAppStateIpc(
+      guardedIpcMain,
+      store,
+      startupAppStateResult,
+      async (result, source) => {
+        const applied = await appStateLifecycle.apply(result, source);
+        appStateAuthority.replaceState(applied);
+        return applied;
+      },
+      (snapshot) => appStateAuthority.adoptExternalSnapshot(snapshot),
+    );
 
     registerDialogIpc(guardedIpcMain, () =>
       dialog.showOpenDialog({ properties: ["openDirectory"] }),

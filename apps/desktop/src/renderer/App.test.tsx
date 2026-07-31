@@ -19,6 +19,8 @@ import type {
   AppStateSnapshot,
   ProjectRelocationRequest,
 } from "../shared/workspacePersistence";
+import { normalizeAppStateSettings } from "../shared/workspacePersistence";
+import { createFakeAppStateAuthority } from "./test/fakeAppStateAuthority";
 import type {
   ChatRunEvent,
   ChatTurnRequest,
@@ -95,7 +97,34 @@ function installBridge(
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
   let saveAttempt = 0;
   const terminalTabsByProject = new Map<string, import("../shared/terminal").TerminalTab[]>();
-  const loadedAppState = appState ?? emptyAppState;
+  // Settings set through localStorage are pre-migrated into the snapshot so
+  // the renderer's one-time migration does not fire an extra command.
+  const legacySettingsRaw = localStorage.getItem("carrent:settings");
+  const legacySettings = legacySettingsRaw
+    ? normalizeAppStateSettings(JSON.parse(legacySettingsRaw))
+    : null;
+  const loadedAppState: AppStateSnapshot = {
+    ...(appState ?? emptyAppState),
+    ...(legacySettings ? { settings: legacySettings } : {}),
+  };
+  const authority = createFakeAppStateAuthority(loadedAppState, {
+    onPersist: (snapshot) => {
+      saved.push(snapshot);
+    },
+    commandHook: async () => {
+      // Commands persist through the authority; simulate the same persistence
+      // failures and slow writes the legacy save path supports.
+      if (saveFails === true) {
+        return {
+          status: "rejected",
+          reason: "persistence-failed",
+          revision: authority.getState().revision,
+        };
+      }
+      await appStateSaveGate;
+      return null;
+    },
+  });
   const saveAppState = async (snapshot: AppStateSnapshot) => {
     saveAttempt += 1;
     if (
@@ -106,19 +135,28 @@ function installBridge(
       throw new Error("disk full");
     }
     await appStateSaveGate;
-    saved.push(structuredClone(snapshot));
+    // The real Main process persists and then adopts the snapshot into the
+    // authority, which broadcasts it; onPersist records it in `saved`.
+    authority.adoptExternalSnapshot(snapshot);
   };
   window.carrent = {
     appState: {
       load: async () => ({ status: "ready", snapshot: loadedAppState }),
       reread: async () => ({ status: "ready", snapshot: loadedAppState }),
-      fullReset: async () => ({
-        status: "ready",
-        snapshot: emptyAppState,
-        notice: "full-reset",
-      }),
+      fullReset: async () => {
+        authority.adoptExternalSnapshot(emptyAppState);
+        return {
+          status: "ready",
+          snapshot: emptyAppState,
+          notice: "full-reset",
+        };
+      },
       stage: () => {},
       save: saveAppState,
+      subscribe: authority.subscribe,
+      unsubscribe: authority.unsubscribe,
+      command: authority.command,
+      onChanged: authority.onChanged,
     },
     dialog: {
       openDirectory: async () => {
@@ -294,7 +332,9 @@ function installBridge(
         deleteThreadDataRequests.push(structuredClone(request.threadData));
         if (deleteThreadDataFails) throw new Error("cleanup failed");
         await deleteThreadTransactionGate;
-        await saveAppState(request.afterAppState);
+        // The real transaction persists directly to the store and does not
+        // notify the authority; the renderer syncs it with a command after.
+        authority.persistExternally(request.afterAppState);
       },
     },
     mainWindow: {
@@ -339,17 +379,28 @@ async function renderRecoveryApp(
   const saved: AppStateSnapshot[] = [];
   installBridge(null, saved);
   let current = loadResults.shift()!;
+  // A dedicated authority so reread/full-reset results become subscribable,
+  // mirroring the Main-process replaceState on those channels.
+  const authority = createFakeAppStateAuthority(emptyAppState);
   window.carrent.appState = {
     load: async () => current,
     reread: async () => {
       current = loadResults.shift() ?? current;
+      if (current.status === "ready") authority.adoptExternalSnapshot(current.snapshot);
       return current;
     },
-    fullReset: async () => resetResult,
+    fullReset: async () => {
+      if (resetResult.status === "ready") authority.adoptExternalSnapshot(resetResult.snapshot);
+      return resetResult;
+    },
     stage: () => {},
     save: async (snapshot) => {
       saved.push(structuredClone(snapshot));
     },
+    subscribe: authority.subscribe,
+    unsubscribe: authority.unsubscribe,
+    command: authority.command,
+    onChanged: authority.onChanged,
   };
   window.carrent.clipboard.writeText = async (text) => {
     clipboardWrites.push(text);

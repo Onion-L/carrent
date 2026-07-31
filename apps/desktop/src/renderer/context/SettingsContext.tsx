@@ -4,109 +4,34 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
-  useState,
   type ReactNode,
 } from "react";
-import { runtimeIds, type RuntimeId } from "../../shared/runtimes";
-import { MAX_TERMINAL_PANEL_HEIGHT, MIN_TERMINAL_PANEL_HEIGHT } from "../../shared/terminal";
-import { getFontSizeCssVariables, normalizeFontSize } from "../lib/fontSize";
+import {
+  DEFAULT_APP_STATE_SETTINGS,
+  normalizeAppStateSettings,
+  type AppStateSettings,
+} from "../../shared/workspacePersistence";
+import { getFontSizeCssVariables } from "../lib/fontSize";
+import { useAppState } from "./AppStateContext";
 
-export type Theme = "dark" | "light" | "system";
+export type Theme = AppStateSettings["theme"];
 export type FontSize = number;
 
-export type Settings = {
-  autoDetectRuntimes: boolean;
-  theme: Theme;
-  fontSize: FontSize;
-  enhancedTerminalCompletion: boolean;
-  terminalPanelHeight: number;
-  runtimeEnabledById: Partial<Record<RuntimeId, boolean>>;
-  runtimeDefaultModelById: Partial<Record<RuntimeId, string>>;
-};
+export type Settings = AppStateSettings;
 
+// Legacy pre-snapshot location. Read once for the one-time migration and for
+// the index.html boot script; new writes go to the App State snapshot.
 const STORAGE_KEY = "carrent:settings";
-const THEMES: Theme[] = ["dark", "light", "system"];
 const THEME_TRANSITION_CLASS = "theme-transitioning";
 const THEME_TRANSITION_MS = 260;
 
-const defaultSettings: Settings = {
-  autoDetectRuntimes: true,
-  theme: "dark",
-  fontSize: 14,
-  enhancedTerminalCompletion: true,
-  terminalPanelHeight: 320,
-  runtimeEnabledById: {},
-  runtimeDefaultModelById: {},
-};
-
-function normalizeRuntimeEnabledById(value: unknown): Partial<Record<RuntimeId, boolean>> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return {};
-  }
-
-  const normalized: Partial<Record<RuntimeId, boolean>> = {};
-  for (const runtimeId of runtimeIds) {
-    const enabled = (value as Partial<Record<RuntimeId, unknown>>)[runtimeId];
-    if (typeof enabled === "boolean") {
-      normalized[runtimeId] = enabled;
-    }
-  }
-
-  return normalized;
-}
-
-function normalizeRuntimeDefaultModelById(value: unknown): Partial<Record<RuntimeId, string>> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return {};
-  }
-
-  const normalized: Partial<Record<RuntimeId, string>> = {};
-  for (const runtimeId of runtimeIds) {
-    const modelId = (value as Partial<Record<RuntimeId, unknown>>)[runtimeId];
-    if (typeof modelId === "string") {
-      const trimmedModelId = modelId.trim();
-      if (trimmedModelId.length > 0) {
-        normalized[runtimeId] = trimmedModelId;
-      }
-    }
-  }
-
-  return normalized;
-}
-
-function loadSettings(): Settings {
+function loadLegacySettings(): AppStateSettings | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultSettings;
-    const parsed = JSON.parse(raw);
-    const theme = THEMES.includes(parsed.theme) ? parsed.theme : defaultSettings.theme;
-    const fontSize = normalizeFontSize(parsed.fontSize, defaultSettings.fontSize);
-    return {
-      autoDetectRuntimes: parsed.autoDetectRuntimes ?? defaultSettings.autoDetectRuntimes,
-      theme,
-      fontSize,
-      enhancedTerminalCompletion:
-        parsed.enhancedTerminalCompletion ?? defaultSettings.enhancedTerminalCompletion,
-      terminalPanelHeight:
-        typeof parsed.terminalPanelHeight === "number"
-          ? Math.max(
-              MIN_TERMINAL_PANEL_HEIGHT,
-              Math.min(MAX_TERMINAL_PANEL_HEIGHT, parsed.terminalPanelHeight),
-            )
-          : defaultSettings.terminalPanelHeight,
-      runtimeEnabledById: normalizeRuntimeEnabledById(parsed.runtimeEnabledById),
-      runtimeDefaultModelById: normalizeRuntimeDefaultModelById(parsed.runtimeDefaultModelById),
-    };
+    if (!raw) return null;
+    return normalizeAppStateSettings(JSON.parse(raw));
   } catch {
-    return defaultSettings;
-  }
-}
-
-function saveSettings(settings: Settings) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-  } catch {
-    // ignore
+    return null;
   }
 }
 
@@ -115,7 +40,7 @@ type SettingsContextValue = Settings & {
 };
 
 const SettingsContext = createContext<SettingsContextValue>({
-  ...defaultSettings,
+  ...DEFAULT_APP_STATE_SETTINGS,
   updateSetting: () => {},
 });
 
@@ -157,12 +82,40 @@ function applyResolvedTheme(theme: "dark" | "light", animate: boolean) {
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<Settings>(loadSettings);
+  const {
+    hasHydrated,
+    settings: persistedSettings,
+    hasPersistedSettings,
+    updateSettings,
+  } = useAppState();
   const hasAppliedThemeRef = useRef(false);
+  // Until the one-time migration lands, keep showing the legacy localStorage
+  // values so the UI never flips to defaults in between.
+  const legacySettingsRef = useRef<AppStateSettings | null | undefined>(undefined);
+  if (legacySettingsRef.current === undefined) {
+    legacySettingsRef.current = loadLegacySettings();
+  }
+  const settings =
+    !hasPersistedSettings && legacySettingsRef.current
+      ? legacySettingsRef.current
+      : persistedSettings;
 
+  /* One-time migration of localStorage settings into the App State snapshot. */
   useEffect(() => {
-    saveSettings(settings);
-  }, [settings]);
+    if (!hasHydrated) return;
+    const legacy = legacySettingsRef.current;
+    if (!legacy) return;
+    if (!hasPersistedSettings) {
+      legacySettingsRef.current = null;
+      void updateSettings(legacy).finally(() => {
+        localStorage.removeItem(STORAGE_KEY);
+      });
+      return;
+    }
+    // The snapshot already carries settings; the legacy key is stale.
+    legacySettingsRef.current = null;
+    localStorage.removeItem(STORAGE_KEY);
+  }, [hasHydrated, hasPersistedSettings, updateSettings]);
 
   /* Apply theme to <html> */
   useEffect(() => {
@@ -188,7 +141,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, [settings.fontSize]);
 
   const updateSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => {
-    setSettings((prev) => ({ ...prev, [key]: value }));
+    void updateSettings({ ...settings, [key]: value });
   };
 
   return (

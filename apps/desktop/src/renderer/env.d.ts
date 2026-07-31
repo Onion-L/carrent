@@ -34,6 +34,11 @@ import type { RtkGainStats } from "../shared/rtk";
 import type { MainWindowApi } from "../shared/mainWindow";
 import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
 import type { TerminalApi } from "../shared/terminal";
+import type {
+  AppStateAuthorityState,
+  AppStateCommand,
+  AppStateCommandResult,
+} from "../shared/appStateAuthority";
 
 declare global {
   interface Window {
@@ -104,6 +109,10 @@ declare global {
         fullReset: () => Promise<import("../shared/workspacePersistence").AppStateLoadResult>;
         stage: (snapshot: AppStateSnapshot) => void;
         save: (snapshot: AppStateSnapshot) => Promise<void>;
+        subscribe: () => Promise<AppStateAuthorityState>;
+        unsubscribe: () => Promise<void>;
+        command: (command: AppStateCommand) => Promise<AppStateCommandResult>;
+        onChanged: (listener: (state: AppStateAuthorityState) => void) => VoidFunction;
       };
       providerSessions: {
         load: () => Promise<ProviderSessionSnapshot>;

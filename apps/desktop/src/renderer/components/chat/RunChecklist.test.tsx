@@ -10,6 +10,7 @@ import { $createParagraphNode, $createTextNode, $getRoot, type LexicalEditor } f
 import type { ThreadRunChecklist } from "../../../shared/runChecklist";
 import type { ChatRunEvent } from "../../../shared/chat";
 import type { AppStateSnapshot } from "../../../shared/workspacePersistence";
+import { createFakeAppStateAuthority } from "../../test/fakeAppStateAuthority";
 import { AppStateProvider } from "../../context/AppStateContext";
 import { RuntimeModelsProvider } from "../../context/RuntimeModelsContext";
 import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
@@ -78,14 +79,20 @@ function ComposerHarness({ threadId }: { threadId: string }) {
 }
 
 async function renderComposer(threadId: string, snapshot: AppStateSnapshot) {
+  const authority = createFakeAppStateAuthority(snapshot);
   window.carrent = {
     appState: {
       load: async () => ({ status: "ready", snapshot }),
       reread: async () => ({ status: "ready", snapshot }),
       stage: () => {},
-      save: async () => {},
+      save: async (next: AppStateSnapshot) => {
+        authority.adoptExternalSnapshot(next);
+      },
       fullReset: async () => ({ status: "ready", snapshot }),
-      copyDiagnostics: async () => {},
+      subscribe: authority.subscribe,
+      unsubscribe: authority.unsubscribe,
+      command: authority.command,
+      onChanged: authority.onChanged,
     },
     projectDirectories: { check: async () => ({ available: true }) },
     runtimes: {

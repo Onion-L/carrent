@@ -35,9 +35,10 @@ function command(partial: Partial<AppStateCommand> = {}): AppStateCommand {
 }
 
 const addWorkspaceReducer = (snapshot: AppStateSnapshot, payload: unknown) => {
-  const name = typeof payload === "object" && payload !== null
-    ? (payload as { name?: unknown }).name
-    : undefined;
+  const name =
+    typeof payload === "object" && payload !== null
+      ? (payload as { name?: unknown }).name
+      : undefined;
   if (typeof name !== "string" || name.length === 0) return null;
   return {
     ...snapshot,
@@ -52,10 +53,12 @@ const addWorkspaceReducer = (snapshot: AppStateSnapshot, payload: unknown) => {
   };
 };
 
-function createHarness(options: {
-  initialResult?: AppStateLoadResult;
-  saveAppStateSnapshot?: (snapshot: AppStateSnapshot) => Promise<void>;
-} = {}) {
+function createHarness(
+  options: {
+    initialResult?: AppStateLoadResult;
+    saveAppStateSnapshot?: (snapshot: AppStateSnapshot) => Promise<void>;
+  } = {},
+) {
   const published: Array<{ subscriberId: number; state: AppStateAuthorityState }> = [];
   const saved: AppStateSnapshot[] = [];
   const authority = createAppStateAuthority({
@@ -211,10 +214,7 @@ describe("createAppStateAuthority", () => {
 
     const results = await Promise.all(
       Array.from({ length: 10 }, (_, index) =>
-        authority.submit(
-          1,
-          command({ commandId: `cmd-${index}`, payload: { name: `W${index}` } }),
-        ),
+        authority.submit(1, command({ commandId: `cmd-${index}`, payload: { name: `W${index}` } })),
       ),
     );
 
@@ -271,6 +271,35 @@ describe("createAppStateAuthority", () => {
     await authority.submit(1, command());
 
     expect(published.map((entry) => entry.subscriberId)).toEqual([1]);
+  });
+
+  it("adopts an externally saved snapshot, bumps the revision, and broadcasts", () => {
+    const { authority, published } = createHarness();
+    authority.subscribe(1);
+    authority.subscribe(2);
+
+    const external = {
+      ...createEmptyAppStateSnapshot(),
+      workspaces: [{ id: "workspace-1", name: "External", order: 0 }],
+      activeWorkspaceId: "workspace-1",
+    };
+    authority.adoptExternalSnapshot(external);
+
+    expect(authority.getState()).toEqual({ revision: 1, snapshot: external });
+    expect(published).toEqual([
+      { subscriberId: 1, state: { revision: 1, snapshot: external } },
+      { subscriberId: 2, state: { revision: 1, snapshot: external } },
+    ]);
+  });
+
+  it("ignores external snapshots while recovery is required", () => {
+    const { authority, published } = createHarness({ initialResult: recoveryResult() });
+    authority.subscribe(1);
+
+    authority.adoptExternalSnapshot(createEmptyAppStateSnapshot());
+
+    expect(authority.getState().revision).toBe(0);
+    expect(published).toHaveLength(0);
   });
 
   it("bounds the remembered command identities", async () => {

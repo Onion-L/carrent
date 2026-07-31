@@ -18,6 +18,11 @@ import type {
   ProjectRelocationResult,
   ProjectRelocationRequest,
 } from "../src/shared/workspacePersistence";
+import type {
+  AppStateAuthorityState,
+  AppStateCommand,
+  AppStateCommandResult,
+} from "../src/shared/appStateAuthority";
 import type { RuntimeId } from "../src/shared/runtimes";
 import type {
   GitBranchInfo,
@@ -161,6 +166,15 @@ const carrent = {
     fullReset: () => ipcRenderer.invoke("app-state:full-reset") as Promise<AppStateLoadResult>,
     stage: (snapshot: AppStateSnapshot) => ipcRenderer.send("app-state:stage", snapshot),
     save: (snapshot: AppStateSnapshot) => ipcRenderer.invoke("app-state:save", snapshot),
+    subscribe: () => ipcRenderer.invoke("app-state:subscribe") as Promise<AppStateAuthorityState>,
+    unsubscribe: () => ipcRenderer.invoke("app-state:unsubscribe") as Promise<void>,
+    command: (command: AppStateCommand) =>
+      ipcRenderer.invoke("app-state:command", command) as Promise<AppStateCommandResult>,
+    onChanged: (listener: (state: AppStateAuthorityState) => void) => {
+      const wrapped = (_event: IpcRendererEvent, state: AppStateAuthorityState) => listener(state);
+      ipcRenderer.on("app-state:changed", wrapped);
+      return () => ipcRenderer.removeListener("app-state:changed", wrapped);
+    },
   },
   providerSessions: {
     load: () => ipcRenderer.invoke("provider-sessions:load") as Promise<ProviderSessionSnapshot>,

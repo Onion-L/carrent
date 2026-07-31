@@ -9,7 +9,7 @@ import {
   type WorkspaceProjectAssociationRecord,
   type WorkspaceRecord,
 } from "../../src/shared/workspacePersistence";
-import type { AppStateCommandReducer } from "./appStateAuthority";
+import type { AppStateCommandReducer } from "../../src/shared/appStateAuthority";
 
 // Command vocabulary for the shared App State data (workspaces, projects,
 // associations, thread metadata, selection, settings). Each reducer mirrors

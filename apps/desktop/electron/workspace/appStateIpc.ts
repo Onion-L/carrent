@@ -42,6 +42,7 @@ export function registerAppStateIpc(
     result: AppStateLoadResult,
     source: AppStateIpcResultSource,
   ) => Promise<AppStateLoadResult> | AppStateLoadResult,
+  onAppStateSaved?: (snapshot: AppStateSnapshot) => void,
 ) {
   let appStateResult = initialAppStateResult;
   const consumeAppStateResult = () => {
@@ -81,6 +82,7 @@ export function registerAppStateIpc(
       if (stagedAppState?.revision === stagedRevisionBeforeSave) {
         clearStagedAppStateSnapshot();
       }
+      onAppStateSaved?.(normalized);
     });
   });
   ipcMainLike.handle("provider-sessions:load", () => store.loadProviderSessions());

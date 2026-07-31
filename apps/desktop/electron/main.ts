@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, clipboard } from "electron";
+import { app, BrowserWindow, ipcMain, shell, dialog, clipboard, webContents } from "electron";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,10 @@ import {
   type PersistentProviderSessionStore,
 } from "./chat/providerSessionStore";
 import { createAppStateStore } from "./workspace/appStateStore";
+import {
+  createAppStateAuthority,
+  registerAppStateAuthorityIpc,
+} from "./workspace/appStateAuthority";
 import {
   clearStagedAppStateSnapshot,
   getStagedAppStateSnapshot,
@@ -299,9 +303,26 @@ if (!hasSingleInstanceLock) {
       updateIpcGate: (result) => appStateIpcGate.update(result),
     });
     const startupAppStateResult = await appStateLifecycle.apply(appStateInitialization, "startup");
-    registerAppStateIpc(guardedIpcMain, store, startupAppStateResult, (result, source) =>
-      appStateLifecycle.apply(result, source),
-    );
+    const appStateAuthority = createAppStateAuthority({
+      store,
+      initialResult: startupAppStateResult,
+      publish: (subscriberId, state) => {
+        const contents = webContents.fromId(subscriberId);
+        if (contents && !contents.isDestroyed()) {
+          contents.send("app-state:changed", state);
+        }
+      },
+    });
+    registerAppStateAuthorityIpc(guardedIpcMain, appStateAuthority);
+    const setAppStateTransactionActiveEverywhere = (active: boolean) => {
+      setAppStateTransactionActive(active);
+      appStateAuthority.setTransactionActive(active);
+    };
+    registerAppStateIpc(guardedIpcMain, store, startupAppStateResult, async (result, source) => {
+      const applied = await appStateLifecycle.apply(result, source);
+      appStateAuthority.replaceState(applied);
+      return applied;
+    });
 
     registerDialogIpc(guardedIpcMain, () =>
       dialog.showOpenDialog({ properties: ["openDirectory"] }),
@@ -374,7 +395,7 @@ if (!hasSingleInstanceLock) {
         restoreRuntimeSessions: sessionManager.restoreRuntimeSessions,
         completeRuntimeSessionDetachment: sessionManager.completeRuntimeSessionDetachment,
       },
-      onActiveChange: setAppStateTransactionActive,
+      onActiveChange: setAppStateTransactionActiveEverywhere,
     });
     registerProjectDirectoryIpc(guardedIpcMain, { relocationManager: projectRelocationManager });
     chatSessionManager = sessionManager;
@@ -386,7 +407,7 @@ if (!hasSingleInstanceLock) {
         deleteThreadData: sessionManager.deleteThreadData,
         rollbackThreadDataDeletion: sessionManager.rollbackThreadDataDeletion,
       },
-      onActiveChange: setAppStateTransactionActive,
+      onActiveChange: setAppStateTransactionActiveEverywhere,
     });
     waitForThreadDeletion = threadDeletionManager.waitForIdle;
     registerChatIpc(guardedIpcMain, {

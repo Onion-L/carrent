@@ -10,8 +10,11 @@ import {
   ExternalLink,
   Minus,
   Plus,
+  Search,
+  Trash2,
+  Archive,
 } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useThreadContent } from "../context/ThreadContentContext";
 import { useAppState } from "../context/AppStateContext";
 import { useSettings } from "../context/SettingsContext";
@@ -23,7 +26,8 @@ import { RuntimeIcon } from "../components/RuntimeIcon";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useRuntimeModels } from "../hooks/useRuntimeModels";
 import { useRuntimes } from "../hooks/useRuntimes";
-import { buildThreadPath } from "../lib/navigation";
+import { formatAbsoluteTime } from "../lib/formatRelativeTime";
+import { useToast } from "../components/toast/ToastContext";
 import type { AppThreadRecord } from "../../shared/workspacePersistence";
 
 /* -------------------------------------------------------------------------- */
@@ -872,6 +876,75 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 /*  Settings Page                                                             */
 /* -------------------------------------------------------------------------- */
 
+function FilterSelect({
+  value,
+  onChange,
+  options,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+  ariaLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    function handleClick(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener("mousedown", handleClick);
+      return () => document.removeEventListener("mousedown", handleClick);
+    }
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        onClick={() => setOpen((current) => !current)}
+        className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-app-12 text-muted transition-colors hover:border-border-strong hover:text-fg"
+      >
+        <span className="max-w-28 truncate">{selected?.label ?? value}</span>
+        <ChevronDown
+          className={`h-3 w-3 shrink-0 text-subtle transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-10 mt-1 max-h-64 w-44 overflow-auto rounded-md border border-border bg-surface shadow-lg shadow-black/10">
+          {options.map((option) => {
+            const isActive = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+                className={`flex w-full px-3 py-2 text-left text-app-12 transition-colors ${
+                  isActive
+                    ? "bg-surface-hover text-fg"
+                    : "text-muted hover:bg-surface-raised hover:text-fg"
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ArchivedThreadsPanel({
   threads,
   workspaces,
@@ -889,168 +962,243 @@ function ArchivedThreadsPanel({
   permanentlyDeleteThread: ReturnType<typeof useAppState>["permanentlyDeleteThread"];
   deleteThreadContent: ReturnType<typeof useThreadContent>["deleteThread"];
 }) {
-  const navigate = useNavigate();
+  const { showToast } = useToast();
   const archivedThreads = [...threads]
     .filter((thread) => thread.archived)
     .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt));
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
-  const [restoredThread, setRestoredThread] = useState<AppThreadRecord | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<"restore" | "delete" | null>(null);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [query, setQuery] = useState("");
+  const [workspaceFilter, setWorkspaceFilter] = useState("all");
+  const [projectFilter, setProjectFilter] = useState("all");
+  const [pendingThreadId, setPendingThreadId] = useState<string | null>(null);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+  const [confirmingThread, setConfirmingThread] = useState<AppThreadRecord | null>(null);
+  const [confirmingDeleteAll, setConfirmingDeleteAll] = useState(false);
 
-  useEffect(() => {
-    if (!archivedThreads.some((thread) => thread.id === selectedThreadId)) {
-      setSelectedThreadId(archivedThreads[0]?.id ?? null);
-    }
-  }, [archivedThreads, selectedThreadId]);
-
-  const selectedThread = archivedThreads.find((thread) => thread.id === selectedThreadId) ?? null;
-  const getPath = (thread: AppThreadRecord) => {
-    const workspace = workspaces.find((item) => item.id === thread.workspaceId);
+  const getWorkspaceName = (thread: AppThreadRecord) =>
+    workspaces.find((item) => item.id === thread.workspaceId)?.name ?? "Unknown Workspace";
+  const getProjectName = (thread: AppThreadRecord) => {
     const project = projects.find((item) => item.id === thread.projectId);
     const association = associations.find(
       (item) => item.workspaceId === thread.workspaceId && item.projectId === thread.projectId,
     );
-    return `${workspace?.name ?? "Unknown Workspace"} / ${association?.alias ?? project?.name ?? "Unknown Project"} / ${thread.title}`;
+    return association?.alias ?? project?.name ?? "Unknown Project";
   };
+  const getPath = (thread: AppThreadRecord) =>
+    `${getWorkspaceName(thread)} / ${getProjectName(thread)} / ${thread.title}`;
 
-  const handleRestore = async () => {
-    if (!selectedThread || pendingAction) return;
-    setError(null);
-    setPendingAction("restore");
-    try {
-      if (!(await restoreThread(selectedThread.id))) {
-        setError("Thread could not be restored.");
-        return;
-      }
-      setRestoredThread(selectedThread);
-    } finally {
-      setPendingAction(null);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredThreads = archivedThreads.filter(
+    (thread) =>
+      (workspaceFilter === "all" || thread.workspaceId === workspaceFilter) &&
+      (projectFilter === "all" || thread.projectId === projectFilter) &&
+      (!normalizedQuery || getPath(thread).toLowerCase().includes(normalizedQuery)),
+  );
+
+  const orderedWorkspaces = [...workspaces].sort((left, right) => left.order - right.order);
+  const groups = orderedWorkspaces
+    .map((workspace) => ({
+      workspace,
+      threads: filteredThreads.filter((thread) => thread.workspaceId === workspace.id),
+    }))
+    .filter((group) => group.threads.length > 0);
+
+  const workspaceOptions = [
+    { value: "all", label: "All Workspaces" },
+    ...orderedWorkspaces.map((workspace) => ({ value: workspace.id, label: workspace.name })),
+  ];
+  const archivedProjectIds = new Set(archivedThreads.map((thread) => thread.projectId));
+  const projectOptions = [
+    { value: "all", label: "All Projects" },
+    ...projects
+      .filter((project) => archivedProjectIds.has(project.id))
+      .map((project) => {
+        const association = associations.find((item) => item.projectId === project.id);
+        return { value: project.id, label: association?.alias ?? project.name };
+      }),
+  ];
+
+  const handleRestore = async (thread: AppThreadRecord) => {
+    if (pendingThreadId || isDeletingAll) return;
+    setPendingThreadId(thread.id);
+    const restored = await restoreThread(thread.id);
+    setPendingThreadId(null);
+    if (restored) {
+      showToast(`"${thread.title}" was restored.`, "success");
+    } else {
+      showToast("Thread could not be restored.", "error");
     }
   };
 
-  const handlePermanentDelete = async () => {
-    if (!selectedThread || pendingAction) return;
-    setConfirmingDelete(false);
-    setError(null);
-    setPendingAction("delete");
-    const selectedIndex = archivedThreads.findIndex((thread) => thread.id === selectedThread.id);
-    const nextSelectedThreadId =
-      archivedThreads[selectedIndex + 1]?.id ?? archivedThreads[selectedIndex - 1]?.id ?? null;
+  const handlePermanentDelete = async (thread: AppThreadRecord) => {
+    setConfirmingThread(null);
+    if (pendingThreadId || isDeletingAll) return;
+    setPendingThreadId(thread.id);
     let deleted = false;
     try {
-      deleted = await permanentlyDeleteThread(selectedThread.id, async (appStateSnapshots) => {
-        await deleteThreadContent(selectedThread.id, appStateSnapshots);
+      deleted = await permanentlyDeleteThread(thread.id, async (appStateSnapshots) => {
+        await deleteThreadContent(thread.id, appStateSnapshots);
       });
     } catch (deleteError) {
       console.error("[threads] permanent deletion rollback failed", deleteError);
     }
-    if (!deleted) {
-      setError("Thread could not be permanently deleted.");
-      setPendingAction(null);
-      return;
+    setPendingThreadId(null);
+    if (deleted) {
+      showToast(`"${thread.title}" permanently deleted.`, "success");
+    } else {
+      showToast("Thread could not be permanently deleted.", "error");
     }
-    setSelectedThreadId(nextSelectedThreadId);
-    setPendingAction(null);
+  };
+
+  const handleDeleteAll = async () => {
+    setConfirmingDeleteAll(false);
+    if (isDeletingAll || archivedThreads.length === 0) return;
+    setIsDeletingAll(true);
+    const total = archivedThreads.length;
+    let failed = 0;
+    for (const thread of archivedThreads) {
+      try {
+        const deleted = await permanentlyDeleteThread(thread.id, async (appStateSnapshots) => {
+          await deleteThreadContent(thread.id, appStateSnapshots);
+        });
+        if (!deleted) failed += 1;
+      } catch (deleteError) {
+        console.error("[threads] permanent deletion rollback failed", deleteError);
+        failed += 1;
+      }
+    }
+    setIsDeletingAll(false);
+    if (failed === 0) {
+      showToast(`Deleted ${total} archived ${total === 1 ? "Thread" : "Threads"}.`, "success");
+    } else {
+      showToast(`${failed} ${failed === 1 ? "Thread" : "Threads"} could not be deleted.`, "error");
+    }
   };
 
   return (
-    <Section title="Archived Threads">
-      {restoredThread ? (
-        <div className="mb-4 flex items-center justify-between gap-4 border-b border-border pb-4">
-          <p className="min-w-0 text-app-12 text-muted">
-            <span className="font-medium text-fg">{restoredThread.title}</span> was restored.
-          </p>
-          <button
-            type="button"
-            aria-label="Open Restored Thread"
-            onClick={() =>
-              navigate(
-                buildThreadPath(
-                  restoredThread.workspaceId,
-                  restoredThread.projectId,
-                  restoredThread.id,
-                ),
-              )
-            }
-            className="min-h-8 shrink-0 rounded-md border border-border-strong px-3 text-app-12 font-medium text-fg hover:bg-surface-hover"
-          >
-            Open
-          </button>
-        </div>
-      ) : null}
-
+    <>
       {archivedThreads.length === 0 ? (
-        <p className="py-4 text-app-12 text-subtle">No Archived Threads</p>
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <Archive className="h-6 w-6 text-subtle" />
+          <p className="mt-3 text-app-13 font-medium text-muted">No archived threads</p>
+          <p className="mt-1 text-app-12 text-subtle">Threads you archive will show up here.</p>
+        </div>
       ) : (
-        <div className="grid min-h-52 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] border border-border">
-          <div className="border-r border-border">
-            {archivedThreads.map((thread) => (
-              <button
-                key={thread.id}
-                type="button"
-                aria-current={thread.id === selectedThreadId ? "true" : undefined}
-                onClick={() => {
-                  setSelectedThreadId(thread.id);
-                  setError(null);
-                }}
-                className={`block w-full border-b border-border px-3 py-3 text-left text-app-12 last:border-b-0 ${
-                  thread.id === selectedThreadId
-                    ? "bg-surface-hover text-fg"
-                    : "text-muted hover:bg-surface-raised hover:text-fg"
-                }`}
-              >
-                <span className="block truncate font-medium">{thread.title}</span>
-                <span className="mt-1 block truncate text-app-11 text-subtle">
-                  {getPath(thread)}
-                </span>
-              </button>
-            ))}
+        <>
+          <div className="mb-3 flex items-center justify-between gap-4">
+            <p className="text-app-12 text-subtle">
+              {archivedThreads.length} {archivedThreads.length === 1 ? "Thread" : "Threads"}
+            </p>
+            <button
+              type="button"
+              disabled={isDeletingAll}
+              onClick={() => setConfirmingDeleteAll(true)}
+              className="flex items-center gap-1.5 text-app-12 font-medium text-danger hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete All
+            </button>
           </div>
 
-          <div className="flex min-w-0 flex-col justify-between p-4">
-            {selectedThread ? (
-              <>
-                <div>
-                  <p className="text-app-13 font-medium text-fg">{selectedThread.title}</p>
-                  <p className="mt-1 text-app-11 text-subtle">{getPath(selectedThread)}</p>
-                  {error ? <p className="mt-3 text-app-12 text-danger">{error}</p> : null}
-                </div>
-                <div className="mt-6 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={pendingAction !== null}
-                    onClick={() => void handleRestore()}
-                    className="min-h-8 rounded-md bg-fg px-3 text-app-12 font-medium text-bg hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Restore
-                  </button>
-                  <button
-                    type="button"
-                    disabled={pendingAction !== null}
-                    onClick={() => setConfirmingDelete(true)}
-                    className="min-h-8 rounded-md border border-danger/50 px-3 text-app-12 font-medium text-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Permanently Delete
-                  </button>
-                </div>
-              </>
-            ) : null}
+          <div className="mb-4 flex items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-subtle" />
+              <input
+                type="text"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search archived threads"
+                aria-label="Search archived threads"
+                className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-3 text-app-13 text-fg placeholder:text-subtle focus:border-border-strong focus:outline-none"
+              />
+            </div>
+            <FilterSelect
+              ariaLabel="Filter by Workspace"
+              value={workspaceFilter}
+              onChange={setWorkspaceFilter}
+              options={workspaceOptions}
+            />
+            <FilterSelect
+              ariaLabel="Filter by Project"
+              value={projectFilter}
+              onChange={setProjectFilter}
+              options={projectOptions}
+            />
           </div>
-        </div>
+
+          {groups.length === 0 ? (
+            <p className="py-10 text-center text-app-12 text-subtle">
+              No threads match your search.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {groups.map(({ workspace, threads: groupThreads }) => (
+                <div key={workspace.id} className="overflow-hidden rounded-lg border border-border">
+                  <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+                    <span className="truncate text-app-12 font-medium text-fg">
+                      {workspace.name}
+                    </span>
+                    <span className="shrink-0 text-app-11 text-subtle">
+                      {groupThreads.length} {groupThreads.length === 1 ? "Thread" : "Threads"}
+                    </span>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {groupThreads.map((thread) => (
+                      <div key={thread.id} className="flex items-center gap-3 px-3 py-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-app-13 font-medium text-fg">{thread.title}</p>
+                          <p className="mt-0.5 truncate text-app-11 text-subtle">
+                            {getProjectName(thread)} ·{" "}
+                            {formatAbsoluteTime(Date.parse(thread.lastActivityAt))}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          aria-label={`Permanently delete ${thread.title}`}
+                          title="Permanently Delete"
+                          disabled={pendingThreadId !== null || isDeletingAll}
+                          onClick={() => setConfirmingThread(thread)}
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={pendingThreadId !== null || isDeletingAll}
+                          onClick={() => void handleRestore(thread)}
+                          className="min-h-7 shrink-0 rounded-md border border-border-strong px-2.5 text-app-12 font-medium text-muted transition hover:bg-surface-hover hover:text-fg active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Restore
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
-      {confirmingDelete && selectedThread ? (
+      {confirmingThread ? (
         <ConfirmDialog
           title="Permanently Delete Thread?"
-          message={`Permanently delete "${selectedThread.title}" and all Carrent-owned history? Project files and Git state will not be changed.`}
+          message={`Permanently delete "${confirmingThread.title}" and all Carrent-owned history?`}
           confirmLabel="Delete"
-          onCancel={() => setConfirmingDelete(false)}
-          onConfirm={() => void handlePermanentDelete()}
+          onCancel={() => setConfirmingThread(null)}
+          onConfirm={() => void handlePermanentDelete(confirmingThread)}
         />
       ) : null}
-    </Section>
+
+      {confirmingDeleteAll ? (
+        <ConfirmDialog
+          title="Delete All Archived Threads?"
+          message={`Permanently delete ${archivedThreads.length} archived ${archivedThreads.length === 1 ? "Thread" : "Threads"} and all Carrent-owned history?`}
+          confirmLabel="Delete All"
+          onCancel={() => setConfirmingDeleteAll(false)}
+          onConfirm={() => void handleDeleteAll()}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -1075,7 +1223,11 @@ export function SettingsPage() {
       />
 
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto w-full max-w-2xl px-8 py-8">
+        <div
+          className={`mx-auto w-full px-8 py-8 ${
+            activeTabId === "archives" ? "max-w-4xl" : "max-w-2xl"
+          }`}
+        >
           <div className="mb-8 flex items-center gap-2">
             <Settings className="h-5 w-5 text-subtle" />
             <h1 className="text-app-18 font-medium text-fg">{activeTab.label}</h1>

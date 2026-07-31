@@ -77,6 +77,7 @@ export function WorkspaceOverviewPage() {
       );
       return;
     }
+    showToast(`Workspace "${workspace.name}" deleted.`, "success");
     navigate(nextWorkspace ? `/workspace/${nextWorkspace.id}` : "/");
   };
 
@@ -161,7 +162,7 @@ export function WorkspaceOverviewPage() {
       {confirmingDelete && (
         <ConfirmDialog
           title="Delete Workspace?"
-          message={`Delete "${workspace.name}" and permanently delete ${threadCount} ${threadCount === 1 ? "Thread" : "Threads"}? Project Working Directories, project files and Git state, and other Workspaces will not be changed.`}
+          message={`Delete "${workspace.name}" and permanently delete ${threadCount} ${threadCount === 1 ? "Thread" : "Threads"}?`}
           confirmLabel="Delete"
           onCancel={() => setConfirmingDelete(false)}
           onConfirm={() => void handleDeleteWorkspace()}

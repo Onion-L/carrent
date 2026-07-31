@@ -647,7 +647,7 @@ export function WorkspaceNavigationPane() {
       {pendingProjectRemoval ? (
         <ConfirmDialog
           title="Delete Project?"
-          message={`Remove "${pendingProjectRemoval.displayName}" from "${workspace?.name ?? "Workspace"}"? This permanently deletes ${pendingRemovalThreadCount} ${pendingRemovalThreadCount === 1 ? "Thread" : "Threads"}. Project files, Git state, and other Workspaces stay unchanged.`}
+          message={`Remove "${pendingProjectRemoval.displayName}" from "${workspace?.name ?? "Workspace"}"? This permanently deletes ${pendingRemovalThreadCount} ${pendingRemovalThreadCount === 1 ? "Thread" : "Threads"}.`}
           confirmLabel="Delete Project"
           onCancel={() => setPendingProjectRemoval(null)}
           onConfirm={() => void confirmProjectRemoval()}

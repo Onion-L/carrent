@@ -514,7 +514,7 @@ export function IntegratedTerminal({
           className="absolute inset-x-0 top-0 z-20 h-1 cursor-row-resize hover:bg-border-strong"
         />
       ) : null}
-      <div className="flex h-9 items-center border-b border-border px-2">
+      <div className="flex h-9 items-center px-2">
         <div
           role="tablist"
           aria-label="Terminal Tabs"
@@ -525,14 +525,14 @@ export function IntegratedTerminal({
               key={tab.id}
               role="tab"
               aria-selected={tab.active}
-              className={`group flex h-7 max-w-48 items-center gap-1 rounded-md px-2 text-app-12 ${
+              className={`group flex h-8 w-56 shrink-0 items-center gap-1 rounded-md px-2 text-app-13 ${
                 tab.active ? "bg-surface-raised text-fg" : "text-muted hover:bg-surface"
               }`}
             >
               <SquareTerminal aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-subtle" />
               <button
                 type="button"
-                className="min-w-0 flex-1 truncate text-left"
+                className="flex h-full min-w-0 flex-1 items-center truncate text-left font-medium leading-none"
                 onClick={() => void activateTab(tab)}
               >
                 {tab.title}

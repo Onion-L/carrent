@@ -4,14 +4,10 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAppState } from "../../context/AppStateContext";
 import { useChatRun } from "../../hooks/useChatRun";
-import {
-  getWorkspaceDeleteBlockedReason,
-  useDeleteWorkspace,
-} from "../../hooks/useDeleteWorkspace";
-import { ConfirmDialog } from "../ConfirmDialog";
+import { getWorkspaceDeleteBlockedReason } from "../../hooks/useDeleteWorkspace";
+import { useWorkspaceActionDialogs } from "../../hooks/useWorkspaceActionDialogs";
 import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
 import { WorkspaceContextMenu } from "./WorkspaceContextMenu";
-import { WorkspaceNameDialog } from "./WorkspaceNameDialog";
 import { buildWorkspacePath, getWorkspaceRestorePath } from "../../lib/navigation";
 
 export function WorkspaceRail() {
@@ -23,15 +19,16 @@ export function WorkspaceRail() {
     lastThreadIdByWorkspace,
     activeWorkspaceId,
     createWorkspace,
-    renameWorkspace,
     selectWorkspace,
   } = useAppState();
   const { runningThreadIds } = useChatRun();
-  const deleteWorkspaceWithNavigation = useDeleteWorkspace();
+  const {
+    requestRename,
+    requestDelete,
+    dialogs: actionDialogs,
+  } = useWorkspaceActionDialogs();
   const [isCreating, setIsCreating] = useState(false);
   const [menu, setMenu] = useState<{ workspaceId: string; x: number; y: number } | null>(null);
-  const [renamingWorkspaceId, setRenamingWorkspaceId] = useState<string | null>(null);
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const isSettingsRoute = location.pathname === "/settings";
   const settingsReturnLocation =
     location.pathname === "/settings" &&
@@ -48,24 +45,9 @@ export function WorkspaceRail() {
   const menuWorkspace = menu
     ? (workspaces.find((workspace) => workspace.id === menu.workspaceId) ?? null)
     : null;
-  const renamingWorkspace = renamingWorkspaceId
-    ? (workspaces.find((workspace) => workspace.id === renamingWorkspaceId) ?? null)
-    : null;
-  const confirmingDeleteWorkspace = confirmingDeleteId
-    ? (workspaces.find((workspace) => workspace.id === confirmingDeleteId) ?? null)
-    : null;
-  const confirmingDeleteThreadCount = confirmingDeleteWorkspace
-    ? threads.filter((thread) => thread.workspaceId === confirmingDeleteWorkspace.id).length
-    : 0;
   const menuDeleteBlockedReason = menuWorkspace
     ? getWorkspaceDeleteBlockedReason(threads, runningThreadIds, menuWorkspace.id)
     : null;
-
-  const handleDeleteWorkspace = async (workspaceId: string) => {
-    setConfirmingDeleteId(null);
-    const deleted = await deleteWorkspaceWithNavigation(workspaceId);
-    if (!deleted) setConfirmingDeleteId(workspaceId);
-  };
 
   return (
     <>
@@ -79,7 +61,7 @@ export function WorkspaceRail() {
           <Plus className="h-4 w-4" />
         </button>
 
-        <div className="mt-1 min-h-0 flex-1 space-y-1 overflow-y-auto py-1">
+        <div className="no-scrollbar mt-1 min-h-0 flex-1 space-y-1 overflow-y-auto py-1">
           {workspaces.map((workspace) => {
             // Settings is its own primary-navigation destination; the stored
             // active Workspace is only restore context, not the current page.
@@ -180,39 +162,16 @@ export function WorkspaceRail() {
           onClose={() => setMenu(null)}
           onRename={() => {
             setMenu(null);
-            setRenamingWorkspaceId(menuWorkspace.id);
+            requestRename(menuWorkspace.id);
           }}
           onDelete={() => {
             setMenu(null);
-            setConfirmingDeleteId(menuWorkspace.id);
+            requestDelete(menuWorkspace.id);
           }}
         />
       )}
 
-      {renamingWorkspace && (
-        <WorkspaceNameDialog
-          title="Rename Workspace"
-          submitLabel="Rename"
-          initialValue={renamingWorkspace.name}
-          onCancel={() => setRenamingWorkspaceId(null)}
-          onSubmit={async (name) => {
-            const result = await renameWorkspace(renamingWorkspace.id, name);
-            if (!result.ok) return result.error;
-            setRenamingWorkspaceId(null);
-            return null;
-          }}
-        />
-      )}
-
-      {confirmingDeleteWorkspace && (
-        <ConfirmDialog
-          title="Delete Workspace?"
-          message={`Delete "${confirmingDeleteWorkspace.name}" and permanently delete ${confirmingDeleteThreadCount} ${confirmingDeleteThreadCount === 1 ? "Thread" : "Threads"}?`}
-          confirmLabel="Delete"
-          onCancel={() => setConfirmingDeleteId(null)}
-          onConfirm={() => void handleDeleteWorkspace(confirmingDeleteWorkspace.id)}
-        />
-      )}
+      {actionDialogs}
     </>
   );
 }

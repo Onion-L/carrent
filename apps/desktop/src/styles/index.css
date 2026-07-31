@@ -124,6 +124,14 @@
     -webkit-app-region: no-drag;
   }
 
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
   * {
     scrollbar-width: thin;
     scrollbar-color: rgb(var(--color-subtle)) transparent;

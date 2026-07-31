@@ -1,11 +1,15 @@
-import { Check, ChevronDown, FolderPlus } from "lucide-react";
+import { Check, ChevronDown, FolderPlus, MoreHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAppState } from "../../context/AppStateContext";
+import { useChatRun } from "../../hooks/useChatRun";
+import { getWorkspaceDeleteBlockedReason } from "../../hooks/useDeleteWorkspace";
+import { useWorkspaceActionDialogs } from "../../hooks/useWorkspaceActionDialogs";
 import { buildWorkspacePath, getWorkspaceRestorePath } from "../../lib/navigation";
 import { workspaceAvatarColor } from "../../lib/workspaceAvatar";
 import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
+import { WorkspaceContextMenu } from "./WorkspaceContextMenu";
 
 export function WorkspaceSwitcher() {
   const navigate = useNavigate();
@@ -17,10 +21,20 @@ export function WorkspaceSwitcher() {
     createWorkspace,
     selectWorkspace,
   } = useAppState();
+  const { runningThreadIds } = useChatRun();
+  const {
+    requestRename,
+    requestDelete,
+    dialogs: actionDialogs,
+  } = useWorkspaceActionDialogs();
   const [isOpen, setIsOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [menu, setMenu] = useState<{ workspaceId: string; x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
+  const menuWorkspace = menu
+    ? (workspaces.find((workspace) => workspace.id === menu.workspaceId) ?? null)
+    : null;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -77,31 +91,52 @@ export function WorkspaceSwitcher() {
               {workspaces.map((workspace) => {
                 const active = workspace.id === activeWorkspace.id;
                 return (
-                  <button
+                  <div
                     key={workspace.id}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={active}
-                    aria-label={workspace.name}
-                    onClick={async () => {
-                      setIsOpen(false);
-                      if (active || !(await selectWorkspace(workspace.id))) return;
-                      navigate(
-                        getWorkspaceRestorePath(workspace.id, threads, lastThreadIdByWorkspace),
-                      );
-                    }}
-                    className="flex min-h-10 w-full items-center gap-3 px-3 text-left text-app-14 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+                    className="group flex items-center transition hover:bg-surface-hover"
                   >
-                    <span
-                      aria-hidden="true"
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-app-12 font-semibold text-white"
-                      style={{ backgroundColor: workspaceAvatarColor(workspace.name) }}
+                    <button
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={active}
+                      aria-label={workspace.name}
+                      onClick={async () => {
+                        setIsOpen(false);
+                        if (active || !(await selectWorkspace(workspace.id))) return;
+                        navigate(
+                          getWorkspaceRestorePath(workspace.id, threads, lastThreadIdByWorkspace),
+                        );
+                      }}
+                      className="flex min-h-10 min-w-0 flex-1 items-center gap-3 px-3 text-left text-app-14 text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
                     >
-                      {workspace.name.slice(0, 1).toUpperCase()}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
-                    {active && <Check className="h-4 w-4 shrink-0" />}
-                  </button>
+                      <span
+                        aria-hidden="true"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-app-12 font-semibold text-white"
+                        style={{ backgroundColor: workspaceAvatarColor(workspace.name) }}
+                      >
+                        {workspace.name.slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
+                      {active && <Check className="h-4 w-4 shrink-0 group-hover:hidden" />}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Actions for ${workspace.name}`}
+                      title={`Actions for ${workspace.name}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setIsOpen(false);
+                        setMenu({
+                          workspaceId: workspace.id,
+                          x: event.clientX,
+                          y: event.clientY,
+                        });
+                      }}
+                      className="mr-2 hidden h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-raised hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/25 group-hover:flex group-focus-within:flex"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -135,6 +170,29 @@ export function WorkspaceSwitcher() {
           }}
         />
       )}
+
+      {menu && menuWorkspace && (
+        <WorkspaceContextMenu
+          anchor={{ x: menu.x, y: menu.y }}
+          workspaceName={menuWorkspace.name}
+          deleteBlockedReason={getWorkspaceDeleteBlockedReason(
+            threads,
+            runningThreadIds,
+            menuWorkspace.id,
+          )}
+          onClose={() => setMenu(null)}
+          onRename={() => {
+            setMenu(null);
+            requestRename(menuWorkspace.id);
+          }}
+          onDelete={() => {
+            setMenu(null);
+            requestDelete(menuWorkspace.id);
+          }}
+        />
+      )}
+
+      {actionDialogs}
     </>
   );
 }

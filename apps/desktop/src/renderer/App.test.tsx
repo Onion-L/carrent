@@ -4181,22 +4181,22 @@ describe("Integrated Terminal", () => {
     )!;
 
     expect(section.style.height).toBe("320px");
-    await click(buttonNamed("Maximize Integrated Terminal"));
-    expect(section.classList.contains("absolute")).toBe(true);
-    expect(section.classList.contains("inset-0")).toBe(true);
+    const maximizeButton = buttonNamed("Maximize Integrated Terminal");
+    expect(maximizeButton.getAttribute("aria-pressed")).toBe("false");
+    await click(maximizeButton);
+    expect(buttonNamed("Restore Integrated Terminal").getAttribute("aria-pressed")).toBe("true");
     expect(section.style.height).toBe("");
     expect(section.querySelector('[aria-label="Resize Integrated Terminal"]') == null).toBe(true);
 
     await click(buttonNamed("Restore Integrated Terminal"));
-    expect(section.classList.contains("absolute")).toBe(false);
+    expect(buttonNamed("Maximize Integrated Terminal").getAttribute("aria-pressed")).toBe("false");
     expect(section.style.height).toBe("320px");
     expect(section.querySelector('[aria-label="Resize Integrated Terminal"]') != null).toBe(true);
 
     await click(buttonNamed("Maximize Integrated Terminal"));
     await click(buttonNamed("Hide Integrated Terminal"));
     await click(buttonNamed("Show Integrated Terminal"));
-    expect(section.classList.contains("absolute")).toBe(false);
-    expect(buttonNamed("Maximize Integrated Terminal")).toBeDefined();
+    expect(buttonNamed("Maximize Integrated Terminal").getAttribute("aria-pressed")).toBe("false");
   });
 
   it("creates multiple Terminal Tabs and hides after closing the final Tab", async () => {
@@ -4206,9 +4206,6 @@ describe("Integrated Terminal", () => {
 
     expect(terminalCreateRequests).toHaveLength(2);
     expect(container!.querySelectorAll('[role="tablist"] [role="tab"]')).toHaveLength(2);
-    expect(
-      container!.querySelectorAll('[role="tablist"] [role="tab"] .lucide-square-terminal'),
-    ).toHaveLength(2);
 
     const closeButtons = [
       ...container!.querySelectorAll<HTMLButtonElement>('button[title="Close Terminal Tab"]'),

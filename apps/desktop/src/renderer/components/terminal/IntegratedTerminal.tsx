@@ -525,7 +525,7 @@ export function IntegratedTerminal({
               key={tab.id}
               role="tab"
               aria-selected={tab.active}
-              className={`group flex h-7 w-56 shrink-0 items-center gap-1 rounded-md px-2 text-app-12 ${
+              className={`group flex h-7 max-w-48 items-center gap-1 rounded-md px-2 text-app-12 ${
                 tab.active ? "bg-surface-raised text-fg" : "text-muted hover:bg-surface"
               }`}
             >
@@ -666,7 +666,7 @@ export function IntegratedTerminal({
                 className="absolute z-20 max-h-56 w-72 overflow-auto rounded-md border border-border bg-surface p-1 shadow-xl"
                 style={{
                   left: Math.min(completionAnchor.left, 300),
-                  top: Math.min(completionAnchor.top, panelHeight - 240),
+                  top: `max(0px, min(${completionAnchor.top}px, calc(100% - 15rem)))`,
                 }}
               >
                 {activeCompletion.candidates

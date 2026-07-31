@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import { useAppState } from "../../context/AppStateContext";
 import { buildWorkspacePath, getWorkspaceRestorePath } from "../../lib/navigation";
+import { workspaceAvatarColor } from "../../lib/workspaceAvatar";
 import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
 
 export function WorkspaceSwitcher() {
@@ -55,7 +56,8 @@ export function WorkspaceSwitcher() {
         >
           <span
             aria-hidden="true"
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-fg text-app-11 font-semibold text-bg"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-app-11 font-semibold text-white"
+            style={{ backgroundColor: workspaceAvatarColor(activeWorkspace.name) }}
           >
             {activeWorkspace.name.slice(0, 1).toUpperCase()}
           </span>
@@ -92,7 +94,8 @@ export function WorkspaceSwitcher() {
                   >
                     <span
                       aria-hidden="true"
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-fg text-app-12 font-semibold text-bg"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-app-12 font-semibold text-white"
+                      style={{ backgroundColor: workspaceAvatarColor(workspace.name) }}
                     >
                       {workspace.name.slice(0, 1).toUpperCase()}
                     </span>

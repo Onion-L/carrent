@@ -671,7 +671,10 @@ function ChangedFilesMessageItem({
 
 export function EmptyThreadPrompt({ projectName }: { projectName?: string }) {
   return (
-    <p data-empty-thread-prompt className="text-center text-app-26 font-semibold leading-tight">
+    <p
+      data-empty-thread-prompt
+      className="text-center text-app-22 font-semibold leading-tight"
+    >
       <span className={projectName ? "text-muted" : "text-fg"}>What should we build</span>
       {projectName && (
         <>

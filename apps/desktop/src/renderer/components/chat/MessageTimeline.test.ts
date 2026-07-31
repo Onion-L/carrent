@@ -67,6 +67,28 @@ describe("parseSkillReferenceSegments", () => {
   });
 });
 
+describe("user message presentation", () => {
+  it("wraps long paths inside the message bubble", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MessageTimeline, {
+        messages: [
+          {
+            id: "msg-1",
+            threadId: "thread-1",
+            role: "user" as const,
+            content:
+              "/Users/test/workbench/carrent/apps/desktop/src/renderer/components/DesktopShell.tsx:171",
+            timestamp: "09:00",
+            type: "text" as const,
+          },
+        ],
+      }),
+    );
+
+    expect(markup).toContain("whitespace-pre-wrap break-words");
+  });
+});
+
 describe("getUserMessageEditDraft", () => {
   it("returns editable content for user text messages", () => {
     const message: Message = {

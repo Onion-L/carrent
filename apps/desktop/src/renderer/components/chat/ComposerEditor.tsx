@@ -35,17 +35,20 @@ import {
   KEY_ESCAPE_COMMAND,
   KEY_TAB_COMMAND,
   PASTE_COMMAND,
+  TextNode,
   type LexicalEditor,
   type LexicalNode,
   type RangeSelection,
 } from "lexical";
 
 import type { SkillRecord } from "../../../shared/skills";
+import { $createComposerFileNode, $isComposerFileNode, ComposerFileNode } from "./ComposerFileNode";
 import {
   $createComposerSkillNode,
   $isComposerSkillNode,
   ComposerSkillNode,
 } from "./ComposerSkillNode";
+import { parseFileReferenceSegments } from "./fileReferences";
 
 export type ComposerEditorSnapshot = {
   content: string;
@@ -77,6 +80,7 @@ type ComposerEditorProps = {
   initialContent: string;
   initialSerializedState?: string;
   initialSkills: SkillRecord[];
+  skills: SkillRecord[];
   menuItemCount: number;
   menuOpen: boolean;
   onMenuDismiss: () => void;
@@ -101,7 +105,7 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
     const initialConfig = useMemo(
       () => ({
         namespace: "carrent-composer",
-        nodes: [ComposerSkillNode],
+        nodes: [ComposerFileNode, ComposerSkillNode],
         onError(error: Error) {
           throw error;
         },
@@ -293,6 +297,8 @@ function ComposerEditorBridge(
           });
         }}
       />
+      <ComposerSkillReferencePlugin skills={props.skills} skillsDisabled={props.skillsDisabled} />
+      <ComposerFileReferencePlugin />
       <ComposerCommandPlugin
         menuItemCount={props.menuItemCount}
         menuOpen={props.menuOpen}
@@ -305,6 +311,81 @@ function ComposerEditorBridge(
       />
     </div>
   );
+}
+
+const SKILL_REFERENCE_PATTERN = /\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\)/gu;
+
+function ComposerSkillReferencePlugin({
+  skills,
+  skillsDisabled,
+}: Pick<ComposerEditorProps, "skills" | "skillsDisabled">) {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    if (skillsDisabled) return;
+    return editor.registerNodeTransform(TextNode, (node) => {
+      const content = node.getTextContent();
+      const replacements: LexicalNode[] = [];
+      let lastIndex = 0;
+
+      for (const match of content.matchAll(SKILL_REFERENCE_PATTERN)) {
+        const skill = skills.find((item) => item.name === match[1] && item.path === match[2]);
+        if (!skill) continue;
+        const index = match.index ?? 0;
+        if (index > lastIndex) replacements.push($createTextNode(content.slice(lastIndex, index)));
+        replacements.push($createComposerSkillNode(skill));
+        lastIndex = index + match[0].length;
+      }
+
+      if (lastIndex === 0) return;
+      if (lastIndex < content.length) replacements.push($createTextNode(content.slice(lastIndex)));
+      replaceTextNode(node, replacements);
+    });
+  }, [editor, skills, skillsDisabled]);
+
+  return null;
+}
+
+function ComposerFileReferencePlugin() {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    return editor.registerNodeTransform(TextNode, (node) => {
+      const segments = parseFileReferenceSegments(node.getTextContent());
+      if (!segments.some((segment) => segment.type === "file")) return;
+
+      const replacements: LexicalNode[] = [];
+      for (const segment of segments) {
+        if (segment.type === "file") {
+          replacements.push($createComposerFileNode(segment.label, segment.path));
+        } else if (segment.content) {
+          replacements.push($createTextNode(segment.content));
+        }
+      }
+      replaceTextNode(node, replacements);
+    });
+  }, [editor]);
+
+  return null;
+}
+
+function replaceTextNode(node: TextNode, replacements: LexicalNode[]) {
+  const first = replacements[0];
+  if (!first) return;
+  const selection = $getSelection();
+  const restoreSelectionAfter =
+    $isRangeSelection(selection) &&
+    selection.isCollapsed() &&
+    selection.anchor.key === node.getKey() &&
+    selection.anchor.offset === node.getTextContentSize();
+
+  node.replace(first);
+  let last = first;
+  for (const replacement of replacements.slice(1)) {
+    last.insertAfter(replacement);
+    last = replacement;
+  }
+  if (restoreSelectionAfter) last.selectNext();
 }
 
 function ComposerCommandPlugin(
@@ -380,12 +461,12 @@ function ComposerCommandPlugin(
       ),
       editor.registerCommand(
         KEY_BACKSPACE_COMMAND,
-        (event) => removeAdjacentSkill("backward", event),
+        (event) => removeAdjacentReference("backward", event),
         COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(
         KEY_DELETE_COMMAND,
-        (event) => removeAdjacentSkill("forward", event),
+        (event) => removeAdjacentReference("forward", event),
         COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(
@@ -442,7 +523,13 @@ function appendText(parent: ReturnType<typeof $createParagraphNode>, text: strin
   const lines = text.replace(/\r\n?/gu, "\n").split("\n");
   lines.forEach((line, index) => {
     if (index > 0) parent.append($createLineBreakNode());
-    if (line) parent.append($createTextNode(line));
+    for (const segment of parseFileReferenceSegments(line)) {
+      if (segment.type === "file") {
+        parent.append($createComposerFileNode(segment.label, segment.path));
+      } else if (segment.content) {
+        parent.append($createTextNode(segment.content));
+      }
+    }
   });
 }
 
@@ -503,6 +590,10 @@ function collectComposerState(): Omit<ComposerEditorSnapshot, "serializedState">
         seenPaths.add(skill.path);
         skills.push(skill);
       }
+      return;
+    }
+    if ($isComposerFileNode(node)) {
+      content += node.getTextContent();
       return;
     }
     if ($isTextNode(node)) {
@@ -576,38 +667,42 @@ function shouldInsertSpaceAfterTrigger(trigger: InternalTrigger) {
   return !/^\s/u.test(node.getTextContent().slice(trigger.nodeEnd));
 }
 
-function removeAdjacentSkill(direction: "backward" | "forward", event: KeyboardEvent) {
+function removeAdjacentReference(direction: "backward" | "forward", event: KeyboardEvent) {
   if (isComposing(event)) return false;
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
-  const skill = getAdjacentSkill(selection, direction);
-  if (!skill) return false;
+  const reference = getAdjacentReference(selection, direction);
+  if (!reference) return false;
   event.preventDefault();
-  skill.remove();
+  reference.remove();
   return true;
 }
 
-function getAdjacentSkill(selection: RangeSelection, direction: "backward" | "forward") {
+function getAdjacentReference(selection: RangeSelection, direction: "backward" | "forward") {
   const anchor = selection.anchor;
   const node = $getNodeByKey(anchor.key);
   if (!node) return null;
   if ($isTextNode(node)) {
     if (direction === "backward" && anchor.offset === 0) {
       const previous = node.getPreviousSibling();
-      return $isComposerSkillNode(previous) ? previous : null;
+      return isComposerReferenceNode(previous) ? previous : null;
     }
     if (direction === "forward" && anchor.offset === node.getTextContentSize()) {
       const next = node.getNextSibling();
-      return $isComposerSkillNode(next) ? next : null;
+      return isComposerReferenceNode(next) ? next : null;
     }
     return null;
   }
   if ($isElementNode(node) && anchor.type === "element") {
     const index = direction === "backward" ? anchor.offset - 1 : anchor.offset;
     const child = node.getChildAtIndex(index);
-    return $isComposerSkillNode(child) ? child : null;
+    return isComposerReferenceNode(child) ? child : null;
   }
   return null;
+}
+
+function isComposerReferenceNode(node: unknown) {
+  return $isComposerSkillNode(node) || $isComposerFileNode(node);
 }
 
 function isComposing(event: KeyboardEvent | null | undefined) {

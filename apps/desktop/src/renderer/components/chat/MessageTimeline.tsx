@@ -1,4 +1,4 @@
-import { ArrowDown, Box, Check, Copy, Pencil, XCircle } from "lucide-react";
+import { ArrowDown, Box, Check, Copy, FileText, Pencil, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type Message,
@@ -19,11 +19,15 @@ import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachm
 import { MarkdownContent } from "./MarkdownContent";
 import { PlanReviewBlock } from "./PlanReviewBlock";
 import { QuestionBlock } from "./QuestionBlock";
+import { parseFileReferenceSegments } from "./fileReferences";
 import { formatSkillLabel } from "./skillLabel";
+
+export { parseFileReferenceSegments } from "./fileReferences";
 
 type UserMessageSegment =
   | { type: "text"; content: string }
-  | { type: "skill"; name: string; path: string };
+  | { type: "skill"; name: string; path: string }
+  | { type: "file"; label: string; path: string };
 
 export type UserMessageEditDraft = {
   messageId: string;
@@ -120,17 +124,56 @@ function SkillBadge({ name, path }: { name: string; path: string }) {
   );
 }
 
+function FileReferenceBadge({ label, path }: { label: string; path: string }) {
+  const filePath = path.replace(/:\d+(?::\d+)?$/u, "");
+  return (
+    <button
+      type="button"
+      title={path}
+      onClick={() => {
+        void window.carrent.shell.openPath(filePath);
+      }}
+      className="inline-flex max-w-full items-center gap-1 align-middle text-skill-reference hover:underline"
+    >
+      <FileText className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+      <span className="break-all">{label}</span>
+    </button>
+  );
+}
+
+function UserMessageTextContent({ content }: { content: string }) {
+  return (
+    <>
+      {parseFileReferenceSegments(content).map((segment, index) =>
+        segment.type === "file" ? (
+          <FileReferenceBadge
+            key={`${index}-${segment.path}`}
+            label={segment.label}
+            path={segment.path}
+          />
+        ) : (
+          <span key={`${index}-text`}>{segment.content}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 function UserMessageContent({ content }: { content: string }) {
   return (
-    <p className="whitespace-pre-wrap text-app-14 leading-relaxed text-user-bubble-fg">
+    <p className="whitespace-pre-wrap break-words text-app-14 leading-relaxed text-user-bubble-fg">
       {parseSkillReferenceSegments(content).map((segment, index) => {
-        if (segment.type === "text") {
-          return <span key={`${index}-text`}>{segment.content}</span>;
+        if (segment.type === "skill") {
+          return (
+            <SkillBadge key={`${index}-${segment.name}`} name={segment.name} path={segment.path} />
+          );
         }
 
-        return (
-          <SkillBadge key={`${index}-${segment.name}`} name={segment.name} path={segment.path} />
-        );
+        if (segment.type === "text") {
+          return <UserMessageTextContent key={`${index}-text`} content={segment.content} />;
+        }
+
+        return null;
       })}
     </p>
   );
@@ -671,10 +714,7 @@ function ChangedFilesMessageItem({
 
 export function EmptyThreadPrompt({ projectName }: { projectName?: string }) {
   return (
-    <p
-      data-empty-thread-prompt
-      className="text-center text-app-22 font-semibold leading-tight"
-    >
+    <p data-empty-thread-prompt className="text-center text-app-22 font-semibold leading-tight">
       <span className={projectName ? "text-muted" : "text-fg"}>What should we build</span>
       {projectName && (
         <>

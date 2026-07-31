@@ -149,6 +149,12 @@ async function renderComposer() {
           path: "/skills/tdd/SKILL.md",
           source: "agents",
         },
+        {
+          name: "implement",
+          description: "Implement a request.",
+          path: "/skills/implement/SKILL.md",
+          source: "agents",
+        },
       ],
     },
     mcpServer: {
@@ -307,5 +313,54 @@ describe("Composer inline Skills", () => {
     });
 
     expect(getComposerText()).toBe("Keep this draft\n\nAdd this");
+  });
+
+  it("renders file references inline while preserving their submitted markdown", async () => {
+    await renderComposer();
+    const reference = "[index.css (line 30)](/code/carrent/apps/desktop/src/styles/index.css:30)";
+
+    await setComposerText("Open ");
+    await act(async () => {
+      getLexicalEditor().update(() => {
+        $getRoot().selectEnd();
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText(reference);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const marker = container!.querySelector<HTMLElement>("[data-file-marker='true']");
+    expect(marker?.textContent).toBe("index.css (line 30)");
+    expect(marker?.title).toBe("/code/carrent/apps/desktop/src/styles/index.css:30");
+    expect(marker?.contentEditable).toBe("false");
+    expect(getComposerText()).toBe(`Open ${reference}`);
+
+    await act(async () => {
+      getLexicalEditor().update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText(" and continue");
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(getComposerText()).toBe(`Open ${reference} and continue`);
+  });
+
+  it("restores a Skill marker when an external draft also contains file references", async () => {
+    await renderComposer();
+    const content =
+      "[$implement](/skills/implement/SKILL.md) [index.css (line 30)](/code/carrent/index.css:30)";
+
+    await act(async () => {
+      root!.render(composerTree({ content, requestId: 1 }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container!.querySelector<HTMLElement>("[data-skill-marker='true']")?.textContent).toBe(
+      "Implement",
+    );
+    expect(container!.querySelector<HTMLElement>("[data-file-marker='true']")?.textContent).toBe(
+      "index.css (line 30)",
+    );
   });
 });

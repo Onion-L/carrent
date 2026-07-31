@@ -7,6 +7,7 @@ import {
   getAssistantMessagePresentation,
   getUserMessageEditDraft,
   MessageTimeline,
+  parseFileReferenceSegments,
   parseSkillReferenceSegments,
   splitLeadingSkillReferences,
   UserMessageAttachmentList,
@@ -86,6 +87,59 @@ describe("user message presentation", () => {
     );
 
     expect(markup).toContain("whitespace-pre-wrap break-words");
+  });
+
+  it("renders file reference links as styled badges without the raw path", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MessageTimeline, {
+        messages: [
+          {
+            id: "msg-1",
+            threadId: "thread-1",
+            role: "user" as const,
+            content:
+              "相关代码在 [index.css (line 30)](/Users/test/workbench/carrent/apps/desktop/src/styles/index.css:30)。",
+            timestamp: "09:00",
+            type: "text" as const,
+          },
+        ],
+      }),
+    );
+
+    expect(markup).toContain("index.css (line 30)");
+    expect(markup).not.toContain("](/Users");
+    expect(markup).toContain("text-skill-reference");
+  });
+});
+
+describe("parseFileReferenceSegments", () => {
+  it("extracts absolute file reference links", () => {
+    expect(
+      parseFileReferenceSegments(
+        "相关代码在 [index.css (line 30)](/Users/test/index.css:30) 和 [DesktopShell.tsx (line 171)](/Users/test/DesktopShell.tsx:171)。",
+      ),
+    ).toEqual([
+      { type: "text", content: "相关代码在 " },
+      { type: "file", label: "index.css (line 30)", path: "/Users/test/index.css:30" },
+      { type: "text", content: " 和 " },
+      {
+        type: "file",
+        label: "DesktopShell.tsx (line 171)",
+        path: "/Users/test/DesktopShell.tsx:171",
+      },
+      { type: "text", content: "。" },
+    ]);
+  });
+
+  it("ignores non-absolute link targets", () => {
+    expect(parseFileReferenceSegments("[docs](https://example.com)")).toEqual([
+      { type: "text", content: "[docs](https://example.com)" },
+    ]);
+  });
+
+  it("leaves Skill references for the Skill parser", () => {
+    const reference = "[$pdf](/skills/pdf/SKILL.md)";
+    expect(parseFileReferenceSegments(reference)).toEqual([{ type: "text", content: reference }]);
   });
 });
 

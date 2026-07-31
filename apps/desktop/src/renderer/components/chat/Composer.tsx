@@ -3289,6 +3289,7 @@ export function Composer(props: ComposerProps) {
               initialContent={input}
               initialSkills={attachedSkills}
               initialSerializedState={editorStateJson}
+              skills={skills}
               menuOpen={showSlashMenu}
               menuItemCount={slashMenuItemCount}
               controlsId="composer-slash-menu"

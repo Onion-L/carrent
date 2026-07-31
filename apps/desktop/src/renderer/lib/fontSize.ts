@@ -2,7 +2,7 @@ export const ROOT_FONT_SIZE = 14;
 export const MIN_FONT_SIZE = 8;
 export const MAX_FONT_SIZE = 32;
 
-const pixelFontSizes = [10, 11, 12, 13, 14, 15, 16, 18, 22, 32, 36] as const;
+const pixelFontSizes = [10, 11, 12, 13, 14, 15, 16, 18, 22, 26, 32, 36] as const;
 const relativeFontSizes = {
   xs: 0.75,
   sm: 0.875,

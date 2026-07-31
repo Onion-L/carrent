@@ -43,6 +43,7 @@ export default {
         "app-16": "var(--font-size-16)",
         "app-18": "var(--font-size-18)",
         "app-22": "var(--font-size-22)",
+        "app-26": "var(--font-size-26)",
         "app-32": "var(--font-size-32)",
         "app-36": "var(--font-size-36)",
         xs: ["var(--font-size-xs)", { lineHeight: "var(--line-height-xs)" }],

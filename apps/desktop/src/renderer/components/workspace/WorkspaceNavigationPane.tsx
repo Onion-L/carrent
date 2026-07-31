@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Archive,
   Ellipsis,
   ExternalLink,
   Folder,
@@ -483,6 +484,11 @@ export function WorkspaceNavigationPane() {
                           if (!archived) {
                             if (active) setArchiveNavigation(null);
                             showToast("Thread could not be archived.", "error");
+                          } else {
+                            showToast("Thread archived.", "success", {
+                              label: "View",
+                              onClick: () => navigate("/settings?tab=archives"),
+                            });
                           }
                         };
 
@@ -586,7 +592,7 @@ export function WorkspaceNavigationPane() {
                                       onClick={() => void handleArchive()}
                                       className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-raised hover:text-fg disabled:cursor-not-allowed disabled:opacity-35"
                                     >
-                                      <Trash2 className="h-3.5 w-3.5" />
+                                      <Archive className="h-3.5 w-3.5" />
                                     </button>
                                   </div>
                                 </>

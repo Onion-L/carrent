@@ -863,10 +863,21 @@ export async function writeGlobalAgentInstructions(
 /*  Section                                                                   */
 /* -------------------------------------------------------------------------- */
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  trailing,
+  children,
+}: {
+  title: string;
+  trailing?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="border-t border-border">
-      <h2 className="py-4 text-app-13 font-medium text-muted">{title}</h2>
+      <div className="flex items-center justify-between gap-4 py-4">
+        <h2 className="text-app-13 font-medium text-muted">{title}</h2>
+        {trailing}
+      </div>
       <div className="divide-y divide-border">{children}</div>
     </section>
   );
@@ -1130,49 +1141,47 @@ function ArchivedThreadsPanel({
               No threads match your search.
             </p>
           ) : (
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-6">
               {groups.map(({ workspace, threads: groupThreads }) => (
-                <div key={workspace.id} className="overflow-hidden rounded-lg border border-border">
-                  <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
-                    <span className="truncate text-app-12 font-medium text-fg">
-                      {workspace.name}
-                    </span>
-                    <span className="shrink-0 text-app-11 text-subtle">
+                <Section
+                  key={workspace.id}
+                  title={workspace.name}
+                  trailing={
+                    <span className="text-app-11 text-subtle">
                       {groupThreads.length} {groupThreads.length === 1 ? "Thread" : "Threads"}
                     </span>
-                  </div>
-                  <div className="divide-y divide-border">
-                    {groupThreads.map((thread) => (
-                      <div key={thread.id} className="flex items-center gap-3 px-3 py-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-app-13 font-medium text-fg">{thread.title}</p>
-                          <p className="mt-0.5 truncate text-app-11 text-subtle">
-                            {getProjectName(thread)} ·{" "}
-                            {formatAbsoluteTime(Date.parse(thread.lastActivityAt))}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          aria-label={`Permanently delete ${thread.title}`}
-                          title="Permanently Delete"
-                          disabled={pendingThreadId !== null || isDeletingAll}
-                          onClick={() => setConfirmingThread(thread)}
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          disabled={pendingThreadId !== null || isDeletingAll}
-                          onClick={() => void handleRestore(thread)}
-                          className="min-h-7 shrink-0 rounded-md border border-border-strong px-2.5 text-app-12 font-medium text-muted transition hover:bg-surface-hover hover:text-fg active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Restore
-                        </button>
+                  }
+                >
+                  {groupThreads.map((thread) => (
+                    <div key={thread.id} className="flex items-center gap-3 py-3.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-app-13 text-fg">{thread.title}</p>
+                        <p className="mt-0.5 truncate text-app-12 text-subtle">
+                          {getProjectName(thread)} ·{" "}
+                          {formatAbsoluteTime(Date.parse(thread.lastActivityAt))}
+                        </p>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                      <button
+                        type="button"
+                        aria-label={`Permanently delete ${thread.title}`}
+                        title="Permanently Delete"
+                        disabled={pendingThreadId !== null || isDeletingAll}
+                        onClick={() => setConfirmingThread(thread)}
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pendingThreadId !== null || isDeletingAll}
+                        onClick={() => void handleRestore(thread)}
+                        className="min-h-7 shrink-0 rounded-md border border-border-strong px-2.5 text-app-12 font-medium text-muted transition hover:bg-surface-hover hover:text-fg active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Restore
+                      </button>
+                    </div>
+                  ))}
+                </Section>
               ))}
             </div>
           )}

@@ -9,14 +9,20 @@ import {
   type ReactNode,
 } from "react";
 
+export type ToastAction = {
+  label: string;
+  onClick: () => void;
+};
+
 export type Toast = {
   id: string;
   message: string;
   type?: "success" | "error" | "info";
+  action?: ToastAction;
 };
 
 export type ToastContextValue = {
-  showToast: (message: string, type?: Toast["type"]) => void;
+  showToast: (message: string, type?: Toast["type"], action?: ToastAction) => void;
 };
 
 const ToastContext = createContext<ToastContextValue>({
@@ -82,6 +88,17 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
     >
       <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${iconClassName}`} />
       <span className="min-w-0 flex-1 break-words">{toast.message}</span>
+      {toast.action ? (
+        <button
+          onClick={() => {
+            toast.action?.onClick();
+            handleDismiss();
+          }}
+          className="shrink-0 text-app-12 font-medium text-fg underline underline-offset-2 transition hover:text-muted"
+        >
+          {toast.action.label}
+        </button>
+      ) : null}
       <button
         onClick={handleDismiss}
         className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
@@ -101,16 +118,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const showToast = useCallback((message: string, type?: Toast["type"]) => {
+  const showToast = useCallback((message: string, type?: Toast["type"], action?: ToastAction) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
-    const toast: Toast = { id, message, type };
+    const toast: Toast = { id, message, type, action };
     setToasts((prev) => [...prev, toast]);
   }, []);
 
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex flex-col items-center justify-start gap-2 p-4">
+      <div className="no-drag pointer-events-none fixed inset-x-0 top-0 z-50 flex flex-col items-center justify-start gap-2 p-4">
         {toasts.map((toast) => (
           <ToastItem key={toast.id} toast={toast} onRemove={removeToast} />
         ))}

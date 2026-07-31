@@ -3257,6 +3257,11 @@ describe("Archived Thread lifecycle", () => {
     expect(saved.at(-1)?.threadRuns).toEqual(lifecycleState().threadRuns);
     expect(container!.textContent).not.toContain("Primary Thread");
     expect(container!.textContent).not.toContain("Thread could not be found.");
+
+    expect(container!.textContent).toContain("Thread archived.");
+    await click(buttonNamed("View"));
+    expect(currentPathname).toBe("/settings");
+    expect(container!.textContent).toContain("Primary Thread");
   });
 
   it("blocks archive while a Thread has queued messages", async () => {
@@ -3434,7 +3439,7 @@ describe("Archived Thread lifecycle", () => {
     expect(container!.querySelector("[data-composer-editor='true']")).not.toBe(null);
   });
 
-  it("restores an Archived Thread in Settings and opens it only on request", async () => {
+  it("restores an Archived Thread in Settings", async () => {
     const saved = await renderApp(
       lifecycleState(["thread-1"]),
       "/settings?tab=archives",
@@ -3444,7 +3449,7 @@ describe("Archived Thread lifecycle", () => {
       false,
     );
 
-    expect(container!.textContent).toContain("Personal / Carrent / Primary Thread");
+    expect(container!.textContent).toContain("Primary Thread");
     await click(buttonNamed("Restore"));
 
     expect(currentPathname).toBe("/settings");
@@ -3454,10 +3459,7 @@ describe("Archived Thread lifecycle", () => {
     expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.lastActivityAt).toBe(
       "2026-07-27T10:00:00.000Z",
     );
-    expect(container!.textContent).toContain("Primary Thread was restored");
-
-    await click(buttonNamed("Open Restored Thread"));
-    expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(container!.textContent).toContain('"Primary Thread" was restored.');
   });
 
   it("keeps restore and permanent deletion mutually exclusive", async () => {
@@ -3472,7 +3474,7 @@ describe("Archived Thread lifecycle", () => {
     });
 
     await click(buttonNamed("Restore"));
-    expect(buttonNamed("Permanently Delete").disabled).toBe(true);
+    expect(buttonNamed("Permanently delete Primary Thread").disabled).toBe(true);
 
     releaseSave();
     await act(async () => {
@@ -3487,10 +3489,9 @@ describe("Archived Thread lifecycle", () => {
       deleteThreadDataRequests: cleanupRequests,
     });
 
-    await click(buttonNamed("Permanently Delete"));
+    await click(buttonNamed("Permanently delete Primary Thread"));
 
     expect(container!.textContent).toContain('Permanently delete "Primary Thread"');
-    expect(container!.textContent).toContain("Project files and Git state will not be changed");
 
     await click(buttonNamed("Cancel"));
 
@@ -3498,7 +3499,7 @@ describe("Archived Thread lifecycle", () => {
     expect(container!.textContent).toContain("Primary Thread");
   });
 
-  it("permanently deletes only from Archives and keeps the next item selected", async () => {
+  it("permanently deletes an Archived Thread and keeps the rest listed", async () => {
     const cleanupRequests: DeleteThreadDataRequest[] = [];
     const saved = await renderApp(
       lifecycleState(["thread-1", "thread-2"]),
@@ -3510,7 +3511,7 @@ describe("Archived Thread lifecycle", () => {
       { deleteThreadDataRequests: cleanupRequests },
     );
 
-    await click(buttonNamed("Permanently Delete"));
+    await click(buttonNamed("Permanently delete Primary Thread"));
     await click(buttonNamed("Delete"));
 
     expect(currentPathname).toBe("/settings");
@@ -3547,7 +3548,7 @@ describe("Archived Thread lifecycle", () => {
     await act(async () => {
       testNavigate!("/settings?tab=archives");
     });
-    await click(buttonNamed("Permanently Delete"));
+    await click(buttonNamed("Permanently delete Primary Thread"));
     await click(buttonNamed("Delete"));
 
     await act(async () => {
@@ -3572,7 +3573,7 @@ describe("Archived Thread lifecycle", () => {
     expect(container!.textContent).toContain("Arrived during deletion");
   });
 
-  it("selects the following Archived Thread after deleting a middle item", async () => {
+  it("keeps the remaining Archived Threads listed after deleting a middle item", async () => {
     const appState = lifecycleState(["thread-1", "thread-2"]);
     appState.threads = [
       ...(appState.threads ?? []),
@@ -3592,18 +3593,14 @@ describe("Archived Thread lifecycle", () => {
 
     await renderApp(appState, "/settings?tab=archives", [], false, [], false);
 
-    const secondaryButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent?.includes("Secondary Thread"),
-    );
-    if (!secondaryButton) throw new Error("Secondary Archived Thread was not found");
-    await click(secondaryButton);
-    await click(buttonNamed("Permanently Delete"));
+    await click(buttonNamed("Permanently delete Secondary Thread"));
     await click(buttonNamed("Delete"));
 
-    const tertiaryButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent?.includes("Tertiary Thread"),
+    expect(container!.textContent).toContain("Primary Thread");
+    expect(container!.querySelector('[aria-label="Permanently delete Secondary Thread"]')).toBe(
+      null,
     );
-    expect(tertiaryButton?.getAttribute("aria-current")).toBe("true");
+    expect(container!.textContent).toContain("Tertiary Thread");
   });
 
   it("keeps an Archived Thread when permanent cleanup fails", async () => {
@@ -3618,7 +3615,7 @@ describe("Archived Thread lifecycle", () => {
       { deleteThreadDataRequests: cleanupRequests, deleteThreadDataFails: true },
     );
 
-    await click(buttonNamed("Permanently Delete"));
+    await click(buttonNamed("Permanently delete Primary Thread"));
     await click(buttonNamed("Delete"));
 
     expect(cleanupRequests).toHaveLength(1);
@@ -3715,10 +3712,9 @@ describe("Archived Thread lifecycle", () => {
     await click(buttonNamed("More actions for Carrent"));
     await click(buttonNamed("Delete"));
 
-    expect(container!.textContent).toContain("1 Thread");
-    expect(container!.textContent).toContain('Remove "Carrent" from "Personal"');
-    expect(container!.textContent).toContain("Project files, Git state");
-    expect(container!.textContent).toContain("other Workspaces");
+    expect(container!.textContent).toContain(
+      'Remove "Carrent" from "Personal"? This permanently deletes 1 Thread.',
+    );
 
     await click(buttonNamed("Delete Project"));
 
@@ -3786,9 +3782,7 @@ describe("Archived Thread lifecycle", () => {
 
     await click(buttonNamed("Delete Workspace"));
 
-    expect(container!.textContent).toContain("1 Thread");
-    expect(container!.textContent).toContain("Project Working Directories");
-    expect(container!.textContent).toContain("other Workspaces");
+    expect(container!.textContent).toContain('Delete "Client" and permanently delete 1 Thread?');
 
     await click(buttonNamed("Delete"));
 

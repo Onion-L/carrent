@@ -117,6 +117,10 @@
     -webkit-app-region: drag;
   }
 
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+
   .drag-region button,
   .drag-region .no-drag,
   .drag-region input,

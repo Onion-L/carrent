@@ -1236,7 +1236,8 @@ export function SettingsPage() {
   const { setSelectedThreadId, deleteThread: deleteThreadContent } = useThreadContent();
   const { workspaces, projects, associations, threads, restoreThread, permanentlyDeleteThread } =
     useAppState();
-  const { autoDetectRuntimes, theme, fontSize, updateSetting } = useSettings();
+  const { autoDetectRuntimes, theme, fontSize, enhancedTerminalCompletion, updateSetting } =
+    useSettings();
   const [searchParams] = useSearchParams();
   const activeTabId = resolveSettingsTabId(searchParams.get("tab"));
   const activeTab = SETTINGS_TABS.find((tab) => tab.id === activeTabId) ?? SETTINGS_TABS[0];
@@ -1299,6 +1300,12 @@ export function SettingsPage() {
                   label="Font size"
                   value={fontSize}
                   onChange={(value) => updateSetting("fontSize", value)}
+                />
+                <Toggle
+                  label="Enhanced terminal completion"
+                  description="Show local zsh history predictions and command candidates in new Terminal Tabs"
+                  enabled={enhancedTerminalCompletion}
+                  onChange={(value) => updateSetting("enhancedTerminalCompletion", value)}
                 />
               </Section>
             ) : null}

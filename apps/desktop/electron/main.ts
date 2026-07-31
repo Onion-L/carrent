@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell, dialog, clipboard } from "electron";
-import { existsSync } from "node:fs";
+import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -53,6 +53,16 @@ import {
   createLiveRunQuitWarning,
   createLiveRunQuitWarningPreferenceStore,
 } from "./liveRunQuitWarning";
+import {
+  createTerminalSessionManager,
+  type TerminalSessionManager,
+} from "./terminal/terminalSessionManager";
+import { nodePtyAdapter } from "./terminal/nodePtyAdapter";
+import { registerTerminalIpc } from "./terminal/terminalIpc";
+import { createTerminalCompletionService } from "./terminal/completion/completionService";
+import { createTerminalHistory, parseZshHistory } from "./terminal/completion/history";
+import { readHistoryTail } from "./terminal/completion/historyFile";
+import { createZshShellIntegration } from "./terminal/completion/shellIntegration";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -65,17 +75,29 @@ function resolveIconPath() {
   return iconPath;
 }
 
+function isExecutableFile(path: string) {
+  try {
+    accessSync(path, constants.X_OK);
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
 let mainWindow: BrowserWindow | null = null;
 let appStateStore: AppStateStore | null = null;
 let chatSessionManager: ChatSessionManager | null = null;
 let waitForThreadDeletion: (() => Promise<void>) | null = null;
 let liveRunQuitWarning: ReturnType<typeof createLiveRunQuitWarning> | null = null;
+let terminalSessionManager: TerminalSessionManager | null = null;
 
 const mainWindowLifecycle = createMainWindowLifecycle({
   getMainWindow: () => mainWindow,
   isQuitting: () => appShutdown.isQuitting(),
   requestQuit: () => app.quit(),
   onRendererLoading: () => {
+    const ownerId = mainWindow?.webContents.id;
+    if (ownerId != null) terminalSessionManager?.closeOwner(ownerId);
     void chatSessionManager?.shutdown().catch((error) => {
       console.error("[app] failed to stop Runs while reloading the Renderer", error);
     });
@@ -202,6 +224,24 @@ if (!hasSingleInstanceLock) {
     registerSkillIpc(guardedIpcMain);
     registerGitIpc(guardedIpcMain);
     registerSettingsIpc(guardedIpcMain);
+    const terminalCompletionService = createTerminalCompletionService();
+    const terminalHistory = createTerminalHistory(
+      parseZshHistory(readHistoryTail(join(app.getPath("home"), ".zsh_history"))),
+    );
+    terminalSessionManager = createTerminalSessionManager({
+      pty: nodePtyAdapter,
+      emit: (ownerId, event) => {
+        if (mainWindow?.webContents.id === ownerId && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send("terminal:event", event);
+        }
+      },
+      isExecutable: isExecutableFile,
+      history: terminalHistory,
+      complete: (input) => terminalCompletionService.complete(input),
+      createShellIntegration: (input) =>
+        createZshShellIntegration({ ...input, baseDirectory: app.getPath("temp") }),
+    });
+    registerTerminalIpc(guardedIpcMain, terminalSessionManager);
 
     const bridgeManager = createCarrentBridgeManager({
       preferenceStore: createMcpServerPreferenceStore(app.getPath("userData")),
@@ -258,6 +298,19 @@ if (!hasSingleInstanceLock) {
     guardedIpcMain.handle("clipboard:write-text", async (_event, text) => {
       if (typeof text !== "string") throw new Error("Invalid clipboard text.");
       clipboard.writeText(text);
+    });
+
+    guardedIpcMain.handle("clipboard:read-text", () => clipboard.readText());
+
+    guardedIpcMain.handle("shell:open-external", async (_event, value) => {
+      if (typeof value !== "string" || value.length > 4_096) {
+        throw new Error("Invalid external URL.");
+      }
+      const url = new URL(value);
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        throw new Error("Unsupported external URL.");
+      }
+      await shell.openExternal(url.toString());
     });
 
     const emitChatEvent = (event: unknown) => {
@@ -335,6 +388,7 @@ const appShutdown = createAppShutdown({
   reportShutdownError: (error) => console.error("[app] failed to quit safely", error),
   beforeSave: async () => {
     await chatSessionManager?.shutdown();
+    terminalSessionManager?.shutdown();
     await waitForThreadDeletion?.();
     const stagedAppState = getStagedAppStateSnapshot();
     if (stagedAppState && appStateStore) {

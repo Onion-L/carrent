@@ -27,6 +27,14 @@ import type {
 import type { RtkGainStats } from "../src/shared/rtk";
 import type { MainWindowApi } from "../src/shared/mainWindow";
 import type { ThreadActionRequest, ThreadActionResult } from "../src/shared/threadActions";
+import type {
+  CreateTerminalRequest,
+  TerminalEvent,
+  TerminalResizeRequest,
+  TerminalTab,
+  TerminalTarget,
+  TerminalWriteRequest,
+} from "../src/shared/terminal";
 
 const mainWindow: MainWindowApi = {
   onNavigate: (listener) => {
@@ -110,9 +118,32 @@ const carrent = {
       ipcRenderer.invoke("shell:open-path", filePath) as Promise<string>,
     revealPath: (filePath: string) =>
       ipcRenderer.invoke("shell:reveal-path", filePath) as Promise<void>,
+    openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url) as Promise<void>,
   },
   clipboard: {
     writeText: (text: string) => ipcRenderer.invoke("clipboard:write-text", text),
+    readText: () => ipcRenderer.invoke("clipboard:read-text") as Promise<string>,
+  },
+  terminal: {
+    list: (projectId: string) =>
+      ipcRenderer.invoke("terminal:list", projectId) as Promise<TerminalTab[]>,
+    create: (request: CreateTerminalRequest) =>
+      ipcRenderer.invoke("terminal:create", request) as Promise<TerminalTab>,
+    write: (request: TerminalWriteRequest) =>
+      ipcRenderer.invoke("terminal:write", request) as Promise<void>,
+    resize: (request: TerminalResizeRequest) =>
+      ipcRenderer.invoke("terminal:resize", request) as Promise<void>,
+    activate: (request: TerminalTarget) =>
+      ipcRenderer.invoke("terminal:activate", request) as Promise<void>,
+    close: (request: TerminalTarget) =>
+      ipcRenderer.invoke("terminal:close", request) as Promise<void>,
+    closeProject: (projectId: string) =>
+      ipcRenderer.invoke("terminal:close-project", projectId) as Promise<void>,
+    onEvent: (listener: (event: TerminalEvent) => void) => {
+      const wrapped = (_event: IpcRendererEvent, value: TerminalEvent) => listener(value);
+      ipcRenderer.on("terminal:event", wrapped);
+      return () => ipcRenderer.removeListener("terminal:event", wrapped);
+    },
   },
   appState: {
     load: () => ipcRenderer.invoke("app-state:load") as Promise<AppStateLoadResult>,

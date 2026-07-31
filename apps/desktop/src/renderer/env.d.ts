@@ -33,6 +33,7 @@ import type {
 import type { RtkGainStats } from "../shared/rtk";
 import type { MainWindowApi } from "../shared/mainWindow";
 import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
+import type { TerminalApi } from "../shared/terminal";
 
 declare global {
   interface Window {
@@ -90,10 +91,13 @@ declare global {
       shell: {
         openPath: (filePath: string) => Promise<string>;
         revealPath: (filePath: string) => Promise<void>;
+        openExternal: (url: string) => Promise<void>;
       };
       clipboard: {
         writeText: (text: string) => Promise<void>;
+        readText: () => Promise<string>;
       };
+      terminal: TerminalApi;
       appState: {
         load: () => Promise<import("../shared/workspacePersistence").AppStateLoadResult>;
         reread: () => Promise<import("../shared/workspacePersistence").AppStateLoadResult>;

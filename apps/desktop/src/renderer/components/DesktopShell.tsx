@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Search, SquareTerminal } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ThreadHistoryPane } from "./chat/ThreadHistoryPane";
 import { SettingsTabsPane } from "./settings/SettingsTabsPane";
@@ -11,6 +11,7 @@ import { useAppState } from "../context/AppStateContext";
 import { ThreadSearchDialog } from "./workspace/ThreadSearchDialog";
 import { WorkspaceSwitcher } from "./workspace/WorkspaceSwitcher";
 import { buildThreadPath } from "../lib/navigation";
+import { IntegratedTerminal } from "./terminal/IntegratedTerminal";
 
 const LEFT_SIDEBAR_WIDTH = 58;
 const MIN_SECONDARY_PANE_WIDTH = 200;
@@ -24,10 +25,24 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   const [isResizing, setIsResizing] = useState(false);
   const resizeStartRef = useRef({ x: 0, width: DEFAULT_SECONDARY_PANE_WIDTH });
   const location = useLocation();
-  const { workspaces, projects, associations, threads, activeWorkspaceId, selectWorkspace } =
-    useAppState();
+  const {
+    workspaces,
+    projects,
+    associations,
+    threads,
+    activeWorkspaceId,
+    projectDirectoryStatusById,
+    selectWorkspace,
+  } = useAppState();
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
   const [isThreadSearchOpen, setIsThreadSearchOpen] = useState(false);
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const projectRoute = location.pathname.match(/^\/workspace\/[^/]+\/project\/([^/]+)(?:\/|$)/u);
+  const currentProject = projectRoute
+    ? (projects.find((project) => project.id === decodeURIComponent(projectRoute[1])) ?? null)
+    : null;
+  const canOpenTerminal =
+    currentProject != null && projectDirectoryStatusById[currentProject.id] === "available";
   const secondaryPane =
     location.pathname === "/settings" ? (
       <SettingsTabsPane />
@@ -47,10 +62,14 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
         event.preventDefault();
         setIsThreadSearchOpen(true);
       }
+      if (event.metaKey && event.key.toLocaleLowerCase() === "j" && canOpenTerminal) {
+        event.preventDefault();
+        setIsTerminalOpen((open) => !open);
+      }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [canOpenTerminal]);
 
   const handleResizeStart = useCallback(
     (event: React.MouseEvent) => {
@@ -118,6 +137,20 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
 
           <div className="no-drag flex h-full items-center gap-1">
             <DesktopHeaderActionsSlot />
+            {canOpenTerminal ? (
+              <button
+                type="button"
+                aria-label={
+                  isTerminalOpen ? "Hide Integrated Terminal" : "Show Integrated Terminal"
+                }
+                title={isTerminalOpen ? "Hide Integrated Terminal" : "Show Integrated Terminal"}
+                aria-pressed={isTerminalOpen}
+                onClick={() => setIsTerminalOpen((open) => !open)}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
+              >
+                <SquareTerminal className="h-4 w-4" />
+              </button>
+            ) : null}
             <McpServerControl />
           </div>
         </header>
@@ -141,7 +174,12 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
               )}
 
               <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-bg">
-                {children}
+                <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+                <IntegratedTerminal
+                  project={currentProject}
+                  isOpen={isTerminalOpen && canOpenTerminal}
+                  onOpenChange={setIsTerminalOpen}
+                />
               </main>
             </div>
           </div>

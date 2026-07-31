@@ -53,6 +53,10 @@ let currentNavigationType: NavigationType | null = null;
 let testNavigate: NavigateFunction | null = null;
 let emitChatEvent: ((event: ChatRunEvent) => void) | null = null;
 let emitMainWindowNavigation: ((path: string) => void) | null = null;
+let terminalCreateRequests: import("../shared/terminal").CreateTerminalRequest[] = [];
+let terminalWriteRequests: import("../shared/terminal").TerminalWriteRequest[] = [];
+let terminalCloseProjectRequests: string[] = [];
+let emitTerminalEvent: ((event: import("../shared/terminal").TerminalEvent) => void) | null = null;
 
 function NavigationProbe() {
   const location = useLocation();
@@ -90,6 +94,7 @@ function installBridge(
 ) {
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
   let saveAttempt = 0;
+  const terminalTabsByProject = new Map<string, import("../shared/terminal").TerminalTab[]>();
   const loadedAppState = appState ?? emptyAppState;
   const saveAppState = async (snapshot: AppStateSnapshot) => {
     saveAttempt += 1;
@@ -126,9 +131,67 @@ function installBridge(
     shell: {
       openPath: async () => "",
       revealPath: async () => {},
+      openExternal: async () => {},
     },
     clipboard: {
       writeText: async () => {},
+      readText: async () => "",
+    },
+    terminal: {
+      list: async (projectId: string) =>
+        structuredClone(terminalTabsByProject.get(projectId) ?? []),
+      create: async (request: import("../shared/terminal").CreateTerminalRequest) => {
+        terminalCreateRequests.push(structuredClone(request));
+        const existing = terminalTabsByProject.get(request.projectId) ?? [];
+        const tab = {
+          id: `terminal-${terminalCreateRequests.length}`,
+          projectId: request.projectId,
+          title:
+            existing.length === 0
+              ? request.projectName
+              : `${request.projectName} ${existing.length + 1}`,
+          active: true,
+          status: "running" as const,
+          enhancedCompletion: request.enhancedCompletion,
+        };
+        terminalTabsByProject.set(request.projectId, [
+          ...existing.map((item) => ({ ...item, active: false })),
+          tab,
+        ]);
+        return structuredClone(tab);
+      },
+      write: async (request: import("../shared/terminal").TerminalWriteRequest) => {
+        terminalWriteRequests.push(structuredClone(request));
+      },
+      resize: async () => {},
+      activate: async ({ projectId, terminalId }: import("../shared/terminal").TerminalTarget) => {
+        terminalTabsByProject.set(
+          projectId,
+          (terminalTabsByProject.get(projectId) ?? []).map((tab) => ({
+            ...tab,
+            active: tab.id === terminalId,
+          })),
+        );
+      },
+      close: async ({ projectId, terminalId }: import("../shared/terminal").TerminalTarget) => {
+        const remaining = (terminalTabsByProject.get(projectId) ?? []).filter(
+          (tab) => tab.id !== terminalId,
+        );
+        if (remaining.length > 0 && !remaining.some((tab) => tab.active)) {
+          remaining[remaining.length - 1] = { ...remaining.at(-1)!, active: true };
+        }
+        terminalTabsByProject.set(projectId, remaining);
+      },
+      closeProject: async (projectId: string) => {
+        terminalCloseProjectRequests.push(projectId);
+        terminalTabsByProject.delete(projectId);
+      },
+      onEvent: (listener: (event: import("../shared/terminal").TerminalEvent) => void) => {
+        emitTerminalEvent = listener;
+        return () => {
+          if (emitTerminalEvent === listener) emitTerminalEvent = null;
+        };
+      },
     },
     runtimes: {
       list: async () => [
@@ -449,6 +512,10 @@ afterEach(async () => {
   testNavigate = null;
   emitChatEvent = null;
   emitMainWindowNavigation = null;
+  terminalCreateRequests = [];
+  terminalWriteRequests = [];
+  terminalCloseProjectRequests = [];
+  emitTerminalEvent = null;
 });
 
 describe("Workspace App State foundation", () => {
@@ -3082,6 +3149,7 @@ describe("Project Working Directory recovery", () => {
     await click(buttonNamed("Relocate Directory"));
 
     expect(relocations).toEqual([{ projectId: "project-1", targetDirectory: "/new/carrent" }]);
+    expect(terminalCloseProjectRequests).toEqual(["project-1"]);
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");
     expect(currentNavigationType).toBe("REPLACE");
     expect(container!.querySelector("[data-composer-editor='true']")).not.toBe(null);
@@ -3521,6 +3589,7 @@ describe("Archived Thread lifecycle", () => {
     expect(saved.at(-1)?.threads?.map((thread) => thread.id)).toEqual(["thread-2"]);
     expect(saved.at(-1)?.threadMessages).toEqual([]);
     expect(saved.at(-1)?.threadRuns).toEqual([]);
+    expect(terminalCloseProjectRequests).toEqual([]);
     expect(container!.textContent).toContain("Secondary Thread");
   });
 
@@ -3944,6 +4013,294 @@ describe("Archived Thread lifecycle", () => {
     expect(cleanupRequests).toEqual([{ threadIds: [], attachmentStorageKeys: [] }]);
     expect(saved.at(-1)?.projects).toEqual([]);
     expect(saved.at(-1)?.associations).toEqual([]);
+    expect(terminalCloseProjectRequests).toEqual(["project-1"]);
     expect(currentPathname).toBe("/workspace/workspace-1");
+  });
+});
+
+describe("Integrated Terminal", () => {
+  const projectState: AppStateSnapshot = {
+    version: 1,
+    workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+    projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+    associations: [
+      {
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        order: 0,
+        defaultRuntimeId: "kimi",
+        defaultRuntimeMode: "approval-required",
+      },
+    ],
+    threads: [],
+    threadDrafts: [],
+    threadMessages: [],
+    threadRuns: [],
+    threadPromotionIntents: [],
+    lastThreadIdByWorkspace: {},
+    activeWorkspaceId: "workspace-1",
+  };
+
+  it("starts closed and creates the first Terminal Tab only when opened", async () => {
+    await renderApp(projectState, "/workspace/workspace-1/project/project-1");
+
+    expect(terminalCreateRequests).toHaveLength(0);
+    const toggle = buttonNamed("Show Integrated Terminal");
+    expect(
+      container!
+        .querySelector('section[aria-label="Integrated Terminal"]')
+        ?.classList.contains("hidden"),
+    ).toBe(true);
+
+    await click(toggle);
+
+    expect(terminalCreateRequests).toEqual([
+      {
+        projectId: "project-1",
+        projectName: "Carrent",
+        workingDirectory: "/code/carrent",
+        enhancedCompletion: true,
+      },
+    ]);
+    expect(
+      container!
+        .querySelector('section[aria-label="Integrated Terminal"]')
+        ?.classList.contains("hidden"),
+    ).toBe(false);
+
+    await act(async () => {
+      emitTerminalEvent?.({
+        type: "output",
+        projectId: "project-1",
+        terminalId: "terminal-1",
+        data: "visible terminal output\r\n",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(container!.querySelector(".xterm-rows")?.textContent).toContain(
+      "visible terminal output",
+    );
+
+    await act(async () => {
+      window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "j", metaKey: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container!
+        .querySelector('section[aria-label="Integrated Terminal"]')
+        ?.classList.contains("hidden"),
+    ).toBe(true);
+    await act(async () => {
+      window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "j", metaKey: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(terminalCreateRequests).toHaveLength(1);
+
+    await act(async () => {
+      emitTerminalEvent?.({
+        type: "completion",
+        projectId: "project-1",
+        terminalId: "terminal-1",
+        commandLine: "git sw",
+        cursor: 6,
+        predictionSuffix: "itch main",
+        candidates: [],
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container!.textContent).toContain("itch main");
+
+    await act(async () => {
+      emitTerminalEvent?.({
+        type: "completion",
+        projectId: "project-1",
+        terminalId: "terminal-1",
+        commandLine: "git switch",
+        cursor: 6,
+        predictionSuffix: "",
+        candidates: Array.from({ length: 13 }, (_, index) => ({
+          label: index === 0 ? "switch" : `switch-${index}`,
+          insertText: index === 0 ? "switch" : `switch-${index}`,
+          description: "Switch branches",
+          kind: "command" as const,
+          replacement: { start: 4, end: 10 },
+        })),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container!.querySelector('[role="listbox"]')?.textContent).toContain("switch");
+    expect(container!.querySelectorAll('[role="option"]')).toHaveLength(12);
+    const terminalInput = container!.querySelector<HTMLElement>(".xterm-helper-textarea")!;
+    await act(async () => {
+      terminalInput.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container!.querySelector('[role="listbox"]')?.getAttribute("aria-activedescendant"),
+    ).toBe("terminal-candidate-11");
+    await click(container!.querySelector<HTMLButtonElement>('[role="option"]')!);
+    expect(terminalWriteRequests).toEqual([
+      {
+        projectId: "project-1",
+        terminalId: "terminal-1",
+        data: "\u007f\u007f\u001b[3~\u001b[3~\u001b[3~\u001b[3~switch",
+      },
+    ]);
+  });
+
+  it("hides the action when the Project Working Directory is unavailable", async () => {
+    await renderApp(
+      projectState,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      false,
+      [],
+      false,
+      { projectDirectoryAvailable: false },
+    );
+
+    expect(
+      [...container!.querySelectorAll("button")].some(
+        (button) => button.getAttribute("aria-label") === "Show Integrated Terminal",
+      ),
+    ).toBe(false);
+    await act(async () => {
+      window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "j", metaKey: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(terminalCreateRequests).toHaveLength(0);
+  });
+
+  it("creates multiple Terminal Tabs and hides after closing the final Tab", async () => {
+    await renderApp(projectState, "/workspace/workspace-1/project/project-1");
+    await click(buttonNamed("Show Integrated Terminal"));
+    await click(buttonNamed("New Terminal Tab"));
+
+    expect(terminalCreateRequests).toHaveLength(2);
+    expect(container!.querySelectorAll('[role="tablist"] [role="tab"]')).toHaveLength(2);
+
+    const closeButtons = [
+      ...container!.querySelectorAll<HTMLButtonElement>('button[title="Close Terminal Tab"]'),
+    ];
+    await click(closeButtons[1]);
+    expect(container!.querySelectorAll('[role="tablist"] [role="tab"]')).toHaveLength(1);
+    await click(container!.querySelector<HTMLButtonElement>('button[title="Close Terminal Tab"]')!);
+
+    expect(
+      container!
+        .querySelector('section[aria-label="Integrated Terminal"]')
+        ?.classList.contains("hidden"),
+    ).toBe(true);
+    await click(buttonNamed("Show Integrated Terminal"));
+    expect(terminalCreateRequests).toHaveLength(3);
+  });
+
+  it("keeps terminal output isolated while navigating between Projects", async () => {
+    const twoProjectState: AppStateSnapshot = {
+      ...projectState,
+      projects: [
+        ...projectState.projects,
+        { id: "project-2", name: "Other", workingDirectory: "/code/other" },
+      ],
+      associations: [
+        ...projectState.associations,
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-2",
+          order: 1,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+    };
+    await renderApp(twoProjectState, "/workspace/workspace-1/project/project-1");
+    await click(buttonNamed("Show Integrated Terminal"));
+    await act(async () => {
+      emitTerminalEvent?.({
+        type: "output",
+        projectId: "project-1",
+        terminalId: "terminal-1",
+        data: "project-one-output\r\n",
+      });
+      testNavigate?.("/workspace/workspace-1/project/project-2");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(terminalCreateRequests.map((request) => request.projectId)).toEqual([
+      "project-1",
+      "project-2",
+    ]);
+    expect(container!.querySelector('[role="tab"]')?.textContent).toContain("Other");
+    await act(async () => {
+      emitTerminalEvent?.({
+        type: "output",
+        projectId: "project-2",
+        terminalId: "terminal-2",
+        data: "project-two-output\r\n",
+      });
+      testNavigate?.("/workspace/workspace-1/project/project-1");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(terminalCreateRequests).toHaveLength(2);
+    expect(container!.querySelector('[role="tab"]')?.textContent).toContain("Carrent");
+    expect(container!.querySelector('[aria-label="Carrent"] .xterm-rows')?.textContent).toContain(
+      "project-one-output",
+    );
+    expect(
+      container!.querySelector('[aria-label="Carrent"] .xterm-rows')?.textContent,
+    ).not.toContain("project-two-output");
+  });
+
+  it("supports dynamic titles, focused search, and the terminal context menu", async () => {
+    await renderApp(projectState, "/workspace/workspace-1/project/project-1");
+    await click(buttonNamed("Show Integrated Terminal"));
+    await act(async () => {
+      emitTerminalEvent?.({
+        type: "title",
+        projectId: "project-1",
+        terminalId: "terminal-1",
+        title: "remote host",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container!.querySelector('[role="tab"]')?.textContent).toContain("remote host");
+
+    const terminalInput = container!.querySelector<HTMLElement>(".xterm-helper-textarea")!;
+    await act(async () => {
+      terminalInput.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "f", metaKey: true, bubbles: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container!.querySelector('input[aria-label="Search terminal output"]') != null).toBe(
+      true,
+    );
+    expect(terminalWriteRequests).toEqual([]);
+
+    const section = container!.querySelector<HTMLElement>(
+      'section[aria-label="Integrated Terminal"]',
+    )!;
+    await act(async () => {
+      section.dispatchEvent(
+        new window.MouseEvent("contextmenu", {
+          bubbles: true,
+          clientX: 20,
+          clientY: 20,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const menuItems = container!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
+    expect([...menuItems].map((item) => item.textContent)).toEqual([
+      "Copy",
+      "Paste",
+      "Select All",
+      "Clear",
+      "Terminate Current Terminal",
+    ]);
+    expect(menuItems[0].disabled).toBe(true);
   });
 });

@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { runtimeIds, type RuntimeId } from "../../shared/runtimes";
+import { MAX_TERMINAL_PANEL_HEIGHT, MIN_TERMINAL_PANEL_HEIGHT } from "../../shared/terminal";
 import { getFontSizeCssVariables, normalizeFontSize } from "../lib/fontSize";
 
 export type Theme = "dark" | "light" | "system";
@@ -17,6 +18,8 @@ export type Settings = {
   autoDetectRuntimes: boolean;
   theme: Theme;
   fontSize: FontSize;
+  enhancedTerminalCompletion: boolean;
+  terminalPanelHeight: number;
   runtimeEnabledById: Partial<Record<RuntimeId, boolean>>;
   runtimeDefaultModelById: Partial<Record<RuntimeId, string>>;
 };
@@ -30,6 +33,8 @@ const defaultSettings: Settings = {
   autoDetectRuntimes: true,
   theme: "dark",
   fontSize: 14,
+  enhancedTerminalCompletion: true,
+  terminalPanelHeight: 320,
   runtimeEnabledById: {},
   runtimeDefaultModelById: {},
 };
@@ -80,6 +85,15 @@ function loadSettings(): Settings {
       autoDetectRuntimes: parsed.autoDetectRuntimes ?? defaultSettings.autoDetectRuntimes,
       theme,
       fontSize,
+      enhancedTerminalCompletion:
+        parsed.enhancedTerminalCompletion ?? defaultSettings.enhancedTerminalCompletion,
+      terminalPanelHeight:
+        typeof parsed.terminalPanelHeight === "number"
+          ? Math.max(
+              MIN_TERMINAL_PANEL_HEIGHT,
+              Math.min(MAX_TERMINAL_PANEL_HEIGHT, parsed.terminalPanelHeight),
+            )
+          : defaultSettings.terminalPanelHeight,
       runtimeEnabledById: normalizeRuntimeEnabledById(parsed.runtimeEnabledById),
       runtimeDefaultModelById: normalizeRuntimeDefaultModelById(parsed.runtimeDefaultModelById),
     };

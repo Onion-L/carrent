@@ -15,7 +15,9 @@ declare module "bun:test" {
     toEqual(expected: unknown): void;
     toHaveLength(expected: number): void;
     toContain(expected: string): void;
+    toContainEqual(expected: unknown): void;
     toMatchObject(expected: unknown): void;
+    toThrow(expected?: unknown): void;
     toBeString(): void;
     toBeLessThan(expected: number): void;
     not: Matchers<T>;

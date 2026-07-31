@@ -734,6 +734,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           projectId,
           targetDirectory,
         });
+        await window.carrent.terminal.closeProject(projectId);
         const normalized = normalizeAppStateSnapshot(result.appState);
         if (!normalized) throw new Error("Project relocation returned invalid App State.");
         snapshotRef.current = normalized;
@@ -1344,6 +1345,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           snapshotRef.current,
           affectedThreadIds,
           scope,
+        );
+        const remainingProjectIds = new Set(committed.projects.map((project) => project.id));
+        await Promise.all(
+          current.projects
+            .filter((project) => !remainingProjectIds.has(project.id))
+            .map((project) => window.carrent.terminal.closeProject(project.id)),
         );
         snapshotRef.current = committed;
         setSnapshot(committed);

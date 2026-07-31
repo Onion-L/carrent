@@ -2805,7 +2805,7 @@ export function Composer(props: ComposerProps) {
   if (threadQuestion) {
     return (
       <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"}>
-        <div className="relative mx-auto w-full max-w-[48rem]">
+        <div className="relative mx-auto w-full max-w-[56rem]">
           {runChecklistPanel}
           <QuestionPanel key={threadQuestion.id} question={threadQuestion} />
         </div>
@@ -2815,7 +2815,7 @@ export function Composer(props: ComposerProps) {
 
   return (
     <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"}>
-      <div className="relative mx-auto w-full max-w-[48rem]" aria-busy={isSessionStatusLoading}>
+      <div className="relative mx-auto w-full max-w-[56rem]" aria-busy={isSessionStatusLoading}>
         {runChecklistPanel}
         {sessionStatusSnapshot ? (
           <SessionStatusPanel

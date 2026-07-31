@@ -326,9 +326,11 @@ function RuntimeStatusPanel() {
   const sortedRuntimes = [...runtimes].sort((a, b) => a.name.localeCompare(b.name));
   const kimiRuntime = sortedRuntimes.find((runtime) => runtime.id === "kimi");
   const canCheckKimi = kimiRuntime ? canCheckKimiConnection(kimiRuntime) : false;
-  const { loading: kimiModelsLoading, refresh: refreshRuntimeModels } = useRuntimeModels(
-    canCheckKimi ? "kimi" : null,
-  );
+  const {
+    loading: kimiModelsLoading,
+    error: kimiModelsError,
+    refresh: refreshRuntimeModels,
+  } = useRuntimeModels(canCheckKimi ? "kimi" : null);
 
   async function handleCheck(runtime: RuntimeRecord) {
     if (runtime.id === "kimi" && canCheckKimiConnection(runtime)) {
@@ -368,6 +370,7 @@ function RuntimeStatusPanel() {
                     {getRuntimeVersionLabel(runtime)}
                   </div>
                   <KimiCliSetupNotice runtime={runtime} />
+                  <KimiConnectionCheckError runtimeId={runtime.id} error={kimiModelsError} />
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                   <button
@@ -406,6 +409,24 @@ export function canCheckKimiConnection(
     runtime.id === "kimi" &&
     runtime.availability === "detected" &&
     runtime.configuration === "configured"
+  );
+}
+
+export function KimiConnectionCheckError({
+  runtimeId,
+  error,
+}: {
+  runtimeId: RuntimeRecord["id"];
+  error?: string;
+}) {
+  if (runtimeId !== "kimi" || !error) {
+    return null;
+  }
+
+  return (
+    <p role="alert" className="mt-1 break-words text-app-11 text-danger">
+      {error}
+    </p>
   );
 }
 

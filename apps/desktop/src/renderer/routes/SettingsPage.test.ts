@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  KimiConnectionCheckError,
   KimiCliSetupNotice,
   canCheckKimiConnection,
   formatGlobalAgentInstructionsSize,
@@ -64,6 +65,30 @@ describe("Kimi CLI setup guidance", () => {
 
     expect(getRuntimeVersionLabel(runtime)).toBe("1.2.3");
     expect(renderToStaticMarkup(createElement(KimiCliSetupNotice, { runtime }))).toBe("");
+  });
+});
+
+describe("Kimi connection check", () => {
+  it("shows the model-list error when Kimi is no longer signed in", () => {
+    const markup = renderToStaticMarkup(
+      createElement(KimiConnectionCheckError, {
+        runtimeId: "kimi",
+        error: "Authentication required. Run `kimi login`.",
+      }),
+    );
+
+    expect(markup).toContain("Authentication required. Run `kimi login`.");
+  });
+
+  it("does not show another runtime's model-list error", () => {
+    const markup = renderToStaticMarkup(
+      createElement(KimiConnectionCheckError, {
+        runtimeId: "pi",
+        error: "Authentication required.",
+      }),
+    );
+
+    expect(markup).toBe("");
   });
 });
 

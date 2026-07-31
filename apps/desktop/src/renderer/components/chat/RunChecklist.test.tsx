@@ -5,6 +5,7 @@ import "../../test/registerHappyDom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
+import { $createParagraphNode, $createTextNode, $getRoot, type LexicalEditor } from "lexical";
 
 import type { ThreadRunChecklist } from "../../../shared/runChecklist";
 import type { ChatRunEvent } from "../../../shared/chat";
@@ -163,18 +164,31 @@ async function rerenderComposer(threadId: string) {
   });
 }
 
+function getLexicalEditor() {
+  const editorText = container!.querySelector<HTMLElement>("[data-composer-text='true']")!;
+  return (editorText as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+}
+
+async function typeComposerText(message: string) {
+  const editorText = container!.querySelector<HTMLElement>("[data-composer-text='true']")!;
+  await act(async () => {
+    getLexicalEditor().update(() => {
+      const rootNode = $getRoot();
+      rootNode.clear();
+      const paragraph = $createParagraphNode();
+      const textNode = $createTextNode(message);
+      paragraph.append(textNode);
+      rootNode.append(paragraph);
+      textNode.select();
+    });
+    editorText.focus();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 async function submitComposerMessage(message: string, runId: string) {
   nextRunId = runId;
-  const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
-  const editorText = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
-  await act(async () => {
-    editorText.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
-    editorText.textContent = message;
-    editorText.dispatchEvent(
-      new window.InputEvent("input", { bubbles: true, inputType: "insertText" }),
-    );
-    editorText.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "k" }));
-  });
+  await typeComposerText(message);
   const sendButton = container!.querySelector<SVGElement>(".lucide-arrow-up")?.closest("button");
   expect(sendButton?.disabled).toBe(false);
   await act(async () => {
@@ -298,16 +312,7 @@ describe("RunChecklist", () => {
     expect(container!.textContent).not.toContain("Implement the checklist");
     await rerenderComposer("thread-1");
 
-    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
-    const editorText = editor.querySelector<HTMLElement>("[data-composer-text='true']")!;
-    await act(async () => {
-      editorText.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
-      editorText.textContent = "Continue the work";
-      editorText.dispatchEvent(
-        new window.InputEvent("input", { bubbles: true, inputType: "insertText" }),
-      );
-      editorText.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "k" }));
-    });
+    await typeComposerText("Continue the work");
     expect(container!.textContent).toContain("Implement the checklist");
 
     const sendButton = container!.querySelector<SVGElement>(".lucide-arrow-up")?.closest("button");

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { getMenuPosition } from "./ContextMenu";
 import {
-  getThreadMenuPosition,
   ThreadContextMenuContent,
   type ThreadContextMenuContentProps,
 } from "./ThreadContextMenu";
@@ -24,24 +24,16 @@ function renderMenu(overrides: Partial<ThreadContextMenuContentProps> = {}) {
   );
 }
 
-describe("getThreadMenuPosition", () => {
+describe("getMenuPosition", () => {
   it("keeps the menu inside the viewport", () => {
     expect(
-      getThreadMenuPosition(
-        { x: 295, y: 195 },
-        { width: 120, height: 80 },
-        { width: 300, height: 200 },
-      ),
+      getMenuPosition({ x: 295, y: 195 }, { width: 120, height: 80 }, { width: 300, height: 200 }),
     ).toEqual({ left: 172, top: 112 });
   });
 
   it("preserves the viewport margin at the top-left", () => {
     expect(
-      getThreadMenuPosition(
-        { x: 0, y: 0 },
-        { width: 120, height: 80 },
-        { width: 300, height: 200 },
-      ),
+      getMenuPosition({ x: 0, y: 0 }, { width: 120, height: 80 }, { width: 300, height: 200 }),
     ).toEqual({ left: 8, top: 8 });
   });
 });

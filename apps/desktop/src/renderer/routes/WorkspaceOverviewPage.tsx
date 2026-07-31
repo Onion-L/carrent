@@ -7,34 +7,26 @@ import { AddProjectButton } from "../components/workspace/AddProjectButton";
 import { useAppState } from "../context/AppStateContext";
 import { useNavigate } from "react-router-dom";
 import { getWorkspaceProjects } from "../lib/workspaceProjects";
-import { useThreadContent } from "../context/ThreadContentContext";
+import {
+  getWorkspaceDeleteBlockedReason,
+  useDeleteWorkspace,
+} from "../hooks/useDeleteWorkspace";
 import { useChatRun } from "../hooks/useChatRun";
-import { useToast } from "../components/toast/ToastContext";
 
 export function WorkspaceOverviewPage() {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
-  const {
-    activeWorkspaceId,
-    workspaces,
-    projects,
-    associations,
-    threads,
-    renameWorkspace,
-    selectWorkspace,
-    deleteWorkspace,
-    setDeletionNavigation,
-  } = useAppState();
-  const { deleteThreads } = useThreadContent();
+  const { activeWorkspaceId, workspaces, projects, associations, threads, renameWorkspace, selectWorkspace } =
+    useAppState();
   const { runningThreadIds } = useChatRun();
-  const { showToast } = useToast();
+  const deleteWorkspaceWithNavigation = useDeleteWorkspace();
   const [isRenaming, setIsRenaming] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const workspace = workspaces.find((item) => item.id === workspaceId);
   const workspaceProjects = getWorkspaceProjects(projects, associations, workspaceId);
-  const hasAffectedLiveRun = threads.some(
-    (thread) => thread.workspaceId === workspace?.id && runningThreadIds.includes(thread.id),
-  );
+  const deleteBlockedReason = workspace
+    ? getWorkspaceDeleteBlockedReason(threads, runningThreadIds, workspace.id)
+    : null;
 
   useEffect(() => {
     if (!workspace || workspace.id === activeWorkspaceId) return;
@@ -49,36 +41,8 @@ export function WorkspaceOverviewPage() {
 
   const handleDeleteWorkspace = async () => {
     setConfirmingDelete(false);
-    const orderedWorkspaces = [...workspaces].sort((left, right) => left.order - right.order);
-    const workspaceIndex = orderedWorkspaces.findIndex((item) => item.id === workspace.id);
-    const nextWorkspace =
-      orderedWorkspaces[workspaceIndex + 1] ?? orderedWorkspaces[workspaceIndex - 1] ?? null;
-    let deleted = false;
-    let deletionError: string | null = null;
-    // Deleting the open Workspace briefly leaves this route stale; the route
-    // guard would otherwise report it as missing. This flow navigates itself.
-    setDeletionNavigation({ sourcePath: `/workspace/${workspace.id}` });
-    try {
-      deleted = await deleteWorkspace(workspace.id, (threadIds, snapshots) =>
-        deleteThreads(threadIds, snapshots),
-      );
-    } catch (error) {
-      console.error("[workspaces] deletion rollback failed", error);
-      deletionError = error instanceof Error ? error.message : String(error);
-    }
-    if (!deleted) {
-      setDeletionNavigation(null);
-      setConfirmingDelete(true);
-      showToast(
-        deletionError
-          ? `Workspace could not be deleted: ${deletionError}`
-          : "Workspace could not be deleted.",
-        "error",
-      );
-      return;
-    }
-    showToast(`Workspace "${workspace.name}" deleted.`, "success");
-    navigate(nextWorkspace ? `/workspace/${nextWorkspace.id}` : "/");
+    const deleted = await deleteWorkspaceWithNavigation(workspace.id);
+    if (!deleted) setConfirmingDelete(true);
   };
 
   return (
@@ -95,8 +59,8 @@ export function WorkspaceOverviewPage() {
             </button>
             <button
               type="button"
-              disabled={hasAffectedLiveRun}
-              title={hasAffectedLiveRun ? "Stop the affected live Run before deleting" : undefined}
+              disabled={deleteBlockedReason !== null}
+              title={deleteBlockedReason ?? undefined}
               onClick={() => setConfirmingDelete(true)}
               className="min-h-8 rounded-md border border-danger/50 px-3 text-app-12 font-medium text-danger hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40"
             >

@@ -9,12 +9,12 @@ A durable, user-visible top-level Carrent object with a stable identity and non-
 _Avoid_: Project directory, working directory, app state snapshot, window
 
 **App State Snapshot**:
-The app-owned persisted representation used to restore Carrent state across launches.
+The app-owned persisted representation used to restore shared Carrent application data across launches. Carrent Windows present the same application data rather than keeping window-specific copies.
 _Avoid_: Workspace
 
-**Main Window**:
-The single user-visible top-level Carrent window that owns the current route, selection, and browsing history for Workspace, Project, Thread, and Settings views. Carrent reuses it for repeated launches and deep links. On macOS, closing it hides Carrent while explicit Quit ends the app and any live Runs; on other platforms, closing it exits the app.
-_Avoid_: Workspace, Settings window, background runner
+**Carrent Window**:
+One of the peer user-visible top-level windows that owns only its current route, selection, browsing history, and presentation state for Workspace, Project, Thread, and Settings views. Every Carrent Window provides complete application navigation while presenting the same shared Carrent application data.
+_Avoid_: Main Window, Workspace, Settings window, auxiliary window
 
 **Project Working Directory**:
 The local filesystem directory used as the coding agent's working directory for project-scoped runs.
@@ -24,20 +24,28 @@ _Avoid_: Workspace, Project
 A durable Carrent object with a stable identity and shared, user-editable name that references one Project Working Directory without owning or relocating it. Its default name is the directory name. A Project is associated with one or more Workspaces and may be shared by them; importing the same Project Working Directory into another Workspace reuses the Project, while separate directory clones are separate Projects. It has no global deletion operation; removing its final Association removes its Carrent record. It does not require a Git repository and remains the same object when its directory is moved, renamed, or temporarily unavailable. Carrent detects whether the recorded path is available but never searches for, guesses, or automatically adopts a replacement; only an explicit user relocation can change the directory reference, and not while any Thread for that Project has a live Run.
 _Avoid_: Workspace, Project Working Directory, repository
 
+**Terminal Tab**:
+A Project-owned interactive shell process and its terminal presentation, retained in memory for the Carrent process lifetime. A Project's Terminal Tabs are shared across every Carrent Window and Workspace-Project Association showing that Project.
+_Avoid_: Runtime Session, window terminal, persisted terminal
+
 **Workspace-Project Association**:
 The relationship that makes one Project available inside one Workspace. It stores Workspace-specific presentation, including an optional display alias used by in-Workspace rename actions, and defaults for that Project without changing the Project's identity or affecting the same Project in other Workspaces. Clearing the alias restores the shared Project name. Removing it permanently deletes the Threads and Thread Draft scoped to that Workspace-Project pair after a confirmation, but is blocked while any affected Thread has a live Run.
 _Avoid_: Project copy, Project ownership, nested Project
 
 **Thread Draft**:
-A recoverable composition that is scoped to exactly one existing Workspace-Project Association but has not yet become a Thread. It stores unsent content, attachments, and selected run configuration; each Association has at most one. Sending its first message creates a Thread fixed to the same Workspace and Project. A Thread Draft is excluded from Thread lists, search, recent activity, and archives. It never blocks removal of its Association or Workspace; either operation discards the draft and its unsent attachment snapshots.
+A recoverable composition that is scoped to exactly one existing Workspace-Project Association but has not yet become a Thread. It stores unsent content, attachments, and selected run configuration; each Association has at most one shared across all Carrent Windows. Sending its first message creates the Thread everywhere. A Thread Draft is excluded from Thread lists, search, recent activity, and archives. It never blocks removal of its Association or Workspace; either operation discards the draft and its unsent attachment snapshots.
 _Avoid_: Draft Thread, projectless Thread, empty Thread
+
+**Thread Composer State**:
+The recoverable unsent content, attachments, and selected run configuration for an existing Thread. A Thread has one shared Thread Composer State that is presented and edited consistently in every Carrent Window showing that Thread.
+_Avoid_: Thread Draft, window draft, local composer state
 
 **Coding Agent**:
 An agent that can work inside a local project by reading files, editing files, running shell commands, and continuing work across a thread.
 _Avoid_: Chat agent, chatbot, model
 
 **Thread**:
-A Carrent-owned conversation with an automatically generated, user-editable title that belongs to exactly one Workspace and one Project whose association already exists. Both relationships are fixed when the Thread is created. Carrent preserves its user-visible history across runs and Runtime changes; projectless General Chat is not a Thread in the target model.
+A Carrent-owned conversation with an automatically generated, user-editable title that belongs to exactly one Workspace and one Project whose association already exists. Both relationships are fixed when the Thread is created. A Thread may be open in multiple Carrent Windows, which present the same shared messages, Run state, and pending interactions. Carrent preserves its user-visible history across runs and Runtime changes; projectless General Chat is not a Thread in the target model.
 _Avoid_: Session, chat
 
 **Archived Thread**:
@@ -53,7 +61,7 @@ A replaceable, Runtime-specific continuity handle associated with a Carrent Thre
 _Avoid_: Thread, Carrent session
 
 **Run**:
-One execution of a coding agent in a thread, beginning with a user request and ending in completion, failure, or cancellation.
+One execution of a coding agent in a thread, beginning with a user request and ending in completion, failure, or cancellation. A Run is shared application state and may be observed or controlled from any Carrent Window showing its Thread.
 _Avoid_: Thread, runtime session, message
 
 **Run Checklist**:

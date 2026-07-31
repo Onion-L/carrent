@@ -4173,6 +4173,32 @@ describe("Integrated Terminal", () => {
     expect(terminalCreateRequests).toHaveLength(0);
   });
 
+  it("maximizes the terminal across the main content area and restores its panel height", async () => {
+    await renderApp(projectState, "/workspace/workspace-1/project/project-1");
+    await click(buttonNamed("Show Integrated Terminal"));
+    const section = container!.querySelector<HTMLElement>(
+      'section[aria-label="Integrated Terminal"]',
+    )!;
+
+    expect(section.style.height).toBe("320px");
+    await click(buttonNamed("Maximize Integrated Terminal"));
+    expect(section.classList.contains("absolute")).toBe(true);
+    expect(section.classList.contains("inset-0")).toBe(true);
+    expect(section.style.height).toBe("");
+    expect(section.querySelector('[aria-label="Resize Integrated Terminal"]') == null).toBe(true);
+
+    await click(buttonNamed("Restore Integrated Terminal"));
+    expect(section.classList.contains("absolute")).toBe(false);
+    expect(section.style.height).toBe("320px");
+    expect(section.querySelector('[aria-label="Resize Integrated Terminal"]') != null).toBe(true);
+
+    await click(buttonNamed("Maximize Integrated Terminal"));
+    await click(buttonNamed("Hide Integrated Terminal"));
+    await click(buttonNamed("Show Integrated Terminal"));
+    expect(section.classList.contains("absolute")).toBe(false);
+    expect(buttonNamed("Maximize Integrated Terminal")).toBeDefined();
+  });
+
   it("creates multiple Terminal Tabs and hides after closing the final Tab", async () => {
     await renderApp(projectState, "/workspace/workspace-1/project/project-1");
     await click(buttonNamed("Show Integrated Terminal"));
@@ -4180,6 +4206,9 @@ describe("Integrated Terminal", () => {
 
     expect(terminalCreateRequests).toHaveLength(2);
     expect(container!.querySelectorAll('[role="tablist"] [role="tab"]')).toHaveLength(2);
+    expect(
+      container!.querySelectorAll('[role="tablist"] [role="tab"] .lucide-square-terminal'),
+    ).toHaveLength(2);
 
     const closeButtons = [
       ...container!.querySelectorAll<HTMLButtonElement>('button[title="Close Terminal Tab"]'),

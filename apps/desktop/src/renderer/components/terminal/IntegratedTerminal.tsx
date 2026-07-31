@@ -5,7 +5,16 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
-import { ChevronDown, ChevronUp, Plus, Search, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Maximize2,
+  Minimize2,
+  Plus,
+  Search,
+  SquareTerminal,
+  X,
+} from "lucide-react";
 
 import type { AppProjectRecord } from "../../../shared/workspacePersistence";
 import {
@@ -238,6 +247,7 @@ export function IntegratedTerminal({
   const [tabsByProject, setTabsByProject] = useState<Record<string, TerminalTab[]>>({});
   const [loadingProjectId, setLoadingProjectId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [completionByTerminal, setCompletionByTerminal] = useState<
@@ -372,6 +382,10 @@ export function IntegratedTerminal({
   }, [isOpen, project]);
 
   useEffect(() => {
+    if (!isOpen) setIsMaximized(false);
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen || !activeTab) return;
     const timer = window.setTimeout(() => {
       const controller = controllers.current.get(activeTab.id);
@@ -481,23 +495,25 @@ export function IntegratedTerminal({
   return (
     <section
       aria-label="Integrated Terminal"
-      className={`relative shrink-0 overflow-hidden border-t border-border bg-[#151514] ${
+      className={`${isMaximized ? "absolute inset-0 z-30" : "relative shrink-0 border-t"} overflow-hidden border-border bg-[#151514] ${
         isOpen && project ? "" : "hidden"
       }`}
-      style={{ height: panelHeight }}
+      style={isMaximized ? undefined : { height: panelHeight }}
       onContextMenu={(event) => {
         if (!activeTab) return;
         event.preventDefault();
         setContextMenu({ x: event.clientX, y: event.clientY, terminalId: activeTab.id });
       }}
     >
-      <div
-        role="separator"
-        aria-label="Resize Integrated Terminal"
-        aria-orientation="horizontal"
-        onMouseDown={beginResize}
-        className="absolute inset-x-0 top-0 z-20 h-1 cursor-row-resize hover:bg-border-strong"
-      />
+      {!isMaximized ? (
+        <div
+          role="separator"
+          aria-label="Resize Integrated Terminal"
+          aria-orientation="horizontal"
+          onMouseDown={beginResize}
+          className="absolute inset-x-0 top-0 z-20 h-1 cursor-row-resize hover:bg-border-strong"
+        />
+      ) : null}
       <div className="flex h-9 items-center border-b border-border px-2">
         <div
           role="tablist"
@@ -509,10 +525,11 @@ export function IntegratedTerminal({
               key={tab.id}
               role="tab"
               aria-selected={tab.active}
-              className={`group flex h-7 max-w-48 items-center gap-1 rounded-md px-2 text-app-12 ${
+              className={`group flex h-7 w-56 shrink-0 items-center gap-1 rounded-md px-2 text-app-12 ${
                 tab.active ? "bg-surface-raised text-fg" : "text-muted hover:bg-surface"
               }`}
             >
+              <SquareTerminal aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-subtle" />
               <button
                 type="button"
                 className="min-w-0 flex-1 truncate text-left"
@@ -551,6 +568,20 @@ export function IntegratedTerminal({
           className="flex h-7 w-7 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg"
         >
           <Search className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          aria-label={isMaximized ? "Restore Integrated Terminal" : "Maximize Integrated Terminal"}
+          title={isMaximized ? "Restore Integrated Terminal" : "Maximize Integrated Terminal"}
+          aria-pressed={isMaximized}
+          onClick={() => setIsMaximized((maximized) => !maximized)}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg"
+        >
+          {isMaximized ? (
+            <Minimize2 className="h-3.5 w-3.5" />
+          ) : (
+            <Maximize2 className="h-3.5 w-3.5" />
+          )}
         </button>
       </div>
 

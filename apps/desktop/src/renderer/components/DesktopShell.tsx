@@ -173,7 +173,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
                 <div onMouseDown={handleResizeStart} className="w-1 shrink-0 cursor-col-resize" />
               )}
 
-              <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-bg">
+              <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-bg">
                 <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
                 <IntegratedTerminal
                   project={currentProject}

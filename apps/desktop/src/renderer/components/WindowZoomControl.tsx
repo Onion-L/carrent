@@ -1,15 +1,29 @@
 import { Minus, Plus, RotateCcw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { MainWindowZoomAction } from "../../shared/mainWindow";
 
 export function WindowZoomControl() {
   const [factor, setFactor] = useState(1);
+  const [isVisible, setIsVisible] = useState(false);
+  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showPopup = useCallback(() => {
+    setIsVisible(true);
+    if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+    dismissTimerRef.current = setTimeout(() => {
+      setIsVisible(false);
+      dismissTimerRef.current = null;
+    }, 1_800);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
     const removeListener = window.carrent.mainWindow.zoom.onFactorChange((nextFactor) => {
-      if (mounted) setFactor(nextFactor);
+      if (mounted) {
+        setFactor(nextFactor);
+        showPopup();
+      }
     });
     void window.carrent.mainWindow.zoom.getFactor().then((nextFactor) => {
       if (mounted) setFactor(nextFactor);
@@ -17,15 +31,19 @@ export function WindowZoomControl() {
     return () => {
       mounted = false;
       removeListener();
+      if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
     };
-  }, []);
+  }, [showPopup]);
 
   const changeZoom = async (action: MainWindowZoomAction) => {
     setFactor(await window.carrent.mainWindow.zoom.change(action));
+    showPopup();
   };
 
+  if (!isVisible) return null;
+
   return (
-    <div className="flex h-8 items-center rounded-lg border border-border bg-surface px-1 text-muted shadow-sm">
+    <div className="no-drag absolute right-4 top-[calc(env(titlebar-area-height,38px)+0.5rem)] z-50 flex h-9 items-center rounded-lg border border-border-strong bg-surface px-1 text-muted shadow-xl">
       <output aria-label="Window zoom" className="w-12 text-center text-app-12 font-medium text-fg">
         {Math.round(factor * 100)}%
       </output>

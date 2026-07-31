@@ -103,7 +103,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-bg text-fg">
-      <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border bg-sidebar shadow-[0_0_0_1px_rgb(255_255_255/0.02),0_18px_48px_rgb(0_0_0/0.18)]">
+      <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border bg-sidebar shadow-[0_0_0_1px_rgb(255_255_255/0.02),0_18px_48px_rgb(0_0_0/0.18)]">
         <header
           className="drag-region flex h-[calc(env(titlebar-area-height,38px)+0.375rem)] shrink-0 items-stretch justify-between bg-sidebar"
           style={{
@@ -153,7 +153,6 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
               </button>
             ) : null}
             <McpServerControl />
-            <WindowZoomControl />
           </div>
         </header>
 
@@ -186,6 +185,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
+        <WindowZoomControl />
       </div>
       {isThreadSearchOpen && (
         <ThreadSearchDialog

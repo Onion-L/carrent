@@ -304,6 +304,11 @@ function installBridge(
           if (emitMainWindowNavigation === listener) emitMainWindowNavigation = null;
         };
       },
+      zoom: {
+        getFactor: async () => 1,
+        change: async () => 1,
+        onFactorChange: () => () => {},
+      },
     },
   } as unknown as Window["carrent"];
 }

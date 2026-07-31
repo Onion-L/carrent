@@ -63,6 +63,8 @@ import { createTerminalCompletionService } from "./terminal/completion/completio
 import { createTerminalHistory, parseZshHistory } from "./terminal/completion/history";
 import { readHistoryTail } from "./terminal/completion/historyFile";
 import { createZshShellIntegration } from "./terminal/completion/shellIntegration";
+import { createWindowZoomController } from "./windowZoom";
+import type { MainWindowZoomAction } from "../src/shared/mainWindow";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -103,6 +105,8 @@ const mainWindowLifecycle = createMainWindowLifecycle({
     });
   },
 });
+
+const windowZoom = createWindowZoomController(() => mainWindow?.webContents ?? null);
 
 function createWindow(icon: string | undefined) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -146,6 +150,14 @@ function createWindow(icon: string | undefined) {
     mainWindowLifecycle.handleRendererNavigationStart(event);
   });
 
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    windowZoom.handleBeforeInput(event, input);
+  });
+
+  mainWindow.webContents.on("zoom-changed", (event, direction) => {
+    windowZoom.handleZoomChanged(event, direction);
+  });
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
@@ -175,6 +187,17 @@ if (!hasSingleInstanceLock) {
   });
   ipcMain.on("app:navigation-ready", () => {
     mainWindowLifecycle.handleRendererReady();
+  });
+  ipcMain.handle("app:zoom:get", (event) => {
+    if (event.sender !== mainWindow?.webContents) throw new Error("Unknown zoom request sender.");
+    return windowZoom.getFactor();
+  });
+  ipcMain.handle("app:zoom:change", (event, action: MainWindowZoomAction) => {
+    if (event.sender !== mainWindow?.webContents) throw new Error("Unknown zoom request sender.");
+    if (action !== "in" && action !== "out" && action !== "reset") {
+      throw new Error("Invalid zoom action.");
+    }
+    return windowZoom.change(action);
   });
   mainWindowLifecycle.handleSecondInstance(process.argv);
 

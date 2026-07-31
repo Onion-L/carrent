@@ -12,6 +12,7 @@ import { ThreadSearchDialog } from "./workspace/ThreadSearchDialog";
 import { WorkspaceSwitcher } from "./workspace/WorkspaceSwitcher";
 import { buildThreadPath } from "../lib/navigation";
 import { IntegratedTerminal } from "./terminal/IntegratedTerminal";
+import { WindowZoomControl } from "./WindowZoomControl";
 
 const LEFT_SIDEBAR_WIDTH = 58;
 const MIN_SECONDARY_PANE_WIDTH = 200;
@@ -152,6 +153,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
               </button>
             ) : null}
             <McpServerControl />
+            <WindowZoomControl />
           </div>
         </header>
 

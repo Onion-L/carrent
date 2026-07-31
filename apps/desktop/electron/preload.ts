@@ -25,7 +25,7 @@ import type {
   GitWorkspaceSnapshotResult,
 } from "./git/gitIpc";
 import type { RtkGainStats } from "../src/shared/rtk";
-import type { MainWindowApi } from "../src/shared/mainWindow";
+import type { MainWindowApi, MainWindowZoomAction } from "../src/shared/mainWindow";
 import type { ThreadActionRequest, ThreadActionResult } from "../src/shared/threadActions";
 import type {
   CreateTerminalRequest,
@@ -42,6 +42,16 @@ const mainWindow: MainWindowApi = {
     ipcRenderer.on("app:navigate", wrapped);
     ipcRenderer.send("app:navigation-ready");
     return () => ipcRenderer.removeListener("app:navigate", wrapped);
+  },
+  zoom: {
+    getFactor: () => ipcRenderer.invoke("app:zoom:get") as Promise<number>,
+    change: (action: MainWindowZoomAction) =>
+      ipcRenderer.invoke("app:zoom:change", action) as Promise<number>,
+    onFactorChange: (listener) => {
+      const wrapped = (_event: IpcRendererEvent, factor: number) => listener(factor);
+      ipcRenderer.on("app:zoom-changed", wrapped);
+      return () => ipcRenderer.removeListener("app:zoom-changed", wrapped);
+    },
   },
 };
 

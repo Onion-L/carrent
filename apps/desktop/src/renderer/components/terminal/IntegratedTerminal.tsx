@@ -91,7 +91,8 @@ function TerminalViewport({
       convertEol: false,
       cursorBlink: true,
       cursorStyle: "block",
-      fontFamily: '"SFMono-Regular", "IBM Plex Mono", Consolas, monospace',
+      fontFamily:
+        '"SFMono-Regular", "IBM Plex Mono", Consolas, "MesloLGS NF", "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace',
       fontSize: 13,
       lineHeight: 1.2,
       scrollback: 10_000,
@@ -532,7 +533,7 @@ export function IntegratedTerminal({
               <SquareTerminal aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-subtle" />
               <button
                 type="button"
-                className="flex h-full min-w-0 flex-1 items-center truncate text-left font-medium leading-none"
+                className="flex h-full min-w-0 flex-1 -translate-y-px items-center truncate text-left font-medium leading-none"
                 onClick={() => void activateTab(tab)}
               >
                 {tab.title}

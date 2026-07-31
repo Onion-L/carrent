@@ -8,6 +8,7 @@ import {
 import type { ChatPermissionOption } from "./chatPermissions";
 import { isRuntimeMode, type RuntimeMode } from "./runtimeMode";
 import { runtimeIds, type RuntimeId } from "./runtimes";
+import { MAX_TERMINAL_PANEL_HEIGHT, MIN_TERMINAL_PANEL_HEIGHT } from "./terminal";
 import {
   normalizeRunChecklistEntries,
   type RunChecklistOutcome,
@@ -151,6 +152,101 @@ export type AppThreadPromotionIntentRecord = AppThreadRunStartInput & {
   title: string;
 };
 
+export type AppStateSettingsTheme = "dark" | "light" | "system";
+
+/**
+ * User settings shared across windows through the App State snapshot.
+ *
+ * Validation is deliberately lenient and mirrors the renderer's
+ * SettingsContext (`carrent:settings` in localStorage): every field is
+ * validated on its own and a missing or invalid field falls back to the
+ * default below instead of rejecting the whole value; unknown fields are
+ * dropped. `normalizeAppStateSettings` only returns null when the value is
+ * not an object at all.
+ */
+export type AppStateSettings = {
+  autoDetectRuntimes: boolean;
+  theme: AppStateSettingsTheme;
+  fontSize: number;
+  enhancedTerminalCompletion: boolean;
+  terminalPanelHeight: number;
+  runtimeEnabledById: Partial<Record<RuntimeId, boolean>>;
+  runtimeDefaultModelById: Partial<Record<RuntimeId, string>>;
+};
+
+// Font-size bounds mirror src/renderer/lib/fontSize (kept renderer-local).
+const MIN_SETTINGS_FONT_SIZE = 8;
+const MAX_SETTINGS_FONT_SIZE = 32;
+
+export const DEFAULT_APP_STATE_SETTINGS: AppStateSettings = {
+  autoDetectRuntimes: true,
+  theme: "dark",
+  fontSize: 14,
+  enhancedTerminalCompletion: true,
+  terminalPanelHeight: 320,
+  runtimeEnabledById: {},
+  runtimeDefaultModelById: {},
+};
+
+export function normalizeAppStateSettings(value: unknown): AppStateSettings | null {
+  if (!isRecord(value)) return null;
+
+  const theme: AppStateSettingsTheme =
+    value.theme === "dark" || value.theme === "light" || value.theme === "system"
+      ? value.theme
+      : DEFAULT_APP_STATE_SETTINGS.theme;
+  const fontSize =
+    typeof value.fontSize === "number" &&
+    Number.isInteger(value.fontSize) &&
+    value.fontSize >= MIN_SETTINGS_FONT_SIZE &&
+    value.fontSize <= MAX_SETTINGS_FONT_SIZE
+      ? value.fontSize
+      : DEFAULT_APP_STATE_SETTINGS.fontSize;
+  const autoDetectRuntimes =
+    typeof value.autoDetectRuntimes === "boolean"
+      ? value.autoDetectRuntimes
+      : DEFAULT_APP_STATE_SETTINGS.autoDetectRuntimes;
+  const enhancedTerminalCompletion =
+    typeof value.enhancedTerminalCompletion === "boolean"
+      ? value.enhancedTerminalCompletion
+      : DEFAULT_APP_STATE_SETTINGS.enhancedTerminalCompletion;
+  const terminalPanelHeight =
+    typeof value.terminalPanelHeight === "number" && Number.isFinite(value.terminalPanelHeight)
+      ? Math.max(
+          MIN_TERMINAL_PANEL_HEIGHT,
+          Math.min(MAX_TERMINAL_PANEL_HEIGHT, value.terminalPanelHeight),
+        )
+      : DEFAULT_APP_STATE_SETTINGS.terminalPanelHeight;
+
+  const runtimeEnabledById: Partial<Record<RuntimeId, boolean>> = {};
+  if (isRecord(value.runtimeEnabledById)) {
+    for (const runtimeId of runtimeIds) {
+      const enabled = value.runtimeEnabledById[runtimeId];
+      if (typeof enabled === "boolean") runtimeEnabledById[runtimeId] = enabled;
+    }
+  }
+
+  const runtimeDefaultModelById: Partial<Record<RuntimeId, string>> = {};
+  if (isRecord(value.runtimeDefaultModelById)) {
+    for (const runtimeId of runtimeIds) {
+      const modelId = value.runtimeDefaultModelById[runtimeId];
+      if (typeof modelId === "string" && modelId.trim()) {
+        runtimeDefaultModelById[runtimeId] = modelId.trim();
+      }
+    }
+  }
+
+  return {
+    autoDetectRuntimes,
+    theme,
+    fontSize,
+    enhancedTerminalCompletion,
+    terminalPanelHeight,
+    runtimeEnabledById,
+    runtimeDefaultModelById,
+  };
+}
+
 export type AppStateSnapshot = {
   version: typeof APP_STATE_SNAPSHOT_VERSION;
   workspaces: WorkspaceRecord[];
@@ -163,6 +259,7 @@ export type AppStateSnapshot = {
   threadActions?: AppThreadActionRecord[];
   threadPromotionIntents?: AppThreadPromotionIntentRecord[];
   threadWork?: Record<string, ThreadWorkSnapshot>;
+  settings?: AppStateSettings;
   lastThreadIdByWorkspace?: Record<string, string>;
   activeWorkspaceId: string | null;
 };
@@ -735,6 +832,13 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
     return null;
   }
 
+  // Invalid settings fall back to being omitted rather than rejecting the
+  // snapshot; per-field defaults are applied by normalizeAppStateSettings.
+  const settings =
+    value.settings === undefined
+      ? undefined
+      : (normalizeAppStateSettings(value.settings) ?? undefined);
+
   return {
     version: APP_STATE_SNAPSHOT_VERSION,
     workspaces: workspaces.sort((left, right) => left.order - right.order),
@@ -747,6 +851,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
     ...(value.threadActions !== undefined ? { threadActions } : {}),
     ...(value.threadPromotionIntents !== undefined ? { threadPromotionIntents } : {}),
     ...(value.threadWork !== undefined ? { threadWork: threadWork ?? {} } : {}),
+    ...(settings ? { settings } : {}),
     ...(value.lastThreadIdByWorkspace !== undefined ? { lastThreadIdByWorkspace } : {}),
     activeWorkspaceId: value.activeWorkspaceId,
   };

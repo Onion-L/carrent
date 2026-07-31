@@ -21,6 +21,7 @@ import {
   createAppStateAuthority,
   registerAppStateAuthorityIpc,
 } from "./workspace/appStateAuthority";
+import { appStateCommandReducers } from "./workspace/appStateCommands";
 import {
   clearStagedAppStateSnapshot,
   getStagedAppStateSnapshot,
@@ -306,6 +307,7 @@ if (!hasSingleInstanceLock) {
     const appStateAuthority = createAppStateAuthority({
       store,
       initialResult: startupAppStateResult,
+      reducers: appStateCommandReducers,
       publish: (subscriberId, state) => {
         const contents = webContents.fromId(subscriberId);
         if (contents && !contents.isDestroyed()) {

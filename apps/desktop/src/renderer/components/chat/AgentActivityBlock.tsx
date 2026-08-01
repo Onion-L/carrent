@@ -1,5 +1,6 @@
 import { CheckCircle2, ChevronRight, CircleDashed, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { KimiToolTimelineStatus } from "../../../shared/chat";
 import type { MessagePart } from "../../../shared/threadContent";
 
 export type ReasoningPart = Extract<MessagePart, { type: "reasoning" }>;
@@ -25,7 +26,7 @@ export type KimiToolItem = {
   input: string;
   output: string;
   error: string;
-  status: "pending" | "running" | "completed" | "failed";
+  status: KimiToolTimelineStatus;
 };
 export type AgentActivityStep = ReasoningPart | ShellPart | KimiThinkingItem | KimiToolItem;
 export type AgentActivityItem = AgentActivityStep | CommentaryPart;
@@ -83,6 +84,10 @@ export function inferAgentActivityStatus(steps: AgentActivityStep[]): AgentActiv
     )
   ) {
     return "running";
+  }
+
+  if (steps.some((step) => step.status === "cancelled")) {
+    return "cancelled";
   }
 
   return "completed";

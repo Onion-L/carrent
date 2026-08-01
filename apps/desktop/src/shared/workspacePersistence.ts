@@ -1224,7 +1224,7 @@ function normalizeMessagePart(value: unknown): MessagePart | null {
     if (
       item.type === "thinking" &&
       typeof item.content === "string" &&
-      (item.status === "running" || item.status === "completed")
+      (item.status === "running" || item.status === "completed" || item.status === "cancelled")
     ) {
       return {
         type: "kimi_timeline",
@@ -1266,7 +1266,8 @@ function normalizeMessagePart(value: unknown): MessagePart | null {
       (item.status === "pending" ||
         item.status === "running" ||
         item.status === "completed" ||
-        item.status === "failed")
+        item.status === "failed" ||
+        item.status === "cancelled")
     ) {
       return {
         type: "kimi_timeline",

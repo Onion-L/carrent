@@ -392,6 +392,67 @@ describe("assistant message presentation", () => {
     });
   });
 
+  it("uses explicit Kimi final markers even when later activity exists", () => {
+    const finalMessage = {
+      type: "kimi_timeline" as const,
+      item: {
+        type: "message" as const,
+        id: "message-final",
+        order: 1,
+        content: "Final answer",
+        isFinal: true,
+      },
+    };
+    const tool = {
+      type: "kimi_timeline" as const,
+      item: {
+        type: "tool" as const,
+        id: "tool-late",
+        order: 2,
+        toolCallId: "tool-late",
+        title: "Read",
+        kind: "read",
+        command: "",
+        filePath: "src/a.ts",
+        input: "",
+        output: "done",
+        error: "",
+        status: "completed" as const,
+      },
+    };
+    const intermediate = {
+      type: "kimi_timeline" as const,
+      item: {
+        type: "message" as const,
+        id: "message-intermediate",
+        order: 0,
+        content: "Checking first",
+        isFinal: false,
+      },
+    };
+
+    expect(
+      getAssistantMessagePresentation([finalMessage, tool, intermediate], "completed"),
+    ).toEqual({
+      activityItems: [
+        { type: "commentary", id: "message-intermediate", content: "Checking first" },
+        {
+          type: "kimi-tool",
+          id: "tool-late",
+          title: "Read",
+          kind: "read",
+          command: "",
+          filePath: "src/a.ts",
+          input: "",
+          output: "done",
+          error: "",
+          status: "completed",
+        },
+      ],
+      answerText: "Final answer",
+    });
+  });
+
   it("presents Kimi tool items in normalized order alongside thinking and message segments", () => {
     const parts = [
       {

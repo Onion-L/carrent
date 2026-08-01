@@ -467,9 +467,20 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
     const nextPart = { type: "kimi_timeline" as const, item: update.item };
     if (timelineIndex >= 0) {
       const existing = parts[timelineIndex] as Extract<MessagePart, { type: "kimi_timeline" }>;
+      const item = { ...update.item, order: existing.item.order };
+      if (
+        existing.item.type === "tool" &&
+        item.type === "tool" &&
+        (existing.item.status === "completed" ||
+          existing.item.status === "failed" ||
+          existing.item.status === "cancelled") &&
+        (item.status === "pending" || item.status === "running")
+      ) {
+        item.status = existing.item.status;
+      }
       parts[timelineIndex] = {
         ...nextPart,
-        item: { ...update.item, order: existing.item.order },
+        item,
       };
     } else {
       parts.push(nextPart);

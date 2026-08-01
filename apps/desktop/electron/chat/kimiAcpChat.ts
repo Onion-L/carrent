@@ -658,6 +658,7 @@ class KimiAcpRun {
   private readonly pending = new Map<
     JsonRpcId,
     {
+      method: string;
       resolve: (result: unknown) => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout> | null;
@@ -669,7 +670,6 @@ class KimiAcpRun {
   // toolCallId. Never reused as a fixed fallback id.
   private sessionUpdateSequence = 0;
   private sessionId: string | null = null;
-  private finalText = "";
   private timelineOrder = 0;
   private thinkingSegmentIndex = 0;
   private messageSegmentIndex = 0;
@@ -677,14 +677,12 @@ class KimiAcpRun {
   private currentThinking: Extract<KimiTimelineItem, { type: "thinking" }> | null = null;
   private currentMessage: Extract<KimiTimelineItem, { type: "message" }> | null = null;
   private lastMessage: Extract<KimiTimelineItem, { type: "message" }> | null = null;
+  private messageItems: Array<Extract<KimiTimelineItem, { type: "message" }>> = [];
   // Canonical Kimi tool timeline items keyed by their stabilized toolCallId.
   // Holding the item here lets a `tool_call_update` merge into the same
   // first-seen order without moving the item to the end of the timeline, and
   // keeps concurrent tool ids from overwriting one another.
-  private toolItems = new Map<
-    string,
-    Extract<KimiTimelineItem, { type: "tool" }>
-  >();
+  private toolItems = new Map<string, Extract<KimiTimelineItem, { type: "tool" }>>();
   // toolCallId assigned to a tool update that arrived with no id, keyed by the
   // event-sequence position it first appeared at. Lets each missing-id tool
   // receive a unique Run-scoped id instead of reusing a fixed sentinel.
@@ -692,6 +690,7 @@ class KimiAcpRun {
   private hasChecklistSnapshot = false;
   private pendingTodoListActivity: ChatReasoningEventPayload[] = [];
   private terminal = false;
+  private finalizing = false;
   private stoppedByUser = false;
   private writtenFiles = new Set<string>();
   private stopFallbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -747,6 +746,9 @@ class KimiAcpRun {
       void this.handleMessage(message);
     });
     this.transport.onError((error) => {
+      if (this.terminal || this.finalizing) {
+        return;
+      }
       if (this.stoppedByUser) {
         this.completeStopped();
         return;
@@ -755,7 +757,7 @@ class KimiAcpRun {
       this.fail(error.message);
     });
     this.transport.onClose(({ code, signal, stderr }) => {
-      if (this.terminal) {
+      if (this.terminal || this.finalizing) {
         return;
       }
 
@@ -821,8 +823,17 @@ class KimiAcpRun {
         return;
       }
 
+      if (!stopReason) {
+        const rawStopReason = promptResult?.stopReason;
+        const preservedReason =
+          rawStopReason === undefined
+            ? "missing"
+            : (JSON.stringify(rawStopReason) ?? String(rawStopReason));
+        this.fail(`Kimi Code ended the run unexpectedly (stop reason: ${preservedReason}).`);
+        return;
+      }
+
       if (
-        stopReason &&
         stopReason !== "end_turn" &&
         stopReason !== "max_tokens" &&
         stopReason !== "max_turn_requests"
@@ -831,13 +842,13 @@ class KimiAcpRun {
         return;
       }
 
-      if (!this.finalText.trim() && !this.presentedPlanReview) {
+      this.completeThinkingSegment();
+      const finalText = this.markFinalMessageSegment();
+
+      if (!finalText && !this.presentedPlanReview) {
         this.fail("Received empty response from Kimi Code.");
         return;
       }
-
-      this.completeThinkingSegment();
-      this.markFinalMessageSegment();
 
       await this.persistCompletedSession();
 
@@ -845,7 +856,7 @@ class KimiAcpRun {
         type: "completed",
         runId: this.options.runId,
         requestKey: this.options.request.requestKey,
-        text: this.finalText.trim(),
+        text: finalText,
         finishedAt: new Date().toISOString(),
         writtenFiles: [...this.writtenFiles],
       });
@@ -1471,7 +1482,7 @@ class KimiAcpRun {
               this.pending.delete(id);
               reject(new Error(`Timed out waiting for Kimi ACP ${method}.`));
             }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { method, resolve, reject, timer });
       this.transport.send({ jsonrpc: "2.0", id, method, params });
     });
   }
@@ -1481,6 +1492,10 @@ class KimiAcpRun {
   }
 
   private async handleMessage(message: JsonObject) {
+    if (this.terminal || this.finalizing) {
+      return;
+    }
+
     if (message.method && message.id != null) {
       await this.handleAgentRequest(message);
       return;
@@ -1491,6 +1506,9 @@ class KimiAcpRun {
       this.pending.delete(message.id as JsonRpcId);
       if (pending.timer) {
         clearTimeout(pending.timer);
+      }
+      if (pending.method === "session/prompt") {
+        this.finalizing = true;
       }
 
       const error = readObject(message.error);
@@ -1819,9 +1837,16 @@ class KimiAcpRun {
         ...this.currentMessage,
         content: this.currentMessage.content + text,
       };
+      const messageIndex = this.messageItems.findIndex(
+        (item) => item.id === this.currentMessage!.id,
+      );
+      if (messageIndex >= 0) {
+        this.messageItems[messageIndex] = this.currentMessage;
+      } else {
+        this.messageItems.push(this.currentMessage);
+      }
       this.lastMessage = this.currentMessage;
       this.emitKimiTimelineItem(this.currentMessage);
-      this.finalText += text;
       this.emit({
         type: "delta",
         runId: this.options.runId,
@@ -2002,7 +2027,9 @@ class KimiAcpRun {
     // content is filled in. This keeps history from regressing when a stray
     // late update arrives.
     const status =
-      previousStatus === "completed" || previousStatus === "failed"
+      previousStatus === "completed" ||
+      previousStatus === "failed" ||
+      previousStatus === "cancelled"
         ? previousStatus
         : fields.status;
     const item: Extract<KimiTimelineItem, { type: "tool" }> = {
@@ -2130,10 +2157,38 @@ class KimiAcpRun {
     this.currentThinking = null;
   }
 
+  private cancelRunningTimelineItems() {
+    this.toolItems.forEach((item, toolCallId) => {
+      if (item.status !== "running") {
+        return;
+      }
+      const cancelled = { ...item, status: "cancelled" as const };
+      this.toolItems.set(toolCallId, cancelled);
+      this.emitKimiTimelineItem(cancelled);
+    });
+
+    if (this.currentThinking) {
+      this.emitKimiTimelineItem({ ...this.currentThinking, status: "cancelled" });
+      this.currentThinking = null;
+    }
+  }
+
   private markFinalMessageSegment() {
-    if (!this.lastMessage) return;
+    if (!this.lastMessage) return "";
     this.lastMessage = { ...this.lastMessage, isFinal: true };
+    const messageIndex = this.messageItems.findIndex((item) => item.id === this.lastMessage!.id);
+    if (messageIndex >= 0) {
+      this.messageItems[messageIndex] = this.lastMessage;
+    } else {
+      this.messageItems.push(this.lastMessage);
+    }
     this.emitKimiTimelineItem(this.lastMessage);
+    return this.messageItems
+      .filter((item) => item.isFinal)
+      .sort((left, right) => left.order - right.order)
+      .map((item) => item.content)
+      .join("\n")
+      .trim();
   }
 
   private emitKimiTimelineItem(item: KimiTimelineItem) {
@@ -2229,6 +2284,7 @@ class KimiAcpRun {
       return;
     }
 
+    this.cancelRunningTimelineItems();
     this.flushPendingTodoListActivity();
     this.terminal = true;
     if (this.stopFallbackTimer) {
@@ -2433,6 +2489,10 @@ function kimiToolTimelineStatus(
 
   if (status === "failed") {
     return "failed";
+  }
+
+  if (status === "cancelled") {
+    return "cancelled";
   }
 
   if (status === "pending") {

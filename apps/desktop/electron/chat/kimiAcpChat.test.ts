@@ -528,7 +528,93 @@ describe("startKimiAcpChatRun", () => {
         content: "Done.",
         isFinal: true,
       },
+      {
+        type: "tool",
+        id: "kimi-run-kimi-timeline-tool-item-3",
+        order: 3,
+        toolCallId: "existing-tool",
+        title: "ReadFile",
+        kind: "",
+        command: "",
+        filePath: "",
+        input: "",
+        output: "",
+        error: "",
+        status: "cancelled",
+      },
     ]);
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Done.",
+    });
+    expect(transport.sent.map((message) => message.method)).toEqual([
+      "initialize",
+      "session/new",
+      "session/prompt",
+    ]);
+  });
+
+  it("ignores late ACP activity and transport callbacks after the prompt response", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-terminal-freeze" });
+        return;
+      }
+      if (message.method !== "session/prompt") return;
+
+      fakeTransport.emitMessage({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "session-terminal-freeze",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Authoritative answer" },
+          },
+        },
+      });
+      respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      fakeTransport.emitMessage({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "session-terminal-freeze",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Late rewrite" },
+          },
+        },
+      });
+      fakeTransport.emitClose({ code: 1, signal: null, stderr: "late close" });
+      fakeTransport.emitError(new Error("late transport error"));
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-terminal-freeze",
+      request: makeRequest(),
+      cwd: "/test/project",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+
+    const completed = emitted.filter((event) => event.type === "completed");
+    expect(completed).toHaveLength(1);
+    expect(completed[0]).toMatchObject({ type: "completed", text: "Authoritative answer" });
+    expect(emitted.some((event) => event.type === "failed")).toBe(false);
+    expect(
+      emitted.some(
+        (event) =>
+          event.type === "kimi-timeline" &&
+          event.item.type === "message" &&
+          event.item.content.includes("Late rewrite"),
+      ),
+    ).toBe(false);
   });
 
   it("maps an ACP plan update to an ordered Run Checklist snapshot", async () => {
@@ -1628,51 +1714,130 @@ describe("startKimiAcpChatRun", () => {
     });
   });
 
-  it("completes the run when Kimi ACP stops at max_tokens with streamed text", async () => {
-    const emitted: ChatRunEvent[] = [];
-    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
-      if (message.method === "initialize") {
-        respondAcp(fakeTransport, message, { protocolVersion: 1 });
-        return;
-      }
+  for (const [label, promptResult, preservedReason] of [
+    ["missing", {}, "missing"],
+    ["empty", { stopReason: "" }, '""'],
+    ["non-string", { stopReason: 42 }, "42"],
+  ] as const) {
+    it(`fails the run when Kimi ACP returns a ${label} stop reason`, async () => {
+      const emitted: ChatRunEvent[] = [];
+      const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+        if (message.method === "initialize") {
+          respondAcp(fakeTransport, message, { protocolVersion: 1 });
+          return;
+        }
+        if (message.method === "session/new") {
+          respondAcp(fakeTransport, message, { sessionId: `session-${label}-stop` });
+          return;
+        }
+        if (message.method === "session/prompt") {
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: `session-${label}-stop`,
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "Must not complete" },
+              },
+            },
+          });
+          respondAcp(fakeTransport, message, promptResult);
+        }
+      });
 
-      if (message.method === "session/new") {
-        respondAcp(fakeTransport, message, { sessionId: "session-1" });
-        return;
-      }
+      startKimiAcpChatRun({
+        runId: `run-kimi-${label}-stop`,
+        request: makeRequest(),
+        cwd: "/test/project",
+        emit: (event) => emitted.push(event),
+        transportFactory: () => transport,
+      });
+      await waitForAsyncEvents();
 
-      if (message.method === "session/prompt") {
+      expect(emitted.some((event) => event.type === "completed")).toBe(false);
+      expect(emitted.find((event) => event.type === "failed")).toMatchObject({
+        type: "failed",
+        error: `Kimi Code ended the run unexpectedly (stop reason: ${preservedReason}).`,
+      });
+    });
+  }
+
+  for (const stopReason of ["max_tokens", "max_turn_requests"] as const) {
+    it(`completes the run when Kimi ACP stops at ${stopReason} with streamed text`, async () => {
+      const emitted: ChatRunEvent[] = [];
+      const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+        if (message.method === "initialize") {
+          respondAcp(fakeTransport, message, { protocolVersion: 1 });
+          return;
+        }
+        if (message.method === "session/new") {
+          respondAcp(fakeTransport, message, { sessionId: `session-${stopReason}` });
+          return;
+        }
+        if (message.method !== "session/prompt") return;
+
         fakeTransport.emitMessage({
           jsonrpc: "2.0",
           method: "session/update",
           params: {
-            sessionId: "session-1",
+            sessionId: `session-${stopReason}`,
             update: {
               sessionUpdate: "agent_message_chunk",
               content: { type: "text", text: "Truncated answer" },
             },
           },
         });
-        respondAcp(fakeTransport, message, { stopReason: "max_tokens" });
+        respondAcp(fakeTransport, message, { stopReason });
+      });
+
+      startKimiAcpChatRun({
+        runId: `run-kimi-${stopReason}`,
+        request: makeRequest(),
+        cwd: "/test/project",
+        emit: (event) => emitted.push(event),
+        transportFactory: () => transport,
+        bridgeFactory: async () => null,
+      });
+      await waitForAsyncEvents();
+
+      expect(emitted.find((event) => event.type === "failed")).toBeUndefined();
+      expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+        type: "completed",
+        text: "Truncated answer",
+      });
+    });
+  }
+
+  it("stops the run when Kimi ACP returns cancelled", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-cancelled" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        respondAcp(fakeTransport, message, { stopReason: "cancelled" });
       }
     });
 
     startKimiAcpChatRun({
-      runId: "run-kimi-max-tokens",
-      request: makeRequest({ runtimeId: "kimi" }),
-      cwd: "/Users/onion/workbench/carrent",
+      runId: "run-kimi-cancelled",
+      request: makeRequest(),
+      cwd: "/test/project",
       emit: (event) => emitted.push(event),
       transportFactory: () => transport,
-      bridgeFactory: async () => null,
     });
-
     await waitForAsyncEvents();
 
-    expect(emitted.find((event) => event.type === "failed")).toBeUndefined();
-    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
-      type: "completed",
-      text: "Truncated answer",
-    });
+    expect(emitted.filter((event) => event.type === "stopped")).toHaveLength(1);
+    expect(emitted.some((event) => event.type === "completed" || event.type === "failed")).toBe(
+      false,
+    );
   });
 
   it("closes Carrent Bridge when a Kimi ACP run is stopped", async () => {
@@ -1718,6 +1883,102 @@ describe("startKimiAcpChatRun", () => {
       runId: "run-kimi-bridge-stop",
     });
     expect(bridge.handles[0]?.closed).toBe(true);
+  });
+
+  it("cancels only running timeline items before publishing stopped", async () => {
+    const emitted: ChatRunEvent[] = [];
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-cancel-timeline" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        for (const update of [
+          {
+            sessionUpdate: "tool_call",
+            toolCallId: "completed-tool",
+            title: "Read",
+            status: "completed",
+          },
+          {
+            sessionUpdate: "tool_call",
+            toolCallId: "failed-tool",
+            title: "Bash",
+            status: "failed",
+          },
+          {
+            sessionUpdate: "tool_call",
+            toolCallId: "cancelled-tool",
+            title: "Search",
+            status: "cancelled",
+          },
+          {
+            sessionUpdate: "tool_call",
+            toolCallId: "pending-tool",
+            title: "Read",
+            status: "pending",
+          },
+          {
+            sessionUpdate: "tool_call",
+            toolCallId: "running-tool",
+            title: "Write",
+            status: "in_progress",
+          },
+          {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "Still working" },
+          },
+        ]) {
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: { sessionId: "session-cancel-timeline", update },
+          });
+        }
+        return;
+      }
+      if (message.method === "session/cancel" && promptRequest) {
+        respondAcp(fakeTransport, promptRequest, { stopReason: "cancelled" });
+      }
+    });
+
+    const handle = startKimiAcpChatRun({
+      runId: "run-kimi-cancel-timeline",
+      request: makeRequest(),
+      cwd: "/test/project",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+    handle.stop();
+    await waitForAsyncEvents();
+
+    const timeline = emitted.filter(
+      (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+        event.type === "kimi-timeline",
+    );
+    const finalTools = new Map(
+      timeline
+        .filter((event) => event.item.type === "tool")
+        .map((event) => [event.item.type === "tool" ? event.item.toolCallId : "", event.item]),
+    );
+    expect(finalTools.get("completed-tool")).toMatchObject({ status: "completed" });
+    expect(finalTools.get("failed-tool")).toMatchObject({ status: "failed" });
+    expect(finalTools.get("cancelled-tool")).toMatchObject({ status: "cancelled" });
+    expect(finalTools.get("pending-tool")).toMatchObject({ status: "pending" });
+    expect(finalTools.get("running-tool")).toMatchObject({ status: "cancelled" });
+    expect(timeline.at(-1)?.item).toMatchObject({
+      type: "thinking",
+      content: "Still working",
+      status: "cancelled",
+    });
+    expect(emitted.at(-1)).toMatchObject({ type: "stopped" });
   });
 
   it("closes Carrent Bridge if stop happens before bridge startup settles", async () => {
@@ -2893,15 +3154,11 @@ describe("Kimi tool timeline", () => {
       },
     ]);
 
-    const finalById = new Map(
-      toolItemsFrom(emitted).map((item) => [item.toolCallId, item]),
-    );
+    const finalById = new Map(toolItemsFrom(emitted).map((item) => [item.toolCallId, item]));
     expect(finalById.get("tool-a")).toMatchObject({ output: "a-out", status: "completed" });
     expect(finalById.get("tool-b")).toMatchObject({ output: "boom", status: "failed" });
     // Each id occupies its own first-seen order slot.
-    const orders = new Map(
-      toolItemsFrom(emitted).map((item) => [item.toolCallId, item.order]),
-    );
+    const orders = new Map(toolItemsFrom(emitted).map((item) => [item.toolCallId, item.order]));
     expect(orders.get("tool-a")).not.toBe(orders.get("tool-b"));
   });
 
@@ -2954,9 +3211,7 @@ describe("Kimi tool timeline", () => {
       },
     ]);
 
-    const finalById = new Map(
-      toolItemsFrom(emitted).map((item) => [item.toolCallId, item]),
-    );
+    const finalById = new Map(toolItemsFrom(emitted).map((item) => [item.toolCallId, item]));
     // Both use the same item shape; the shell command is retained as a derived
     // field rather than deciding whether the call belongs to the timeline.
     expect(finalById.get("tool-shell")).toMatchObject({
@@ -3000,9 +3255,7 @@ describe("Kimi tool timeline", () => {
         rawOutput: "nope",
       },
     ]);
-    const finalById = new Map(
-      toolItemsFrom(emitted).map((item) => [item.toolCallId, item]),
-    );
+    const finalById = new Map(toolItemsFrom(emitted).map((item) => [item.toolCallId, item]));
     expect(finalById.get("tool-progress")?.status).toBe("completed");
     expect(finalById.get("tool-failed")?.status).toBe("failed");
     // No tool item is ever classified as a Thinking item.
@@ -3078,28 +3331,28 @@ describe("Kimi tool timeline", () => {
     expect(thinking && tool && thinking.order < tool.order).toBe(true);
   });
 
-  it("does not regress a completed tool back to running on a later ordinary update", async () => {
-    const { emitted } = await runWithUpdates("run-tool-no-regression", [
-      {
-        sessionUpdate: "tool_call",
-        toolCallId: "tool-settled",
-        title: "Read",
-        kind: "read",
-        status: "completed",
-        rawOutput: "ok",
-      },
-      {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "tool-settled",
-        status: "in_progress",
-      },
-    ]);
+  for (const settledStatus of ["completed", "failed", "cancelled"] as const) {
+    it(`does not regress a ${settledStatus} tool back to running on a later ordinary update`, async () => {
+      const { emitted } = await runWithUpdates(`run-tool-no-regression-${settledStatus}`, [
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: "tool-settled",
+          title: "Read",
+          kind: "read",
+          status: settledStatus,
+          rawOutput: "settled output",
+        },
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "tool-settled",
+          status: "in_progress",
+        },
+      ]);
 
-    const items = toolItemsFrom(emitted);
-    // The terminal completed state is preserved; the late running update does
-    // not flip the item backwards.
-    expect(items[items.length - 1]!.status).toBe("completed");
-  });
+      const items = toolItemsFrom(emitted);
+      expect(items[items.length - 1]!.status).toBe(settledStatus);
+    });
+  }
 });
 
 describe("Kimi subagent tasks", () => {
@@ -3438,9 +3691,7 @@ describe("Kimi subagent tasks", () => {
           event.type === "kimi-timeline" && event.item.type === "tool",
       )
       .map((event) => event.item as Extract<(typeof event)["item"], { type: "tool" }>);
-    const bashFinal = [...toolItems]
-      .reverse()
-      .find((item) => item.toolCallId === "0:tool_bash");
+    const bashFinal = [...toolItems].reverse().find((item) => item.toolCallId === "0:tool_bash");
     expect(bashFinal).toMatchObject({
       title: "Bash",
       kind: "execute",

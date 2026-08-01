@@ -813,8 +813,12 @@ describe("applyMessagePartUpdate", () => {
     };
     const updated = applyMessagePartUpdate(withMessage, replayedUpdate);
     const replayed = applyMessagePartUpdate(updated, replayedUpdate);
+    const afterLateRunningUpdate = applyMessagePartUpdate(replayed, {
+      kind: "upsert-kimi-timeline",
+      item: { ...replayedUpdate.item, status: "running", output: "late update" },
+    });
 
-    expect(replayed).toMatchObject({
+    expect(afterLateRunningUpdate).toMatchObject({
       parts: [
         { type: "kimi_timeline", item: { id: "kimi-run-2-thinking-1", order: 0 } },
         {
@@ -823,13 +827,32 @@ describe("applyMessagePartUpdate", () => {
             id: "kimi-run-2-tool-item-1",
             order: 1,
             status: "completed",
-            output: "file contents",
+            output: "late update",
           },
         },
         { type: "kimi_timeline", item: { id: "kimi-run-2-message-1", order: 2 } },
       ],
     });
-    expect(replayed.type === "changed_files" ? [] : replayed.parts).toHaveLength(3);
+    expect(
+      afterLateRunningUpdate.type === "changed_files" ? [] : afterLateRunningUpdate.parts,
+    ).toHaveLength(3);
+
+    for (const settledStatus of ["completed", "failed", "cancelled"] as const) {
+      const settled = applyMessagePartUpdate(withMessage, {
+        ...replayedUpdate,
+        item: { ...replayedUpdate.item, status: settledStatus },
+      });
+      const afterRegressionAttempt = applyMessagePartUpdate(settled, {
+        ...replayedUpdate,
+        item: { ...replayedUpdate.item, status: "running" },
+      });
+      const toolPart = (
+        afterRegressionAttempt.type === "changed_files" ? [] : (afterRegressionAttempt.parts ?? [])
+      ).find((part) => part.type === "kimi_timeline" && part.item.id === replayedUpdate.item.id);
+      const toolItem =
+        toolPart?.type === "kimi_timeline" && toolPart.item.type === "tool" ? toolPart.item : null;
+      expect(toolItem?.status).toBe(settledStatus);
+    }
   });
 
   it("upserts, resolves, and interrupts Plan Reviews", () => {

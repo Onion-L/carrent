@@ -228,7 +228,7 @@ export type ChatReasoningEventPayload = {
   status: ChatReasoningStatus;
 };
 
-export type KimiToolTimelineStatus = "pending" | "running" | "completed" | "failed";
+export type KimiToolTimelineStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
 export type KimiTimelineItem =
   | {
@@ -236,7 +236,7 @@ export type KimiTimelineItem =
       id: string;
       order: number;
       content: string;
-      status: ChatReasoningStatus;
+      status: ChatReasoningStatus | "cancelled";
     }
   | {
       type: "message";

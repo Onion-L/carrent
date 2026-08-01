@@ -52,9 +52,7 @@ function makeKimiTool(overrides: Partial<KimiToolItem> & { id: string }): KimiTo
   };
 }
 
-function makeKimiThinking(
-  overrides: Partial<KimiThinkingItem> & { id: string },
-): KimiThinkingItem {
+function makeKimiThinking(overrides: Partial<KimiThinkingItem> & { id: string }): KimiThinkingItem {
   return {
     type: "kimi-thinking",
     content: "Thinking",
@@ -168,6 +166,12 @@ describe("AgentActivityBlock status", () => {
         makeKimiTool({ id: "tool-1", status: "completed" }),
       ]),
     ).toBe("completed");
+  });
+
+  it("infers cancelled when a Kimi tool step is cancelled", () => {
+    expect(inferAgentActivityStatus([makeKimiTool({ id: "tool-1", status: "cancelled" })])).toBe(
+      "cancelled",
+    );
   });
 
   it("uses simple user-facing status labels", () => {

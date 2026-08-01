@@ -435,9 +435,19 @@ describe("normalizeAppStateSnapshot", () => {
             {
               type: "kimi_timeline",
               item: {
+                type: "thinking",
+                id: "kimi-run-1-thinking-1",
+                order: 0,
+                content: "Inspecting state",
+                status: "cancelled",
+              },
+            },
+            {
+              type: "kimi_timeline",
+              item: {
                 type: "tool",
                 id: "kimi-run-1-tool-item-0",
-                order: 0,
+                order: 1,
                 toolCallId: "tool-read",
                 title: "Read",
                 kind: "read",
@@ -446,7 +456,7 @@ describe("normalizeAppStateSnapshot", () => {
                 input: "",
                 output: "file contents",
                 error: "",
-                status: "completed",
+                status: "cancelled",
               },
             },
             {
@@ -454,7 +464,7 @@ describe("normalizeAppStateSnapshot", () => {
               item: {
                 type: "message",
                 id: "kimi-run-1-message-1",
-                order: 1,
+                order: 2,
                 content: "Working",
                 isFinal: false,
               },

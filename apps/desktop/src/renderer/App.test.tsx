@@ -55,6 +55,7 @@ let currentNavigationType: NavigationType | null = null;
 let testNavigate: NavigateFunction | null = null;
 let emitChatEvent: ((event: ChatRunEvent) => void) | null = null;
 let emitMainWindowNavigation: ((path: string) => void) | null = null;
+let reportedWindowRoutes: string[] = [];
 let terminalCreateRequests: import("../shared/terminal").CreateTerminalRequest[] = [];
 let terminalWriteRequests: import("../shared/terminal").TerminalWriteRequest[] = [];
 let terminalCloseProjectRequests: string[] = [];
@@ -348,6 +349,9 @@ function installBridge(
       windows: {
         openThread: async () => {},
         onOpenError: () => () => {},
+        reportRoute: (route: string) => reportedWindowRoutes.push(route),
+        onCaptureRequest: () => () => {},
+        captureDone: async () => {},
       },
     },
   } as unknown as Window["carrent"];
@@ -566,6 +570,7 @@ afterEach(async () => {
   testNavigate = null;
   emitChatEvent = null;
   emitMainWindowNavigation = null;
+  reportedWindowRoutes = [];
   terminalCreateRequests = [];
   terminalWriteRequests = [];
   terminalCloseProjectRequests = [];
@@ -690,6 +695,23 @@ describe("Workspace App State foundation", () => {
     expect(container!.textContent).not.toContain("Workspace could not be found.");
     expect(container!.textContent).toContain("Personal");
     expect(container!.textContent).toContain("This Workspace has no Projects yet.");
+  });
+
+  it("reports the current Carrent Window route after navigation", async () => {
+    await renderApp(
+      {
+        ...emptyAppState,
+        workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+        activeWorkspaceId: "workspace-1",
+      },
+      "/workspace/workspace-1",
+    );
+
+    expect(reportedWindowRoutes.at(-1)).toBe("/workspace/workspace-1");
+
+    await act(async () => testNavigate?.("/settings"));
+
+    expect(reportedWindowRoutes.at(-1)).toBe("/settings");
   });
 
   it("creates, renames, and switches Workspaces without changing identity or order", async () => {

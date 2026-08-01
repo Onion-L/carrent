@@ -23,10 +23,21 @@ export type CarrentWindowLike = {
 export type CarrentWindowCloseDecision =
   // Close only this window; other Carrent Windows and shared state are untouched.
   | { kind: "close" }
-  // The final window on macOS hides instead of quitting Carrent.
-  | { kind: "hide" }
+  // The final window on macOS is destroyed, leaving Carrent alive with no
+  // window. Dock activation or a repeated launch re-creates one.
+  | { kind: "destroy" }
   // The final window on Windows and Linux requests application Quit.
   | { kind: "quit" };
+
+// Result of a second-instance launch or deep link. When no Carrent Window
+// exists the caller must create one (optionally with the deep-link route).
+export type CarrentWindowTargeting = {
+  needsWindow: boolean;
+  // The route to deliver, if any. A valid deep link yields its route; an
+  // invalid one yields the established fallback; an ordinary relaunch is null
+  // (focus the most recent window or create a default one).
+  route: string | null;
+};
 
 type DeepLinkResolution = { kind: "valid"; path: string } | { kind: "invalid" } | null;
 
@@ -61,6 +72,7 @@ type RendererNavigationStart = {
 type RegisteredWindow = {
   window: CarrentWindowLike;
   ready: boolean;
+  focusWhenReady: boolean;
   // A navigation requested (deep link, repeated launch) while the renderer is
   // still loading. Cleared if the renderer starts loading again.
   pendingNavigation: string | null;
@@ -89,7 +101,11 @@ export function createCarrentWindowRegistry({
   function sendNavigation(target: RegisteredWindow, path: string) {
     target.route = path;
     if (!target.ready) {
-      target.pendingNavigation = path;
+      if (target.initialRoute !== null) {
+        target.initialRoute = path;
+      } else {
+        target.pendingNavigation = path;
+      }
       return;
     }
     target.window.webContents.send("app:navigate", path);
@@ -119,11 +135,35 @@ export function createCarrentWindowRegistry({
     return undefined;
   }
 
+  function resolveMostRecentShowing(path: string): RegisteredWindow | undefined {
+    for (let index = windows.length - 1; index >= 0; index -= 1) {
+      const entry = windows[index];
+      if (!entry.window.isDestroyed() && entry.route === path) return entry;
+    }
+    return undefined;
+  }
+
+  function targetRoute(path: string) {
+    const matching = resolveMostRecentShowing(path);
+    if (matching) {
+      if (matching.ready) {
+        focusWindow(matching);
+      } else {
+        matching.focusWhenReady = true;
+      }
+      return;
+    }
+
+    const entry = resolveMostRecent();
+    if (entry) sendNavigation(entry, path);
+  }
+
   return {
     register(window: CarrentWindowLike) {
       windows.push({
         window,
         ready: false,
+        focusWhenReady: false,
         pendingNavigation: null,
         initialRoute: null,
         route: null,
@@ -132,7 +172,14 @@ export function createCarrentWindowRegistry({
 
     setInitialRoute(id: number, path: string) {
       const entry = entryOf(id);
-      if (entry) entry.initialRoute = path;
+      if (!entry) return;
+      entry.initialRoute = path;
+      entry.route = path;
+    },
+
+    setRoute(id: number, path: string) {
+      const entry = liveEntryOf(id);
+      if (entry) entry.route = path;
     },
 
     unregister(id: number) {
@@ -161,10 +208,13 @@ export function createCarrentWindowRegistry({
       return entryOf(id)?.route ?? null;
     },
 
-    markLoading(id: number, navigation: RendererNavigationStart = {
-      isSameDocument: false,
-      isMainFrame: true,
-    }) {
+    markLoading(
+      id: number,
+      navigation: RendererNavigationStart = {
+        isSameDocument: false,
+        isMainFrame: true,
+      },
+    ) {
       if (navigation.isSameDocument || !navigation.isMainFrame) return;
       const entry = entryOf(id);
       if (!entry) return;
@@ -182,12 +232,14 @@ export function createCarrentWindowRegistry({
         const path = entry.initialRoute;
         entry.initialRoute = null;
         sendNavigation(entry, path);
-        return;
-      }
-      if (entry.pendingNavigation) {
+      } else if (entry.pendingNavigation) {
         const path = entry.pendingNavigation;
         entry.pendingNavigation = null;
         sendNavigation(entry, path);
+      }
+      if (entry.focusWhenReady) {
+        entry.focusWhenReady = false;
+        focusWindow(entry);
       }
     },
 
@@ -203,6 +255,10 @@ export function createCarrentWindowRegistry({
       return focusWindow(entry);
     },
 
+    handleRoute(path: string) {
+      targetRoute(path);
+    },
+
     decideClose(id: number): CarrentWindowCloseDecision {
       const entry = entryOf(id);
       if (!entry) return { kind: "close" };
@@ -210,32 +266,56 @@ export function createCarrentWindowRegistry({
         .filter((item) => item !== entry)
         .filter((item) => !item.window.isDestroyed());
       if (remaining.length > 0) return { kind: "close" };
-      if (platform === "darwin") return { kind: "hide" };
+      if (platform === "darwin") return { kind: "destroy" };
       return { kind: "quit" };
     },
 
-    handleSecondInstance(argv: string[]) {
+    handleSecondInstance(argv: string[]): CarrentWindowTargeting {
       const resolution = resolveDeepLink(argv);
       const entry = resolveMostRecent();
-      if (!entry) return;
+      if (!entry) {
+        // No Carrent Window exists; the caller creates one, optionally with the
+        // deep-link route as its initial path.
+        return {
+          needsWindow: true,
+          route:
+            resolution?.kind === "valid"
+              ? resolution.path
+              : resolution?.kind === "invalid"
+                ? "/workspace"
+                : null,
+        };
+      }
       if (resolution?.kind === "valid") {
-        sendNavigation(entry, resolution.path);
+        targetRoute(resolution.path);
       } else if (resolution?.kind === "invalid") {
         sendNavigation(entry, "/workspace");
       } else {
         focusWindow(entry);
       }
+      return { needsWindow: false, route: null };
     },
 
-    handleOpenUrl(url: string) {
+    handleOpenUrl(url: string): CarrentWindowTargeting {
       const resolution = resolveDeepLink([url]);
       const entry = resolveMostRecent();
-      if (!entry) return;
+      if (!entry) {
+        return {
+          needsWindow: true,
+          route:
+            resolution?.kind === "valid"
+              ? resolution.path
+              : resolution?.kind === "invalid"
+                ? "/workspace"
+                : null,
+        };
+      }
       if (resolution?.kind === "valid") {
-        sendNavigation(entry, resolution.path);
+        targetRoute(resolution.path);
       } else if (resolution?.kind === "invalid") {
         sendNavigation(entry, "/workspace");
       }
+      return { needsWindow: false, route: null };
     },
   };
 }

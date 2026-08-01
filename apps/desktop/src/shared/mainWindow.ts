@@ -7,6 +7,13 @@ export type CarrentWindowsApi = {
   // Non-blocking notification that a window creation failed; existing windows
   // are left unchanged.
   onOpenError: (listener: (message: string) => void) => VoidFunction;
+  // Keeps the Main Process registry aligned with this Carrent Window's current
+  // route so deep links can target an existing matching Thread.
+  reportRoute: (route: string) => void;
+  // Quit-time capture: the main process asks for this window's current route so
+  // the window session can be persisted and restored on the next launch.
+  onCaptureRequest: (listener: () => void) => VoidFunction;
+  captureDone: (route: string) => Promise<void>;
 };
 
 export type MainWindowApi = {

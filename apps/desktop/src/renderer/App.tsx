@@ -60,6 +60,21 @@ function WindowOpenErrorHandler() {
   return null;
 }
 
+function WindowCaptureReporter() {
+  const location = useLocation();
+
+  // At quit the Main Process asks for this window's current route so the window
+  // session can be persisted and restored on the next launch.
+  useEffect(() => {
+    window.carrent.mainWindow.windows.reportRoute(location.pathname);
+    return window.carrent.mainWindow.windows.onCaptureRequest(() => {
+      void window.carrent.mainWindow.windows.captureDone(location.pathname);
+    });
+  }, [location.pathname]);
+
+  return null;
+}
+
 function NavigationCoordinator() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -198,6 +213,7 @@ function AppRoutes() {
         <AppStateNotice />
         <MainWindowNavigation />
         <WindowOpenErrorHandler />
+        <WindowCaptureReporter />
         <NavigationCoordinator />
         <FirstUsePage />
       </ToastProvider>
@@ -209,6 +225,7 @@ function AppRoutes() {
       <AppStateNotice />
       <MainWindowNavigation />
       <WindowOpenErrorHandler />
+      <WindowCaptureReporter />
       <NavigationCoordinator />
       <DesktopShell>
         <Routes>

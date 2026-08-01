@@ -54,12 +54,21 @@ import { registerMcpServerIpc } from "./bridge/mcpServerIpc";
 import { registerSettingsIpc } from "./settings/settingsIpc";
 import { registerDialogIpc } from "./dialog/dialogIpc";
 import { spawn } from "node:child_process";
-import {
-  cascadeWindowBounds,
-  type WindowBounds,
-} from "./carrentWindowGeometry";
+import { cascadeWindowBounds, type WindowBounds } from "./carrentWindowGeometry";
 import { openThreadInNewWindow } from "./carrentWindowOpener";
 import { createCarrentWindowRegistry } from "./carrentWindowRegistry";
+import { createCarrentWindowCapture } from "./carrentWindowCapture";
+import {
+  buildRecoveredWindowOptions,
+  captureSession,
+  mostRecentRestoredWindow,
+  restoreWindows,
+  type RestoredWindow,
+} from "./carrentWindowSession";
+import {
+  createCarrentWindowSessionStore,
+  type CarrentWindowSessionStore,
+} from "./carrentWindowSessionStore";
 import {
   createAppStateIpcGate,
   loadProviderSessionsForAppState,
@@ -109,6 +118,11 @@ let waitForThreadDeletion: (() => Promise<void>) | null = null;
 let appStateFlush: ReturnType<typeof createAppStateFlush> | null = null;
 let liveRunQuitWarning: ReturnType<typeof createLiveRunQuitWarning> | null = null;
 let terminalSessionManager: TerminalSessionManager | null = null;
+let windowSessionStore: CarrentWindowSessionStore | null = null;
+let windowCapture: ReturnType<typeof createCarrentWindowCapture> | null = null;
+// Most recently active saved window, for Dock activation / repeated launch
+// "recent-position recovery" when no Carrent Window exists but a session does.
+let recentRestoredWindow: RestoredWindow | null = null;
 
 // Carrent Windows are peers: every window provides complete navigation and
 // owns only its route, history, and presentation state. The registry tracks
@@ -137,11 +151,18 @@ function resolveNormalBounds(window: BrowserWindow): WindowBounds {
 
 function createWindow(
   icon: string | undefined,
-  options: { initialPath?: string; source?: BrowserWindow | null } = {},
+  options: {
+    initialPath?: string;
+    source?: BrowserWindow | null;
+    restoreBounds?: WindowBounds;
+    restoreMaximized?: boolean;
+  } = {},
 ) {
-  // A new window opens on the source window's display. When there is no source
-  // (Dock activation, first window) it opens on the primary display.
+  // A new window opened from a source cascades from that source. A restored or
+  // Dock-created window has no source and reuses its saved normal bounds (or,
+  // with none, the default size).
   const cascadeFrom = options.source && !options.source.isDestroyed() ? options.source : null;
+  const restoreBounds = options.restoreBounds ?? null;
 
   const constructorOptions: Electron.BrowserWindowConstructorOptions = {
     width: DEFAULT_WINDOW_WIDTH,
@@ -162,10 +183,19 @@ function createWindow(
     },
   };
 
-  // A new window opens on the source window's display, inherits the source's
-  // *normal* bounds, and is cascaded ~24px down and right within the display
-  // work area. A maximized source never makes the new window start maximized.
-  if (cascadeFrom && !cascadeFrom.isDestroyed()) {
+  // A restored window reopens at its saved normal bounds and (optionally)
+  // maximized state, so a restart recreates the workspace layout. Otherwise a
+  // window opened from a source inherits the source's *normal* bounds and is
+  // cascaded ~24px down and right within the display work area; a maximized
+  // source never makes the new window start maximized.
+  if (restoreBounds) {
+    Object.assign(constructorOptions, {
+      x: restoreBounds.x,
+      y: restoreBounds.y,
+      width: restoreBounds.width,
+      height: restoreBounds.height,
+    });
+  } else if (cascadeFrom && !cascadeFrom.isDestroyed()) {
     const display = screen.getDisplayMatching(cascadeFrom.getBounds());
     const cascaded = cascadeWindowBounds(resolveNormalBounds(cascadeFrom), display.workArea);
     Object.assign(constructorOptions, {
@@ -178,40 +208,45 @@ function createWindow(
 
   const window = new BrowserWindow(constructorOptions);
   windowRegistry.register(window);
+  windowRegistry.setRoute(window.id, options.initialPath ?? "/");
   if (options.initialPath) {
     // The initial route survives the new renderer's own initial load (which
     // would otherwise clear a pending navigation) and is delivered on first
     // renderer readiness.
-    windowRegistry.setInitialRoute(window.webContents.id, options.initialPath);
+    windowRegistry.setInitialRoute(window.id, options.initialPath);
   }
 
   window.on("focus", () => windowRegistry.setActive(window.id));
 
   window.on("ready-to-show", () => {
-    // A peer window opens at its inherited normal bounds; only the first
-    // window of an otherwise empty session maximizes on ready-to-show.
-    if (cascadeFrom && !cascadeFrom.isDestroyed()) {
-      window.show();
-    } else {
+    if (options.restoreMaximized) {
+      // A restored maximized window maximizes on open.
       window.maximize();
-      window.show();
+    } else if (cascadeFrom && !cascadeFrom.isDestroyed()) {
+      // A peer window opened from a source shows at its inherited bounds.
+    } else if (!restoreBounds) {
+      // The first window of an otherwise empty session maximizes on open.
+      window.maximize();
     }
+    window.show();
   });
 
   window.on("close", (event) => {
     // While Carrent is quitting every window closes normally.
     if (appShutdown.isQuitting()) return;
     const decision = windowRegistry.decideClose(window.id);
-    if (decision.kind === "close") return;
-    // The final Carrent Window either hides (macOS) or requests Quit. Closing
-    // one of several windows is always a plain close, so only the final-window
-    // decision prevents the BrowserWindow close here.
-    event.preventDefault();
-    if (decision.kind === "hide") {
-      window.hide();
-    } else {
-      app.quit();
+    if (decision.kind === "close" || decision.kind === "destroy") {
+      // "close": only this window is affected. "destroy": the final window on
+      // macOS is destroyed, leaving Carrent alive at zero windows (Dock
+      // activation or a repeated launch re-creates one). In both cases the
+      // BrowserWindow closes normally.
+      return;
     }
+    // The final Carrent Window on Windows and Linux requests application Quit.
+    // Closing one of several windows is always a plain close, so only the
+    // final-window Quit decision prevents the BrowserWindow close here.
+    event.preventDefault();
+    app.quit();
   });
 
   window.on("closed", () => {
@@ -253,6 +288,10 @@ function createWindow(
   return window;
 }
 
+function createRecoveredWindow(icon: string | undefined, targetRoute: string | null) {
+  return createWindow(icon, buildRecoveredWindowOptions(recentRestoredWindow, targetRoute));
+}
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!hasSingleInstanceLock) {
@@ -260,11 +299,23 @@ if (!hasSingleInstanceLock) {
 } else {
   app.setAsDefaultProtocolClient("carrent");
   app.on("second-instance", (_event, argv) => {
-    windowRegistry.handleSecondInstance(argv);
+    const targeting = windowRegistry.handleSecondInstance(argv);
+    // A repeated launch with no Carrent Window re-creates one, optionally with
+    // the deep-link route as its initial path.
+    if (targeting.needsWindow) {
+      createRecoveredWindow(resolveIconPath(), targeting.route);
+    }
   });
   app.on("open-url", (event, url) => {
     event.preventDefault();
-    windowRegistry.handleOpenUrl(url);
+    const targeting = windowRegistry.handleOpenUrl(url);
+    if (targeting.needsWindow) {
+      createRecoveredWindow(resolveIconPath(), targeting.route);
+    }
+  });
+  ipcMain.on("windows:route-changed", (event, route: unknown) => {
+    if (typeof route !== "string" || !route.startsWith("/") || route.length > 4_096) return;
+    windowRegistry.setRoute(event.sender.id, route);
   });
   ipcMain.on("app:navigation-ready", (event) => {
     windowRegistry.markReady(event.sender.id);
@@ -298,7 +349,9 @@ if (!hasSingleInstanceLock) {
       create: (validRoute) => createWindow(resolveIconPath(), { initialPath: validRoute, source }),
     });
   });
-  windowRegistry.handleSecondInstance(process.argv);
+  // A deep link present in the initial launch argv targets the first Carrent
+  // Window, which the startup restoration below creates.
+  const initialLaunchTargeting = windowRegistry.handleSecondInstance(process.argv);
 
   app.whenReady().then(async () => {
     ensureCliPaths();
@@ -529,11 +582,62 @@ if (!hasSingleInstanceLock) {
       isProjectDirectoryAvailable,
       threadDeletionManager,
     });
-    createWindow(icon);
+
+    windowSessionStore = createCarrentWindowSessionStore(userDataPath);
+    const savedSession = await windowSessionStore.load();
+    const restoredWindows = savedSession ? restoreWindows(savedSession) : [];
+
+    // Coordinated quit-time capture of every live window's route, bounds, and
+    // maximized state, persisted as the next-launch window session.
+    windowCapture = createCarrentWindowCapture(
+      guardedIpcMain,
+      () =>
+        BrowserWindow.getAllWindows()
+          .filter((target) => !target.isDestroyed())
+          .map((target) => ({
+            id: target.id,
+            isDestroyed: () => target.isDestroyed(),
+            getBounds: () =>
+              target.isDestroyed()
+                ? { x: 0, y: 0, width: DEFAULT_WINDOW_WIDTH, height: DEFAULT_WINDOW_HEIGHT }
+                : resolveNormalBounds(target),
+            isMaximized: () => !target.isDestroyed() && target.isMaximized(),
+            getRoute: () => windowRegistry.getRoute(target.id),
+            send: (channel) => {
+              if (!target.isDestroyed()) target.webContents.send(channel);
+            },
+          })),
+      (target) => target.send("windows:capture-request"),
+    );
+
+    // Restart restores every Carrent Window still open at Quit with its route,
+    // normal bounds, and maximized state. A window explicitly closed before
+    // Quit is not restored (it was not in the saved session). Invalid restored
+    // routes fall back normally via the renderer's nearest-valid-parent logic.
+    recentRestoredWindow = savedSession ? mostRecentRestoredWindow(savedSession) : null;
+    if (restoredWindows.length > 0) {
+      for (const restored of restoredWindows) {
+        createWindow(icon, {
+          initialPath: restored.route,
+          restoreBounds: restored.bounds,
+          restoreMaximized: restored.maximized,
+        });
+      }
+      if (initialLaunchTargeting.route) {
+        windowRegistry.handleRoute(initialLaunchTargeting.route);
+      }
+    } else if (initialLaunchTargeting.route) {
+      // A first-launch deep link opens its route in the initial window.
+      createWindow(icon, { initialPath: initialLaunchTargeting.route });
+    } else {
+      createWindow(icon);
+    }
 
     app.on("activate", () => {
       if (windowRegistry.count() === 0) {
-        createWindow(icon);
+        // Dock activation with no Carrent Window re-creates one using normal
+        // recent-position recovery from the saved window session.
+        createRecoveredWindow(icon, null);
       } else {
         windowRegistry.focusMostRecent();
       }
@@ -552,6 +656,13 @@ const appShutdown = createAppShutdown({
     // authority queue so everything typed before quitting is persisted.
     await appStateFlush?.flush();
     await appStateStore?.waitForWrites();
+    // Capture each live window's route, bounds, and maximized state so the next
+    // launch restores every Carrent Window still open at Quit. The capture
+    // runs after the App State flush so the routes reflect the persisted state.
+    if (windowCapture && windowSessionStore) {
+      const captured = await windowCapture.capture();
+      await windowSessionStore.save(captureSession(captured));
+    }
   },
   liveRunQuitPolicy: {
     hasLiveRuns: () => chatSessionManager?.hasLiveRuns?.() ?? false,
@@ -567,5 +678,8 @@ app.on("before-quit", (event) => {
 });
 
 app.on("window-all-closed", () => {
-  app.quit();
+  // On macOS the final Carrent Window is destroyed while Carrent (and its Runs
+  // and Terminal Tabs) stays active; Dock activation re-creates a window. On
+  // Windows and Linux closing the final window requests application Quit.
+  if (process.platform !== "darwin") app.quit();
 });

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import {
-  createCarrentWindowRegistry,
-  type CarrentWindowLike,
-} from "./carrentWindowRegistry";
+import { createCarrentWindowRegistry, type CarrentWindowLike } from "./carrentWindowRegistry";
 
 type FakeOptions = {
   id: number;
@@ -242,12 +239,12 @@ describe("createCarrentWindowRegistry — closure of peer windows", () => {
     expect(first.events).toEqual([]);
   });
 
-  it("hides the final window instead of quitting on macOS", () => {
+  it("destroys the final window on macOS instead of quitting or hiding", () => {
     const { registry } = createRegistry("darwin");
     const first = createFakeWindow({ id: 1 });
     registry.register(first.window);
 
-    expect(registry.decideClose(1)).toEqual({ kind: "hide" });
+    expect(registry.decideClose(1)).toEqual({ kind: "destroy" });
   });
 
   it("treats an unknown window close as a plain close", () => {
@@ -298,6 +295,46 @@ describe("createCarrentWindowRegistry — repeated launch and deep links", () =>
     ]);
   });
 
+  it("focuses the most recent window already showing the deep-linked Thread", () => {
+    const { registry } = createRegistry();
+    const first = createFakeWindow({ id: 1 });
+    const second = createFakeWindow({ id: 2 });
+    const third = createFakeWindow({ id: 3 });
+    registry.register(first.window);
+    registry.register(second.window);
+    registry.register(third.window);
+    registry.markReady(1);
+    registry.markReady(2);
+    registry.markReady(3);
+    registry.setRoute(1, "/workspace/w-1/project/p-1/thread/t-1");
+    registry.setRoute(2, "/workspace/w-1/project/p-1/thread/t-1");
+    registry.setRoute(3, "/workspace/w-2");
+    registry.setActive(2);
+    registry.setActive(3);
+
+    registry.handleOpenUrl("carrent://workspace/w-1/project/p-1/thread/t-1");
+
+    expect(first.events).toEqual([]);
+    expect(second.events).toEqual(["focus"]);
+    expect(second.sent).toEqual([]);
+    expect(third.events).toEqual([]);
+    expect(third.sent).toEqual([]);
+  });
+
+  it("replaces a restored initial route when a deep link arrives before readiness", () => {
+    const { registry } = createRegistry();
+    const first = createFakeWindow({ id: 1 });
+    registry.register(first.window);
+    registry.setInitialRoute(1, "/workspace/old");
+
+    registry.handleOpenUrl("carrent://workspace/new/project/p-1/thread/t-1");
+    registry.markReady(1);
+
+    expect(first.sent).toEqual([
+      { channel: "app:navigate", path: "/workspace/new/project/p-1/thread/t-1" },
+    ]);
+  });
+
   it("holds the deep-link navigation until the renderer becomes ready", () => {
     const { registry } = createRegistry();
     const first = createFakeWindow({ id: 1 });
@@ -324,14 +361,46 @@ describe("createCarrentWindowRegistry — repeated launch and deep links", () =>
     expect(first.sent).toEqual([{ channel: "app:navigate", path: "/workspace" }]);
   });
 
-  it("creates no window and changes no route when there is no window to receive a deep link", () => {
+  it("signals a window must be created with the deep-link route when no window exists", () => {
     const { registry } = createRegistry();
 
-    expect(() =>
+    expect(
       registry.handleSecondInstance([
         "/Applications/Carrent",
         "carrent://workspace/w-1/project/p-1/thread/t-1",
       ]),
-    ).not.toThrow();
+    ).toEqual({ needsWindow: true, route: "/workspace/w-1/project/p-1/thread/t-1" });
+  });
+
+  it("signals a window must be created with the fallback route for an invalid deep link", () => {
+    const { registry } = createRegistry();
+
+    expect(registry.handleOpenUrl("carrent://settings")).toEqual({
+      needsWindow: true,
+      route: "/workspace",
+    });
+  });
+
+  it("signals a window must be created with no route on an ordinary relaunch with no window", () => {
+    const { registry } = createRegistry();
+
+    expect(registry.handleSecondInstance(["/Applications/Carrent"])).toEqual({
+      needsWindow: true,
+      route: null,
+    });
+  });
+
+  it("reports no window needed and no route when a window already received the deep link", () => {
+    const { registry } = createRegistry();
+    const first = createFakeWindow({ id: 1 });
+    registry.register(first.window);
+    registry.markReady(1);
+
+    expect(
+      registry.handleSecondInstance([
+        "/Applications/Carrent",
+        "carrent://workspace/w-1/project/p-1/thread/t-1",
+      ]),
+    ).toEqual({ needsWindow: false, route: null });
   });
 });

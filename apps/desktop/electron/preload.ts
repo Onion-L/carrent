@@ -67,6 +67,14 @@ const mainWindow: MainWindowApi = {
       ipcRenderer.on("windows:open-error", wrapped);
       return () => ipcRenderer.removeListener("windows:open-error", wrapped);
     },
+    reportRoute: (route: string) => ipcRenderer.send("windows:route-changed", route),
+    onCaptureRequest: (listener) => {
+      const wrapped = () => listener();
+      ipcRenderer.on("windows:capture-request", wrapped);
+      return () => ipcRenderer.removeListener("windows:capture-request", wrapped);
+    },
+    captureDone: (route: string) =>
+      ipcRenderer.invoke("windows:capture-done", route) as Promise<void>,
   },
 };
 

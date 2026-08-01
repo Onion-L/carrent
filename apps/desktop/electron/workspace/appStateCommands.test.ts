@@ -1070,6 +1070,174 @@ describe("thread run and action commands", () => {
     expect(second.threadRuns).toHaveLength(2);
   });
 
+  it("keeps the newest replayed Run message across window updates", () => {
+    const recorded = reduce("thread:record-run", makeSnapshot(), runPayload()) as AppStateSnapshot;
+    const assistant = recorded.threadMessages?.find((message) => message.id === "assistant-1");
+    if (!assistant) throw new Error("Expected the recorded assistant message.");
+    const userMessage = recorded.threadMessages?.find((message) => message.id === "m-1");
+    if (!userMessage) throw new Error("Expected the recorded user message.");
+    const timelineItem = {
+      type: "kimi_timeline" as const,
+      item: {
+        type: "message" as const,
+        id: "run-1-message-1",
+        order: 0,
+        content: "Done.",
+        isFinal: true,
+      },
+    };
+    const applied = reduce("thread-content:update", recorded, {
+      threadId: "t-1",
+      messages: [
+        recorded.threadMessages?.find((message) => message.id === "m-1"),
+        {
+          ...assistant,
+          content: "Done.",
+          parts: [timelineItem],
+          runStatus: "completed",
+          runEventCount: 3,
+        },
+      ],
+    }) as AppStateSnapshot;
+
+    const staleReplay = reduce("thread-content:update", applied, {
+      threadId: "t-1",
+      messages: [
+        applied.threadMessages?.find((message) => message.id === "m-1"),
+        {
+          ...assistant,
+          content: "Done.Done.",
+          parts: [timelineItem, timelineItem],
+          runStatus: "running",
+          runEventCount: 2,
+        },
+      ],
+    }) as AppStateSnapshot;
+    const duplicateReplay = reduce("thread-content:update", staleReplay, {
+      threadId: "t-1",
+      messages: [
+        staleReplay.threadMessages?.find((message) => message.id === "m-1"),
+        {
+          ...assistant,
+          content: "Done.Done.",
+          parts: [timelineItem, timelineItem],
+          runStatus: "completed",
+          runEventCount: 3,
+        },
+      ],
+    }) as AppStateSnapshot;
+
+    expect(
+      duplicateReplay.threadMessages?.find((message) => message.id === "assistant-1"),
+    ).toMatchObject({
+      content: "Done.",
+      parts: [timelineItem],
+      runStatus: "completed",
+      runEventCount: 3,
+    });
+
+    const runningAtTerminalCount = {
+      ...recorded,
+      threadMessages: recorded.threadMessages?.map((message) =>
+        message.id === "assistant-1" ? { ...message, runEventCount: 3 } : message,
+      ),
+    };
+    const settledAtSameCount = reduce("thread-content:update", runningAtTerminalCount, {
+      threadId: "t-1",
+      messages: runningAtTerminalCount.threadMessages?.map((message) =>
+        message.id === "assistant-1"
+          ? {
+              ...message,
+              content: "duplicated replay text",
+              parts: [timelineItem, timelineItem],
+              runStatus: "completed",
+              runFinishedAt: 123,
+            }
+          : message,
+      ),
+    }) as AppStateSnapshot;
+
+    const settledMessage = settledAtSameCount.threadMessages?.find(
+      (message) => message.id === "assistant-1",
+    );
+    expect(settledMessage).toMatchObject({
+      content: "",
+      runStatus: "completed",
+      runFinishedAt: 123,
+      runEventCount: 3,
+    });
+    expect(
+      settledMessage?.type === "changed_files" ? undefined : settledMessage?.parts,
+    ).toBeUndefined();
+
+    const failed = {
+      ...assistant,
+      content: "",
+      parts: [
+        {
+          type: "kimi_timeline" as const,
+          item: {
+            type: "thinking" as const,
+            id: "run-1-thinking-1",
+            order: 0,
+            content: "Inspect",
+            status: "running" as const,
+          },
+        },
+      ],
+      runStatus: "failed" as const,
+      runEventCount: 4,
+    };
+    const failedSnapshot = {
+      ...applied,
+      threadMessages: [userMessage, failed],
+    };
+    const hydrated = reduce("thread-content:update", failedSnapshot, {
+      threadId: "t-1",
+      messages: [
+        failedSnapshot.threadMessages[0],
+        {
+          ...failed,
+          parts: [
+            {
+              ...failed.parts[0],
+              item: { ...failed.parts[0].item, status: "cancelled" },
+            },
+          ],
+        },
+      ],
+    }) as AppStateSnapshot;
+
+    expect(hydrated.threadMessages?.find((message) => message.id === "assistant-1")).toMatchObject({
+      runStatus: "failed",
+      runEventCount: 4,
+      parts: [{ item: { id: "run-1-thinking-1", status: "cancelled" } }],
+    });
+  });
+
+  it("leaves non-Kimi message replacement behavior unchanged", () => {
+    const recorded = reduce("thread:record-run", makeSnapshot(), runPayload()) as AppStateSnapshot;
+    const codexSnapshot = {
+      ...recorded,
+      threadRuns: recorded.threadRuns?.map((run) => ({ ...run, runtimeId: "codex" as const })),
+      threadMessages: recorded.threadMessages?.map((message) =>
+        message.id === "assistant-1" ? { ...message, content: "first", runEventCount: 1 } : message,
+      ),
+    };
+    const replaced = reduce("thread-content:update", codexSnapshot, {
+      threadId: "t-1",
+      messages: codexSnapshot.threadMessages?.map((message) =>
+        message.id === "assistant-1"
+          ? { ...message, content: "second", runEventCount: 1 }
+          : message,
+      ),
+    }) as AppStateSnapshot;
+
+    expect(replaced.threadMessages?.find((message) => message.id === "assistant-1")?.content).toBe(
+      "second",
+    );
+  });
+
   it("rejects recording a run for unknown or archived threads", () => {
     expect(
       reduce("thread:record-run", makeSnapshot(), { ...runPayload(), threadId: "t-404" }),

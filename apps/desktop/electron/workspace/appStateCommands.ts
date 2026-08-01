@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 import { applyThreadDeletionToAppState } from "../../src/shared/chat";
 import { isRuntimeMode, type RuntimeMode } from "../../src/shared/runtimeMode";
 import { runtimeIds, type RuntimeId } from "../../src/shared/runtimes";
@@ -18,6 +20,7 @@ import {
   type WorkspaceRecord,
 } from "../../src/shared/workspacePersistence";
 import type { AppStateCommandReducer } from "../../src/shared/appStateAuthority";
+import { reconcileInterruptedMessage } from "../../src/shared/threadContent";
 
 // Command vocabulary for the shared App State data (workspaces, projects,
 // associations, thread metadata, selection, settings). Each reducer mirrors
@@ -1082,7 +1085,41 @@ const updateThreadContent: AppStateCommandReducer = (snapshot, payload) => {
       return null;
     }
     // Replace the Thread's messages in place so global message order is kept.
-    const replacement = payload.messages as AppThreadMessageRecord[];
+    const existingById = new Map(threadMessages.map((message) => [message.id, message]));
+    const kimiRunMessageIds = new Set(
+      (snapshot.threadRuns ?? [])
+        .flatMap((run) =>
+          run.runtimeId === "kimi" && run.assistantMessageId ? [run.assistantMessageId] : [],
+        ),
+    );
+    const replacement = (payload.messages as AppThreadMessageRecord[]).map((message) => {
+      const existing = existingById.get(message.id);
+      if (!existing || !kimiRunMessageIds.has(message.id)) return message;
+
+      const existingEventCount = existing.runEventCount;
+      const incomingEventCount = message.runEventCount;
+      if (typeof existingEventCount !== "number" || typeof incomingEventCount !== "number") {
+        return message;
+      }
+      if (incomingEventCount < existingEventCount) {
+        return existing;
+      }
+      if (incomingEventCount === existingEventCount) {
+        const reconciled = reconcileInterruptedMessage(existing, message.runFinishedAt ?? 0);
+        if (isDeepStrictEqual(message, reconciled)) return message;
+        if (existing.runStatus === "running" && message.runStatus !== "running") {
+          return {
+            ...existing,
+            runStatus: message.runStatus,
+            ...(message.runFinishedAt !== undefined
+              ? { runFinishedAt: message.runFinishedAt }
+              : {}),
+          };
+        }
+        return existing;
+      }
+      return message;
+    });
     const updated: AppThreadMessageRecord[] = [];
     let inserted = false;
     for (const message of threadMessages) {

@@ -105,3 +105,53 @@ export type ChangedFilesMessage<T extends MessageTimestampFields = UiMessageTime
 export type Message<T extends MessageTimestampFields = UiMessageTimestampFields> =
   | TextMessage<T>
   | ChangedFilesMessage<T>;
+
+function reconcileRunningParts(parts: MessagePart[] | undefined): MessagePart[] | undefined {
+  if (!parts) return undefined;
+
+  let changed = false;
+  const reconciled = parts.map((part) => {
+    if ((part.type === "reasoning" || part.type === "shell") && part.status === "running") {
+      changed = true;
+      return { ...part, status: "cancelled" as const };
+    }
+    if (
+      part.type === "kimi_timeline" &&
+      (part.item.type === "thinking" || part.item.type === "tool") &&
+      part.item.status === "running"
+    ) {
+      changed = true;
+      return { ...part, item: { ...part.item, status: "cancelled" as const } };
+    }
+    if ((part.type === "plan_review" || part.type === "question") && part.status === "pending") {
+      changed = true;
+      return { ...part, status: "interrupted" as const };
+    }
+    if (part.type === "subagent_task" && part.status === "running") {
+      changed = true;
+      return { ...part, status: "interrupted" as const };
+    }
+    return part;
+  });
+
+  return changed ? reconciled : parts;
+}
+
+export function reconcileInterruptedMessage<T extends MessageTimestampFields>(
+  message: Message<T>,
+  finishedAt: number,
+): Message<T> {
+  if (message.type === "changed_files") return message;
+
+  if (message.runStatus === "running") {
+    return {
+      ...message,
+      runStatus: "cancelled",
+      runFinishedAt: message.runFinishedAt ?? finishedAt,
+      parts: reconcileRunningParts(message.parts),
+    };
+  }
+
+  const parts = reconcileRunningParts(message.parts);
+  return parts === message.parts ? message : { ...message, parts };
+}

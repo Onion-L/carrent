@@ -327,6 +327,40 @@ describe("real multi-window workflows", () => {
       ),
     ).toHaveLength(1);
 
+    const finalTimelinePart = {
+      type: "kimi_timeline" as const,
+      item: {
+        type: "message" as const,
+        id: "run-1-message-1",
+        order: 0,
+        content: "Done.",
+        isFinal: true,
+      },
+    };
+    const completedAssistant = {
+      ...promotion.assistantMessage,
+      content: "Done.",
+      parts: [finalTimelinePart],
+      runStatus: "completed" as const,
+      runEventCount: 3,
+    };
+    await clientA.command("thread-content:update", {
+      threadId: "thread-1",
+      messages: [promotion.message, completedAssistant],
+    });
+    await clientB.command("thread-content:update", {
+      threadId: "thread-1",
+      messages: [
+        promotion.message,
+        {
+          ...promotion.assistantMessage,
+          content: "Done.Done.",
+          parts: [finalTimelinePart, finalTimelinePart],
+          runEventCount: 2,
+        },
+      ],
+    });
+
     await clientB.command("thread-work:update", {
       threadId: "thread-1",
       work: {
@@ -419,6 +453,12 @@ describe("real multi-window workflows", () => {
       settings: { theme: "light", fontSize: 17 },
     });
     expect(snapshot.threadWork?.["thread-1"]?.draft?.content).toBe("composer from B");
+    expect(snapshot.threadMessages?.find((message) => message.id === "assistant-1")).toMatchObject({
+      content: "Done.",
+      parts: [finalTimelinePart],
+      runStatus: "completed",
+      runEventCount: 3,
+    });
     expect(clientA.latestAppState()).toEqual(clientB.latestAppState());
     expect(clientA.latestRunState()).toEqual(clientB.latestRunState());
     expect(clientA.terminalTabs()).toEqual(clientB.terminalTabs());

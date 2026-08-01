@@ -83,6 +83,74 @@ describe("reconcileInterruptedRuns", () => {
     ]);
   });
 
+  it("cancels persisted Kimi Thinking and tools during hydration", () => {
+    const [result] = reconcileInterruptedRuns([
+      makeMessage({
+        runStatus: "failed",
+        parts: [
+          {
+            type: "kimi_timeline",
+            item: {
+              type: "thinking",
+              id: "run-1-thinking-1",
+              order: 0,
+              content: "Inspect",
+              status: "running",
+            },
+          },
+          {
+            type: "kimi_timeline",
+            item: {
+              type: "tool",
+              id: "run-1-tool-1",
+              order: 1,
+              toolCallId: "tool-1",
+              title: "Read",
+              kind: "read",
+              command: "",
+              filePath: "src/a.ts",
+              input: "",
+              output: "partial output",
+              error: "transport closed",
+              status: "running",
+            },
+          },
+          {
+            type: "kimi_timeline",
+            item: {
+              type: "tool",
+              id: "run-1-tool-2",
+              order: 2,
+              toolCallId: "tool-2",
+              title: "Write",
+              kind: "edit",
+              command: "",
+              filePath: "src/b.ts",
+              input: "",
+              output: "",
+              error: "write failed",
+              status: "failed",
+            },
+          },
+        ],
+      }),
+    ]) as TextMessage[];
+
+    expect(result.parts).toMatchObject([
+      { item: { id: "run-1-thinking-1", order: 0, status: "cancelled" } },
+      {
+        item: {
+          id: "run-1-tool-1",
+          order: 1,
+          output: "partial output",
+          error: "transport closed",
+          status: "cancelled",
+        },
+      },
+      { item: { id: "run-1-tool-2", order: 2, error: "write failed", status: "failed" } },
+    ]);
+  });
+
   it("interrupts pending Run interactions while preserving produced history", () => {
     const [result] = reconcileInterruptedRuns([
       makeMessage({

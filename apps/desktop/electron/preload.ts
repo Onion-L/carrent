@@ -36,6 +36,8 @@ import type { ThreadActionRequest, ThreadActionResult } from "../src/shared/thre
 import type {
   CreateTerminalRequest,
   TerminalEvent,
+  TerminalFocusRequest,
+  TerminalProjectSnapshot,
   TerminalResizeRequest,
   TerminalTab,
   TerminalTarget,
@@ -166,14 +168,18 @@ const carrent = {
     readText: () => ipcRenderer.invoke("clipboard:read-text") as Promise<string>,
   },
   terminal: {
-    list: (projectId: string) =>
-      ipcRenderer.invoke("terminal:list", projectId) as Promise<TerminalTab[]>,
+    subscribe: (projectId: string) =>
+      ipcRenderer.invoke("terminal:subscribe", projectId) as Promise<TerminalProjectSnapshot>,
+    unsubscribe: (projectId: string) =>
+      ipcRenderer.invoke("terminal:unsubscribe", projectId) as Promise<void>,
     create: (request: CreateTerminalRequest) =>
       ipcRenderer.invoke("terminal:create", request) as Promise<TerminalTab>,
     write: (request: TerminalWriteRequest) =>
       ipcRenderer.invoke("terminal:write", request) as Promise<void>,
     resize: (request: TerminalResizeRequest) =>
       ipcRenderer.invoke("terminal:resize", request) as Promise<void>,
+    focus: (request: TerminalFocusRequest) =>
+      ipcRenderer.invoke("terminal:focus", request) as Promise<void>,
     activate: (request: TerminalTarget) =>
       ipcRenderer.invoke("terminal:activate", request) as Promise<void>,
     close: (request: TerminalTarget) =>

@@ -250,6 +250,7 @@ function createWindow(
   });
 
   window.on("closed", () => {
+    terminalSessionManager?.detach(window.webContents.id);
     zoomControllersByContentsId.delete(window.webContents.id);
     windowRegistry.unregister(window.id);
   });
@@ -257,9 +258,7 @@ function createWindow(
   window.webContents.on("did-start-navigation", (event) => {
     if (event.isSameDocument || !event.isMainFrame) return;
     windowRegistry.markLoading(window.webContents.id, event);
-    // Terminal Tabs are Project-owned; a reloading Renderer detaches from its
-    // Tabs without terminating them. (Cross-window Terminal sharing is 07.)
-    terminalSessionManager?.closeOwner(window.webContents.id);
+    terminalSessionManager?.detach(window.webContents.id);
   });
 
   const zoomController = createWindowZoomController(() =>
@@ -406,9 +405,6 @@ if (!hasSingleInstanceLock) {
     terminalSessionManager = createTerminalSessionManager({
       pty: nodePtyAdapter,
       emit: (ownerId, event) => {
-        // Terminal Tabs are owned by the Carrent Window (Renderer) that created
-        // them; output fans out to that owner only. Cross-window Terminal
-        // sharing lands in 07.
         const contents = webContents.fromId(ownerId);
         if (contents && !contents.isDestroyed()) {
           contents.send("terminal:event", event);

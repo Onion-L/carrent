@@ -19,6 +19,7 @@ export type CreateTerminalRequest = {
   projectName: string;
   workingDirectory: string;
   enhancedCompletion: boolean;
+  ensureFirst?: boolean;
 };
 
 export type TerminalTarget = {
@@ -27,7 +28,19 @@ export type TerminalTarget = {
 };
 
 export type TerminalWriteRequest = TerminalTarget & { data: string };
-export type TerminalResizeRequest = TerminalTarget & { columns: number; rows: number };
+export type TerminalResizeRequest = TerminalTarget & {
+  columns: number;
+  rows: number;
+  focusVersion: number;
+};
+export type TerminalFocusRequest = TerminalResizeRequest & { focused: boolean };
+
+export type TerminalProjectSnapshot = {
+  projectId: string;
+  revision: number;
+  tabs: TerminalTab[];
+  outputByTerminal: Record<string, string>;
+};
 
 export type TerminalCandidate = {
   label: string;
@@ -47,22 +60,31 @@ export type TerminalCandidate = {
 };
 
 export type TerminalEvent =
-  | (TerminalTarget & { type: "output"; data: string })
-  | (TerminalTarget & { type: "title"; title: string })
-  | (TerminalTarget & { type: "exit"; exitCode: number; signal?: number })
+  | (TerminalTarget & { type: "output"; revision: number; data: string })
+  | (TerminalTarget & { type: "title"; revision: number; title: string })
+  | (TerminalTarget & { type: "exit"; revision: number; exitCode: number; signal?: number })
   | (TerminalTarget & {
       type: "completion";
+      revision: number;
       commandLine: string;
       cursor: number;
       predictionSuffix: string;
       candidates: TerminalCandidate[];
-    });
+    })
+  | {
+      type: "state";
+      projectId: string;
+      revision: number;
+      tabs: TerminalTab[];
+    };
 
 export type TerminalApi = {
-  list: (projectId: string) => Promise<TerminalTab[]>;
+  subscribe: (projectId: string) => Promise<TerminalProjectSnapshot>;
+  unsubscribe: (projectId: string) => Promise<void>;
   create: (request: CreateTerminalRequest) => Promise<TerminalTab>;
   write: (request: TerminalWriteRequest) => Promise<void>;
   resize: (request: TerminalResizeRequest) => Promise<void>;
+  focus: (request: TerminalFocusRequest) => Promise<void>;
   activate: (target: TerminalTarget) => Promise<void>;
   close: (target: TerminalTarget) => Promise<void>;
   closeProject: (projectId: string) => Promise<void>;

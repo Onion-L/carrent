@@ -1,5 +1,6 @@
 import type {
   CreateTerminalRequest,
+  TerminalFocusRequest,
   TerminalResizeRequest,
   TerminalTarget,
   TerminalWriteRequest,
@@ -17,7 +18,16 @@ type IpcMainLike = {
 
 type TerminalIpcManager = Pick<
   TerminalSessionManager,
-  "list" | "create" | "write" | "resize" | "activate" | "close" | "closeProject"
+  | "subscribe"
+  | "unsubscribe"
+  | "list"
+  | "create"
+  | "write"
+  | "resize"
+  | "focus"
+  | "activate"
+  | "close"
+  | "closeProject"
 >;
 
 function ownerId(event: unknown) {
@@ -47,7 +57,21 @@ function target(input: unknown): TerminalTarget {
   };
 }
 
+function integerField(input: Record<string, unknown>, key: string) {
+  const value = input[key];
+  if (!Number.isInteger(value)) throw new Error(`Invalid terminal ${key}.`);
+  return value as number;
+}
+
 export function registerTerminalIpc(ipcMain: IpcMainLike, manager: TerminalIpcManager) {
+  ipcMain.handle("terminal:subscribe", (event, input) => {
+    if (typeof input !== "string") throw new Error("Invalid Project identity.");
+    return manager.subscribe(ownerId(event), input);
+  });
+  ipcMain.handle("terminal:unsubscribe", (event, input) => {
+    if (typeof input !== "string") throw new Error("Invalid Project identity.");
+    manager.unsubscribe(ownerId(event), input);
+  });
   ipcMain.handle("terminal:list", (event, input) => {
     if (typeof input !== "string") throw new Error("Invalid Project identity.");
     return manager.list(ownerId(event), input);
@@ -59,6 +83,7 @@ export function registerTerminalIpc(ipcMain: IpcMainLike, manager: TerminalIpcMa
       projectName: stringField(value, "projectName"),
       workingDirectory: stringField(value, "workingDirectory"),
       enhancedCompletion: value.enhancedCompletion === true,
+      ensureFirst: value.ensureFirst === true,
     };
     return manager.create({ ...request, ownerId: ownerId(event) });
   });
@@ -71,8 +96,9 @@ export function registerTerminalIpc(ipcMain: IpcMainLike, manager: TerminalIpcMa
     const value = record(input);
     const request: TerminalResizeRequest = {
       ...target(value),
-      columns: value.columns as number,
-      rows: value.rows as number,
+      columns: integerField(value, "columns"),
+      rows: integerField(value, "rows"),
+      focusVersion: integerField(value, "focusVersion"),
     };
     manager.resize(
       ownerId(event),
@@ -80,6 +106,26 @@ export function registerTerminalIpc(ipcMain: IpcMainLike, manager: TerminalIpcMa
       request.terminalId,
       request.columns,
       request.rows,
+      request.focusVersion,
+    );
+  });
+  ipcMain.handle("terminal:focus", (event, input) => {
+    const value = record(input);
+    const request: TerminalFocusRequest = {
+      ...target(value),
+      focused: value.focused === true,
+      columns: integerField(value, "columns"),
+      rows: integerField(value, "rows"),
+      focusVersion: integerField(value, "focusVersion"),
+    };
+    manager.focus(
+      ownerId(event),
+      request.projectId,
+      request.terminalId,
+      request.focused,
+      request.columns,
+      request.rows,
+      request.focusVersion,
     );
   });
   ipcMain.handle("terminal:activate", (event, input) => {

@@ -6,6 +6,7 @@ import {
   type CreateTerminalRequest,
   type TerminalEvent,
   type TerminalCandidate,
+  type TerminalProjectSnapshot,
   type TerminalTab,
 } from "../../src/shared/terminal";
 import type { ZshShellIntegration } from "./completion/shellIntegration";
@@ -35,7 +36,6 @@ export type PtyAdapter = {
 };
 
 type Session = {
-  ownerId: number;
   tab: TerminalTab;
   process: PtyProcess;
   disposed: boolean;
@@ -43,9 +43,15 @@ type Session = {
   integration?: ZshShellIntegration;
   completionVersion: number;
   titleCarry: string;
+  output: string;
 };
 
 type CreateInput = CreateTerminalRequest & { ownerId: number };
+type TerminalEventWithoutRevision = TerminalEvent extends infer Event
+  ? Event extends { revision: number }
+    ? Omit<Event, "revision">
+    : never
+  : never;
 
 type Dependencies = {
   pty: PtyAdapter;
@@ -163,16 +169,62 @@ export function createTerminalSessionManager({
   const sessions = new Map<string, Session>();
   const activeByProject = new Map<string, string>();
   const lastTabNumberByProject = new Map<string, number>();
+  const subscribersByProject = new Map<string, Set<number>>();
+  const revisionByProject = new Map<string, number>();
+  const lastFocusVersionByProject = new Map<string, Map<number, number>>();
+  const resizeAuthorityByProject = new Map<
+    string,
+    { ownerId: number; terminalId: string; focusVersion: number }
+  >();
+
+  const subscribers = (projectId: string) => {
+    let projectSubscribers = subscribersByProject.get(projectId);
+    if (!projectSubscribers) {
+      projectSubscribers = new Set();
+      subscribersByProject.set(projectId, projectSubscribers);
+    }
+    return projectSubscribers;
+  };
+
+  const nextRevision = (projectId: string) => {
+    const revision = (revisionByProject.get(projectId) ?? 0) + 1;
+    revisionByProject.set(projectId, revision);
+    return revision;
+  };
+
+  const publish = (projectId: string, event: TerminalEventWithoutRevision) => {
+    const value = { ...event, revision: nextRevision(projectId) } as TerminalEvent;
+    for (const subscriberId of subscribers(projectId)) emit(subscriberId, value);
+  };
+
+  const tabsForProject = (projectId: string) =>
+    [...sessions.values()]
+      .filter((session) => !session.disposed && session.tab.projectId === projectId)
+      .map((session) => ({ ...session.tab }));
+
+  const publishState = (projectId: string) => {
+    publish(projectId, { type: "state", projectId, tabs: tabsForProject(projectId) });
+  };
+
+  const requireSubscriber = (ownerId: number, projectId: string) => {
+    if (!subscribersByProject.get(projectId)?.has(ownerId)) {
+      throw new Error("Renderer is not subscribed to this Project's Terminal Tabs.");
+    }
+  };
+
+  const detachFromProject = (ownerId: number, projectId: string) => {
+    subscribersByProject.get(projectId)?.delete(ownerId);
+    lastFocusVersionByProject.get(projectId)?.delete(ownerId);
+    if (resizeAuthorityByProject.get(projectId)?.ownerId === ownerId) {
+      resizeAuthorityByProject.delete(projectId);
+    }
+  };
 
   const find = (ownerId: number, projectId: string, terminalId: string) => {
     requireProjectId(projectId);
+    requireSubscriber(ownerId, projectId);
     const session = sessions.get(terminalId);
-    if (
-      !session ||
-      session.disposed ||
-      session.ownerId !== ownerId ||
-      session.tab.projectId !== projectId
-    ) {
+    if (!session || session.disposed || session.tab.projectId !== projectId) {
       throw new Error("Terminal Tab is unavailable.");
     }
     return session;
@@ -180,22 +232,19 @@ export function createTerminalSessionManager({
 
   const list = (ownerId: number, projectId: string) => {
     requireProjectId(projectId);
-    return [...sessions.values()]
-      .filter(
-        (session) =>
-          !session.disposed && session.ownerId === ownerId && session.tab.projectId === projectId,
-      )
-      .map((session) => ({ ...session.tab }));
+    requireSubscriber(ownerId, projectId);
+    return tabsForProject(projectId);
   };
 
   const activate = (ownerId: number, projectId: string, terminalId: string) => {
     find(ownerId, projectId, terminalId);
     activeByProject.set(projectId, terminalId);
     for (const session of sessions.values()) {
-      if (session.ownerId === ownerId && session.tab.projectId === projectId && !session.disposed) {
+      if (session.tab.projectId === projectId && !session.disposed) {
         session.tab.active = session.tab.id === terminalId;
       }
     }
+    publishState(projectId);
   };
 
   const dispose = (session: Session, kill: boolean) => {
@@ -208,14 +257,13 @@ export function createTerminalSessionManager({
     if (activeByProject.get(session.tab.projectId) === session.tab.id) {
       const replacement = [...sessions.values()]
         .filter(
-          (candidate) =>
-            !candidate.disposed &&
-            candidate.ownerId === session.ownerId &&
-            candidate.tab.projectId === session.tab.projectId,
+          (candidate) => !candidate.disposed && candidate.tab.projectId === session.tab.projectId,
         )
         .at(-1);
-      if (replacement) activate(replacement.ownerId, replacement.tab.projectId, replacement.tab.id);
-      else {
+      if (replacement) {
+        activeByProject.set(replacement.tab.projectId, replacement.tab.id);
+        replacement.tab.active = true;
+      } else {
         activeByProject.delete(session.tab.projectId);
         lastTabNumberByProject.delete(session.tab.projectId);
       }
@@ -223,11 +271,35 @@ export function createTerminalSessionManager({
   };
 
   return {
+    subscribe(ownerId: number, projectId: string): TerminalProjectSnapshot {
+      requireProjectId(projectId);
+      subscribers(projectId).add(ownerId);
+      return {
+        projectId,
+        revision: revisionByProject.get(projectId) ?? 0,
+        tabs: tabsForProject(projectId),
+        outputByTerminal: Object.fromEntries(
+          [...sessions.values()]
+            .filter((session) => !session.disposed && session.tab.projectId === projectId)
+            .map((session) => [session.tab.id, session.output]),
+        ),
+      };
+    },
+    unsubscribe(ownerId: number, projectId: string) {
+      requireProjectId(projectId);
+      detachFromProject(ownerId, projectId);
+    },
     list,
     create(input: CreateInput) {
       const projectId = requireProjectId(input.projectId);
+      subscribers(projectId).add(input.ownerId);
       if (!input.workingDirectory.startsWith("/")) {
         throw new Error("Project Working Directory must be absolute.");
+      }
+      if (input.ensureFirst) {
+        const existing = tabsForProject(projectId);
+        const first = existing.find((tab) => tab.active) ?? existing[0];
+        if (first) return first;
       }
       const shell =
         typeof env.SHELL === "string" && env.SHELL.startsWith("/") && isExecutable(env.SHELL)
@@ -262,7 +334,6 @@ export function createTerminalSessionManager({
         env: launchEnvironment,
       });
       const session: Session = {
-        ownerId: input.ownerId,
         tab: {
           id,
           projectId,
@@ -277,6 +348,7 @@ export function createTerminalSessionManager({
         integration,
         completionVersion: 0,
         titleCarry: "",
+        output: "",
       };
       sessions.set(id, session);
       activate(input.ownerId, projectId, id);
@@ -285,7 +357,8 @@ export function createTerminalSessionManager({
           if (session.disposed) return;
           const consumed = session.integration?.consume(data) ?? { visible: data, messages: [] };
           if (consumed.visible) {
-            emit(input.ownerId, {
+            session.output += consumed.visible;
+            publish(projectId, {
               type: "output",
               projectId,
               terminalId: id,
@@ -296,7 +369,7 @@ export function createTerminalSessionManager({
             if (message.type === "command") {
               history?.record(message.command);
               session.completionVersion += 1;
-              emit(input.ownerId, {
+              publish(projectId, {
                 type: "completion",
                 projectId,
                 terminalId: id,
@@ -323,7 +396,7 @@ export function createTerminalSessionManager({
                 }) ?? Promise.resolve([])
               ).then((candidates) => {
                 if (session.disposed || session.completionVersion !== version) return;
-                emit(input.ownerId, {
+                publish(projectId, {
                   type: "completion",
                   projectId,
                   terminalId: id,
@@ -341,13 +414,13 @@ export function createTerminalSessionManager({
             const nextTitle = sanitizeTitle(title);
             if (!nextTitle) continue;
             session.tab.title = nextTitle;
-            emit(input.ownerId, { type: "title", projectId, terminalId: id, title: nextTitle });
+            publish(projectId, { type: "title", projectId, terminalId: id, title: nextTitle });
           }
         }),
         process.onExit(({ exitCode, signal }) => {
           if (session.disposed || session.tab.status === "exited") return;
           session.tab.status = "exited";
-          emit(input.ownerId, { type: "exit", projectId, terminalId: id, exitCode, signal });
+          publish(projectId, { type: "exit", projectId, terminalId: id, exitCode, signal });
         }),
       );
       return { ...session.tab };
@@ -360,7 +433,14 @@ export function createTerminalSessionManager({
       if (session.tab.status !== "running") throw new Error("Terminal Tab has exited.");
       session.process.write(data);
     },
-    resize(ownerId: number, projectId: string, terminalId: string, columns: number, rows: number) {
+    resize(
+      ownerId: number,
+      projectId: string,
+      terminalId: string,
+      columns: number,
+      rows: number,
+      focusVersion: number,
+    ) {
       if (
         !Number.isInteger(columns) ||
         !Number.isInteger(rows) ||
@@ -372,21 +452,78 @@ export function createTerminalSessionManager({
         throw new Error("Terminal dimensions are invalid.");
       }
       const session = find(ownerId, projectId, terminalId);
+      const authority = resizeAuthorityByProject.get(projectId);
+      if (
+        session.tab.status === "running" &&
+        authority?.ownerId === ownerId &&
+        authority.terminalId === terminalId &&
+        authority.focusVersion === focusVersion
+      ) {
+        session.process.resize(columns, rows);
+      }
+    },
+    focus(
+      ownerId: number,
+      projectId: string,
+      terminalId: string,
+      focused: boolean,
+      columns: number,
+      rows: number,
+      focusVersion: number,
+    ) {
+      const session = find(ownerId, projectId, terminalId);
+      if (
+        !Number.isInteger(focusVersion) ||
+        focusVersion < 1 ||
+        !Number.isInteger(columns) ||
+        !Number.isInteger(rows) ||
+        columns < 2 ||
+        columns > 1_000 ||
+        rows < 1 ||
+        rows > 1_000
+      ) {
+        throw new Error("Terminal focus is invalid.");
+      }
+      let versions = lastFocusVersionByProject.get(projectId);
+      if (!versions) {
+        versions = new Map();
+        lastFocusVersionByProject.set(projectId, versions);
+      }
+      if (focusVersion <= (versions.get(ownerId) ?? 0)) return;
+      versions.set(ownerId, focusVersion);
+      if (!focused) {
+        if (resizeAuthorityByProject.get(projectId)?.ownerId === ownerId) {
+          resizeAuthorityByProject.delete(projectId);
+        }
+        return;
+      }
+      resizeAuthorityByProject.set(projectId, { ownerId, terminalId, focusVersion });
       if (session.tab.status === "running") session.process.resize(columns, rows);
     },
     activate,
     close(ownerId: number, projectId: string, terminalId: string) {
-      dispose(find(ownerId, projectId, terminalId), true);
+      requireProjectId(projectId);
+      requireSubscriber(ownerId, projectId);
+      const session = sessions.get(terminalId);
+      if (!session || session.disposed) return;
+      if (session.tab.projectId !== projectId) throw new Error("Terminal Tab is unavailable.");
+      dispose(session, true);
+      publishState(projectId);
     },
     closeProject(projectId: string) {
       requireProjectId(projectId);
       for (const session of sessions.values()) {
         if (session.tab.projectId === projectId) dispose(session, true);
       }
+      publishState(projectId);
+      resizeAuthorityByProject.delete(projectId);
+      lastFocusVersionByProject.delete(projectId);
     },
-    closeOwner(ownerId: number) {
-      for (const session of sessions.values()) {
-        if (session.ownerId === ownerId) dispose(session, true);
+    detach(ownerId: number) {
+      for (const projectId of subscribersByProject.keys()) {
+        if (subscribersByProject.get(projectId)?.has(ownerId)) {
+          detachFromProject(ownerId, projectId);
+        }
       }
     },
     shutdown() {

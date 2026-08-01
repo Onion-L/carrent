@@ -58,8 +58,14 @@ let emitMainWindowNavigation: ((path: string) => void) | null = null;
 let reportedWindowRoutes: string[] = [];
 let terminalCreateRequests: import("../shared/terminal").CreateTerminalRequest[] = [];
 let terminalWriteRequests: import("../shared/terminal").TerminalWriteRequest[] = [];
+let terminalFocusRequests: import("../shared/terminal").TerminalFocusRequest[] = [];
 let terminalCloseProjectRequests: string[] = [];
-let emitTerminalEvent: ((event: import("../shared/terminal").TerminalEvent) => void) | null = null;
+type TestTerminalEvent = import("../shared/terminal").TerminalEvent extends infer Event
+  ? Event extends { revision: number }
+    ? Omit<Event, "revision">
+    : never
+  : never;
+let emitTerminalEvent: ((event: TestTerminalEvent) => void) | null = null;
 
 function NavigationProbe() {
   const location = useLocation();
@@ -96,8 +102,31 @@ function installBridge(
   skills: SkillRecord[] = [],
 ) {
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
+  const terminalListeners = new Set<(event: import("../shared/terminal").TerminalEvent) => void>();
   let commandAttempt = 0;
   const terminalTabsByProject = new Map<string, import("../shared/terminal").TerminalTab[]>();
+  const terminalOutputById = new Map<string, string>();
+  const terminalRevisionByProject = new Map<string, number>();
+  const dispatchTerminalEvent = (event: TestTerminalEvent) => {
+    if (event.type === "output") {
+      terminalOutputById.set(
+        event.terminalId,
+        `${terminalOutputById.get(event.terminalId) ?? ""}${event.data}`,
+      );
+    }
+    const revision = (terminalRevisionByProject.get(event.projectId) ?? 0) + 1;
+    terminalRevisionByProject.set(event.projectId, revision);
+    const value = { ...event, revision } as import("../shared/terminal").TerminalEvent;
+    for (const listener of terminalListeners) listener(value);
+  };
+  const publishTerminalState = (projectId: string) => {
+    dispatchTerminalEvent({
+      type: "state",
+      projectId,
+      tabs: structuredClone(terminalTabsByProject.get(projectId) ?? []),
+    });
+  };
+  emitTerminalEvent = dispatchTerminalEvent;
   // Settings set through localStorage are pre-migrated into the snapshot so
   // the renderer's one-time migration does not fire an extra command.
   const legacySettingsRaw = localStorage.getItem("carrent:settings");
@@ -168,11 +197,19 @@ function installBridge(
       readText: async () => "",
     },
     terminal: {
-      list: async (projectId: string) =>
-        structuredClone(terminalTabsByProject.get(projectId) ?? []),
+      subscribe: async (projectId: string) => ({
+        projectId,
+        revision: terminalRevisionByProject.get(projectId) ?? 0,
+        tabs: structuredClone(terminalTabsByProject.get(projectId) ?? []),
+        outputByTerminal: Object.fromEntries(terminalOutputById),
+      }),
+      unsubscribe: async () => {},
       create: async (request: import("../shared/terminal").CreateTerminalRequest) => {
         terminalCreateRequests.push(structuredClone(request));
         const existing = terminalTabsByProject.get(request.projectId) ?? [];
+        if (request.ensureFirst && existing.length > 0) {
+          return structuredClone(existing.find((tab) => tab.active) ?? existing[0]);
+        }
         const tab = {
           id: `terminal-${terminalCreateRequests.length}`,
           projectId: request.projectId,
@@ -188,12 +225,16 @@ function installBridge(
           ...existing.map((item) => ({ ...item, active: false })),
           tab,
         ]);
+        publishTerminalState(request.projectId);
         return structuredClone(tab);
       },
       write: async (request: import("../shared/terminal").TerminalWriteRequest) => {
         terminalWriteRequests.push(structuredClone(request));
       },
       resize: async () => {},
+      focus: async (request: import("../shared/terminal").TerminalFocusRequest) => {
+        terminalFocusRequests.push(structuredClone(request));
+      },
       activate: async ({ projectId, terminalId }: import("../shared/terminal").TerminalTarget) => {
         terminalTabsByProject.set(
           projectId,
@@ -202,6 +243,7 @@ function installBridge(
             active: tab.id === terminalId,
           })),
         );
+        publishTerminalState(projectId);
       },
       close: async ({ projectId, terminalId }: import("../shared/terminal").TerminalTarget) => {
         const remaining = (terminalTabsByProject.get(projectId) ?? []).filter(
@@ -211,15 +253,18 @@ function installBridge(
           remaining[remaining.length - 1] = { ...remaining.at(-1)!, active: true };
         }
         terminalTabsByProject.set(projectId, remaining);
+        terminalOutputById.delete(terminalId);
+        publishTerminalState(projectId);
       },
       closeProject: async (projectId: string) => {
         terminalCloseProjectRequests.push(projectId);
         terminalTabsByProject.delete(projectId);
+        publishTerminalState(projectId);
       },
       onEvent: (listener: (event: import("../shared/terminal").TerminalEvent) => void) => {
-        emitTerminalEvent = listener;
+        terminalListeners.add(listener);
         return () => {
-          if (emitTerminalEvent === listener) emitTerminalEvent = null;
+          terminalListeners.delete(listener);
         };
       },
     },
@@ -573,6 +618,7 @@ afterEach(async () => {
   reportedWindowRoutes = [];
   terminalCreateRequests = [];
   terminalWriteRequests = [];
+  terminalFocusRequests = [];
   terminalCloseProjectRequests = [];
   emitTerminalEvent = null;
 });
@@ -4117,6 +4163,96 @@ describe("Integrated Terminal", () => {
     activeWorkspaceId: "workspace-1",
   };
 
+  it("keeps two Project terminal viewports synchronized and transfers focus", async () => {
+    await renderApp(projectState, "/workspace/workspace-1/project/project-1");
+    const secondContainer = document.createElement("div");
+    document.body.appendChild(secondContainer);
+    const secondRoot = createRoot(secondContainer);
+    const findButton = (host: HTMLElement, name: string) =>
+      [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) =>
+          button.getAttribute("aria-label") === name || button.textContent?.trim() === name,
+      )!;
+
+    try {
+      await act(async () => {
+        secondRoot.render(
+          <MemoryRouter initialEntries={["/workspace/workspace-1/project/project-1"]}>
+            <App />
+          </MemoryRouter>,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      await act(async () => {
+        findButton(container!, "Show Integrated Terminal").click();
+        findButton(secondContainer, "Show Integrated Terminal").click();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+
+      expect(terminalCreateRequests).toHaveLength(1);
+      expect(container!.querySelectorAll('[role="tablist"] [role="tab"]')).toHaveLength(1);
+      expect(secondContainer.querySelectorAll('[role="tablist"] [role="tab"]')).toHaveLength(1);
+
+      await act(async () => {
+        findButton(secondContainer, "New Terminal Tab").click();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(container!.querySelectorAll('[role="tablist"] [role="tab"]')).toHaveLength(2);
+      expect(secondContainer.querySelectorAll('[role="tablist"] [role="tab"]')).toHaveLength(2);
+
+      await act(async () => {
+        container!.querySelectorAll<HTMLButtonElement>('[role="tab"] > button')[0].click();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        emitTerminalEvent?.({
+          type: "output",
+          projectId: "project-1",
+          terminalId: "terminal-1",
+          data: "shared viewport output\r\n",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(container!.querySelector('[role="tab"]')?.getAttribute("aria-selected")).toBe("true");
+      expect(secondContainer.querySelector('[role="tab"]')?.getAttribute("aria-selected")).toBe(
+        "true",
+      );
+      expect(container!.querySelector(".xterm-rows")?.textContent).toContain(
+        "shared viewport output",
+      );
+      expect(secondContainer.querySelector(".xterm-rows")?.textContent).toContain(
+        "shared viewport output",
+      );
+
+      const firstInput = container!.querySelector<HTMLElement>(".xterm-helper-textarea")!;
+      const secondInput = secondContainer.querySelector<HTMLElement>(".xterm-helper-textarea")!;
+      await act(async () => {
+        firstInput.focus();
+        secondInput.focus();
+        window.dispatchEvent(new window.FocusEvent("blur"));
+      });
+      expect(terminalFocusRequests.slice(-4).map((request) => request.focused)).toEqual([
+        true,
+        false,
+        true,
+        false,
+      ]);
+      expect(terminalFocusRequests.at(-1)).toMatchObject({
+        projectId: "project-1",
+        terminalId: "terminal-1",
+        focused: false,
+      });
+
+      await act(async () => {
+        findButton(container!, "Close Carrent 2").click();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(container!.querySelectorAll('[role="tablist"] [role="tab"]')).toHaveLength(1);
+      expect(secondContainer.querySelectorAll('[role="tablist"] [role="tab"]')).toHaveLength(1);
+    } finally {
+      await act(async () => secondRoot.unmount());
+      secondContainer.remove();
+    }
+  });
+
   it("starts closed and creates the first Terminal Tab only when opened", async () => {
     await renderApp(projectState, "/workspace/workspace-1/project/project-1");
 
@@ -4136,6 +4272,7 @@ describe("Integrated Terminal", () => {
         projectName: "Carrent",
         workingDirectory: "/code/carrent",
         enhancedCompletion: true,
+        ensureFirst: true,
       },
     ]);
     expect(
@@ -4343,6 +4480,9 @@ describe("Integrated Terminal", () => {
         data: "project-two-output\r\n",
       });
       testNavigate?.("/workspace/workspace-1/project/project-1");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
 

@@ -1,6 +1,6 @@
 import "@xterm/xterm/css/xterm.css";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -30,6 +30,8 @@ type TerminalController = {
   terminal: Terminal;
   fit: () => void;
   search: SearchAddon;
+  writtenOutputLength: number;
+  replayPending: boolean;
 };
 
 type ContextMenuState = { x: number; y: number; terminalId: string } | null;
@@ -48,10 +50,11 @@ function TerminalViewport({
   onMoveCandidate,
   onAcceptCandidate,
   onAcceptPrediction,
+  onFocusChange,
 }: {
   tab: TerminalTab;
   visible: boolean;
-  register: (terminalId: string, controller: TerminalController | null) => void;
+  register: (terminalId: string, controller: TerminalController) => VoidFunction;
   onCreateTab: () => void;
   onCloseTab: () => void;
   onSearch: () => void;
@@ -60,6 +63,7 @@ function TerminalViewport({
   onMoveCandidate: (direction: 1 | -1) => void;
   onAcceptCandidate: () => void;
   onAcceptPrediction: (amount: "all" | "word") => void;
+  onFocusChange: (tab: TerminalTab, focused: boolean, columns: number, rows: number) => number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const handlersRef = useRef({
@@ -133,11 +137,13 @@ function TerminalViewport({
     const controller = {
       terminal,
       search,
+      writtenOutputLength: 0,
+      replayPending: true,
       fit: () => {
         if (container.clientWidth > 0 && container.clientHeight > 0) fit.fit();
       },
     };
-    register(tab.id, controller);
+    const unregister = register(tab.id, controller);
 
     const dataDisposable = terminal.onData((data) => {
       void window.carrent.terminal.write({
@@ -146,14 +152,35 @@ function TerminalViewport({
         data,
       });
     });
+    const focusVersionRef = { current: 0 };
     const resizeDisposable = terminal.onResize(({ cols, rows }) => {
       void window.carrent.terminal.resize({
         projectId: tab.projectId,
         terminalId: tab.id,
         columns: cols,
         rows,
+        focusVersion: focusVersionRef.current,
       });
     });
+    const textarea = container.querySelector<HTMLElement>(".xterm-helper-textarea");
+    let focused = false;
+    const handleFocus = () => {
+      if (focused) return;
+      focused = true;
+      focusVersionRef.current = onFocusChange(tab, true, terminal.cols, terminal.rows);
+    };
+    const handleBlur = () => {
+      if (!focused) return;
+      focused = false;
+      focusVersionRef.current = onFocusChange(tab, false, terminal.cols, terminal.rows);
+    };
+    textarea?.addEventListener("focus", handleFocus);
+    textarea?.addEventListener("blur", handleBlur);
+    const handleWindowFocus = () => {
+      if (document.activeElement === textarea) handleFocus();
+    };
+    window.addEventListener("focus", handleWindowFocus);
+    window.addEventListener("blur", handleBlur);
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") return true;
       const handlers = handlersRef.current;
@@ -218,10 +245,14 @@ function TerminalViewport({
       observer.disconnect();
       dataDisposable.dispose();
       resizeDisposable.dispose();
-      register(tab.id, null);
+      textarea?.removeEventListener("focus", handleFocus);
+      textarea?.removeEventListener("blur", handleBlur);
+      window.removeEventListener("focus", handleWindowFocus);
+      window.removeEventListener("blur", handleBlur);
+      unregister();
       terminal.dispose();
     };
-  }, [register, tab.id, tab.projectId]);
+  }, [onFocusChange, register, tab.id, tab.projectId]);
 
   useEffect(() => {
     if (!visible) return;
@@ -256,8 +287,14 @@ export function IntegratedTerminal({
   >({});
   const [candidateIndex, setCandidateIndex] = useState(0);
   const controllers = useRef(new Map<string, TerminalController>());
-  const pendingOutput = useRef(new Map<string, string[]>());
+  const retainedOutput = useRef(new Map<string, string>());
   const resizingRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const focusVersionRef = useRef(0);
+  const syncByProject = useRef(
+    new Map<string, { ready: boolean; revision: number; buffered: TerminalEvent[] }>(),
+  );
+  const applyEventRef = useRef<(event: TerminalEvent) => void>(() => {});
+  const [subscribedProjectId, setSubscribedProjectId] = useState<string | null>(null);
 
   const tabs = project ? (tabsByProject[project.id] ?? []) : [];
   const activeTab = tabs.find((tab) => tab.active) ?? tabs[0] ?? null;
@@ -273,39 +310,46 @@ export function IntegratedTerminal({
     [],
   );
 
-  const register = useCallback((terminalId: string, controller: TerminalController | null) => {
-    if (!controller) {
-      controllers.current.delete(terminalId);
-      return;
-    }
+  const register = useCallback((terminalId: string, controller: TerminalController) => {
     controllers.current.set(terminalId, controller);
-    const queued = pendingOutput.current.get(terminalId);
-    if (queued) {
-      for (const data of queued) controller.terminal.write(data);
-      pendingOutput.current.delete(terminalId);
-    }
+    window.setTimeout(() => {
+      if (controllers.current.get(terminalId) !== controller) return;
+      const output = retainedOutput.current.get(terminalId) ?? "";
+      if (output) {
+        controller.terminal.write(output, () => {
+          controller.terminal.refresh(0, controller.terminal.rows - 1);
+        });
+      }
+      controller.writtenOutputLength = output.length;
+      controller.replayPending = false;
+    });
     controller.fit();
+    return () => {
+      if (controllers.current.get(terminalId) === controller) {
+        controllers.current.delete(terminalId);
+      }
+    };
   }, []);
 
-  const createTab = useCallback(async () => {
-    if (!project || loadingProjectId === project.id) return;
-    setLoadingProjectId(project.id);
-    try {
-      const tab = await window.carrent.terminal.create({
-        projectId: project.id,
-        projectName: project.name,
-        workingDirectory: project.workingDirectory,
-        enhancedCompletion: enhancedTerminalCompletion,
-      });
-      updateTabs(project.id, (current) => [
-        ...current.map((item) => ({ ...item, active: false })),
-        tab,
-      ]);
-      window.setTimeout(() => controllers.current.get(tab.id)?.terminal.focus());
-    } finally {
-      setLoadingProjectId(null);
-    }
-  }, [enhancedTerminalCompletion, loadingProjectId, project, updateTabs]);
+  const createTab = useCallback(
+    async (ensureFirst = false) => {
+      if (!project || loadingProjectId === project.id) return;
+      setLoadingProjectId(project.id);
+      try {
+        const tab = await window.carrent.terminal.create({
+          projectId: project.id,
+          projectName: project.name,
+          workingDirectory: project.workingDirectory,
+          enhancedCompletion: enhancedTerminalCompletion,
+          ensureFirst,
+        });
+        window.setTimeout(() => controllers.current.get(tab.id)?.terminal.focus());
+      } finally {
+        setLoadingProjectId(null);
+      }
+    },
+    [enhancedTerminalCompletion, loadingProjectId, project, updateTabs],
+  );
   const createTabRef = useRef(createTab);
   createTabRef.current = createTab;
 
@@ -313,12 +357,6 @@ export function IntegratedTerminal({
     async (tab: TerminalTab | null = activeTab) => {
       if (!project || !tab) return;
       await window.carrent.terminal.close({ projectId: project.id, terminalId: tab.id });
-      updateTabs(project.id, (current) => {
-        const remaining = current.filter((item) => item.id !== tab.id);
-        if (remaining.length === 0) return [];
-        if (tab.active) remaining[remaining.length - 1] = { ...remaining.at(-1)!, active: true };
-        return remaining;
-      });
       if (tabs.length === 1) onOpenChange(false);
     },
     [activeTab, onOpenChange, project, tabs.length, updateTabs],
@@ -328,59 +366,124 @@ export function IntegratedTerminal({
     async (tab: TerminalTab) => {
       if (!project) return;
       await window.carrent.terminal.activate({ projectId: project.id, terminalId: tab.id });
-      updateTabs(project.id, (current) =>
-        current.map((item) => ({ ...item, active: item.id === tab.id })),
-      );
       window.setTimeout(() => {
         const controller = controllers.current.get(tab.id);
         controller?.fit();
         controller?.terminal.focus();
       });
     },
-    [project, updateTabs],
+    [project],
   );
+
+  const onFocusChange = useCallback(
+    (tab: TerminalTab, focused: boolean, columns: number, rows: number) => {
+      const focusVersion = ++focusVersionRef.current;
+      void window.carrent.terminal.focus({
+        projectId: tab.projectId,
+        terminalId: tab.id,
+        focused,
+        columns,
+        rows,
+        focusVersion,
+      });
+      return focusVersion;
+    },
+    [],
+  );
+
+  applyEventRef.current = (event: TerminalEvent) => {
+    if (event.type === "state") {
+      setTabsByProject((current) => ({ ...current, [event.projectId]: event.tabs }));
+      if (event.tabs.length === 0) onOpenChange(false);
+      return;
+    }
+    if (event.type === "output") {
+      const output = `${retainedOutput.current.get(event.terminalId) ?? ""}${event.data}`;
+      retainedOutput.current.set(event.terminalId, output);
+      const controller = controllers.current.get(event.terminalId);
+      if (controller && !controller.replayPending) {
+        controller.terminal.write(event.data);
+        controller.writtenOutputLength += event.data.length;
+      }
+      return;
+    }
+    if (event.type === "completion") {
+      setCompletionByTerminal((current) => ({ ...current, [event.terminalId]: event }));
+      setCandidateIndex(0);
+      return;
+    }
+    updateTabs(event.projectId, (current) =>
+      current.map((tab) => {
+        if (tab.id !== event.terminalId) return tab;
+        return event.type === "title"
+          ? { ...tab, title: event.title }
+          : { ...tab, status: "exited" };
+      }),
+    );
+  };
 
   useEffect(() => {
     return window.carrent.terminal.onEvent((event: TerminalEvent) => {
-      if (event.type === "output") {
-        const controller = controllers.current.get(event.terminalId);
-        if (controller) controller.terminal.write(event.data);
-        else {
-          const queued = pendingOutput.current.get(event.terminalId) ?? [];
-          queued.push(event.data);
-          pendingOutput.current.set(event.terminalId, queued);
-        }
+      const sync = syncByProject.current.get(event.projectId);
+      if (!sync) return;
+      if (!sync.ready) {
+        sync.buffered.push(event);
         return;
       }
-      if (event.type === "completion") {
-        setCompletionByTerminal((current) => ({ ...current, [event.terminalId]: event }));
-        setCandidateIndex(0);
-        return;
-      }
-      updateTabs(event.projectId, (current) =>
-        current.map((tab) => {
-          if (tab.id !== event.terminalId) return tab;
-          return event.type === "title"
-            ? { ...tab, title: event.title }
-            : { ...tab, status: "exited" };
-        }),
-      );
+      if (event.revision <= sync.revision) return;
+      sync.revision = event.revision;
+      applyEventRef.current(event);
     });
-  }, [updateTabs]);
+  }, []);
 
   useEffect(() => {
-    if (!isOpen || !project) return;
+    if (!project) return;
     let cancelled = false;
+    const projectId = project.id;
+    const sync = { ready: false, revision: -1, buffered: [] as TerminalEvent[] };
+    syncByProject.current.set(projectId, sync);
+    setSubscribedProjectId(null);
     setSearchOpen(false);
-    void window.carrent.terminal.list(project.id).then((listed) => {
+    void window.carrent.terminal.subscribe(projectId).then((snapshot) => {
       if (cancelled) return;
-      if (listed.length === 0) void createTabRef.current();
-      else setTabsByProject((current) => ({ ...current, [project.id]: listed }));
+      sync.revision = snapshot.revision;
+      setTabsByProject((current) => ({ ...current, [projectId]: snapshot.tabs }));
+      for (const tab of snapshot.tabs) {
+        const output = snapshot.outputByTerminal[tab.id] ?? "";
+        retainedOutput.current.set(tab.id, output);
+        const controller = controllers.current.get(tab.id);
+        if (
+          !controller ||
+          controller.replayPending ||
+          output.length <= controller.writtenOutputLength
+        ) {
+          continue;
+        }
+        const missing = output.slice(controller.writtenOutputLength);
+        controller.terminal.write(missing);
+        controller.writtenOutputLength = output.length;
+      }
+      sync.ready = true;
+      for (const event of sync.buffered.sort((left, right) => left.revision - right.revision)) {
+        if (event.revision <= sync.revision) continue;
+        sync.revision = event.revision;
+        applyEventRef.current(event);
+      }
+      sync.buffered = [];
+      setSubscribedProjectId(projectId);
     });
     return () => {
       cancelled = true;
+      if (syncByProject.current.get(projectId) === sync) syncByProject.current.delete(projectId);
+      setTabsByProject((current) => ({ ...current, [projectId]: [] }));
+      void window.carrent.terminal.unsubscribe(projectId);
     };
-  }, [isOpen, project]);
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (!isOpen || !project || subscribedProjectId !== project.id || tabs.length !== 0) return;
+    void createTabRef.current(true);
+  }, [isOpen, project, subscribedProjectId, tabs.length]);
 
   useEffect(() => {
     if (!isOpen) setIsMaximized(false);
@@ -396,7 +499,6 @@ export function IntegratedTerminal({
     return () => window.clearTimeout(timer);
   }, [activeTab, isOpen, panelHeight]);
 
-  const allTabs = useMemo(() => Object.values(tabsByProject).flat(), [tabsByProject]);
   const activeController = activeTab ? controllers.current.get(activeTab.id) : undefined;
 
   const dismissCompletion = useCallback(() => {
@@ -627,7 +729,7 @@ export function IntegratedTerminal({
       ) : null}
 
       <div className="h-[calc(100%-2.25rem)] min-h-0">
-        {allTabs.map((tab) => (
+        {tabs.map((tab) => (
           <div key={tab.id} className={tab.id === activeTab?.id ? "relative h-full p-2" : "hidden"}>
             <TerminalViewport
               tab={tab}
@@ -649,6 +751,7 @@ export function IntegratedTerminal({
               }
               onAcceptCandidate={acceptCandidate}
               onAcceptPrediction={acceptPrediction}
+              onFocusChange={onFocusChange}
             />
             {tab.id === activeTab?.id && activeCompletion?.predictionSuffix ? (
               <span

@@ -7,6 +7,11 @@ describe("registerTerminalIpc", () => {
     const handlers = new Map<string, (event: unknown, input?: unknown) => unknown>();
     const calls: unknown[] = [];
     const manager = {
+      subscribe: (ownerId: number, projectId: string) => {
+        calls.push(["subscribe", ownerId, projectId]);
+        return { projectId, revision: 0, tabs: [], outputByTerminal: {} };
+      },
+      unsubscribe: (...args: unknown[]) => void calls.push(["unsubscribe", ...args]),
       list: (ownerId: number, projectId: string) => {
         calls.push(["list", ownerId, projectId]);
         return [];
@@ -24,6 +29,7 @@ describe("registerTerminalIpc", () => {
       },
       write: (...args: unknown[]) => void calls.push(["write", ...args]),
       resize: (...args: unknown[]) => void calls.push(["resize", ...args]),
+      focus: (...args: unknown[]) => void calls.push(["focus", ...args]),
       activate: (...args: unknown[]) => void calls.push(["activate", ...args]),
       close: (...args: unknown[]) => void calls.push(["close", ...args]),
       closeProject: (projectId: string) => void calls.push(["close-project", projectId]),
@@ -34,6 +40,7 @@ describe("registerTerminalIpc", () => {
       manager,
     );
     const event = { sender: { id: 42 } };
+    await handlers.get("terminal:subscribe")?.(event, "project-1");
     await handlers.get("terminal:list")?.(event, "project-1");
     await handlers.get("terminal:create")?.(event, {
       projectId: "project-1",
@@ -51,6 +58,15 @@ describe("registerTerminalIpc", () => {
       terminalId: "terminal-1",
       columns: 100,
       rows: 30,
+      focusVersion: 4,
+    });
+    await handlers.get("terminal:focus")?.(event, {
+      projectId: "project-1",
+      terminalId: "terminal-1",
+      focused: true,
+      columns: 100,
+      rows: 30,
+      focusVersion: 4,
     });
     await handlers.get("terminal:activate")?.(event, {
       projectId: "project-1",
@@ -61,8 +77,10 @@ describe("registerTerminalIpc", () => {
       terminalId: "terminal-1",
     });
     await handlers.get("terminal:close-project")?.(event, "project-1");
+    await handlers.get("terminal:unsubscribe")?.(event, "project-1");
 
     expect(calls).toEqual([
+      ["subscribe", 42, "project-1"],
       ["list", 42, "project-1"],
       [
         "create",
@@ -72,13 +90,16 @@ describe("registerTerminalIpc", () => {
           projectName: "Carrent",
           workingDirectory: "/work/carrent",
           enhancedCompletion: true,
+          ensureFirst: false,
         },
       ],
       ["write", 42, "project-1", "terminal-1", "ls\r"],
-      ["resize", 42, "project-1", "terminal-1", 100, 30],
+      ["resize", 42, "project-1", "terminal-1", 100, 30, 4],
+      ["focus", 42, "project-1", "terminal-1", true, 100, 30, 4],
       ["activate", 42, "project-1", "terminal-1"],
       ["close", 42, "project-1", "terminal-1"],
       ["close-project", "project-1"],
+      ["unsubscribe", 42, "project-1"],
     ]);
   });
 
@@ -87,12 +108,20 @@ describe("registerTerminalIpc", () => {
     registerTerminalIpc(
       { handle: (channel, listener) => handlers.set(channel, listener) },
       {
+        subscribe: (_ownerId: number, projectId: string) => ({
+          projectId,
+          revision: 0,
+          tabs: [],
+          outputByTerminal: {},
+        }),
+        unsubscribe: () => {},
         list: () => [],
         create: () => {
           throw new Error("not reached");
         },
         write: () => {},
         resize: () => {},
+        focus: () => {},
         activate: () => {},
         close: () => {},
         closeProject: () => {},

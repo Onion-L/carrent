@@ -392,6 +392,101 @@ describe("assistant message presentation", () => {
     });
   });
 
+  it("presents Kimi tool items in normalized order alongside thinking and message segments", () => {
+    const parts = [
+      {
+        type: "kimi_timeline" as const,
+        item: {
+          type: "thinking" as const,
+          id: "thinking-1",
+          order: 0,
+          content: "Inspect the project",
+          status: "completed" as const,
+        },
+      },
+      {
+        type: "kimi_timeline" as const,
+        item: {
+          type: "tool" as const,
+          id: "tool-item-1",
+          order: 1,
+          toolCallId: "tool-shell",
+          title: "Bash",
+          kind: "execute",
+          command: "git status",
+          filePath: "",
+          input: "",
+          output: "clean",
+          error: "",
+          status: "completed" as const,
+        },
+      },
+      {
+        type: "kimi_timeline" as const,
+        item: {
+          type: "tool" as const,
+          id: "tool-item-2",
+          order: 2,
+          toolCallId: "tool-failed",
+          title: "Read",
+          kind: "read",
+          command: "",
+          filePath: "src/missing.ts",
+          input: "",
+          output: "",
+          error: "no such file",
+          status: "failed" as const,
+        },
+      },
+      {
+        type: "kimi_timeline" as const,
+        item: {
+          type: "message" as const,
+          id: "message-1",
+          order: 3,
+          content: "Done.",
+          isFinal: true,
+        },
+      },
+    ];
+
+    expect(getAssistantMessagePresentation(parts, "completed")).toEqual({
+      activityItems: [
+        {
+          type: "kimi-thinking",
+          id: "thinking-1",
+          content: "Inspect the project",
+          status: "completed",
+        },
+        {
+          type: "kimi-tool",
+          id: "tool-item-1",
+          title: "Bash",
+          kind: "execute",
+          command: "git status",
+          filePath: "",
+          input: "",
+          output: "clean",
+          error: "",
+          status: "completed",
+        },
+        {
+          type: "kimi-tool",
+          id: "tool-item-2",
+          title: "Read",
+          kind: "read",
+          command: "",
+          filePath: "src/missing.ts",
+          input: "",
+          output: "",
+          error: "no such file",
+          status: "failed",
+        },
+      ],
+      answerText: "Done.",
+    });
+  });
+
   it("uses streamed assistant text as Thinking content until the run completes", () => {
     const parts = [
       {

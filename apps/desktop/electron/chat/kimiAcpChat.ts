@@ -664,14 +664,31 @@ class KimiAcpRun {
     }
   >();
   private nextId = 1;
+  // Monotonic counter over received `session/update` events, used only to
+  // derive unique Run-scoped ids for tool calls that arrive without a
+  // toolCallId. Never reused as a fixed fallback id.
+  private sessionUpdateSequence = 0;
   private sessionId: string | null = null;
   private finalText = "";
   private timelineOrder = 0;
   private thinkingSegmentIndex = 0;
   private messageSegmentIndex = 0;
+  private toolSequenceIndex = 0;
   private currentThinking: Extract<KimiTimelineItem, { type: "thinking" }> | null = null;
   private currentMessage: Extract<KimiTimelineItem, { type: "message" }> | null = null;
   private lastMessage: Extract<KimiTimelineItem, { type: "message" }> | null = null;
+  // Canonical Kimi tool timeline items keyed by their stabilized toolCallId.
+  // Holding the item here lets a `tool_call_update` merge into the same
+  // first-seen order without moving the item to the end of the timeline, and
+  // keeps concurrent tool ids from overwriting one another.
+  private toolItems = new Map<
+    string,
+    Extract<KimiTimelineItem, { type: "tool" }>
+  >();
+  // toolCallId assigned to a tool update that arrived with no id, keyed by the
+  // event-sequence position it first appeared at. Lets each missing-id tool
+  // receive a unique Run-scoped id instead of reusing a fixed sentinel.
+  private syntheticToolIds = new Map<number, string>();
   private hasChecklistSnapshot = false;
   private pendingTodoListActivity: ChatReasoningEventPayload[] = [];
   private terminal = false;
@@ -1771,6 +1788,7 @@ class KimiAcpRun {
     const update = readObject(payload?.update);
     const updateType = readString(update?.sessionUpdate);
     const text = readTextContent(update?.content);
+    this.sessionUpdateSequence += 1;
 
     if (updateType === "config_option_update") {
       const modeConfig = findModeConfigOption(update?.configOptions);
@@ -1862,43 +1880,42 @@ class KimiAcpRun {
   }
 
   private handleToolUpdate(update: JsonObject) {
-    const id = readString(update.toolCallId) ?? "kimi-tool";
-    const existing = this.toolStates.get(id);
-    if (!existing) {
-      this.completeThinkingSegment();
-    }
+    const toolCallId = this.resolveToolCallId(update);
+    const existingState = this.toolStates.get(toolCallId);
     const rawInput = readObject(update.rawInput);
     const content = readTextContent(update.content);
     const parsedContent = parseJsonObject(content);
-    const title = readString(update.title) ?? existing?.title ?? "Kimi tool";
-    const kind = readString(update.kind) ?? existing?.kind ?? "";
+    const title = readString(update.title) ?? existingState?.title ?? "Kimi tool";
+    const kind = readString(update.kind) ?? existingState?.kind ?? "";
     const command =
       readString(rawInput?.command) ??
       readString(parsedContent?.command) ??
-      existing?.command ??
+      existingState?.command ??
       commandFromTitle(title) ??
-      title;
+      "";
     const filePath =
       readString(rawInput?.path) ??
       readString(rawInput?.file_path) ??
       readString(parsedContent?.path) ??
       readString(parsedContent?.file_path) ??
-      existing?.filePath ??
+      existingState?.filePath ??
       "";
 
-    this.toolStates.set(id, {
+    this.toolStates.set(toolCallId, {
       title,
       kind,
       command,
       filePath,
-      subagentTask: existing?.subagentTask,
+      subagentTask: existingState?.subagentTask,
     });
-    const status = normalizeToolStatus(readString(update.status));
+    const acpStatus = normalizeToolStatus(readString(update.status));
     const output = getToolOutput(update, content);
+    const input = readToolInput(rawInput, content);
+    const error = acpStatus === "failed" ? output : "";
 
-    this.handleSubagentTask(id, update, rawInput, title, status);
+    this.handleSubagentTask(toolCallId, update, rawInput, title, acpStatus);
 
-    if (status !== "running") {
+    if (acpStatus !== "running") {
       if (title === "EnterPlanMode" && output.includes("Plan mode is now active")) {
         this.emitPlanModeChanged(true);
       }
@@ -1911,43 +1928,99 @@ class KimiAcpRun {
       }
     }
 
+    // TodoList drives the Run Checklist surface; when no checklist snapshot
+    // exists its activity still feeds the legacy reasoning activity trail. The
+    // tool timeline item below is emitted in addition so TodoList uses the same
+    // unified timeline contract as shell and generic tools.
     const reasoning: ChatReasoningEventPayload = {
-      id: `kimi-tool-${id}`,
+      id: `kimi-tool-${toolCallId}`,
       content: describeToolActivity(title, kind, filePath),
-      status: status === "running" ? "running" : "completed",
+      status: acpStatus === "running" ? "running" : "completed",
     };
-
-    if (title === "TodoList") {
-      if (!this.hasChecklistSnapshot) {
-        this.pendingTodoListActivity.push(reasoning);
-        if (status !== "running") {
-          this.flushPendingTodoListActivity();
-        }
+    if (title === "TodoList" && !this.hasChecklistSnapshot) {
+      this.pendingTodoListActivity.push(reasoning);
+      if (acpStatus !== "running") {
+        this.flushPendingTodoListActivity();
       }
-      return;
     }
 
-    if (isShellTool(title, kind)) {
-      this.emit({
-        type: "shell",
-        runId: this.options.runId,
-        requestKey: this.options.request.requestKey,
-        shell: {
-          id,
-          command,
-          output: truncateToolOutput(output),
-          status,
-        },
-      });
-      return;
-    }
-
-    this.emit({
-      type: "reasoning",
-      runId: this.options.runId,
-      requestKey: this.options.request.requestKey,
-      reasoning,
+    this.emitToolTimelineItem(toolCallId, {
+      title,
+      kind,
+      command,
+      filePath,
+      input,
+      output: truncateToolOutput(output),
+      error,
+      status: kimiToolTimelineStatus(readString(update.status)),
     });
+  }
+
+  // Returns the stable ACP toolCallId for an update. Updates without an id
+  // receive a unique Run-scoped synthetic id derived from the event sequence,
+  // so parallel missing-id tools never collide and no fixed fallback id is
+  // reused.
+  private resolveToolCallId(update: JsonObject): string {
+    const explicit = readString(update.toolCallId);
+    if (explicit) {
+      return explicit;
+    }
+
+    const sequence = this.sessionUpdateSequence;
+    const existing = this.syntheticToolIds.get(sequence);
+    if (existing) {
+      return existing;
+    }
+
+    this.toolSequenceIndex += 1;
+    const synthetic = `kimi-${this.options.runId}-tool-${this.toolSequenceIndex}`;
+    this.syntheticToolIds.set(sequence, synthetic);
+    return synthetic;
+  }
+
+  // Upserts the canonical tool timeline item for `toolCallId`. The first
+  // sighting assigns a stable order; later updates only change content and
+  // status and never move the item or change its id. A completed or failed tool
+  // cannot be flipped back to running by an ordinary later update.
+  private emitToolTimelineItem(
+    toolCallId: string,
+    fields: {
+      title: string;
+      kind: string;
+      command: string;
+      filePath: string;
+      input: string;
+      output: string;
+      error: string;
+      status: Extract<KimiTimelineItem, { type: "tool" }>["status"];
+    },
+  ) {
+    const existing = this.toolItems.get(toolCallId);
+    const order = existing?.order ?? this.timelineOrder++;
+    const previousStatus = existing?.status;
+    // A tool that already reached a terminal state stays there; only richer
+    // content is filled in. This keeps history from regressing when a stray
+    // late update arrives.
+    const status =
+      previousStatus === "completed" || previousStatus === "failed"
+        ? previousStatus
+        : fields.status;
+    const item: Extract<KimiTimelineItem, { type: "tool" }> = {
+      type: "tool",
+      id: existing?.id ?? `kimi-${this.options.runId}-tool-item-${order}`,
+      order,
+      toolCallId,
+      title: fields.title || existing?.title || "Kimi tool",
+      kind: fields.kind || existing?.kind || "",
+      command: fields.command || existing?.command || "",
+      filePath: fields.filePath || existing?.filePath || "",
+      input: fields.input || existing?.input || "",
+      output: fields.output || existing?.output || "",
+      error: fields.error || existing?.error || "",
+      status,
+    };
+    this.toolItems.set(toolCallId, item);
+    this.emitKimiTimelineItem(item);
   }
 
   private handleSubagentTask(
@@ -2064,7 +2137,14 @@ class KimiAcpRun {
   }
 
   private emitKimiTimelineItem(item: KimiTimelineItem) {
-    this.emit({
+    // The normalized Kimi timeline is a distinct channel from the legacy
+    // reasoning/shell activity trail. Emit it directly so publishing a
+    // timeline item does not drain the TodoList reasoning deferral queue,
+    // which is gated on Run Checklist snapshots arriving in order.
+    if (this.terminal) {
+      return;
+    }
+    this.options.emit({
       type: "kimi-timeline",
       runId: this.options.runId,
       requestKey: this.options.request.requestKey,
@@ -2328,10 +2408,6 @@ function readTextContent(value: unknown): string {
   return readString(item.text) ?? readString(item.content) ?? "";
 }
 
-function isShellTool(title: string, kind: string) {
-  return kind.toLowerCase() === "execute" || title.toLowerCase().includes("bash");
-}
-
 function normalizeToolStatus(value: string | null): "running" | "completed" | "failed" {
   if (value === "completed") {
     return "completed";
@@ -2342,6 +2418,48 @@ function normalizeToolStatus(value: string | null): "running" | "completed" | "f
   }
 
   return "running";
+}
+
+// Maps the raw ACP tool status string onto the timeline tool contract. ACP's
+// `pending` (a tool that has not started executing yet) is preserved as the
+// timeline `pending` state; `in_progress` and any unrecognized intermediate
+// value stay `running`.
+function kimiToolTimelineStatus(
+  status: string | null,
+): Extract<KimiTimelineItem, { type: "tool" }>["status"] {
+  if (status === "completed") {
+    return "completed";
+  }
+
+  if (status === "failed") {
+    return "failed";
+  }
+
+  if (status === "pending") {
+    return "pending";
+  }
+
+  return "running";
+}
+
+// Captures the tool input snapshot shown in the timeline. Prefers the ACP
+// rawInput object; falls back to the textual content for tools that pass their
+// input inline. Long payloads are truncated to the same cap as tool output.
+function readToolInput(rawInput: JsonObject | null, content: string): string {
+  if (rawInput) {
+    const input = truncateToolOutput(safeStringifyToolPayload(rawInput));
+    return input;
+  }
+
+  return content ? truncateToolOutput(content) : "";
+}
+
+function safeStringifyToolPayload(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function getToolOutput(update: JsonObject, content: string) {

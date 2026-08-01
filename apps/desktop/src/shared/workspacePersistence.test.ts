@@ -435,6 +435,23 @@ describe("normalizeAppStateSnapshot", () => {
             {
               type: "kimi_timeline",
               item: {
+                type: "tool",
+                id: "kimi-run-1-tool-item-0",
+                order: 0,
+                toolCallId: "tool-read",
+                title: "Read",
+                kind: "read",
+                command: "",
+                filePath: "src/a.ts",
+                input: "",
+                output: "file contents",
+                error: "",
+                status: "completed",
+              },
+            },
+            {
+              type: "kimi_timeline",
+              item: {
                 type: "message",
                 id: "kimi-run-1-message-1",
                 order: 1,

@@ -1217,12 +1217,15 @@ function normalizeMessagePart(value: unknown): MessagePart | null {
       typeof item.id !== "string" ||
       typeof item.order !== "number" ||
       !Number.isInteger(item.order) ||
-      item.order < 0 ||
-      typeof item.content !== "string"
+      item.order < 0
     ) {
       return null;
     }
-    if (item.type === "thinking" && (item.status === "running" || item.status === "completed")) {
+    if (
+      item.type === "thinking" &&
+      typeof item.content === "string" &&
+      (item.status === "running" || item.status === "completed")
+    ) {
       return {
         type: "kimi_timeline",
         item: {
@@ -1234,7 +1237,11 @@ function normalizeMessagePart(value: unknown): MessagePart | null {
         },
       };
     }
-    if (item.type === "message" && typeof item.isFinal === "boolean") {
+    if (
+      item.type === "message" &&
+      typeof item.content === "string" &&
+      typeof item.isFinal === "boolean"
+    ) {
       return {
         type: "kimi_timeline",
         item: {
@@ -1243,6 +1250,39 @@ function normalizeMessagePart(value: unknown): MessagePart | null {
           order: item.order,
           content: item.content,
           isFinal: item.isFinal,
+        },
+      };
+    }
+    if (
+      item.type === "tool" &&
+      typeof item.toolCallId === "string" &&
+      typeof item.title === "string" &&
+      typeof item.kind === "string" &&
+      typeof item.command === "string" &&
+      typeof item.filePath === "string" &&
+      typeof item.input === "string" &&
+      typeof item.output === "string" &&
+      typeof item.error === "string" &&
+      (item.status === "pending" ||
+        item.status === "running" ||
+        item.status === "completed" ||
+        item.status === "failed")
+    ) {
+      return {
+        type: "kimi_timeline",
+        item: {
+          type: "tool",
+          id: item.id,
+          order: item.order,
+          toolCallId: item.toolCallId,
+          title: item.title,
+          kind: item.kind,
+          command: item.command,
+          filePath: item.filePath,
+          input: item.input,
+          output: item.output,
+          error: item.error,
+          status: item.status,
         },
       };
     }

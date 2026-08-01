@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { ChatRunEvent, ChatTurnRequest } from "../../src/shared/chat";
+import type { ChatRunEvent, ChatTurnRequest, KimiTimelineItem } from "../../src/shared/chat";
 import { MAX_SUBAGENT_TASK_TEXT_LENGTH } from "../../src/shared/workspacePersistence";
 import type { CarrentBridgeFactory, CarrentBridgeHandle } from "../bridge/carrentBridge";
 import {
@@ -473,44 +473,58 @@ describe("startKimiAcpChatRun", () => {
         status: "completed",
       },
       {
+        type: "tool",
+        id: "kimi-run-kimi-timeline-tool-item-3",
+        order: 3,
+        toolCallId: "existing-tool",
+        title: "ReadFile",
+        kind: "",
+        command: "",
+        filePath: "",
+        input: "",
+        output: "",
+        error: "",
+        status: "running",
+      },
+      {
         type: "thinking",
         id: "kimi-run-kimi-timeline-thinking-3",
-        order: 3,
+        order: 4,
         content: "Before plan",
         status: "running",
       },
       {
         type: "thinking",
         id: "kimi-run-kimi-timeline-thinking-3",
-        order: 3,
+        order: 4,
         content: "Before plan",
         status: "completed",
       },
       {
         type: "thinking",
         id: "kimi-run-kimi-timeline-thinking-4",
-        order: 4,
+        order: 5,
         content: "Verify",
         status: "running",
       },
       {
         type: "thinking",
         id: "kimi-run-kimi-timeline-thinking-4",
-        order: 4,
+        order: 5,
         content: "Verify",
         status: "completed",
       },
       {
         type: "message",
         id: "kimi-run-kimi-timeline-message-2",
-        order: 5,
+        order: 6,
         content: "Done.",
         isFinal: false,
       },
       {
         type: "message",
         id: "kimi-run-kimi-timeline-message-2",
-        order: 5,
+        order: 6,
         content: "Done.",
         isFinal: true,
       },
@@ -2075,16 +2089,30 @@ describe("startKimiAcpChatRun", () => {
         .map((event) => event.item),
     ).toEqual([
       {
+        type: "tool",
+        id: "kimi-run-kimi-plan-review-tool-item-0",
+        order: 0,
+        toolCallId: "tool-exit-plan",
+        title: "ExitPlanMode",
+        kind: "",
+        command: "",
+        filePath: "",
+        input: "",
+        output: "Plan mode deactivated. All tools are now available.",
+        error: "",
+        status: "completed",
+      },
+      {
         type: "thinking",
         id: "kimi-run-kimi-plan-review-thinking-1",
-        order: 0,
+        order: 1,
         content: "Waiting for conversation",
         status: "running",
       },
       {
         type: "thinking",
         id: "kimi-run-kimi-plan-review-thinking-1",
-        order: 0,
+        order: 1,
         content: "Waiting for conversation",
         status: "completed",
       },
@@ -2725,6 +2753,355 @@ describe("startKimiAcpChatRun", () => {
   });
 });
 
+describe("Kimi tool timeline", () => {
+  type ToolItem = Extract<KimiTimelineItem, { type: "tool" }>;
+
+  function toolItemsFrom(emitted: ChatRunEvent[]): ToolItem[] {
+    return emitted
+      .filter(
+        (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+          event.type === "kimi-timeline" && event.item.type === "tool",
+      )
+      .map((event) => event.item as ToolItem);
+  }
+
+  async function runWithUpdates(
+    runId: string,
+    updates: Array<Record<string, unknown>>,
+    options: { promptResponse?: unknown } = {},
+  ): Promise<{ emitted: ChatRunEvent[]; transport: FakeKimiAcpTransport }> {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: `session-${runId}` });
+        return;
+      }
+      if (message.method !== "session/prompt") return;
+
+      for (const update of updates) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: { sessionId: `session-${runId}`, update },
+        });
+      }
+      respondAcp(fakeTransport, message, options.promptResponse ?? { stopReason: "end_turn" });
+    });
+
+    startKimiAcpChatRun({
+      runId,
+      request: makeRequest(),
+      cwd: "/test/project",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+    return { emitted, transport };
+  }
+
+  it("creates one tool item at first-seen order and updates it in place without moving it", async () => {
+    const { emitted } = await runWithUpdates("run-tool-stable-order", [
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-stable",
+        title: "Read",
+        kind: "read",
+        status: "in_progress",
+        rawInput: { path: "src/a.ts" },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-stable",
+        status: "completed",
+        rawOutput: "file contents",
+      },
+    ]);
+
+    const items = toolItemsFrom(emitted);
+    expect(items).toHaveLength(2);
+    expect(items.map((item) => item.order)).toEqual([0, 0]);
+    expect(items.map((item) => item.id)).toEqual([items[0]!.id, items[0]!.id]);
+    expect(items[0]).toMatchObject({ status: "running", title: "Read" });
+    expect(items[1]).toMatchObject({
+      status: "completed",
+      output: "file contents",
+      title: "Read",
+    });
+    // A later thinking chunk does not let the tool jump to the end of the
+    // timeline: its order stays at its first-seen position.
+    const orderedKimiItems = emitted
+      .filter((event) => event.type === "kimi-timeline")
+      .map((event) => (event as { item: KimiTimelineItem }).item);
+    expect(orderedKimiItems.every((item) => item.order === 0)).toBe(true);
+  });
+
+  it("completes a temporary item when an update arrives before its start", async () => {
+    const { emitted } = await runWithUpdates("run-tool-update-first", [
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-early",
+        status: "completed",
+        title: "Bash",
+        kind: "execute",
+        rawOutput: "done",
+      },
+    ]);
+
+    const items = toolItemsFrom(emitted);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      toolCallId: "tool-early",
+      title: "Bash",
+      kind: "execute",
+      output: "done",
+      status: "completed",
+    });
+  });
+
+  it("keeps concurrent tool ids independent so neither overwrites the other", async () => {
+    const { emitted } = await runWithUpdates("run-tool-parallel", [
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-a",
+        title: "Read",
+        kind: "read",
+        status: "in_progress",
+      },
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-b",
+        title: "Bash",
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: "ls" },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-a",
+        status: "completed",
+        rawOutput: "a-out",
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-b",
+        status: "failed",
+        rawOutput: "boom",
+      },
+    ]);
+
+    const finalById = new Map(
+      toolItemsFrom(emitted).map((item) => [item.toolCallId, item]),
+    );
+    expect(finalById.get("tool-a")).toMatchObject({ output: "a-out", status: "completed" });
+    expect(finalById.get("tool-b")).toMatchObject({ output: "boom", status: "failed" });
+    // Each id occupies its own first-seen order slot.
+    const orders = new Map(
+      toolItemsFrom(emitted).map((item) => [item.toolCallId, item.order]),
+    );
+    expect(orders.get("tool-a")).not.toBe(orders.get("tool-b"));
+  });
+
+  it("gives missing toolCallId tools unique Run-scoped ids instead of a shared fallback", async () => {
+    const { emitted } = await runWithUpdates("run-tool-missing-ids", [
+      {
+        sessionUpdate: "tool_call",
+        title: "Read",
+        kind: "read",
+        status: "completed",
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        title: "Bash",
+        kind: "execute",
+        status: "completed",
+        rawInput: { command: "pwd" },
+      },
+    ]);
+
+    const items = toolItemsFrom(emitted);
+    const ids = new Set(items.map((item) => item.id));
+    const toolCallIds = new Set(items.map((item) => item.toolCallId));
+    // Two distinct missing-id tools never collapse onto one item.
+    expect(ids.size).toBe(2);
+    expect(toolCallIds.size).toBe(2);
+    // No fixed fallback id is reused.
+    expect([...toolCallIds].every((id) => id !== "kimi-tool")).toBe(true);
+    expect([...toolCallIds].every((id) => id.startsWith("kimi-run-tool-missing-ids-tool-"))).toBe(
+      true,
+    );
+  });
+
+  it("routes shell and generic tools through the same timeline contract while keeping shell command details", async () => {
+    const { emitted } = await runWithUpdates("run-tool-shell-and-generic", [
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-shell",
+        title: "Bash",
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: "git status" },
+      },
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-generic",
+        title: "Search",
+        kind: "search",
+        status: "completed",
+      },
+    ]);
+
+    const finalById = new Map(
+      toolItemsFrom(emitted).map((item) => [item.toolCallId, item]),
+    );
+    // Both use the same item shape; the shell command is retained as a derived
+    // field rather than deciding whether the call belongs to the timeline.
+    expect(finalById.get("tool-shell")).toMatchObject({
+      kind: "execute",
+      command: "git status",
+    });
+    expect(finalById.get("tool-generic")).toMatchObject({ kind: "search", command: "" });
+  });
+
+  it("maps the normal ACP tool states onto pending, running, completed, and failed", async () => {
+    const { emitted: pendingEmitted } = await runWithUpdates("run-tool-pending", [
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-pending",
+        title: "Read",
+        kind: "read",
+        status: "pending",
+      },
+    ]);
+    expect(toolItemsFrom(pendingEmitted)[0]?.status).toBe("pending");
+
+    const { emitted } = await runWithUpdates("run-tool-state-map", [
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-progress",
+        title: "Read",
+        kind: "read",
+        status: "in_progress",
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-progress",
+        status: "completed",
+      },
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-failed",
+        title: "Bash",
+        kind: "execute",
+        status: "failed",
+        rawOutput: "nope",
+      },
+    ]);
+    const finalById = new Map(
+      toolItemsFrom(emitted).map((item) => [item.toolCallId, item]),
+    );
+    expect(finalById.get("tool-progress")?.status).toBe("completed");
+    expect(finalById.get("tool-failed")?.status).toBe("failed");
+    // No tool item is ever classified as a Thinking item.
+    expect(
+      emitted.every(
+        (event) =>
+          !(event.type === "kimi-timeline" && event.item.type === "thinking") ||
+          event.item.content !== "Bash",
+      ),
+    ).toBe(true);
+  });
+
+  it("retains input, output, title, kind, status, and error in the tool item", async () => {
+    const { emitted } = await runWithUpdates("run-tool-rich-fields", [
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-rich",
+        title: "Write",
+        kind: "write",
+        status: "in_progress",
+        rawInput: { path: "src/a.ts", content: "export const x = 1;" },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-rich",
+        status: "failed",
+        rawOutput: "permission denied",
+      },
+    ]);
+
+    const items = toolItemsFrom(emitted);
+    const failed = items[items.length - 1]!;
+    expect(failed).toMatchObject({
+      title: "Write",
+      kind: "write",
+      filePath: "src/a.ts",
+      output: "permission denied",
+      error: "permission denied",
+      status: "failed",
+    });
+    // The tool input snapshot captures the raw input payload.
+    expect(failed.input).toContain("src/a.ts");
+  });
+
+  it("ends the current Thinking phase on a tool update while preserving the assigned order", async () => {
+    const { emitted } = await runWithUpdates("run-tool-ends-thinking", [
+      {
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text: "Thinking before tool" },
+      },
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-after-thinking",
+        title: "Read",
+        kind: "read",
+        status: "in_progress",
+      },
+    ]);
+
+    const timeline = emitted
+      .filter((event) => event.type === "kimi-timeline")
+      .map((event) => (event as { item: KimiTimelineItem }).item);
+    // Thinking phase is closed (completed) before the tool item appears.
+    const thinkingCompletedIndex = timeline.findIndex(
+      (item) => item.type === "thinking" && item.status === "completed",
+    );
+    const toolIndex = timeline.findIndex((item) => item.type === "tool");
+    expect(thinkingCompletedIndex >= 0).toBe(true);
+    expect(toolIndex).toBeGreaterThan(thinkingCompletedIndex);
+    // Thinking and tool retain their distinct first-seen orders.
+    const thinking = timeline.find((item) => item.type === "thinking");
+    const tool = timeline.find((item) => item.type === "tool");
+    expect(thinking && tool && thinking.order < tool.order).toBe(true);
+  });
+
+  it("does not regress a completed tool back to running on a later ordinary update", async () => {
+    const { emitted } = await runWithUpdates("run-tool-no-regression", [
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-settled",
+        title: "Read",
+        kind: "read",
+        status: "completed",
+        rawOutput: "ok",
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-settled",
+        status: "in_progress",
+      },
+    ]);
+
+    const items = toolItemsFrom(emitted);
+    // The terminal completed state is preserved; the late running update does
+    // not flip the item backwards.
+    expect(items[items.length - 1]!.status).toBe("completed");
+  });
+});
+
 describe("Kimi subagent tasks", () => {
   function runSubagentSequence(updates: Array<Record<string, unknown>>) {
     const emitted: ChatRunEvent[] = [];
@@ -2818,12 +3195,18 @@ describe("Kimi subagent tasks", () => {
     expect(tasks[1].task.startedAt).toBe(tasks[0].task.startedAt);
     expect(tasks[1].task.finishedAt).toBeGreaterThan(tasks[1].task.startedAt - 1);
 
-    // The generic Agent Activity mapping must keep running alongside the task events.
-    const reasoning = emitted.filter(
-      (event): event is Extract<ChatRunEvent, { type: "reasoning" }> =>
-        event.type === "reasoning" && event.reasoning.id === "kimi-tool-0:tool_agent",
-    );
-    expect(reasoning.map((event) => event.reasoning.status)).toEqual(["running", "completed"]);
+    // The subagent-spawning tool is unified into the Kimi tool timeline
+    // alongside the dedicated subagent-task events.
+    const agentToolItems = emitted
+      .filter(
+        (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+          event.type === "kimi-timeline" &&
+          event.item.type === "tool" &&
+          event.item.toolCallId === "0:tool_agent",
+      )
+      .map((event) => event.item as Extract<(typeof event)["item"], { type: "tool" }>);
+    expect(agentToolItems.map((item) => item.status)).toEqual(["running", "completed"]);
+    expect(new Set(agentToolItems.map((item) => item.order)).size).toBe(1);
   });
 
   it("recognizes a resume start without subagent_type", async () => {
@@ -2978,11 +3361,18 @@ describe("Kimi subagent tasks", () => {
     await waitForAsyncEvents();
 
     expect(subagentEvents(emitted)).toHaveLength(0);
-    const reasoning = emitted.find(
-      (event): event is Extract<ChatRunEvent, { type: "reasoning" }> =>
-        event.type === "reasoning" && event.reasoning.id === "kimi-tool-0:tool_malformed",
+    // A malformed Agent-like call still surfaces as a unified tool timeline
+    // item even though no subagent task is produced.
+    const malformedTool = emitted.find(
+      (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+        event.type === "kimi-timeline" &&
+        event.item.type === "tool" &&
+        event.item.toolCallId === "0:tool_malformed",
     );
-    expect(reasoning?.reasoning.content).toBe("Launching coder agent: Missing description");
+    expect(malformedTool?.item).toMatchObject({
+      title: "Launching coder agent: Missing description",
+      status: "running",
+    });
   });
 
   it("completes without a summary when the result text is malformed", async () => {
@@ -3041,15 +3431,35 @@ describe("Kimi subagent tasks", () => {
     await waitForAsyncEvents();
 
     expect(subagentEvents(emitted)).toHaveLength(0);
-    const shell = emitted.find(
-      (event): event is Extract<ChatRunEvent, { type: "shell" }> => event.type === "shell",
-    );
-    expect(shell?.shell.command).toBe("ls");
-    const readReasoning = emitted.find(
-      (event): event is Extract<ChatRunEvent, { type: "reasoning" }> =>
-        event.type === "reasoning" && event.reasoning.content === "Read src/a.ts",
-    );
-    expect(readReasoning).toBeDefined();
+    // Shell and generic tools share the same unified tool timeline contract.
+    const toolItems = emitted
+      .filter(
+        (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+          event.type === "kimi-timeline" && event.item.type === "tool",
+      )
+      .map((event) => event.item as Extract<(typeof event)["item"], { type: "tool" }>);
+    const bashFinal = [...toolItems]
+      .reverse()
+      .find((item) => item.toolCallId === "0:tool_bash");
+    expect(bashFinal).toMatchObject({
+      title: "Bash",
+      kind: "execute",
+      command: "ls",
+      output: "file.txt",
+      status: "completed",
+    });
+    const readFinal = toolItems.find((item) => item.toolCallId === "0:tool_read");
+    expect(readFinal).toMatchObject({
+      title: "Read",
+      kind: "read",
+      filePath: "src/a.ts",
+      status: "completed",
+    });
+    // Bash starts as running before the completion update lands, and the start
+    // and update share one first-seen order.
+    const bashItems = toolItems.filter((item) => item.toolCallId === "0:tool_bash");
+    expect(bashItems.map((item) => item.status)).toEqual(["running", "completed"]);
+    expect(new Set(bashItems.map((item) => item.order)).size).toBe(1);
   });
 
   it("settles a background task as completed when its result completes", async () => {

@@ -752,6 +752,86 @@ describe("applyMessagePartUpdate", () => {
     expect(replayed.type === "changed_files" ? [] : replayed.parts).toHaveLength(2);
   });
 
+  it("upserts Kimi tool timeline items without duplicating or reordering them", () => {
+    const message = makeMessage({ role: "assistant", content: "", parts: [] });
+    const withThinking = applyMessagePartUpdate(message, {
+      kind: "upsert-kimi-timeline",
+      item: {
+        type: "thinking",
+        id: "kimi-run-2-thinking-1",
+        order: 0,
+        content: "Inspect",
+        status: "running",
+      },
+    });
+    const withToolStart = applyMessagePartUpdate(withThinking, {
+      kind: "upsert-kimi-timeline",
+      item: {
+        type: "tool",
+        id: "kimi-run-2-tool-item-1",
+        order: 1,
+        toolCallId: "tool-read",
+        title: "Read",
+        kind: "read",
+        command: "",
+        filePath: "src/a.ts",
+        input: "",
+        output: "",
+        error: "",
+        status: "running",
+      },
+    });
+    const withMessage = applyMessagePartUpdate(withToolStart, {
+      kind: "upsert-kimi-timeline",
+      item: {
+        type: "message",
+        id: "kimi-run-2-message-1",
+        order: 2,
+        content: "Done.",
+        isFinal: false,
+      },
+    });
+
+    // The completion update carries a later order value; the reducer must keep
+    // the item at its first-seen order (1) and not duplicate it.
+    const replayedUpdate = {
+      kind: "upsert-kimi-timeline" as const,
+      item: {
+        type: "tool" as const,
+        id: "kimi-run-2-tool-item-1",
+        order: 99,
+        toolCallId: "tool-read",
+        title: "Read",
+        kind: "read",
+        command: "",
+        filePath: "src/a.ts",
+        input: "",
+        output: "file contents",
+        error: "",
+        status: "completed" as const,
+      },
+    };
+    const updated = applyMessagePartUpdate(withMessage, replayedUpdate);
+    const replayed = applyMessagePartUpdate(updated, replayedUpdate);
+
+    expect(replayed).toMatchObject({
+      parts: [
+        { type: "kimi_timeline", item: { id: "kimi-run-2-thinking-1", order: 0 } },
+        {
+          type: "kimi_timeline",
+          item: {
+            id: "kimi-run-2-tool-item-1",
+            order: 1,
+            status: "completed",
+            output: "file contents",
+          },
+        },
+        { type: "kimi_timeline", item: { id: "kimi-run-2-message-1", order: 2 } },
+      ],
+    });
+    expect(replayed.type === "changed_files" ? [] : replayed.parts).toHaveLength(3);
+  });
+
   it("upserts, resolves, and interrupts Plan Reviews", () => {
     const message = makeMessage({ role: "assistant", content: "", parts: [] });
     const review = {

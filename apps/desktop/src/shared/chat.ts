@@ -228,6 +228,8 @@ export type ChatReasoningEventPayload = {
   status: ChatReasoningStatus;
 };
 
+export type KimiToolTimelineStatus = "pending" | "running" | "completed" | "failed";
+
 export type KimiTimelineItem =
   | {
       type: "thinking";
@@ -242,6 +244,20 @@ export type KimiTimelineItem =
       order: number;
       content: string;
       isFinal: boolean;
+    }
+  | {
+      type: "tool";
+      id: string;
+      order: number;
+      toolCallId: string;
+      title: string;
+      kind: string;
+      command: string;
+      filePath: string;
+      input: string;
+      output: string;
+      error: string;
+      status: KimiToolTimelineStatus;
     };
 
 export type ChatSubagentTaskStatus =

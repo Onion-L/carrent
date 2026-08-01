@@ -548,7 +548,10 @@ describe("createChatRunCoordinator", () => {
     const received: string[] = [];
 
     coordinator.beginRequest("request-1", "thread-1", {
-      onKimiTimeline: (item) => received.push(`${item.order}:${item.type}:${item.content}`),
+      onKimiTimeline: (item) =>
+        received.push(
+          "content" in item ? `${item.order}:${item.type}:${item.content}` : `${item.order}:${item.type}`,
+        ),
     });
     const event = {
       type: "kimi-timeline",

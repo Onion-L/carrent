@@ -508,6 +508,19 @@ export function getAssistantMessagePresentation(
             content: item.content,
             status: item.status,
           });
+        } else if (item.type === "tool") {
+          activityItems.push({
+            type: "kimi-tool",
+            id: item.id,
+            title: item.title,
+            kind: item.kind,
+            command: item.command,
+            filePath: item.filePath,
+            input: item.input,
+            output: item.output,
+            error: item.error,
+            status: item.status,
+          });
         } else if (item.isFinal) {
           answerParts.push(item.content);
         } else {

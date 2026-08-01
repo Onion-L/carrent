@@ -1631,7 +1631,7 @@ describe("createChatSessionManager", () => {
     });
   });
 
-  it("normalizes Kimi ACP shell activity into shell events with bounded output", async () => {
+  it("normalizes Kimi ACP shell activity into unified tool timeline items with bounded output", async () => {
     const emitted: ChatRunEvent[] = [];
     const longOutput = "x".repeat(13_000);
     const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
@@ -1688,22 +1688,28 @@ describe("createChatSessionManager", () => {
     manager.start("run-kimi-shell", makeRequest({ runtimeId: "kimi" }));
     await waitForAsyncEvents();
 
-    const shellEvents = emitted.filter((event) => event.type === "shell");
-    expect(shellEvents).toHaveLength(3);
-    expect(shellEvents[0].shell).toMatchObject({
-      id: "tool-shell-1",
-      command: "Bash",
-      output: "",
-      status: "running",
-    });
-    expect(shellEvents[1].shell).toMatchObject({
-      command: "pwd",
-      status: "running",
-    });
-    expect(shellEvents[2].shell.command).toBe("pwd");
-    expect(shellEvents[2].shell.status).toBe("completed");
-    expect(shellEvents[2].shell.output.length).toBeLessThan(longOutput.length);
-    expect(shellEvents[2].shell.output).toContain("[output truncated]");
+    const toolItems = emitted
+      .filter(
+        (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+          event.type === "kimi-timeline" && event.item.type === "tool",
+      )
+      .map((event) => event.item as Extract<(typeof event)["item"], { type: "tool" }>);
+    expect(toolItems.map((item) => item.status)).toEqual([
+      "pending",
+      "running",
+      "completed",
+    ]);
+    // All three updates share one first-seen order and one id (no duplicate cards).
+    expect(new Set(toolItems.map((item) => item.order)).size).toBe(1);
+    expect(new Set(toolItems.map((item) => item.id)).size).toBe(1);
+    // The shell command is retained once the running update carries it.
+    expect(toolItems[1]).toMatchObject({ command: "pwd", status: "running" });
+    expect(toolItems[2]).toMatchObject({ command: "pwd", status: "completed" });
+    expect(toolItems[2].output.length).toBeLessThan(longOutput.length);
+    expect(toolItems[2].output).toContain("[output truncated]");
+    // Shell tools no longer emit a parallel legacy shell event; the unified
+    // tool item is the single timeline surface.
+    expect(emitted.filter((event) => event.type === "shell")).toHaveLength(0);
   });
 
   it("preserves Kimi thinking around shell activity", async () => {
@@ -1769,8 +1775,8 @@ describe("createChatSessionManager", () => {
       if (event.type === "kimi-timeline" && event.item.type === "thinking") {
         return `${event.item.id}:${event.item.status}:${event.item.content}`;
       }
-      if (event.type === "shell") {
-        return `${event.shell.id}:${event.shell.status}:${event.shell.command}`;
+      if (event.type === "kimi-timeline" && event.item.type === "tool") {
+        return `${event.item.toolCallId}:${event.item.status}:${event.item.command}`;
       }
       return [];
     });
@@ -1778,14 +1784,14 @@ describe("createChatSessionManager", () => {
     expect(activity).toEqual([
       "kimi-run-kimi-thinking-shell-thinking-1:running:Inspect first",
       "kimi-run-kimi-thinking-shell-thinking-1:completed:Inspect first",
-      "tool-shell-1:running:Bash",
+      "tool-shell-1:pending:",
       "tool-shell-1:completed:pwd",
       "kimi-run-kimi-thinking-shell-thinking-2:running:Verify result",
       "kimi-run-kimi-thinking-shell-thinking-2:completed:Verify result",
     ]);
   });
 
-  it("normalizes Kimi ACP file activity into reasoning events", async () => {
+  it("normalizes Kimi ACP file activity into unified tool timeline items", async () => {
     const emitted: ChatRunEvent[] = [];
     const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
       if (message.method === "initialize") {
@@ -1836,22 +1842,27 @@ describe("createChatSessionManager", () => {
     manager.start("run-kimi-file", makeRequest({ runtimeId: "kimi" }));
     await waitForAsyncEvents();
 
-    const fileReasoningEvents = emitted.filter(
-      (event): event is Extract<ChatRunEvent, { type: "reasoning" }> =>
-        event.type === "reasoning" && event.reasoning.id === "kimi-tool-tool-read-1",
-    );
-    expect(fileReasoningEvents.map((event) => event.reasoning)).toEqual([
-      {
-        id: "kimi-tool-tool-read-1",
-        content: "Read",
-        status: "running",
-      },
-      {
-        id: "kimi-tool-tool-read-1",
-        content: "Read package.json",
-        status: "completed",
-      },
-    ]);
+    const toolItems = emitted
+      .filter(
+        (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+          event.type === "kimi-timeline" && event.item.type === "tool",
+      )
+      .map((event) => event.item as Extract<(typeof event)["item"], { type: "tool" }>);
+    expect(toolItems.map((item) => item.status)).toEqual(["pending", "completed"]);
+    expect(toolItems[0]).toMatchObject({ title: "Read", kind: "read", status: "pending" });
+    expect(toolItems[1]).toMatchObject({
+      title: "Reading package.json",
+      kind: "read",
+      filePath: "package.json",
+      output: "file contents",
+      status: "completed",
+    });
+    // Generic file tools no longer emit a parallel legacy reasoning event.
+    expect(
+      emitted.filter(
+        (event) => event.type === "reasoning" && event.reasoning.id === "kimi-tool-tool-read-1",
+      ),
+    ).toHaveLength(0);
   });
 
   it("handles unknown Kimi ACP activity without crashing the run", async () => {
@@ -1904,13 +1915,16 @@ describe("createChatSessionManager", () => {
       type: "completed",
       text: "Still fine",
     });
-    expect(emitted.find((event) => event.type === "reasoning")).toMatchObject({
-      type: "reasoning",
-      reasoning: {
-        id: "kimi-tool-tool-unknown-1",
-        content: "Mystery",
-        status: "running",
-      },
+    const mysteryTool = emitted.find(
+      (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+        event.type === "kimi-timeline" &&
+        event.item.type === "tool" &&
+        event.item.toolCallId === "tool-unknown-1",
+    );
+    expect(mysteryTool?.item).toMatchObject({
+      title: "Mystery",
+      kind: "telemetry",
+      status: "running",
     });
   });
 
@@ -1957,13 +1971,17 @@ describe("createChatSessionManager", () => {
     manager.start("run-kimi-file-failed", makeRequest({ runtimeId: "kimi" }));
     await waitForAsyncEvents();
 
-    expect(emitted.find((event) => event.type === "reasoning")).toMatchObject({
-      type: "reasoning",
-      reasoning: {
-        id: "kimi-tool-tool-read-failed",
-        content: "Read missing.txt",
-        status: "completed",
-      },
+    const failedTool = emitted.find(
+      (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+        event.type === "kimi-timeline" &&
+        event.item.type === "tool" &&
+        event.item.toolCallId === "tool-read-failed",
+    );
+    expect(failedTool?.item).toMatchObject({
+      title: "Reading missing.txt",
+      kind: "read",
+      filePath: "missing.txt",
+      status: "failed",
     });
   });
 

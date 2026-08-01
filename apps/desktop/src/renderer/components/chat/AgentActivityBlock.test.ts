@@ -13,6 +13,7 @@ import {
   inferAgentActivityStatus,
 } from "./AgentActivityBlock";
 import type { MessagePart } from "../../../shared/threadContent";
+import type { KimiToolItem, KimiThinkingItem } from "./AgentActivityBlock";
 
 type ReasoningPart = Extract<MessagePart, { type: "reasoning" }>;
 type ShellPart = Extract<MessagePart, { type: "shell" }>;
@@ -32,6 +33,32 @@ function makeShell(overrides: Partial<ShellPart> & { id: string }): ShellPart {
     command: "echo hello",
     output: "hello",
     status: "completed",
+    ...overrides,
+  };
+}
+
+function makeKimiTool(overrides: Partial<KimiToolItem> & { id: string }): KimiToolItem {
+  return {
+    type: "kimi-tool",
+    title: "Read",
+    kind: "read",
+    command: "",
+    filePath: "src/a.ts",
+    input: "",
+    output: "",
+    error: "",
+    status: "completed",
+    ...overrides,
+  };
+}
+
+function makeKimiThinking(
+  overrides: Partial<KimiThinkingItem> & { id: string },
+): KimiThinkingItem {
+  return {
+    type: "kimi-thinking",
+    content: "Thinking",
+    status: "running",
     ...overrides,
   };
 }
@@ -116,6 +143,33 @@ describe("AgentActivityBlock status", () => {
     ).toBe("failed");
   });
 
+  it("infers failed when a Kimi tool step failed", () => {
+    expect(
+      inferAgentActivityStatus([
+        makeKimiThinking({ id: "t1", status: "completed" }),
+        makeKimiTool({ id: "tool-1", status: "failed", error: "boom" }),
+      ]),
+    ).toBe("failed");
+  });
+
+  it("infers running when a Kimi tool step is pending", () => {
+    expect(
+      inferAgentActivityStatus([
+        makeKimiThinking({ id: "t1", status: "completed" }),
+        makeKimiTool({ id: "tool-1", status: "pending" }),
+      ]),
+    ).toBe("running");
+  });
+
+  it("infers completed when a Kimi tool step is completed", () => {
+    expect(
+      inferAgentActivityStatus([
+        makeKimiThinking({ id: "t1", status: "completed" }),
+        makeKimiTool({ id: "tool-1", status: "completed" }),
+      ]),
+    ).toBe("completed");
+  });
+
   it("uses simple user-facing status labels", () => {
     expect(getBlockStatusMeta([], "running").label).toBe("Thinking");
     expect(getBlockStatusMeta([], "completed").label).toBe("Completed");
@@ -150,5 +204,70 @@ describe("AgentActivityBlock duration formatting", () => {
 
   it("formats days, hours, minutes, and seconds", () => {
     expect(formatAgentActivityDuration(101_103_000)).toBe("1d 04h 05m 03s");
+  });
+});
+
+describe("AgentActivityBlock Kimi tool item", () => {
+  async function renderItems(items: Parameters<typeof AgentActivityBlock>[0]["items"]) {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    // A running block with no final answer starts expanded, so the tool item
+    // is visible without first clicking the outer activity block header.
+    await act(async () => {
+      root.render(createElement(AgentActivityBlock, { status: "running", items }));
+    });
+    return {
+      container,
+      root,
+      toolButton: () => container.querySelectorAll("button")[1],
+      async cleanup() {
+        await act(async () => root.unmount());
+        container.remove();
+      },
+    };
+  }
+
+  it("renders a generic tool label and reveals output on demand", async () => {
+    const { container, toolButton, cleanup } = await renderItems([
+      makeKimiTool({
+        id: "tool-read",
+        title: "Read",
+        kind: "read",
+        filePath: "src/a.ts",
+        output: "file contents",
+        status: "completed",
+      }),
+    ]);
+
+    expect(container.textContent).toContain("Read src/a.ts");
+    expect(container.textContent).not.toContain("file contents");
+
+    await act(async () => toolButton().click());
+    expect(container.textContent).toContain("file contents");
+    await cleanup();
+  });
+
+  it("renders a shell tool command with the $ prefix and reveals the error", async () => {
+    const { container, toolButton, cleanup } = await renderItems([
+      makeKimiTool({
+        id: "tool-bash",
+        title: "Bash",
+        kind: "execute",
+        command: "git status",
+        filePath: "",
+        output: "permission denied",
+        error: "permission denied",
+        status: "failed",
+      }),
+    ]);
+
+    expect(container.textContent).toContain("$");
+    expect(container.textContent).toContain("git status");
+    expect(container.textContent).not.toContain("permission denied");
+
+    await act(async () => toolButton().click());
+    expect(container.textContent).toContain("permission denied");
+    await cleanup();
   });
 });

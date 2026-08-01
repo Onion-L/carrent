@@ -15,7 +15,19 @@ export type KimiThinkingItem = {
   content: string;
   status: "running" | "completed" | "cancelled";
 };
-export type AgentActivityStep = ReasoningPart | ShellPart | KimiThinkingItem;
+export type KimiToolItem = {
+  type: "kimi-tool";
+  id: string;
+  title: string;
+  kind: string;
+  command: string;
+  filePath: string;
+  input: string;
+  output: string;
+  error: string;
+  status: "pending" | "running" | "completed" | "failed";
+};
+export type AgentActivityStep = ReasoningPart | ShellPart | KimiThinkingItem | KimiToolItem;
 export type AgentActivityItem = AgentActivityStep | CommentaryPart;
 export type AgentActivityStatus = "running" | "completed" | "failed" | "cancelled";
 
@@ -49,12 +61,27 @@ function padDurationPart(value: number) {
   return value.toString().padStart(2, "0");
 }
 
+function capitalize(value: string) {
+  return value.length === 0 ? value : `${value[0]!.toUpperCase()}${value.slice(1)}`;
+}
+
 export function inferAgentActivityStatus(steps: AgentActivityStep[]): AgentActivityStatus {
-  if (steps.some((step) => step.type === "shell" && step.status === "failed")) {
+  if (
+    steps.some(
+      (step) =>
+        (step.type === "shell" && step.status === "failed") ||
+        (step.type === "kimi-tool" && step.status === "failed"),
+    )
+  ) {
     return "failed";
   }
 
-  if (steps.some((step) => step.status === "running")) {
+  if (
+    steps.some(
+      (step) =>
+        step.status === "running" || (step.type === "kimi-tool" && step.status === "pending"),
+    )
+  ) {
     return "running";
   }
 
@@ -72,7 +99,7 @@ export function getInitialAgentActivityBlockExpanded({
 }
 
 function getStepStatusMeta(step: AgentActivityStep) {
-  if (step.status === "running") {
+  if (step.status === "running" || (step.type === "kimi-tool" && step.status === "pending")) {
     return { icon: CircleDashed, className: "text-muted" };
   }
 
@@ -80,7 +107,10 @@ function getStepStatusMeta(step: AgentActivityStep) {
     return { icon: XCircle, className: "text-muted" };
   }
 
-  if (step.type === "shell" && step.status === "failed") {
+  if (
+    (step.type === "shell" && step.status === "failed") ||
+    (step.type === "kimi-tool" && step.status === "failed")
+  ) {
     return { icon: XCircle, className: "text-danger" };
   }
 
@@ -236,6 +266,89 @@ function ShellStepItem({ step }: { step: ShellPart }) {
   );
 }
 
+// Mirrors the adapter's describeToolActivity so the timeline shows a readable
+// label (e.g. "Read src/a.ts", "Search", "Bash") instead of every tool's raw
+// title. Falls back to the title when the kind is unrecognized.
+function describeKimiToolActivity(tool: KimiToolItem) {
+  const normalizedKind = tool.kind.toLowerCase();
+  const target = tool.filePath ? ` ${tool.filePath}` : "";
+
+  if (normalizedKind === "execute") {
+    return tool.command || tool.title || "Run command";
+  }
+
+  if (normalizedKind === "read") {
+    return `Read${target}`;
+  }
+
+  if (normalizedKind === "search") {
+    return `Search${target}`;
+  }
+
+  if (["edit", "write", "delete", "move"].includes(normalizedKind)) {
+    return `${capitalize(normalizedKind)}${target}`;
+  }
+
+  return `${tool.title}${target}`;
+}
+
+function KimiToolItemView({ item }: { item: KimiToolItem }) {
+  const [expanded, setExpanded] = useState(false);
+  const meta = getStepStatusMeta(item);
+  const StatusIcon = meta.icon;
+  const isRunning = item.status === "running" || item.status === "pending";
+  const label = describeKimiToolActivity(item);
+  const hasShellCommand = item.kind.toLowerCase() === "execute" && !!item.command;
+  const hasDetail = !!item.output || !!item.error || !!item.input;
+  const canExpand = hasShellCommand || hasDetail;
+
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => canExpand && setExpanded((value) => !value)}
+        className={`group flex w-full items-start gap-2.5 text-left ${canExpand ? "cursor-pointer" : "cursor-default"}`}
+        aria-expanded={canExpand ? expanded : undefined}
+      >
+        <StatusIcon
+          className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta.className} ${isRunning ? "animate-spin" : ""}`}
+        />
+        {hasShellCommand ? (
+          <pre
+            className={`flex-1 whitespace-pre-wrap break-words font-mono text-app-12 leading-5 text-muted ${expanded ? "" : "line-clamp-1"}`}
+          >
+            <span className="text-muted">$ </span>
+            {item.command}
+          </pre>
+        ) : (
+          <span className="flex-1 text-app-12 leading-5 text-muted">{label}</span>
+        )}
+        {canExpand && (
+          <ChevronRight
+            className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-subtle transition group-hover:text-muted ${expanded ? "rotate-90" : ""}`}
+          />
+        )}
+      </button>
+      {expanded && (
+        <div className="space-y-2 pl-6">
+          {item.error ? (
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-code-bg p-3 font-mono text-app-12 leading-relaxed text-danger">
+              {item.error}
+            </pre>
+          ) : null}
+          {item.output ? (
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-code-bg p-3 font-mono text-app-12 leading-relaxed text-muted">
+              {item.output}
+            </pre>
+          ) : isRunning ? (
+            <div className="text-app-12 text-subtle">Running...</div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ActivityItem({ item }: { item: AgentActivityItem }) {
   if (item.type === "commentary") {
     return <CommentaryItem item={item} />;
@@ -245,6 +358,9 @@ function ActivityItem({ item }: { item: AgentActivityItem }) {
   }
   if (item.type === "kimi-thinking") {
     return <KimiThinkingItemView item={item} />;
+  }
+  if (item.type === "kimi-tool") {
+    return <KimiToolItemView item={item} />;
   }
   return <ShellStepItem step={item} />;
 }

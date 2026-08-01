@@ -942,10 +942,21 @@ describe("thread-draft commands", () => {
       createdAt: "2026-07-30T08:00:00.000Z",
       attachments: [],
     },
+    assistantMessage: {
+      id: "assistant-1",
+      threadId: "draft-thread-1",
+      role: "assistant",
+      content: "",
+      createdAt: "2026-07-30T08:00:00.000Z",
+      attachments: [],
+      runStatus: "running",
+      runEventCount: 0,
+    },
     run: {
       id: "run-1",
       threadId: "draft-thread-1",
       messageId: "m-1",
+      assistantMessageId: "assistant-1",
       startedAt: "2026-07-30T08:00:00.000Z",
       runtimeId: "kimi",
       runtimeMode: "approval-required",
@@ -960,7 +971,7 @@ describe("thread-draft commands", () => {
     const snapshot = (result as { snapshot: AppStateSnapshot }).snapshot;
     expect(snapshot.threadDrafts).toEqual([]);
     expect(snapshot.threads?.map((thread) => thread.id)).toContain("draft-thread-1");
-    expect(snapshot.threadMessages?.map((message) => message.id)).toEqual(["m-1"]);
+    expect(snapshot.threadMessages?.map((message) => message.id)).toEqual(["m-1", "assistant-1"]);
     expect(snapshot.threadRuns?.map((run) => run.id)).toEqual(["run-1"]);
     expect(normalizeAppStateSnapshotForWrite(snapshot)).not.toBe(null);
   });
@@ -975,7 +986,7 @@ describe("thread-draft commands", () => {
     expect(replay).toMatchObject({ data: { created: false, thread: { id: "draft-thread-1" } } });
     const snapshot = (replay as { snapshot: AppStateSnapshot }).snapshot;
     expect(snapshot.threads?.filter((thread) => thread.id === "draft-thread-1")).toHaveLength(1);
-    expect(snapshot.threadMessages).toHaveLength(1);
+    expect(snapshot.threadMessages).toHaveLength(2);
     expect(snapshot.threadRuns).toHaveLength(1);
   });
 
@@ -1015,10 +1026,21 @@ describe("thread run and action commands", () => {
       createdAt: "2026-07-30T08:00:00.000Z",
       attachments: [],
     },
+    assistantMessage: {
+      id: "assistant-1",
+      threadId: "t-1",
+      role: "assistant",
+      content: "",
+      createdAt: "2026-07-30T08:00:00.000Z",
+      attachments: [],
+      runStatus: "running",
+      runEventCount: 0,
+    },
     run: {
       id: "run-1",
       threadId: "t-1",
       messageId: "m-1",
+      assistantMessageId: "assistant-1",
       startedAt: "2026-07-30T08:00:00.000Z",
       runtimeId: "kimi",
       runtimeMode: "approval-required",
@@ -1026,10 +1048,10 @@ describe("thread run and action commands", () => {
     },
   });
 
-  it("records a run with its user message and bumps thread activity", () => {
+  it("records a run with its user and assistant messages and bumps thread activity", () => {
     const next = reduce("thread:record-run", makeSnapshot(), runPayload()) as AppStateSnapshot;
 
-    expect(next.threadMessages?.map((message) => message.id)).toEqual(["m-1"]);
+    expect(next.threadMessages?.map((message) => message.id)).toEqual(["m-1", "assistant-1"]);
     expect(next.threadRuns?.map((run) => run.id)).toEqual(["run-1"]);
     expect(next.threads?.find((thread) => thread.id === "t-1")?.lastActivityAt).toBe(
       "2026-07-30T08:00:00.000Z",
@@ -1037,14 +1059,14 @@ describe("thread run and action commands", () => {
     expect(normalizeAppStateSnapshotForWrite(next)).not.toBe(null);
   });
 
-  it("does not duplicate an already-present user message", () => {
+  it("does not duplicate already-present run messages", () => {
     const first = reduce("thread:record-run", makeSnapshot(), runPayload()) as AppStateSnapshot;
     const second = reduce("thread:record-run", first, {
       ...runPayload(),
       run: { ...runPayload().run, id: "run-2" },
     }) as AppStateSnapshot;
 
-    expect(second.threadMessages).toHaveLength(1);
+    expect(second.threadMessages).toHaveLength(2);
     expect(second.threadRuns).toHaveLength(2);
   });
 
@@ -1064,6 +1086,7 @@ describe("thread run and action commands", () => {
       threadId: "t-1",
       runId: "run-1",
       messageId: "m-1",
+      assistantMessageId: "assistant-1",
     }) as AppStateSnapshot;
 
     expect(next.threadMessages).toEqual([]);
@@ -1076,8 +1099,36 @@ describe("thread run and action commands", () => {
         threadId: "t-404",
         runId: "run-1",
         messageId: "m-1",
+        assistantMessageId: "assistant-1",
       }),
     ).toBe(null);
+  });
+
+  it("removes only the losing Run messages after a concurrent send race", () => {
+    const firstPayload = runPayload();
+    const first = reduce("thread:record-run", makeSnapshot(), firstPayload) as AppStateSnapshot;
+    const secondPayload = {
+      ...runPayload(),
+      message: { ...runPayload().message, id: "m-2", content: "second" },
+      assistantMessage: { ...runPayload().assistantMessage, id: "assistant-2" },
+      run: {
+        ...runPayload().run,
+        id: "run-2",
+        messageId: "m-2",
+        assistantMessageId: "assistant-2",
+      },
+    };
+    const raced = reduce("thread:record-run", first, secondPayload) as AppStateSnapshot;
+
+    const rolledBack = reduce("thread:rollback-run", raced, {
+      threadId: "t-1",
+      runId: "run-2",
+      messageId: "m-2",
+      assistantMessageId: "assistant-2",
+    }) as AppStateSnapshot;
+
+    expect(rolledBack.threadMessages?.map((message) => message.id)).toEqual(["m-1", "assistant-1"]);
+    expect(rolledBack.threadRuns?.map((run) => run.id)).toEqual(["run-1"]);
   });
 
   it("records a thread action and bumps thread activity", () => {
@@ -1380,10 +1431,21 @@ describe("appStateCommandReducers through createAppStateAuthority", () => {
         createdAt: "2026-07-30T08:00:00.000Z",
         attachments: [],
       },
+      assistantMessage: {
+        id: "assistant-1",
+        threadId: "draft-thread-1",
+        role: "assistant",
+        content: "",
+        createdAt: "2026-07-30T08:00:00.000Z",
+        attachments: [],
+        runStatus: "running",
+        runEventCount: 0,
+      },
       run: {
         id: "run-1",
         threadId: "draft-thread-1",
         messageId: "m-1",
+        assistantMessageId: "assistant-1",
         startedAt: "2026-07-30T08:00:00.000Z",
         runtimeId: "kimi",
         runtimeMode: "approval-required",
@@ -1410,7 +1472,7 @@ describe("appStateCommandReducers through createAppStateAuthority", () => {
     expect(outcomes.sort()).toEqual([false, true]);
     const snapshot = authority.getState().snapshot;
     expect(snapshot.threads?.filter((thread) => thread.id === "draft-thread-1")).toHaveLength(1);
-    expect(snapshot.threadMessages).toHaveLength(1);
+    expect(snapshot.threadMessages).toHaveLength(2);
     expect(snapshot.threadRuns).toHaveLength(1);
     expect(snapshot.threadDrafts).toEqual([]);
     // The loser's no-op did not persist again.

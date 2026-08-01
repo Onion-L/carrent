@@ -121,6 +121,7 @@ describe("recordThreadRun", () => {
         threadId: "thread-1",
         runId: "run-1",
         messageId: "message-1",
+        assistantMessageId: "assistant-1",
         message: "hi",
         attachments: [],
         startedAt: "2026-07-29T12:31:39.718Z",
@@ -132,7 +133,7 @@ describe("recordThreadRun", () => {
     });
 
     expect(recorded).toBe(true);
-    expect(savedSnapshot?.threadMessages).toHaveLength(1);
+    expect(savedSnapshot?.threadMessages).toHaveLength(2);
     expect(savedSnapshot?.threadMessages?.[0]?.createdAt).toBe("2026-07-29T12:31:39.700Z");
     expect(savedSnapshot?.threadRuns?.[0]?.startedAt).toBe("2026-07-29T12:31:39.718Z");
   });
@@ -146,6 +147,7 @@ describe("recordThreadRun", () => {
         threadId: "thread-1",
         runId: "run-1",
         messageId: "message-1",
+        assistantMessageId: "assistant-1",
         message: "hi",
         attachments: [],
         startedAt: "2026-07-29T12:31:39.718Z",
@@ -186,6 +188,7 @@ describe("prepareThreadDraftPromotion", () => {
         draftId: "draft-1",
         runId: "run-1",
         messageId: "message-1",
+        assistantMessageId: "assistant-1",
         message: "first turn",
         attachments: [],
         startedAt: "2026-07-29T12:31:39.718Z",
@@ -576,6 +579,7 @@ describe("multi-window synchronization", () => {
       title: "Race",
       runId,
       messageId,
+      assistantMessageId: `assistant-${runId}`,
       message: "race message",
       attachments: [],
       startedAt: "2026-07-30T08:00:00.000Z",
@@ -600,7 +604,7 @@ describe("multi-window synchronization", () => {
       expect(context.threads.filter((thread) => thread.id === draft!.threadId)).toHaveLength(1);
       expect(
         context.threadMessages.filter((message) => message.threadId === draft!.threadId),
-      ).toHaveLength(1);
+      ).toHaveLength(2);
       expect(context.threadRuns.filter((run) => run.threadId === draft!.threadId)).toHaveLength(1);
       expect(context.threadDrafts).toEqual([]);
     }

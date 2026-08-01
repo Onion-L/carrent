@@ -1,5 +1,6 @@
 import {
   CHAT_QUESTION_OTHER_OPTION_ID,
+  type ChatQuestionAnswer,
   type ChatQuestionRequest,
 } from "../../shared/chatQuestions";
 
@@ -21,6 +22,20 @@ const stateByQuestionId = new Map<string, QuestionDraftState>();
 
 export function createQuestionDrafts(question: ChatQuestionRequest): QuestionDraft[] {
   return question.questions.map(() => ({ optionIds: [], otherText: "" }));
+}
+
+export function getQuestionDraftsFromAnswers(
+  question: ChatQuestionRequest,
+  answers: ChatQuestionAnswer[],
+): QuestionDraft[] {
+  const answersByIndex = new Map(answers.map((answer) => [answer.questionIndex, answer]));
+  return question.questions.map((_, questionIndex) => {
+    const answer = answersByIndex.get(questionIndex);
+    return {
+      optionIds: answer ? [...answer.optionIds] : [],
+      otherText: answer?.customText ?? "",
+    };
+  });
 }
 
 function copyState(state: QuestionDraftState): QuestionDraftState {

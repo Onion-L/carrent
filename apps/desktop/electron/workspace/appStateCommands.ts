@@ -603,6 +603,24 @@ function validatedUserMessageRecord(
   return value as unknown as AppThreadMessageRecord;
 }
 
+function validatedAssistantMessageRecord(
+  value: Record<string, unknown>,
+  threadId: string,
+): AppThreadMessageRecord | null {
+  if (
+    !isNonEmptyTrimmedString(value.id) ||
+    value.threadId !== threadId ||
+    value.role !== "assistant" ||
+    typeof value.content !== "string" ||
+    typeof value.createdAt !== "string" ||
+    !Array.isArray(value.attachments) ||
+    value.runStatus !== "running"
+  ) {
+    return null;
+  }
+  return value as unknown as AppThreadMessageRecord;
+}
+
 function validatedRunRecord(
   value: Record<string, unknown>,
   threadId: string,
@@ -614,6 +632,8 @@ function validatedRunRecord(
     (snapshot.threadRuns ?? []).some((run) => run.id === value.id) ||
     value.threadId !== threadId ||
     value.messageId !== messageId ||
+    (value.assistantMessageId !== undefined &&
+      !isNonEmptyTrimmedString(value.assistantMessageId)) ||
     typeof value.startedAt !== "string" ||
     !isValidRuntimeSelection(value.runtimeId, value.runtimeMode, value.planMode) ||
     !isValidModelId(value.runtimeModelId)
@@ -624,6 +644,9 @@ function validatedRunRecord(
     id: value.id,
     threadId,
     messageId,
+    ...(isNonEmptyTrimmedString(value.assistantMessageId)
+      ? { assistantMessageId: value.assistantMessageId }
+      : {}),
     startedAt: value.startedAt,
     runtimeId: value.runtimeId as RuntimeId,
     ...(isNonEmptyTrimmedString(value.runtimeModelId)
@@ -770,6 +793,7 @@ const promoteThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
     typeof payload.threadId !== "string" ||
     !isRecord(payload.thread) ||
     !isRecord(payload.message) ||
+    !isRecord(payload.assistantMessage) ||
     !isRecord(payload.run)
   ) {
     return null;
@@ -804,7 +828,19 @@ const promoteThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
   if (!message || (snapshot.threadMessages ?? []).some((item) => item.id === message.id)) {
     return null;
   }
+  const assistantMessage = validatedAssistantMessageRecord(
+    payload.assistantMessage,
+    draft.threadId,
+  );
+  if (
+    !assistantMessage ||
+    assistantMessage.id === message.id ||
+    (snapshot.threadMessages ?? []).some((item) => item.id === assistantMessage.id)
+  ) {
+    return null;
+  }
   const run = validatedRunRecord(payload.run, draft.threadId, message.id, snapshot);
+  if (run?.assistantMessageId !== assistantMessage.id) return null;
   if (!run) return null;
 
   const thread: AppThreadRecord = {
@@ -827,7 +863,7 @@ const promoteThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
       ...snapshot,
       threads: [...(snapshot.threads ?? []), thread],
       threadDrafts: (snapshot.threadDrafts ?? []).filter((item) => item.id !== draft.id),
-      threadMessages: [...(snapshot.threadMessages ?? []), message],
+      threadMessages: [...(snapshot.threadMessages ?? []), message, assistantMessage],
       threadRuns: [...(snapshot.threadRuns ?? []), run],
       threadPromotionIntents: (snapshot.threadPromotionIntents ?? []).filter(
         (intent) => intent.draftId !== draft.id,
@@ -889,6 +925,7 @@ const recordThreadRun: AppStateCommandReducer = (snapshot, payload) => {
     !isRecord(payload) ||
     typeof payload.threadId !== "string" ||
     !isRecord(payload.message) ||
+    !isRecord(payload.assistantMessage) ||
     !isRecord(payload.run)
   ) {
     return null;
@@ -898,17 +935,28 @@ const recordThreadRun: AppStateCommandReducer = (snapshot, payload) => {
   );
   if (!thread) return null;
   const message = validatedUserMessageRecord(payload.message, thread.id);
+  const assistantMessage = validatedAssistantMessageRecord(payload.assistantMessage, thread.id);
   const run = validatedRunRecord(payload.run, thread.id, payload.message.id as string, snapshot);
-  if (!message || !run) return null;
+  if (
+    !message ||
+    !assistantMessage ||
+    assistantMessage.id === message.id ||
+    !run ||
+    run.assistantMessageId !== assistantMessage.id
+  ) {
+    return null;
+  }
 
   return {
     ...snapshot,
     threads: (snapshot.threads ?? []).map((item) =>
       item.id === thread.id ? { ...item, lastActivityAt: run.startedAt } : item,
     ),
-    threadMessages: (snapshot.threadMessages ?? []).some((item) => item.id === message.id)
-      ? snapshot.threadMessages
-      : [...(snapshot.threadMessages ?? []), message],
+    threadMessages: [message, assistantMessage].reduce(
+      (messages, item) =>
+        messages.some((existing) => existing.id === item.id) ? messages : [...messages, item],
+      snapshot.threadMessages ?? [],
+    ),
     threadRuns: [...(snapshot.threadRuns ?? []), run],
   };
 };
@@ -919,14 +967,15 @@ const rollbackThreadRun: AppStateCommandReducer = (snapshot, payload) => {
     !isRecord(payload) ||
     typeof payload.threadId !== "string" ||
     typeof payload.runId !== "string" ||
-    typeof payload.messageId !== "string"
+    typeof payload.messageId !== "string" ||
+    typeof payload.assistantMessageId !== "string"
   ) {
     return null;
   }
   const thread = (snapshot.threads ?? []).find((item) => item.id === payload.threadId);
   if (!thread) return null;
   const remainingMessages = (snapshot.threadMessages ?? []).filter(
-    (message) => message.id !== payload.messageId,
+    (message) => message.id !== payload.messageId && message.id !== payload.assistantMessageId,
   );
 
   return {

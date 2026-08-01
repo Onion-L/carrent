@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import type { ChatQuestionRequest } from "../../shared/chatQuestions";
 import {
   buildQuestionAnswerRecords,
+  getQuestionDraftsFromAnswers,
   clearQuestionDraftState,
   createQuestionDrafts,
   getQuestionDraftState,
@@ -146,6 +147,20 @@ describe("buildQuestionAnswerRecords", () => {
     ).toEqual([
       { questionIndex: 0, labels: [] },
       { questionIndex: 1, labels: [] },
+    ]);
+  });
+});
+
+describe("getQuestionDraftsFromAnswers", () => {
+  it("restores indexed selections and Other text from an authoritative response", () => {
+    expect(
+      getQuestionDraftsFromAnswers(makeQuestion(), [
+        { questionIndex: 1, optionIds: ["other"], customText: "Rust" },
+        { questionIndex: 0, optionIds: ["opt-a"] },
+      ]),
+    ).toEqual([
+      { optionIds: ["opt-a"], otherText: "" },
+      { optionIds: ["other"], otherText: "Rust" },
     ]);
   });
 });

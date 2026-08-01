@@ -71,6 +71,7 @@ type DeletionNavigationIntent = {
 };
 
 type PromoteDraftInput = AppThreadRunStartInput & {
+  assistantMessageId: string;
   draftId: string;
   title: string;
   draft: ThreadWorkDraftSnapshot;
@@ -188,8 +189,15 @@ type AppStateContextValue = {
       threadWork: Record<string, ThreadWorkSnapshot>;
     },
   ) => void;
-  recordThreadRun: (input: AppThreadRunStartInput & { threadId: string }) => Promise<boolean>;
-  rollbackThreadRun: (threadId: string, runId: string, messageId: string) => Promise<boolean>;
+  recordThreadRun: (
+    input: AppThreadRunStartInput & { threadId: string; assistantMessageId: string },
+  ) => Promise<boolean>;
+  rollbackThreadRun: (
+    threadId: string,
+    runId: string,
+    messageId: string,
+    assistantMessageId: string,
+  ) => Promise<boolean>;
   recordThreadAction: (action: AppThreadActionRecord) => Promise<boolean>;
   archiveThread: (threadId: string) => Promise<boolean>;
   restoreThread: (threadId: string) => Promise<boolean>;
@@ -1098,10 +1106,21 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         createdAt: input.messageCreatedAt ?? input.startedAt,
         attachments: input.attachments,
       };
+      const assistantMessage: AppThreadMessageRecord = {
+        id: input.assistantMessageId,
+        threadId: draft.threadId,
+        role: "assistant",
+        content: "",
+        createdAt: input.startedAt,
+        attachments: [],
+        runStatus: "running",
+        runEventCount: 0,
+      };
       const run: AppThreadRunRecord = {
         id: input.runId,
         threadId: draft.threadId,
         messageId: input.messageId,
+        assistantMessageId: input.assistantMessageId,
         startedAt: input.startedAt,
         runtimeId: input.runtimeId,
         ...(input.runtimeModelId ? { runtimeModelId: input.runtimeModelId } : {}),
@@ -1114,6 +1133,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         threadId: draft.threadId,
         thread,
         message,
+        assistantMessage,
         run,
       });
       if (result.status !== "accepted") return null;
@@ -1150,7 +1170,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   );
 
   const recordThreadRun = useCallback(
-    async (input: AppThreadRunStartInput & { threadId: string }) => {
+    async (input: AppThreadRunStartInput & { threadId: string; assistantMessageId: string }) => {
       const current = snapshotRef.current;
       if (
         mutatingThreadIdsRef.current.has(input.threadId) ||
@@ -1169,10 +1189,21 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         createdAt: input.messageCreatedAt ?? input.startedAt,
         attachments: input.attachments,
       };
+      const assistantMessage: AppThreadMessageRecord = {
+        id: input.assistantMessageId,
+        threadId: input.threadId,
+        role: "assistant",
+        content: "",
+        createdAt: input.startedAt,
+        attachments: [],
+        runStatus: "running",
+        runEventCount: 0,
+      };
       const run: AppThreadRunRecord = {
         id: input.runId,
         threadId: input.threadId,
         messageId: input.messageId,
+        assistantMessageId: input.assistantMessageId,
         startedAt: input.startedAt,
         runtimeId: input.runtimeId,
         ...(input.runtimeModelId ? { runtimeModelId: input.runtimeModelId } : {}),
@@ -1183,6 +1214,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         return await submitCommand("thread:record-run", {
           threadId: input.threadId,
           message,
+          assistantMessage,
           run,
         });
       } finally {
@@ -1193,8 +1225,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   );
 
   const rollbackThreadRun = useCallback(
-    async (threadId: string, runId: string, messageId: string) => {
-      return submitCommand("thread:rollback-run", { threadId, runId, messageId });
+    async (threadId: string, runId: string, messageId: string, assistantMessageId: string) => {
+      return submitCommand("thread:rollback-run", {
+        threadId,
+        runId,
+        messageId,
+        assistantMessageId,
+      });
     },
     [submitCommand],
   );

@@ -1,11 +1,329 @@
 import { describe, expect, it } from "bun:test";
 
-import type { ChatRunEvent } from "../../shared/chat";
+import type { ChatRunAuthorityState, ChatRunEvent } from "../../shared/chat";
 import type { ChatPermissionRequest } from "../../shared/chatPermissions";
 import type { ChatQuestionRequest } from "../../shared/chatQuestions";
 import { createChatRunCoordinator } from "./useChatRun";
 
 describe("createChatRunCoordinator", () => {
+  function makePermissionEvent(): ChatPermissionRequest {
+    return {
+      id: "permission-1",
+      runId: "run-1",
+      requestKey: "request-1",
+      threadId: "thread-1",
+      provider: "kimi",
+      action: "shell",
+      title: "Run command",
+      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+      createdAt: "2026-08-01T00:00:00.000Z",
+      expiresAt: "2026-08-01T00:01:00.000Z",
+    };
+  }
+
+  it("keeps two Renderer clients synchronized from shared Run snapshots", () => {
+    const first = createChatRunCoordinator();
+    const second = createChatRunCoordinator();
+    const receivedA: string[] = [];
+    const receivedB: string[] = [];
+    const callbacks = (received: string[]) => ({
+      onDelta: (text: string) => received.push(`delta:${text}`),
+      onReasoning: (reasoning: { content: string }) =>
+        received.push(`reasoning:${reasoning.content}`),
+      onShell: (shell: { command: string }) => received.push(`shell:${shell.command}`),
+      onSubagentTask: (task: { description: string }) => received.push(`task:${task.description}`),
+      onChecklist: (checklist: { entries: Array<{ content: string }> }) =>
+        received.push(`checklist:${checklist.entries[0]?.content}`),
+      onPermissionRequested: (permission: { id: string }) =>
+        received.push(`approval:${permission.id}`),
+      onQuestionRequested: (question: { id: string }) => received.push(`question:${question.id}`),
+      onComplete: (text: string) => received.push(`complete:${text}`),
+    });
+    first.beginRequest("request-1", "thread-1", callbacks(receivedA));
+    second.observeThread("thread-1", callbacks(receivedB));
+    const events: ChatRunEvent[] = [
+      { type: "started", runId: "run-1", requestKey: "request-1", threadId: "thread-1" },
+      { type: "delta", runId: "run-1", requestKey: "request-1", text: "hello" },
+      {
+        type: "reasoning",
+        runId: "run-1",
+        requestKey: "request-1",
+        reasoning: { id: "reasoning-1", content: "Inspect", status: "running" },
+      },
+      {
+        type: "shell",
+        runId: "run-1",
+        requestKey: "request-1",
+        shell: { id: "shell-1", command: "bun test", output: "", status: "running" },
+      },
+      {
+        type: "subagent-task",
+        runId: "run-1",
+        requestKey: "request-1",
+        task: {
+          id: "task-1",
+          runtimeId: "kimi",
+          source: "agent",
+          description: "Review",
+          background: false,
+          status: "running",
+          startedAt: 1,
+        },
+      },
+      {
+        type: "checklist",
+        runId: "run-1",
+        requestKey: "request-1",
+        threadId: "thread-1",
+        runtimeId: "kimi",
+        checklist: { entries: [{ content: "Implement", status: "in_progress" }] },
+      },
+      {
+        type: "permission-requested",
+        runId: "run-1",
+        requestKey: "request-1",
+        permission: makePermissionEvent(),
+      },
+      {
+        type: "question-requested",
+        runId: "run-1",
+        requestKey: "request-1",
+        question: makeQuestionEvent(),
+      },
+    ];
+    const state: ChatRunAuthorityState = {
+      revision: 1,
+      runs: [
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          requestKey: "request-1",
+          status: "waiting-for-approval",
+          stopRequested: false,
+          events,
+          pendingPermissions: [makePermissionEvent()],
+          pendingQuestions: [makeQuestionEvent()],
+        },
+      ],
+    };
+
+    first.applyAuthorityState(state);
+    second.applyAuthorityState(state);
+
+    expect(first.getSnapshot()).toEqual(second.getSnapshot());
+    expect(first.getSnapshot().runningThreadIds).toEqual(["thread-1"]);
+    expect(first.getSnapshot().pendingPermissions).toHaveLength(1);
+    expect(first.getSnapshot().pendingQuestions).toHaveLength(1);
+    expect(receivedA).toEqual(receivedB);
+    expect(receivedB).toEqual([
+      "delta:hello",
+      "reasoning:Inspect",
+      "shell:bun test",
+      "task:Review",
+      "checklist:Implement",
+      "approval:permission-1",
+      "question:kimi-question-run-1-7",
+    ]);
+
+    const completed: ChatRunAuthorityState = {
+      revision: 2,
+      runs: [
+        {
+          ...state.runs[0]!,
+          status: "completed",
+          pendingPermissions: [],
+          pendingQuestions: [],
+          events: [
+            ...events,
+            {
+              type: "completed",
+              runId: "run-1",
+              requestKey: "request-1",
+              text: "done",
+              finishedAt: "2026-08-01T00:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    };
+    first.applyAuthorityState(completed);
+    second.applyAuthorityState(completed);
+
+    expect(receivedA.at(-1)).toBe("complete:done");
+    expect(receivedB.at(-1)).toBe("complete:done");
+    expect(second.getSnapshot().runningThreadIds).toEqual([]);
+  });
+
+  it("resumes an observer after its persisted event count", () => {
+    const coordinator = createChatRunCoordinator();
+    const received: string[] = [];
+    const appliedCounts: number[] = [];
+    const callbackOrder: string[] = [];
+    coordinator.applyAuthorityState({
+      revision: 1,
+      runs: [
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          requestKey: "request-1",
+          status: "running",
+          stopRequested: false,
+          pendingPermissions: [],
+          pendingQuestions: [],
+          events: [
+            { type: "started", runId: "run-1", threadId: "thread-1" },
+            { type: "delta", runId: "run-1", text: "already persisted" },
+            { type: "delta", runId: "run-1", text: " new" },
+          ],
+        },
+      ],
+    });
+
+    coordinator.observeThread(
+      "thread-1",
+      {
+        onDelta: (text) => {
+          received.push(text);
+          callbackOrder.push("delta");
+        },
+        onEventApplied: (count) => {
+          appliedCounts.push(count);
+          callbackOrder.push("progress");
+        },
+      },
+      2,
+    );
+
+    expect(received).toEqual([" new"]);
+    expect(appliedCounts).toEqual([3]);
+    expect(callbackOrder).toEqual(["delta", "progress"]);
+  });
+
+  it("replays a terminal event that arrived while no observer was subscribed", () => {
+    const coordinator = createChatRunCoordinator();
+    const received: string[] = [];
+    const appliedCounts: number[] = [];
+    coordinator.applyAuthorityState({
+      revision: 1,
+      runs: [
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          requestKey: "request-1",
+          status: "completed",
+          stopRequested: false,
+          pendingPermissions: [],
+          pendingQuestions: [],
+          events: [
+            { type: "started", runId: "run-1", threadId: "thread-1" },
+            { type: "delta", runId: "run-1", text: "partial" },
+            {
+              type: "completed",
+              runId: "run-1",
+              text: "partial result",
+              finishedAt: "2026-08-01T00:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    });
+
+    coordinator.observeThread(
+      "thread-1",
+      {
+        onComplete: (text) => received.push(text),
+        onEventApplied: (count) => appliedCounts.push(count),
+      },
+      2,
+    );
+
+    expect(received).toEqual(["partial result"]);
+    expect(appliedCounts).toEqual([3]);
+  });
+
+  it("resolves a persisted question after an observer reconnects", () => {
+    const coordinator = createChatRunCoordinator();
+    const question = makeQuestionEvent();
+    const outcomes: string[] = [];
+    coordinator.applyAuthorityState({
+      revision: 1,
+      runs: [
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          requestKey: "request-1",
+          status: "running",
+          stopRequested: false,
+          pendingPermissions: [],
+          pendingQuestions: [],
+          events: [
+            { type: "started", runId: "run-1", threadId: "thread-1" },
+            { type: "question-requested", runId: "run-1", question },
+            {
+              type: "question-resolved",
+              runId: "run-1",
+              questionId: question.id,
+              outcome: "answered",
+              answers: [{ questionIndex: 0, optionIds: ["opt_ts"] }],
+            },
+          ],
+        },
+      ],
+    });
+
+    coordinator.observeThread(
+      "thread-1",
+      {
+        onQuestionRequested: () => outcomes.push("requested-again"),
+        onQuestionResolved: ({ question: resolvedQuestion, outcome, answers }) =>
+          outcomes.push(`${resolvedQuestion.id}:${outcome}:${answers?.[0]?.optionIds.join(",")}`),
+      },
+      2,
+    );
+
+    expect(outcomes).toEqual([`${question.id}:answered:opt_ts`]);
+  });
+
+  it("interrupts a persisted question when a reloaded observer receives completion", () => {
+    const coordinator = createChatRunCoordinator();
+    const question = makeQuestionEvent();
+    const interrupted: string[] = [];
+    coordinator.applyAuthorityState({
+      revision: 1,
+      runs: [
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          status: "completed",
+          stopRequested: false,
+          pendingPermissions: [],
+          pendingQuestions: [],
+          events: [
+            { type: "started", runId: "run-1", threadId: "thread-1" },
+            { type: "question-requested", runId: "run-1", question },
+            {
+              type: "completed",
+              runId: "run-1",
+              text: "done",
+              finishedAt: "2026-08-01T00:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    });
+
+    coordinator.observeThread(
+      "thread-1",
+      {
+        onQuestionsInterrupted: (questions) =>
+          interrupted.push(...questions.map((item) => item.id)),
+      },
+      2,
+    );
+
+    expect(interrupted).toEqual([question.id]);
+  });
+
   it("delivers events that arrive before chat.send resolves", () => {
     const received: string[] = [];
     const coordinator = createChatRunCoordinator();

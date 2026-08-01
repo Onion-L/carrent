@@ -1,6 +1,41 @@
 import { describe, expect, it } from "bun:test";
 import type { ChatTurnRequest } from "../../src/shared/chat";
-import { registerChatIpc } from "./chatIpc";
+import { registerChatIpc as registerProductionChatIpc } from "./chatIpc";
+import { createChatRunAuthority } from "./chatRunAuthority";
+
+function registerChatIpc(
+  ipcMainLike: Parameters<typeof registerProductionChatIpc>[0],
+  services: Omit<Parameters<typeof registerProductionChatIpc>[1], "runAuthority"> & {
+    runAuthority?: Parameters<typeof registerProductionChatIpc>[1]["runAuthority"];
+  },
+) {
+  const state = { revision: 0, runs: [] };
+  const runAuthority =
+    services.runAuthority ??
+    ({
+      getState: () => state,
+      subscribe: () => state,
+      unsubscribe: () => {},
+      send: (request: ChatTurnRequest) => {
+        services.sessionManager.start(request.runId!, request);
+        return { accepted: true, runId: request.runId, state };
+      },
+      stop: (runId: string) => {
+        services.sessionManager.stop(runId);
+        return { accepted: true, runId, state };
+      },
+      respondToPermission: (response) => {
+        services.sessionManager.respondToPermission(response);
+        return { accepted: true, runId: response.runId, state };
+      },
+      respondToQuestion: (response) => {
+        services.sessionManager.respondToQuestion(response);
+        return { accepted: true, runId: response.runId, state };
+      },
+      handleEvent: () => {},
+    } satisfies Parameters<typeof registerProductionChatIpc>[1]["runAuthority"]);
+  registerProductionChatIpc(ipcMainLike, { ...services, runAuthority });
+}
 
 function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
@@ -21,6 +56,57 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
 }
 
 describe("registerChatIpc", () => {
+  it("routes shared Run subscriptions and commands through the Main authority", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const starts: string[] = [];
+    const stops: string[] = [];
+    const sessionManager = {
+      start: (runId: string) => starts.push(runId),
+      stop: (runId: string) => stops.push(runId),
+      removeRuntimeSession: async () => {},
+      deleteThreadData: async () => {},
+      respondToPermission: () => {},
+      respondToQuestion: () => {},
+      shutdown: async () => {},
+      getStatus: async () => null,
+    };
+    const runAuthority = createChatRunAuthority({
+      start: sessionManager.start,
+      stop: sessionManager.stop,
+      respondToPermission: sessionManager.respondToPermission,
+      respondToQuestion: sessionManager.respondToQuestion,
+      publish: () => {},
+    });
+    registerChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      { sessionManager, runAuthority },
+    );
+
+    expect(await handlers.get("chat:subscribe")?.({ sender: { id: 7 } })).toEqual({
+      revision: 0,
+      runs: [],
+    });
+    const first = await handlers.get("chat:send")?.(
+      { sender: { id: 7 } },
+      makeRequest({ runId: "run-1", requestKey: "request-1" }),
+    );
+    const raced = await handlers.get("chat:send")?.(
+      { sender: { id: 8 } },
+      makeRequest({ runId: "run-2", requestKey: "request-2" }),
+    );
+    const stopped = await handlers.get("chat:stop")?.({ sender: { id: 8 } }, "run-1");
+    const staleStop = await handlers.get("chat:stop")?.({ sender: { id: 7 } }, "run-1");
+
+    expect(first).toMatchObject({ accepted: true, runId: "run-1" });
+    expect(raced).toMatchObject({ accepted: false, runId: "run-1" });
+    expect(stopped).toMatchObject({ accepted: true, runId: "run-1" });
+    expect(staleStop).toMatchObject({ accepted: false, runId: "run-1" });
+    expect(starts).toEqual(["run-1"]);
+    expect(stops).toEqual(["run-1"]);
+
+    await handlers.get("chat:unsubscribe")?.({ sender: { id: 7 } });
+  });
+
   it("registers chat:send and chat:stop channels", () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
 
@@ -54,7 +140,9 @@ describe("registerChatIpc", () => {
       "chat:send",
       "chat:session-status",
       "chat:stop",
+      "chat:subscribe",
       "chat:thread-action",
+      "chat:unsubscribe",
     ]);
   });
 
@@ -377,7 +465,7 @@ describe("registerChatIpc", () => {
 
     const result = await handlers.get("chat:send")?.({}, request);
 
-    expect(result).toEqual({ runId: "run-draft-1" });
+    expect(result).toMatchObject({ accepted: true, runId: "run-draft-1" });
     expect(started).toEqual([{ runId: "run-draft-1", request }]);
   });
 

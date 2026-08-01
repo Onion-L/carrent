@@ -1,7 +1,7 @@
 import { DEFAULT_RUNTIME_ID, type RuntimeId } from "./runtimes";
 import type { RuntimeMode } from "./runtimeMode";
 import type { ChatPermissionOptionKind, ChatPermissionRequest } from "./chatPermissions";
-import type { ChatQuestionRequest } from "./chatQuestions";
+import type { ChatQuestionAnswer, ChatQuestionRequest } from "./chatQuestions";
 import type { RunChecklistSnapshot } from "./runChecklist";
 import type { AppStateSnapshot } from "./workspacePersistence";
 
@@ -310,9 +310,45 @@ export type ChatRunEvent =
       outcome: "answered" | "skipped";
       optionId?: string;
       optionLabel?: string;
+      answers?: ChatQuestionAnswer[];
     })
   | (ChatRunEventBase & {
       type: "question-failed";
       questionId: string;
       error: string;
     });
+
+export type SharedChatRunStatus =
+  | "starting"
+  | "running"
+  | "waiting-for-approval"
+  | "waiting-for-answer"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export function isTerminalSharedChatRunStatus(status: SharedChatRunStatus) {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+export type SharedChatRun = {
+  runId: string;
+  threadId: string;
+  requestKey?: string;
+  status: SharedChatRunStatus;
+  stopRequested: boolean;
+  events: ChatRunEvent[];
+  pendingPermissions: ChatPermissionRequest[];
+  pendingQuestions: ChatQuestionRequest[];
+};
+
+export type ChatRunAuthorityState = {
+  revision: number;
+  runs: SharedChatRun[];
+};
+
+export type ChatRunCommandResult = {
+  accepted: boolean;
+  runId?: string;
+  state: ChatRunAuthorityState;
+};

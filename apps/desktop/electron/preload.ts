@@ -6,6 +6,8 @@ import type {
   ThreadDeletionTransactionRequest,
   AttachmentMetadata,
   AttachmentIntegrityMetadata,
+  ChatRunAuthorityState,
+  ChatRunCommandResult,
 } from "../src/shared/chat";
 import type { ChatPermissionResponse } from "../src/shared/chatPermissions";
 import type { ChatQuestionResponse } from "../src/shared/chatQuestions";
@@ -83,8 +85,9 @@ const carrent = {
   },
   chat: {
     send: (request: ChatTurnRequest) =>
-      ipcRenderer.invoke("chat:send", request) as Promise<{ runId: string }>,
-    stop: (runId: string) => ipcRenderer.invoke("chat:stop", runId) as Promise<void>,
+      ipcRenderer.invoke("chat:send", request) as Promise<ChatRunCommandResult>,
+    stop: (runId: string) =>
+      ipcRenderer.invoke("chat:stop", runId) as Promise<ChatRunCommandResult>,
     executeThreadAction: (request: ThreadActionRequest) =>
       ipcRenderer.invoke("chat:thread-action", request) as Promise<ThreadActionResult>,
     removeRuntimeSession: (request: import("../src/shared/chat").RuntimeSessionRecovery) =>
@@ -94,9 +97,9 @@ const carrent = {
     deleteThreadTransaction: (request: ThreadDeletionTransactionRequest) =>
       ipcRenderer.invoke("chat:delete-thread-transaction", request) as Promise<void>,
     respondToPermission: (response: ChatPermissionResponse) =>
-      ipcRenderer.invoke("chat:permission-response", response) as Promise<void>,
+      ipcRenderer.invoke("chat:permission-response", response) as Promise<ChatRunCommandResult>,
     respondToQuestion: (response: ChatQuestionResponse) =>
-      ipcRenderer.invoke("chat:question-response", response) as Promise<void>,
+      ipcRenderer.invoke("chat:question-response", response) as Promise<ChatRunCommandResult>,
     getKimiStatus: (request: ChatTurnRequest) =>
       ipcRenderer.invoke("chat:kimi-status", request) as Promise<
         import("../src/shared/chat").KimiSessionStatus | null
@@ -109,6 +112,13 @@ const carrent = {
       const wrapped = (_event: IpcRendererEvent, evt: ChatRunEvent) => listener(evt);
       ipcRenderer.on("chat:event", wrapped);
       return () => ipcRenderer.removeListener("chat:event", wrapped);
+    },
+    subscribe: () => ipcRenderer.invoke("chat:subscribe") as Promise<ChatRunAuthorityState>,
+    unsubscribe: () => ipcRenderer.invoke("chat:unsubscribe") as Promise<void>,
+    onChanged: (listener: (state: ChatRunAuthorityState) => void) => {
+      const wrapped = (_event: IpcRendererEvent, state: ChatRunAuthorityState) => listener(state);
+      ipcRenderer.on("chat:changed", wrapped);
+      return () => ipcRenderer.removeListener("chat:changed", wrapped);
     },
   },
   attachments: {

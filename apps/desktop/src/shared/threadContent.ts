@@ -25,6 +25,7 @@ type MessageBase<T extends MessageTimestampFields = UiMessageTimestampFields> = 
   duration?: string;
   runStatus?: "running" | "completed" | "failed" | "cancelled";
   runFinishedAt?: number;
+  runEventCount?: number;
   threadId: string;
 } & T;
 

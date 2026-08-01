@@ -137,6 +137,7 @@ export type ThreadContentContextValue = {
   updateMessage: (id: string, content: string) => void;
   updateMessageAndPruneAfter: (id: string, content: string) => void;
   updateMessageRunStatus: (id: string, status: MessageRunStatus) => void;
+  updateMessageRunEventCount: (id: string, count: number) => void;
   updateMessageParts: (id: string, update: MessagePartUpdate) => void;
   updateRunChecklist: (threadId: string, update: RunChecklistUpdate) => void;
 };
@@ -221,6 +222,7 @@ const ThreadContentContext = createContext<ThreadContentContextValue>({
   updateMessage: () => {},
   updateMessageAndPruneAfter: () => {},
   updateMessageRunStatus: () => {},
+  updateMessageRunEventCount: () => {},
   updateMessageParts: () => {},
   updateRunChecklist: () => {},
 });
@@ -893,6 +895,17 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
     }));
   };
 
+  const updateMessageRunEventCount = (id: string, count: number) => {
+    updateThreadContent((content) => ({
+      ...content,
+      threadMessages: content.threadMessages.map((message) =>
+        message.id === id && message.type !== "changed_files"
+          ? { ...message, runEventCount: count }
+          : message,
+      ),
+    }));
+  };
+
   const updateMessageParts = (id: string, update: MessagePartUpdate) => {
     updateThreadContent((content) => ({
       ...content,
@@ -937,6 +950,7 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
         updateMessage,
         updateMessageAndPruneAfter,
         updateMessageRunStatus,
+        updateMessageRunEventCount,
         updateMessageParts,
         updateRunChecklist,
       }}

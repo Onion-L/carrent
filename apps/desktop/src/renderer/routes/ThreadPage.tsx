@@ -220,7 +220,12 @@ function ThreadPageContent() {
       onRunRejected={
         appThread
           ? async (input) => {
-              await rollbackThreadRun(appThread.id, input.runId, input.messageId);
+              await rollbackThreadRun(
+                appThread.id,
+                input.runId,
+                input.messageId,
+                input.assistantMessageId,
+              );
             }
           : undefined
       }

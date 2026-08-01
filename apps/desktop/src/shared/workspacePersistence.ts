@@ -113,6 +113,7 @@ export type AppThreadRunRecord = {
   id: string;
   threadId: string;
   messageId: string;
+  assistantMessageId?: string;
   startedAt: string;
   runtimeId: RuntimeId;
   runtimeModelId?: string;
@@ -131,6 +132,7 @@ export type AppThreadActionRecord = {
 export type AppThreadRunStartInput = {
   runId: string;
   messageId: string;
+  assistantMessageId?: string;
   message: string;
   attachments: AttachmentMetadata[];
   startedAt: string;
@@ -668,7 +670,11 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       (message.role !== "user" && message.role !== "assistant") ||
       typeof message.content !== "string" ||
       !isIsoTimestamp(message.createdAt) ||
-      !Array.isArray(message.attachments)
+      !Array.isArray(message.attachments) ||
+      (message.runEventCount !== undefined &&
+        (typeof message.runEventCount !== "number" ||
+          !Number.isInteger(message.runEventCount) ||
+          message.runEventCount < 0))
     ) {
       return null;
     }
@@ -705,6 +711,10 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       !threadIds.has(run.threadId) ||
       typeof run.messageId !== "string" ||
       messageThreadIds.get(run.messageId) !== run.threadId ||
+      (run.assistantMessageId !== undefined &&
+        (typeof run.assistantMessageId !== "string" ||
+          run.assistantMessageId === run.messageId ||
+          messageThreadIds.get(run.assistantMessageId) !== run.threadId)) ||
       !isIsoTimestamp(run.startedAt) ||
       !runtimeIds.includes(run.runtimeId as RuntimeId) ||
       !isRuntimeMode(run.runtimeMode) ||
@@ -720,6 +730,9 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       id: run.id,
       threadId: run.threadId,
       messageId: run.messageId,
+      ...(typeof run.assistantMessageId === "string"
+        ? { assistantMessageId: run.assistantMessageId }
+        : {}),
       startedAt: run.startedAt,
       runtimeId: run.runtimeId as RuntimeId,
       ...(runtimeModelId ? { runtimeModelId } : {}),

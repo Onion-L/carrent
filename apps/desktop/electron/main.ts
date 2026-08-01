@@ -7,6 +7,7 @@ import { ensureCliPaths } from "./runtime/processPath";
 import { registerRuntimeIpc } from "./runtime/runtimeIpc";
 import { registerChatIpc } from "./chat/chatIpc";
 import { createChatSessionManager, type ChatSessionManager } from "./chat/chatSessionManager";
+import { createChatRunAuthority, type ChatRunAuthority } from "./chat/chatRunAuthority";
 import {
   createThreadDeletionJournalStore,
   createThreadDeletionTransactionManager,
@@ -90,6 +91,7 @@ function isExecutableFile(path: string) {
 let mainWindow: BrowserWindow | null = null;
 let appStateStore: AppStateStore | null = null;
 let chatSessionManager: ChatSessionManager | null = null;
+let chatRunAuthority: ChatRunAuthority | null = null;
 let waitForThreadDeletion: (() => Promise<void>) | null = null;
 let appStateFlush: ReturnType<typeof createAppStateFlush> | null = null;
 let liveRunQuitWarning: ReturnType<typeof createLiveRunQuitWarning> | null = null;
@@ -102,9 +104,6 @@ const mainWindowLifecycle = createMainWindowLifecycle({
   onRendererLoading: () => {
     const ownerId = mainWindow?.webContents.id;
     if (ownerId != null) terminalSessionManager?.closeOwner(ownerId);
-    void chatSessionManager?.shutdown().catch((error) => {
-      console.error("[app] failed to stop Runs while reloading the Renderer", error);
-    });
   },
 });
 
@@ -359,10 +358,6 @@ if (!hasSingleInstanceLock) {
       await shell.openExternal(url.toString());
     });
 
-    const emitChatEvent = (event: unknown) => {
-      mainWindow?.webContents.send("chat:event", event);
-    };
-
     const providerSessionsSnapshot = await loadProviderSessionsForAppState(
       store,
       startupAppStateResult,
@@ -370,12 +365,24 @@ if (!hasSingleInstanceLock) {
 
     providerSessionStore = createPersistentProviderSessionStore(store, providerSessionsSnapshot);
     const sessionManager = createChatSessionManager({
-      emit: emitChatEvent as (event: { type: string }) => void,
+      emit: (event) => chatRunAuthority?.handleEvent(event),
       spawn,
       providerSessions: providerSessionStore,
       attachmentStore,
       carrentBridgeFactory: async () => {
         return bridgeManager.getRuntimeHandle();
+      },
+    });
+    chatRunAuthority = createChatRunAuthority({
+      start: sessionManager.start,
+      stop: sessionManager.stop,
+      respondToPermission: sessionManager.respondToPermission,
+      respondToQuestion: sessionManager.respondToQuestion,
+      publish: (subscriberId, state) => {
+        const contents = webContents.fromId(subscriberId);
+        if (contents && !contents.isDestroyed()) {
+          contents.send("chat:changed", state);
+        }
       },
     });
     if (!sessionManager.rollbackThreadDataDeletion) {
@@ -416,6 +423,7 @@ if (!hasSingleInstanceLock) {
     waitForThreadDeletion = threadDeletionManager.waitForIdle;
     registerChatIpc(guardedIpcMain, {
       sessionManager,
+      runAuthority: chatRunAuthority,
       isProjectDirectoryAvailable,
       threadDeletionManager,
     });

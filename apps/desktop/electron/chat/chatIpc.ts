@@ -23,6 +23,7 @@ import {
 import { runtimeIds, runtimeNameMap, type RuntimeId } from "../../src/shared/runtimes";
 import type { ChatSessionManager } from "./chatSessionManager";
 import type { ThreadActionRequest } from "../../src/shared/threadActions";
+import type { ChatRunAuthority } from "./chatRunAuthority";
 
 interface IpcMainLike {
   handle: (
@@ -33,10 +34,17 @@ interface IpcMainLike {
 
 export interface ChatIpcServices {
   sessionManager: ChatSessionManager;
+  runAuthority: ChatRunAuthority;
   isProjectDirectoryAvailable?: (workingDirectory: string) => Promise<boolean>;
   threadDeletionManager?: {
     deleteThread: (request: ThreadDeletionTransactionRequest) => Promise<void>;
   };
+}
+
+function senderIdOf(event: unknown): number {
+  const id = (event as { sender?: { id?: unknown } } | null)?.sender?.id;
+  if (typeof id !== "number") throw new Error("Unknown Run subscriber.");
+  return id;
 }
 
 const MAX_DELETE_THREAD_IDS = 10_000;
@@ -336,6 +344,11 @@ export function parseChatQuestionResponse(value: unknown): ChatQuestionResponse 
 }
 
 export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServices) {
+  ipcMainLike.handle("chat:subscribe", (event) => services.runAuthority.subscribe(senderIdOf(event)));
+  ipcMainLike.handle("chat:unsubscribe", (event) => {
+    services.runAuthority.unsubscribe(senderIdOf(event));
+  });
+
   ipcMainLike.handle("chat:send", async (_event, request) => {
     const req = request as ChatTurnRequest;
     const unavailableMessage = getV1UnavailableRuntimeMessage(req.runtimeId);
@@ -364,14 +377,12 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
     }
     const runId = req.runId ?? `run-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-    services.sessionManager.start(runId, sanitizedRequest);
-
-    return { runId };
+    const acceptedRequest = { ...sanitizedRequest, runId };
+    return services.runAuthority.send(acceptedRequest);
   });
 
   ipcMainLike.handle("chat:stop", async (_event, runId) => {
-    services.sessionManager.stop(runId as string);
-    return undefined;
+    return services.runAuthority.stop(runId as string);
   });
 
   ipcMainLike.handle("chat:thread-action", async (_event, request) => {
@@ -402,13 +413,13 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
   });
 
   ipcMainLike.handle("chat:permission-response", async (_event, response) => {
-    services.sessionManager.respondToPermission(parseChatPermissionResponse(response));
-    return undefined;
+    const parsed = parseChatPermissionResponse(response);
+    return services.runAuthority.respondToPermission(parsed);
   });
 
   ipcMainLike.handle("chat:question-response", async (_event, response) => {
-    services.sessionManager.respondToQuestion(parseChatQuestionResponse(response));
-    return undefined;
+    const parsed = parseChatQuestionResponse(response);
+    return services.runAuthority.respondToQuestion(parsed);
   });
 
   ipcMainLike.handle("chat:kimi-status", async (_event, request) => {

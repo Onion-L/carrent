@@ -14,6 +14,8 @@ import type {
   AttachmentMetadata,
   AttachmentIntegrityMetadata,
   KimiSessionStatus,
+  ChatRunAuthorityState,
+  ChatRunCommandResult,
 } from "../shared/chat";
 import type { ChatPermissionResponse } from "../shared/chatPermissions";
 import type { ChatQuestionResponse } from "../shared/chatQuestions";
@@ -65,19 +67,22 @@ declare global {
         getStatus: () => Promise<McpServerStatus>;
       };
       chat: {
-        send: (request: ChatTurnRequest) => Promise<{ runId: string }>;
-        stop: (runId: string) => Promise<void>;
+        send: (request: ChatTurnRequest) => Promise<ChatRunCommandResult>;
+        stop: (runId: string) => Promise<ChatRunCommandResult>;
         executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>;
         removeRuntimeSession: (
           request: import("../shared/chat").RuntimeSessionRecovery,
         ) => Promise<void>;
         deleteThreadData: (request: DeleteThreadDataRequest) => Promise<void>;
         deleteThreadTransaction?: (request: ThreadDeletionTransactionRequest) => Promise<void>;
-        respondToPermission: (response: ChatPermissionResponse) => Promise<void>;
-        respondToQuestion: (response: ChatQuestionResponse) => Promise<void>;
+        respondToPermission: (response: ChatPermissionResponse) => Promise<ChatRunCommandResult>;
+        respondToQuestion: (response: ChatQuestionResponse) => Promise<ChatRunCommandResult>;
         getKimiStatus: (request: ChatTurnRequest) => Promise<KimiSessionStatus | null>;
         getSessionStatus: (request: ChatTurnRequest) => Promise<KimiSessionStatus | null>;
         onEvent: (listener: (event: ChatRunEvent) => void) => VoidFunction;
+        subscribe: () => Promise<ChatRunAuthorityState>;
+        unsubscribe: () => Promise<void>;
+        onChanged: (listener: (state: ChatRunAuthorityState) => void) => VoidFunction;
       };
       attachments: {
         store: (input: {

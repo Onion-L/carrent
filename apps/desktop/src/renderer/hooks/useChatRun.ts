@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 
 import type {
   ChatReasoningEventPayload,
+  ChatRunAuthorityState,
   ChatRunEvent,
   ChatShellEventPayload,
   ChatSubagentTaskPayload,
   ChatTurnRequest,
   RuntimeSessionRecovery,
 } from "../../shared/chat";
+import { isTerminalSharedChatRunStatus } from "../../shared/chat";
 import type { RunChecklistSnapshot } from "../../shared/runChecklist";
 import type { ChatPermissionRequest, ChatPermissionResponse } from "../../shared/chatPermissions";
 import type { ChatQuestionRequest, ChatQuestionResponse } from "../../shared/chatQuestions";
@@ -39,6 +41,7 @@ export type ChatRunCallbacks = {
   onQuestionResolved?: (resolution: {
     question: ChatQuestionRequest;
     outcome: "answered" | "skipped";
+    answers?: import("../../shared/chatQuestions").ChatQuestionAnswer[];
   }) => void;
   onQuestionsInterrupted?: (questions: ChatQuestionRequest[]) => void;
   onPlanModeChanged?: (enabled: boolean) => void;
@@ -50,6 +53,7 @@ export type ChatRunCallbacks = {
     runtimeSessionRecovery?: RuntimeSessionRecovery,
   ) => void;
   onStop?: (runId: string, writtenFiles?: string[]) => void;
+  onEventApplied?: (count: number) => void;
 };
 
 type ChatRunSnapshot = {
@@ -58,6 +62,7 @@ type ChatRunSnapshot = {
   runningThreadIds: string[];
   pendingPermissions: ChatPermissionRequest[];
   pendingQuestions: ChatQuestionRequest[];
+  runs: ChatRunAuthorityState["runs"];
 };
 
 type ChatRunStoreListener = () => void;
@@ -76,6 +81,7 @@ export function createChatRunCoordinator() {
     runningThreadIds: [],
     pendingPermissions: [],
     pendingQuestions: [],
+    runs: [],
   };
   const pendingByRequestKey = new Map<string, PendingChatRun>();
   const requestKeyByRunId = new Map<string, string>();
@@ -83,8 +89,39 @@ export function createChatRunCoordinator() {
   const listeners = new Set<ChatRunStoreListener>();
   const pendingPermissionById = new Map<string, ChatPermissionRequest>();
   const pendingQuestionById = new Map<string, ChatQuestionRequest>();
+  const observersByThreadId = new Map<string, PendingChatRun>();
+  const deliveredEventCountByRunId = new Map<string, number>();
+  let authorityState: ChatRunAuthorityState | null = null;
+
+  const restorePendingInteractions = (events: ChatRunEvent[]) => {
+    events.forEach((event) => {
+      if (event.type === "permission-requested") {
+        pendingPermissionById.set(event.permission.id, event.permission);
+      } else if (event.type === "permission-resolved") {
+        pendingPermissionById.delete(event.permissionId);
+      } else if (event.type === "question-requested") {
+        pendingQuestionById.set(event.question.id, event.question);
+      } else if (event.type === "question-resolved") {
+        pendingQuestionById.delete(event.questionId);
+      }
+    });
+  };
 
   const updateSnapshot = (lastError = snapshot.lastError) => {
+    if (authorityState) {
+      const liveRuns = authorityState.runs.filter(
+        (run) => !isTerminalSharedChatRunStatus(run.status),
+      );
+      snapshot = {
+        isSending: liveRuns.length > 0,
+        lastError,
+        runningThreadIds: liveRuns.map((run) => run.threadId),
+        pendingPermissions: liveRuns.flatMap((run) => run.pendingPermissions),
+        pendingQuestions: liveRuns.flatMap((run) => run.pendingQuestions),
+        runs: authorityState.runs,
+      };
+      return;
+    }
     const runningThreadIds = [...requestKeyByThreadId.keys()];
     snapshot = {
       isSending: runningThreadIds.length > 0,
@@ -92,6 +129,7 @@ export function createChatRunCoordinator() {
       runningThreadIds,
       pendingPermissions: [...pendingPermissionById.values()],
       pendingQuestions: [...pendingQuestionById.values()],
+      runs: [],
     };
   };
 
@@ -146,7 +184,10 @@ export function createChatRunCoordinator() {
   const getRunForEvent = (event: ChatRunEvent) => {
     const requestKey =
       typeof event.requestKey === "string" ? event.requestKey : requestKeyByRunId.get(event.runId);
-    return requestKey ? (pendingByRequestKey.get(requestKey) ?? null) : null;
+    const pending = requestKey ? (pendingByRequestKey.get(requestKey) ?? null) : null;
+    if (pending) return pending;
+    const sharedRun = authorityState?.runs.find((run) => run.runId === event.runId);
+    return sharedRun ? (observersByThreadId.get(sharedRun.threadId) ?? null) : null;
   };
 
   return {
@@ -160,6 +201,14 @@ export function createChatRunCoordinator() {
       return snapshot;
     },
     getPendingRunId(threadId?: string) {
+      if (authorityState) {
+        const run = authorityState.runs.find(
+          (item) =>
+            (!threadId || item.threadId === threadId) &&
+            !isTerminalSharedChatRunStatus(item.status),
+        );
+        return run?.runId ?? null;
+      }
       if (threadId) {
         const requestKey = requestKeyByThreadId.get(threadId);
         return requestKey ? (pendingByRequestKey.get(requestKey)?.runId ?? null) : null;
@@ -168,7 +217,12 @@ export function createChatRunCoordinator() {
       return [...pendingByRequestKey.values()].find((run) => run.runId)?.runId ?? null;
     },
     beginRequest(requestKey: string, threadId: string, callbacks: ChatRunCallbacks) {
-      if (requestKeyByThreadId.has(threadId)) {
+      if (
+        requestKeyByThreadId.has(threadId) ||
+        authorityState?.runs.some(
+          (run) => run.threadId === threadId && !isTerminalSharedChatRunStatus(run.status),
+        )
+      ) {
         return false;
       }
 
@@ -183,6 +237,58 @@ export function createChatRunCoordinator() {
       updateSnapshot(null);
       emit();
       return true;
+    },
+    observeThread(threadId: string, callbacks: ChatRunCallbacks, appliedEventCount = 0) {
+      const observer: PendingChatRun = {
+        requestKey: `observer-${threadId}`,
+        runId: null,
+        threadId,
+        callbacks,
+      };
+      observersByThreadId.set(threadId, observer);
+      const run = authorityState?.runs.find((item) => item.threadId === threadId);
+      if (run) {
+        observer.runId = run.runId;
+        restorePendingInteractions(run.events.slice(0, appliedEventCount));
+        const delivered = Math.max(
+          deliveredEventCountByRunId.get(run.runId) ?? 0,
+          appliedEventCount,
+        );
+        for (let index = delivered; index < run.events.length; index += 1) {
+          this.handleEvent(run.events[index]!);
+          observer.callbacks.onEventApplied?.(index + 1);
+          deliveredEventCountByRunId.set(run.runId, index + 1);
+        }
+      }
+      return () => {
+        if (observersByThreadId.get(threadId) === observer) {
+          observersByThreadId.delete(threadId);
+        }
+      };
+    },
+    applyAuthorityState(state: ChatRunAuthorityState) {
+      if (authorityState && state.revision < authorityState.revision) return;
+      authorityState = state;
+      state.runs.forEach((run) => {
+        const target =
+          (run.requestKey ? pendingByRequestKey.get(run.requestKey) : undefined) ??
+          observersByThreadId.get(run.threadId);
+        if (!target) return;
+        if (!target.runId) {
+          target.runId = run.runId;
+          if (pendingByRequestKey.has(target.requestKey)) {
+            requestKeyByRunId.set(run.runId, target.requestKey);
+          }
+        }
+        const delivered = deliveredEventCountByRunId.get(run.runId) ?? 0;
+        for (let index = delivered; index < run.events.length; index += 1) {
+          this.handleEvent(run.events[index]!);
+          target.callbacks.onEventApplied?.(index + 1);
+          deliveredEventCountByRunId.set(run.runId, index + 1);
+        }
+      });
+      updateSnapshot();
+      emit();
     },
     attachRunId(requestKey: string, runId: string) {
       const run = pendingByRequestKey.get(requestKey);
@@ -206,6 +312,13 @@ export function createChatRunCoordinator() {
       run.callbacks.onError?.(error);
       clearPending(run);
       updateSnapshot(error);
+      emit();
+    },
+    rejectRequest(requestKey: string) {
+      const run = pendingByRequestKey.get(requestKey);
+      if (!run) return;
+      clearPending(run);
+      updateSnapshot();
       emit();
     },
     handleEvent(event: ChatRunEvent) {
@@ -359,7 +472,11 @@ export function createChatRunCoordinator() {
         if (question) {
           // The full request travels with the resolution so history records
           // never depend on the event's single-question option fields.
-          run.callbacks.onQuestionResolved?.({ question, outcome: event.outcome });
+          run.callbacks.onQuestionResolved?.({
+            question,
+            outcome: event.outcome,
+            ...(event.answers ? { answers: event.answers } : {}),
+          });
         }
         pendingQuestionById.delete(event.questionId);
         updateSnapshot();
@@ -395,7 +512,20 @@ function ensureChatListener() {
     return;
   }
 
-  teardownChatListener = window.carrent.chat.onEvent((event: ChatRunEvent) => {
+  const chat = window.carrent.chat;
+  if (typeof chat.onChanged === "function" && typeof chat.subscribe === "function") {
+    const disposeChanged = chat.onChanged((state) => {
+      chatRunCoordinator.applyAuthorityState(state);
+    });
+    teardownChatListener = () => {
+      disposeChanged();
+      void chat.unsubscribe();
+    };
+    void chat.subscribe().then((state) => chatRunCoordinator.applyAuthorityState(state));
+    return;
+  }
+
+  teardownChatListener = chat.onEvent((event: ChatRunEvent) => {
     chatRunCoordinator.handleEvent(event);
   });
 }
@@ -432,10 +562,16 @@ export function useChatRun() {
     }
 
     try {
-      const { runId } = await window.carrent.chat.send({
+      const result = await window.carrent.chat.send({
         ...request,
         requestKey,
       });
+      if (result.state) chatRunCoordinator.applyAuthorityState(result.state);
+      const { runId } = result;
+      if (result.accepted === false || !runId) {
+        chatRunCoordinator.rejectRequest(requestKey);
+        return null;
+      }
       chatRunCoordinator.attachRunId(requestKey, runId);
       return runId;
     } catch (err) {
@@ -448,17 +584,28 @@ export function useChatRun() {
   const stop = useCallback(async (threadId?: string) => {
     const runId = chatRunCoordinator.getPendingRunId(threadId);
     if (runId) {
-      await window.carrent.chat.stop(runId);
+      const result = await window.carrent.chat.stop(runId);
+      if (result?.state) chatRunCoordinator.applyAuthorityState(result.state);
     }
   }, []);
 
   const respondToPermission = useCallback(async (response: ChatPermissionResponse) => {
-    await window.carrent.chat.respondToPermission(response);
+    const result = await window.carrent.chat.respondToPermission(response);
+    if (result?.state) chatRunCoordinator.applyAuthorityState(result.state);
   }, []);
 
   const respondToQuestion = useCallback(async (response: ChatQuestionResponse) => {
-    await window.carrent.chat.respondToQuestion(response);
+    const result = await window.carrent.chat.respondToQuestion(response);
+    if (result?.state) chatRunCoordinator.applyAuthorityState(result.state);
   }, []);
+
+  const observeThread = useCallback(
+    (threadId: string, callbacks: ChatRunCallbacks, appliedEventCount = 0) => {
+      ensureChatListener();
+      return chatRunCoordinator.observeThread(threadId, callbacks, appliedEventCount);
+    },
+    [],
+  );
 
   return {
     isSending: snapshot.isSending,
@@ -466,9 +613,11 @@ export function useChatRun() {
     runningThreadIds: snapshot.runningThreadIds,
     pendingPermissions: snapshot.pendingPermissions,
     pendingQuestions: snapshot.pendingQuestions,
+    runs: snapshot.runs,
     send,
     stop,
     respondToPermission,
     respondToQuestion,
+    observeThread,
   };
 }

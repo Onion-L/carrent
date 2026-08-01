@@ -17,6 +17,7 @@ import {
   getGitToastMessage,
   getDisplayRuntimeModel,
   getMessageTranscriptContent,
+  getMissingRunCompletionText,
   getPermissionDetail,
   getPermissionShortcutKind,
   getPlanSubmissionState,
@@ -99,6 +100,20 @@ describe("getChatHistoryMode", () => {
 
   it("maps an edited-message submit to replace", () => {
     expect(getChatHistoryMode(true)).toBe("replace");
+  });
+});
+
+describe("getMissingRunCompletionText", () => {
+  it("returns only the canonical completion suffix", () => {
+    expect(getMissingRunCompletionText("partial", "partial result")).toBe(" result");
+  });
+
+  it("does not duplicate a completion that was already applied", () => {
+    expect(getMissingRunCompletionText("complete", "complete")).toBe("");
+  });
+
+  it("does not append incompatible completion text", () => {
+    expect(getMissingRunCompletionText("local", "canonical")).toBe("");
   });
 });
 

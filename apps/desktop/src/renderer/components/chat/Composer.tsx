@@ -35,6 +35,7 @@ import type {
   KimiSessionStatus,
   RuntimeQuotaWindow,
 } from "../../../shared/chat";
+import { isTerminalSharedChatRunStatus } from "../../../shared/chat";
 import type {
   AppThreadActionRecord,
   AppThreadRunStartInput,
@@ -77,6 +78,7 @@ import { RunChecklist } from "./RunChecklist";
 import {
   buildQuestionAnswerRecords,
   clearQuestionDraftState,
+  getQuestionDraftsFromAnswers,
   getQuestionDraftState,
 } from "../../lib/questionDrafts";
 import {
@@ -323,11 +325,12 @@ export type ComposerDraftRequest = {
 };
 
 export type AssociationDraftPromotionInput = AppThreadRunStartInput & {
+  assistantMessageId: string;
   title: string;
   draft: ThreadWorkDraftSnapshot;
 };
 
-export type ComposerAcceptedRunInput = AppThreadRunStartInput;
+export type ComposerAcceptedRunInput = AppThreadRunStartInput & { assistantMessageId: string };
 
 export function mergeComposerDraftContent(current: string, incoming: string): string {
   if (!current.trim()) {
@@ -349,6 +352,10 @@ export function getMessageTranscriptContent(message: Message) {
     .flatMap((part) => (part.type === "text" || part.type === "plan_review" ? [part.content] : []))
     .filter((content) => content.trim().length > 0)
     .join("\n\n");
+}
+
+export function getMissingRunCompletionText(receivedText: string, completedText: string) {
+  return completedText.startsWith(receivedText) ? completedText.slice(receivedText.length) : "";
 }
 
 type ComposerProps =
@@ -1032,6 +1039,7 @@ export function Composer(props: ComposerProps) {
     appendWorkspaceDiffMessage,
     updateMessageAndPruneAfter,
     updateMessageRunStatus,
+    updateMessageRunEventCount,
     updateMessageParts,
     updateRunChecklist,
     markThreadActivity,
@@ -1042,11 +1050,13 @@ export function Composer(props: ComposerProps) {
   const { projects, threads, threadRuns, threadActions, recordThreadAction } = useAppState();
   const {
     runningThreadIds,
+    runs: sharedRuns,
     pendingPermissions,
     pendingQuestions,
     respondToPermission,
     send,
     stop,
+    observeThread,
   } = useChatRun();
   const { compactingThreadIds, execute: executeThreadAction } = useThreadActions();
   const { runtimes, loading: runtimesLoading, refresh: refreshRuntimes } = useRuntimes();
@@ -1290,6 +1300,183 @@ export function Composer(props: ComposerProps) {
   );
   const isThreadCompacting = compactingThreadIds.includes(threadId);
   const isThreadSending = runningThreadIds.includes(threadId);
+  const sharedRun = [...sharedRuns].reverse().find((run) => run.threadId === threadId);
+  const persistedRun = sharedRun
+    ? [...threadRuns].reverse().find((run) => run.id === sharedRun.runId)
+    : undefined;
+  const sharedRunUserMessageIndex = persistedRun
+    ? props.messages.findIndex((message) => message.id === persistedRun.messageId)
+    : -1;
+  const sharedRunAssistantMessage = persistedRun?.assistantMessageId
+    ? props.messages.find((message) => message.id === persistedRun.assistantMessageId)
+    : sharedRunUserMessageIndex >= 0
+      ? props.messages
+          .slice(sharedRunUserMessageIndex + 1)
+          .find((message) => message.role === "assistant" && message.runStatus === "running")
+      : undefined;
+
+  useEffect(() => {
+    if (
+      props.mode !== "thread" ||
+      !sharedRun ||
+      !persistedRun ||
+      !sharedRunAssistantMessage ||
+      (isTerminalSharedChatRunStatus(sharedRun.status) &&
+        (sharedRunAssistantMessage.runEventCount ?? 0) >= sharedRun.events.length)
+    ) {
+      return;
+    }
+    const assistantMessageId = sharedRunAssistantMessage.id;
+    const appliedEventCount = sharedRunAssistantMessage.runEventCount ?? 0;
+    let receivedRunText = sharedRun.events
+      .slice(0, appliedEventCount)
+      .filter((event) => event.type === "delta")
+      .map((event) => event.text)
+      .join("");
+    const updatePart = (update: Parameters<typeof updateMessageParts>[1]) =>
+      updateMessageParts(assistantMessageId, update);
+
+    return observeThread(
+      threadId,
+      {
+        onStarted: (runId) => updateRunChecklist(threadId, { kind: "started", runId }),
+        onDelta: (content) => {
+          receivedRunText += content;
+          updatePart({ kind: "append-text", content });
+        },
+        onReasoning: (reasoning) =>
+          updatePart({ kind: "upsert-reasoning", reasoning: { type: "reasoning", ...reasoning } }),
+        onShell: (shell) =>
+          updatePart({ kind: "upsert-shell", shell: { type: "shell", ...shell } }),
+        onSubagentTask: (task) =>
+          updatePart({ kind: "upsert-subagent-task", task: { type: "subagent_task", ...task } }),
+        onChecklist: (checklist, owner) =>
+          updateRunChecklist(owner.threadId, {
+            kind: "snapshot",
+            runId: owner.runId,
+            runtimeId: owner.runtimeId,
+            entries: checklist.entries,
+          }),
+        onPermissionRequested: (permission) => {
+          markThreadActivity(threadId, Date.parse(permission.createdAt));
+          if (!permission.planReview) return;
+          updatePart({
+            kind: "upsert-plan-review",
+            review: {
+              type: "plan_review",
+              id: `plan-review-${permission.id}`,
+              permissionId: permission.id,
+              content: permission.planReview.content,
+              status: "pending",
+              options: permission.options,
+            },
+          });
+          updatePart({ kind: "append-text", content: PLAN_REVIEW_FOLLOW_UP_TEXT });
+        },
+        onPermissionResolved: (resolution) =>
+          updatePart({
+            kind: "resolve-plan-review",
+            permissionId: resolution.permissionId,
+            status:
+              resolution.optionId === "plan_revise"
+                ? "revision-requested"
+                : resolution.optionId === "plan_reject_and_exit"
+                  ? "rejected"
+                  : "approved",
+            selectedOptionId: resolution.optionId,
+            selectedOptionName: resolution.optionName,
+          }),
+        onPermissionsInterrupted: (permissions) => {
+          if (permissions.some((permission) => permission.planReview)) {
+            updatePart({ kind: "interrupt-plan-reviews" });
+          }
+        },
+        onQuestionRequested: (question) =>
+          updatePart({
+            kind: "upsert-question",
+            question: {
+              type: "question",
+              id: `question-${question.id}`,
+              questionId: question.id,
+              status: "pending",
+              questions: question.questions.map(({ header, question: text }) => ({
+                header,
+                question: text,
+              })),
+            },
+          }),
+        onQuestionResolved: ({ question, outcome, answers }) => {
+          const draftState = getQuestionDraftState(question.id);
+          const answerDrafts = answers
+            ? getQuestionDraftsFromAnswers(question, answers)
+            : draftState?.drafts;
+          updatePart({
+            kind: "resolve-question",
+            questionId: question.id,
+            status: outcome === "answered" ? "answered" : "skipped",
+            ...(outcome === "answered" && answerDrafts
+              ? { answers: buildQuestionAnswerRecords(question, answerDrafts) }
+              : {}),
+          });
+          clearQuestionDraftState(question.id);
+        },
+        onQuestionsInterrupted: (questions) => {
+          updatePart({ kind: "interrupt-questions" });
+          questions.forEach((question) => clearQuestionDraftState(question.id));
+        },
+        onComplete: (text, runId) => {
+          updateRunChecklist(threadId, { kind: "outcome", runId, outcome: "completed" });
+          const missingText = getMissingRunCompletionText(receivedRunText, text);
+          if (missingText) updatePart({ kind: "append-text", content: missingText });
+          updatePart({ kind: "interrupt-subagent-tasks" });
+          updateMessageRunStatus(assistantMessageId, "completed");
+          markThreadActivity(threadId);
+        },
+        onError: (error, runId, _writtenFiles, runtimeSessionRecovery) => {
+          if (runId) updateRunChecklist(threadId, { kind: "outcome", runId, outcome: "failed" });
+          updatePart({ kind: "interrupt-subagent-tasks" });
+          updatePart({
+            kind: "upsert-error",
+            error: {
+              type: "error",
+              id: `error-${assistantMessageId}`,
+              message: error,
+              ...(runtimeSessionRecovery
+                ? {
+                    runtimeSessionRecovery: {
+                      ...runtimeSessionRecovery,
+                      userMessageId: persistedRun.messageId,
+                    },
+                  }
+                : {}),
+            },
+          });
+          updateMessageRunStatus(assistantMessageId, "failed");
+          markThreadActivity(threadId);
+        },
+        onStop: (runId) => {
+          updateRunChecklist(threadId, { kind: "outcome", runId, outcome: "cancelled" });
+          updatePart({ kind: "interrupt-subagent-tasks" });
+          updateMessageRunStatus(assistantMessageId, "cancelled");
+          markThreadActivity(threadId);
+        },
+        onEventApplied: (count) => updateMessageRunEventCount(assistantMessageId, count),
+      },
+      appliedEventCount,
+    );
+  }, [
+    markThreadActivity,
+    observeThread,
+    persistedRun,
+    props.mode,
+    sharedRun,
+    sharedRunAssistantMessage,
+    threadId,
+    updateMessageParts,
+    updateMessageRunEventCount,
+    updateMessageRunStatus,
+    updateRunChecklist,
+  ]);
   useEffect(() => {
     if (!isThreadSending) return;
     const remainingMs = getStopGuardRemainingMs(threadId);
@@ -2241,6 +2428,7 @@ export function Composer(props: ComposerProps) {
     const runInput: ComposerAcceptedRunInput = {
       runId: requestedRunId,
       messageId: userMessageId,
+      assistantMessageId: assistantMsg.id,
       message: messageText,
       attachments: attachmentMetadata,
       startedAt,
@@ -2391,16 +2579,19 @@ export function Composer(props: ComposerProps) {
             },
           });
         },
-        onQuestionResolved: ({ question, outcome }) => {
+        onQuestionResolved: ({ question, outcome, answers }) => {
           // The final answer comes from the draft store, not the resolution
           // event, so multi-question and Other answers are recorded fully.
           const draftState = getQuestionDraftState(question.id);
+          const answerDrafts = answers
+            ? getQuestionDraftsFromAnswers(question, answers)
+            : draftState?.drafts;
           updateMessageParts(assistantMsg.id, {
             kind: "resolve-question",
             questionId: question.id,
             status: outcome === "answered" ? "answered" : "skipped",
-            ...(outcome === "answered" && draftState
-              ? { answers: buildQuestionAnswerRecords(question, draftState.drafts) }
+            ...(outcome === "answered" && answerDrafts
+              ? { answers: buildQuestionAnswerRecords(question, answerDrafts) }
               : {}),
           });
           clearQuestionDraftState(question.id);
@@ -2411,6 +2602,10 @@ export function Composer(props: ComposerProps) {
         },
         onPlanModeChanged: (enabled) => {
           props.onPlanModeChange?.(enabled);
+        },
+        onEventApplied: (count) => {
+          flushPendingTypewriterText();
+          updateMessageRunEventCount(assistantMsg.id, count);
         },
         onComplete: (text, runId, writtenFiles) => {
           runWrittenFilesRef.current = writtenFiles ?? [];

@@ -183,6 +183,21 @@ export function WorkspaceNavigationPane() {
     }
   };
 
+  const openThreadInNewWindow = async (
+    workspaceId: string,
+    projectId: string,
+    threadId: string,
+  ) => {
+    try {
+      await window.carrent.mainWindow.windows.openThread(
+        buildThreadPath(workspaceId, projectId, threadId),
+      );
+      closeThreadMenu();
+    } catch {
+      showToast("Thread could not be opened in a new window.", "error");
+    }
+  };
+
   useEffect(() => {
     closeThreadMenu();
   }, [closeThreadMenu, workspace?.id]);
@@ -606,6 +621,15 @@ export function WorkspaceNavigationPane() {
                                 sessionId={threadMenu.sessionId}
                                 archiveBlockedReason={archiveBlockedReason}
                                 onClose={closeThreadMenu}
+                                onOpenInNewWindow={() => {
+                                  if (activeWorkspaceId) {
+                                    void openThreadInNewWindow(
+                                      activeWorkspaceId,
+                                      project.id,
+                                      thread.id,
+                                    );
+                                  }
+                                }}
                                 onPin={() => {
                                   toggleThreadPin(project.id, thread.id);
                                   closeThreadMenu();

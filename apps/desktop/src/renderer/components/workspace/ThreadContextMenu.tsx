@@ -1,4 +1,4 @@
-import { Archive, Copy, ExternalLink, Pencil, Pin } from "lucide-react";
+import { AppWindow, Archive, Copy, ExternalLink, Pencil, Pin } from "lucide-react";
 
 import { ContextMenuShell, MenuItem } from "./ContextMenu";
 
@@ -9,6 +9,7 @@ export type ThreadContextMenuContentProps = {
   pinned: boolean;
   sessionId: string | null | undefined;
   archiveBlockedReason: string | null;
+  onOpenInNewWindow: () => void;
   onPin: () => void;
   onRename: () => void;
   onArchive: () => void;
@@ -21,6 +22,7 @@ export function ThreadContextMenuContent({
   pinned,
   sessionId,
   archiveBlockedReason,
+  onOpenInNewWindow,
   onPin,
   onRename,
   onArchive,
@@ -41,6 +43,12 @@ export function ThreadContextMenuContent({
       aria-label={`Thread actions for ${threadTitle}`}
       className="w-48 rounded-lg border border-border-strong bg-surface py-1 shadow-xl"
     >
+      <MenuItem
+        icon={<AppWindow className={MENU_ITEM_ICON_CLASS} />}
+        label="Open in new window"
+        onClick={onOpenInNewWindow}
+      />
+      <div role="separator" className="mx-2 my-1 border-t border-border" />
       <MenuItem
         icon={<Pin className={MENU_ITEM_ICON_CLASS} />}
         label={pinned ? "Unpin thread" : "Pin thread"}

@@ -1,4 +1,13 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, clipboard, webContents } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  shell,
+  dialog,
+  clipboard,
+  webContents,
+  screen,
+} from "electron";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,7 +54,12 @@ import { registerMcpServerIpc } from "./bridge/mcpServerIpc";
 import { registerSettingsIpc } from "./settings/settingsIpc";
 import { registerDialogIpc } from "./dialog/dialogIpc";
 import { spawn } from "node:child_process";
-import { createMainWindowLifecycle } from "./mainWindowLifecycle";
+import {
+  cascadeWindowBounds,
+  type WindowBounds,
+} from "./carrentWindowGeometry";
+import { openThreadInNewWindow } from "./carrentWindowOpener";
+import { createCarrentWindowRegistry } from "./carrentWindowRegistry";
 import {
   createAppStateIpcGate,
   loadProviderSessionsForAppState,
@@ -88,7 +102,6 @@ function isExecutableFile(path: string) {
   }
 }
 
-let mainWindow: BrowserWindow | null = null;
 let appStateStore: AppStateStore | null = null;
 let chatSessionManager: ChatSessionManager | null = null;
 let chatRunAuthority: ChatRunAuthority | null = null;
@@ -97,27 +110,42 @@ let appStateFlush: ReturnType<typeof createAppStateFlush> | null = null;
 let liveRunQuitWarning: ReturnType<typeof createLiveRunQuitWarning> | null = null;
 let terminalSessionManager: TerminalSessionManager | null = null;
 
-const mainWindowLifecycle = createMainWindowLifecycle({
-  getMainWindow: () => mainWindow,
-  isQuitting: () => appShutdown.isQuitting(),
-  requestQuit: () => app.quit(),
-  onRendererLoading: () => {
-    const ownerId = mainWindow?.webContents.id;
-    if (ownerId != null) terminalSessionManager?.closeOwner(ownerId);
-  },
-});
+// Carrent Windows are peers: every window provides complete navigation and
+// owns only its route, history, and presentation state. The registry tracks
+// activation order, per-window renderer readiness, and the close decision;
+// there is no privileged Main Window.
+const windowRegistry = createCarrentWindowRegistry();
 
-const windowZoom = createWindowZoomController(() => mainWindow?.webContents ?? null);
+const zoomControllersByContentsId = new Map<
+  number,
+  ReturnType<typeof createWindowZoomController>
+>();
 
-function createWindow(icon: string | undefined) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindowLifecycle.focusMainWindow();
-    return mainWindow;
-  }
+function getZoomController(contentsId: number) {
+  return zoomControllersByContentsId.get(contentsId) ?? null;
+}
 
-  mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 840,
+const DEFAULT_WINDOW_WIDTH = 1280;
+const DEFAULT_WINDOW_HEIGHT = 840;
+
+function resolveNormalBounds(window: BrowserWindow): WindowBounds {
+  // The *normal* (un-maximized) bounds, so a maximized source window never
+  // makes the new window inherit its maximized size or position.
+  const { x, y, width, height } = window.getNormalBounds();
+  return { x, y, width, height };
+}
+
+function createWindow(
+  icon: string | undefined,
+  options: { initialPath?: string; source?: BrowserWindow | null } = {},
+) {
+  // A new window opens on the source window's display. When there is no source
+  // (Dock activation, first window) it opens on the primary display.
+  const cascadeFrom = options.source && !options.source.isDestroyed() ? options.source : null;
+
+  const constructorOptions: Electron.BrowserWindowConstructorOptions = {
+    width: DEFAULT_WINDOW_WIDTH,
+    height: DEFAULT_WINDOW_HEIGHT,
     minWidth: 1080,
     minHeight: 720,
     backgroundColor: "#181818",
@@ -132,45 +160,97 @@ function createWindow(icon: string | undefined) {
       nodeIntegration: false,
       sandbox: false,
     },
+  };
+
+  // A new window opens on the source window's display, inherits the source's
+  // *normal* bounds, and is cascaded ~24px down and right within the display
+  // work area. A maximized source never makes the new window start maximized.
+  if (cascadeFrom && !cascadeFrom.isDestroyed()) {
+    const display = screen.getDisplayMatching(cascadeFrom.getBounds());
+    const cascaded = cascadeWindowBounds(resolveNormalBounds(cascadeFrom), display.workArea);
+    Object.assign(constructorOptions, {
+      x: cascaded.x,
+      y: cascaded.y,
+      width: cascaded.width,
+      height: cascaded.height,
+    });
+  }
+
+  const window = new BrowserWindow(constructorOptions);
+  windowRegistry.register(window);
+  if (options.initialPath) {
+    // The initial route survives the new renderer's own initial load (which
+    // would otherwise clear a pending navigation) and is delivered on first
+    // renderer readiness.
+    windowRegistry.setInitialRoute(window.webContents.id, options.initialPath);
+  }
+
+  window.on("focus", () => windowRegistry.setActive(window.id));
+
+  window.on("ready-to-show", () => {
+    // A peer window opens at its inherited normal bounds; only the first
+    // window of an otherwise empty session maximizes on ready-to-show.
+    if (cascadeFrom && !cascadeFrom.isDestroyed()) {
+      window.show();
+    } else {
+      window.maximize();
+      window.show();
+    }
   });
 
-  mainWindow.on("ready-to-show", () => {
-    mainWindow?.maximize();
-    mainWindow?.show();
+  window.on("close", (event) => {
+    // While Carrent is quitting every window closes normally.
+    if (appShutdown.isQuitting()) return;
+    const decision = windowRegistry.decideClose(window.id);
+    if (decision.kind === "close") return;
+    // The final Carrent Window either hides (macOS) or requests Quit. Closing
+    // one of several windows is always a plain close, so only the final-window
+    // decision prevents the BrowserWindow close here.
+    event.preventDefault();
+    if (decision.kind === "hide") {
+      window.hide();
+    } else {
+      app.quit();
+    }
   });
 
-  mainWindow.on("close", (event) => {
-    mainWindowLifecycle.handleWindowClose(event);
+  window.on("closed", () => {
+    zoomControllersByContentsId.delete(window.webContents.id);
+    windowRegistry.unregister(window.id);
   });
 
-  mainWindow.on("closed", () => {
-    mainWindow = null;
+  window.webContents.on("did-start-navigation", (event) => {
+    if (event.isSameDocument || !event.isMainFrame) return;
+    windowRegistry.markLoading(window.webContents.id, event);
+    // Terminal Tabs are Project-owned; a reloading Renderer detaches from its
+    // Tabs without terminating them. (Cross-window Terminal sharing is 07.)
+    terminalSessionManager?.closeOwner(window.webContents.id);
   });
 
-  mainWindow.webContents.on("did-start-navigation", (event) => {
-    mainWindowLifecycle.handleRendererNavigationStart(event);
+  const zoomController = createWindowZoomController(() =>
+    window.isDestroyed() ? null : window.webContents,
+  );
+  zoomControllersByContentsId.set(window.webContents.id, zoomController);
+  window.webContents.on("before-input-event", (event, input) => {
+    zoomController.handleBeforeInput(event, input);
   });
 
-  mainWindow.webContents.on("before-input-event", (event, input) => {
-    windowZoom.handleBeforeInput(event, input);
+  window.webContents.on("zoom-changed", (event, direction) => {
+    zoomController.handleZoomChanged(event, direction);
   });
 
-  mainWindow.webContents.on("zoom-changed", (event, direction) => {
-    windowZoom.handleZoomChanged(event, direction);
-  });
-
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  window.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
-    return mainWindow;
+    window.loadURL(process.env.ELECTRON_RENDERER_URL);
+    return window;
   }
 
-  mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
-  return mainWindow;
+  window.loadFile(join(__dirname, "../renderer/index.html"));
+  return window;
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -180,27 +260,45 @@ if (!hasSingleInstanceLock) {
 } else {
   app.setAsDefaultProtocolClient("carrent");
   app.on("second-instance", (_event, argv) => {
-    mainWindowLifecycle.handleSecondInstance(argv);
+    windowRegistry.handleSecondInstance(argv);
   });
   app.on("open-url", (event, url) => {
     event.preventDefault();
-    mainWindowLifecycle.handleOpenUrl(url);
+    windowRegistry.handleOpenUrl(url);
   });
-  ipcMain.on("app:navigation-ready", () => {
-    mainWindowLifecycle.handleRendererReady();
+  ipcMain.on("app:navigation-ready", (event) => {
+    windowRegistry.markReady(event.sender.id);
   });
   ipcMain.handle("app:zoom:get", (event) => {
-    if (event.sender !== mainWindow?.webContents) throw new Error("Unknown zoom request sender.");
-    return windowZoom.getFactor();
+    const zoom = getZoomController(event.sender.id);
+    if (!zoom) throw new Error("Unknown zoom request sender.");
+    return zoom.getFactor();
   });
   ipcMain.handle("app:zoom:change", (event, action: MainWindowZoomAction) => {
-    if (event.sender !== mainWindow?.webContents) throw new Error("Unknown zoom request sender.");
+    const zoom = getZoomController(event.sender.id);
+    if (!zoom) throw new Error("Unknown zoom request sender.");
     if (action !== "in" && action !== "out" && action !== "reset") {
       throw new Error("Invalid zoom action.");
     }
-    return windowZoom.change(action);
+    return zoom.change(action);
   });
-  mainWindowLifecycle.handleSecondInstance(process.argv);
+  ipcMain.handle("windows:open-thread", async (event, route: unknown) => {
+    const source = BrowserWindow.fromWebContents(event.sender);
+    const sourceAdapter = source
+      ? {
+          isDestroyed: () => source.isDestroyed(),
+          reportOpenError: (message: string) => {
+            if (!source.isDestroyed()) source.webContents.send("windows:open-error", message);
+          },
+        }
+      : null;
+    openThreadInNewWindow({
+      route,
+      source: sourceAdapter,
+      create: (validRoute) => createWindow(resolveIconPath(), { initialPath: validRoute, source }),
+    });
+  });
+  windowRegistry.handleSecondInstance(process.argv);
 
   app.whenReady().then(async () => {
     ensureCliPaths();
@@ -255,8 +353,12 @@ if (!hasSingleInstanceLock) {
     terminalSessionManager = createTerminalSessionManager({
       pty: nodePtyAdapter,
       emit: (ownerId, event) => {
-        if (mainWindow?.webContents.id === ownerId && !mainWindow.webContents.isDestroyed()) {
-          mainWindow.webContents.send("terminal:event", event);
+        // Terminal Tabs are owned by the Carrent Window (Renderer) that created
+        // them; output fans out to that owner only. Cross-window Terminal
+        // sharing lands in 07.
+        const contents = webContents.fromId(ownerId);
+        if (contents && !contents.isDestroyed()) {
+          contents.send("terminal:event", event);
         }
       },
       isExecutable: isExecutableFile,
@@ -430,10 +532,10 @@ if (!hasSingleInstanceLock) {
     createWindow(icon);
 
     app.on("activate", () => {
-      if (!mainWindow || mainWindow.isDestroyed()) {
+      if (windowRegistry.count() === 0) {
         createWindow(icon);
       } else {
-        mainWindowLifecycle.focusMainWindow();
+        windowRegistry.focusMostRecent();
       }
     });
   });

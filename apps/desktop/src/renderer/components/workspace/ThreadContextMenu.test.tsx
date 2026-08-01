@@ -14,6 +14,7 @@ function renderMenu(overrides: Partial<ThreadContextMenuContentProps> = {}) {
       pinned={false}
       sessionId="session-1"
       archiveBlockedReason={null}
+      onOpenInNewWindow={() => {}}
       onPin={() => {}}
       onRename={() => {}}
       onArchive={() => {}}
@@ -39,19 +40,21 @@ describe("getMenuPosition", () => {
 });
 
 describe("ThreadContextMenuContent", () => {
-  it("renders the five thread actions in order with one separator", () => {
+  it("renders the six thread actions in order with two separators", () => {
     const markup = renderMenu();
 
     expect(markup).toContain('role="menu"');
-    expect((markup.match(/role="menuitem"/gu) ?? []).length).toBe(5);
-    expect((markup.match(/role="separator"/gu) ?? []).length).toBe(1);
+    expect((markup.match(/role="menuitem"/gu) ?? []).length).toBe(6);
+    expect((markup.match(/role="separator"/gu) ?? []).length).toBe(2);
 
+    const openInNewWindow = markup.indexOf("Open in new window");
     const pin = markup.indexOf("Pin thread");
     const rename = markup.indexOf("Rename thread");
     const archive = markup.indexOf("Archive thread");
     const reveal = markup.indexOf("Open in Finder");
     const copy = markup.indexOf("Copy session ID");
-    expect(pin).toBeGreaterThan(-1);
+    expect(openInNewWindow).toBeGreaterThan(-1);
+    expect(openInNewWindow).toBeLessThan(pin);
     expect(pin).toBeLessThan(rename);
     expect(rename).toBeLessThan(archive);
     expect(archive).toBeLessThan(reveal);

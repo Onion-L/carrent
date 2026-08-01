@@ -46,6 +46,20 @@ function MainWindowNavigation() {
   return null;
 }
 
+function WindowOpenErrorHandler() {
+  const { showToast } = useToast();
+
+  useEffect(
+    () =>
+      window.carrent.mainWindow.windows.onOpenError(() => {
+        showToast("A new window could not be opened.", "error");
+      }),
+    [showToast],
+  );
+
+  return null;
+}
+
 function NavigationCoordinator() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -183,6 +197,7 @@ function AppRoutes() {
       <ToastProvider>
         <AppStateNotice />
         <MainWindowNavigation />
+        <WindowOpenErrorHandler />
         <NavigationCoordinator />
         <FirstUsePage />
       </ToastProvider>
@@ -193,6 +208,7 @@ function AppRoutes() {
     <ToastProvider>
       <AppStateNotice />
       <MainWindowNavigation />
+      <WindowOpenErrorHandler />
       <NavigationCoordinator />
       <DesktopShell>
         <Routes>

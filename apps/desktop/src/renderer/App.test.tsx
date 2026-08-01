@@ -345,6 +345,10 @@ function installBridge(
         change: async () => 1,
         onFactorChange: () => () => {},
       },
+      windows: {
+        openThread: async () => {},
+        onOpenError: () => () => {},
+      },
     },
   } as unknown as Window["carrent"];
 }

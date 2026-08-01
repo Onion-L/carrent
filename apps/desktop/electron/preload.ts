@@ -59,6 +59,15 @@ const mainWindow: MainWindowApi = {
       return () => ipcRenderer.removeListener("app:zoom-changed", wrapped);
     },
   },
+  windows: {
+    openThread: (route: string) =>
+      ipcRenderer.invoke("windows:open-thread", route) as Promise<void>,
+    onOpenError: (listener) => {
+      const wrapped = (_event: IpcRendererEvent, message: string) => listener(message);
+      ipcRenderer.on("windows:open-error", wrapped);
+      return () => ipcRenderer.removeListener("windows:open-error", wrapped);
+    },
+  },
 };
 
 const carrent = {

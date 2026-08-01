@@ -6,15 +6,15 @@
 
 **Status:** done
 
-- [ ] Text, attachments, Runtime, model, run mode, and Plan Mode changes to an Association's Thread Draft appear in every Renderer showing that Association.
-- [ ] Text, attachments, Runtime, model, run mode, and Plan Mode changes to an existing Thread Composer State appear in every Renderer showing that Thread.
-- [ ] Draft and Composer updates are revisioned so a delayed update cannot replace newer text, configuration, or attachments.
-- [ ] Concurrent promotion of the same Thread Draft creates at most one Thread and one initial user message, and every Renderer resolves to that result.
-- [ ] Promoting or discarding a Thread Draft removes it everywhere without a stale Renderer recreating it.
-- [ ] Persisted messages, Thread work, queues, Run Checklists, and attachment references update through authoritative commands rather than competing Renderer snapshots.
-- [ ] Thread deletion, Association removal, Workspace deletion, and Project relocation transactions publish their committed state to every Renderer while retaining their existing atomic rollback behavior.
-- [ ] The legacy Renderer full-snapshot stage and save path is removed after all App State callers have moved to commands and subscriptions.
-- [ ] Two-client Renderer tests cover simultaneous Draft and Composer editing, attachment changes, configuration changes, promotion races, deletion, stale rejection, and restart persistence.
+- [x] Text, attachments, Runtime, model, run mode, and Plan Mode changes to an Association's Thread Draft appear in every Renderer showing that Association.
+- [x] Text, attachments, Runtime, model, run mode, and Plan Mode changes to an existing Thread Composer State appear in every Renderer showing that Thread.
+- [x] Draft and Composer updates are revisioned so a delayed update cannot replace newer text, configuration, or attachments.
+- [x] Concurrent promotion of the same Thread Draft creates at most one Thread and one initial user message, and every Renderer resolves to that result.
+- [x] Promoting or discarding a Thread Draft removes it everywhere without a stale Renderer recreating it.
+- [x] Persisted messages, Thread work, queues, Run Checklists, and attachment references update through authoritative commands rather than competing Renderer snapshots.
+- [x] Thread deletion, Association removal, Workspace deletion, and Project relocation transactions publish their committed state to every Renderer while retaining their existing atomic rollback behavior.
+- [x] The legacy Renderer full-snapshot stage and save path is removed after all App State callers have moved to commands and subscriptions.
+- [x] Two-client Renderer tests cover simultaneous Draft and Composer editing, attachment changes, configuration changes, promotion races, deletion, stale rejection, and restart persistence.
 
 
 ## Comments

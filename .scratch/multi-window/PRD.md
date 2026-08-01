@@ -3,7 +3,7 @@
 # Multi-Window Support
 
 Category: enhancement
-Status: ready-for-agent
+Status: done
 
 ## Request
 
@@ -73,28 +73,28 @@ Carrent remains a single application instance but may own multiple peer Carrent 
 
 **Acceptance criteria:**
 
-- [ ] A Thread context menu contains `Open in new window`; invoking it opens that exact Thread in a peer window.
-- [ ] No global new-window shortcut, File menu command, title-bar action, or empty auxiliary window is introduced.
-- [ ] A new window opens on the source display with inherited normal bounds, an approximately 24px clamped cascade offset, and no inherited maximized state.
-- [ ] Every window can independently navigate Workspace, Project, Thread, and Settings routes.
-- [ ] The same Thread can be open in multiple windows, which display synchronized messages, Agent Activity, Run status, Approval Requests, user questions, and Run Checklist state.
-- [ ] Text, attachments, Runtime, model, and run mode in Thread Composer State and Association-scoped Thread Drafts synchronize across windows before send.
-- [ ] Sending or promoting a Draft in one window updates every other relevant window without duplicate messages or duplicate Runs.
-- [ ] Any window showing a Thread can send, Stop, answer an Approval Request, or answer a user question; concurrent duplicate or stale commands produce at most one valid transition.
-- [ ] Workspace, Project, Association, Thread, archive, deletion, relocation, and Settings changes broadcast to all windows and never suffer stale full-snapshot overwrite.
-- [ ] When a shared object is removed, every affected window uses the established nearest-valid-parent route fallback and does not recreate the object from stale state.
-- [ ] A repeated ordinary application launch focuses the most recently active existing window without creating a window or changing a route.
-- [ ] A valid Thread deep link focuses the most recently active window already showing it, otherwise navigates the most recently active window, and never creates a window.
-- [ ] Closing one of several windows destroys only that window and does not stop Runs or Terminal Tabs.
-- [ ] Closing the final window keeps Carrent and Runs active on macOS; on Windows/Linux it requests application Quit.
-- [ ] Explicit Quit retains the existing live-Run confirmation behavior and ends Terminal Tabs only when Quit proceeds.
-- [ ] Restart restores only the windows open at Quit, including route, bounds, and maximized state; invalid routes fall back normally, while history and transient pane state reset.
-- [ ] A Project exposes the same Terminal Tabs, active Tab, output, and process state in every window, and any window may input, create, activate, or close a Tab.
-- [ ] The focused terminal viewport controls shared PTY dimensions; unfocused windows receive output without issuing resize changes.
-- [ ] Carrent imposes no window count cap; a BrowserWindow creation failure produces a non-blocking error in the source window without changing existing windows.
-- [ ] Main-process tests cover window registry, activation, creation geometry, deep-link routing, close/Quit behavior, restart restoration, command races, Run fan-out, and Terminal focus ownership.
-- [ ] Renderer tests cover the Thread menu action and two independent Renderer clients observing and controlling the same Thread, Draft, Run, Settings, and Terminal state.
-- [ ] A manual Electron smoke pass verifies two real windows on macOS, including simultaneous Thread display, live Run streaming, Composer synchronization, Terminal sharing, window closure, and restart restoration.
+- [x] A Thread context menu contains `Open in new window`; invoking it opens that exact Thread in a peer window.
+- [x] No global new-window shortcut, File menu command, title-bar action, or empty auxiliary window is introduced.
+- [x] A new window opens on the source display with inherited normal bounds, an approximately 24px clamped cascade offset, and no inherited maximized state.
+- [x] Every window can independently navigate Workspace, Project, Thread, and Settings routes.
+- [x] The same Thread can be open in multiple windows, which display synchronized messages, Agent Activity, Run status, Approval Requests, user questions, and Run Checklist state.
+- [x] Text, attachments, Runtime, model, and run mode in Thread Composer State and Association-scoped Thread Drafts synchronize across windows before send.
+- [x] Sending or promoting a Draft in one window updates every other relevant window without duplicate messages or duplicate Runs.
+- [x] Any window showing a Thread can send, Stop, answer an Approval Request, or answer a user question; concurrent duplicate or stale commands produce at most one valid transition.
+- [x] Workspace, Project, Association, Thread, archive, deletion, relocation, and Settings changes broadcast to all windows and never suffer stale full-snapshot overwrite.
+- [x] When a shared object is removed, every affected window uses the established nearest-valid-parent route fallback and does not recreate the object from stale state.
+- [x] A repeated ordinary application launch focuses the most recently active existing window without creating a window or changing a route.
+- [x] A valid Thread deep link focuses the most recently active window already showing it, otherwise navigates the most recently active window, and never creates a window.
+- [x] Closing one of several windows destroys only that window and does not stop Runs or Terminal Tabs.
+- [x] Closing the final window keeps Carrent and Runs active on macOS; on Windows/Linux it requests application Quit.
+- [x] Explicit Quit retains the existing live-Run confirmation behavior and ends Terminal Tabs only when Quit proceeds.
+- [x] Restart restores only the windows open at Quit, including route, bounds, and maximized state; invalid routes fall back normally, while history and transient pane state reset.
+- [x] A Project exposes the same Terminal Tabs, active Tab, output, and process state in every window, and any window may input, create, activate, or close a Tab.
+- [x] The focused terminal viewport controls shared PTY dimensions; unfocused windows receive output without issuing resize changes.
+- [x] Carrent imposes no window count cap; a BrowserWindow creation failure produces a non-blocking error in the source window without changing existing windows.
+- [x] Main-process tests cover window registry, activation, creation geometry, deep-link routing, close/Quit behavior, restart restoration, command races, Run fan-out, and Terminal focus ownership.
+- [x] Renderer tests cover the Thread menu action and two independent Renderer clients observing and controlling the same Thread, Draft, Run, Settings, and Terminal state.
+- [x] A manual Electron smoke pass verifies two real windows on macOS, including simultaneous Thread display, live Run streaming, Composer synchronization, Terminal sharing, window closure, and restart restoration.
 
 **Out of scope:**
 
@@ -123,5 +123,6 @@ Carrent remains a single application instance but may own multiple peer Carrent 
 - 2026-08-01: The Main Process serializes commands against authoritative state and broadcasts accepted changes; stale Renderer state cannot overwrite newer data.
 - 2026-08-01: The focused terminal viewport controls shared PTY dimensions; resize authority follows terminal focus.
 - 2026-08-01: New windows inherit normal source bounds and open with a clamped cascade offset on the same display; they do not inherit maximized state.
+- 2026-08-01: Verified the implementation with 1,349 passing desktop tests, clean typecheck/lint/build, and a real Electron macOS pass covering Thread menu window creation, two peer windows, same-Thread opening, independent Settings navigation, and peer closure.
 - 2026-08-01: Carrent does not cap the number of windows; creation failure is reported without affecting existing windows.
-- 2026-08-01: Maintainer confirmed shared understanding. The enhancement is fully specified and ready for an implementation agent.
+- 2026-08-01: Maintainer confirmed shared understanding. The enhancement is implemented and verified.

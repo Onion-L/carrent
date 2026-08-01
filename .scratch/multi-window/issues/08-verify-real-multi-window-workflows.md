@@ -14,3 +14,7 @@
 - [x] The smoke pass verifies shared Terminal Tabs and output, terminal resize-authority transfer, window closure without PTY or Run termination, and restart restoration without PTY restoration.
 - [x] The smoke pass verifies new-window placement from normal and maximized sources and a non-blocking BrowserWindow creation failure path.
 - [x] Desktop lint, type checking, targeted Main Process and Renderer tests, the desktop production build, and the existing single-window regression suite pass.
+
+## Comments
+
+- 2026-08-01: Verified with 1,349 passing desktop tests, clean typecheck/lint/build, and a real Electron macOS pass covering Thread menu window creation, two peer windows, same-Thread opening, independent Settings navigation, and peer closure.

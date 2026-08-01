@@ -104,6 +104,10 @@ export function getThreadDraft(threadId: string): ThreadWorkDraftSnapshot | null
   return draft ? copyDraft(draft) : null;
 }
 
+export function getThreadDraftSnapshotKey(threadId: string): string {
+  return JSON.stringify(draftByThreadId.get(threadId) ?? null);
+}
+
 export function setThreadDraft(threadId: string, draft: ThreadWorkDraftSnapshot): void {
   draftByThreadId.set(threadId, copyDraft(draft));
   emit();

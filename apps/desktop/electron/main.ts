@@ -55,8 +55,12 @@ import { registerSettingsIpc } from "./settings/settingsIpc";
 import { registerDialogIpc } from "./dialog/dialogIpc";
 import { spawn } from "node:child_process";
 import { cascadeWindowBounds, type WindowBounds } from "./carrentWindowGeometry";
-import { openThreadInNewWindow } from "./carrentWindowOpener";
+import { consumeWindowCreationSmokeFailure, openThreadInNewWindow } from "./carrentWindowOpener";
 import { createCarrentWindowRegistry } from "./carrentWindowRegistry";
+import {
+  handleCarrentWindowActivation,
+  registerCarrentWindowCleanup,
+} from "./carrentWindowLifecycle";
 import { createCarrentWindowCapture } from "./carrentWindowCapture";
 import {
   buildRecoveredWindowOptions,
@@ -249,10 +253,10 @@ function createWindow(
     app.quit();
   });
 
-  window.on("closed", () => {
-    terminalSessionManager?.detach(window.webContents.id);
-    zoomControllersByContentsId.delete(window.webContents.id);
-    windowRegistry.unregister(window.id);
+  registerCarrentWindowCleanup(window, ({ windowId, contentsId }) => {
+    terminalSessionManager?.detach(contentsId);
+    zoomControllersByContentsId.delete(contentsId);
+    windowRegistry.unregister(windowId);
   });
 
   window.webContents.on("did-start-navigation", (event) => {
@@ -345,7 +349,12 @@ if (!hasSingleInstanceLock) {
     openThreadInNewWindow({
       route,
       source: sourceAdapter,
-      create: (validRoute) => createWindow(resolveIconPath(), { initialPath: validRoute, source }),
+      create: (validRoute) => {
+        if (consumeWindowCreationSmokeFailure(process.env)) {
+          throw new Error("Simulated BrowserWindow creation failure.");
+        }
+        createWindow(resolveIconPath(), { initialPath: validRoute, source });
+      },
     });
   });
   // A deep link present in the initial launch argv targets the first Carrent
@@ -630,13 +639,13 @@ if (!hasSingleInstanceLock) {
     }
 
     app.on("activate", () => {
-      if (windowRegistry.count() === 0) {
+      handleCarrentWindowActivation({
+        windowCount: () => windowRegistry.count(),
         // Dock activation with no Carrent Window re-creates one using normal
         // recent-position recovery from the saved window session.
-        createRecoveredWindow(icon, null);
-      } else {
-        windowRegistry.focusMostRecent();
-      }
+        createRecoveredWindow: () => createRecoveredWindow(icon, null),
+        focusMostRecent: () => windowRegistry.focusMostRecent(),
+      });
     });
   });
 }

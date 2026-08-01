@@ -3,6 +3,13 @@
 // windows unchanged and surfaces a non-blocking error in the source window.
 
 const MAX_THREAD_ROUTE_LENGTH = 4096;
+export const WINDOW_CREATION_SMOKE_FAILURE_ENV = "CARRENT_SMOKE_FAIL_WINDOW_CREATION";
+
+export function consumeWindowCreationSmokeFailure(env: NodeJS.ProcessEnv): boolean {
+  if (env[WINDOW_CREATION_SMOKE_FAILURE_ENV] !== "1") return false;
+  delete env[WINDOW_CREATION_SMOKE_FAILURE_ENV];
+  return true;
+}
 
 type SourceWindow = {
   isDestroyed: () => boolean;
@@ -15,11 +22,7 @@ export type OpenThreadWindowOptions = {
   create: (route: string) => void;
 };
 
-export function openThreadInNewWindow({
-  route,
-  source,
-  create,
-}: OpenThreadWindowOptions) {
+export function openThreadInNewWindow({ route, source, create }: OpenThreadWindowOptions) {
   if (typeof route !== "string" || route.length === 0 || route.length > MAX_THREAD_ROUTE_LENGTH) {
     throw new Error("Invalid Thread route.");
   }

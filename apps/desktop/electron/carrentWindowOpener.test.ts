@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
-import { openThreadInNewWindow } from "./carrentWindowOpener";
+import {
+  consumeWindowCreationSmokeFailure,
+  openThreadInNewWindow,
+  WINDOW_CREATION_SMOKE_FAILURE_ENV,
+} from "./carrentWindowOpener";
 
 function createSource(overrides: Partial<{ destroyed: boolean }> = {}) {
   const errors: string[] = [];
@@ -14,6 +18,13 @@ function createSource(overrides: Partial<{ destroyed: boolean }> = {}) {
 }
 
 describe("openThreadInNewWindow", () => {
+  it("consumes the explicit BrowserWindow smoke failure once", () => {
+    const env = { [WINDOW_CREATION_SMOKE_FAILURE_ENV]: "1" };
+
+    expect(consumeWindowCreationSmokeFailure(env)).toBe(true);
+    expect(consumeWindowCreationSmokeFailure(env)).toBe(false);
+  });
+
   it("creates a new window with the given Thread route", () => {
     const created: string[] = [];
     const { source } = createSource();
@@ -45,9 +56,9 @@ describe("openThreadInNewWindow", () => {
 
   it("rejects an empty route", () => {
     const { source } = createSource();
-    expect(() =>
-      openThreadInNewWindow({ route: "", source, create: () => {} }),
-    ).toThrow("Invalid Thread route.");
+    expect(() => openThreadInNewWindow({ route: "", source, create: () => {} })).toThrow(
+      "Invalid Thread route.",
+    );
   });
 
   it("rejects an oversized route", () => {

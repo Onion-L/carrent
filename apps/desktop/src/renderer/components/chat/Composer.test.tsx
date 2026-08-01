@@ -21,6 +21,7 @@ import { createFakeAppStateAuthority } from "../../test/fakeAppStateAuthority";
 import { AppStateProvider } from "../../context/AppStateContext";
 import { RuntimeModelsProvider } from "../../context/RuntimeModelsContext";
 import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
+import { enqueueChatMessage, getThreadDraft } from "../../hooks/chatMessageQueue";
 import { Composer, type ComposerDraftRequest } from "./Composer";
 
 let container: HTMLDivElement | null = null;
@@ -62,7 +63,7 @@ function composerTree(draftRequest?: ComposerDraftRequest) {
   );
 }
 
-async function renderComposer() {
+async function renderComposer(options: { threadWork?: AppStateSnapshot["threadWork"] } = {}) {
   const snapshot: AppStateSnapshot = {
     version: 1,
     workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
@@ -93,7 +94,7 @@ async function renderComposer() {
     threadMessages: [],
     threadRuns: [],
     threadPromotionIntents: [],
-    threadWork: {},
+    threadWork: options.threadWork ?? {},
     lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
     activeWorkspaceId: "workspace-1",
   };
@@ -112,6 +113,7 @@ async function renderComposer() {
       flushDone: async () => {},
     },
     projectDirectories: { check: async () => ({ available: true }) },
+    attachments: { read: async () => new Uint8Array([1]) },
     runtimes: {
       list: async () => [
         {
@@ -185,6 +187,7 @@ async function renderComposer() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 35));
   });
+  return authority;
 }
 
 function getLexicalEditor() {
@@ -240,6 +243,72 @@ afterEach(async () => {
 });
 
 describe("Composer inline Skills", () => {
+  it("applies a Thread Composer draft broadcast by another Renderer", async () => {
+    const authority = await renderComposer();
+
+    await act(async () => {
+      await authority.command({
+        commandId: "peer-composer-update",
+        type: "thread-work:update",
+        payload: {
+          threadId: "thread-1",
+          work: {
+            draft: {
+              content: "draft from peer window",
+              attachedSkillNames: [],
+              attachments: [],
+            },
+            queuedMessages: [],
+          },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(getComposerText()).toBe("draft from peer window");
+  });
+
+  it("keeps unpersisted input when the Thread queue changes", async () => {
+    await renderComposer();
+    await setComposerText("local input in progress");
+
+    await act(async () => {
+      enqueueChatMessage("thread-1", { id: "queued-1", content: "queued from peer" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(getComposerText()).toBe("local input in progress");
+  });
+
+  it("restores initial draft attachments once", async () => {
+    const attachment = {
+      id: "attachment-1",
+      kind: "file" as const,
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 1,
+      storageKey: "attachment-1.txt",
+    };
+    await renderComposer({
+      threadWork: {
+        "thread-1": {
+          draft: {
+            content: "with attachment",
+            attachedSkillNames: [],
+            attachments: [attachment],
+          },
+          queuedMessages: [],
+        },
+      },
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(getThreadDraft("thread-1")?.attachments).toEqual([attachment]);
+  });
+
   it("keeps first input inside the text editor and opens the slash menu", async () => {
     await renderComposer();
 

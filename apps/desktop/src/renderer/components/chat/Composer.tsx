@@ -25,6 +25,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type FormEvent,
 } from "react";
 import { createPortal } from "react-dom";
@@ -86,9 +87,11 @@ import {
   enqueueChatMessage,
   getQueuedMessages,
   getThreadDraft,
+  getThreadDraftSnapshotKey,
   removeQueuedChatMessage,
   setThreadDraft,
   shiftQueuedChatMessage,
+  subscribeToThreadWork,
   unshiftQueuedChatMessage,
   updateQueuedChatMessage,
   useQueuedMessages,
@@ -551,6 +554,21 @@ export function buildThreadDraftSnapshot(input: {
     attachments,
     ...(input.composerState ? { composerState: input.composerState } : {}),
   };
+}
+
+async function restoreDraftAttachments(metadata: AttachmentMetadata[]) {
+  const attachments: PendingAttachment[] = [];
+  const unavailableNames: string[] = [];
+  for (const item of metadata) {
+    try {
+      const data = await window.carrent.attachments.read(item);
+      attachments.push(pendingAttachmentFromMetadata(item, data));
+    } catch {
+      unavailableNames.push(item.name);
+      attachments.push(pendingAttachmentFromUnavailableMetadata(item));
+    }
+  }
+  return { attachments, unavailableNames };
 }
 
 export function getGitBridge(carrent: unknown): GitBridge {
@@ -1063,6 +1081,9 @@ export function Composer(props: ComposerProps) {
   const { skills, loading: skillsLoading, error: skillsError } = useSkills();
   const { status: mcpServerStatus } = useMcpServer();
   const { showToast } = useToast();
+  const threadDraftSnapshotKey = useSyncExternalStore(subscribeToThreadWork, () =>
+    getThreadDraftSnapshotKey(props.threadId),
+  );
   const initialDraft =
     props.mode === "association-draft" ? props.initialDraft : getThreadDraft(props.threadId);
   const [input, setInput] = useState(() => initialDraft?.content ?? "");
@@ -1108,6 +1129,62 @@ export function Composer(props: ComposerProps) {
   const [gitLoading, setGitLoading] = useState(false);
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [branchSearchQuery, setBranchSearchQuery] = useState("");
+  const threadDraftSourceKey = `${props.mode}:${props.threadId}:${threadDraftSnapshotKey}`;
+  const lastAppliedThreadDraftSourceKeyRef = useRef(threadDraftSourceKey);
+
+  useEffect(() => {
+    if (props.mode !== "thread") return;
+    if (lastAppliedThreadDraftSourceKeyRef.current === threadDraftSourceKey) return;
+    lastAppliedThreadDraftSourceKeyRef.current = threadDraftSourceKey;
+    const draft = getThreadDraft(props.threadId);
+    const currentDraft = buildThreadDraftSnapshot({
+      content: input,
+      attachedSkills,
+      pendingAttachments,
+      composerState: editorStateJson,
+    });
+    if (JSON.stringify(draft) === JSON.stringify(currentDraft)) return;
+
+    const content = draft?.content ?? "";
+    const restoredSkills = resolveDraftSkillRecords(skills, draft?.attachedSkillNames ?? []);
+    setInput(content);
+    setAttachedSkills(restoredSkills);
+    setPendingDraftSkillNames(
+      draft && draft.attachedSkillNames.length > 0 ? draft.attachedSkillNames : null,
+    );
+    setEditorStateJson(draft?.composerState);
+    editorRef.current?.replaceDraft(content, restoredSkills, draft?.composerState);
+
+    draftRestoreCompleteRef.current = false;
+    let cancelled = false;
+    void (async () => {
+      const { attachments: restored, unavailableNames } = await restoreDraftAttachments(
+        draft?.attachments ?? [],
+      );
+      if (cancelled) {
+        restored.forEach((attachment) => {
+          if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+        });
+        return;
+      }
+      setPendingAttachments((previous) => {
+        previous.forEach((attachment) => {
+          if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+        });
+        return restored;
+      });
+      setAttachmentError(
+        unavailableNames.length > 0
+          ? `文件不可用，请移除或重新添加：${unavailableNames.join(", ")}`
+          : null,
+      );
+      draftRestoreCompleteRef.current = true;
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [props.mode, props.threadId, skills, threadDraftSourceKey]);
   const [newBranchName, setNewBranchName] = useState(CREATE_BRANCH_DEFAULT_NAME);
   const [creatingBranch, setCreatingBranch] = useState(false);
   const [showCreateBranchInput, setShowCreateBranchInput] = useState(false);
@@ -2781,17 +2858,7 @@ export function Composer(props: ComposerProps) {
 
     let cancelled = false;
     void (async () => {
-      const restored: PendingAttachment[] = [];
-      const failed: string[] = [];
-      for (const metadata of persisted) {
-        try {
-          const data = await window.carrent.attachments.read(metadata);
-          restored.push(pendingAttachmentFromMetadata(metadata, data));
-        } catch {
-          failed.push(metadata.name);
-          restored.push(pendingAttachmentFromUnavailableMetadata(metadata));
-        }
-      }
+      const { attachments: restored, unavailableNames } = await restoreDraftAttachments(persisted);
       if (cancelled) {
         restored.forEach((pending) => {
           if (pending.previewUrl) {
@@ -2803,8 +2870,8 @@ export function Composer(props: ComposerProps) {
       if (restored.length > 0) {
         setPendingAttachments((prev) => [...prev, ...restored]);
       }
-      if (failed.length > 0) {
-        setAttachmentError(`文件不可用，请移除或重新添加：${failed.join(", ")}`);
+      if (unavailableNames.length > 0) {
+        setAttachmentError(`文件不可用，请移除或重新添加：${unavailableNames.join(", ")}`);
       }
       draftRestoreCompleteRef.current = true;
     })();

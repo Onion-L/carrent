@@ -71,6 +71,7 @@ export type ComposerEditorHandle = {
   removeSlashTrigger: () => void;
   replaceText: (text: string) => void;
   replaceTextPreservingSkills: (text: string) => void;
+  replaceDraft: (content: string, skills: SkillRecord[], serializedState?: string) => void;
   restoreSkills: (skills: SkillRecord[]) => void;
 };
 
@@ -221,6 +222,14 @@ function ComposerEditorBridge(
           paragraph.selectEnd();
         });
         requestAnimationFrame(() => editor.focus());
+      },
+      replaceDraft(content, skills, serializedState) {
+        const validState = getValidSerializedState(serializedState);
+        if (validState) {
+          editor.setEditorState(editor.parseEditorState(validState));
+          return;
+        }
+        editor.update(() => initializeEditor(content, skills));
       },
       restoreSkills(skills) {
         editor.update(() => {

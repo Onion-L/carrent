@@ -1423,6 +1423,7 @@ export function Composer(props: ComposerProps) {
         },
         onReasoning: (reasoning) =>
           updatePart({ kind: "upsert-reasoning", reasoning: { type: "reasoning", ...reasoning } }),
+        onKimiTimeline: (item) => updatePart({ kind: "upsert-kimi-timeline", item }),
         onShell: (shell) =>
           updatePart({ kind: "upsert-shell", shell: { type: "shell", ...shell } }),
         onSubagentTask: (task) =>
@@ -2585,6 +2586,11 @@ export function Composer(props: ComposerProps) {
           stopTypewriter();
           flushPendingTypewriterText();
           updateLocalMessageReasoningPart(assistantMsg.id, reasoning);
+        },
+        onKimiTimeline: (item) => {
+          stopTypewriter();
+          flushPendingTypewriterText();
+          updateMessageParts(assistantMsg.id, { kind: "upsert-kimi-timeline", item });
         },
         onShell: (shell) => {
           stopTypewriter();

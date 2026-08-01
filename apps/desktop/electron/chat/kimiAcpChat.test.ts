@@ -342,6 +342,181 @@ describe("buildKimiPromptParts", () => {
 });
 
 describe("startKimiAcpChatRun", () => {
+  it("emits ordered Kimi thinking phases and message segments", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-timeline" });
+        return;
+      }
+      if (message.method !== "session/prompt") return;
+
+      for (const update of [
+        {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "Inspect" },
+        },
+        {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: " files" },
+        },
+        {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "I found" },
+        },
+        {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: " it." },
+        },
+        {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "Before tool" },
+        },
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "existing-tool",
+          title: "ReadFile",
+          status: "in_progress",
+        },
+        {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "Before plan" },
+        },
+        { sessionUpdate: "future_kimi_update", content: { type: "text", text: "ignored" } },
+        { sessionUpdate: "plan", entries: [] },
+        {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "Verify" },
+        },
+        {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Done." },
+        },
+        { sessionUpdate: "plan", entries: [] },
+      ]) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: { sessionId: "session-timeline", update },
+        });
+      }
+      respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-timeline",
+      request: makeRequest(),
+      cwd: "/test/project",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+
+    const timeline = emitted
+      .filter(
+        (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+          event.type === "kimi-timeline",
+      )
+      .map((event) => event.item);
+    expect(timeline).toEqual([
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-timeline-thinking-1",
+        order: 0,
+        content: "Inspect",
+        status: "running",
+      },
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-timeline-thinking-1",
+        order: 0,
+        content: "Inspect files",
+        status: "running",
+      },
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-timeline-thinking-1",
+        order: 0,
+        content: "Inspect files",
+        status: "completed",
+      },
+      {
+        type: "message",
+        id: "kimi-run-kimi-timeline-message-1",
+        order: 1,
+        content: "I found",
+        isFinal: false,
+      },
+      {
+        type: "message",
+        id: "kimi-run-kimi-timeline-message-1",
+        order: 1,
+        content: "I found it.",
+        isFinal: false,
+      },
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-timeline-thinking-2",
+        order: 2,
+        content: "Before tool",
+        status: "running",
+      },
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-timeline-thinking-2",
+        order: 2,
+        content: "Before tool",
+        status: "completed",
+      },
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-timeline-thinking-3",
+        order: 3,
+        content: "Before plan",
+        status: "running",
+      },
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-timeline-thinking-3",
+        order: 3,
+        content: "Before plan",
+        status: "completed",
+      },
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-timeline-thinking-4",
+        order: 4,
+        content: "Verify",
+        status: "running",
+      },
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-timeline-thinking-4",
+        order: 4,
+        content: "Verify",
+        status: "completed",
+      },
+      {
+        type: "message",
+        id: "kimi-run-kimi-timeline-message-2",
+        order: 5,
+        content: "Done.",
+        isFinal: false,
+      },
+      {
+        type: "message",
+        id: "kimi-run-kimi-timeline-message-2",
+        order: 5,
+        content: "Done.",
+        isFinal: true,
+      },
+    ]);
+  });
+
   it("maps an ACP plan update to an ordered Run Checklist snapshot", async () => {
     const emitted: ChatRunEvent[] = [];
     const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
@@ -1825,6 +2000,17 @@ describe("startKimiAcpChatRun", () => {
             params: {
               sessionId: "session-plan",
               update: {
+                sessionUpdate: "agent_thought_chunk",
+                content: { type: "text", text: "Waiting for conversation" },
+              },
+            },
+          });
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-plan",
+              update: {
                 sessionUpdate: "agent_message_chunk",
                 content: { type: "text", text: "The plan was rejected." },
               },
@@ -1880,6 +2066,29 @@ describe("startKimiAcpChatRun", () => {
       text: "",
     });
     expect(emitted.some((event) => event.type === "delta")).toBe(false);
+    expect(
+      emitted
+        .filter(
+          (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+            event.type === "kimi-timeline",
+        )
+        .map((event) => event.item),
+    ).toEqual([
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-plan-review-thinking-1",
+        order: 0,
+        content: "Waiting for conversation",
+        status: "running",
+      },
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-plan-review-thinking-1",
+        order: 0,
+        content: "Waiting for conversation",
+        status: "completed",
+      },
+    ]);
   });
 
   it("syncs Kimi-initiated EnterPlanMode tool results", async () => {

@@ -145,6 +145,10 @@ export type ThreadContentContextValue = {
 export type MessagePartUpdate =
   | { kind: "append-text"; content: string }
   | {
+      kind: "upsert-kimi-timeline";
+      item: import("../../shared/chat").KimiTimelineItem;
+    }
+  | {
       kind: "upsert-reasoning";
       reasoning: Extract<MessagePart, { type: "reasoning" }>;
     }
@@ -454,6 +458,24 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
       ...message,
       parts,
     };
+  }
+
+  if (update.kind === "upsert-kimi-timeline") {
+    const timelineIndex = parts.findIndex(
+      (part) => part.type === "kimi_timeline" && part.item.id === update.item.id,
+    );
+    const nextPart = { type: "kimi_timeline" as const, item: update.item };
+    if (timelineIndex >= 0) {
+      const existing = parts[timelineIndex] as Extract<MessagePart, { type: "kimi_timeline" }>;
+      parts[timelineIndex] = {
+        ...nextPart,
+        item: { ...update.item, order: existing.item.order },
+      };
+    } else {
+      parts.push(nextPart);
+    }
+
+    return { ...message, parts };
   }
 
   if (update.kind === "upsert-plan-review") {

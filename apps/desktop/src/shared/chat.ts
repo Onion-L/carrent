@@ -228,6 +228,22 @@ export type ChatReasoningEventPayload = {
   status: ChatReasoningStatus;
 };
 
+export type KimiTimelineItem =
+  | {
+      type: "thinking";
+      id: string;
+      order: number;
+      content: string;
+      status: ChatReasoningStatus;
+    }
+  | {
+      type: "message";
+      id: string;
+      order: number;
+      content: string;
+      isFinal: boolean;
+    };
+
 export type ChatSubagentTaskStatus =
   | "running"
   | "completed"
@@ -259,6 +275,7 @@ export type ChatRunEvent =
   | (ChatRunEventBase & { type: "notice"; message: string })
   | (ChatRunEventBase & { type: "delta"; text: string })
   | (ChatRunEventBase & { type: "reasoning"; reasoning: ChatReasoningEventPayload })
+  | (ChatRunEventBase & { type: "kimi-timeline"; item: KimiTimelineItem })
   | (ChatRunEventBase & { type: "shell"; shell: ChatShellEventPayload })
   | (ChatRunEventBase & { type: "subagent-task"; task: ChatSubagentTaskPayload })
   | (ChatRunEventBase & {

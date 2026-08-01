@@ -14,6 +14,7 @@ import type {
   RuntimeQuotaWindow,
   RuntimeSessionCommand,
   RuntimeSessionStatusData,
+  KimiTimelineItem,
 } from "../../src/shared/chat";
 import {
   CHAT_PERMISSION_TIMEOUT_MS,
@@ -665,8 +666,12 @@ class KimiAcpRun {
   private nextId = 1;
   private sessionId: string | null = null;
   private finalText = "";
-  private reasoningText = "";
-  private reasoningSegmentIndex = 0;
+  private timelineOrder = 0;
+  private thinkingSegmentIndex = 0;
+  private messageSegmentIndex = 0;
+  private currentThinking: Extract<KimiTimelineItem, { type: "thinking" }> | null = null;
+  private currentMessage: Extract<KimiTimelineItem, { type: "message" }> | null = null;
+  private lastMessage: Extract<KimiTimelineItem, { type: "message" }> | null = null;
   private hasChecklistSnapshot = false;
   private pendingTodoListActivity: ChatReasoningEventPayload[] = [];
   private terminal = false;
@@ -814,7 +819,8 @@ class KimiAcpRun {
         return;
       }
 
-      this.completeReasoningSegment();
+      this.completeThinkingSegment();
+      this.markFinalMessageSegment();
 
       await this.persistCompletedSession();
 
@@ -1775,10 +1781,28 @@ class KimiAcpRun {
       return;
     }
 
-    if (updateType === "agent_message_chunk" && text) {
+    if (updateType === "agent_message_chunk") {
+      this.completeThinkingSegment();
       if (this.presentedPlanReview) {
         return;
       }
+      if (!text) return;
+      if (!this.currentMessage) {
+        this.messageSegmentIndex += 1;
+        this.currentMessage = {
+          type: "message",
+          id: `kimi-${this.options.runId}-message-${this.messageSegmentIndex}`,
+          order: this.timelineOrder++,
+          content: "",
+          isFinal: false,
+        };
+      }
+      this.currentMessage = {
+        ...this.currentMessage,
+        content: this.currentMessage.content + text,
+      };
+      this.lastMessage = this.currentMessage;
+      this.emitKimiTimelineItem(this.currentMessage);
       this.finalText += text;
       this.emit({
         type: "delta",
@@ -1790,24 +1814,28 @@ class KimiAcpRun {
     }
 
     if (updateType === "agent_thought_chunk" && text) {
-      if (!this.reasoningText) {
-        this.reasoningSegmentIndex += 1;
-      }
-      this.reasoningText += text;
-      this.emit({
-        type: "reasoning",
-        runId: this.options.runId,
-        requestKey: this.options.request.requestKey,
-        reasoning: {
-          id: `kimi-thinking-${this.reasoningSegmentIndex}`,
-          content: this.reasoningText,
+      this.currentMessage = null;
+      if (!this.currentThinking) {
+        this.thinkingSegmentIndex += 1;
+        this.currentThinking = {
+          type: "thinking",
+          id: `kimi-${this.options.runId}-thinking-${this.thinkingSegmentIndex}`,
+          order: this.timelineOrder++,
+          content: "",
           status: "running",
-        },
-      });
+        };
+      }
+      this.currentThinking = {
+        ...this.currentThinking,
+        content: this.currentThinking.content + text,
+      };
+      this.emitKimiTimelineItem(this.currentThinking);
       return;
     }
 
     if (updateType === "plan") {
+      this.completeThinkingSegment();
+      this.currentMessage = null;
       const entries = normalizeRunChecklistEntries(update?.entries);
       if (entries) {
         this.hasChecklistSnapshot = entries.length > 0;
@@ -1827,6 +1855,8 @@ class KimiAcpRun {
     }
 
     if ((updateType === "tool_call" || updateType === "tool_call_update") && update) {
+      this.completeThinkingSegment();
+      this.currentMessage = null;
       this.handleToolUpdate(update);
     }
   }
@@ -1835,7 +1865,7 @@ class KimiAcpRun {
     const id = readString(update.toolCallId) ?? "kimi-tool";
     const existing = this.toolStates.get(id);
     if (!existing) {
-      this.completeReasoningSegment();
+      this.completeThinkingSegment();
     }
     const rawInput = readObject(update.rawInput);
     const content = readTextContent(update.content);
@@ -2018,22 +2048,28 @@ class KimiAcpRun {
     });
   }
 
-  private completeReasoningSegment() {
-    if (!this.reasoningText) {
+  private completeThinkingSegment() {
+    if (!this.currentThinking) {
       return;
     }
 
+    this.emitKimiTimelineItem({ ...this.currentThinking, status: "completed" });
+    this.currentThinking = null;
+  }
+
+  private markFinalMessageSegment() {
+    if (!this.lastMessage) return;
+    this.lastMessage = { ...this.lastMessage, isFinal: true };
+    this.emitKimiTimelineItem(this.lastMessage);
+  }
+
+  private emitKimiTimelineItem(item: KimiTimelineItem) {
     this.emit({
-      type: "reasoning",
+      type: "kimi-timeline",
       runId: this.options.runId,
       requestKey: this.options.request.requestKey,
-      reasoning: {
-        id: `kimi-thinking-${this.reasoningSegmentIndex}`,
-        content: this.reasoningText,
-        status: "completed",
-      },
+      item,
     });
-    this.reasoningText = "";
   }
 
   private emitThreadLifecycle() {

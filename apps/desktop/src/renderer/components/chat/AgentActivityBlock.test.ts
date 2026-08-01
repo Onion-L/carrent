@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
+
+import "../../test/registerHappyDom";
+
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import {
+  AgentActivityBlock,
   formatAgentActivityDuration,
   getInitialAgentActivityBlockExpanded,
   getBlockStatusMeta,
@@ -31,6 +37,38 @@ function makeShell(overrides: Partial<ShellPart> & { id: string }): ShellPart {
 }
 
 describe("AgentActivityBlock expansion", () => {
+  it("expands a Kimi Thinking item on demand", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(AgentActivityBlock, {
+          status: "running",
+          items: [
+            {
+              type: "kimi-thinking",
+              id: "thinking-1",
+              content: "Inspect hidden details",
+              status: "running",
+            },
+          ],
+        }),
+      );
+    });
+    const thinkingButton = container.querySelectorAll("button")[1]!;
+    expect(thinkingButton.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("Inspect hidden details");
+
+    await act(async () => thinkingButton.click());
+
+    expect(thinkingButton.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("Inspect hidden details");
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("starts expanded while thinking before the final answer starts", () => {
     expect(
       getInitialAgentActivityBlockExpanded({

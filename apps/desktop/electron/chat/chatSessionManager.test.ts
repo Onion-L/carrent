@@ -737,10 +737,13 @@ describe("createChatSessionManager", () => {
 
     expect(emitted.map((event) => event.type)).toEqual([
       "started",
-      "reasoning",
+      "kimi-timeline",
+      "kimi-timeline",
+      "kimi-timeline",
       "delta",
+      "kimi-timeline",
       "delta",
-      "reasoning",
+      "kimi-timeline",
       "completed",
     ]);
     expect(emitted.filter((event) => event.type === "delta").map((event) => event.text)).toEqual([
@@ -792,11 +795,8 @@ describe("createChatSessionManager", () => {
     );
     await waitForAsyncEvents();
 
-    expect(emitted.map((event) => event.requestKey)).toEqual([
-      "request-kimi-1",
-      "request-kimi-1",
-      "request-kimi-1",
-    ]);
+    expect(emitted.length).toBeGreaterThan(3);
+    expect(emitted.every((event) => event.requestKey === "request-kimi-1")).toBe(true);
   });
 
   it("starts a carrent_session question server by default for Kimi runs", async () => {
@@ -1765,21 +1765,23 @@ describe("createChatSessionManager", () => {
     manager.start("run-kimi-thinking-shell", makeRequest({ runtimeId: "kimi" }));
     await waitForAsyncEvents();
 
-    const activity = emitted
-      .filter((event) => event.type === "reasoning" || event.type === "shell")
-      .map((event) =>
-        event.type === "reasoning"
-          ? `${event.reasoning.id}:${event.reasoning.status}:${event.reasoning.content}`
-          : `${event.shell.id}:${event.shell.status}:${event.shell.command}`,
-      );
+    const activity = emitted.flatMap((event) => {
+      if (event.type === "kimi-timeline" && event.item.type === "thinking") {
+        return `${event.item.id}:${event.item.status}:${event.item.content}`;
+      }
+      if (event.type === "shell") {
+        return `${event.shell.id}:${event.shell.status}:${event.shell.command}`;
+      }
+      return [];
+    });
 
     expect(activity).toEqual([
-      "kimi-thinking-1:running:Inspect first",
-      "kimi-thinking-1:completed:Inspect first",
+      "kimi-run-kimi-thinking-shell-thinking-1:running:Inspect first",
+      "kimi-run-kimi-thinking-shell-thinking-1:completed:Inspect first",
       "tool-shell-1:running:Bash",
       "tool-shell-1:completed:pwd",
-      "kimi-thinking-2:running:Verify result",
-      "kimi-thinking-2:completed:Verify result",
+      "kimi-run-kimi-thinking-shell-thinking-2:running:Verify result",
+      "kimi-run-kimi-thinking-shell-thinking-2:completed:Verify result",
     ]);
   });
 

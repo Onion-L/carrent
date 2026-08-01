@@ -695,6 +695,63 @@ describe("applyMessagePartUpdate", () => {
     });
   });
 
+  it("upserts Kimi timeline items without changing their first-seen order", () => {
+    const message = makeMessage({ role: "assistant", content: "", parts: [] });
+    const withThinking = applyMessagePartUpdate(message, {
+      kind: "upsert-kimi-timeline",
+      item: {
+        type: "thinking",
+        id: "kimi-run-1-thinking-1",
+        order: 0,
+        content: "Inspect",
+        status: "running",
+      },
+    });
+    const withMessage = applyMessagePartUpdate(withThinking, {
+      kind: "upsert-kimi-timeline",
+      item: {
+        type: "message",
+        id: "kimi-run-1-message-1",
+        order: 1,
+        content: "Working on it.",
+        isFinal: false,
+      },
+    });
+
+    const replayedUpdate = {
+      kind: "upsert-kimi-timeline" as const,
+      item: {
+        type: "thinking" as const,
+        id: "kimi-run-1-thinking-1",
+        order: 99,
+        content: "Inspect files",
+        status: "completed" as const,
+      },
+    };
+    const updated = applyMessagePartUpdate(withMessage, replayedUpdate);
+    const replayed = applyMessagePartUpdate(updated, replayedUpdate);
+
+    expect(replayed).toMatchObject({
+      content: "",
+      parts: [
+        {
+          type: "kimi_timeline",
+          item: {
+            id: "kimi-run-1-thinking-1",
+            order: 0,
+            content: "Inspect files",
+            status: "completed",
+          },
+        },
+        {
+          type: "kimi_timeline",
+          item: { id: "kimi-run-1-message-1", order: 1, content: "Working on it." },
+        },
+      ],
+    });
+    expect(replayed.type === "changed_files" ? [] : replayed.parts).toHaveLength(2);
+  });
+
   it("upserts, resolves, and interrupts Plan Reviews", () => {
     const message = makeMessage({ role: "assistant", content: "", parts: [] });
     const review = {

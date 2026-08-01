@@ -1210,6 +1210,44 @@ function normalizeMessagePart(value: unknown): MessagePart | null {
   if (value.type === "text") {
     return typeof value.content === "string" ? { type: "text", content: value.content } : null;
   }
+  if (value.type === "kimi_timeline") {
+    const item = value.item;
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "string" ||
+      typeof item.order !== "number" ||
+      !Number.isInteger(item.order) ||
+      item.order < 0 ||
+      typeof item.content !== "string"
+    ) {
+      return null;
+    }
+    if (item.type === "thinking" && (item.status === "running" || item.status === "completed")) {
+      return {
+        type: "kimi_timeline",
+        item: {
+          type: "thinking",
+          id: item.id,
+          order: item.order,
+          content: item.content,
+          status: item.status,
+        },
+      };
+    }
+    if (item.type === "message" && typeof item.isFinal === "boolean") {
+      return {
+        type: "kimi_timeline",
+        item: {
+          type: "message",
+          id: item.id,
+          order: item.order,
+          content: item.content,
+          isFinal: item.isFinal,
+        },
+      };
+    }
+    return null;
+  }
   if (value.type === "reasoning") {
     if (
       typeof value.id !== "string" ||

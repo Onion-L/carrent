@@ -9,7 +9,13 @@ export type CommentaryPart = {
   id: string;
   content: string;
 };
-export type AgentActivityStep = ReasoningPart | ShellPart;
+export type KimiThinkingItem = {
+  type: "kimi-thinking";
+  id: string;
+  content: string;
+  status: "running" | "completed" | "cancelled";
+};
+export type AgentActivityStep = ReasoningPart | ShellPart | KimiThinkingItem;
 export type AgentActivityItem = AgentActivityStep | CommentaryPart;
 export type AgentActivityStatus = "running" | "completed" | "failed" | "cancelled";
 
@@ -144,6 +150,37 @@ function ReasoningStepItem({ step }: { step: ReasoningPart }) {
   );
 }
 
+function KimiThinkingItemView({ item }: { item: KimiThinkingItem }) {
+  const [expanded, setExpanded] = useState(false);
+  const meta = getStepStatusMeta(item);
+  const StatusIcon = meta.icon;
+  const isRunning = item.status === "running";
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="group flex w-full items-center gap-2.5 text-left text-app-12 text-muted"
+        aria-expanded={expanded}
+      >
+        <ChevronRight
+          className={`h-3.5 w-3.5 shrink-0 transition ${expanded ? "rotate-90" : ""}`}
+        />
+        <StatusIcon
+          className={`h-3.5 w-3.5 shrink-0 ${meta.className} ${isRunning ? "animate-spin" : ""}`}
+        />
+        <span>{isRunning ? "Thinking" : "Thought"}</span>
+      </button>
+      {expanded ? (
+        <pre className="mt-2 whitespace-pre-wrap break-words border-l border-border pl-5 text-app-12 leading-5 text-muted">
+          {item.content}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
 function CommentaryItem({ item }: { item: CommentaryPart }) {
   return (
     <p className="whitespace-pre-wrap break-words text-app-14 font-medium leading-6 text-muted">
@@ -205,6 +242,9 @@ function ActivityItem({ item }: { item: AgentActivityItem }) {
   }
   if (item.type === "reasoning") {
     return <ReasoningStepItem step={item} />;
+  }
+  if (item.type === "kimi-thinking") {
+    return <KimiThinkingItemView item={item} />;
   }
   return <ShellStepItem step={item} />;
 }

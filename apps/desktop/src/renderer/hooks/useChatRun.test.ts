@@ -543,6 +543,32 @@ describe("createChatRunCoordinator", () => {
     expect(received).toEqual(["running:Need to inspect files"]);
   });
 
+  it("routes normalized Kimi timeline updates through the Run event channel", () => {
+    const coordinator = createChatRunCoordinator();
+    const received: string[] = [];
+
+    coordinator.beginRequest("request-1", "thread-1", {
+      onKimiTimeline: (item) => received.push(`${item.order}:${item.type}:${item.content}`),
+    });
+    const event = {
+      type: "kimi-timeline",
+      runId: "run-1",
+      requestKey: "request-1",
+      item: {
+        type: "thinking",
+        id: "kimi-run-1-thinking-1",
+        order: 0,
+        content: "Inspect files",
+        status: "running",
+      },
+    } as const satisfies ChatRunEvent;
+
+    coordinator.handleEvent(event);
+    coordinator.handleEvent(event);
+
+    expect(received).toEqual(["0:thinking:Inspect files", "0:thinking:Inspect files"]);
+  });
+
   it("routes subagent-task events to the active request callback", () => {
     const coordinator = createChatRunCoordinator();
     const received: string[] = [];

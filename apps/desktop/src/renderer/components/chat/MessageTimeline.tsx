@@ -487,6 +487,41 @@ export function getAssistantMessagePresentation(
   parts: MessagePart[],
   runStatus: Message["runStatus"],
 ) {
+  const kimiItems = parts
+    .filter(
+      (part): part is Extract<MessagePart, { type: "kimi_timeline" }> =>
+        part.type === "kimi_timeline",
+    )
+    .map((part) => part.item)
+    .sort((left, right) => left.order - right.order);
+  if (kimiItems.length > 0) {
+    const activityItems: AgentActivityItem[] = [];
+    const answerParts: string[] = [];
+    let kimiIndex = 0;
+    parts.forEach((part) => {
+      if (part.type === "kimi_timeline") {
+        const item = kimiItems[kimiIndex++]!;
+        if (item.type === "thinking") {
+          activityItems.push({
+            type: "kimi-thinking",
+            id: item.id,
+            content: item.content,
+            status: item.status,
+          });
+        } else if (item.isFinal) {
+          answerParts.push(item.content);
+        } else {
+          activityItems.push({ type: "commentary", id: item.id, content: item.content });
+        }
+        return;
+      }
+      if ((part.type === "reasoning" || part.type === "shell") && !isRawThoughtPart(part)) {
+        activityItems.push(part);
+      }
+    });
+    return { activityItems, answerText: answerParts.join("\n") };
+  }
+
   const hasPlanReview = parts.some((part) => part.type === "plan_review");
   const answerCanStart = runStatus !== "running" || hasPlanReview;
   const lastActivityIndex = parts.reduce(

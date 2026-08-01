@@ -1,4 +1,9 @@
-import type { AttachmentMetadata, ChatSubagentTaskPayload, RuntimeSessionRecovery } from "./chat";
+import type {
+  AttachmentMetadata,
+  ChatSubagentTaskPayload,
+  KimiTimelineItem,
+  RuntimeSessionRecovery,
+} from "./chat";
 import type { ChatPermissionOption } from "./chatPermissions";
 
 export type { AttachmentMetadata };
@@ -33,6 +38,7 @@ export type SubagentTaskPart = { type: "subagent_task" } & ChatSubagentTaskPaylo
 
 export type MessagePart =
   | { type: "text"; content: string }
+  | { type: "kimi_timeline"; item: KimiTimelineItem }
   | {
       type: "reasoning";
       id: string;

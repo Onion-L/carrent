@@ -319,6 +319,79 @@ describe("user message inline editing", () => {
 });
 
 describe("assistant message presentation", () => {
+  it("presents Kimi thinking and message segments in normalized order", () => {
+    const parts = [
+      {
+        type: "kimi_timeline" as const,
+        item: {
+          type: "message" as const,
+          id: "message-2",
+          order: 3,
+          content: "Done.",
+          isFinal: true,
+        },
+      },
+      {
+        type: "kimi_timeline" as const,
+        item: {
+          type: "thinking" as const,
+          id: "thinking-1",
+          order: 0,
+          content: "Inspect files",
+          status: "completed" as const,
+        },
+      },
+      { type: "text" as const, content: "I found it.Done." },
+      {
+        type: "shell" as const,
+        id: "shell-1",
+        command: "pwd",
+        output: "/tmp",
+        status: "completed" as const,
+      },
+      {
+        type: "kimi_timeline" as const,
+        item: {
+          type: "thinking" as const,
+          id: "thinking-2",
+          order: 2,
+          content: "Verify",
+          status: "running" as const,
+        },
+      },
+      {
+        type: "kimi_timeline" as const,
+        item: {
+          type: "message" as const,
+          id: "message-1",
+          order: 1,
+          content: "I found it.",
+          isFinal: false,
+        },
+      },
+    ];
+
+    expect(getAssistantMessagePresentation(parts, "completed")).toEqual({
+      activityItems: [
+        {
+          type: "kimi-thinking",
+          id: "thinking-1",
+          content: "Inspect files",
+          status: "completed",
+        },
+        { type: "commentary", id: "message-1", content: "I found it." },
+        parts[3],
+        {
+          type: "kimi-thinking",
+          id: "thinking-2",
+          content: "Verify",
+          status: "running",
+        },
+      ],
+      answerText: "Done.",
+    });
+  });
+
   it("uses streamed assistant text as Thinking content until the run completes", () => {
     const parts = [
       {

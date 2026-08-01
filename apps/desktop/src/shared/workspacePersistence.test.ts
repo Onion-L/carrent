@@ -432,6 +432,16 @@ describe("normalizeAppStateSnapshot", () => {
               content: "Inspecting state",
               status: "running",
             },
+            {
+              type: "kimi_timeline",
+              item: {
+                type: "message",
+                id: "kimi-run-1-message-1",
+                order: 1,
+                content: "Working",
+                isFinal: false,
+              },
+            },
           ],
           attachments: [],
         },

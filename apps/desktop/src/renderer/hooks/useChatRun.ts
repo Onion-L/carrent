@@ -6,6 +6,7 @@ import type {
   ChatRunEvent,
   ChatShellEventPayload,
   ChatSubagentTaskPayload,
+  KimiTimelineItem,
   ChatTurnRequest,
   RuntimeSessionRecovery,
 } from "../../shared/chat";
@@ -19,6 +20,7 @@ export type ChatRunCallbacks = {
   onStarted?: (runId: string) => void;
   onDelta?: (text: string) => void;
   onReasoning?: (reasoning: ChatReasoningEventPayload) => void;
+  onKimiTimeline?: (item: KimiTimelineItem) => void;
   onShell?: (shell: ChatShellEventPayload) => void;
   onSubagentTask?: (task: ChatSubagentTaskPayload) => void;
   onChecklist?: (
@@ -378,6 +380,11 @@ export function createChatRunCoordinator() {
 
       if (event.type === "reasoning") {
         run.callbacks.onReasoning?.(event.reasoning);
+        return;
+      }
+
+      if (event.type === "kimi-timeline") {
+        run.callbacks.onKimiTimeline?.(event.item);
         return;
       }
 

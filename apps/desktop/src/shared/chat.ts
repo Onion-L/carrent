@@ -126,14 +126,22 @@ export function applyThreadDeletionToAppState(
       (association) =>
         association.workspaceId !== scope.workspaceId || association.projectId !== scope.projectId,
     );
+    // Reindex the affected workspace's remaining associations so per-workspace
+    // orders stay contiguous (required by the snapshot normalizers).
+    let nextOrder = 0;
+    const reindexedAssociations = associations.map((association) =>
+      association.workspaceId === scope.workspaceId
+        ? { ...association, order: nextOrder++ }
+        : association,
+    );
     return {
       ...withoutThreads,
       projects: withoutThreads.projects.filter(
         (project) =>
           project.id !== scope.projectId ||
-          associations.some((association) => association.projectId === project.id),
+          reindexedAssociations.some((association) => association.projectId === project.id),
       ),
-      associations,
+      associations: reindexedAssociations,
       threadDrafts: withoutThreads.threadDrafts?.filter(
         (draft) => draft.workspaceId !== scope.workspaceId || draft.projectId !== scope.projectId,
       ),

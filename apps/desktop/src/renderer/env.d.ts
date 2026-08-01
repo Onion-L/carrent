@@ -107,12 +107,12 @@ declare global {
         load: () => Promise<import("../shared/workspacePersistence").AppStateLoadResult>;
         reread: () => Promise<import("../shared/workspacePersistence").AppStateLoadResult>;
         fullReset: () => Promise<import("../shared/workspacePersistence").AppStateLoadResult>;
-        stage: (snapshot: AppStateSnapshot) => void;
-        save: (snapshot: AppStateSnapshot) => Promise<void>;
         subscribe: () => Promise<AppStateAuthorityState>;
         unsubscribe: () => Promise<void>;
         command: (command: AppStateCommand) => Promise<AppStateCommandResult>;
         onChanged: (listener: (state: AppStateAuthorityState) => void) => VoidFunction;
+        onFlushRequest: (listener: () => void) => VoidFunction;
+        flushDone: () => Promise<void>;
       };
       providerSessions: {
         load: () => Promise<ProviderSessionSnapshot>;

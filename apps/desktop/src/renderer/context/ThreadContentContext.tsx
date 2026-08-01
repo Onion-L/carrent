@@ -19,6 +19,7 @@ import {
   hydrateThreadWork,
   removeThreadWork,
   subscribeToThreadWork,
+  syncThreadWorkFromSnapshot,
 } from "../hooks/chatMessageQueue";
 import type { RuntimeId } from "../../shared/runtimes";
 import { reconcileInterruptedRuns } from "../lib/interruptedRuns";
@@ -230,6 +231,12 @@ function formatTime(date: Date): string {
     minute: "2-digit",
     hour12: false,
   });
+}
+
+// Compares Thread work ignoring requiresConfirmation: the persisted form
+// forces it for crash recovery while the live store tracks steerability.
+function threadWorkCompareKey(work: Record<string, ThreadWorkSnapshot>): string {
+  return JSON.stringify(work, (key, value) => (key === "requiresConfirmation" ? undefined : value));
 }
 
 export function resolveWorkspaceThreadRouteData(
@@ -602,6 +609,7 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
     threadMessages: appStateThreadMessages,
     threadWork: appStateThreadWork,
     updateThreadContent,
+    removeThreadSnapshot,
   } = useAppState();
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const hydrationCompleteRef = useRef(false);
@@ -636,17 +644,32 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
 
   const allThreadIds = useMemo(() => appStateThreads.map((thread) => thread.id), [appStateThreads]);
   const threadWorkVersion = useSyncExternalStore(subscribeToThreadWork, getThreadWorkVersion);
-  const threadWork = useMemo(
-    () => getThreadWorkSnapshot(allThreadIds),
-    // threadWorkVersion re-runs this memo whenever a draft or queue changes.
-    [allThreadIds, threadWorkVersion],
-  );
 
+  // Reconciles the live queue store with App State Thread work in both
+  // directions, one per commit: a store-originated change (version bump)
+  // pushes into App State through a Thread work command; an App
+  // State-originated change (a broadcast) syncs into the store. Acting on a
+  // single effect with effect-time values keeps the two directions from
+  // oscillating against each other's render-lagged props.
+  const lastThreadWorkVersionRef = useRef(threadWorkVersion);
   useEffect(() => {
     if (!appStateHasHydrated || !hydrationCompleteRef.current) return;
-    if (JSON.stringify(threadWork) === JSON.stringify(appStateThreadWork)) return;
-    updateThreadContent((content) => ({ ...content, threadWork }));
-  }, [appStateHasHydrated, appStateThreadWork, threadWork, threadWorkVersion, updateThreadContent]);
+    const versionChanged = threadWorkVersion !== lastThreadWorkVersionRef.current;
+    lastThreadWorkVersionRef.current = threadWorkVersion;
+    const current = getThreadWorkSnapshot(allThreadIds);
+    if (threadWorkCompareKey(current) === threadWorkCompareKey(appStateThreadWork)) return;
+    if (versionChanged) {
+      updateThreadContent((content) => ({ ...content, threadWork: current }));
+      return;
+    }
+    syncThreadWorkFromSnapshot(appStateThreadWork);
+  }, [
+    appStateHasHydrated,
+    appStateThreadWork,
+    allThreadIds,
+    threadWorkVersion,
+    updateThreadContent,
+  ]);
 
   const renameThread = (projectId: string, threadId: string, newTitle: string) => {
     const title = newTitle.trim();
@@ -689,13 +712,8 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
   };
 
   const removeThreadFromState = (threadId: string) => {
-    updateThreadContent((content) => ({
-      threads: content.threads.filter((thread) => thread.id !== threadId),
-      threadMessages: content.threadMessages.filter((message) => message.threadId !== threadId),
-      threadWork: Object.fromEntries(
-        Object.entries(content.threadWork).filter(([id]) => id !== threadId),
-      ),
-    }));
+    // Snapshot removal flows through commands (rollback / thread:remove) and
+    // their broadcasts; this only resets local selection.
     setSelectedThreadId((prev) => (prev === threadId ? null : prev));
   };
 
@@ -734,18 +752,10 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
       });
     } else {
       await window.carrent.chat.deleteThreadData(deletion.request);
+      await removeThreadSnapshot(threadId);
     }
 
     removeThreadWork([threadId]);
-    if (!appStateSnapshots) {
-      updateThreadContent((content) => ({
-        threads: content.threads.filter((thread) => thread.id !== threadId),
-        threadMessages: content.threadMessages.filter((message) => message.threadId !== threadId),
-        threadWork: Object.fromEntries(
-          Object.entries(content.threadWork).filter(([id]) => id !== threadId),
-        ),
-      }));
-    }
     setSelectedThreadId((prev) => (prev === threadId ? null : prev));
     return null;
   };

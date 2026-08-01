@@ -792,6 +792,436 @@ describe("settings snapshot persistence", () => {
   });
 });
 
+describe("thread-draft commands", () => {
+  const draftInput = (overrides: Record<string, unknown> = {}) => ({
+    id: "d-new",
+    threadId: "thread-new",
+    workspaceId: "ws-a",
+    projectId: "proj-3",
+    content: "",
+    attachedSkillNames: [],
+    attachments: [],
+    runtimeId: "kimi",
+    runtimeMode: "approval-required",
+    planMode: false,
+    ...overrides,
+  });
+
+  it("opens a new draft and returns it as command data", () => {
+    const result = reduce("thread-draft:open", makeSnapshot(), {
+      workspaceId: "ws-a",
+      projectId: "proj-3",
+      draft: draftInput(),
+    });
+
+    expect(result).not.toBe(null);
+    const produced = result as { snapshot: AppStateSnapshot; data: { id: string } };
+    expect(produced.data.id).toBe("d-new");
+    expect(produced.snapshot.threadDrafts?.map((draft) => draft.id)).toEqual(["d-1", "d-new"]);
+    expect(normalizeAppStateSnapshotForWrite(produced.snapshot)).not.toBe(null);
+  });
+
+  it("returns the existing draft as a no-op when one is already open", () => {
+    const result = reduce("thread-draft:open", makeSnapshot(), {
+      workspaceId: "ws-a",
+      projectId: "proj-1",
+      draft: draftInput({ workspaceId: "ws-a", projectId: "proj-1" }),
+    });
+
+    expect(result).toMatchObject({ data: { id: "d-1" } });
+    expect((result as { snapshot: AppStateSnapshot }).snapshot.threadDrafts).toHaveLength(1);
+  });
+
+  it("rejects open without an association or with a colliding draft", () => {
+    expect(
+      reduce("thread-draft:open", makeSnapshot(), {
+        workspaceId: "ws-a",
+        projectId: "proj-2",
+        draft: draftInput({ workspaceId: "ws-a", projectId: "proj-2" }),
+      }),
+    ).toBe(null);
+    expect(
+      reduce("thread-draft:open", makeSnapshot(), {
+        workspaceId: "ws-a",
+        projectId: "proj-3",
+        draft: draftInput({ id: "d-1" }),
+      }),
+    ).toBe(null);
+    expect(
+      reduce("thread-draft:open", makeSnapshot(), {
+        workspaceId: "ws-a",
+        projectId: "proj-3",
+        draft: draftInput({ threadId: "t-1" }),
+      }),
+    ).toBe(null);
+  });
+
+  it("updates draft content and clears it with a null draft", () => {
+    const updated = reduce("thread-draft:update", makeSnapshot(), {
+      draftId: "d-1",
+      draft: {
+        content: "hello",
+        composerState: '{"root":{}}',
+        attachedSkillNames: ["tdd"],
+        attachments: [],
+      },
+    }) as AppStateSnapshot;
+    expect(updated.threadDrafts?.[0]).toMatchObject({
+      content: "hello",
+      composerState: '{"root":{}}',
+      attachedSkillNames: ["tdd"],
+    });
+
+    const cleared = reduce("thread-draft:update", updated, { draftId: "d-1", draft: null });
+    expect((cleared as AppStateSnapshot).threadDrafts?.[0]).toMatchObject({
+      content: "",
+      attachedSkillNames: [],
+      attachments: [],
+    });
+    expect((cleared as AppStateSnapshot).threadDrafts?.[0]?.composerState).toBe(undefined);
+    expect(reduce("thread-draft:update", makeSnapshot(), { draftId: "d-404", draft: null })).toBe(
+      null,
+    );
+  });
+
+  it("updates draft config and clears the model override", () => {
+    const updated = reduce("thread-draft:update-config", makeSnapshot(), {
+      draftId: "d-1",
+      config: {
+        runtimeId: "codex",
+        runtimeModelId: "gpt-5",
+        runtimeMode: "full-access",
+        planMode: true,
+      },
+    }) as AppStateSnapshot;
+    expect(updated.threadDrafts?.[0]).toMatchObject({
+      runtimeId: "codex",
+      runtimeModelId: "gpt-5",
+      runtimeMode: "full-access",
+      planMode: true,
+    });
+
+    const cleared = reduce("thread-draft:update-config", updated, {
+      draftId: "d-1",
+      config: { runtimeId: "kimi", runtimeMode: "approval-required", planMode: false },
+    }) as AppStateSnapshot;
+    expect(cleared.threadDrafts?.[0]?.runtimeModelId).toBe(undefined);
+    expect(
+      reduce("thread-draft:update-config", makeSnapshot(), {
+        draftId: "d-1",
+        config: { runtimeId: "nope", runtimeMode: "approval-required", planMode: false },
+      }),
+    ).toBe(null);
+  });
+
+  it("discards a draft and rejects unknown drafts", () => {
+    const next = reduce("thread-draft:discard", makeSnapshot(), { draftId: "d-1" });
+    expect((next as AppStateSnapshot).threadDrafts).toEqual([]);
+    expect(reduce("thread-draft:discard", makeSnapshot(), { draftId: "d-404" })).toBe(null);
+  });
+
+  const promotionPayload = () => ({
+    draftId: "d-1",
+    threadId: "draft-thread-1",
+    thread: {
+      id: "draft-thread-1",
+      workspaceId: "ws-a",
+      projectId: "proj-1",
+      title: "First turn",
+      createdAt: "2026-07-30T08:00:00.000Z",
+      lastActivityAt: "2026-07-30T08:00:00.000Z",
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+    },
+    message: {
+      id: "m-1",
+      threadId: "draft-thread-1",
+      role: "user",
+      content: "first turn",
+      createdAt: "2026-07-30T08:00:00.000Z",
+      attachments: [],
+    },
+    run: {
+      id: "run-1",
+      threadId: "draft-thread-1",
+      messageId: "m-1",
+      startedAt: "2026-07-30T08:00:00.000Z",
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+    },
+  });
+
+  it("promotes a draft atomically into thread, message, and run", () => {
+    const result = reduce("thread-draft:promote", makeSnapshot(), promotionPayload());
+
+    expect(result).toMatchObject({ data: { created: true, thread: { id: "draft-thread-1" } } });
+    const snapshot = (result as { snapshot: AppStateSnapshot }).snapshot;
+    expect(snapshot.threadDrafts).toEqual([]);
+    expect(snapshot.threads?.map((thread) => thread.id)).toContain("draft-thread-1");
+    expect(snapshot.threadMessages?.map((message) => message.id)).toEqual(["m-1"]);
+    expect(snapshot.threadRuns?.map((run) => run.id)).toEqual(["run-1"]);
+    expect(normalizeAppStateSnapshotForWrite(snapshot)).not.toBe(null);
+  });
+
+  it("resolves a lost promotion race to the existing thread without duplicating", () => {
+    const promoted = reduce("thread-draft:promote", makeSnapshot(), promotionPayload()) as {
+      snapshot: AppStateSnapshot;
+    };
+
+    const replay = reduce("thread-draft:promote", promoted.snapshot, promotionPayload());
+
+    expect(replay).toMatchObject({ data: { created: false, thread: { id: "draft-thread-1" } } });
+    const snapshot = (replay as { snapshot: AppStateSnapshot }).snapshot;
+    expect(snapshot.threads?.filter((thread) => thread.id === "draft-thread-1")).toHaveLength(1);
+    expect(snapshot.threadMessages).toHaveLength(1);
+    expect(snapshot.threadRuns).toHaveLength(1);
+  });
+
+  it("rejects promotion of an unknown draft with no resulting thread", () => {
+    expect(
+      reduce("thread-draft:promote", makeSnapshot(), { ...promotionPayload(), draftId: "d-404" }),
+    ).toBe(null);
+  });
+
+  it("rolls back a promotion and restores the draft idempotently", () => {
+    const promoted = reduce("thread-draft:promote", makeSnapshot(), promotionPayload()) as {
+      snapshot: AppStateSnapshot;
+    };
+    const draft = makeDraft("d-1", "draft-thread-1", "ws-a", "proj-1");
+
+    const rolledBack = reduce("thread-draft:rollback-promotion", promoted.snapshot, {
+      draft,
+    }) as AppStateSnapshot;
+    expect(rolledBack.threadDrafts?.map((item) => item.id)).toEqual(["d-1"]);
+    expect(rolledBack.threads?.some((thread) => thread.id === "draft-thread-1")).toBe(false);
+    expect(rolledBack.threadMessages).toEqual([]);
+    expect(rolledBack.threadRuns).toEqual([]);
+
+    const again = reduce("thread-draft:rollback-promotion", rolledBack, { draft });
+    expect(again).toBe(rolledBack);
+  });
+});
+
+describe("thread run and action commands", () => {
+  const runPayload = () => ({
+    threadId: "t-1",
+    message: {
+      id: "m-1",
+      threadId: "t-1",
+      role: "user",
+      content: "run this",
+      createdAt: "2026-07-30T08:00:00.000Z",
+      attachments: [],
+    },
+    run: {
+      id: "run-1",
+      threadId: "t-1",
+      messageId: "m-1",
+      startedAt: "2026-07-30T08:00:00.000Z",
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+    },
+  });
+
+  it("records a run with its user message and bumps thread activity", () => {
+    const next = reduce("thread:record-run", makeSnapshot(), runPayload()) as AppStateSnapshot;
+
+    expect(next.threadMessages?.map((message) => message.id)).toEqual(["m-1"]);
+    expect(next.threadRuns?.map((run) => run.id)).toEqual(["run-1"]);
+    expect(next.threads?.find((thread) => thread.id === "t-1")?.lastActivityAt).toBe(
+      "2026-07-30T08:00:00.000Z",
+    );
+    expect(normalizeAppStateSnapshotForWrite(next)).not.toBe(null);
+  });
+
+  it("does not duplicate an already-present user message", () => {
+    const first = reduce("thread:record-run", makeSnapshot(), runPayload()) as AppStateSnapshot;
+    const second = reduce("thread:record-run", first, {
+      ...runPayload(),
+      run: { ...runPayload().run, id: "run-2" },
+    }) as AppStateSnapshot;
+
+    expect(second.threadMessages).toHaveLength(1);
+    expect(second.threadRuns).toHaveLength(2);
+  });
+
+  it("rejects recording a run for unknown or archived threads", () => {
+    expect(
+      reduce("thread:record-run", makeSnapshot(), { ...runPayload(), threadId: "t-404" }),
+    ).toBe(null);
+    expect(reduce("thread:record-run", makeSnapshot(), { ...runPayload(), threadId: "t-3" })).toBe(
+      null,
+    );
+  });
+
+  it("rolls back a run and recomputes thread activity from the remaining messages", () => {
+    const recorded = reduce("thread:record-run", makeSnapshot(), runPayload()) as AppStateSnapshot;
+
+    const next = reduce("thread:rollback-run", recorded, {
+      threadId: "t-1",
+      runId: "run-1",
+      messageId: "m-1",
+    }) as AppStateSnapshot;
+
+    expect(next.threadMessages).toEqual([]);
+    expect(next.threadRuns).toEqual([]);
+    expect(next.threads?.find((thread) => thread.id === "t-1")?.lastActivityAt).toBe(
+      "2026-07-01T00:00:00.000Z",
+    );
+    expect(
+      reduce("thread:rollback-run", makeSnapshot(), {
+        threadId: "t-404",
+        runId: "run-1",
+        messageId: "m-1",
+      }),
+    ).toBe(null);
+  });
+
+  it("records a thread action and bumps thread activity", () => {
+    const next = reduce("thread:record-action", makeSnapshot(), {
+      action: {
+        id: "action-1",
+        threadId: "t-1",
+        action: "compact",
+        runtimeId: "kimi",
+        completedAt: "2026-07-30T09:00:00.000Z",
+      },
+    }) as AppStateSnapshot;
+
+    expect(next.threadActions?.map((action) => action.id)).toEqual(["action-1"]);
+    expect(next.threads?.find((thread) => thread.id === "t-1")?.lastActivityAt).toBe(
+      "2026-07-30T09:00:00.000Z",
+    );
+    expect(
+      reduce("thread:record-action", makeSnapshot(), {
+        action: {
+          id: "action-2",
+          threadId: "t-404",
+          action: "compact",
+          runtimeId: "kimi",
+          completedAt: "2026-07-30T09:00:00.000Z",
+        },
+      }),
+    ).toBe(null);
+  });
+
+  it("removes a thread and all of its records", () => {
+    const withContent = reduce(
+      "thread:record-run",
+      makeSnapshot(),
+      runPayload(),
+    ) as AppStateSnapshot;
+    const next = reduce("thread:remove", withContent, { threadId: "t-1" }) as AppStateSnapshot;
+
+    expect(next.threads?.some((thread) => thread.id === "t-1")).toBe(false);
+    expect(next.threadMessages).toEqual([]);
+    expect(next.threadRuns).toEqual([]);
+    expect(next.lastThreadIdByWorkspace).toEqual({});
+    expect(reduce("thread:remove", makeSnapshot(), { threadId: "t-404" })).toBe(null);
+  });
+});
+
+describe("thread-content:update / thread-work:update", () => {
+  const message = (id: string, threadId: string, content: string) => ({
+    id,
+    threadId,
+    role: "user" as const,
+    content,
+    createdAt: "2026-07-30T08:00:00.000Z",
+    attachments: [],
+  });
+
+  it("patches thread title and pin while replacing messages in place", () => {
+    const base = makeSnapshot({
+      threadMessages: [message("m-1", "t-1", "one"), message("m-2", "t-2", "two")],
+    });
+
+    const next = reduce("thread-content:update", base, {
+      threadId: "t-1",
+      thread: { title: "Renamed", pinned: true },
+      messages: [message("m-3", "t-1", "three")],
+    }) as AppStateSnapshot;
+
+    const patched = next.threads?.find((thread) => thread.id === "t-1");
+    expect(patched).toMatchObject({ title: "Renamed", pinned: true });
+    // The replaced list lands where the thread's messages were.
+    expect(next.threadMessages?.map((item) => item.id)).toEqual(["m-3", "m-2"]);
+    expect(normalizeAppStateSnapshotForWrite(next)).not.toBe(null);
+  });
+
+  it("clears pin and run checklist, and validates the checklist", () => {
+    const base = makeSnapshot({
+      threads: [
+        makeThread("t-1", "ws-a", "proj-1", {
+          pinned: true,
+          runChecklist: {
+            runId: "run-1",
+            runtimeId: "kimi",
+            outcome: "running",
+            expanded: true,
+            entries: [{ content: "step", status: "completed" }],
+          },
+        }),
+        makeThread("t-2", "ws-a", "proj-3"),
+        makeThread("t-3", "ws-a", "proj-1", { archived: true }),
+        makeThread("t-4", "ws-b", "proj-2"),
+      ],
+    });
+
+    const cleared = reduce("thread-content:update", base, {
+      threadId: "t-1",
+      thread: { pinned: false, runChecklist: null },
+    }) as AppStateSnapshot;
+    const thread = cleared.threads?.find((item) => item.id === "t-1");
+    expect(thread?.pinned).toBe(undefined);
+    expect(thread?.runChecklist).toBe(undefined);
+
+    expect(
+      reduce("thread-content:update", base, { threadId: "t-1", thread: { runChecklist: {} } }),
+    ).toBe(null);
+    expect(reduce("thread-content:update", base, { threadId: "t-1", thread: { title: " " } })).toBe(
+      null,
+    );
+  });
+
+  it("rejects unknown threads and messages from another thread", () => {
+    expect(
+      reduce("thread-content:update", makeSnapshot(), { threadId: "t-404", messages: [] }),
+    ).toBe(null);
+    expect(
+      reduce("thread-content:update", makeSnapshot(), {
+        threadId: "t-1",
+        messages: [message("m-9", "t-2", "wrong")],
+      }),
+    ).toBe(null);
+  });
+
+  it("sets and removes thread work", () => {
+    const withWork = reduce("thread-work:update", makeSnapshot(), {
+      threadId: "t-1",
+      work: {
+        draft: { content: "draft text", attachedSkillNames: [], attachments: [] },
+        queuedMessages: [],
+      },
+    }) as AppStateSnapshot;
+    expect(withWork.threadWork?.["t-1"]?.draft?.content).toBe("draft text");
+    expect(normalizeAppStateSnapshotForWrite(withWork)).not.toBe(null);
+
+    const removed = reduce("thread-work:update", withWork, { threadId: "t-1", work: null });
+    expect((removed as AppStateSnapshot).threadWork).toEqual({});
+    // Removing a missing entry is a no-op that returns the input snapshot.
+    const noop = reduce("thread-work:update", makeSnapshot(), { threadId: "t-1", work: null });
+    expect(noop).not.toBe(null);
+    expect(reduce("thread-work:update", makeSnapshot(), { threadId: "t-404", work: null })).toBe(
+      null,
+    );
+    expect(reduce("thread-work:update", makeSnapshot(), { threadId: "t-1", work: {} })).toBe(null);
+  });
+});
+
 describe("appStateCommandReducers through createAppStateAuthority", () => {
   function createHarness(initialSnapshot: AppStateSnapshot = makeSnapshot()) {
     const saved: AppStateSnapshot[] = [];
@@ -924,5 +1354,66 @@ describe("appStateCommandReducers through createAppStateAuthority", () => {
     expect(result).toEqual({ status: "accepted", revision: 1 });
     expect(saved[0]?.workspaces).toEqual([makeWorkspace("ws-b", "Beta", 0)]);
     expect(saved[0]?.activeWorkspaceId).toBe("ws-b");
+  });
+
+  it("resolves two concurrent promotions of the same draft to exactly one created thread", async () => {
+    const { authority, saved } = createHarness();
+    const payload = {
+      draftId: "d-1",
+      threadId: "draft-thread-1",
+      thread: {
+        id: "draft-thread-1",
+        workspaceId: "ws-a",
+        projectId: "proj-1",
+        title: "First turn",
+        createdAt: "2026-07-30T08:00:00.000Z",
+        lastActivityAt: "2026-07-30T08:00:00.000Z",
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
+      message: {
+        id: "m-1",
+        threadId: "draft-thread-1",
+        role: "user",
+        content: "first turn",
+        createdAt: "2026-07-30T08:00:00.000Z",
+        attachments: [],
+      },
+      run: {
+        id: "run-1",
+        threadId: "draft-thread-1",
+        messageId: "m-1",
+        startedAt: "2026-07-30T08:00:00.000Z",
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
+    };
+
+    const [winner, loser] = await Promise.all([
+      authority.submit(
+        1,
+        command({ commandId: "cmd-promote-a", type: "thread-draft:promote", payload }),
+      ),
+      authority.submit(
+        2,
+        command({ commandId: "cmd-promote-b", type: "thread-draft:promote", payload }),
+      ),
+    ]);
+
+    expect(winner.status).toBe("accepted");
+    expect(loser.status).toBe("accepted");
+    const outcomes = [winner, loser].map(
+      (result) => (result as { data?: { created?: boolean } }).data?.created,
+    );
+    expect(outcomes.sort()).toEqual([false, true]);
+    const snapshot = authority.getState().snapshot;
+    expect(snapshot.threads?.filter((thread) => thread.id === "draft-thread-1")).toHaveLength(1);
+    expect(snapshot.threadMessages).toHaveLength(1);
+    expect(snapshot.threadRuns).toHaveLength(1);
+    expect(snapshot.threadDrafts).toEqual([]);
+    // The loser's no-op did not persist again.
+    expect(saved).toHaveLength(1);
   });
 });

@@ -58,6 +58,7 @@ export function createProjectRelocationManager(options: {
   sessionManager: ProjectRelocationSessionManager;
   checkDirectory?: (workingDirectory: string) => Promise<boolean>;
   onActiveChange?: (active: boolean) => void;
+  onSnapshotCommitted?: (snapshot: AppStateSnapshot) => void;
 }) {
   let queue = Promise.resolve();
   const runExclusive = <T>(operation: () => Promise<T>) => {
@@ -117,6 +118,7 @@ export function createProjectRelocationManager(options: {
           const receipt = await options.sessionManager.detachRuntimeSessions(threadIds);
           try {
             await options.appStateStore.saveAppStateSnapshot(afterAppState);
+            options.onSnapshotCommitted?.(afterAppState);
             options.sessionManager.completeRuntimeSessionDetachment(receipt);
           } catch (error) {
             const rollbackErrors: unknown[] = [];

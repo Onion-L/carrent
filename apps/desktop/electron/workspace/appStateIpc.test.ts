@@ -1,15 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import {
-  clearStagedAppStateSnapshot,
-  getStagedAppStateSnapshot,
-  registerAppStateIpc,
-  setAppStateTransactionActive,
-} from "./appStateIpc";
+import { registerAppStateIpc } from "./appStateIpc";
 import {
   createEmptyAppStateSnapshot,
   type AppStateLoadResult,
   type ProviderSessionSnapshot,
-  type AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
 import { createAppStateStoreStub } from "./appStateStore.testUtils";
 import { createAppStateIpcGate } from "./appStateIpcGate";
@@ -47,7 +41,6 @@ describe("registerAppStateIpc", () => {
       "app-state:full-reset",
       "app-state:load",
       "app-state:reread",
-      "app-state:save",
       "provider-sessions:load",
       "provider-sessions:save",
     ]);
@@ -213,208 +206,6 @@ describe("registerAppStateIpc", () => {
 
     expect(await handlers.get("app-state:reread")?.({})).toEqual(authoritativeResult);
     expect(await handlers.get("app-state:load")?.({})).toEqual(authoritativeResult);
-  });
-
-  it("app-state:save validates and forwards the snapshot to the store", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const saved: AppStateSnapshot[] = [];
-    const snapshot: AppStateSnapshot = {
-      version: 1,
-      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
-      projects: [],
-      associations: [],
-      activeWorkspaceId: "workspace-1",
-    };
-
-    registerAppStateIpc(
-      {
-        handle(channel, listener) {
-          handlers.set(channel, listener);
-        },
-      },
-      createAppStateStoreStub({
-        saveAppStateSnapshot: async (value) => {
-          saved.push(value);
-        },
-      }),
-      readyAppStateResult,
-      preserveAppStateResult,
-    );
-
-    await handlers.get("app-state:save")?.({}, snapshot);
-    expect(saved).toEqual([snapshot]);
-
-    let saveError: unknown;
-    try {
-      handlers.get("app-state:save")?.(
-        {},
-        {
-          ...snapshot,
-          workspaces: [{ id: "workspace-1", name: " ", order: 0 }],
-        },
-      );
-    } catch (error) {
-      saveError = error;
-    }
-    expect(String(saveError)).toContain("Invalid App State snapshot");
-  });
-
-  it("loads the latest saved Project after the Renderer reloads", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const snapshot: AppStateSnapshot = {
-      version: 1,
-      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
-      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
-      associations: [
-        {
-          workspaceId: "workspace-1",
-          projectId: "project-1",
-          order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
-        },
-      ],
-      threads: [],
-      activeWorkspaceId: "workspace-1",
-    };
-
-    registerAppStateIpc(
-      { handle: (channel, listener) => handlers.set(channel, listener) },
-      createAppStateStoreStub(),
-      readyAppStateResult,
-      preserveAppStateResult,
-    );
-
-    await handlers.get("app-state:save")?.({}, snapshot);
-
-    expect(await handlers.get("app-state:load")?.({})).toEqual({
-      status: "ready",
-      snapshot,
-    });
-  });
-
-  it("rejects App State image attachments without an explicit kind before saving", () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    let saveCalls = 0;
-    const snapshot = {
-      version: 1,
-      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
-      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
-      associations: [
-        {
-          workspaceId: "workspace-1",
-          projectId: "project-1",
-          order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
-        },
-      ],
-      threads: [
-        {
-          id: "thread-1",
-          workspaceId: "workspace-1",
-          projectId: "project-1",
-          title: "Attachment schema",
-          createdAt: "2026-07-27T08:00:00.000Z",
-          lastActivityAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
-        },
-      ],
-      threadMessages: [
-        {
-          id: "message-1",
-          threadId: "thread-1",
-          role: "user",
-          content: "Inspect this image",
-          createdAt: "2026-07-27T08:00:00.000Z",
-          attachments: [
-            {
-              id: "attachment-1",
-              name: "screen.png",
-              mimeType: "image/png",
-              size: 10,
-              storageKey: "attachment-1.png",
-            },
-          ],
-        },
-      ],
-      activeWorkspaceId: "workspace-1",
-    };
-
-    registerAppStateIpc(
-      { handle: (channel, listener) => handlers.set(channel, listener) },
-      createAppStateStoreStub({
-        saveAppStateSnapshot: async () => {
-          saveCalls += 1;
-        },
-      }),
-      readyAppStateResult,
-      preserveAppStateResult,
-    );
-
-    let saveError: unknown;
-    try {
-      handlers.get("app-state:save")?.({}, snapshot);
-    } catch (error) {
-      saveError = error;
-    }
-
-    expect(String(saveError)).toContain("Invalid App State snapshot");
-    expect(saveCalls).toBe(0);
-  });
-
-  it("blocks independent App State writes during a Thread deletion transaction", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const saved: AppStateSnapshot[] = [];
-    const snapshot = createEmptyAppStateSnapshot();
-    registerAppStateIpc(
-      { handle: (channel, listener) => handlers.set(channel, listener) },
-      createAppStateStoreStub({
-        saveAppStateSnapshot: async (next) => {
-          saved.push(next);
-        },
-      }),
-      readyAppStateResult,
-      preserveAppStateResult,
-    );
-
-    setAppStateTransactionActive(true);
-    let saveError: unknown;
-    try {
-      await handlers.get("app-state:save")?.({}, snapshot);
-    } catch (error) {
-      saveError = error;
-    } finally {
-      setAppStateTransactionActive(false);
-    }
-
-    expect(String(saveError)).toContain("App State transaction is in progress");
-    expect(saved).toHaveLength(0);
-  });
-
-  it("stages the latest valid App State for shutdown and clears it after a durable save", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const listeners = new Map<string, (event: unknown, ...args: unknown[]) => void>();
-    const snapshot = createEmptyAppStateSnapshot();
-
-    registerAppStateIpc(
-      {
-        handle: (channel, listener) => handlers.set(channel, listener),
-        on: (channel, listener) => listeners.set(channel, listener),
-      },
-      createAppStateStoreStub(),
-      readyAppStateResult,
-      preserveAppStateResult,
-    );
-
-    listeners.get("app-state:stage")?.({}, snapshot);
-    expect(getStagedAppStateSnapshot()).toEqual(snapshot);
-
-    await handlers.get("app-state:save")?.({}, snapshot);
-    expect(getStagedAppStateSnapshot()).toBe(null);
-    clearStagedAppStateSnapshot();
   });
 
   it("provider-sessions:load returns sessions from store", async () => {

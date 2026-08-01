@@ -197,6 +197,7 @@ type AppStateContextValue = {
     threadId: string,
     cleanup: (snapshots: ThreadDeletionAppStateSnapshots) => Promise<void>,
   ) => Promise<boolean>;
+  removeThreadSnapshot: (threadId: string) => Promise<boolean>;
   removeAssociation: (
     workspaceId: string,
     projectId: string,
@@ -232,78 +233,21 @@ function projectNameFromWorkingDirectory(workingDirectory: string) {
   return normalized.split("/").at(-1) || normalized;
 }
 
-function valuesEqual(left: unknown, right: unknown) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function applyRecordChanges<T extends object>(base: T, intended: T, latest: T): T {
-  const merged = { ...latest } as T;
-  const baseRecord = base as Record<string, unknown>;
-  const intendedRecord = intended as Record<string, unknown>;
-  const mergedRecord = merged as Record<string, unknown>;
-
-  for (const key of new Set([...Object.keys(baseRecord), ...Object.keys(intendedRecord)])) {
-    if (valuesEqual(baseRecord[key], intendedRecord[key])) continue;
-    if (Object.hasOwn(intendedRecord, key)) {
-      mergedRecord[key] = intendedRecord[key];
-    } else {
-      delete mergedRecord[key];
-    }
-  }
-  return merged;
-}
-
-function mergeRecordList<T extends { id: string }>(base: T[], intended: T[], latest: T[]): T[] {
-  const baseById = new Map(base.map((record) => [record.id, record]));
-  const intendedById = new Map(intended.map((record) => [record.id, record]));
-  const mergedById = new Map(latest.map((record) => [record.id, record]));
-
-  for (const [id, baseRecord] of baseById) {
-    const intendedRecord = intendedById.get(id);
-    if (!intendedRecord) {
-      mergedById.delete(id);
-      continue;
-    }
-    const latestRecord = mergedById.get(id);
-    mergedById.set(
-      id,
-      latestRecord ? applyRecordChanges(baseRecord, intendedRecord, latestRecord) : intendedRecord,
-    );
-  }
-  for (const [id, intendedRecord] of intendedById) {
-    if (!baseById.has(id)) mergedById.set(id, intendedRecord);
-  }
-
-  return [...mergedById.values()];
-}
-
-function mergeThreadWork(
-  base: Record<string, ThreadWorkSnapshot>,
-  intended: Record<string, ThreadWorkSnapshot>,
-  latest: Record<string, ThreadWorkSnapshot>,
-) {
-  const merged = { ...latest };
-  for (const [threadId, baseWork] of Object.entries(base)) {
-    const intendedWork = intended[threadId];
-    if (!intendedWork) {
-      delete merged[threadId];
-      continue;
-    }
-    merged[threadId] = latest[threadId]
-      ? applyRecordChanges(baseWork, intendedWork, latest[threadId])
-      : intendedWork;
-  }
-  for (const [threadId, intendedWork] of Object.entries(intended)) {
-    if (!base[threadId]) merged[threadId] = intendedWork;
-  }
-  return merged;
-}
+// Thread record fields the Thread content commands may patch.
+type ThreadContentPatch = {
+  title?: string;
+  lastActivityAt?: string;
+  pinned?: boolean;
+  runChecklist?: AppThreadRecord["runChecklist"] | null;
+};
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<AppStateSnapshot>(EMPTY_APP_STATE);
   const snapshotRef = useRef<AppStateSnapshot>(EMPTY_APP_STATE);
-  const saveAppStateRef = useRef(window.carrent.appState.save);
   const mountedRef = useRef(true);
+  // Captured once: a provider must never talk to a bridge installed after it
+  // mounted (e.g. a later test's bridge receiving an unmount-time flush).
+  const appStateBridgeRef = useRef(window.carrent.appState);
   const mutatingThreadIdsRef = useRef(new Set<string>());
   const startingRunThreadIdsRef = useRef(new Set<string>());
   const revisionRef = useRef(0);
@@ -311,6 +255,15 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const revisionWaitersRef = useRef<Array<{ revision: number; resolve: () => void }>>([]);
   const authoritySubscriptionRef = useRef<{ dispose: () => void } | null>(null);
   const subscribingRef = useRef<Promise<void> | null>(null);
+  // Optimistic Thread content edits not yet accepted by the authority:
+  // `dirty*` holds unsubmitted edits, `inflight*` holds submitted edits until
+  // their revision arrives in a broadcast.
+  const dirtyContentThreadsRef = useRef(new Set<string>());
+  const inflightContentRef = useRef(new Map<string, number>());
+  const dirtyWorkThreadsRef = useRef(new Set<string>());
+  const inflightWorkRef = useRef(new Map<string, number>());
+  const contentPatchRef = useRef(new Map<string, ThreadContentPatch>());
+  const contentFlushTimerRef = useRef<number | null>(null);
   const [hasHydrated, setHasHydrated] = useState(false);
   const [recoveryDiagnostics, setRecoveryDiagnostics] = useState<AppStateDiagnostic[] | null>(null);
   const [recoveryNotice, setRecoveryNotice] = useState<"legacy-reset" | "full-reset" | null>(null);
@@ -321,7 +274,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [deletionNavigation, setDeletionNavigation] = useState<DeletionNavigationIntent | null>(
     null,
   );
-  const threadContentSaveTimerRef = useRef<number | null>(null);
 
   const applyLoadResult = useCallback((result: AppStateLoadResult) => {
     if (result.status === "recovery-required") {
@@ -351,47 +303,82 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     return true;
   }, []);
 
-  // Applies a state broadcast by the Main-process authority. Thread content
-  // fields are three-way-merged against the previous authority snapshot so
-  // locally staged (not yet saved) Thread content survives broadcasts —
-  // including the ones triggered by this window's own legacy saves.
+  // Applies a state broadcast by the Main-process authority. The broadcast
+  // replaces local state wholesale, except for Threads with optimistic
+  // (unsubmitted or in-flight) local edits — those keep their local Thread
+  // record, messages, and Thread work until the authority catches up.
   const applyAuthorityState = useCallback((state: AppStateAuthorityState) => {
     const normalized = normalizeAppStateSnapshot(state.snapshot);
     if (!normalized) return;
     revisionRef.current = state.revision;
-    const base = authoritySnapshotRef.current;
     authoritySnapshotRef.current = normalized;
-    if (!base) {
-      snapshotRef.current = normalized;
-      setSnapshot(normalized);
-    } else {
-      const latest = snapshotRef.current;
-      const merged: AppStateSnapshot = {
-        ...normalized,
-        threads: mergeRecordList(
-          base.threads ?? [],
-          normalized.threads ?? [],
-          latest.threads ?? [],
-        ),
-        threadMessages: mergeRecordList(
-          base.threadMessages ?? [],
-          normalized.threadMessages ?? [],
-          latest.threadMessages ?? [],
-        ),
-        threadActions: mergeRecordList(
-          base.threadActions ?? [],
-          normalized.threadActions ?? [],
-          latest.threadActions ?? [],
-        ),
-        threadWork: mergeThreadWork(
-          base.threadWork ?? {},
-          normalized.threadWork ?? {},
-          latest.threadWork ?? {},
-        ),
-      };
-      snapshotRef.current = merged;
-      setSnapshot(merged);
+
+    const broadcastThreadIds = new Set((normalized.threads ?? []).map((thread) => thread.id));
+    const protectedContent = new Set<string>();
+    for (const threadId of dirtyContentThreadsRef.current) protectedContent.add(threadId);
+    for (const [threadId, revision] of inflightContentRef.current) {
+      if (revision <= state.revision) {
+        inflightContentRef.current.delete(threadId);
+      } else {
+        protectedContent.add(threadId);
+      }
     }
+    const protectedWork = new Set<string>();
+    for (const threadId of dirtyWorkThreadsRef.current) protectedWork.add(threadId);
+    for (const [threadId, revision] of inflightWorkRef.current) {
+      if (revision <= state.revision) {
+        inflightWorkRef.current.delete(threadId);
+      } else {
+        protectedWork.add(threadId);
+      }
+    }
+    // Never resurrect content for Threads the authority deleted.
+    for (const threadId of protectedContent) {
+      if (broadcastThreadIds.has(threadId)) continue;
+      protectedContent.delete(threadId);
+      dirtyContentThreadsRef.current.delete(threadId);
+      inflightContentRef.current.delete(threadId);
+      contentPatchRef.current.delete(threadId);
+    }
+    for (const threadId of protectedWork) {
+      if (broadcastThreadIds.has(threadId)) continue;
+      protectedWork.delete(threadId);
+      dirtyWorkThreadsRef.current.delete(threadId);
+      inflightWorkRef.current.delete(threadId);
+    }
+
+    const latest = snapshotRef.current;
+    const merged: AppStateSnapshot = { ...normalized };
+    if (protectedContent.size > 0) {
+      merged.threads = (normalized.threads ?? []).map((thread) =>
+        protectedContent.has(thread.id)
+          ? ((latest.threads ?? []).find((item) => item.id === thread.id) ?? thread)
+          : thread,
+      );
+      merged.threadMessages = [
+        ...(normalized.threadMessages ?? []).filter(
+          (message) => !protectedContent.has(message.threadId),
+        ),
+        ...(latest.threadMessages ?? []).filter((message) =>
+          protectedContent.has(message.threadId),
+        ),
+      ];
+    }
+    if (protectedWork.size > 0) {
+      const threadWork = { ...normalized.threadWork };
+      for (const threadId of protectedWork) {
+        const localWork = latest.threadWork?.[threadId];
+        if (localWork) {
+          threadWork[threadId] = localWork;
+        } else {
+          delete threadWork[threadId];
+        }
+      }
+      merged.threadWork = threadWork;
+    }
+
+    snapshotRef.current = merged;
+    setSnapshot(merged);
     const waiters = revisionWaitersRef.current;
     revisionWaitersRef.current = waiters.filter((waiter) => {
       if (waiter.revision > state.revision) return true;
@@ -558,68 +545,92 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     };
   }, [snapshot.projects]);
 
-  const persist = useCallback(async (nextSnapshot: AppStateSnapshot) => {
-    const contentAtStart = snapshotRef.current;
-    const normalized = normalizeAppStateSnapshot(nextSnapshot);
-    if (!normalized) throw new Error("Invalid App State snapshot.");
-    await saveAppStateRef.current(normalized);
-    if (!mountedRef.current) return;
-    const latest = snapshotRef.current;
-    const committed =
-      latest === contentAtStart
-        ? normalized
-        : {
-            ...normalized,
-            threads: mergeRecordList(
-              contentAtStart.threads ?? [],
-              normalized.threads ?? [],
-              latest.threads ?? [],
-            ),
-            threadMessages: mergeRecordList(
-              contentAtStart.threadMessages ?? [],
-              normalized.threadMessages ?? [],
-              latest.threadMessages ?? [],
-            ),
-            threadActions: mergeRecordList(
-              contentAtStart.threadActions ?? [],
-              normalized.threadActions ?? [],
-              latest.threadActions ?? [],
-            ),
-            threadWork: mergeThreadWork(
-              contentAtStart.threadWork ?? {},
-              normalized.threadWork ?? {},
-              latest.threadWork ?? {},
-            ),
-          };
-    snapshotRef.current = committed;
-    setSnapshot(committed);
-  }, []);
+  const sendCommand = useCallback(
+    (type: string, payload: unknown) =>
+      appStateBridgeRef.current.command({ commandId: crypto.randomUUID(), type, payload }),
+    [],
+  );
+
+  // Submits every pending optimistic Thread content edit (messages, Thread
+  // record patches, Thread work) as bounded commands right away. Other
+  // commands call this first so the authority always applies them on top of
+  // the locally staged state.
+  const flushPendingContent = useCallback(async () => {
+    if (contentFlushTimerRef.current !== null) {
+      window.clearTimeout(contentFlushTimerRef.current);
+      contentFlushTimerRef.current = null;
+    }
+    const contentThreadIds = [...dirtyContentThreadsRef.current];
+    const workThreadIds = [...dirtyWorkThreadsRef.current];
+    if (contentThreadIds.length === 0 && workThreadIds.length === 0) return;
+
+    const current = snapshotRef.current;
+    const submissions: Promise<void>[] = [];
+    for (const threadId of contentThreadIds) {
+      const thread = (current.threads ?? []).find((item) => item.id === threadId);
+      if (!thread) {
+        dirtyContentThreadsRef.current.delete(threadId);
+        contentPatchRef.current.delete(threadId);
+        continue;
+      }
+      dirtyContentThreadsRef.current.delete(threadId);
+      const patch = contentPatchRef.current.get(threadId);
+      contentPatchRef.current.delete(threadId);
+      const messages = (current.threadMessages ?? []).filter(
+        (message) => message.threadId === threadId,
+      );
+      submissions.push(
+        sendCommand("thread-content:update", {
+          threadId,
+          ...(patch && Object.keys(patch).length > 0 ? { thread: patch } : {}),
+          messages,
+        }).then((result) => {
+          if (result.status === "accepted") {
+            inflightContentRef.current.set(threadId, result.revision);
+          }
+        }),
+      );
+    }
+    for (const threadId of workThreadIds) {
+      dirtyWorkThreadsRef.current.delete(threadId);
+      const work = current.threadWork?.[threadId] ?? null;
+      submissions.push(
+        sendCommand("thread-work:update", { threadId, work }).then((result) => {
+          if (result.status === "accepted") {
+            inflightWorkRef.current.set(threadId, result.revision);
+          }
+        }),
+      );
+    }
+    await Promise.all(submissions);
+  }, [sendCommand]);
+
+  const scheduleContentFlush = useCallback(() => {
+    if (contentFlushTimerRef.current !== null) {
+      window.clearTimeout(contentFlushTimerRef.current);
+    }
+    contentFlushTimerRef.current = window.setTimeout(() => {
+      contentFlushTimerRef.current = null;
+      void flushPendingContent().catch((error) => {
+        console.error("[app-state] failed to submit Thread content", error);
+      });
+    }, 250);
+  }, [flushPendingContent]);
 
   const submitCommand = useCallback(
     async (type: string, payload: unknown) => {
-      // Flush any pending debounced Thread content first so the authority
-      // applies the command on top of the locally staged state — previously
-      // every mutation persist carried that content along implicitly.
-      if (threadContentSaveTimerRef.current !== null) {
-        window.clearTimeout(threadContentSaveTimerRef.current);
-        threadContentSaveTimerRef.current = null;
-        try {
-          await persist(snapshotRef.current);
-        } catch (error) {
-          console.error("[app-state] failed to flush Thread content before command", error);
-          return false;
-        }
+      try {
+        await flushPendingContent();
+      } catch (error) {
+        console.error("[app-state] failed to flush Thread content before command", error);
+        return false;
       }
-      const result = await window.carrent.appState.command({
-        commandId: crypto.randomUUID(),
-        type,
-        payload,
-      });
+      const result = await sendCommand(type, payload);
       if (result.status !== "accepted") return false;
       await waitForRevision(result.revision);
       return true;
     },
-    [persist, waitForRevision],
+    [flushPendingContent, sendCommand, waitForRevision],
   );
 
   const updateThreadContent = useCallback(
@@ -636,51 +647,98 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     ) => {
       if (!mountedRef.current) return;
       const current = snapshotRef.current;
-      const content = update({
+      const previous = {
         threads: current.threads ?? [],
         threadMessages: current.threadMessages ?? [],
         threadWork: current.threadWork ?? {},
-      });
-      const next = { ...current, ...content };
-      snapshotRef.current = next;
-      setSnapshot(next);
-      window.carrent.appState.stage(next);
+      };
+      const content = update(previous);
+      snapshotRef.current = { ...current, ...content };
+      setSnapshot(snapshotRef.current);
 
-      if (threadContentSaveTimerRef.current !== null) {
-        window.clearTimeout(threadContentSaveTimerRef.current);
+      // Diff the optimistic change into per-Thread commands.
+      const previousThreadsById = new Map(previous.threads.map((thread) => [thread.id, thread]));
+      for (const nextThread of content.threads) {
+        const previousThread = previousThreadsById.get(nextThread.id);
+        if (!previousThread) {
+          console.warn(
+            `[app-state] ignoring Thread record inserted outside commands: ${nextThread.id}`,
+          );
+          continue;
+        }
+        if (previousThread === nextThread) continue;
+        const patch: ThreadContentPatch = {};
+        if (previousThread.title !== nextThread.title) patch.title = nextThread.title;
+        if (previousThread.lastActivityAt !== nextThread.lastActivityAt) {
+          patch.lastActivityAt = nextThread.lastActivityAt;
+        }
+        if ((previousThread.pinned ?? false) !== (nextThread.pinned ?? false)) {
+          patch.pinned = nextThread.pinned === true;
+        }
+        if (previousThread.runChecklist !== nextThread.runChecklist) {
+          patch.runChecklist = nextThread.runChecklist ?? null;
+        }
+        if (Object.keys(patch).length > 0) {
+          contentPatchRef.current.set(nextThread.id, {
+            ...contentPatchRef.current.get(nextThread.id),
+            ...patch,
+          });
+          dirtyContentThreadsRef.current.add(nextThread.id);
+        }
       }
-      threadContentSaveTimerRef.current = window.setTimeout(() => {
-        threadContentSaveTimerRef.current = null;
-        void persist(snapshotRef.current).catch((error) => {
-          console.error("[app-state] failed to save Thread content", error);
-        });
-      }, 250);
+      const messageThreadIds = new Set([
+        ...previous.threadMessages.map((message) => message.threadId),
+        ...content.threadMessages.map((message) => message.threadId),
+      ]);
+      for (const threadId of messageThreadIds) {
+        const before = previous.threadMessages.filter((message) => message.threadId === threadId);
+        const after = content.threadMessages.filter((message) => message.threadId === threadId);
+        if (
+          before.length !== after.length ||
+          before.some((message, index) => message !== after[index])
+        ) {
+          dirtyContentThreadsRef.current.add(threadId);
+        }
+      }
+      const workThreadIds = new Set([
+        ...Object.keys(previous.threadWork),
+        ...Object.keys(content.threadWork),
+      ]);
+      for (const threadId of workThreadIds) {
+        if (previous.threadWork[threadId] !== content.threadWork[threadId]) {
+          dirtyWorkThreadsRef.current.add(threadId);
+        }
+      }
+      if (dirtyContentThreadsRef.current.size > 0 || dirtyWorkThreadsRef.current.size > 0) {
+        scheduleContentFlush();
+      }
     },
-    [persist],
+    [scheduleContentFlush],
   );
 
   useEffect(() => {
     mountedRef.current = true;
-    const flushPendingThreadContent = () => {
-      if (threadContentSaveTimerRef.current !== null) {
-        window.clearTimeout(threadContentSaveTimerRef.current);
-        threadContentSaveTimerRef.current = null;
-        const normalized = normalizeAppStateSnapshot(snapshotRef.current);
-        if (normalized) {
-          void saveAppStateRef.current(normalized).catch(() => {
-            // Best-effort flush while the Main Window is closing.
-          });
-        }
-      }
+    const flushBeforeUnload = () => {
+      void flushPendingContent().catch(() => {
+        // Best-effort flush while the Main Window is closing.
+      });
     };
+    const disposeFlushRequest = appStateBridgeRef.current.onFlushRequest(() => {
+      void flushPendingContent()
+        .catch(() => {})
+        .finally(() => {
+          void appStateBridgeRef.current.flushDone();
+        });
+    });
 
-    window.addEventListener("beforeunload", flushPendingThreadContent);
+    window.addEventListener("beforeunload", flushBeforeUnload);
     return () => {
-      window.removeEventListener("beforeunload", flushPendingThreadContent);
-      flushPendingThreadContent();
+      window.removeEventListener("beforeunload", flushBeforeUnload);
+      disposeFlushRequest();
+      flushBeforeUnload();
       mountedRef.current = false;
     };
-  }, []);
+  }, [flushPendingContent]);
 
   const createWorkspace = useCallback(
     async (value: string, projectDirectories: string[] = []): Promise<WorkspaceMutationResult> => {
@@ -861,15 +919,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       targetDirectory: string,
     ): Promise<ProjectRelocationMutationResult> => {
       try {
-        const result = await window.carrent.projectDirectories.relocate({
+        await window.carrent.projectDirectories.relocate({
           projectId,
           targetDirectory,
         });
         await window.carrent.terminal.closeProject(projectId);
-        const normalized = normalizeAppStateSnapshot(result.appState);
-        if (!normalized) throw new Error("Project relocation returned invalid App State.");
-        snapshotRef.current = normalized;
-        setSnapshot(normalized);
+        // The relocation transaction's committed snapshot reaches this window
+        // through the authority broadcast.
         setProjectDirectoryStatusById((current) => ({
           ...current,
           [projectId]: "available",
@@ -964,49 +1020,21 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         planMode: false,
       };
 
-      try {
-        await persist({
-          ...snapshot,
-          threads: snapshot.threads ?? [],
-          threadDrafts: [...(snapshot.threadDrafts ?? []), draft],
-          threadMessages: snapshot.threadMessages ?? [],
-          threadRuns: snapshot.threadRuns ?? [],
-          threadPromotionIntents: snapshot.threadPromotionIntents ?? [],
-        });
-        return draft;
-      } catch {
-        return null;
-      }
+      const result = await sendCommand("thread-draft:open", { workspaceId, projectId, draft });
+      if (result.status !== "accepted") return null;
+      await waitForRevision(result.revision);
+      return (result.data as AssociationThreadDraftRecord | undefined) ?? null;
     },
-    [persist, snapshot],
+    [snapshot, sendCommand, waitForRevision],
   );
 
   const updateThreadDraft = useCallback(
     async (draftId: string, draft: ThreadWorkDraftSnapshot | null) => {
       const current = snapshotRef.current;
-      const existing = (current.threadDrafts ?? []).find((item) => item.id === draftId);
-      if (!existing) return false;
-      try {
-        await persist({
-          ...current,
-          threadDrafts: (current.threadDrafts ?? []).map((item) =>
-            item.id === draftId
-              ? {
-                  ...item,
-                  content: draft?.content ?? "",
-                  composerState: draft?.composerState,
-                  attachedSkillNames: draft?.attachedSkillNames ?? [],
-                  attachments: draft?.attachments ?? [],
-                }
-              : item,
-          ),
-        });
-        return true;
-      } catch {
-        return false;
-      }
+      if (!(current.threadDrafts ?? []).some((item) => item.id === draftId)) return false;
+      return submitCommand("thread-draft:update", { draftId, draft });
     },
-    [persist],
+    [submitCommand],
   );
 
   const updateThreadDraftConfig = useCallback(
@@ -1021,48 +1049,18 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     ) => {
       const current = snapshotRef.current;
       if (!(current.threadDrafts ?? []).some((item) => item.id === draftId)) return false;
-      const runtimeModelId = config.runtimeModelId?.trim() || undefined;
-      try {
-        await persist({
-          ...current,
-          threadDrafts: (current.threadDrafts ?? []).map((item) => {
-            if (item.id !== draftId) return item;
-            const { runtimeModelId: _runtimeModelId, ...withoutModel } = item;
-            return {
-              ...withoutModel,
-              runtimeId: config.runtimeId,
-              ...(runtimeModelId ? { runtimeModelId } : {}),
-              runtimeMode: config.runtimeMode,
-              planMode: config.planMode,
-            };
-          }),
-        });
-        return true;
-      } catch {
-        return false;
-      }
+      return submitCommand("thread-draft:update-config", { draftId, config });
     },
-    [persist],
+    [submitCommand],
   );
 
   const discardThreadDraft = useCallback(
     async (draftId: string) => {
       const current = snapshotRef.current;
       if (!(current.threadDrafts ?? []).some((item) => item.id === draftId)) return false;
-      try {
-        await persist({
-          ...current,
-          threadDrafts: (current.threadDrafts ?? []).filter((item) => item.id !== draftId),
-          threadPromotionIntents: (current.threadPromotionIntents ?? []).filter(
-            (intent) => intent.draftId !== draftId,
-          ),
-        });
-        return true;
-      } catch {
-        return false;
-      }
+      return submitCommand("thread-draft:discard", { draftId });
     },
-    [persist],
+    [submitCommand],
   );
 
   const prepareThreadDraftPromotion = useCallback(
@@ -1111,23 +1109,23 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         planMode: input.planMode,
       };
 
-      try {
-        await persist({
-          ...current,
-          threads: [...(current.threads ?? []), thread],
-          threadDrafts: (current.threadDrafts ?? []).filter((item) => item.id !== draft.id),
-          threadMessages: [...(current.threadMessages ?? []), message],
-          threadRuns: [...(current.threadRuns ?? []), run],
-          threadPromotionIntents: (current.threadPromotionIntents ?? []).filter(
-            (intent) => intent.draftId !== draft.id,
-          ),
-        });
-        return thread;
-      } catch {
-        return null;
-      }
+      const result = await sendCommand("thread-draft:promote", {
+        draftId: draft.id,
+        threadId: draft.threadId,
+        thread,
+        message,
+        run,
+      });
+      if (result.status !== "accepted") return null;
+      const data = result.data as { thread?: AppThreadRecord; created?: boolean } | undefined;
+      // Another client promoted the draft first; this client must not send a
+      // second initial message, so the promotion reads as failed here. The
+      // broadcast converges every client on the one created Thread.
+      if (data?.created !== true || !data.thread) return null;
+      await waitForRevision(result.revision);
+      return data.thread;
     },
-    [persist],
+    [sendCommand, waitForRevision],
   );
 
   const updateThreadConfig = useCallback(
@@ -1146,38 +1144,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const rollbackThreadDraftPromotion = useCallback(
     async (draft: AssociationThreadDraftRecord) => {
-      const current = snapshotRef.current;
-      const restored: AppStateSnapshot = {
-        ...current,
-        threads: (current.threads ?? []).filter((thread) => thread.id !== draft.threadId),
-        threadDrafts: [
-          ...(current.threadDrafts ?? []).filter((item) => item.id !== draft.id),
-          draft,
-        ],
-        threadMessages: (current.threadMessages ?? []).filter(
-          (message) => message.threadId !== draft.threadId,
-        ),
-        threadRuns: (current.threadRuns ?? []).filter((run) => run.threadId !== draft.threadId),
-        threadWork: Object.fromEntries(
-          Object.entries(current.threadWork ?? {}).filter(
-            ([threadId]) => threadId !== draft.threadId,
-          ),
-        ),
-        threadPromotionIntents: (current.threadPromotionIntents ?? []).filter(
-          (intent) => intent.draftId !== draft.id,
-        ),
-      };
-      try {
-        await persist(restored);
-        return true;
-      } catch {
-        snapshotRef.current = restored;
-        setSnapshot(restored);
-        window.carrent.appState.stage(restored);
-        return true;
-      }
+      return submitCommand("thread-draft:rollback-promotion", { draft });
     },
-    [persist],
+    [submitCommand],
   );
 
   const recordThreadRun = useCallback(
@@ -1211,57 +1180,23 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         planMode: input.planMode,
       };
       try {
-        await persist({
-          ...current,
-          threads: (current.threads ?? []).map((thread) =>
-            thread.id === input.threadId ? { ...thread, lastActivityAt: input.startedAt } : thread,
-          ),
-          threadMessages: (current.threadMessages ?? []).some(
-            (existing) => existing.id === message.id,
-          )
-            ? current.threadMessages
-            : [...(current.threadMessages ?? []), message],
-          threadRuns: [...(current.threadRuns ?? []), run],
+        return await submitCommand("thread:record-run", {
+          threadId: input.threadId,
+          message,
+          run,
         });
-        return true;
-      } catch {
-        return false;
       } finally {
         startingRunThreadIdsRef.current.delete(input.threadId);
       }
     },
-    [persist],
+    [submitCommand],
   );
 
   const rollbackThreadRun = useCallback(
     async (threadId: string, runId: string, messageId: string) => {
-      try {
-        await persist({
-          ...snapshot,
-          threadMessages: (snapshot.threadMessages ?? []).filter(
-            (message) => message.id !== messageId,
-          ),
-          threadRuns: (snapshot.threadRuns ?? []).filter((run) => run.id !== runId),
-          threads: (snapshot.threads ?? []).map((thread) =>
-            thread.id === threadId
-              ? {
-                  ...thread,
-                  lastActivityAt:
-                    (snapshot.threadMessages ?? [])
-                      .filter(
-                        (message) => message.threadId === threadId && message.id !== messageId,
-                      )
-                      .at(-1)?.createdAt ?? thread.createdAt,
-                }
-              : thread,
-          ),
-        });
-        return true;
-      } catch {
-        return false;
-      }
+      return submitCommand("thread:rollback-run", { threadId, runId, messageId });
     },
-    [persist, snapshot],
+    [submitCommand],
   );
 
   const recordThreadAction = useCallback(
@@ -1270,22 +1205,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       if (!(current.threads ?? []).some((thread) => thread.id === action.threadId)) {
         return false;
       }
-      try {
-        await persist({
-          ...current,
-          threads: (current.threads ?? []).map((thread) =>
-            thread.id === action.threadId
-              ? { ...thread, lastActivityAt: action.completedAt }
-              : thread,
-          ),
-          threadActions: [...(current.threadActions ?? []), action],
-        });
-        return true;
-      } catch {
-        return false;
-      }
+      return submitCommand("thread:record-action", { action });
     },
-    [persist],
+    [submitCommand],
   );
 
   const archiveThread = useCallback(
@@ -1341,10 +1263,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       const next = applyThreadDeletionToAppState(current, [threadId]);
 
       try {
+        // The transaction commits and the authority adopts the committed
+        // snapshot, broadcasting it to every window.
         await cleanup({ beforeAppState: current, afterAppState: next });
-        const committed = applyThreadDeletionToAppState(snapshotRef.current, [threadId]);
-        snapshotRef.current = committed;
-        setSnapshot(committed);
         return true;
       } catch (error) {
         if (error instanceof AggregateError) throw error;
@@ -1399,23 +1320,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       const next = applyThreadDeletionToAppState(current, affectedThreadIds, scope);
 
       try {
-        // The deletion transaction runs first (it also blocks authority
-        // commands while active) and persists the new snapshot; the command
-        // then syncs the authority and broadcasts to every window.
+        // The deletion transaction persists the new snapshot; the authority
+        // adopts it on commit and broadcasts to every window.
         await cleanup(affectedThreadIds, {
           beforeAppState: current,
           afterAppState: next,
           scope,
         });
-        const accepted = await submitCommand(
-          scope.kind === "workspace" ? "workspace:delete" : "association:remove",
-          scope.kind === "workspace"
-            ? { workspaceId: scope.workspaceId }
-            : { workspaceId: scope.workspaceId, projectId: scope.projectId },
-        );
-        if (!accepted) return false;
-        const committed = snapshotRef.current;
-        const remainingProjectIds = new Set(committed.projects.map((project) => project.id));
+        const remainingProjectIds = new Set(next.projects.map((project) => project.id));
         await Promise.all(
           current.projects
             .filter((project) => !remainingProjectIds.has(project.id))
@@ -1426,7 +1338,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         affectedThreadIds.forEach((threadId) => mutatingThreadIdsRef.current.delete(threadId));
       }
     },
-    [submitCommand],
+    [],
   );
 
   const removeAssociation = useCallback(
@@ -1439,6 +1351,17 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     (workspaceId: string, cleanup: CascadeCleanup) =>
       deleteCascade({ kind: "workspace", workspaceId }, cleanup),
     [deleteCascade],
+  );
+
+  // Snapshot part of deleting a Thread from history; Thread data cleanup runs
+  // through chat.deleteThreadData first.
+  const removeThreadSnapshot = useCallback(
+    async (threadId: string) => {
+      const current = snapshotRef.current;
+      if (!(current.threads ?? []).some((thread) => thread.id === threadId)) return false;
+      return submitCommand("thread:remove", { threadId });
+    },
+    [submitCommand],
   );
 
   const updateSettings = useCallback(
@@ -1499,6 +1422,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         archiveThread,
         restoreThread,
         permanentlyDeleteThread,
+        removeThreadSnapshot,
         removeAssociation,
         deleteWorkspace,
       }}

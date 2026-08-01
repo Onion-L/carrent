@@ -12,7 +12,6 @@ import type { ChatQuestionResponse } from "../src/shared/chatQuestions";
 import type { SkillRecord } from "../src/shared/skills";
 import type { McpServerStatus } from "../src/shared/mcpServer";
 import type {
-  AppStateSnapshot,
   AppStateLoadResult,
   ProviderSessionSnapshot,
   ProjectRelocationResult,
@@ -164,8 +163,6 @@ const carrent = {
     load: () => ipcRenderer.invoke("app-state:load") as Promise<AppStateLoadResult>,
     reread: () => ipcRenderer.invoke("app-state:reread") as Promise<AppStateLoadResult>,
     fullReset: () => ipcRenderer.invoke("app-state:full-reset") as Promise<AppStateLoadResult>,
-    stage: (snapshot: AppStateSnapshot) => ipcRenderer.send("app-state:stage", snapshot),
-    save: (snapshot: AppStateSnapshot) => ipcRenderer.invoke("app-state:save", snapshot),
     subscribe: () => ipcRenderer.invoke("app-state:subscribe") as Promise<AppStateAuthorityState>,
     unsubscribe: () => ipcRenderer.invoke("app-state:unsubscribe") as Promise<void>,
     command: (command: AppStateCommand) =>
@@ -175,6 +172,12 @@ const carrent = {
       ipcRenderer.on("app-state:changed", wrapped);
       return () => ipcRenderer.removeListener("app-state:changed", wrapped);
     },
+    onFlushRequest: (listener: () => void) => {
+      const wrapped = () => listener();
+      ipcRenderer.on("app-state:flush-request", wrapped);
+      return () => ipcRenderer.removeListener("app-state:flush-request", wrapped);
+    },
+    flushDone: () => ipcRenderer.invoke("app-state:flush-done") as Promise<void>,
   },
   providerSessions: {
     load: () => ipcRenderer.invoke("provider-sessions:load") as Promise<ProviderSessionSnapshot>,

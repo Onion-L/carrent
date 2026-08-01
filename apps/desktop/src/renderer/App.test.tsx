@@ -95,7 +95,7 @@ function installBridge(
   skills: SkillRecord[] = [],
 ) {
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
-  let saveAttempt = 0;
+  let commandAttempt = 0;
   const terminalTabsByProject = new Map<string, import("../shared/terminal").TerminalTab[]>();
   // Settings set through localStorage are pre-migrated into the snapshot so
   // the renderer's one-time migration does not fire an extra command.
@@ -112,9 +112,14 @@ function installBridge(
       saved.push(snapshot);
     },
     commandHook: async () => {
-      // Commands persist through the authority; simulate the same persistence
-      // failures and slow writes the legacy save path supports.
-      if (saveFails === true) {
+      // Commands persist through the authority; simulate persistence failures
+      // and slow writes the legacy save path used to support.
+      commandAttempt += 1;
+      if (
+        saveFails === true ||
+        saveFails === commandAttempt ||
+        (Array.isArray(saveFails) && saveFails.includes(commandAttempt))
+      ) {
         return {
           status: "rejected",
           reason: "persistence-failed",
@@ -125,20 +130,6 @@ function installBridge(
       return null;
     },
   });
-  const saveAppState = async (snapshot: AppStateSnapshot) => {
-    saveAttempt += 1;
-    if (
-      saveFails === true ||
-      saveFails === saveAttempt ||
-      (Array.isArray(saveFails) && saveFails.includes(saveAttempt))
-    ) {
-      throw new Error("disk full");
-    }
-    await appStateSaveGate;
-    // The real Main process persists and then adopts the snapshot into the
-    // authority, which broadcasts it; onPersist records it in `saved`.
-    authority.adoptExternalSnapshot(snapshot);
-  };
   window.carrent = {
     appState: {
       load: async () => ({ status: "ready", snapshot: loadedAppState }),
@@ -151,12 +142,12 @@ function installBridge(
           notice: "full-reset",
         };
       },
-      stage: () => {},
-      save: saveAppState,
       subscribe: authority.subscribe,
       unsubscribe: authority.unsubscribe,
       command: authority.command,
       onChanged: authority.onChanged,
+      onFlushRequest: () => () => {},
+      flushDone: async () => {},
     },
     dialog: {
       openDirectory: async () => {
@@ -269,13 +260,18 @@ function installBridge(
         projectRelocationRequests.push(structuredClone(request));
         if (!appState) throw new Error("App State is unavailable");
         const relocatedAppState: AppStateSnapshot = {
-          ...appState,
-          projects: appState.projects.map((project) =>
-            project.id === request.projectId
-              ? { ...project, workingDirectory: request.targetDirectory }
-              : project,
-          ),
+          ...authority.getState().snapshot,
+          projects: authority
+            .getState()
+            .snapshot.projects.map((project) =>
+              project.id === request.projectId
+                ? { ...project, workingDirectory: request.targetDirectory }
+                : project,
+            ),
         };
+        // The relocation transaction commits and the authority adopts the
+        // committed snapshot, broadcasting it to every window.
+        authority.adoptExternalSnapshot(relocatedAppState);
         return { appState: relocatedAppState };
       },
     },
@@ -332,9 +328,9 @@ function installBridge(
         deleteThreadDataRequests.push(structuredClone(request.threadData));
         if (deleteThreadDataFails) throw new Error("cleanup failed");
         await deleteThreadTransactionGate;
-        // The real transaction persists directly to the store and does not
-        // notify the authority; the renderer syncs it with a command after.
-        authority.persistExternally(request.afterAppState);
+        // The real transaction recomputes the committed snapshot from the
+        // store and the authority adopts it, broadcasting to every window.
+        authority.commitThreadDeletion(request);
       },
     },
     mainWindow: {
@@ -393,14 +389,12 @@ async function renderRecoveryApp(
       if (resetResult.status === "ready") authority.adoptExternalSnapshot(resetResult.snapshot);
       return resetResult;
     },
-    stage: () => {},
-    save: async (snapshot) => {
-      saved.push(structuredClone(snapshot));
-    },
     subscribe: authority.subscribe,
     unsubscribe: authority.unsubscribe,
     command: authority.command,
     onChanged: authority.onChanged,
+    onFlushRequest: () => () => {},
+    flushDone: async () => {},
   };
   window.carrent.clipboard.writeText = async (text) => {
     clipboardWrites.push(text);

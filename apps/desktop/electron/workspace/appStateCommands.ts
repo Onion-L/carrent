@@ -5,7 +5,15 @@ import {
   getProjectWorkingDirectoryIdentity,
   normalizeAppStateSettings,
   normalizeProjectWorkingDirectory,
+  normalizeThreadRunChecklist,
   type AppProjectRecord,
+  type AppStateSnapshot,
+  type AppThreadActionRecord,
+  type AppThreadMessageRecord,
+  type AppThreadRecord,
+  type AppThreadRunRecord,
+  type AssociationThreadDraftRecord,
+  type ThreadWorkSnapshot,
   type WorkspaceProjectAssociationRecord,
   type WorkspaceRecord,
 } from "../../src/shared/workspacePersistence";
@@ -338,21 +346,11 @@ const removeAssociation: AppStateCommandReducer = (snapshot, payload) => {
       .filter((draft) => draft.workspaceId === workspaceId && draft.projectId === projectId)
       .map((draft) => draft.threadId),
   ];
-  const next = applyThreadDeletionToAppState(snapshot, affectedThreadIds, {
+  return applyThreadDeletionToAppState(snapshot, affectedThreadIds, {
     kind: "association",
     workspaceId,
     projectId,
   });
-  // applyThreadDeletionToAppState keeps the remaining associations' order
-  // values; reindex the affected workspace so its orders stay contiguous for
-  // normalizeAppStateSnapshotForWrite.
-  let order = 0;
-  return {
-    ...next,
-    associations: next.associations.map((item) =>
-      item.workspaceId === workspaceId ? { ...item, order: order++ } : item,
-    ),
-  };
 };
 
 // Mirrors setAssociationDefaults.
@@ -524,6 +522,562 @@ const updateSettings: AppStateCommandReducer = (snapshot, payload) => {
   return { ...snapshot, settings: { ...snapshot.settings, ...settings } };
 };
 
+function isNonEmptyTrimmedString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.trim() === value;
+}
+
+function isValidRuntimeSelection(runtimeId: unknown, runtimeMode: unknown, planMode: unknown) {
+  return (
+    runtimeIds.includes(runtimeId as RuntimeId) &&
+    isRuntimeMode(runtimeMode) &&
+    typeof planMode === "boolean"
+  );
+}
+
+function isValidModelId(value: unknown): boolean {
+  return value === undefined || isNonEmptyTrimmedString(value);
+}
+
+// Validates a renderer-built AssociationThreadDraftRecord the way the
+// snapshot normalizer would; `snapshot` provides the referential context.
+function validatedDraftRecord(
+  value: Record<string, unknown>,
+  snapshot: AppStateSnapshot,
+): AssociationThreadDraftRecord | null {
+  if (
+    !isNonEmptyTrimmedString(value.id) ||
+    !isNonEmptyTrimmedString(value.threadId) ||
+    typeof value.workspaceId !== "string" ||
+    typeof value.projectId !== "string" ||
+    !snapshot.associations.some(
+      (item) => item.workspaceId === value.workspaceId && item.projectId === value.projectId,
+    ) ||
+    (snapshot.threadDrafts ?? []).some((draft) => draft.id === value.id) ||
+    (snapshot.threads ?? []).some((thread) => thread.id === value.threadId) ||
+    (snapshot.threadDrafts ?? []).some((draft) => draft.threadId === value.threadId) ||
+    typeof value.content !== "string" ||
+    (value.composerState !== undefined && typeof value.composerState !== "string") ||
+    !Array.isArray(value.attachedSkillNames) ||
+    value.attachedSkillNames.some((name) => !isNonEmptyTrimmedString(name)) ||
+    new Set(value.attachedSkillNames).size !== value.attachedSkillNames.length ||
+    !Array.isArray(value.attachments) ||
+    !isValidRuntimeSelection(value.runtimeId, value.runtimeMode, value.planMode) ||
+    !isValidModelId(value.runtimeModelId)
+  ) {
+    return null;
+  }
+  return {
+    id: value.id,
+    threadId: value.threadId,
+    workspaceId: value.workspaceId,
+    projectId: value.projectId,
+    content: value.content,
+    ...(typeof value.composerState === "string" && value.composerState
+      ? { composerState: value.composerState }
+      : {}),
+    attachedSkillNames: [...(value.attachedSkillNames as string[])],
+    attachments: value.attachments as AssociationThreadDraftRecord["attachments"],
+    runtimeId: value.runtimeId as RuntimeId,
+    ...(isNonEmptyTrimmedString(value.runtimeModelId)
+      ? { runtimeModelId: value.runtimeModelId }
+      : {}),
+    runtimeMode: value.runtimeMode as RuntimeMode,
+    planMode: value.planMode as boolean,
+  };
+}
+
+function validatedUserMessageRecord(
+  value: Record<string, unknown>,
+  threadId: string,
+): AppThreadMessageRecord | null {
+  if (
+    !isNonEmptyTrimmedString(value.id) ||
+    value.threadId !== threadId ||
+    value.role !== "user" ||
+    typeof value.content !== "string" ||
+    typeof value.createdAt !== "string" ||
+    !Array.isArray(value.attachments)
+  ) {
+    return null;
+  }
+  return value as unknown as AppThreadMessageRecord;
+}
+
+function validatedRunRecord(
+  value: Record<string, unknown>,
+  threadId: string,
+  messageId: string,
+  snapshot: AppStateSnapshot,
+): AppThreadRunRecord | null {
+  if (
+    !isNonEmptyTrimmedString(value.id) ||
+    (snapshot.threadRuns ?? []).some((run) => run.id === value.id) ||
+    value.threadId !== threadId ||
+    value.messageId !== messageId ||
+    typeof value.startedAt !== "string" ||
+    !isValidRuntimeSelection(value.runtimeId, value.runtimeMode, value.planMode) ||
+    !isValidModelId(value.runtimeModelId)
+  ) {
+    return null;
+  }
+  return {
+    id: value.id,
+    threadId,
+    messageId,
+    startedAt: value.startedAt,
+    runtimeId: value.runtimeId as RuntimeId,
+    ...(isNonEmptyTrimmedString(value.runtimeModelId)
+      ? { runtimeModelId: value.runtimeModelId }
+      : {}),
+    runtimeMode: value.runtimeMode as RuntimeMode,
+    planMode: value.planMode as boolean,
+  };
+}
+
+// Mirrors openThreadDraft: one draft per association, get-or-create. The
+// accepted command's data carries the resulting draft.
+const openThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
+  if (
+    !isRecord(payload) ||
+    typeof payload.workspaceId !== "string" ||
+    typeof payload.projectId !== "string" ||
+    !isRecord(payload.draft)
+  ) {
+    return null;
+  }
+  if (
+    !snapshot.associations.some(
+      (item) => item.workspaceId === payload.workspaceId && item.projectId === payload.projectId,
+    )
+  ) {
+    return null;
+  }
+  const existing = (snapshot.threadDrafts ?? []).find(
+    (draft) => draft.workspaceId === payload.workspaceId && draft.projectId === payload.projectId,
+  );
+  if (existing) return { snapshot, data: existing };
+
+  const draft = validatedDraftRecord(payload.draft, snapshot);
+  if (
+    !draft ||
+    draft.workspaceId !== payload.workspaceId ||
+    draft.projectId !== payload.projectId
+  ) {
+    return null;
+  }
+  return {
+    snapshot: {
+      ...snapshot,
+      threads: snapshot.threads ?? [],
+      threadDrafts: [...(snapshot.threadDrafts ?? []), draft],
+    },
+    data: draft,
+  };
+};
+
+// Mirrors updateThreadDraft: a null draft clears the content fields.
+const updateThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
+  if (!isRecord(payload) || typeof payload.draftId !== "string") return null;
+  const existing = (snapshot.threadDrafts ?? []).find((draft) => draft.id === payload.draftId);
+  if (!existing) return null;
+  if (payload.draft !== null && !isRecord(payload.draft)) return null;
+  if (
+    payload.draft !== null &&
+    isRecord(payload.draft) &&
+    (typeof payload.draft.content !== "string" ||
+      (payload.draft.composerState !== undefined &&
+        typeof payload.draft.composerState !== "string") ||
+      !Array.isArray(payload.draft.attachedSkillNames) ||
+      !Array.isArray(payload.draft.attachments))
+  ) {
+    return null;
+  }
+  const draft = payload.draft as {
+    content: string;
+    composerState?: string;
+    attachedSkillNames: string[];
+    attachments: AssociationThreadDraftRecord["attachments"];
+  } | null;
+
+  return {
+    ...snapshot,
+    threadDrafts: (snapshot.threadDrafts ?? []).map((item) => {
+      if (item.id !== existing.id) return item;
+      const { composerState: _composerState, ...withoutComposerState } = item;
+      const content = draft?.content ?? "";
+      const composerState = draft?.composerState ? draft.composerState : undefined;
+      return {
+        ...withoutComposerState,
+        content,
+        ...(composerState ? { composerState } : {}),
+        attachedSkillNames: draft ? [...draft.attachedSkillNames] : [],
+        attachments: draft ? draft.attachments : [],
+      };
+    }),
+  };
+};
+
+// Mirrors updateThreadDraftConfig.
+const updateThreadDraftConfig: AppStateCommandReducer = (snapshot, payload) => {
+  if (!isRecord(payload) || typeof payload.draftId !== "string" || !isRecord(payload.config)) {
+    return null;
+  }
+  if (!(snapshot.threadDrafts ?? []).some((draft) => draft.id === payload.draftId)) return null;
+  const config = payload.config;
+  if (!isValidRuntimeSelection(config.runtimeId, config.runtimeMode, config.planMode)) return null;
+  if (config.runtimeModelId !== undefined && typeof config.runtimeModelId !== "string") return null;
+  const runtimeModelId =
+    typeof config.runtimeModelId === "string" ? config.runtimeModelId.trim() : "";
+
+  return {
+    ...snapshot,
+    threadDrafts: (snapshot.threadDrafts ?? []).map((item) => {
+      if (item.id !== payload.draftId) return item;
+      const { runtimeModelId: _runtimeModelId, ...withoutModel } = item;
+      return {
+        ...withoutModel,
+        runtimeId: config.runtimeId as RuntimeId,
+        ...(runtimeModelId ? { runtimeModelId } : {}),
+        runtimeMode: config.runtimeMode as RuntimeMode,
+        planMode: config.planMode as boolean,
+      };
+    }),
+  };
+};
+
+// Mirrors discardThreadDraft.
+const discardThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
+  if (!isRecord(payload) || typeof payload.draftId !== "string") return null;
+  if (!(snapshot.threadDrafts ?? []).some((draft) => draft.id === payload.draftId)) return null;
+
+  return {
+    ...snapshot,
+    threadDrafts: (snapshot.threadDrafts ?? []).filter((draft) => draft.id !== payload.draftId),
+    threadPromotionIntents: (snapshot.threadPromotionIntents ?? []).filter(
+      (intent) => intent.draftId !== payload.draftId,
+    ),
+  };
+};
+
+// Mirrors prepareThreadDraftPromotion: creates the Thread, its initial user
+// message, and the first Run record, and removes the draft — atomically. When
+// the draft is already gone because another client won the race, the command
+// is a no-op whose data resolves to the existing Thread with `created: false`.
+const promoteThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
+  if (
+    !isRecord(payload) ||
+    typeof payload.draftId !== "string" ||
+    typeof payload.threadId !== "string" ||
+    !isRecord(payload.thread) ||
+    !isRecord(payload.message) ||
+    !isRecord(payload.run)
+  ) {
+    return null;
+  }
+  const draft = (snapshot.threadDrafts ?? []).find((item) => item.id === payload.draftId);
+  if (!draft || draft.threadId !== payload.threadId) {
+    const promoted = (snapshot.threads ?? []).find((thread) => thread.id === payload.threadId);
+    if (promoted && !draft) return { snapshot, data: { thread: promoted, created: false } };
+    return null;
+  }
+  const existingThread = (snapshot.threads ?? []).find((thread) => thread.id === draft.threadId);
+  if (existingThread) return { snapshot, data: { thread: existingThread, created: false } };
+
+  const threadInput = payload.thread;
+  if (
+    threadInput.id !== draft.threadId ||
+    threadInput.workspaceId !== draft.workspaceId ||
+    threadInput.projectId !== draft.projectId ||
+    !isNonEmptyTrimmedString(threadInput.title) ||
+    typeof threadInput.createdAt !== "string" ||
+    typeof threadInput.lastActivityAt !== "string" ||
+    !isValidRuntimeSelection(
+      threadInput.runtimeId,
+      threadInput.runtimeMode,
+      threadInput.planMode,
+    ) ||
+    !isValidModelId(threadInput.runtimeModelId)
+  ) {
+    return null;
+  }
+  const message = validatedUserMessageRecord(payload.message, draft.threadId);
+  if (!message || (snapshot.threadMessages ?? []).some((item) => item.id === message.id)) {
+    return null;
+  }
+  const run = validatedRunRecord(payload.run, draft.threadId, message.id, snapshot);
+  if (!run) return null;
+
+  const thread: AppThreadRecord = {
+    id: draft.threadId,
+    workspaceId: draft.workspaceId,
+    projectId: draft.projectId,
+    title: threadInput.title,
+    createdAt: threadInput.createdAt,
+    lastActivityAt: threadInput.lastActivityAt,
+    runtimeId: threadInput.runtimeId as RuntimeId,
+    ...(isNonEmptyTrimmedString(threadInput.runtimeModelId)
+      ? { runtimeModelId: threadInput.runtimeModelId }
+      : {}),
+    runtimeMode: threadInput.runtimeMode as RuntimeMode,
+    planMode: threadInput.planMode as boolean,
+  };
+
+  return {
+    snapshot: {
+      ...snapshot,
+      threads: [...(snapshot.threads ?? []), thread],
+      threadDrafts: (snapshot.threadDrafts ?? []).filter((item) => item.id !== draft.id),
+      threadMessages: [...(snapshot.threadMessages ?? []), message],
+      threadRuns: [...(snapshot.threadRuns ?? []), run],
+      threadPromotionIntents: (snapshot.threadPromotionIntents ?? []).filter(
+        (intent) => intent.draftId !== draft.id,
+      ),
+    },
+    data: { thread, created: true },
+  };
+};
+
+// Mirrors rollbackThreadDraftPromotion: restores the draft and removes the
+// promoted Thread, its messages, Runs, and Thread work. Idempotent — a
+// repeated rollback after the draft is back is a no-op.
+const rollbackThreadDraftPromotion: AppStateCommandReducer = (snapshot, payload) => {
+  if (!isRecord(payload) || !isRecord(payload.draft)) return null;
+  const draft = payload.draft;
+  if (
+    !isNonEmptyTrimmedString(draft.id) ||
+    !isNonEmptyTrimmedString(draft.threadId) ||
+    typeof draft.workspaceId !== "string" ||
+    typeof draft.projectId !== "string"
+  ) {
+    return null;
+  }
+  if ((snapshot.threadDrafts ?? []).some((item) => item.id === draft.id)) return snapshot;
+  if (
+    !snapshot.associations.some(
+      (item) => item.workspaceId === draft.workspaceId && item.projectId === draft.projectId,
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    ...snapshot,
+    threads: (snapshot.threads ?? []).filter((thread) => thread.id !== draft.threadId),
+    threadDrafts: [
+      ...(snapshot.threadDrafts ?? []),
+      draft as unknown as AssociationThreadDraftRecord,
+    ],
+    threadMessages: (snapshot.threadMessages ?? []).filter(
+      (message) => message.threadId !== draft.threadId,
+    ),
+    threadRuns: (snapshot.threadRuns ?? []).filter((run) => run.threadId !== draft.threadId),
+    threadWork: snapshot.threadWork
+      ? Object.fromEntries(
+          Object.entries(snapshot.threadWork).filter(([threadId]) => threadId !== draft.threadId),
+        )
+      : undefined,
+    threadPromotionIntents: (snapshot.threadPromotionIntents ?? []).filter(
+      (intent) => intent.draftId !== draft.id,
+    ),
+  };
+};
+
+// Mirrors recordThreadRun: appends the first user message (unless already
+// present) and the Run record, and bumps the Thread's lastActivityAt.
+const recordThreadRun: AppStateCommandReducer = (snapshot, payload) => {
+  if (
+    !isRecord(payload) ||
+    typeof payload.threadId !== "string" ||
+    !isRecord(payload.message) ||
+    !isRecord(payload.run)
+  ) {
+    return null;
+  }
+  const thread = (snapshot.threads ?? []).find(
+    (item) => item.id === payload.threadId && !item.archived,
+  );
+  if (!thread) return null;
+  const message = validatedUserMessageRecord(payload.message, thread.id);
+  const run = validatedRunRecord(payload.run, thread.id, payload.message.id as string, snapshot);
+  if (!message || !run) return null;
+
+  return {
+    ...snapshot,
+    threads: (snapshot.threads ?? []).map((item) =>
+      item.id === thread.id ? { ...item, lastActivityAt: run.startedAt } : item,
+    ),
+    threadMessages: (snapshot.threadMessages ?? []).some((item) => item.id === message.id)
+      ? snapshot.threadMessages
+      : [...(snapshot.threadMessages ?? []), message],
+    threadRuns: [...(snapshot.threadRuns ?? []), run],
+  };
+};
+
+// Mirrors rollbackThreadRun.
+const rollbackThreadRun: AppStateCommandReducer = (snapshot, payload) => {
+  if (
+    !isRecord(payload) ||
+    typeof payload.threadId !== "string" ||
+    typeof payload.runId !== "string" ||
+    typeof payload.messageId !== "string"
+  ) {
+    return null;
+  }
+  const thread = (snapshot.threads ?? []).find((item) => item.id === payload.threadId);
+  if (!thread) return null;
+  const remainingMessages = (snapshot.threadMessages ?? []).filter(
+    (message) => message.id !== payload.messageId,
+  );
+
+  return {
+    ...snapshot,
+    threadMessages: remainingMessages,
+    threadRuns: (snapshot.threadRuns ?? []).filter((run) => run.id !== payload.runId),
+    threads: (snapshot.threads ?? []).map((item) =>
+      item.id === thread.id
+        ? {
+            ...item,
+            lastActivityAt:
+              remainingMessages.filter((message) => message.threadId === thread.id).at(-1)
+                ?.createdAt ?? item.createdAt,
+          }
+        : item,
+    ),
+  };
+};
+
+// Mirrors recordThreadAction.
+const recordThreadAction: AppStateCommandReducer = (snapshot, payload) => {
+  if (!isRecord(payload) || !isRecord(payload.action)) return null;
+  const action = payload.action;
+  if (
+    !isNonEmptyTrimmedString(action.id) ||
+    typeof action.threadId !== "string" ||
+    action.action !== "compact" ||
+    !runtimeIds.includes(action.runtimeId as RuntimeId) ||
+    typeof action.completedAt !== "string"
+  ) {
+    return null;
+  }
+  const thread = (snapshot.threads ?? []).find((item) => item.id === action.threadId);
+  if (!thread) return null;
+
+  const record: AppThreadActionRecord = {
+    id: action.id,
+    threadId: thread.id,
+    action: "compact",
+    runtimeId: action.runtimeId as RuntimeId,
+    completedAt: action.completedAt,
+  };
+  return {
+    ...snapshot,
+    threads: (snapshot.threads ?? []).map((item) =>
+      item.id === thread.id ? { ...item, lastActivityAt: record.completedAt } : item,
+    ),
+    threadActions: [...(snapshot.threadActions ?? []), record],
+  };
+};
+
+// Snapshot part of deleting a Thread from history; Thread data cleanup runs
+// through chat.deleteThreadData before the command is submitted.
+const removeThread: AppStateCommandReducer = (snapshot, payload) => {
+  if (!isRecord(payload) || typeof payload.threadId !== "string") return null;
+  if (!(snapshot.threads ?? []).some((thread) => thread.id === payload.threadId)) return null;
+  return applyThreadDeletionToAppState(snapshot, [payload.threadId]);
+};
+
+// Bounded Thread content update: patches the mutable Thread record fields and
+// replaces the Thread's message list in place. Covers rename/pin/activity/
+// Run Checklist updates and every message mutation.
+const updateThreadContent: AppStateCommandReducer = (snapshot, payload) => {
+  if (!isRecord(payload) || typeof payload.threadId !== "string") return null;
+  const thread = (snapshot.threads ?? []).find((item) => item.id === payload.threadId);
+  if (!thread) return null;
+
+  let nextThread = thread;
+  if (payload.thread !== undefined) {
+    if (!isRecord(payload.thread)) return null;
+    const patch = payload.thread;
+    nextThread = { ...thread };
+    if (patch.title !== undefined) {
+      if (typeof patch.title !== "string" || !patch.title.trim()) return null;
+      nextThread.title = patch.title.trim();
+    }
+    if (patch.lastActivityAt !== undefined) {
+      if (typeof patch.lastActivityAt !== "string") return null;
+      nextThread.lastActivityAt = patch.lastActivityAt;
+    }
+    if (patch.pinned !== undefined) {
+      if (typeof patch.pinned !== "boolean") return null;
+      if (patch.pinned) {
+        nextThread.pinned = true;
+      } else {
+        delete nextThread.pinned;
+      }
+    }
+    if (patch.runChecklist !== undefined) {
+      if (patch.runChecklist === null) {
+        delete nextThread.runChecklist;
+      } else {
+        const runChecklist = normalizeThreadRunChecklist(patch.runChecklist);
+        if (!runChecklist) return null;
+        nextThread.runChecklist = runChecklist;
+      }
+    }
+  }
+
+  let threadMessages = snapshot.threadMessages ?? [];
+  if (payload.messages !== undefined) {
+    if (!Array.isArray(payload.messages)) return null;
+    if (payload.messages.some((message) => !isRecord(message) || message.threadId !== thread.id)) {
+      return null;
+    }
+    // Replace the Thread's messages in place so global message order is kept.
+    const replacement = payload.messages as AppThreadMessageRecord[];
+    const updated: AppThreadMessageRecord[] = [];
+    let inserted = false;
+    for (const message of threadMessages) {
+      if (message.threadId !== thread.id) {
+        updated.push(message);
+        continue;
+      }
+      if (!inserted) {
+        updated.push(...replacement);
+        inserted = true;
+      }
+    }
+    if (!inserted) updated.push(...replacement);
+    threadMessages = updated;
+  }
+
+  return {
+    ...snapshot,
+    threads: (snapshot.threads ?? []).map((item) => (item.id === thread.id ? nextThread : item)),
+    threadMessages,
+  };
+};
+
+// Shared Thread Composer State (composer draft + queued messages). A null
+// work value removes the Thread's entry.
+const updateThreadWork: AppStateCommandReducer = (snapshot, payload) => {
+  if (!isRecord(payload) || typeof payload.threadId !== "string") return null;
+  if (!(snapshot.threads ?? []).some((thread) => thread.id === payload.threadId)) return null;
+  if (payload.work !== null) {
+    if (!isRecord(payload.work) || !Array.isArray(payload.work.queuedMessages)) return null;
+    return {
+      ...snapshot,
+      threadWork: {
+        ...snapshot.threadWork,
+        [payload.threadId]: payload.work as ThreadWorkSnapshot,
+      },
+    };
+  }
+  if (!snapshot.threadWork?.[payload.threadId]) return snapshot;
+  const threadWork = { ...snapshot.threadWork };
+  delete threadWork[payload.threadId];
+  return { ...snapshot, threadWork };
+};
+
 export const appStateCommandReducers: Record<string, AppStateCommandReducer> = {
   "workspace:create": createWorkspace,
   "workspace:rename": renameWorkspace,
@@ -536,6 +1090,18 @@ export const appStateCommandReducers: Record<string, AppStateCommandReducer> = {
   "thread:archive": archiveThread,
   "thread:restore": restoreThread,
   "thread:update-config": updateThreadConfig,
+  "thread:record-run": recordThreadRun,
+  "thread:rollback-run": rollbackThreadRun,
+  "thread:record-action": recordThreadAction,
+  "thread:remove": removeThread,
+  "thread-draft:open": openThreadDraft,
+  "thread-draft:update": updateThreadDraft,
+  "thread-draft:update-config": updateThreadDraftConfig,
+  "thread-draft:discard": discardThreadDraft,
+  "thread-draft:promote": promoteThreadDraft,
+  "thread-draft:rollback-promotion": rollbackThreadDraftPromotion,
+  "thread-content:update": updateThreadContent,
+  "thread-work:update": updateThreadWork,
   "state:select-workspace": selectWorkspace,
   "state:remember-thread-location": rememberThreadLocation,
   "settings:update": updateSettings,

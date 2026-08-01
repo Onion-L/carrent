@@ -22,12 +22,8 @@ import {
   registerAppStateAuthorityIpc,
 } from "./workspace/appStateAuthority";
 import { appStateCommandReducers } from "./workspace/appStateCommands";
-import {
-  clearStagedAppStateSnapshot,
-  getStagedAppStateSnapshot,
-  registerAppStateIpc,
-  setAppStateTransactionActive,
-} from "./workspace/appStateIpc";
+import { registerAppStateIpc } from "./workspace/appStateIpc";
+import { createAppStateFlush } from "./workspace/appStateFlush";
 import { createAppShutdown } from "./appShutdown";
 import {
   createProjectRelocationManager,
@@ -95,6 +91,7 @@ let mainWindow: BrowserWindow | null = null;
 let appStateStore: AppStateStore | null = null;
 let chatSessionManager: ChatSessionManager | null = null;
 let waitForThreadDeletion: (() => Promise<void>) | null = null;
+let appStateFlush: ReturnType<typeof createAppStateFlush> | null = null;
 let liveRunQuitWarning: ReturnType<typeof createLiveRunQuitWarning> | null = null;
 let terminalSessionManager: TerminalSessionManager | null = null;
 
@@ -317,20 +314,17 @@ if (!hasSingleInstanceLock) {
     });
     registerAppStateAuthorityIpc(guardedIpcMain, appStateAuthority);
     const setAppStateTransactionActiveEverywhere = (active: boolean) => {
-      setAppStateTransactionActive(active);
       appStateAuthority.setTransactionActive(active);
     };
-    registerAppStateIpc(
-      guardedIpcMain,
-      store,
-      startupAppStateResult,
-      async (result, source) => {
-        const applied = await appStateLifecycle.apply(result, source);
-        appStateAuthority.replaceState(applied);
-        return applied;
-      },
-      (snapshot) => appStateAuthority.adoptExternalSnapshot(snapshot),
-    );
+    registerAppStateIpc(guardedIpcMain, store, startupAppStateResult, async (result, source) => {
+      const applied = await appStateLifecycle.apply(result, source);
+      appStateAuthority.replaceState(applied);
+      return applied;
+    });
+    appStateFlush = createAppStateFlush(guardedIpcMain, appStateAuthority, (subscriberId) => {
+      const contents = webContents.fromId(subscriberId);
+      return contents && !contents.isDestroyed() ? contents : null;
+    });
 
     registerDialogIpc(guardedIpcMain, () =>
       dialog.showOpenDialog({ properties: ["openDirectory"] }),
@@ -404,6 +398,7 @@ if (!hasSingleInstanceLock) {
         completeRuntimeSessionDetachment: sessionManager.completeRuntimeSessionDetachment,
       },
       onActiveChange: setAppStateTransactionActiveEverywhere,
+      onSnapshotCommitted: (snapshot) => appStateAuthority.adoptExternalSnapshot(snapshot),
     });
     registerProjectDirectoryIpc(guardedIpcMain, { relocationManager: projectRelocationManager });
     chatSessionManager = sessionManager;
@@ -416,6 +411,7 @@ if (!hasSingleInstanceLock) {
         rollbackThreadDataDeletion: sessionManager.rollbackThreadDataDeletion,
       },
       onActiveChange: setAppStateTransactionActiveEverywhere,
+      onSnapshotCommitted: (snapshot) => appStateAuthority.adoptExternalSnapshot(snapshot),
     });
     waitForThreadDeletion = threadDeletionManager.waitForIdle;
     registerChatIpc(guardedIpcMain, {
@@ -442,11 +438,9 @@ const appShutdown = createAppShutdown({
     await chatSessionManager?.shutdown();
     terminalSessionManager?.shutdown();
     await waitForThreadDeletion?.();
-    const stagedAppState = getStagedAppStateSnapshot();
-    if (stagedAppState && appStateStore) {
-      await appStateStore.saveAppStateSnapshot(stagedAppState);
-      clearStagedAppStateSnapshot();
-    }
+    // Ask renderers to flush pending App State commands, then drain the
+    // authority queue so everything typed before quitting is persisted.
+    await appStateFlush?.flush();
     await appStateStore?.waitForWrites();
   },
   liveRunQuitPolicy: {

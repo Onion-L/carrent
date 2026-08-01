@@ -4,6 +4,7 @@ import {
   registerAppStateAuthorityIpc,
   type AppStateAuthorityState,
   type AppStateCommand,
+  type AppStateCommandReducer,
 } from "./appStateAuthority";
 import {
   createEmptyAppStateSnapshot,
@@ -57,6 +58,7 @@ function createHarness(
   options: {
     initialResult?: AppStateLoadResult;
     saveAppStateSnapshot?: (snapshot: AppStateSnapshot) => Promise<void>;
+    reducers?: Record<string, AppStateCommandReducer>;
   } = {},
 ) {
   const published: Array<{ subscriberId: number; state: AppStateAuthorityState }> = [];
@@ -69,7 +71,7 @@ function createHarness(
       },
     }),
     initialResult: options.initialResult ?? readyResult(),
-    reducers: { "add-workspace": addWorkspaceReducer },
+    reducers: options.reducers ?? { "add-workspace": addWorkspaceReducer },
     publish: (subscriberId, state) => {
       published.push({ subscriberId, state });
     },
@@ -300,6 +302,64 @@ describe("createAppStateAuthority", () => {
 
     expect(authority.getState().revision).toBe(0);
     expect(published).toHaveLength(0);
+  });
+
+  it("passes reducer-produced data through the accepted result", async () => {
+    const published: Array<{ subscriberId: number; state: AppStateAuthorityState }> = [];
+    const authority = createAppStateAuthority({
+      store: createAppStateStoreStub(),
+      initialResult: readyResult(),
+      reducers: {
+        "get-or-create": (snapshot) => ({
+          snapshot: {
+            ...snapshot,
+            workspaces: [{ id: "workspace-1", name: "Core", order: 0 }],
+          },
+          data: { id: "workspace-1" },
+        }),
+      },
+      publish: (subscriberId, state) => {
+        published.push({ subscriberId, state });
+      },
+    });
+
+    const result = await authority.submit(1, command({ type: "get-or-create" }));
+
+    expect(result).toEqual({ status: "accepted", revision: 1, data: { id: "workspace-1" } });
+  });
+
+  it("accepts a no-op reducer result without persisting or broadcasting", async () => {
+    const { authority, published, saved } = createHarness({
+      reducers: {
+        "read-only": (snapshot, payload) => ({
+          snapshot,
+          data: { count: (payload as { count?: number })?.count ?? 0 },
+        }),
+      },
+    });
+    authority.subscribe(1);
+
+    const result = await authority.submit(1, command({ type: "read-only", payload: { count: 3 } }));
+
+    expect(result).toEqual({ status: "accepted", revision: 0, data: { count: 3 } });
+    expect(authority.getState().revision).toBe(0);
+    expect(saved).toHaveLength(0);
+    expect(published).toHaveLength(0);
+  });
+
+  it("exposes subscriber identities and drains the command queue with waitForIdle", async () => {
+    const { authority, saved } = createHarness();
+    expect(authority.getSubscriberIds()).toEqual([]);
+    authority.subscribe(7);
+    expect(authority.getSubscriberIds()).toEqual([7]);
+
+    const submitted = authority.submit(7, command({ payload: { name: "Core" } }));
+    await authority.waitForIdle();
+
+    expect(await submitted).toEqual({ status: "accepted", revision: 1 });
+    expect(saved).toHaveLength(1);
+    authority.unsubscribe(7);
+    expect(authority.getSubscriberIds()).toEqual([]);
   });
 
   it("bounds the remembered command identities", async () => {

@@ -49,15 +49,13 @@ async function renderProviders(snapshot: AppStateSnapshot) {
     appState: {
       load: async () => ({ status: "ready", snapshot }),
       reread: async () => ({ status: "ready", snapshot }),
-      stage: () => {},
-      save: async (next: AppStateSnapshot) => {
-        current.adoptExternalSnapshot(next);
-      },
       fullReset: async () => ({ status: "ready", snapshot }),
       subscribe: current.subscribe,
       unsubscribe: current.unsubscribe,
       command: current.command,
       onChanged: current.onChanged,
+      onFlushRequest: () => () => {},
+      flushDone: async () => {},
     },
     projectDirectories: { check: async () => ({ available: true }) },
   } as unknown as Window["carrent"];

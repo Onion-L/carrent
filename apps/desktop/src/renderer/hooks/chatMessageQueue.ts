@@ -152,6 +152,68 @@ export function hydrateThreadWork(
   emit();
 }
 
+function queueContentOf(queue: QueuedChatMessage[] | undefined) {
+  return (queue ?? []).map((item) => ({
+    id: item.id,
+    content: item.content,
+    attachments: item.attachments ?? [],
+  }));
+}
+
+function workEntriesEqual(
+  draft: ThreadWorkDraftSnapshot | undefined,
+  queue: QueuedChatMessage[] | undefined,
+  work: ThreadWorkSnapshot,
+): boolean {
+  return (
+    JSON.stringify(draft ?? null) === JSON.stringify(work.draft ?? null) &&
+    JSON.stringify(queueContentOf(queue)) === JSON.stringify(queueContentOf(work.queuedMessages))
+  );
+}
+
+// Applies authoritative Thread work from an App State broadcast: Threads
+// without a pending local edit converge on the broadcast; Threads the user is
+// editing already match (the broadcast merge keeps their local entry), so a
+// dumb full sync never clobbers an in-progress composer. Queue items known
+// locally keep their requiresConfirmation flag — the persisted form forces it
+// for crash recovery, but a live queue must stay steerable.
+export function syncThreadWorkFromSnapshot(threadWork: Record<string, ThreadWorkSnapshot>): void {
+  let changed = false;
+  const threadIds = new Set([...draftByThreadId.keys(), ...queueByThreadId.keys()]);
+  for (const threadId of threadIds) {
+    if (threadId in threadWork) continue;
+    changed = draftByThreadId.delete(threadId) || changed;
+    changed = queueByThreadId.delete(threadId) || changed;
+  }
+  for (const [threadId, work] of Object.entries(threadWork)) {
+    const localQueue = queueByThreadId.get(threadId);
+    if (workEntriesEqual(draftByThreadId.get(threadId), localQueue, work)) {
+      continue;
+    }
+    if (work.draft) {
+      draftByThreadId.set(threadId, copyDraft(work.draft));
+    } else {
+      draftByThreadId.delete(threadId);
+    }
+    const queue = (work.queuedMessages ?? []).map((item) => {
+      const local = localQueue?.find(
+        (queued) =>
+          queued.id === item.id &&
+          queued.content === item.content &&
+          JSON.stringify(queued.attachments ?? []) === JSON.stringify(item.attachments ?? []),
+      );
+      return local ?? { ...item };
+    });
+    if (queue.length > 0) {
+      queueByThreadId.set(threadId, queue);
+    } else {
+      queueByThreadId.delete(threadId);
+    }
+    changed = true;
+  }
+  if (changed) emit();
+}
+
 export function getThreadWorkVersion(): number {
   return version;
 }

@@ -161,6 +161,7 @@ export function createThreadDeletionTransactionManager(options: {
   sessionManager: TransactionSessionManager;
   createOperationId?: () => string;
   onActiveChange?: (active: boolean) => void;
+  onSnapshotCommitted?: (snapshot: AppStateSnapshot) => void;
 }) {
   let queue = Promise.resolve();
 
@@ -237,6 +238,7 @@ export function createThreadDeletionTransactionManager(options: {
               detachedRuntimeSessions: {},
             };
             await options.appStateStore.saveAppStateSnapshot(transactionRequest.afterAppState);
+            options.onSnapshotCommitted?.(transactionRequest.afterAppState);
             await options.journalStore.save({ ...journal, phase: "committed" });
           } catch (error) {
             const rollbackErrors: unknown[] = [];

@@ -87,8 +87,16 @@ export function createAppStateAuthority(options: {
     }
     const reducer = reducers[command.type];
     if (!reducer) return rejected("invalid", `Unknown App State command: ${command.type}`);
-    const next = reducer(snapshot, command.payload);
-    if (!next) return rejected("invalid");
+    const produced = reducer(snapshot, command.payload);
+    if (!produced) return rejected("invalid");
+    const next = "snapshot" in produced ? produced.snapshot : produced;
+    const data = "snapshot" in produced && produced.data !== undefined ? produced.data : undefined;
+    // A reducer returning the input snapshot is a no-op: accept (with any
+    // produced data) without persisting or broadcasting.
+    if (next === snapshot) {
+      rememberCommand(command.commandId);
+      return { status: "accepted", revision, ...(data !== undefined ? { data } : {}) };
+    }
     const normalized = normalizeAppStateSnapshotForWrite(next);
     if (!normalized) return rejected("invalid", "Command produced an invalid App State snapshot.");
     try {
@@ -103,7 +111,7 @@ export function createAppStateAuthority(options: {
     for (const subscriberId of subscribers) {
       options.publish(subscriberId, state);
     }
-    return { status: "accepted", revision };
+    return { status: "accepted", revision, ...(data !== undefined ? { data } : {}) };
   }
 
   function submit(_subscriberId: number, command: AppStateCommand) {
@@ -127,7 +135,17 @@ export function createAppStateAuthority(options: {
       subscribers.delete(subscriberId);
     },
 
+    getSubscriberIds(): number[] {
+      return [...subscribers];
+    },
+
     submit,
+
+    // Resolves once every command submitted so far has been processed
+    // (including its persistence), so quit-time flows can drain the queue.
+    waitForIdle(): Promise<unknown> {
+      return queue;
+    },
 
     replaceState(result: AppStateLoadResult) {
       if (result.status === "ready") {
@@ -138,13 +156,15 @@ export function createAppStateAuthority(options: {
       }
     },
 
-    // Adopts a snapshot written outside the command path (the legacy
-    // full-snapshot `app-state:save` channel) so subscribers converge on what
-    // is actually persisted. Bumps the revision and broadcasts like an
-    // accepted command.
+    // Adopts a snapshot committed outside the command path (Thread deletion
+    // and Project relocation transactions) so subscribers converge on what is
+    // actually persisted. Bumps the revision and broadcasts like an accepted
+    // command. Invalid snapshots are ignored.
     adoptExternalSnapshot(next: AppStateSnapshot) {
       if (!available) return;
-      snapshot = next;
+      const normalized = normalizeAppStateSnapshotForWrite(next);
+      if (!normalized) return;
+      snapshot = normalized;
       revision += 1;
       const state = currentState();
       for (const subscriberId of subscribers) {

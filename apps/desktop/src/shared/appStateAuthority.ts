@@ -18,7 +18,7 @@ export type AppStateCommandRejectionReason =
   | "persistence-failed";
 
 export type AppStateCommandResult =
-  | { status: "accepted"; revision: number }
+  | { status: "accepted"; revision: number; data?: unknown }
   | {
       status: "rejected";
       reason: AppStateCommandRejectionReason;
@@ -31,7 +31,18 @@ export type AppStateAuthorityState = {
   snapshot: AppStateSnapshot;
 };
 
+/**
+ * Reducers return the next snapshot, or null to reject the command as
+ * invalid. The `{ snapshot, data }` form attaches a reducer-produced result
+ * (e.g. the get-or-created draft) to the accepted command result. Returning
+ * the input snapshot reference is a no-op: the command is accepted (with any
+ * data) without persisting, bumping the revision, or broadcasting.
+ */
+export type AppStateCommandReducerResult =
+  | AppStateSnapshot
+  | { snapshot: AppStateSnapshot; data?: unknown };
+
 export type AppStateCommandReducer = (
   snapshot: AppStateSnapshot,
   payload: unknown,
-) => AppStateSnapshot | null;
+) => AppStateCommandReducerResult | null;

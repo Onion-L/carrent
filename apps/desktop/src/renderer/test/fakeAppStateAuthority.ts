@@ -4,6 +4,10 @@ import type {
   AppStateCommandResult,
 } from "../../shared/appStateAuthority";
 import {
+  applyThreadDeletionToAppState,
+  type ThreadDeletionTransactionRequest,
+} from "../../shared/chat";
+import {
   normalizeAppStateSnapshotForWrite,
   type AppStateSnapshot,
 } from "../../shared/workspacePersistence";
@@ -54,28 +58,43 @@ export function createFakeAppStateAuthority(
         return { status: "rejected", reason: "stale", revision };
       }
       const reducer = appStateCommandReducers[command.type];
-      const next = reducer?.(snapshot, command.payload);
-      const normalized = next ? normalizeAppStateSnapshotForWrite(next) : null;
+      const produced = reducer?.(snapshot, command.payload);
+      if (!produced) return { status: "rejected", reason: "invalid", revision };
+      const next = "snapshot" in produced ? produced.snapshot : produced;
+      const data =
+        "snapshot" in produced && produced.data !== undefined ? produced.data : undefined;
+      if (next === snapshot) {
+        return { status: "accepted", revision, ...(data !== undefined ? { data } : {}) };
+      }
+      const normalized = normalizeAppStateSnapshotForWrite(next);
       if (!normalized) return { status: "rejected", reason: "invalid", revision };
       snapshot = normalized;
       revision += 1;
       options.onPersist?.(structuredClone(normalized));
       broadcast();
-      return { status: "accepted", revision };
+      return { status: "accepted", revision, ...(data !== undefined ? { data } : {}) };
     },
-    // Mirrors the legacy `app-state:save` path: the snapshot is persisted and
-    // adopted by the authority, which broadcasts it to every subscriber.
+    // Mirrors snapshots committed outside the command path (Thread deletion
+    // and Project relocation transactions, rereads, resets): persisted and
+    // adopted by the authority, which broadcasts to every subscriber.
     adoptExternalSnapshot: (next: AppStateSnapshot) => {
       snapshot = structuredClone(next);
       revision += 1;
       options.onPersist?.(structuredClone(snapshot));
       broadcast();
     },
-    // Mirrors the Main-process Thread deletion transaction: persists directly
-    // to the store WITHOUT adopting, leaving the authority's in-memory state
-    // (and subscribers) untouched.
-    persistExternally: (next: AppStateSnapshot) => {
-      options.onPersist?.(structuredClone(next));
+    // Recomputes and commits a Thread deletion transaction the way the Main
+    // process does, then adopts the committed snapshot.
+    commitThreadDeletion: (request: ThreadDeletionTransactionRequest) => {
+      const afterAppState = applyThreadDeletionToAppState(
+        snapshot,
+        request.threadData.threadIds,
+        request.scope,
+      );
+      snapshot = afterAppState;
+      revision += 1;
+      options.onPersist?.(structuredClone(snapshot));
+      broadcast();
     },
   };
 }

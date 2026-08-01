@@ -883,7 +883,7 @@ function normalizePersistedModelId(value: unknown): string | undefined {
   return value;
 }
 
-function normalizeThreadRunChecklist(value: unknown): ThreadRunChecklist | null {
+export function normalizeThreadRunChecklist(value: unknown): ThreadRunChecklist | null {
   if (!isRecord(value)) return null;
   if (typeof value.runId !== "string" || !value.runId.trim()) return null;
   if (!runtimeIds.includes(value.runtimeId as ThreadRunChecklist["runtimeId"])) return null;

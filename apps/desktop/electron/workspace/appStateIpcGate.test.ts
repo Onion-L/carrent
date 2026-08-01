@@ -34,10 +34,10 @@ describe("createAppStateIpcGate", () => {
     const gate = createAppStateIpcGate(ipcMainLike, ready);
 
     gate.ipcMain.handle("app-state:load", () => undefined);
-    gate.ipcMain.on("app-state:stage", () => undefined);
+    gate.ipcMain.on("chat:event", () => undefined);
 
     expect(ipcMainLike.handlers.has("app-state:load")).toBe(true);
-    expect(ipcMainLike.listenerCount("app-state:stage")).toBe(1);
+    expect(ipcMainLike.listenerCount("chat:event")).toBe(1);
   });
 
   it("does not load Runtime Session mappings while initial App State is blocked", async () => {
@@ -72,14 +72,14 @@ describe("createAppStateIpcGate", () => {
       recovery,
     );
     let runsStarted = 0;
-    let snapshotsSaved = 0;
+    let providerSessionsSaved = 0;
     let diagnosticsCopied = 0;
 
     gate.ipcMain.handle("chat:send", () => {
       runsStarted += 1;
     });
-    gate.ipcMain.handle("app-state:save", () => {
-      snapshotsSaved += 1;
+    gate.ipcMain.handle("provider-sessions:save", () => {
+      providerSessionsSaved += 1;
     });
     gate.ipcMain.handle("clipboard:write-text", () => {
       diagnosticsCopied += 1;
@@ -91,19 +91,19 @@ describe("createAppStateIpcGate", () => {
     } catch (error) {
       runError = error;
     }
-    const saveError = await caughtError(() => handlers.get("app-state:save")?.({}));
+    const saveError = await caughtError(() => handlers.get("provider-sessions:save")?.({}));
     expect(String(runError)).toContain("App State recovery is required");
     expect(String(saveError)).toContain("App State recovery is required");
     expect(await handlers.get("clipboard:write-text")?.({})).toBeUndefined();
     expect(runsStarted).toBe(0);
-    expect(snapshotsSaved).toBe(0);
+    expect(providerSessionsSaved).toBe(0);
     expect(diagnosticsCopied).toBe(1);
 
     gate.update(ready);
     expect(await handlers.get("chat:send")?.({})).toBeUndefined();
-    await handlers.get("app-state:save")?.({});
+    await handlers.get("provider-sessions:save")?.({});
     expect(runsStarted).toBe(1);
-    expect(snapshotsSaved).toBe(1);
+    expect(providerSessionsSaved).toBe(1);
   });
 });
 

@@ -5,7 +5,11 @@ import "../test/registerHappyDom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import type { AppStateSnapshot } from "../../shared/workspacePersistence";
+import type { ThreadDeletionAppStateSnapshots } from "../../shared/chat";
+import type {
+  AppStateSnapshot,
+  AssociationThreadDraftRecord,
+} from "../../shared/workspacePersistence";
 import { createFakeAppStateAuthority } from "../test/fakeAppStateAuthority";
 import { AppStateProvider, useAppState } from "./AppStateContext";
 
@@ -48,6 +52,7 @@ let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 let contextValue: ReturnType<typeof useAppState> | null = null;
 let savedSnapshot: AppStateSnapshot | null = null;
+let testAuthority: ReturnType<typeof createFakeAppStateAuthority> | null = null;
 
 function Probe() {
   contextValue = useAppState();
@@ -62,19 +67,18 @@ async function renderProvider(snapshot: AppStateSnapshot) {
       savedSnapshot = next;
     },
   });
+  testAuthority = authority;
   window.carrent = {
     appState: {
       load: async () => ({ status: "ready", snapshot }),
       reread: async () => ({ status: "ready", snapshot }),
-      stage: () => {},
-      save: async (next: AppStateSnapshot) => {
-        authority.adoptExternalSnapshot(next);
-      },
       fullReset: async () => ({ status: "ready", snapshot }),
       subscribe: authority.subscribe,
       unsubscribe: authority.unsubscribe,
       command: authority.command,
       onChanged: authority.onChanged,
+      onFlushRequest: () => () => {},
+      flushDone: async () => {},
     },
     projectDirectories: { check: async () => ({ available: true }) },
     terminal: { closeProject: async () => {} },
@@ -304,7 +308,17 @@ describe("multi-window synchronization", () => {
     contextB = null;
   });
 
-  const noopCleanup = async () => {};
+  // Mirrors the real cleanup: the Main-process deletion transaction commits
+  // and the authority adopts the committed snapshot.
+  const transactionCleanup = async (
+    threadIds: string[],
+    snapshots: ThreadDeletionAppStateSnapshots,
+  ) => {
+    testAuthority?.commitThreadDeletion({
+      ...snapshots,
+      threadData: { threadIds, attachmentStorageKeys: [] },
+    });
+  };
 
   it("propagates workspace create, rename, and delete to the other client", async () => {
     await renderClients();
@@ -331,7 +345,7 @@ describe("multi-window synchronization", () => {
     );
 
     await act(async () => {
-      expect(await contextValue!.deleteWorkspace("workspace-2", noopCleanup)).toBe(true);
+      expect(await contextValue!.deleteWorkspace("workspace-2", transactionCleanup)).toBe(true);
     });
     expect(contextB!.workspaces.map((workspace) => workspace.name)).toEqual(["Home", "Research"]);
     // project-2 survives: workspace-1 still references it.
@@ -378,9 +392,9 @@ describe("multi-window synchronization", () => {
     await renderClients();
 
     await act(async () => {
-      expect(await contextValue!.removeAssociation("workspace-1", "project-2", noopCleanup)).toBe(
-        true,
-      );
+      expect(
+        await contextValue!.removeAssociation("workspace-1", "project-2", transactionCleanup),
+      ).toBe(true);
     });
 
     expect(contextB!.associations.map((item) => `${item.workspaceId}:${item.projectId}`)).toEqual([
@@ -459,5 +473,258 @@ describe("multi-window synchronization", () => {
     expect(contextB!.hasPersistedSettings).toBe(true);
     expect(contextB!.settings).toMatchObject({ theme: "light", fontSize: 18 });
     expect(contextValue!.settings.theme).toBe("light");
+  });
+
+  it("converges association draft edits, attachments, and config across clients", async () => {
+    await renderClients();
+
+    let draft: AssociationThreadDraftRecord | null = null;
+    await act(async () => {
+      draft = await contextValue!.openThreadDraft("workspace-1", "project-1");
+    });
+    expect(draft).not.toBe(null);
+    expect(contextB!.threadDrafts.map((item) => item.id)).toEqual([draft!.id]);
+
+    // Get-or-create from the other client returns the same draft.
+    let reopened: AssociationThreadDraftRecord | null = null;
+    await act(async () => {
+      reopened = await contextB!.openThreadDraft("workspace-1", "project-1");
+    });
+    expect(reopened!.id).toBe(draft!.id);
+    expect(contextValue!.threadDrafts).toHaveLength(1);
+
+    const attachment = {
+      id: "att-1",
+      kind: "file" as const,
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 5,
+      storageKey: "notes.txt",
+    };
+    await act(async () => {
+      expect(
+        await contextValue!.updateThreadDraft(draft!.id, {
+          content: "from A",
+          attachedSkillNames: [],
+          attachments: [],
+        }),
+      ).toBe(true);
+    });
+    expect(contextB!.threadDrafts[0]?.content).toBe("from A");
+
+    await act(async () => {
+      expect(
+        await contextB!.updateThreadDraft(draft!.id, {
+          content: "from B",
+          attachedSkillNames: [],
+          attachments: [attachment],
+        }),
+      ).toBe(true);
+    });
+    // Last writer wins; both clients converge on it, attachments included.
+    expect(contextValue!.threadDrafts[0]?.content).toBe("from B");
+    expect(contextValue!.threadDrafts[0]?.attachments).toHaveLength(1);
+    expect(contextB!.threadDrafts[0]?.attachments).toHaveLength(1);
+
+    await act(async () => {
+      expect(
+        await contextB!.updateThreadDraftConfig(draft!.id, {
+          runtimeId: "codex",
+          runtimeMode: "full-access",
+          planMode: true,
+        }),
+      ).toBe(true);
+    });
+    expect(contextValue!.threadDrafts[0]).toMatchObject({
+      runtimeId: "codex",
+      runtimeMode: "full-access",
+      planMode: true,
+    });
+  });
+
+  it("discards a draft in every client", async () => {
+    await renderClients();
+
+    let draft: AssociationThreadDraftRecord | null = null;
+    await act(async () => {
+      draft = await contextValue!.openThreadDraft("workspace-1", "project-1");
+    });
+
+    await act(async () => {
+      expect(await contextB!.discardThreadDraft(draft!.id)).toBe(true);
+    });
+
+    expect(contextValue!.threadDrafts).toEqual([]);
+    expect(contextB!.threadDrafts).toEqual([]);
+    // A stale client cannot recreate or update the discarded draft.
+    await act(async () => {
+      expect(await contextValue!.updateThreadDraft(draft!.id, null)).toBe(false);
+    });
+    expect(contextB!.threadDrafts).toEqual([]);
+  });
+
+  it("resolves a promotion race to exactly one thread and one initial message", async () => {
+    await renderClients();
+
+    let draft: AssociationThreadDraftRecord | null = null;
+    await act(async () => {
+      draft = await contextValue!.openThreadDraft("workspace-1", "project-1");
+    });
+
+    const input = (messageId: string, runId: string) => ({
+      draftId: draft!.id,
+      title: "Race",
+      runId,
+      messageId,
+      message: "race message",
+      attachments: [],
+      startedAt: "2026-07-30T08:00:00.000Z",
+      runtimeId: "kimi" as const,
+      runtimeMode: "approval-required" as const,
+      planMode: false,
+      draft: { content: "race message", attachedSkillNames: [], attachments: [] },
+    });
+
+    let resultA: unknown;
+    let resultB: unknown;
+    await act(async () => {
+      [resultA, resultB] = await Promise.all([
+        contextValue!.prepareThreadDraftPromotion(input("m-a", "run-a")),
+        contextB!.prepareThreadDraftPromotion(input("m-b", "run-b")),
+      ]);
+    });
+
+    // Exactly one client promoted; the other observed the race and backed off.
+    expect([resultA, resultB].filter(Boolean)).toHaveLength(1);
+    for (const context of [contextValue!, contextB!]) {
+      expect(context.threads.filter((thread) => thread.id === draft!.threadId)).toHaveLength(1);
+      expect(
+        context.threadMessages.filter((message) => message.threadId === draft!.threadId),
+      ).toHaveLength(1);
+      expect(context.threadRuns.filter((run) => run.threadId === draft!.threadId)).toHaveLength(1);
+      expect(context.threadDrafts).toEqual([]);
+    }
+  });
+
+  it("broadcasts a permanent thread deletion to every client", async () => {
+    await renderClients();
+
+    await act(async () => {
+      expect(await contextValue!.archiveThread("sync-thread-1")).toBe(true);
+    });
+    expect(contextB!.threads.find((thread) => thread.id === "sync-thread-1")?.archived).toBe(true);
+
+    const cleanup = async (snapshots: ThreadDeletionAppStateSnapshots) => {
+      testAuthority?.commitThreadDeletion({
+        ...snapshots,
+        threadData: { threadIds: ["sync-thread-1"], attachmentStorageKeys: [] },
+      });
+    };
+    await act(async () => {
+      expect(await contextValue!.permanentlyDeleteThread("sync-thread-1", cleanup)).toBe(true);
+    });
+
+    expect(contextValue!.threads.map((thread) => thread.id)).toEqual(["sync-thread-2"]);
+    expect(contextB!.threads.map((thread) => thread.id)).toEqual(["sync-thread-2"]);
+  });
+
+  it("rejects a command with a stale base revision without touching either client", async () => {
+    await renderClients();
+
+    await act(async () => {
+      expect(await contextValue!.renameWorkspace("workspace-1", "Home")).toMatchObject({
+        ok: true,
+      });
+    });
+
+    const stale = await testAuthority!.command({
+      commandId: "stale-1",
+      type: "workspace:rename",
+      payload: { workspaceId: "workspace-1", name: "Stale" },
+      baseRevision: 0,
+    });
+
+    expect(stale).toMatchObject({ status: "rejected", reason: "stale" });
+    expect(contextValue!.workspaces.find((workspace) => workspace.id === "workspace-1")?.name).toBe(
+      "Home",
+    );
+    expect(contextB!.workspaces.find((workspace) => workspace.id === "workspace-1")?.name).toBe(
+      "Home",
+    );
+  });
+
+  it("converges thread composer work across clients through debounced commands", async () => {
+    await renderClients();
+
+    await act(async () => {
+      contextValue!.updateThreadContent((content) => ({
+        ...content,
+        threadWork: {
+          "sync-thread-1": {
+            draft: { content: "composer draft", attachedSkillNames: [], attachments: [] },
+            queuedMessages: [],
+          },
+        },
+      }));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(contextB!.threadWork["sync-thread-1"]?.draft?.content).toBe("composer draft");
+    expect(contextValue!.threadWork["sync-thread-1"]?.draft?.content).toBe("composer draft");
+  });
+
+  it("persists draft state across a simulated restart", async () => {
+    await renderClients();
+
+    let draft: AssociationThreadDraftRecord | null = null;
+    await act(async () => {
+      draft = await contextValue!.openThreadDraft("workspace-1", "project-1");
+    });
+    await act(async () => {
+      expect(
+        await contextValue!.updateThreadDraft(draft!.id, {
+          content: "restart me",
+          attachedSkillNames: ["tdd"],
+          attachments: [],
+        }),
+      ).toBe(true);
+    });
+    await act(async () => {
+      expect(
+        await contextValue!.updateThreadDraftConfig(draft!.id, {
+          runtimeId: "codex",
+          runtimeMode: "full-access",
+          planMode: true,
+        }),
+      ).toBe(true);
+    });
+
+    const persisted = savedSnapshot!;
+    expect(persisted.threadDrafts).toHaveLength(1);
+
+    // Simulated restart: tear down both clients and boot a fresh provider
+    // over the persisted snapshot.
+    await act(async () => rootB!.unmount());
+    containerB?.remove();
+    rootB = null;
+    containerB = null;
+    contextB = null;
+    await act(async () => root!.unmount());
+    container?.remove();
+    root = null;
+    container = null;
+
+    await renderProvider(persisted);
+
+    expect(contextValue!.threadDrafts).toHaveLength(1);
+    expect(contextValue!.threadDrafts[0]).toMatchObject({
+      content: "restart me",
+      attachedSkillNames: ["tdd"],
+      runtimeId: "codex",
+      runtimeMode: "full-access",
+      planMode: true,
+    });
   });
 });

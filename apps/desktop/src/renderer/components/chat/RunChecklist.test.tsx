@@ -84,15 +84,13 @@ async function renderComposer(threadId: string, snapshot: AppStateSnapshot) {
     appState: {
       load: async () => ({ status: "ready", snapshot }),
       reread: async () => ({ status: "ready", snapshot }),
-      stage: () => {},
-      save: async (next: AppStateSnapshot) => {
-        authority.adoptExternalSnapshot(next);
-      },
       fullReset: async () => ({ status: "ready", snapshot }),
       subscribe: authority.subscribe,
       unsubscribe: authority.unsubscribe,
       command: authority.command,
       onChanged: authority.onChanged,
+      onFlushRequest: () => () => {},
+      flushDone: async () => {},
     },
     projectDirectories: { check: async () => ({ available: true }) },
     runtimes: {

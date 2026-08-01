@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] The Main Process initializes authoritative application state from the established persisted App State and recovery result.
 - [ ] Every accepted command advances a monotonic revision, persists the resulting state, and publishes the same revision and state to every subscribed Renderer client.
@@ -15,3 +15,7 @@
 - [ ] Unmigrated single-window callers continue working during the expansion phase, and this ticket does not expose a second Carrent Window.
 - [ ] Main-process tests exercise two simulated Renderer clients, accepted commands, duplicate commands, stale commands, persistence failure, recovery gating, and ordered broadcasts.
 
+
+## Comments
+
+- 2026-08-01: Implemented in commit a6f0db2. `electron/workspace/appStateAuthority.ts` provides the revisioned main-process authority (serialized commands, commandId idempotency, atomic persistence, ordered broadcasts, stale/duplicate/invalid/unavailable rejection), wired in `main.ts` alongside the legacy snapshot path. 19 authority tests; full electron suite green.

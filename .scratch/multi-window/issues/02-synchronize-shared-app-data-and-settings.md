@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Establish Main Process App State authority.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Creating, renaming, reordering, associating, relocating, archiving, restoring, and removing shared Carrent objects uses serialized application commands and broadcasts the accepted result.
 - [ ] A change observed in one Renderer client appears in every other subscribed client without reload or polling.
@@ -15,3 +15,7 @@
 - [ ] An older Renderer cannot overwrite a newer rename, recreate a removed object, or restore stale Settings through a full-snapshot save.
 - [ ] Two-client Renderer tests cover independent routes plus synchronized Workspace, Project, Association, Thread metadata, archive, deletion, relocation, and Settings behavior.
 
+
+## Comments
+
+- 2026-08-01: Implemented in commits 948fff0 (command vocabulary: `appStateCommands.ts` reducers for workspaces/projects/associations/thread metadata/selection/settings; settings added as optional snapshot field) and 062e45e (renderer cutover: AppStateContext mutations + SettingsContext on commands and broadcasts, one-time localStorage migration, two-client renderer sync tests). Full suite 1233 tests green; typecheck/lint clean.

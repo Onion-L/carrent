@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Synchronize shared application data and Settings.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Text, attachments, Runtime, model, run mode, and Plan Mode changes to an Association's Thread Draft appear in every Renderer showing that Association.
 - [ ] Text, attachments, Runtime, model, run mode, and Plan Mode changes to an existing Thread Composer State appear in every Renderer showing that Thread.
@@ -16,3 +16,7 @@
 - [ ] The legacy Renderer full-snapshot stage and save path is removed after all App State callers have moved to commands and subscriptions.
 - [ ] Two-client Renderer tests cover simultaneous Draft and Composer editing, attachment changes, configuration changes, promotion races, deletion, stale rejection, and restart persistence.
 
+
+## Comments
+
+- 2026-08-01: Implemented in commit afee0c1. Drafts, promotion, thread content, composer work, and run/action records moved to authority commands; promotion races create at most one thread/message; transactions broadcast committed snapshots; legacy full-snapshot stage/save path removed; quit flush via `app-state:flush-request`/`flush-done` + authority `waitForIdle()`. Full suite 1261 tests green.

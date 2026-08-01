@@ -387,7 +387,10 @@ describe("startKimiAcpChatRun", () => {
           content: { type: "text", text: "Before plan" },
         },
         { sessionUpdate: "future_kimi_update", content: { type: "text", text: "ignored" } },
-        { sessionUpdate: "plan", entries: [] },
+        {
+          sessionUpdate: "plan",
+          entries: [{ content: "Verify the result", status: "in_progress" }],
+        },
         {
           sessionUpdate: "agent_thought_chunk",
           content: { type: "text", text: "Verify" },
@@ -396,7 +399,6 @@ describe("startKimiAcpChatRun", () => {
           sessionUpdate: "agent_message_chunk",
           content: { type: "text", text: "Done." },
         },
-        { sessionUpdate: "plan", entries: [] },
       ]) {
         fakeTransport.emitMessage({
           jsonrpc: "2.0",
@@ -547,6 +549,17 @@ describe("startKimiAcpChatRun", () => {
       type: "completed",
       text: "Done.",
     });
+    expect(emitted.filter((event) => event.type === "checklist")).toEqual([
+      {
+        type: "checklist",
+        runId: "run-kimi-timeline",
+        threadId: "thread-1",
+        runtimeId: "kimi",
+        checklist: {
+          entries: [{ content: "Verify the result", status: "in_progress" }],
+        },
+      },
+    ]);
     expect(transport.sent.map((message) => message.method)).toEqual([
       "initialize",
       "session/new",
@@ -670,6 +683,151 @@ describe("startKimiAcpChatRun", () => {
         ],
       },
     });
+  });
+
+  it("completes normally when Kimi sends no plan update", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-without-plan" });
+        return;
+      }
+      if (message.method !== "session/prompt") return;
+
+      fakeTransport.emitMessage({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "session-without-plan",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Done without a plan." },
+          },
+        },
+      });
+      respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-without-plan",
+      request: makeRequest(),
+      cwd: "/test/project",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+
+    expect(emitted.filter((event) => event.type === "checklist")).toHaveLength(0);
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Done without a plan.",
+    });
+    expect(emitted.some((event) => event.type === "failed")).toBe(false);
+  });
+
+  it("ignores unknown ACP updates without disturbing known timeline items or terminal state", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-unknown-update" });
+        return;
+      }
+      if (message.method !== "session/prompt") return;
+
+      for (const update of [
+        {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "Inspect" },
+        },
+        {
+          sessionUpdate: "future_kimi_update",
+          content: { type: "text", text: "Must be ignored" },
+        },
+        {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: " files" },
+        },
+        {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Done." },
+        },
+      ]) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: { sessionId: "session-unknown-update", update },
+        });
+      }
+      respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-unknown-update",
+      request: makeRequest(),
+      cwd: "/test/project",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+
+    const timeline = emitted
+      .filter(
+        (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+          event.type === "kimi-timeline",
+      )
+      .map((event) => event.item);
+    expect(timeline).toEqual([
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-unknown-update-thinking-1",
+        order: 0,
+        content: "Inspect",
+        status: "running",
+      },
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-unknown-update-thinking-1",
+        order: 0,
+        content: "Inspect files",
+        status: "running",
+      },
+      {
+        type: "thinking",
+        id: "kimi-run-kimi-unknown-update-thinking-1",
+        order: 0,
+        content: "Inspect files",
+        status: "completed",
+      },
+      {
+        type: "message",
+        id: "kimi-run-kimi-unknown-update-message-1",
+        order: 1,
+        content: "Done.",
+        isFinal: false,
+      },
+      {
+        type: "message",
+        id: "kimi-run-kimi-unknown-update-message-1",
+        order: 1,
+        content: "Done.",
+        isFinal: true,
+      },
+    ]);
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
+      text: "Done.",
+    });
+    expect(emitted.some((event) => event.type === "failed" || event.type === "stopped")).toBe(
+      false,
+    );
   });
 
   it("omits TodoList activity when the Run Checklist carries the same progress", async () => {

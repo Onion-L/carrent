@@ -120,6 +120,31 @@ describe("AgentActivityBlock expansion", () => {
       }),
     ).toBe(false);
   });
+
+  it("renders completed activity as a ruled title row", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(AgentActivityBlock, {
+          status: "completed",
+          duration: "4m 8s",
+          items: [makeReasoning({ id: "r1" })],
+        }),
+      );
+    });
+
+    const header = container.querySelector("button")!;
+    expect(header.className).toContain("border-b border-border");
+    expect(header.textContent).toBe("Completed 4m 8s");
+    expect(header.querySelectorAll("svg")).toHaveLength(1);
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
 });
 
 describe("AgentActivityBlock status", () => {
@@ -175,7 +200,7 @@ describe("AgentActivityBlock status", () => {
   });
 
   it("uses simple user-facing status labels", () => {
-    expect(getBlockStatusMeta([], "running").label).toBe("Thinking");
+    expect(getBlockStatusMeta([], "running").label).toBe("Processing");
     expect(getBlockStatusMeta([], "completed").label).toBe("Completed");
     expect(getBlockStatusMeta([], "failed").label).toBe("Failed");
     expect(getBlockStatusMeta([], "cancelled").label).toBe("Cancelled");
@@ -184,7 +209,7 @@ describe("AgentActivityBlock status", () => {
 
 describe("AgentActivityBlock title", () => {
   it("shows status and duration without a step count", () => {
-    expect(getBlockTitle({ status: "running", duration: "12s" })).toBe("Thinking · 12s");
+    expect(getBlockTitle({ status: "running", duration: "12s" })).toBe("Processing · 12s");
     expect(getBlockTitle({ status: "completed", duration: "1m 24s" })).toBe("Completed · 1m 24s");
   });
 

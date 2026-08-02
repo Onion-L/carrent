@@ -389,6 +389,7 @@ describe("assistant message presentation", () => {
         },
       ],
       answerText: "Done.",
+      postAnswerActivityItems: [],
     });
   });
 
@@ -430,12 +431,31 @@ describe("assistant message presentation", () => {
         isFinal: false,
       },
     };
+    const lateThinking = {
+      type: "kimi_timeline" as const,
+      item: {
+        type: "thinking" as const,
+        id: "thinking-late",
+        order: 3,
+        content: "Check the result",
+        status: "completed" as const,
+      },
+    };
 
     expect(
-      getAssistantMessagePresentation([finalMessage, tool, intermediate], "completed"),
+      getAssistantMessagePresentation([finalMessage, tool, lateThinking, intermediate], "completed"),
     ).toEqual({
       activityItems: [
         { type: "commentary", id: "message-intermediate", content: "Checking first" },
+        {
+          type: "kimi-thinking",
+          id: "thinking-late",
+          content: "Check the result",
+          status: "completed",
+        },
+      ],
+      answerText: "Final answer",
+      postAnswerActivityItems: [
         {
           type: "kimi-tool",
           id: "tool-late",
@@ -449,7 +469,6 @@ describe("assistant message presentation", () => {
           status: "completed",
         },
       ],
-      answerText: "Final answer",
     });
   });
 
@@ -545,6 +564,7 @@ describe("assistant message presentation", () => {
         },
       ],
       answerText: "Done.",
+      postAnswerActivityItems: [],
     });
   });
 
@@ -576,6 +596,7 @@ describe("assistant message presentation", () => {
         parts[2],
       ],
       answerText: "",
+      postAnswerActivityItems: [],
     });
   });
 
@@ -602,13 +623,14 @@ describe("assistant message presentation", () => {
         parts[1],
       ],
       answerText: "The project is ready.",
+      postAnswerActivityItems: [],
     });
   });
 
   it("treats a tool-free completed response as the final answer", () => {
     expect(
       getAssistantMessagePresentation([{ type: "text", content: "Direct answer" }], "completed"),
-    ).toEqual({ activityItems: [], answerText: "Direct answer" });
+    ).toEqual({ activityItems: [], answerText: "Direct answer", postAnswerActivityItems: [] });
   });
 
   it("ignores Subagent Task parts without changing Thinking or final-answer order", () => {
@@ -639,6 +661,7 @@ describe("assistant message presentation", () => {
     expect(getAssistantMessagePresentation(parts, "completed")).toEqual({
       activityItems: [parts[0]],
       answerText: "The project is ready.",
+      postAnswerActivityItems: [],
     });
   });
 
@@ -662,6 +685,7 @@ describe("assistant message presentation", () => {
     expect(getAssistantMessagePresentation(parts, "failed")).toEqual({
       activityItems: [parts[0]],
       answerText: "Partial answer",
+      postAnswerActivityItems: [],
     });
   });
 });

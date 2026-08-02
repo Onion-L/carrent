@@ -3368,7 +3368,10 @@ export function Composer(props: ComposerProps) {
           );
         })}
         <div
-          className={`relative rounded-xl border bg-surface-raised/90 p-3 shadow-[0_18px_60px_rgb(0_0_0/0.18)] transition-colors duration-200 ${
+          data-composer-surface
+          className={`relative rounded-xl border bg-surface-raised/90 p-3 transition-colors duration-200 ${
+            isCenteredPlacement ? "" : "shadow-[0_18px_60px_rgb(0_0_0/0.18)]"
+          } ${
             activePermission
               ? "border-warning/40"
               : "border-border focus-within:border-border-strong"

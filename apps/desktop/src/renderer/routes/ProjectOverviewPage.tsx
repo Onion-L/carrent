@@ -92,9 +92,12 @@ export function ProjectOverviewPage() {
   }
   if (openDraft) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-full min-h-0 w-full flex-col">
         <ChatHeader title="New thread" />
-        <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
+        <div
+          data-empty-thread-layout
+          className="flex min-h-0 flex-1 items-center justify-center px-6 py-8"
+        >
           <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
             <EmptyThreadPrompt projectName={displayName} />
             <Composer

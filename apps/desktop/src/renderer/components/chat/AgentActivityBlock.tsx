@@ -144,7 +144,7 @@ export function getBlockStatusMeta(
 
   if (status === "running") {
     return {
-      label: "Thinking",
+      label: "Processing",
       icon: CircleDashed,
       className: "text-muted",
     };
@@ -196,11 +196,11 @@ function KimiThinkingItemView({ item }: { item: KimiThinkingItem }) {
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="group flex w-full items-center gap-2.5 text-left text-app-12 text-muted"
+        className="group flex w-full items-center gap-2.5 text-left text-app-12 leading-5 text-muted"
         aria-expanded={expanded}
       >
         <ChevronRight
-          className={`h-3.5 w-3.5 shrink-0 transition ${expanded ? "rotate-90" : ""}`}
+          className={`h-3.5 w-3.5 shrink-0 translate-y-px transition ${expanded ? "rotate-90" : ""}`}
         />
         <StatusIcon
           className={`h-3.5 w-3.5 shrink-0 ${meta.className} ${isRunning ? "animate-spin" : ""}`}
@@ -370,6 +370,22 @@ function ActivityItem({ item }: { item: AgentActivityItem }) {
   return <ShellStepItem step={item} />;
 }
 
+export function AgentActivityList({
+  items,
+  className = "",
+}: {
+  items: AgentActivityItem[];
+  className?: string;
+}) {
+  return (
+    <div className={`space-y-3 ${className}`}>
+      {items.map((item) => (
+        <ActivityItem key={item.id} item={item} />
+      ))}
+    </div>
+  );
+}
+
 export function AgentActivityBlock({
   items,
   status: explicitStatus,
@@ -414,34 +430,52 @@ export function AgentActivityBlock({
   const status = getBlockStatusMeta(steps, resolvedStatus);
   const StatusIcon = status.icon;
   const isRunning = resolvedStatus === "running";
+  const isCompleted = resolvedStatus === "completed";
   const elapsedMs = startedAt != null ? Math.max(0, (finishedAt ?? now) - startedAt) : undefined;
+  const durationLabel =
+    duration ?? (elapsedMs != null ? formatAgentActivityDuration(elapsedMs) : undefined);
   const title = getBlockTitle({
     status: resolvedStatus,
-    duration: duration ?? (elapsedMs != null ? formatAgentActivityDuration(elapsedMs) : undefined),
+    duration: durationLabel,
   });
+  const displayTitle =
+    isRunning || isCompleted ? `${status.label}${durationLabel ? ` ${durationLabel}` : ""}` : title;
 
   return (
     <div>
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="group flex w-full items-center gap-2.5 py-1 text-left text-app-13 text-subtle transition hover:text-muted"
+        className={`group flex w-full items-center text-left text-app-13 leading-5 text-subtle transition hover:text-muted ${
+          isRunning
+            ? "border-b border-border pb-2 pt-1"
+            : isCompleted
+              ? "gap-2 border-b border-border pb-2 pt-1"
+              : "gap-2.5 py-1"
+        }`}
         aria-expanded={expanded}
       >
-        <ChevronRight
-          className={`h-3.5 w-3.5 shrink-0 transition ${expanded ? "rotate-90" : ""}`}
-        />
-        <StatusIcon
-          className={`h-3.5 w-3.5 shrink-0 ${status.className} ${isRunning ? "animate-spin" : ""}`}
-        />
-        <span className={`min-w-0 flex-1 truncate font-medium ${status.className}`}>{title}</span>
+        {!isRunning && !isCompleted && (
+          <>
+            <ChevronRight
+              className={`h-3.5 w-3.5 shrink-0 transition ${expanded ? "rotate-90" : ""}`}
+            />
+            <StatusIcon className={`h-3.5 w-3.5 shrink-0 ${status.className}`} />
+          </>
+        )}
+        <span
+          className={`${isRunning || !isCompleted ? "flex-1" : ""} min-w-0 truncate font-medium ${status.className}`}
+        >
+          {displayTitle}
+        </span>
+        {isCompleted && (
+          <ChevronRight
+            className={`h-3.5 w-3.5 shrink-0 translate-y-px transition ${expanded ? "rotate-90" : ""}`}
+          />
+        )}
       </button>
-      {expanded && (
-        <div className="mt-2 space-y-3 border-l border-border pl-5">
-          {items.map((item) => (
-            <ActivityItem key={item.id} item={item} />
-          ))}
-        </div>
+      {expanded && items.length > 0 && (
+        <AgentActivityList items={items} className="mt-2 border-l border-border pl-5" />
       )}
     </div>
   );

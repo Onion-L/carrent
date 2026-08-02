@@ -266,7 +266,10 @@ function ThreadPageContent() {
       <div className="flex h-full min-w-0 flex-1 flex-col">
         <ChatHeader title={routeData?.thread.title ?? "Thread not found"} breadcrumb={breadcrumb} />
         {routeData && isEmptyThread ? (
-          <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
+          <div
+            data-empty-thread-layout
+            className="flex min-h-0 flex-1 items-center justify-center px-6 py-8"
+          >
             <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
               <EmptyThreadPrompt />
               {composer}

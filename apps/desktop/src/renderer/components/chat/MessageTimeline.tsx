@@ -12,7 +12,11 @@ import {
   fileAttachmentIconKind,
   formatAttachmentSize,
 } from "../../lib/attachments";
-import { AgentActivityBlock, type AgentActivityItem } from "./AgentActivityBlock";
+import {
+  AgentActivityBlock,
+  AgentActivityList,
+  type AgentActivityItem,
+} from "./AgentActivityBlock";
 import { ChangedFilesCard } from "./ChangedFilesCard";
 import { ErrorBlock } from "./ErrorBlock";
 import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachmentLightbox";
@@ -496,8 +500,10 @@ export function getAssistantMessagePresentation(
     .sort((left, right) => left.order - right.order);
   if (kimiItems.length > 0) {
     const activityItems: AgentActivityItem[] = [];
+    const postAnswerActivityItems: AgentActivityItem[] = [];
     const answerParts: string[] = [];
     let kimiIndex = 0;
+    let finalAnswerStarted = false;
     parts.forEach((part) => {
       if (part.type === "kimi_timeline") {
         const item = kimiItems[kimiIndex++]!;
@@ -509,7 +515,7 @@ export function getAssistantMessagePresentation(
             status: item.status,
           });
         } else if (item.type === "tool") {
-          activityItems.push({
+          const toolItem: AgentActivityItem = {
             type: "kimi-tool",
             id: item.id,
             title: item.title,
@@ -520,19 +526,25 @@ export function getAssistantMessagePresentation(
             output: item.output,
             error: item.error,
             status: item.status,
-          });
+          };
+          (finalAnswerStarted ? postAnswerActivityItems : activityItems).push(toolItem);
         } else if (item.isFinal) {
           answerParts.push(item.content);
+          finalAnswerStarted = true;
         } else {
           activityItems.push({ type: "commentary", id: item.id, content: item.content });
         }
         return;
       }
       if ((part.type === "reasoning" || part.type === "shell") && !isRawThoughtPart(part)) {
-        activityItems.push(part);
+        if (finalAnswerStarted && part.type === "shell") {
+          postAnswerActivityItems.push(part);
+        } else {
+          activityItems.push(part);
+        }
       }
     });
-    return { activityItems, answerText: answerParts.join("\n") };
+    return { activityItems, answerText: answerParts.join("\n"), postAnswerActivityItems };
   }
 
   const hasPlanReview = parts.some((part) => part.type === "plan_review");
@@ -583,6 +595,7 @@ export function getAssistantMessagePresentation(
   return {
     activityItems,
     answerText: answerParts.join("\n"),
+    postAnswerActivityItems: [],
   };
 }
 
@@ -616,7 +629,7 @@ function AssistantMessage({
     ) ?? [];
   const presentation = parts
     ? getAssistantMessagePresentation(parts, message.runStatus)
-    : { activityItems: [], answerText: content };
+    : { activityItems: [], answerText: content, postAnswerActivityItems: [] };
   const isStreaming =
     (!hasParts && content === "" && !message.runStatus) ||
     (message.runStatus === "running" &&
@@ -645,17 +658,17 @@ function AssistantMessage({
       onMouseLeave={() => setHovered(false)}
     >
       {isStreaming ? (
-        <div className="flex items-center py-1">
-          {"Thinking".split("").map((char, i) => (
-            <span
-              key={i}
-              className="inline-block animate-pulse text-app-13 text-subtle"
-              style={{ animationDelay: `${i * 120}ms` }}
-            >
-              {char}
-            </span>
-          ))}
-        </div>
+        <AgentActivityBlock
+          items={[]}
+          status="running"
+          startedAt={
+            typeof message.createdAt === "string"
+              ? Date.parse(message.createdAt)
+              : message.createdAt
+          }
+          finishedAt={message.runFinishedAt}
+          duration={message.duration}
+        />
       ) : hasParts ? (
         <div className="flex flex-col gap-4">
           {presentation.activityItems.length > 0 && (
@@ -679,6 +692,9 @@ function AssistantMessage({
             <QuestionBlock key={part.id} part={part} />
           ))}
           {presentation.answerText && <MarkdownContent>{presentation.answerText}</MarkdownContent>}
+          {presentation.postAnswerActivityItems.length > 0 && (
+            <AgentActivityList items={presentation.postAnswerActivityItems} className="py-1" />
+          )}
           {errorParts.map((part) => (
             <ErrorBlock
               key={part.id}

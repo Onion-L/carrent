@@ -1138,6 +1138,14 @@ describe("three-level navigation", () => {
     expect(prompt.textContent).toBe("What should we build in Personal Carrent?");
     expect(prompt.querySelector(".text-muted")?.textContent).toBe("What should we build");
     expect(prompt.querySelector(".text-fg")?.textContent).toBe("Personal Carrent");
+    const emptyThreadLayout = container!.querySelector<HTMLElement>("[data-empty-thread-layout]")!;
+    expect(emptyThreadLayout.parentElement?.classList.contains("h-full")).toBe(true);
+    expect(emptyThreadLayout.parentElement?.parentElement?.classList.contains("flex")).toBe(true);
+    expect(
+      container!
+        .querySelector<HTMLElement>("[data-composer-surface]")
+        ?.className.includes("shadow-["),
+    ).toBe(false);
     expect(container!.textContent).not.toContain("Thread Draft");
   });
 

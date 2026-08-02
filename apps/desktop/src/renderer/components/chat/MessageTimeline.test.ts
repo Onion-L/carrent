@@ -372,34 +372,83 @@ describe("assistant message presentation", () => {
     ];
 
     expect(getAssistantMessagePresentation(parts, "completed")).toEqual({
-      activityItems: [
+      timelineItems: [
         {
           type: "kimi-thinking",
           id: "thinking-1",
           content: "Inspect files",
           status: "completed",
         },
-        { type: "commentary", id: "message-1", content: "I found it." },
-        parts[3],
+        { type: "text", id: "message-1", content: "I found it." },
         {
           type: "kimi-thinking",
           id: "thinking-2",
           content: "Verify",
           status: "running",
         },
+        { type: "text", id: "message-2", content: "Done." },
       ],
-      answerText: "Done.",
+      activityItems: [],
+      answerText: "",
       postAnswerActivityItems: [],
     });
   });
 
-  it("uses explicit Kimi final markers even when later activity exists", () => {
+  it("keeps Kimi text, Thinking, tools, and Subagents in ACP order", () => {
+    const subagent = {
+      type: "subagent_task" as const,
+      id: "tool-agent",
+      runtimeId: "kimi" as const,
+      source: "agent" as const,
+      agentType: "Explore",
+      description: "Explore notification seams",
+      background: false,
+      status: "running" as const,
+      startedAt: 1_000,
+    };
+    const thinking = {
+      type: "kimi_timeline" as const,
+      item: {
+        type: "thinking" as const,
+        id: "thinking-1",
+        order: 0,
+        content: "Inspect the project",
+        status: "completed" as const,
+      },
+    };
+    const intermediate = {
+      type: "kimi_timeline" as const,
+      item: {
+        type: "message" as const,
+        id: "message-intermediate",
+        order: 1,
+        content: "I will inspect the relevant files.",
+        isFinal: false,
+      },
+    };
+    const agentTool = {
+      type: "kimi_timeline" as const,
+      item: {
+        type: "tool" as const,
+        id: "tool-item-agent",
+        order: 2,
+        toolCallId: "tool-agent",
+        title: "Agent",
+        kind: "other",
+        command: "",
+        filePath: "",
+        input: "",
+        output: "",
+        error: "",
+        status: "running" as const,
+      },
+    };
     const finalMessage = {
       type: "kimi_timeline" as const,
       item: {
         type: "message" as const,
         id: "message-final",
-        order: 1,
+        order: 3,
         content: "Final answer",
         isFinal: true,
       },
@@ -409,7 +458,7 @@ describe("assistant message presentation", () => {
       item: {
         type: "tool" as const,
         id: "tool-late",
-        order: 2,
+        order: 4,
         toolCallId: "tool-late",
         title: "Read",
         kind: "read",
@@ -421,41 +470,26 @@ describe("assistant message presentation", () => {
         status: "completed" as const,
       },
     };
-    const intermediate = {
-      type: "kimi_timeline" as const,
-      item: {
-        type: "message" as const,
-        id: "message-intermediate",
-        order: 0,
-        content: "Checking first",
-        isFinal: false,
-      },
-    };
-    const lateThinking = {
-      type: "kimi_timeline" as const,
-      item: {
-        type: "thinking" as const,
-        id: "thinking-late",
-        order: 3,
-        content: "Check the result",
-        status: "completed" as const,
-      },
-    };
-
     expect(
-      getAssistantMessagePresentation([finalMessage, tool, lateThinking, intermediate], "completed"),
+      getAssistantMessagePresentation(
+        [finalMessage, subagent, tool, agentTool, intermediate, thinking],
+        "completed",
+      ),
     ).toEqual({
-      activityItems: [
-        { type: "commentary", id: "message-intermediate", content: "Checking first" },
+      timelineItems: [
         {
           type: "kimi-thinking",
-          id: "thinking-late",
-          content: "Check the result",
+          id: "thinking-1",
+          content: "Inspect the project",
           status: "completed",
         },
-      ],
-      answerText: "Final answer",
-      postAnswerActivityItems: [
+        {
+          type: "text",
+          id: "message-intermediate",
+          content: "I will inspect the relevant files.",
+        },
+        { type: "kimi-subagent", task: subagent },
+        { type: "text", id: "message-final", content: "Final answer" },
         {
           type: "kimi-tool",
           id: "tool-late",
@@ -469,6 +503,9 @@ describe("assistant message presentation", () => {
           status: "completed",
         },
       ],
+      activityItems: [],
+      answerText: "",
+      postAnswerActivityItems: [],
     });
   });
 
@@ -531,7 +568,7 @@ describe("assistant message presentation", () => {
     ];
 
     expect(getAssistantMessagePresentation(parts, "completed")).toEqual({
-      activityItems: [
+      timelineItems: [
         {
           type: "kimi-thinking",
           id: "thinking-1",
@@ -562,8 +599,10 @@ describe("assistant message presentation", () => {
           error: "no such file",
           status: "failed",
         },
+        { type: "text", id: "message-1", content: "Done." },
       ],
-      answerText: "Done.",
+      activityItems: [],
+      answerText: "",
       postAnswerActivityItems: [],
     });
   });

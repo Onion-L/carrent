@@ -84,26 +84,6 @@ export function formatSubagentTaskDuration(task: SubagentTaskPart, now = Date.no
   return restMinutes > 0 ? `${hours}h ${restMinutes}m` : `${hours}h`;
 }
 
-export function updateSeenSubagentTasks(input: {
-  tasks: SubagentTaskPart[];
-  seenTaskIds: ReadonlySet<string>;
-}): { seenTaskIds: Set<string>; shouldOpen: boolean } {
-  const seenTaskIds = new Set(input.seenTaskIds);
-  let shouldOpen = false;
-  for (const task of input.tasks) {
-    if (seenTaskIds.has(task.id)) {
-      continue;
-    }
-
-    seenTaskIds.add(task.id);
-    if (task.status === "running") {
-      shouldOpen = true;
-    }
-  }
-
-  return { seenTaskIds, shouldOpen };
-}
-
 export function shouldShowInspectorToggle(input: {
   hasProjectEnvironment: boolean;
   taskCount: number;

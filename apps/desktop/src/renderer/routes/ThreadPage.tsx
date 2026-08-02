@@ -19,7 +19,6 @@ import {
   collectSubagentTasks,
   resolveRightPane,
   shouldShowInspectorToggle,
-  updateSeenSubagentTasks,
 } from "../components/chat/ThreadInspectorPane";
 import { WorkspaceDiffViewer } from "../components/chat/WorkspaceDiffViewer";
 import { DesktopHeaderPortal } from "../components/DesktopHeaderActions";
@@ -103,7 +102,6 @@ function ThreadPageContent() {
   const { state: diffState, closeDiff } = useThreadContentDiff();
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const seenTaskIdsRef = useRef<Set<string>>(new Set());
   const inspectorInput = getThreadInspectorInput(routeData);
   const inspectorTasks = useMemo(
     () => collectSubagentTasks(inspectorInput?.messages ?? []),
@@ -119,22 +117,8 @@ function ThreadPageContent() {
     setDraftRequest(undefined);
     setSelectedTaskId(null);
     setInspectorOpen(false);
-    seenTaskIdsRef.current = new Set();
     closeDiff();
   }, [routeData?.thread.id]);
-
-  // Open the inspector once for each newly seen running task; updates to an
-  // already-seen task never reopen it after the user closed it.
-  useEffect(() => {
-    const { seenTaskIds, shouldOpen } = updateSeenSubagentTasks({
-      tasks: inspectorTasks,
-      seenTaskIds: seenTaskIdsRef.current,
-    });
-    seenTaskIdsRef.current = seenTaskIds;
-    if (shouldOpen) {
-      setInspectorOpen(true);
-    }
-  }, [inspectorTasks]);
 
   const handleSubmitUserEdit = (draft: UserMessageEditDraft) => {
     if (!routeData) {
@@ -285,6 +269,10 @@ function ThreadPageContent() {
               threadId={routeData?.thread.id}
               onSubmitUserEdit={hasLiveRun ? undefined : handleSubmitUserEdit}
               onRemoveRuntimeSessionAndRetry={handleRuntimeSessionRetry}
+              onSelectSubagent={(taskId) => {
+                setSelectedTaskId(taskId);
+                setInspectorOpen(true);
+              }}
             />
             {composer}
           </>

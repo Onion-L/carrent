@@ -208,7 +208,7 @@ function KimiThinkingItemView({ item }: { item: KimiThinkingItem }) {
         <span>{isRunning ? "Thinking" : "Thought"}</span>
       </button>
       {expanded ? (
-        <pre className="mt-2 whitespace-pre-wrap break-words border-l border-border pl-5 text-app-12 leading-5 text-muted">
+        <pre className="mt-2 whitespace-pre-wrap break-words pl-7 text-app-12 leading-5 text-muted">
           {item.content}
         </pre>
       ) : null}
@@ -336,13 +336,21 @@ function KimiToolItemView({ item }: { item: KimiToolItem }) {
       </button>
       {expanded && (
         <div className="space-y-2 pl-6">
+          {item.input ? (
+            <div className="space-y-1">
+              <div className="text-app-11 font-medium text-subtle">Input</div>
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-code-bg p-3 font-mono text-app-12 leading-relaxed text-muted">
+                {item.input}
+              </pre>
+            </div>
+          ) : null}
           {item.error ? (
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-code-bg p-3 font-mono text-app-12 leading-relaxed text-danger">
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-code-bg p-3 font-mono text-app-12 leading-relaxed text-danger">
               {item.error}
             </pre>
           ) : null}
           {item.output ? (
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-code-bg p-3 font-mono text-app-12 leading-relaxed text-muted">
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-code-bg p-3 font-mono text-app-12 leading-relaxed text-muted">
               {item.output}
             </pre>
           ) : isRunning ? (
@@ -393,6 +401,7 @@ export function AgentActivityBlock({
   finishedAt,
   duration,
   hasFinalAnswerStarted = false,
+  collapsible = true,
 }: {
   items: AgentActivityItem[];
   status?: AgentActivityStatus;
@@ -400,6 +409,7 @@ export function AgentActivityBlock({
   finishedAt?: number;
   duration?: string;
   hasFinalAnswerStarted?: boolean;
+  collapsible?: boolean;
 }) {
   const steps = items.filter((item): item is AgentActivityStep => item.type !== "commentary");
   const resolvedStatus = explicitStatus ?? inferAgentActivityStatus(steps);
@@ -440,42 +450,57 @@ export function AgentActivityBlock({
   });
   const displayTitle =
     isRunning || isCompleted ? `${status.label}${durationLabel ? ` ${durationLabel}` : ""}` : title;
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setExpanded((value) => !value)}
-        className={`group flex w-full items-center text-left text-app-13 leading-5 text-subtle transition hover:text-muted ${
-          isRunning
-            ? "border-b border-border pb-2 pt-1"
-            : isCompleted
-              ? "gap-2 border-b border-border pb-2 pt-1"
-              : "gap-2.5 py-1"
-        }`}
-        aria-expanded={expanded}
-      >
-        {!isRunning && !isCompleted && (
-          <>
+  const headerClassName = `group flex w-full items-center text-left text-app-13 leading-5 text-subtle transition hover:text-muted ${
+    isRunning
+      ? "border-b border-border pb-2 pt-1"
+      : isCompleted
+        ? "gap-2 border-b border-border pb-2 pt-1"
+        : "gap-2.5 py-1"
+  }`;
+  const headerContent = (
+    <>
+      {!isRunning && !isCompleted && (
+        <>
+          {collapsible ? (
             <ChevronRight
               className={`h-3.5 w-3.5 shrink-0 transition ${expanded ? "rotate-90" : ""}`}
             />
-            <StatusIcon className={`h-3.5 w-3.5 shrink-0 ${status.className}`} />
-          </>
-        )}
-        <span
-          className={`${isRunning || !isCompleted ? "flex-1" : ""} min-w-0 truncate font-medium ${status.className}`}
+          ) : null}
+          <StatusIcon className={`h-3.5 w-3.5 shrink-0 ${status.className}`} />
+        </>
+      )}
+      <span
+        className={`${isRunning || !isCompleted ? "flex-1" : ""} min-w-0 truncate font-medium ${status.className}`}
+      >
+        {displayTitle}
+      </span>
+      {isCompleted && collapsible && (
+        <ChevronRight
+          className={`h-3.5 w-3.5 shrink-0 translate-y-px transition ${expanded ? "rotate-90" : ""}`}
+        />
+      )}
+    </>
+  );
+
+  return (
+    <div>
+      {collapsible ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className={headerClassName}
+          aria-expanded={expanded}
         >
-          {displayTitle}
-        </span>
-        {isCompleted && (
-          <ChevronRight
-            className={`h-3.5 w-3.5 shrink-0 translate-y-px transition ${expanded ? "rotate-90" : ""}`}
-          />
-        )}
-      </button>
+          {headerContent}
+        </button>
+      ) : (
+        <div className={headerClassName}>{headerContent}</div>
+      )}
       {expanded && items.length > 0 && (
-        <AgentActivityList items={items} className="mt-2 border-l border-border pl-5" />
+        <AgentActivityList
+          items={items}
+          className={`mt-2 ${collapsible ? "border-l border-border pl-5" : ""}`}
+        />
       )}
     </div>
   );

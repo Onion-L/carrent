@@ -5,7 +5,8 @@ import "../../test/registerHappyDom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { AttachmentMetadata } from "../../../shared/chat";
-import { UserMessageAttachmentList } from "./MessageTimeline";
+import type { Message } from "../../../shared/threadContent";
+import { MessageTimeline, UserMessageAttachmentList } from "./MessageTimeline";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -60,5 +61,157 @@ describe("historical attachment integrity", () => {
     expect(container.textContent).toContain("missing.ts");
     expect(container.textContent?.match(/文件不可用/gu)).toHaveLength(2);
     expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+});
+
+describe("Kimi message timeline", () => {
+  it("renders ordinary text in ACP order while Thinking stays collapsed", async () => {
+    const message: Message = {
+      id: "assistant-1",
+      role: "assistant",
+      threadId: "thread-1",
+      timestamp: "09:00",
+      content: "",
+      runStatus: "running",
+      parts: [
+        {
+          type: "kimi_timeline",
+          item: {
+            type: "thinking",
+            id: "thinking-1",
+            order: 0,
+            content: "hidden reasoning summary",
+            status: "running",
+          },
+        },
+        {
+          type: "kimi_timeline",
+          item: {
+            type: "message",
+            id: "message-1",
+            order: 1,
+            content: "I will inspect the files.",
+            isFinal: false,
+          },
+        },
+        {
+          type: "kimi_timeline",
+          item: {
+            type: "message",
+            id: "message-2",
+            order: 2,
+            content: "Inspection complete.",
+            isFinal: true,
+          },
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(<MessageTimeline messages={[message]} threadActions={[]} />);
+    });
+
+    expect(container.textContent).toContain("Thinking");
+    expect(container.textContent).not.toContain("hidden reasoning summary");
+    expect(container.textContent).toContain("I will inspect the files.");
+    expect(container.textContent).toContain("Inspection complete.");
+    expect(container.textContent!.indexOf("I will inspect the files.")).toBeLessThan(
+      container.textContent!.indexOf("Inspection complete."),
+    );
+    expect(container.querySelector("[data-kimi-timeline] .border-l")).toBe(null);
+  });
+
+  it("renders a dedicated Subagent row that opens its task", async () => {
+    let selectedTaskId: string | null = null;
+    const message: Message = {
+      id: "assistant-subagent",
+      role: "assistant",
+      threadId: "thread-1",
+      timestamp: "09:00",
+      content: "",
+      runStatus: "running",
+      parts: [
+        {
+          type: "kimi_timeline",
+          item: {
+            type: "tool",
+            id: "tool-item-agent",
+            order: 0,
+            toolCallId: "tool-agent",
+            title: "Agent",
+            kind: "other",
+            command: "",
+            filePath: "",
+            input: "",
+            output: "",
+            error: "",
+            status: "running",
+          },
+        },
+        {
+          type: "subagent_task",
+          id: "tool-agent",
+          runtimeId: "kimi",
+          source: "agent",
+          agentType: "Explore",
+          description: "Explore notification seams",
+          background: false,
+          status: "running",
+          startedAt: 1_000,
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <MessageTimeline
+          messages={[message]}
+          threadActions={[]}
+          onSelectSubagent={(taskId) => {
+            selectedTaskId = taskId;
+          }}
+        />,
+      );
+    });
+
+    const subagentButton = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Explore notification seams"),
+    );
+    expect(subagentButton?.textContent).toContain("Subagent");
+    expect(subagentButton?.textContent).toContain("Explore");
+    expect(container.textContent).not.toContain("AgentExplore");
+
+    await act(async () => subagentButton?.click());
+    expect(selectedTaskId).toBe("tool-agent");
+  });
+
+  it("does not repeat Stopped after a cancelled Kimi timeline", async () => {
+    const message: Message = {
+      id: "assistant-cancelled",
+      role: "assistant",
+      threadId: "thread-1",
+      timestamp: "09:00",
+      content: "",
+      runStatus: "cancelled",
+      parts: [
+        {
+          type: "kimi_timeline",
+          item: {
+            type: "message",
+            id: "message-1",
+            order: 0,
+            content: "Work was interrupted.",
+            isFinal: false,
+          },
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(<MessageTimeline messages={[message]} threadActions={[]} />);
+    });
+
+    expect(container.textContent).toContain("Cancelled");
+    expect(container.textContent).not.toContain("Stopped");
   });
 });

@@ -1,9 +1,23 @@
-import { ArrowDown, Box, Check, Copy, FileText, Pencil, XCircle } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowDown,
+  Bot,
+  Box,
+  Check,
+  CheckCircle2,
+  CircleDot,
+  Copy,
+  FileText,
+  Loader2,
+  Pencil,
+  XCircle,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type Message,
   type MessagePart,
   type AttachmentMetadata,
+  type SubagentTaskPart,
 } from "../../../shared/threadContent";
 import type { AppThreadActionRecord } from "../../../shared/workspacePersistence";
 import { isFileAttachment, isImageAttachment } from "../../../shared/attachment";
@@ -483,6 +497,56 @@ function UserMessage({
 
 type ActivityPart = Extract<MessagePart, { type: "reasoning" | "shell" }>;
 
+export type KimiTimelinePresentationItem =
+  | Extract<AgentActivityItem, { type: "kimi-thinking" | "kimi-tool" }>
+  | { type: "text"; id: string; content: string }
+  | { type: "kimi-subagent"; task: SubagentTaskPart };
+
+function KimiSubagentItem({
+  task,
+  onSelect,
+}: {
+  task: SubagentTaskPart;
+  onSelect?: (taskId: string) => void;
+}) {
+  const StatusIcon =
+    task.status === "completed"
+      ? CheckCircle2
+      : task.status === "failed"
+        ? XCircle
+        : task.status === "interrupted"
+          ? AlertCircle
+          : task.status === "detached"
+            ? CircleDot
+            : Loader2;
+  const statusClass =
+    task.status === "completed"
+      ? "text-success"
+      : task.status === "failed"
+        ? "text-danger"
+        : "text-muted";
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect?.(task.id)}
+      className="group flex w-full min-w-0 items-center gap-2 text-left text-app-13 leading-5"
+      title={task.summary ?? task.prompt ?? task.description}
+    >
+      <Bot className="h-4 w-4 shrink-0 text-muted" />
+      <span className="shrink-0 font-medium text-fg">Subagent</span>
+      {task.agentType ? (
+        <span className="shrink-0 font-mono text-skill-reference">{task.agentType}</span>
+      ) : null}
+      <span className="text-subtle">·</span>
+      <span className="min-w-0 flex-1 truncate text-muted">{task.description}</span>
+      <StatusIcon
+        className={`h-3.5 w-3.5 shrink-0 ${statusClass} ${task.status === "running" ? "animate-spin" : ""}`}
+      />
+    </button>
+  );
+}
+
 function isRawThoughtPart(part: ActivityPart) {
   return part.type === "reasoning" && part.id.startsWith("kimi-thinking-");
 }
@@ -490,7 +554,12 @@ function isRawThoughtPart(part: ActivityPart) {
 export function getAssistantMessagePresentation(
   parts: MessagePart[],
   runStatus: Message["runStatus"],
-) {
+): {
+  timelineItems?: KimiTimelinePresentationItem[];
+  activityItems: AgentActivityItem[];
+  answerText: string;
+  postAnswerActivityItems: AgentActivityItem[];
+} {
   const kimiItems = parts
     .filter(
       (part): part is Extract<MessagePart, { type: "kimi_timeline" }> =>
@@ -499,52 +568,48 @@ export function getAssistantMessagePresentation(
     .map((part) => part.item)
     .sort((left, right) => left.order - right.order);
   if (kimiItems.length > 0) {
-    const activityItems: AgentActivityItem[] = [];
-    const postAnswerActivityItems: AgentActivityItem[] = [];
-    const answerParts: string[] = [];
-    let kimiIndex = 0;
-    let finalAnswerStarted = false;
-    parts.forEach((part) => {
-      if (part.type === "kimi_timeline") {
-        const item = kimiItems[kimiIndex++]!;
-        if (item.type === "thinking") {
-          activityItems.push({
-            type: "kimi-thinking",
-            id: item.id,
-            content: item.content,
-            status: item.status,
-          });
-        } else if (item.type === "tool") {
-          const toolItem: AgentActivityItem = {
-            type: "kimi-tool",
-            id: item.id,
-            title: item.title,
-            kind: item.kind,
-            command: item.command,
-            filePath: item.filePath,
-            input: item.input,
-            output: item.output,
-            error: item.error,
-            status: item.status,
-          };
-          (finalAnswerStarted ? postAnswerActivityItems : activityItems).push(toolItem);
-        } else if (item.isFinal) {
-          answerParts.push(item.content);
-          finalAnswerStarted = true;
-        } else {
-          activityItems.push({ type: "commentary", id: item.id, content: item.content });
-        }
-        return;
+    const subagentTasks = new Map(
+      parts.flatMap((part) => (part.type === "subagent_task" ? [[part.id, part] as const] : [])),
+    );
+    const timelineItems: KimiTimelinePresentationItem[] = kimiItems.map((item) => {
+      if (item.type === "thinking") {
+        return {
+          type: "kimi-thinking",
+          id: item.id,
+          content: item.content,
+          status: item.status,
+        };
       }
-      if ((part.type === "reasoning" || part.type === "shell") && !isRawThoughtPart(part)) {
-        if (finalAnswerStarted && part.type === "shell") {
-          postAnswerActivityItems.push(part);
-        } else {
-          activityItems.push(part);
-        }
+
+      if (item.type === "message") {
+        return { type: "text", id: item.id, content: item.content };
       }
+
+      const subagentTask = subagentTasks.get(item.toolCallId);
+      if (subagentTask) {
+        return { type: "kimi-subagent", task: subagentTask };
+      }
+
+      return {
+        type: "kimi-tool",
+        id: item.id,
+        title: item.title,
+        kind: item.kind,
+        command: item.command,
+        filePath: item.filePath,
+        input: item.input,
+        output: item.output,
+        error: item.error,
+        status: item.status,
+      };
     });
-    return { activityItems, answerText: answerParts.join("\n"), postAnswerActivityItems };
+
+    return {
+      timelineItems,
+      activityItems: [],
+      answerText: "",
+      postAnswerActivityItems: [],
+    };
   }
 
   const hasPlanReview = parts.some((part) => part.type === "plan_review");
@@ -603,10 +668,12 @@ function AssistantMessage({
   message,
   timestamp,
   onRemoveRuntimeSessionAndRetry,
+  onSelectSubagent,
 }: {
   message: Message;
   timestamp: string;
   onRemoveRuntimeSessionAndRetry?: (request: RuntimeSessionRetryRequest) => Promise<void> | void;
+  onSelectSubagent?: (taskId: string) => void;
 }) {
   const content = message.content ?? "";
   const parts = message.type !== "changed_files" ? message.parts : undefined;
@@ -630,9 +697,11 @@ function AssistantMessage({
   const presentation = parts
     ? getAssistantMessagePresentation(parts, message.runStatus)
     : { activityItems: [], answerText: content, postAnswerActivityItems: [] };
+  const hasKimiTimeline = !!presentation.timelineItems;
   const isStreaming =
-    (!hasParts && content === "" && !message.runStatus) ||
+    (!hasKimiTimeline && !hasParts && content === "" && !message.runStatus) ||
     (message.runStatus === "running" &&
+      !hasKimiTimeline &&
       presentation.activityItems.length === 0 &&
       !presentation.answerText &&
       planReviewParts.length === 0 &&
@@ -669,6 +738,49 @@ function AssistantMessage({
           finishedAt={message.runFinishedAt}
           duration={message.duration}
         />
+      ) : hasKimiTimeline ? (
+        <div data-kimi-timeline className="flex flex-col gap-4">
+          <AgentActivityBlock
+            items={[]}
+            status={message.runStatus}
+            collapsible={false}
+            startedAt={
+              typeof message.createdAt === "string"
+                ? Date.parse(message.createdAt)
+                : message.createdAt
+            }
+            finishedAt={message.runFinishedAt}
+            duration={message.duration}
+          />
+          {presentation.timelineItems!.map((item) => {
+            if (item.type === "text") {
+              return <MarkdownContent key={item.id}>{item.content}</MarkdownContent>;
+            }
+            if (item.type === "kimi-thinking" || item.type === "kimi-tool") {
+              return <AgentActivityList key={item.id} items={[item]} />;
+            }
+            return (
+              <KimiSubagentItem key={item.task.id} task={item.task} onSelect={onSelectSubagent} />
+            );
+          })}
+          {planReviewParts.map((review) => (
+            <PlanReviewBlock key={review.id} review={review} />
+          ))}
+          {questionParts.map((part) => (
+            <QuestionBlock key={part.id} part={part} />
+          ))}
+          {errorParts.map((part) => (
+            <ErrorBlock
+              key={part.id}
+              part={part}
+              onRemoveRuntimeSessionAndRetry={
+                part.runtimeSessionRecovery && onRemoveRuntimeSessionAndRetry
+                  ? () => onRemoveRuntimeSessionAndRetry(part.runtimeSessionRecovery!)
+                  : undefined
+              }
+            />
+          ))}
+        </div>
       ) : hasParts ? (
         <div className="flex flex-col gap-4">
           {presentation.activityItems.length > 0 && (
@@ -710,7 +822,9 @@ function AssistantMessage({
       ) : (
         <MarkdownContent>{content}</MarkdownContent>
       )}
-      {message.runStatus === "cancelled" && !(hasParts && presentation.activityItems.length > 0) ? (
+      {message.runStatus === "cancelled" &&
+      !hasKimiTimeline &&
+      !(hasParts && presentation.activityItems.length > 0) ? (
         <div className="flex items-center gap-1.5 text-app-12 text-subtle">
           <XCircle className="h-3.5 w-3.5" />
           <span>Stopped</span>
@@ -805,12 +919,14 @@ export function MessageTimeline({
   threadId,
   onSubmitUserEdit,
   onRemoveRuntimeSessionAndRetry,
+  onSelectSubagent,
 }: {
   messages: Message[];
   threadActions?: AppThreadActionRecord[];
   threadId?: string;
   onSubmitUserEdit?: (draft: UserMessageEditDraft) => void;
   onRemoveRuntimeSessionAndRetry?: (request: RuntimeSessionRetryRequest) => Promise<void> | void;
+  onSelectSubagent?: (taskId: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -970,6 +1086,7 @@ export function MessageTimeline({
                     message={msg}
                     timestamp={getMessageTimestamp(msg)}
                     onRemoveRuntimeSessionAndRetry={onRemoveRuntimeSessionAndRetry}
+                    onSelectSubagent={onSelectSubagent}
                   />
                 </div>
               );

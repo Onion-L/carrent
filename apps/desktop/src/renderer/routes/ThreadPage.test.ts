@@ -7,7 +7,6 @@ import {
   collectSubagentTasks,
   resolveRightPane,
   shouldShowInspectorToggle,
-  updateSeenSubagentTasks,
 } from "../components/chat/ThreadInspectorPane";
 import { getThreadInspectorInput, resolveThreadRouteData } from "./ThreadPage";
 
@@ -136,36 +135,6 @@ describe("thread inspector integration", () => {
 
   it("returns null inspector input for a missing thread", () => {
     expect(getThreadInspectorInput(null)).toBe(null);
-  });
-
-  it("opens the inspector only for newly seen running task ids", () => {
-    const running = makeSubagentTask({ id: "task-1", status: "running" });
-
-    const first = updateSeenSubagentTasks({ tasks: [running], seenTaskIds: new Set() });
-    expect(first.shouldOpen).toBe(true);
-    expect(first.seenTaskIds.has("task-1")).toBe(true);
-
-    // Updates to an already-seen task never reopen a user-closed pane.
-    const second = updateSeenSubagentTasks({
-      tasks: [{ ...running, status: "completed" }],
-      seenTaskIds: first.seenTaskIds,
-    });
-    expect(second.shouldOpen).toBe(false);
-
-    // A later new running task may open it again.
-    const third = updateSeenSubagentTasks({
-      tasks: [{ ...running, id: "task-2" }],
-      seenTaskIds: second.seenTaskIds,
-    });
-    expect(third.shouldOpen).toBe(true);
-  });
-
-  it("treats a Thread reset as a fresh seen set", () => {
-    const running = makeSubagentTask({ id: "task-1", status: "running" });
-
-    const afterReset = updateSeenSubagentTasks({ tasks: [running], seenTaskIds: new Set() });
-    expect(afterReset.shouldOpen).toBe(true);
-    expect([...afterReset.seenTaskIds]).toEqual(["task-1"]);
   });
 
   it("gives the Diff view precedence and restores the inspector when it closes", () => {

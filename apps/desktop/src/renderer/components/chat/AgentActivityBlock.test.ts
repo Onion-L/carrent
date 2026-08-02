@@ -6,6 +6,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AgentActivityBlock,
+  AgentActivityList,
   formatAgentActivityDuration,
   getInitialAgentActivityBlockExpanded,
   getBlockStatusMeta,
@@ -69,8 +70,7 @@ describe("AgentActivityBlock expansion", () => {
 
     await act(async () => {
       root.render(
-        createElement(AgentActivityBlock, {
-          status: "running",
+        createElement(AgentActivityList, {
           items: [
             {
               type: "kimi-thinking",
@@ -82,7 +82,7 @@ describe("AgentActivityBlock expansion", () => {
         }),
       );
     });
-    const thinkingButton = container.querySelectorAll("button")[1]!;
+    const thinkingButton = container.querySelector("button")!;
     expect(thinkingButton.getAttribute("aria-expanded")).toBe("false");
     expect(container.textContent).not.toContain("Inspect hidden details");
 
@@ -90,6 +90,7 @@ describe("AgentActivityBlock expansion", () => {
 
     expect(thinkingButton.getAttribute("aria-expanded")).toBe("true");
     expect(container.textContent).toContain("Inspect hidden details");
+    expect(container.querySelector(".border-l")).toBe(null);
     await act(async () => root.unmount());
     container.remove();
   });
@@ -297,6 +298,26 @@ describe("AgentActivityBlock Kimi tool item", () => {
 
     await act(async () => toolButton().click());
     expect(container.textContent).toContain("permission denied");
+    await cleanup();
+  });
+
+  it("reveals ACP tool input when no output is available", async () => {
+    const { container, toolButton, cleanup } = await renderItems([
+      makeKimiTool({
+        id: "tool-edit",
+        title: "Edit",
+        kind: "edit",
+        filePath: "src/a.ts",
+        input: '{"path":"src/a.ts","replacement":"updated"}',
+        status: "completed",
+      }),
+    ]);
+
+    expect(container.textContent).toContain("Edit src/a.ts");
+    expect(container.textContent).not.toContain('"replacement":"updated"');
+
+    await act(async () => toolButton().click());
+    expect(container.textContent).toContain('"replacement":"updated"');
     await cleanup();
   });
 });

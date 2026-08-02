@@ -59,6 +59,7 @@ function createHarness(
     initialResult?: AppStateLoadResult;
     saveAppStateSnapshot?: (snapshot: AppStateSnapshot) => Promise<void>;
     reducers?: Record<string, AppStateCommandReducer>;
+    onPersisted?: (snapshot: AppStateSnapshot) => void;
   } = {},
 ) {
   const published: Array<{ subscriberId: number; state: AppStateAuthorityState }> = [];
@@ -72,6 +73,7 @@ function createHarness(
     }),
     initialResult: options.initialResult ?? readyResult(),
     reducers: options.reducers ?? { "add-workspace": addWorkspaceReducer },
+    onPersisted: options.onPersisted,
     publish: (subscriberId, state) => {
       published.push({ subscriberId, state });
     },
@@ -117,6 +119,17 @@ describe("createAppStateAuthority", () => {
       subscriberId: 2,
       state: { revision: 1, snapshot: saved[0] },
     });
+  });
+
+  it("notifies observers only after a snapshot is persisted", async () => {
+    const persisted: AppStateSnapshot[] = [];
+    const { authority, saved } = createHarness({
+      onPersisted: (snapshot) => persisted.push(snapshot),
+    });
+
+    await authority.submit(1, command({ payload: { name: "Core" } }));
+
+    expect(persisted).toEqual(saved);
   });
 
   it("does not apply a retried command twice", async () => {

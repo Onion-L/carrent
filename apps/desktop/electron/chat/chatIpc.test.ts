@@ -16,6 +16,7 @@ function registerChatIpc(
       getState: () => state,
       subscribe: () => state,
       unsubscribe: () => {},
+      acknowledgePersistedEvents: () => false,
       send: (request: ChatTurnRequest) => {
         services.sessionManager.start(request.runId!, request);
         return { accepted: true, runId: request.runId, state };

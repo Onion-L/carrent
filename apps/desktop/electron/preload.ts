@@ -7,6 +7,7 @@ import type {
   AttachmentMetadata,
   AttachmentIntegrityMetadata,
   ChatRunAuthorityState,
+  ChatRunAuthorityChange,
   ChatRunCommandResult,
 } from "../src/shared/chat";
 import type { ChatPermissionResponse } from "../src/shared/chatPermissions";
@@ -134,8 +135,9 @@ const carrent = {
     },
     subscribe: () => ipcRenderer.invoke("chat:subscribe") as Promise<ChatRunAuthorityState>,
     unsubscribe: () => ipcRenderer.invoke("chat:unsubscribe") as Promise<void>,
-    onChanged: (listener: (state: ChatRunAuthorityState) => void) => {
-      const wrapped = (_event: IpcRendererEvent, state: ChatRunAuthorityState) => listener(state);
+    onChanged: (listener: (update: ChatRunAuthorityChange) => void) => {
+      const wrapped = (_event: IpcRendererEvent, update: ChatRunAuthorityChange) =>
+        listener(update);
       ipcRenderer.on("chat:changed", wrapped);
       return () => ipcRenderer.removeListener("chat:changed", wrapped);
     },

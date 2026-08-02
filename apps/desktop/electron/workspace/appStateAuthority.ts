@@ -37,6 +37,7 @@ export function createAppStateAuthority(options: {
   initialResult: AppStateLoadResult;
   reducers?: Record<string, AppStateCommandReducer>;
   publish: (subscriberId: number, state: AppStateAuthorityState) => void;
+  onPersisted?: (snapshot: AppStateSnapshot) => void;
   maxAppliedCommandIds?: number;
 }) {
   const reducers = options.reducers ?? {};
@@ -68,6 +69,14 @@ export function createAppStateAuthority(options: {
     if (appliedCommands.size > maxAppliedCommandIds) {
       const oldest = appliedCommands.keys().next().value;
       if (oldest !== undefined) appliedCommands.delete(oldest);
+    }
+  }
+
+  function notifyPersisted(next: AppStateSnapshot) {
+    try {
+      options.onPersisted?.(next);
+    } catch {
+      // Persistence already succeeded; observers cannot roll it back.
     }
   }
 
@@ -107,6 +116,7 @@ export function createAppStateAuthority(options: {
     snapshot = normalized;
     revision += 1;
     rememberCommand(command.commandId);
+    notifyPersisted(snapshot);
     const state = currentState();
     for (const subscriberId of subscribers) {
       options.publish(subscriberId, state);
@@ -166,6 +176,7 @@ export function createAppStateAuthority(options: {
       if (!normalized) return;
       snapshot = normalized;
       revision += 1;
+      notifyPersisted(snapshot);
       const state = currentState();
       for (const subscriberId of subscribers) {
         options.publish(subscriberId, state);

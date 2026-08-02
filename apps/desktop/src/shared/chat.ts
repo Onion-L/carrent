@@ -260,6 +260,146 @@ export type KimiTimelineItem =
       status: KimiToolTimelineStatus;
     };
 
+export type KimiTimelineTextUpdate =
+  | { kind: "append"; value: string }
+  | { kind: "replace"; value: string };
+
+export type KimiTimelineItemUpdate =
+  | {
+      itemType: "thinking";
+      id: string;
+      order?: number;
+      content?: KimiTimelineTextUpdate;
+      status?: ChatReasoningStatus | "cancelled";
+    }
+  | {
+      itemType: "message";
+      id: string;
+      order?: number;
+      content?: KimiTimelineTextUpdate;
+      isFinal?: boolean;
+    }
+  | {
+      itemType: "tool";
+      id: string;
+      order?: number;
+      title?: KimiTimelineTextUpdate;
+      kind?: KimiTimelineTextUpdate;
+      command?: KimiTimelineTextUpdate;
+      filePath?: KimiTimelineTextUpdate;
+      input?: KimiTimelineTextUpdate;
+      output?: KimiTimelineTextUpdate;
+      error?: KimiTimelineTextUpdate;
+      status?: KimiToolTimelineStatus;
+    };
+
+function compactKimiTimelineTextUpdate(
+  previous: string,
+  next: string,
+): KimiTimelineTextUpdate | undefined {
+  if (previous === next) return undefined;
+  if (next.startsWith(previous)) {
+    return { kind: "append", value: next.slice(previous.length) };
+  }
+  return { kind: "replace", value: next };
+}
+
+export function createKimiTimelineItemUpdate(
+  previous: KimiTimelineItem,
+  next: KimiTimelineItem,
+): KimiTimelineItemUpdate | null {
+  if (previous.id !== next.id || previous.type !== next.type) return null;
+  const order = previous.order === next.order ? undefined : next.order;
+
+  if (previous.type === "thinking" && next.type === "thinking") {
+    const content = compactKimiTimelineTextUpdate(previous.content, next.content);
+    return {
+      itemType: "thinking",
+      id: next.id,
+      ...(order === undefined ? {} : { order }),
+      ...(content ? { content } : {}),
+      ...(previous.status === next.status ? {} : { status: next.status }),
+    };
+  }
+  if (previous.type === "message" && next.type === "message") {
+    const content = compactKimiTimelineTextUpdate(previous.content, next.content);
+    return {
+      itemType: "message",
+      id: next.id,
+      ...(order === undefined ? {} : { order }),
+      ...(content ? { content } : {}),
+      ...(previous.isFinal === next.isFinal ? {} : { isFinal: next.isFinal }),
+    };
+  }
+  if (previous.type === "tool" && next.type === "tool") {
+    const title = compactKimiTimelineTextUpdate(previous.title, next.title);
+    const kind = compactKimiTimelineTextUpdate(previous.kind, next.kind);
+    const command = compactKimiTimelineTextUpdate(previous.command, next.command);
+    const filePath = compactKimiTimelineTextUpdate(previous.filePath, next.filePath);
+    const input = compactKimiTimelineTextUpdate(previous.input, next.input);
+    const output = compactKimiTimelineTextUpdate(previous.output, next.output);
+    const error = compactKimiTimelineTextUpdate(previous.error, next.error);
+    return {
+      itemType: "tool",
+      id: next.id,
+      ...(order === undefined ? {} : { order }),
+      ...(title ? { title } : {}),
+      ...(kind ? { kind } : {}),
+      ...(command ? { command } : {}),
+      ...(filePath ? { filePath } : {}),
+      ...(input ? { input } : {}),
+      ...(output ? { output } : {}),
+      ...(error ? { error } : {}),
+      ...(previous.status === next.status ? {} : { status: next.status }),
+    };
+  }
+  return null;
+}
+
+function applyKimiTimelineTextUpdate(current: string, update?: KimiTimelineTextUpdate) {
+  if (!update) return current;
+  return update.kind === "append" ? current + update.value : update.value;
+}
+
+export function applyKimiTimelineItemUpdate(
+  item: KimiTimelineItem,
+  update: KimiTimelineItemUpdate,
+): KimiTimelineItem | null {
+  if (item.id !== update.id || item.type !== update.itemType) return null;
+
+  if (item.type === "thinking" && update.itemType === "thinking") {
+    return {
+      ...item,
+      ...(update.order === undefined ? {} : { order: update.order }),
+      content: applyKimiTimelineTextUpdate(item.content, update.content),
+      status: update.status ?? item.status,
+    };
+  }
+  if (item.type === "message" && update.itemType === "message") {
+    return {
+      ...item,
+      ...(update.order === undefined ? {} : { order: update.order }),
+      content: applyKimiTimelineTextUpdate(item.content, update.content),
+      isFinal: update.isFinal ?? item.isFinal,
+    };
+  }
+  if (item.type === "tool" && update.itemType === "tool") {
+    return {
+      ...item,
+      ...(update.order === undefined ? {} : { order: update.order }),
+      title: applyKimiTimelineTextUpdate(item.title, update.title),
+      kind: applyKimiTimelineTextUpdate(item.kind, update.kind),
+      command: applyKimiTimelineTextUpdate(item.command, update.command),
+      filePath: applyKimiTimelineTextUpdate(item.filePath, update.filePath),
+      input: applyKimiTimelineTextUpdate(item.input, update.input),
+      output: applyKimiTimelineTextUpdate(item.output, update.output),
+      error: applyKimiTimelineTextUpdate(item.error, update.error),
+      status: update.status ?? item.status,
+    };
+  }
+  return null;
+}
+
 export type ChatSubagentTaskStatus =
   | "running"
   | "completed"
@@ -290,8 +430,10 @@ export type ChatRunEvent =
     })
   | (ChatRunEventBase & { type: "notice"; message: string })
   | (ChatRunEventBase & { type: "delta"; text: string })
+  | (ChatRunEventBase & { type: "text-snapshot"; text: string })
   | (ChatRunEventBase & { type: "reasoning"; reasoning: ChatReasoningEventPayload })
   | (ChatRunEventBase & { type: "kimi-timeline"; item: KimiTimelineItem })
+  | (ChatRunEventBase & { type: "kimi-timeline-update"; update: KimiTimelineItemUpdate })
   | (ChatRunEventBase & { type: "shell"; shell: ChatShellEventPayload })
   | (ChatRunEventBase & { type: "subagent-task"; task: ChatSubagentTaskPayload })
   | (ChatRunEventBase & {
@@ -351,6 +493,129 @@ export type ChatRunEvent =
       error: string;
     });
 
+function replaceCompactEvent(
+  events: ChatRunEvent[],
+  predicate: (event: ChatRunEvent) => boolean,
+  event: ChatRunEvent,
+) {
+  const index = events.findIndex(predicate);
+  if (index < 0) return [...events, event];
+  const next = [...events];
+  next[index] = event;
+  return next;
+}
+
+export function compactChatRunEvents(events: ChatRunEvent[], event: ChatRunEvent): ChatRunEvent[] {
+  if (event.type === "notice") return events;
+  if (event.type === "delta") {
+    const current = events.find(
+      (item): item is Extract<ChatRunEvent, { type: "text-snapshot" }> =>
+        item.type === "text-snapshot",
+    );
+    return replaceCompactEvent(events, (item) => item.type === "text-snapshot", {
+      type: "text-snapshot",
+      runId: event.runId,
+      ...(event.requestKey ? { requestKey: event.requestKey } : {}),
+      text: (current?.text ?? "") + event.text,
+    });
+  }
+  if (event.type === "text-snapshot") {
+    return replaceCompactEvent(events, (item) => item.type === "text-snapshot", event);
+  }
+  if (event.type === "kimi-timeline" || event.type === "kimi-timeline-update") {
+    const id = event.type === "kimi-timeline" ? event.item.id : event.update.id;
+    const current = events.find(
+      (item): item is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+        item.type === "kimi-timeline" && item.item.id === id,
+    );
+    const item =
+      event.type === "kimi-timeline"
+        ? event.item
+        : current
+          ? applyKimiTimelineItemUpdate(current.item, event.update)
+          : null;
+    if (!item) return events;
+    return replaceCompactEvent(
+      events,
+      (candidate) => candidate.type === "kimi-timeline" && candidate.item.id === id,
+      {
+        type: "kimi-timeline",
+        runId: event.runId,
+        ...(event.requestKey ? { requestKey: event.requestKey } : {}),
+        item,
+      },
+    );
+  }
+  if (event.type === "reasoning") {
+    return replaceCompactEvent(
+      events,
+      (item) => item.type === "reasoning" && item.reasoning.id === event.reasoning.id,
+      event,
+    );
+  }
+  if (event.type === "shell") {
+    return replaceCompactEvent(
+      events,
+      (item) => item.type === "shell" && item.shell.id === event.shell.id,
+      event,
+    );
+  }
+  if (event.type === "subagent-task") {
+    return replaceCompactEvent(
+      events,
+      (item) => item.type === "subagent-task" && item.task.id === event.task.id,
+      event,
+    );
+  }
+  if (
+    event.type === "started" ||
+    event.type === "checklist" ||
+    event.type === "plan-mode-changed"
+  ) {
+    return replaceCompactEvent(events, (item) => item.type === event.type, event);
+  }
+  if (event.type === "permission-requested") {
+    return replaceCompactEvent(
+      events,
+      (item) => item.type === "permission-requested" && item.permission.id === event.permission.id,
+      event,
+    );
+  }
+  if (event.type === "permission-resolved" || event.type === "permission-failed") {
+    return replaceCompactEvent(
+      events,
+      (item) =>
+        (item.type === "permission-resolved" || item.type === "permission-failed") &&
+        item.permissionId === event.permissionId,
+      event,
+    );
+  }
+  if (event.type === "question-requested") {
+    return replaceCompactEvent(
+      events,
+      (item) => item.type === "question-requested" && item.question.id === event.question.id,
+      event,
+    );
+  }
+  if (event.type === "question-resolved" || event.type === "question-failed") {
+    return replaceCompactEvent(
+      events,
+      (item) =>
+        (item.type === "question-resolved" || item.type === "question-failed") &&
+        item.questionId === event.questionId,
+      event,
+    );
+  }
+  if (event.type === "completed" || event.type === "failed" || event.type === "stopped") {
+    return replaceCompactEvent(
+      events,
+      (item) => item.type === "completed" || item.type === "failed" || item.type === "stopped",
+      event,
+    );
+  }
+  return [...events, event];
+}
+
 export type SharedChatRunStatus =
   | "starting"
   | "running"
@@ -370,6 +635,7 @@ export type SharedChatRun = {
   requestKey?: string;
   status: SharedChatRunStatus;
   stopRequested: boolean;
+  eventCount?: number;
   events: ChatRunEvent[];
   pendingPermissions: ChatPermissionRequest[];
   pendingQuestions: ChatQuestionRequest[];
@@ -380,8 +646,31 @@ export type ChatRunAuthorityState = {
   runs: SharedChatRun[];
 };
 
+export type ChatRunAuthorityUpdate = {
+  baseRevision: number;
+  revision: number;
+  run: Omit<SharedChatRun, "events">;
+  event?: ChatRunEvent;
+  events?: ChatRunEvent[];
+  replacedRunId?: string;
+};
+
+export type ChatRunAuthorityRemoval = {
+  baseRevision: number;
+  revision: number;
+  removedRunId: string;
+};
+
+export type ChatRunAuthorityChange =
+  | ChatRunAuthorityUpdate
+  | ChatRunAuthorityRemoval
+  | {
+      baseRevision: number;
+      revision: number;
+      updates: Array<ChatRunAuthorityUpdate | ChatRunAuthorityRemoval>;
+    };
+
 export type ChatRunCommandResult = {
   accepted: boolean;
   runId?: string;
-  state: ChatRunAuthorityState;
 };

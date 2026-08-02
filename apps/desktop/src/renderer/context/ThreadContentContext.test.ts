@@ -559,6 +559,36 @@ describe("applyMessagePartUpdate", () => {
     });
   });
 
+  it("replaces replayed text without removing timeline parts", () => {
+    const message = makeMessage({
+      role: "assistant",
+      content: "partial",
+      parts: [
+        { type: "text", content: "partial" },
+        {
+          type: "kimi_timeline",
+          item: {
+            type: "thinking",
+            id: "thinking-1",
+            order: 0,
+            content: "Inspect",
+            status: "completed",
+          },
+        },
+      ],
+    });
+
+    expect(
+      applyMessagePartUpdate(message, { kind: "replace-text", content: "complete" }),
+    ).toMatchObject({
+      content: "complete",
+      parts: [
+        { type: "text", content: "complete" },
+        { type: "kimi_timeline", item: { id: "thinking-1" } },
+      ],
+    });
+  });
+
   it("upserts shell parts without mutating message content", () => {
     const message = makeMessage({
       role: "assistant",

@@ -1399,17 +1399,20 @@ export function Composer(props: ComposerProps) {
       !persistedRun ||
       !sharedRunAssistantMessage ||
       (isTerminalSharedChatRunStatus(sharedRun.status) &&
-        (sharedRunAssistantMessage.runEventCount ?? 0) >= sharedRun.events.length)
+        (sharedRunAssistantMessage.runEventCount ?? 0) >=
+          (sharedRun.eventCount ?? sharedRun.events.length))
     ) {
       return;
     }
     const assistantMessageId = sharedRunAssistantMessage.id;
     const appliedEventCount = sharedRunAssistantMessage.runEventCount ?? 0;
-    let receivedRunText = sharedRun.events
-      .slice(0, appliedEventCount)
-      .filter((event) => event.type === "delta")
-      .map((event) => event.text)
-      .join("");
+    let receivedRunText =
+      sharedRun.events.find((event) => event.type === "text-snapshot")?.text ??
+      sharedRun.events
+        .slice(0, appliedEventCount)
+        .filter((event) => event.type === "delta")
+        .map((event) => event.text)
+        .join("");
     const updatePart = (update: Parameters<typeof updateMessageParts>[1]) =>
       updateMessageParts(assistantMessageId, update);
 
@@ -1420,6 +1423,10 @@ export function Composer(props: ComposerProps) {
         onDelta: (content) => {
           receivedRunText += content;
           updatePart({ kind: "append-text", content });
+        },
+        onTextSnapshot: (content) => {
+          receivedRunText = content;
+          updatePart({ kind: "replace-text", content });
         },
         onReasoning: (reasoning) =>
           updatePart({ kind: "upsert-reasoning", reasoning: { type: "reasoning", ...reasoning } }),
@@ -2581,6 +2588,12 @@ export function Composer(props: ComposerProps) {
         onDelta: (text) => {
           receivedTextRef.current += text;
           startTypewriter(assistantMsg.id);
+        },
+        onTextSnapshot: (text) => {
+          stopTypewriter();
+          receivedTextRef.current = text;
+          visibleTextRef.current = text;
+          updateMessageParts(assistantMsg.id, { kind: "replace-text", content: text });
         },
         onReasoning: (reasoning) => {
           stopTypewriter();

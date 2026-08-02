@@ -15,6 +15,7 @@ import type {
   AttachmentIntegrityMetadata,
   KimiSessionStatus,
   ChatRunAuthorityState,
+  ChatRunAuthorityChange,
   ChatRunCommandResult,
 } from "../shared/chat";
 import type { ChatPermissionResponse } from "../shared/chatPermissions";
@@ -82,7 +83,7 @@ declare global {
         onEvent: (listener: (event: ChatRunEvent) => void) => VoidFunction;
         subscribe: () => Promise<ChatRunAuthorityState>;
         unsubscribe: () => Promise<void>;
-        onChanged: (listener: (state: ChatRunAuthorityState) => void) => VoidFunction;
+        onChanged: (listener: (update: ChatRunAuthorityChange) => void) => VoidFunction;
       };
       attachments: {
         store: (input: {

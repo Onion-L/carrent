@@ -144,6 +144,7 @@ export type ThreadContentContextValue = {
 
 export type MessagePartUpdate =
   | { kind: "append-text"; content: string }
+  | { kind: "replace-text"; content: string }
   | {
       kind: "upsert-kimi-timeline";
       item: import("../../shared/chat").KimiTimelineItem;
@@ -442,6 +443,23 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
       content: message.content + update.content,
       parts,
     };
+  }
+
+  if (update.kind === "replace-text") {
+    if (message.content === update.content) return message;
+    const textIndex = parts.findIndex((part) => part.type === "text");
+    const withoutText: MessagePart[] = parts.filter((part) => part.type !== "text");
+    if (update.content) {
+      withoutText.splice(
+        Math.min(textIndex < 0 ? withoutText.length : textIndex, withoutText.length),
+        0,
+        {
+          type: "text",
+          content: update.content,
+        },
+      );
+    }
+    return { ...message, content: update.content, parts: withoutText };
   }
 
   if (update.kind === "upsert-reasoning") {

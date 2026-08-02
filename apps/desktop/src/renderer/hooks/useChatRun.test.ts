@@ -1,8 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
-import type { ChatRunAuthorityState, ChatRunEvent } from "../../shared/chat";
+import type {
+  ChatRunAuthorityState,
+  ChatRunAuthorityUpdate,
+  ChatRunEvent,
+} from "../../shared/chat";
 import type { ChatPermissionRequest } from "../../shared/chatPermissions";
 import type { ChatQuestionRequest } from "../../shared/chatQuestions";
+import { createChatRunAuthority } from "../../../electron/chat/chatRunAuthority";
 import { createChatRunCoordinator } from "./useChatRun";
 
 describe("createChatRunCoordinator", () => {
@@ -152,6 +157,516 @@ describe("createChatRunCoordinator", () => {
     expect(receivedA.at(-1)).toBe("complete:done");
     expect(receivedB.at(-1)).toBe("complete:done");
     expect(second.getSnapshot().runningThreadIds).toEqual([]);
+  });
+
+  it("applies revisioned updates independently in two Renderer clients", () => {
+    const first = createChatRunCoordinator();
+    const second = createChatRunCoordinator();
+    const receivedA: string[] = [];
+    const receivedB: string[] = [];
+    const initial: ChatRunAuthorityState = {
+      revision: 1,
+      runs: [
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          requestKey: "request-1",
+          status: "running",
+          stopRequested: false,
+          events: [],
+          pendingPermissions: [],
+          pendingQuestions: [],
+        },
+      ],
+    };
+    const run = {
+      runId: "run-1",
+      threadId: "thread-1",
+      requestKey: "request-1",
+      status: "running" as const,
+      stopRequested: false,
+      eventCount: 0,
+      pendingPermissions: [],
+      pendingQuestions: [],
+    };
+    const updates: ChatRunAuthorityUpdate[] = [
+      {
+        baseRevision: 1,
+        revision: 2,
+        run: { ...run, eventCount: 1 },
+        event: {
+          type: "kimi-timeline",
+          runId: "run-1",
+          requestKey: "request-1",
+          item: {
+            type: "message",
+            id: "run-1-message-1",
+            order: 0,
+            content: "hello",
+            isFinal: false,
+          },
+        },
+      },
+      {
+        baseRevision: 2,
+        revision: 3,
+        run: { ...run, eventCount: 2 },
+        event: {
+          type: "kimi-timeline-update",
+          runId: "run-1",
+          requestKey: "request-1",
+          update: {
+            itemType: "message",
+            id: "run-1-message-1",
+            content: { kind: "append", value: " world" },
+            isFinal: true,
+          },
+        },
+      },
+    ];
+
+    [first, second].forEach((coordinator) => coordinator.applyAuthorityState(initial));
+    first.observeThread("thread-1", {
+      onKimiTimeline: (item) => receivedA.push("content" in item ? item.content : ""),
+    });
+    second.observeThread("thread-1", {
+      onKimiTimeline: (item) => receivedB.push("content" in item ? item.content : ""),
+    });
+    updates.forEach((update) => {
+      expect(first.applyAuthorityUpdate(update)).toBe(true);
+      expect(second.applyAuthorityUpdate(update)).toBe(true);
+    });
+
+    expect(receivedA).toEqual(["hello", "hello world"]);
+    expect(receivedB).toEqual(receivedA);
+    expect(first.getSnapshot()).toEqual(second.getSnapshot());
+    expect(first.getSnapshot().runs[0]?.events.map((event) => event.type)).toEqual([
+      "kimi-timeline",
+    ]);
+  });
+
+  it("resynchronizes one of two subscribed Renderer clients after it misses a revision", () => {
+    const first = createChatRunCoordinator();
+    const second = createChatRunCoordinator();
+    let firstText = "";
+    let secondText = "";
+    let dropNextForSecond = false;
+    const authority = createChatRunAuthority({
+      start: () => {},
+      stop: () => {},
+      respondToPermission: () => {},
+      respondToQuestion: () => {},
+      batchIntervalMs: 0,
+      publish: (subscriberId, update) => {
+        const coordinator = subscriberId === 1 ? first : second;
+        if (subscriberId === 2 && dropNextForSecond) {
+          dropNextForSecond = false;
+          return;
+        }
+        if (!coordinator.applyAuthorityUpdate(update)) {
+          coordinator.applyAuthorityState(authority.subscribe(subscriberId));
+        }
+      },
+    });
+    first.applyAuthorityState(authority.subscribe(1));
+    second.applyAuthorityState(authority.subscribe(2));
+    first.observeThread("thread-1", {
+      onDelta: (text) => (firstText += text),
+      onTextSnapshot: (text) => (firstText = text),
+    });
+    second.observeThread("thread-1", {
+      onDelta: (text) => (secondText += text),
+      onTextSnapshot: (text) => (secondText = text),
+    });
+
+    authority.send({
+      runId: "run-1",
+      requestKey: "request-1",
+      context: {
+        kind: "project",
+        workingDirectory: "/repo",
+        projectId: "project-1",
+        workspaceId: "workspace-1",
+      },
+      threadId: "thread-1",
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+      transcript: [],
+      message: "stream",
+    });
+    authority.handleEvent({ type: "started", runId: "run-1", threadId: "thread-1" });
+    dropNextForSecond = true;
+    authority.handleEvent({ type: "delta", runId: "run-1", text: "one" });
+    authority.handleEvent({ type: "delta", runId: "run-1", text: "two" });
+    authority.handleEvent({ type: "delta", runId: "run-1", text: "three" });
+
+    expect(firstText).toBe("onetwothree");
+    expect(secondText).toBe(firstText);
+    expect(second.getSnapshot()).toEqual(first.getSnapshot());
+  });
+
+  it("keeps a Kimi timeline baseline when a bounded snapshot is followed by a patch", () => {
+    const coordinator = createChatRunCoordinator();
+    const received: string[] = [];
+    const authority = createChatRunAuthority({
+      start: () => {},
+      stop: () => {},
+      respondToPermission: () => {},
+      respondToQuestion: () => {},
+      maxPayloadBytes: 1_024,
+      batchIntervalMs: 0,
+      publish: (subscriberId, update) => {
+        if (subscriberId === 1 && !coordinator.applyAuthorityUpdate(update)) {
+          coordinator.applyAuthorityState(authority.subscribe(subscriberId));
+        }
+      },
+    });
+
+    ["run-1", "run-2", "run-3", "run-4"].forEach((runId, index) => {
+      authority.send({
+        runId,
+        requestKey: `request-${runId}`,
+        context: {
+          kind: "project",
+          workingDirectory: "/repo",
+          projectId: "p-1",
+          workspaceId: "w-1",
+        },
+        threadId: `thread-${index + 1}`,
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+        transcript: [],
+        message: "stream",
+      });
+      authority.handleEvent({ type: "delta", runId, text: runId.repeat(50) });
+      authority.handleEvent({
+        type: "completed",
+        runId,
+        text: "done".repeat(50),
+        finishedAt: "2026-08-01T00:00:01.000Z",
+      });
+    });
+
+    authority.send({
+      runId: "active-run",
+      requestKey: "active-request",
+      context: { kind: "project", workingDirectory: "/repo", projectId: "p-1", workspaceId: "w-1" },
+      threadId: "active-thread",
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+      transcript: [],
+      message: "stream",
+    });
+    authority.handleEvent({
+      type: "kimi-timeline",
+      runId: "active-run",
+      item: {
+        type: "message",
+        id: "active-message",
+        order: 0,
+        content: "hello",
+        isFinal: false,
+      },
+    });
+
+    coordinator.applyAuthorityState(authority.subscribe(1));
+    coordinator.observeThread("active-thread", {
+      onKimiTimeline: (item) => {
+        if (item.type === "message") received.push(item.content);
+      },
+    });
+    authority.handleEvent({
+      type: "kimi-timeline",
+      runId: "active-run",
+      item: {
+        type: "message",
+        id: "active-message",
+        order: 0,
+        content: "hello world",
+        isFinal: true,
+      },
+    });
+
+    expect(received).toEqual(["hello", "hello world"]);
+  });
+
+  it("converges an existing and late Renderer after a Run becomes terminal", () => {
+    const first = createChatRunCoordinator();
+    const second = createChatRunCoordinator();
+    const authority = createChatRunAuthority({
+      start: () => {},
+      stop: () => {},
+      respondToPermission: () => {},
+      respondToQuestion: () => {},
+      batchIntervalMs: 0,
+      publish: (subscriberId, update) => {
+        if (subscriberId === 1) expect(first.applyAuthorityUpdate(update)).toBe(true);
+      },
+    });
+    first.applyAuthorityState(authority.subscribe(1));
+
+    authority.send({
+      runId: "run-1",
+      requestKey: "request-1",
+      context: {
+        kind: "project",
+        workingDirectory: "/repo",
+        projectId: "project-1",
+        workspaceId: "workspace-1",
+      },
+      threadId: "thread-1",
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+      transcript: [],
+      message: "stream",
+    });
+    authority.handleEvent({ type: "delta", runId: "run-1", text: "complete text" });
+    authority.handleEvent({
+      type: "completed",
+      runId: "run-1",
+      text: "complete text",
+      finishedAt: "2026-08-01T00:00:01.000Z",
+    });
+    expect(authority.acknowledgePersistedEvents("run-1", 2)).toBe(true);
+    second.applyAuthorityState(authority.subscribe(2));
+
+    expect(first.getSnapshot()).toEqual(second.getSnapshot());
+  });
+
+  it("rejects a revision gap until a compact snapshot resynchronizes it", () => {
+    const coordinator = createChatRunCoordinator();
+    const initial: ChatRunAuthorityState = {
+      revision: 1,
+      runs: [
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          status: "running",
+          stopRequested: false,
+          events: [],
+          pendingPermissions: [],
+          pendingQuestions: [],
+        },
+      ],
+    };
+    coordinator.applyAuthorityState(initial);
+
+    expect(
+      coordinator.applyAuthorityUpdate({
+        baseRevision: 2,
+        revision: 3,
+        run: {
+          runId: "run-1",
+          threadId: "thread-1",
+          status: "running",
+          stopRequested: false,
+          pendingPermissions: [],
+          pendingQuestions: [],
+        },
+        event: { type: "delta", runId: "run-1", text: "missed revision" },
+      }),
+    ).toBe(false);
+    expect(coordinator.getSnapshot().runs[0]?.events).toEqual([]);
+
+    coordinator.applyAuthorityState({
+      revision: 3,
+      runs: [
+        {
+          ...initial.runs[0]!,
+          events: [{ type: "delta", runId: "run-1", text: "from resync" }],
+        },
+      ],
+    });
+    expect(coordinator.getSnapshot().runs[0]?.events).toEqual([
+      { type: "delta", runId: "run-1", text: "from resync" },
+    ]);
+  });
+
+  it("keeps Thread order when a terminal Run is replaced", () => {
+    const coordinator = createChatRunCoordinator();
+    coordinator.applyAuthorityState({
+      revision: 1,
+      runs: [
+        {
+          runId: "run-old",
+          threadId: "thread-1",
+          status: "completed",
+          stopRequested: false,
+          eventCount: 1,
+          events: [],
+          pendingPermissions: [],
+          pendingQuestions: [],
+        },
+        {
+          runId: "run-other",
+          threadId: "thread-2",
+          status: "running",
+          stopRequested: false,
+          eventCount: 0,
+          events: [],
+          pendingPermissions: [],
+          pendingQuestions: [],
+        },
+      ],
+    });
+
+    expect(
+      coordinator.applyAuthorityUpdate({
+        baseRevision: 1,
+        revision: 2,
+        replacedRunId: "run-old",
+        run: {
+          runId: "run-new",
+          threadId: "thread-1",
+          status: "starting",
+          stopRequested: false,
+          eventCount: 0,
+          pendingPermissions: [],
+          pendingQuestions: [],
+        },
+      }),
+    ).toBe(true);
+    expect(coordinator.getSnapshot().runs.map((run) => run.runId)).toEqual([
+      "run-new",
+      "run-other",
+    ]);
+  });
+
+  it("removes a terminal Run after its persisted watermark is acknowledged", () => {
+    const coordinator = createChatRunCoordinator();
+    coordinator.applyAuthorityState({
+      revision: 1,
+      runs: [
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          status: "completed",
+          stopRequested: false,
+          eventCount: 2,
+          events: [{ type: "completed", runId: "run-1", text: "done", finishedAt: "now" }],
+          pendingPermissions: [],
+          pendingQuestions: [],
+        },
+      ],
+    });
+
+    expect(
+      coordinator.applyAuthorityUpdate({
+        baseRevision: 1,
+        revision: 2,
+        removedRunId: "run-1",
+      }),
+    ).toBe(true);
+    expect(coordinator.getSnapshot().runs).toEqual([]);
+  });
+
+  it("reconstructs a compact timeline patch before replaying after a persisted event count", () => {
+    const coordinator = createChatRunCoordinator();
+    const received: string[] = [];
+    const counts: number[] = [];
+    coordinator.applyAuthorityState({
+      revision: 2,
+      runs: [
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          status: "running",
+          stopRequested: false,
+          pendingPermissions: [],
+          pendingQuestions: [],
+          events: [
+            {
+              type: "kimi-timeline",
+              runId: "run-1",
+              item: {
+                type: "thinking",
+                id: "run-1-thinking-1",
+                order: 0,
+                content: "inspect",
+                status: "running",
+              },
+            },
+            {
+              type: "kimi-timeline-update",
+              runId: "run-1",
+              update: {
+                itemType: "thinking",
+                id: "run-1-thinking-1",
+                content: { kind: "append", value: " files" },
+                status: "completed",
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    coordinator.observeThread(
+      "thread-1",
+      {
+        onKimiTimeline: (item) => received.push("content" in item ? item.content : ""),
+        onEventApplied: (count) => counts.push(count),
+      },
+      1,
+    );
+
+    expect(received).toEqual(["inspect files"]);
+    expect(counts).toEqual([2]);
+  });
+
+  it("replays a materialized Kimi snapshot from its logical event watermark", () => {
+    const coordinator = createChatRunCoordinator();
+    const textSnapshots: string[] = [];
+    const timeline: string[] = [];
+    const counts: number[] = [];
+    coordinator.applyAuthorityState({
+      revision: 10,
+      runs: [
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          status: "running",
+          stopRequested: false,
+          eventCount: 10,
+          pendingPermissions: [],
+          pendingQuestions: [],
+          events: [
+            { type: "started", runId: "run-1", threadId: "thread-1" },
+            {
+              type: "kimi-timeline",
+              runId: "run-1",
+              item: {
+                type: "message",
+                id: "run-1-message-1",
+                order: 0,
+                content: "complete text",
+                isFinal: false,
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    coordinator.observeThread(
+      "thread-1",
+      {
+        onTextSnapshot: (text) => textSnapshots.push(text),
+        onKimiTimeline: (item) => {
+          if (item.type === "message") timeline.push(item.content);
+        },
+        onEventApplied: (count) => counts.push(count),
+      },
+      5,
+    );
+
+    expect(textSnapshots).toEqual(["complete text"]);
+    expect(timeline).toEqual(["complete text"]);
+    expect(counts).toEqual([10]);
   });
 
   it("resumes an observer after its persisted event count", () => {
@@ -550,7 +1065,9 @@ describe("createChatRunCoordinator", () => {
     coordinator.beginRequest("request-1", "thread-1", {
       onKimiTimeline: (item) =>
         received.push(
-          "content" in item ? `${item.order}:${item.type}:${item.content}` : `${item.order}:${item.type}`,
+          "content" in item
+            ? `${item.order}:${item.type}:${item.content}`
+            : `${item.order}:${item.type}`,
         ),
     });
     const event = {

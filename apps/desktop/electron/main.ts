@@ -509,6 +509,18 @@ if (!hasSingleInstanceLock) {
           contents.send("app-state:changed", state);
         }
       },
+      onPersisted: (snapshot) => {
+        const messagesById = new Map(
+          (snapshot.threadMessages ?? []).map((message) => [message.id, message]),
+        );
+        for (const run of snapshot.threadRuns ?? []) {
+          if (!run.assistantMessageId) continue;
+          const eventCount = messagesById.get(run.assistantMessageId)?.runEventCount;
+          if (typeof eventCount === "number") {
+            chatRunAuthority?.acknowledgePersistedEvents(run.id, eventCount);
+          }
+        }
+      },
     });
     registerAppStateAuthorityIpc(guardedIpcMain, appStateAuthority);
     const setAppStateTransactionActiveEverywhere = (active: boolean) => {
@@ -606,10 +618,10 @@ if (!hasSingleInstanceLock) {
       respondToPermission: sessionManager.respondToPermission,
       respondToQuestion: sessionManager.respondToQuestion,
       onChange: (state) => runNotificationCoordinator?.onRunStateChanged(state),
-      publish: (subscriberId, state) => {
+      publish: (subscriberId, update) => {
         const contents = webContents.fromId(subscriberId);
         if (contents && !contents.isDestroyed()) {
-          contents.send("chat:changed", state);
+          contents.send("chat:changed", update);
         }
       },
     });

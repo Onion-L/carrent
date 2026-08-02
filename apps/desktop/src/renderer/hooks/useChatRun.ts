@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import type {
   ChatReasoningEventPayload,
+  ChatRunAuthorityChange,
   ChatRunAuthorityState,
   ChatRunEvent,
   ChatShellEventPayload,
@@ -10,7 +11,11 @@ import type {
   ChatTurnRequest,
   RuntimeSessionRecovery,
 } from "../../shared/chat";
-import { isTerminalSharedChatRunStatus } from "../../shared/chat";
+import {
+  applyKimiTimelineItemUpdate,
+  compactChatRunEvents,
+  isTerminalSharedChatRunStatus,
+} from "../../shared/chat";
 import type { RunChecklistSnapshot } from "../../shared/runChecklist";
 import type { ChatPermissionRequest, ChatPermissionResponse } from "../../shared/chatPermissions";
 import type { ChatQuestionRequest, ChatQuestionResponse } from "../../shared/chatQuestions";
@@ -19,6 +24,7 @@ export type ChatRunCallbacks = {
   onNotice?: (message: string) => void;
   onStarted?: (runId: string) => void;
   onDelta?: (text: string) => void;
+  onTextSnapshot?: (text: string) => void;
   onReasoning?: (reasoning: ChatReasoningEventPayload) => void;
   onKimiTimeline?: (item: KimiTimelineItem) => void;
   onShell?: (shell: ChatShellEventPayload) => void;
@@ -93,9 +99,31 @@ export function createChatRunCoordinator() {
   const pendingQuestionById = new Map<string, ChatQuestionRequest>();
   const observersByThreadId = new Map<string, PendingChatRun>();
   const deliveredEventCountByRunId = new Map<string, number>();
+  const kimiTimelineItemsByRunId = new Map<string, Map<string, KimiTimelineItem>>();
   let authorityState: ChatRunAuthorityState | null = null;
+  let batchingChanges = 0;
+  let pendingEmit = false;
 
-  const restorePendingInteractions = (events: ChatRunEvent[]) => {
+  const materializeKimiTimelineEvent = (event: ChatRunEvent) => {
+    if (event.type !== "kimi-timeline" && event.type !== "kimi-timeline-update") return null;
+    let items = kimiTimelineItemsByRunId.get(event.runId);
+    if (!items) {
+      items = new Map();
+      kimiTimelineItemsByRunId.set(event.runId, items);
+    }
+    if (event.type === "kimi-timeline") {
+      items.set(event.item.id, event.item);
+      return event.item;
+    }
+    const current = items.get(event.update.id);
+    if (!current) return null;
+    const next = applyKimiTimelineItemUpdate(current, event.update);
+    if (!next) return null;
+    items.set(next.id, next);
+    return next;
+  };
+
+  const restoreLegacyEventState = (events: ChatRunEvent[]) => {
     events.forEach((event) => {
       if (event.type === "permission-requested") {
         pendingPermissionById.set(event.permission.id, event.permission);
@@ -106,6 +134,7 @@ export function createChatRunCoordinator() {
       } else if (event.type === "question-resolved") {
         pendingQuestionById.delete(event.questionId);
       }
+      materializeKimiTimelineEvent(event);
     });
   };
 
@@ -136,6 +165,10 @@ export function createChatRunCoordinator() {
   };
 
   const emit = () => {
+    if (batchingChanges > 0) {
+      pendingEmit = true;
+      return;
+    }
     listeners.forEach((listener) => listener());
   };
 
@@ -192,7 +225,57 @@ export function createChatRunCoordinator() {
     return sharedRun ? (observersByThreadId.get(sharedRun.threadId) ?? null) : null;
   };
 
-  return {
+  const eventCountOf = (run: ChatRunAuthorityState["runs"][number]) =>
+    run.eventCount ?? run.events.length;
+
+  const getRunTarget = (run: ChatRunAuthorityState["runs"][number]) => {
+    const target =
+      (run.requestKey ? pendingByRequestKey.get(run.requestKey) : undefined) ??
+      observersByThreadId.get(run.threadId);
+    if (!target) return null;
+    if (!target.runId) {
+      target.runId = run.runId;
+      if (pendingByRequestKey.has(target.requestKey)) {
+        requestKeyByRunId.set(run.runId, target.requestKey);
+      }
+    }
+    return target;
+  };
+
+  const deliverRunSnapshot = (run: ChatRunAuthorityState["runs"][number]) => {
+    const target = getRunTarget(run);
+    if (!target) return;
+    if (run.eventCount === undefined) {
+      const delivered = deliveredEventCountByRunId.get(run.runId) ?? 0;
+      for (let index = delivered; index < run.events.length; index += 1) {
+        api.handleEvent(run.events[index]!);
+        target.callbacks.onEventApplied?.(index + 1);
+        deliveredEventCountByRunId.set(run.runId, index + 1);
+      }
+      return;
+    }
+    const eventCount = eventCountOf(run);
+    if ((deliveredEventCountByRunId.get(run.runId) ?? 0) >= eventCount) return;
+    kimiTimelineItemsByRunId.delete(run.runId);
+    const kimiMessages = run.events
+      .filter(
+        (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
+          event.type === "kimi-timeline" && event.item.type === "message",
+      )
+      .sort((left, right) => left.item.order - right.item.order);
+    if (kimiMessages.length > 0) {
+      target.callbacks.onTextSnapshot?.(
+        kimiMessages
+          .map((event) => (event.item.type === "message" ? event.item.content : ""))
+          .join(""),
+      );
+    }
+    run.events.forEach((event) => api.handleEvent(event, true));
+    target.callbacks.onEventApplied?.(eventCount);
+    deliveredEventCountByRunId.set(run.runId, eventCount);
+  };
+
+  const api = {
     subscribe(listener: ChatRunStoreListener) {
       listeners.add(listener);
       return () => {
@@ -251,16 +334,14 @@ export function createChatRunCoordinator() {
       const run = authorityState?.runs.find((item) => item.threadId === threadId);
       if (run) {
         observer.runId = run.runId;
-        restorePendingInteractions(run.events.slice(0, appliedEventCount));
-        const delivered = Math.max(
-          deliveredEventCountByRunId.get(run.runId) ?? 0,
-          appliedEventCount,
-        );
-        for (let index = delivered; index < run.events.length; index += 1) {
-          this.handleEvent(run.events[index]!);
-          observer.callbacks.onEventApplied?.(index + 1);
-          deliveredEventCountByRunId.set(run.runId, index + 1);
+        if (run.eventCount === undefined) {
+          restoreLegacyEventState(run.events.slice(0, appliedEventCount));
         }
+        deliveredEventCountByRunId.set(
+          run.runId,
+          Math.max(deliveredEventCountByRunId.get(run.runId) ?? 0, appliedEventCount),
+        );
+        deliverRunSnapshot(run);
       }
       return () => {
         if (observersByThreadId.get(threadId) === observer) {
@@ -271,26 +352,93 @@ export function createChatRunCoordinator() {
     applyAuthorityState(state: ChatRunAuthorityState) {
       if (authorityState && state.revision < authorityState.revision) return;
       authorityState = state;
-      state.runs.forEach((run) => {
-        const target =
-          (run.requestKey ? pendingByRequestKey.get(run.requestKey) : undefined) ??
-          observersByThreadId.get(run.threadId);
-        if (!target) return;
-        if (!target.runId) {
-          target.runId = run.runId;
-          if (pendingByRequestKey.has(target.requestKey)) {
-            requestKeyByRunId.set(run.runId, target.requestKey);
-          }
-        }
-        const delivered = deliveredEventCountByRunId.get(run.runId) ?? 0;
-        for (let index = delivered; index < run.events.length; index += 1) {
-          this.handleEvent(run.events[index]!);
-          target.callbacks.onEventApplied?.(index + 1);
-          deliveredEventCountByRunId.set(run.runId, index + 1);
-        }
+      const runIds = new Set(state.runs.map((run) => run.runId));
+      deliveredEventCountByRunId.forEach((_count, runId) => {
+        if (!runIds.has(runId)) deliveredEventCountByRunId.delete(runId);
       });
+      kimiTimelineItemsByRunId.forEach((_items, runId) => {
+        if (!runIds.has(runId)) kimiTimelineItemsByRunId.delete(runId);
+      });
+      state.runs.forEach(deliverRunSnapshot);
       updateSnapshot();
       emit();
+    },
+    applyAuthorityUpdate(update: ChatRunAuthorityChange) {
+      if ("updates" in update) {
+        batchingChanges += 1;
+        let accepted = true;
+        for (const change of update.updates) {
+          if (!this.applyAuthorityUpdate(change)) {
+            accepted = false;
+            break;
+          }
+        }
+        batchingChanges -= 1;
+        if (accepted) {
+          updateSnapshot();
+          pendingEmit = false;
+          emit();
+        } else if (batchingChanges === 0 && pendingEmit) {
+          pendingEmit = false;
+          emit();
+        }
+        return accepted;
+      }
+      if (authorityState && update.revision <= authorityState.revision) return true;
+      if (!authorityState || update.baseRevision !== authorityState.revision) return false;
+
+      if ("removedRunId" in update) {
+        deliveredEventCountByRunId.delete(update.removedRunId);
+        kimiTimelineItemsByRunId.delete(update.removedRunId);
+        authorityState = {
+          revision: update.revision,
+          runs: authorityState.runs.filter((run) => run.runId !== update.removedRunId),
+        };
+        updateSnapshot();
+        emit();
+        return true;
+      }
+
+      if (update.replacedRunId) {
+        deliveredEventCountByRunId.delete(update.replacedRunId);
+        kimiTimelineItemsByRunId.delete(update.replacedRunId);
+      }
+      const replacedIndex = update.replacedRunId
+        ? authorityState.runs.findIndex((run) => run.runId === update.replacedRunId)
+        : -1;
+      const runs = authorityState.runs.filter((run) => run.runId !== update.replacedRunId);
+      const existingIndex = runs.findIndex((run) => run.runId === update.run.runId);
+      const existing = existingIndex >= 0 ? runs[existingIndex] : undefined;
+      const nextRun = {
+        ...update.run,
+        events:
+          update.events ??
+          (update.event
+            ? compactChatRunEvents(existing?.events ?? [], update.event)
+            : (existing?.events ?? [])),
+      };
+      if (existingIndex >= 0) {
+        runs[existingIndex] = nextRun;
+      } else if (replacedIndex >= 0) {
+        runs.splice(Math.min(replacedIndex, runs.length), 0, nextRun);
+      } else {
+        runs.push(nextRun);
+      }
+      authorityState = { revision: update.revision, runs };
+      const target = getRunTarget(nextRun);
+      const eventCount = eventCountOf(nextRun);
+      if (
+        target &&
+        update.event &&
+        (deliveredEventCountByRunId.get(nextRun.runId) ?? 0) < eventCount
+      ) {
+        api.handleEvent(update.event, false);
+        target.callbacks.onEventApplied?.(eventCount);
+        deliveredEventCountByRunId.set(nextRun.runId, eventCount);
+      }
+      updateSnapshot();
+      emit();
+      return true;
     },
     attachRunId(requestKey: string, runId: string) {
       const run = pendingByRequestKey.get(requestKey);
@@ -323,7 +471,7 @@ export function createChatRunCoordinator() {
       updateSnapshot();
       emit();
     },
-    handleEvent(event: ChatRunEvent) {
+    handleEvent(event: ChatRunEvent, fromSnapshot = false) {
       const run = getRunForEvent(event);
       if (run?.runId && run.runId !== event.runId) {
         return;
@@ -378,13 +526,31 @@ export function createChatRunCoordinator() {
         return;
       }
 
+      if (event.type === "text-snapshot") {
+        run.callbacks.onTextSnapshot?.(event.text);
+        return;
+      }
+
       if (event.type === "reasoning") {
         run.callbacks.onReasoning?.(event.reasoning);
         return;
       }
 
-      if (event.type === "kimi-timeline") {
-        run.callbacks.onKimiTimeline?.(event.item);
+      if (event.type === "kimi-timeline" || event.type === "kimi-timeline-update") {
+        const item = materializeKimiTimelineEvent(event);
+        if (item) {
+          run.callbacks.onKimiTimeline?.(item);
+          if (!fromSnapshot && item.type === "message") {
+            if (event.type === "kimi-timeline") {
+              run.callbacks.onDelta?.(item.content);
+            } else if (
+              event.update.itemType === "message" &&
+              event.update.content?.kind === "append"
+            ) {
+              run.callbacks.onDelta?.(event.update.content.value);
+            }
+          }
+        }
         return;
       }
 
@@ -500,11 +666,15 @@ export function createChatRunCoordinator() {
       }
     },
   };
+
+  return api;
 }
 
 const chatRunCoordinator = createChatRunCoordinator();
 let teardownChatListener: VoidFunction | null = null;
 let chatListenerSubscriberCount = 0;
+let chatAuthoritySync: Promise<void> | null = null;
+let chatAuthorityResyncRequested = false;
 
 export function hasLiveRunForThread(threadId: string) {
   return chatRunCoordinator.getSnapshot().runningThreadIds.includes(threadId);
@@ -521,14 +691,30 @@ function ensureChatListener() {
 
   const chat = window.carrent.chat;
   if (typeof chat.onChanged === "function" && typeof chat.subscribe === "function") {
-    const disposeChanged = chat.onChanged((state) => {
-      chatRunCoordinator.applyAuthorityState(state);
+    const syncAuthorityState = () => {
+      if (chatAuthoritySync) {
+        chatAuthorityResyncRequested = true;
+        return;
+      }
+      chatAuthoritySync = chat
+        .subscribe()
+        .then((state) => chatRunCoordinator.applyAuthorityState(state))
+        .finally(() => {
+          chatAuthoritySync = null;
+          if (chatAuthorityResyncRequested) {
+            chatAuthorityResyncRequested = false;
+            syncAuthorityState();
+          }
+        });
+    };
+    const disposeChanged = chat.onChanged((update) => {
+      if (!chatRunCoordinator.applyAuthorityUpdate(update)) syncAuthorityState();
     });
     teardownChatListener = () => {
       disposeChanged();
       void chat.unsubscribe();
     };
-    void chat.subscribe().then((state) => chatRunCoordinator.applyAuthorityState(state));
+    syncAuthorityState();
     return;
   }
 
@@ -573,7 +759,6 @@ export function useChatRun() {
         ...request,
         requestKey,
       });
-      if (result.state) chatRunCoordinator.applyAuthorityState(result.state);
       const { runId } = result;
       if (result.accepted === false || !runId) {
         chatRunCoordinator.rejectRequest(requestKey);
@@ -591,19 +776,16 @@ export function useChatRun() {
   const stop = useCallback(async (threadId?: string) => {
     const runId = chatRunCoordinator.getPendingRunId(threadId);
     if (runId) {
-      const result = await window.carrent.chat.stop(runId);
-      if (result?.state) chatRunCoordinator.applyAuthorityState(result.state);
+      await window.carrent.chat.stop(runId);
     }
   }, []);
 
   const respondToPermission = useCallback(async (response: ChatPermissionResponse) => {
-    const result = await window.carrent.chat.respondToPermission(response);
-    if (result?.state) chatRunCoordinator.applyAuthorityState(result.state);
+    await window.carrent.chat.respondToPermission(response);
   }, []);
 
   const respondToQuestion = useCallback(async (response: ChatQuestionResponse) => {
-    const result = await window.carrent.chat.respondToQuestion(response);
-    if (result?.state) chatRunCoordinator.applyAuthorityState(result.state);
+    await window.carrent.chat.respondToQuestion(response);
   }, []);
 
   const observeThread = useCallback(

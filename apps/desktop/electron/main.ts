@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureCliPaths } from "./runtime/processPath";
+import { createLogger, type Logger } from "./diagnostics/logger";
 import { registerRuntimeIpc } from "./runtime/runtimeIpc";
 import { registerChatIpc } from "./chat/chatIpc";
 import { createChatSessionManager, type ChatSessionManager } from "./chat/chatSessionManager";
@@ -130,6 +131,9 @@ let liveRunQuitWarning: ReturnType<typeof createLiveRunQuitWarning> | null = nul
 let terminalSessionManager: TerminalSessionManager | null = null;
 let windowSessionStore: CarrentWindowSessionStore | null = null;
 let windowCapture: ReturnType<typeof createCarrentWindowCapture> | null = null;
+// Lazily created in app.whenReady(). The renderer-gone handler in the window
+// factory closes over this, so it must be module-scoped rather than passed in.
+let logger: Logger | null = null;
 // Most recently active saved window, for Dock activation / repeated launch
 // "recent-position recovery" when no Carrent Window exists but a session does.
 let recentRestoredWindow: RestoredWindow | null = null;
@@ -283,6 +287,17 @@ function createWindow(
     zoomController.handleZoomChanged(event, direction);
   });
 
+  window.webContents.on("render-process-gone", (_event, details) => {
+    // The single most useful diagnostic for a renderer crash: details.reason
+    // distinguishes "oom" (memory path) from "crashed" (native CHECK/abort)
+    // from "killed", which the macOS .ips cannot tell us. Logged locally only.
+    logger?.error("render-gone", "renderer terminated", {
+      contentsId: window.webContents.id,
+      reason: details.reason,
+      exitCode: details.exitCode,
+    });
+  });
+
   window.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
@@ -369,6 +384,24 @@ if (!hasSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     ensureCliPaths();
+
+    // Stand up diagnostics before anything else so a crash during startup or
+    // run wiring leaves evidence in ~/Library/Logs/Carrent/main.log instead of
+    // vanishing with the renderer. The logger never throws; failures fall back
+    // to console so a broken logger cannot block boot.
+    logger = createLogger({ logDirectory: app.getPath("logs") });
+    process.on("uncaughtException", (error) => {
+      logger?.error("uncaught", error.stack ?? String(error));
+    });
+    process.on("unhandledRejection", (reason) => {
+      logger?.error("unhandled-rejection", String(reason));
+    });
+    logger.info("startup", "carrent main process ready", {
+      electron: process.versions.electron,
+      node: process.versions.node,
+      platform: `${process.platform}/${process.arch}`,
+      version: app.getVersion(),
+    });
 
     const icon = resolveIconPath();
 
@@ -714,6 +747,7 @@ const appShutdown = createAppShutdown({
 });
 
 app.on("before-quit", (event) => {
+  logger?.info("shutdown", "carrent before-quit");
   void appShutdown.beforeQuit(event);
 });
 

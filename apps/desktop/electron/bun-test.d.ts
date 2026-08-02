@@ -20,6 +20,7 @@ declare module "bun:test" {
     toThrow(expected?: unknown): void;
     toBeString(): void;
     toBeLessThan(expected: number): void;
+    toBeLessThanOrEqual(expected: number): void;
     not: Matchers<T>;
   }
 

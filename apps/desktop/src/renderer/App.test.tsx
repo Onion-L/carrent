@@ -3462,6 +3462,38 @@ describe("Archived Thread lifecycle", () => {
     expect(container!.textContent).toContain("Primary Thread");
   });
 
+  it("shows one archive toast when archiving several Threads", async () => {
+    const state = lifecycleState();
+    state.threads?.push({
+      id: "thread-3",
+      workspaceId: "workspace-1",
+      projectId: "project-1",
+      title: "Third Thread",
+      createdAt: "2026-07-27T06:00:00.000Z",
+      lastActivityAt: "2026-07-27T08:00:00.000Z",
+      runtimeId: "kimi",
+      runtimeMode: "approval-required",
+      planMode: false,
+    });
+    await renderApp(
+      state,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+    );
+
+    await click(buttonNamed("Archive Primary Thread"));
+    await click(buttonNamed("Archive Secondary Thread"));
+    await click(buttonNamed("Archive Third Thread"));
+
+    const archiveToasts = [...container!.querySelectorAll('[role="status"]')].filter((toast) =>
+      toast.textContent?.includes("Thread archived."),
+    );
+    expect(archiveToasts).toHaveLength(1);
+  });
+
   it("blocks archive while a Thread has queued messages", async () => {
     await renderApp(
       lifecycleState([], true),

@@ -364,16 +364,28 @@ export function getProjectWorkingDirectoryIdentity(workingDirectory: string): st
 }
 
 export function normalizeAppStateSnapshot(value: unknown): AppStateSnapshot | null {
-  return normalizeAppStateSnapshotWithAttachmentPolicy(value, true);
+  return normalizeAppStateSnapshotWithAttachmentPolicy(value, true, true);
 }
 
+// Used when persisting to disk: every queued message is force-stamped
+// requiresConfirmation: true so a restarted application never auto-sends
+// recovered queue items.
 export function normalizeAppStateSnapshotForWrite(value: unknown): AppStateSnapshot | null {
-  return normalizeAppStateSnapshotWithAttachmentPolicy(value, false);
+  return normalizeAppStateSnapshotWithAttachmentPolicy(value, false, true);
+}
+
+// Used by the in-memory App State authority: preserves the live
+// requiresConfirmation flag on queued messages so the Main Process can tell
+// auto-continuing work (flag false) from work needing an explicit Send/Steer
+// (flag true). Disk persistence still re-stamps via normalizeAppStateSnapshotForWrite.
+export function normalizeAppStateSnapshotForMemory(value: unknown): AppStateSnapshot | null {
+  return normalizeAppStateSnapshotWithAttachmentPolicy(value, false, false);
 }
 
 function normalizeAppStateSnapshotWithAttachmentPolicy(
   value: unknown,
   allowLegacyAttachmentKindInference: boolean,
+  forceConfirmQueuedMessages: boolean,
 ): AppStateSnapshot | null {
   if (!isRecord(value)) return null;
   if (value.version !== APP_STATE_SNAPSHOT_VERSION) return null;
@@ -839,7 +851,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
     });
   }
 
-  const threadWork = normalizeThreadWork(value.threadWork);
+  const threadWork = normalizeThreadWork(value.threadWork, forceConfirmQueuedMessages);
   if (value.threadWork !== undefined && !threadWork) return null;
   if (threadWork && Object.keys(threadWork).some((threadId) => !threadIds.has(threadId))) {
     return null;
@@ -1430,7 +1442,10 @@ function normalizeThreadWorkDraft(value: unknown): ThreadWorkDraftSnapshot | nul
   };
 }
 
-function normalizeThreadWorkQueuedMessage(value: unknown): ThreadWorkQueuedMessage | null {
+function normalizeThreadWorkQueuedMessage(
+  value: unknown,
+  forceConfirm: boolean,
+): ThreadWorkQueuedMessage | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string") return null;
   if (typeof value.content !== "string") return null;
@@ -1440,18 +1455,24 @@ function normalizeThreadWorkQueuedMessage(value: unknown): ThreadWorkQueuedMessa
     value.attachments === undefined ? undefined : normalizeThreadWorkAttachments(value.attachments);
   if (attachments === null) return null;
 
-  // Every queue item recovered from disk requires an explicit Send/Steer; it
-  // must never auto-send after a restart.
+  // When forceConfirm is true (load from disk, or persisting to disk) every
+  // queue item is treated as requiring an explicit Send/Steer so a restarted
+  // application never auto-sends recovered queue items. When false (the
+  // in-memory authority) the live flag is preserved so the Main Process can
+  // distinguish auto-continuing work.
+  const requiresConfirmation =
+    forceConfirm || value.requiresConfirmation === true ? true : undefined;
   return {
     id: value.id,
     content: value.content,
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
-    requiresConfirmation: true,
+    ...(requiresConfirmation === undefined ? {} : { requiresConfirmation }),
   };
 }
 
 function normalizeThreadWork(
   value: unknown,
+  forceConfirmQueuedMessages: boolean,
 ): Record<string, ThreadWorkSnapshot> | undefined | null {
   if (value === undefined) return undefined;
   if (!isRecord(value)) return null;
@@ -1464,7 +1485,7 @@ function normalizeThreadWork(
     if (entry.draft !== undefined && !draft) return null;
     if (entry.queuedMessages.length > MAX_THREAD_WORK_QUEUE_ITEMS) return null;
     const queuedMessages = entry.queuedMessages.map((item) =>
-      normalizeThreadWorkQueuedMessage(item),
+      normalizeThreadWorkQueuedMessage(item, forceConfirmQueuedMessages),
     );
     if (queuedMessages.some((item) => item === null)) return null;
 

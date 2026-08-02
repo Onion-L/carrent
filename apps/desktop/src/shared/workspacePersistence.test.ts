@@ -3,6 +3,8 @@ import { describe, expect, it } from "bun:test";
 import {
   APP_STATE_SNAPSHOT_VERSION,
   normalizeAppStateSnapshot,
+  normalizeAppStateSnapshotForMemory,
+  normalizeAppStateSnapshotForWrite,
   normalizePersistedAppStateSnapshot,
   normalizeProviderSessionSnapshot,
 } from "./workspacePersistence";
@@ -807,6 +809,86 @@ describe("normalizeAppStateSnapshot", () => {
     };
 
     expect(normalizePersistedAppStateSnapshot(snapshot)).toBe(null);
+  });
+});
+
+describe("queued message requiresConfirmation stamping", () => {
+  function snapshotWithQueuedMessage(requiresConfirmation: boolean | undefined) {
+    return {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Tidy the docs",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          lastActivityAt: "2026-01-01T00:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      threadDrafts: [],
+      threadMessages: [],
+      threadRuns: [],
+      threadActions: [],
+      threadPromotionIntents: [],
+      threadWork: {
+        "thread-1": {
+          queuedMessages: [
+            {
+              id: "queued-1",
+              content: "Next request",
+              ...(requiresConfirmation === undefined ? {} : { requiresConfirmation }),
+            },
+          ],
+        },
+      },
+      lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
+      activeWorkspaceId: "workspace-1",
+    };
+  }
+
+  it("force-stamps requiresConfirmation: true when loading from disk", () => {
+    const normalized = normalizeAppStateSnapshot(snapshotWithQueuedMessage(undefined))!;
+    expect(
+      normalized.threadWork!["thread-1"].queuedMessages[0].requiresConfirmation,
+    ).toBe(true);
+  });
+
+  it("force-stamps requiresConfirmation: true when persisting to disk", () => {
+    // Even a live auto-continuing item (flag false) is stamped on disk so a
+    // restarted application never auto-sends recovered queue items.
+    const normalized = normalizeAppStateSnapshotForWrite(snapshotWithQueuedMessage(false))!;
+    expect(
+      normalized.threadWork!["thread-1"].queuedMessages[0].requiresConfirmation,
+    ).toBe(true);
+  });
+
+  it("preserves the live requiresConfirmation flag in the in-memory authority", () => {
+    // A freshly-enqueued, steerable item keeps flag false so the Main Process
+    // can tell auto-continuing work from work needing an explicit Send/Steer.
+    const auto = normalizeAppStateSnapshotForMemory(snapshotWithQueuedMessage(false))!;
+    expect(
+      auto.threadWork!["thread-1"].queuedMessages[0].requiresConfirmation,
+    ).toBeUndefined();
+
+    const confirmed = normalizeAppStateSnapshotForMemory(snapshotWithQueuedMessage(true))!;
+    expect(
+      confirmed.threadWork!["thread-1"].queuedMessages[0].requiresConfirmation,
+    ).toBe(true);
   });
 });
 

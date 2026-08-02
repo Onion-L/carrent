@@ -1,6 +1,6 @@
 import {
   createEmptyAppStateSnapshot,
-  normalizeAppStateSnapshotForWrite,
+  normalizeAppStateSnapshotForMemory,
   type AppStateLoadResult,
   type AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
@@ -97,7 +97,7 @@ export function createAppStateAuthority(options: {
       rememberCommand(command.commandId);
       return { status: "accepted", revision, ...(data !== undefined ? { data } : {}) };
     }
-    const normalized = normalizeAppStateSnapshotForWrite(next);
+    const normalized = normalizeAppStateSnapshotForMemory(next);
     if (!normalized) return rejected("invalid", "Command produced an invalid App State snapshot.");
     try {
       await options.store.saveAppStateSnapshot(normalized);
@@ -162,7 +162,7 @@ export function createAppStateAuthority(options: {
     // command. Invalid snapshots are ignored.
     adoptExternalSnapshot(next: AppStateSnapshot) {
       if (!available) return;
-      const normalized = normalizeAppStateSnapshotForWrite(next);
+      const normalized = normalizeAppStateSnapshotForMemory(next);
       if (!normalized) return;
       snapshot = normalized;
       revision += 1;

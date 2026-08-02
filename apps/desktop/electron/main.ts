@@ -18,6 +18,11 @@ import { registerChatIpc } from "./chat/chatIpc";
 import { createChatSessionManager, type ChatSessionManager } from "./chat/chatSessionManager";
 import { createChatRunAuthority, type ChatRunAuthority } from "./chat/chatRunAuthority";
 import {
+  createRunNotificationCoordinator,
+  type RunNotificationCoordinator,
+} from "./notifications/runNotificationCoordinator";
+import { createElectronNotificationAdapter } from "./notifications/systemNotificationAdapter";
+import {
   createThreadDeletionJournalStore,
   createThreadDeletionTransactionManager,
   recoverThreadDeletionTransaction,
@@ -118,6 +123,7 @@ function isExecutableFile(path: string) {
 let appStateStore: AppStateStore | null = null;
 let chatSessionManager: ChatSessionManager | null = null;
 let chatRunAuthority: ChatRunAuthority | null = null;
+let runNotificationCoordinator: RunNotificationCoordinator | null = null;
 let waitForThreadDeletion: (() => Promise<void>) | null = null;
 let appStateFlush: ReturnType<typeof createAppStateFlush> | null = null;
 let liveRunQuitWarning: ReturnType<typeof createLiveRunQuitWarning> | null = null;
@@ -533,11 +539,40 @@ if (!hasSingleInstanceLock) {
         return bridgeManager.getRuntimeHandle();
       },
     });
+    runNotificationCoordinator = createRunNotificationCoordinator({
+      getSnapshot: () => appStateAuthority.getState().snapshot,
+      buildThreadRoute: (workspaceId, projectId, threadId) =>
+        `/workspace/${workspaceId}/project/${projectId}/thread/${threadId}`,
+      windows: {
+        // Real OS focus via Electron; combined with the registry's route lookup.
+        // A window in another app, minimized, hidden, or no window yields null,
+        // so suppression only happens when a focused Carrent Window shows the
+        // exact owning Thread route.
+        focusedRoute: () => {
+          const focused = BrowserWindow.getFocusedWindow();
+          if (!focused || focused.isDestroyed()) return null;
+          return windowRegistry.getRoute(focused.id);
+        },
+        // Reuses the registry's existing peer-window targeting: focus a window
+        // already showing the route, otherwise navigate the most-recently-active
+        // window. Returns false when no Carrent Window exists.
+        routeToThread: (route) => {
+          if (windowRegistry.getActive() === null) return false;
+          windowRegistry.handleRoute(route);
+          return true;
+        },
+      },
+      notifications: createElectronNotificationAdapter(),
+      createWindowWithRoute: (route) => {
+        createWindow(undefined, { initialPath: route });
+      },
+    });
     chatRunAuthority = createChatRunAuthority({
       start: sessionManager.start,
       stop: sessionManager.stop,
       respondToPermission: sessionManager.respondToPermission,
       respondToQuestion: sessionManager.respondToQuestion,
+      onChange: (state) => runNotificationCoordinator?.onRunStateChanged(state),
       publish: (subscriberId, state) => {
         const contents = webContents.fromId(subscriberId);
         if (contents && !contents.isDestroyed()) {

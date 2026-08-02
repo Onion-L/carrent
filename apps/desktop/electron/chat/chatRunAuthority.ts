@@ -20,6 +20,10 @@ type ChatRunAuthorityOptions = {
   respondToPermission: (response: ChatPermissionResponse) => void;
   respondToQuestion: (response: ChatQuestionResponse) => void;
   publish: (subscriberId: number, state: ChatRunAuthorityState) => void;
+  // Invoked once per authoritative state change, before per-renderer fan-out.
+  // Used by Main Process observers (e.g. run notifications) that must fire even
+  // with zero subscribers. Optional; no callback means no main-process hook.
+  onChange?: (state: ChatRunAuthorityState) => void;
 };
 
 function statusAfterInteraction(run: SharedChatRun): SharedChatRunStatus {
@@ -80,6 +84,14 @@ export function createChatRunAuthority(options: ChatRunAuthorityOptions) {
   function publish() {
     revision += 1;
     const state = currentState();
+    // A Main Process observer (run notifications) must never block renderer
+    // fan-out: isolate its callback so a throw inside the observer cannot
+    // prevent subscribers from receiving the authoritative state.
+    try {
+      options.onChange?.(state);
+    } catch {
+      // Observed-state side effects are best-effort; swallow observer errors.
+    }
     subscribers.forEach((subscriberId) => options.publish(subscriberId, state));
     return state;
   }

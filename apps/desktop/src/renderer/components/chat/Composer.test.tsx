@@ -22,7 +22,7 @@ import { createFakeAppStateAuthority } from "../../test/fakeAppStateAuthority";
 import { AppStateProvider } from "../../context/AppStateContext";
 import { RuntimeModelsProvider } from "../../context/RuntimeModelsContext";
 import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
-import { enqueueChatMessage, getThreadDraft } from "../../hooks/chatMessageQueue";
+import { clearThreadDraft, enqueueChatMessage, getThreadDraft } from "../../hooks/chatMessageQueue";
 import {
   Composer,
   type AssociationDraftPromotionInput,
@@ -107,10 +107,7 @@ function associationDraftTree(
       <ThreadContentProvider>
         <RuntimeModelsProvider>
           <MemoryRouter>
-            <AssociationDraftHarness
-              initialDraft={initialDraft}
-              onDraftChange={onDraftChange}
-            />
+            <AssociationDraftHarness initialDraft={initialDraft} onDraftChange={onDraftChange} />
           </MemoryRouter>
         </RuntimeModelsProvider>
       </ThreadContentProvider>
@@ -570,6 +567,40 @@ describe("Composer IME composition", () => {
     });
   }
 
+  it("persists a committed IME candidate when composition starts from an empty Composer", async () => {
+    await renderComposer();
+
+    await startComposition();
+    await endComposition();
+    await commitComposerText("你好");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+
+    expect(getComposerText()).toBe("你好");
+    expect(getThreadDraft("thread-1")?.content).toBe("你好");
+  });
+
+  it("cancels a queued persistence timer when IME composition starts", async () => {
+    await renderComposer();
+    await setComposerText("unconfirmed input");
+
+    await startComposition();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+
+    expect(getThreadDraft("thread-1")).toBe(null);
+    await endComposition();
+    await commitComposerText("已确认");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+    // The cancelled timer must not suppress a later commit: once the candidate
+    // is confirmed, persistence runs and saves it.
+    expect(getThreadDraft("thread-1")?.content).toBe("已确认");
+  });
+
   it("does not replace the editor while IME composition is active past the persistence debounce", async () => {
     const authority = await renderComposer();
     await setComposerText("local input");
@@ -638,6 +669,26 @@ describe("Composer IME composition", () => {
     await commitComposerText("local input");
 
     expect(getComposerText()).toBe("peer two");
+  });
+
+  it("applies a shared draft clear when composition is cancelled", async () => {
+    await renderComposer();
+    await setComposerText("local input");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+    expect(getThreadDraft("thread-1")?.content).toBe("local input");
+
+    await startComposition();
+    await act(async () => {
+      clearThreadDraft("thread-1");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(getThreadDraft("thread-1")).toBe(null);
+    await endComposition();
+    await commitComposerText("local input");
+
+    expect(getComposerText()).toBe("");
   });
 
   it("keeps existing sync behavior for a different shared draft outside composition", async () => {

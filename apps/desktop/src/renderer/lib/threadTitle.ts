@@ -1,4 +1,6 @@
-const SENTENCE_END_PUNCTUATION = /[,.;:!?，。；：！？\n\r\t]/u;
+// A period only ends the sentence when followed by whitespace or the end of
+// the string, so file names (`.scratch`) and versions (`v1.2`) don't truncate.
+const SENTENCE_END_PUNCTUATION = /[,;:!?，。；：！？\n\r\t]|\.(?=\s|$)/u;
 const DEFAULT_MAX_TITLE_LENGTH = 40;
 
 export function deriveThreadTitle(

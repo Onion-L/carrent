@@ -185,6 +185,7 @@ function createWindow(
     minHeight: 720,
     backgroundColor: "#181818",
     autoHideMenuBar: true,
+    frame: process.platform !== "darwin",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 14 },
     show: false,
@@ -221,6 +222,9 @@ function createWindow(
   }
 
   const window = new BrowserWindow(constructorOptions);
+  if (process.platform === "darwin") {
+    window.setWindowButtonVisibility(true);
+  }
   windowRegistry.register(window);
   windowRegistry.setRoute(window.id, options.initialPath ?? "/");
   if (options.initialPath) {

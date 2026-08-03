@@ -13,3 +13,4 @@ coverage
 docs/superpowers
 .playwright-cli
 plans/
+.scratch/

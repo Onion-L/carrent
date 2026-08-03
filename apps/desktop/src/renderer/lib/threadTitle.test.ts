@@ -10,6 +10,16 @@ describe("deriveThreadTitle", () => {
     expect(deriveThreadTitle("Fix the sidebar. Then update tests.")).toBe("Fix the sidebar");
   });
 
+  it("does not treat a period inside a file name as sentence end", () => {
+    expect(deriveThreadTitle("把.scratch文件夹从git删除但是不要从本地删除")).toBe(
+      "把.scratch文件夹从git删除但是不要从本地删除",
+    );
+  });
+
+  it("does not treat a period inside a version number as sentence end", () => {
+    expect(deriveThreadTitle("Upgrade to v1.2 please")).toBe("Upgrade to v1.2 please");
+  });
+
   it("stops at a semicolon", () => {
     expect(deriveThreadTitle("Refactor auth; add OAuth support")).toBe("Refactor auth");
   });

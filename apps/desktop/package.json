@@ -1,6 +1,6 @@
 {
   "name": "@carrent/desktop",
-  "version": "0.0.1-alpha02",
+  "version": "0.0.1-alpha05",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -66,6 +66,8 @@
     },
     "mac": {
       "icon": "build/icon.icns",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "target": [
         "dmg",
         "zip"

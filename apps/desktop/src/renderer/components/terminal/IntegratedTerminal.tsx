@@ -362,6 +362,15 @@ export function IntegratedTerminal({
     [activeTab, onOpenChange, project, tabs.length, updateTabs],
   );
 
+  // The main process routes Cmd+W to "close terminal tab" while a terminal
+  // holds focus (see the before-input-event handler in electron/main.ts); it
+  // pings us here so we reuse the same close path as the in-terminal Cmd+W.
+  useEffect(() => {
+    return window.carrent.mainWindow.onCmdWCloseTab(() => {
+      void closeTab();
+    });
+  }, [closeTab]);
+
   const activateTab = useCallback(
     async (tab: TerminalTab) => {
       if (!project) return;

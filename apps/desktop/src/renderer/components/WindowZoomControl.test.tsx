@@ -41,6 +41,7 @@ describe("WindowZoomControl", () => {
             };
           },
         },
+        onCmdWCloseTab: () => () => {},
       },
     } as unknown as Window["carrent"];
     container = document.createElement("div");

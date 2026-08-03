@@ -91,6 +91,11 @@ export function createCarrentWindowRegistry({
 }: CarrentWindowRegistryDependencies = {}) {
   const windows: RegisteredWindow[] = [];
 
+  // Terminal focus is reported per-renderer (keyed by webContents id) so the
+  // main process can decide whether Cmd+W should close a terminal tab instead
+  // of the window. It is reset on navigation, cleanup, and renderer blur.
+  const terminalFocusedByContents = new Map<number, boolean>();
+
   const entryOf = (id: number) => windows.find((item) => item.window.id === id);
   const liveEntryOf = (id: number) => {
     const entry = entryOf(id);
@@ -316,6 +321,18 @@ export function createCarrentWindowRegistry({
         sendNavigation(entry, "/workspace");
       }
       return { needsWindow: false, route: null };
+    },
+
+    setTerminalFocused(contentsId: number, focused: boolean) {
+      if (!focused) {
+        terminalFocusedByContents.delete(contentsId);
+        return;
+      }
+      terminalFocusedByContents.set(contentsId, true);
+    },
+
+    isTerminalFocused(contentsId: number) {
+      return terminalFocusedByContents.get(contentsId) === true;
     },
   };
 }

@@ -404,3 +404,37 @@ describe("createCarrentWindowRegistry — repeated launch and deep links", () =>
     ).toEqual({ needsWindow: false, route: null });
   });
 });
+
+describe("createCarrentWindowRegistry — terminal focus tracking", () => {
+  it("reports no focus for an unknown contents id", () => {
+    const { registry } = createRegistry();
+    expect(registry.isTerminalFocused(7)).toBe(false);
+  });
+
+  it("stores and reads focus keyed by webContents id, independent of window id", () => {
+    const { registry } = createRegistry();
+    registry.setTerminalFocused(42, true);
+
+    expect(registry.isTerminalFocused(42)).toBe(true);
+    // A different contents id is unaffected.
+    expect(registry.isTerminalFocused(43)).toBe(false);
+  });
+
+  it("clears focus when reported as unfocused", () => {
+    const { registry } = createRegistry();
+    registry.setTerminalFocused(42, true);
+    registry.setTerminalFocused(42, false);
+
+    expect(registry.isTerminalFocused(42)).toBe(false);
+  });
+
+  it("keeps per-window focus isolated", () => {
+    const { registry } = createRegistry();
+    registry.setTerminalFocused(11, true);
+    registry.setTerminalFocused(22, true);
+    registry.setTerminalFocused(11, false);
+
+    expect(registry.isTerminalFocused(11)).toBe(false);
+    expect(registry.isTerminalFocused(22)).toBe(true);
+  });
+});

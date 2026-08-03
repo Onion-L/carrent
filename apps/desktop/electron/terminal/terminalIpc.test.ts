@@ -137,4 +137,56 @@ describe("registerTerminalIpc", () => {
     ).toThrow();
     expect(() => handlers.get("terminal:list")?.({ sender: {} }, "project-1")).toThrow();
   });
+
+  it("mirrors terminal focus into the focus sink so Cmd+W can be routed per window", async () => {
+    const handlers = new Map<string, (event: unknown, input?: unknown) => unknown>();
+    const focusCalls: Array<{ contentsId: number; focused: boolean }> = [];
+    registerTerminalIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        subscribe: () => ({ projectId: "project-1", revision: 0, tabs: [], outputByTerminal: {} }),
+        unsubscribe: () => {},
+        list: () => [],
+        create: () => ({
+          id: "terminal-1",
+          projectId: "project-1",
+          title: "Carrent",
+          active: true,
+          status: "running" as const,
+          enhancedCompletion: true,
+        }),
+        write: () => {},
+        resize: () => {},
+        focus: () => {},
+        activate: () => {},
+        close: () => {},
+        closeProject: () => {},
+      },
+      {
+        setTerminalFocused: (contentsId, focused) => focusCalls.push({ contentsId, focused }),
+      },
+    );
+
+    await handlers.get("terminal:focus")?.({ sender: { id: 42 } }, {
+      projectId: "project-1",
+      terminalId: "terminal-1",
+      focused: true,
+      columns: 100,
+      rows: 30,
+      focusVersion: 4,
+    });
+    await handlers.get("terminal:focus")?.({ sender: { id: 42 } }, {
+      projectId: "project-1",
+      terminalId: "terminal-1",
+      focused: false,
+      columns: 100,
+      rows: 30,
+      focusVersion: 5,
+    });
+
+    expect(focusCalls).toEqual([
+      { contentsId: 42, focused: true },
+      { contentsId: 42, focused: false },
+    ]);
+  });
 });

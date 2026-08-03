@@ -30,6 +30,13 @@ type TerminalIpcManager = Pick<
   | "closeProject"
 >;
 
+// Lets the focus handler mirror terminal focus into the window registry so the
+// main process can route Cmd+W to "close terminal tab" while a terminal holds
+// focus. Optional to keep callers that don't need it simple.
+export type TerminalFocusSink = {
+  setTerminalFocused: (contentsId: number, focused: boolean) => void;
+};
+
 function ownerId(event: unknown) {
   const id = (event as Partial<IpcEvent>)?.sender?.id;
   if (!Number.isInteger(id)) throw new Error("Unexpected Renderer owner.");
@@ -63,7 +70,11 @@ function integerField(input: Record<string, unknown>, key: string) {
   return value as number;
 }
 
-export function registerTerminalIpc(ipcMain: IpcMainLike, manager: TerminalIpcManager) {
+export function registerTerminalIpc(
+  ipcMain: IpcMainLike,
+  manager: TerminalIpcManager,
+  focusSink?: TerminalFocusSink,
+) {
   ipcMain.handle("terminal:subscribe", (event, input) => {
     if (typeof input !== "string") throw new Error("Invalid Project identity.");
     return manager.subscribe(ownerId(event), input);
@@ -127,6 +138,9 @@ export function registerTerminalIpc(ipcMain: IpcMainLike, manager: TerminalIpcMa
       request.rows,
       request.focusVersion,
     );
+    // Mirror focus into the window registry so the main process can route
+    // Cmd+W to "close terminal tab" while a terminal holds focus.
+    focusSink?.setTerminalFocused(ownerId(event), request.focused);
   });
   ipcMain.handle("terminal:activate", (event, input) => {
     const request = target(input);

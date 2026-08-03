@@ -266,12 +266,14 @@ function createWindow(
   registerCarrentWindowCleanup(window, ({ windowId, contentsId }) => {
     terminalSessionManager?.detach(contentsId);
     zoomControllersByContentsId.delete(contentsId);
+    windowRegistry.setTerminalFocused(contentsId, false);
     windowRegistry.unregister(windowId);
   });
 
   window.webContents.on("did-start-navigation", (event) => {
     if (event.isSameDocument || !event.isMainFrame) return;
     windowRegistry.markLoading(window.webContents.id, event);
+    windowRegistry.setTerminalFocused(window.webContents.id, false);
     terminalSessionManager?.detach(window.webContents.id);
   });
 
@@ -281,6 +283,25 @@ function createWindow(
   zoomControllersByContentsId.set(window.webContents.id, zoomController);
   window.webContents.on("before-input-event", (event, input) => {
     zoomController.handleBeforeInput(event, input);
+    // macOS: while a terminal holds focus, Cmd+W closes the terminal tab
+    // instead of the window. The default app menu binds Cmd+W to Window→Close,
+    // which fires at the menu layer before the renderer can see the keydown;
+    // preventDefault here blocks that accelerator and we ping the renderer to
+    // run its existing close-tab path. When no terminal is focused we do
+    // nothing and let the default menu close the window as usual.
+    if (
+      process.platform === "darwin" &&
+      input.type === "keyDown" &&
+      !input.control &&
+      !input.alt &&
+      !input.shift &&
+      input.meta &&
+      input.key.toLowerCase() === "w" &&
+      windowRegistry.isTerminalFocused(window.webContents.id)
+    ) {
+      event.preventDefault();
+      if (!window.isDestroyed()) window.webContents.send("terminal:cmd-w");
+    }
   });
 
   window.webContents.on("zoom-changed", (event, direction) => {
@@ -464,7 +485,7 @@ if (!hasSingleInstanceLock) {
       createShellIntegration: (input) =>
         createZshShellIntegration({ ...input, baseDirectory: app.getPath("temp") }),
     });
-    registerTerminalIpc(guardedIpcMain, terminalSessionManager);
+    registerTerminalIpc(guardedIpcMain, terminalSessionManager, windowRegistry);
 
     const bridgeManager = createCarrentBridgeManager({
       preferenceStore: createMcpServerPreferenceStore(app.getPath("userData")),

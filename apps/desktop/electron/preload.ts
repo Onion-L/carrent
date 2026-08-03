@@ -79,6 +79,11 @@ const mainWindow: MainWindowApi = {
     captureDone: (route: string) =>
       ipcRenderer.invoke("windows:capture-done", route) as Promise<void>,
   },
+  onCmdWCloseTab: (listener) => {
+    const wrapped = () => listener();
+    ipcRenderer.on("terminal:cmd-w", wrapped);
+    return () => ipcRenderer.removeListener("terminal:cmd-w", wrapped);
+  },
 };
 
 const carrent = {

@@ -398,6 +398,7 @@ function installBridge(
         onCaptureRequest: () => () => {},
         captureDone: async () => {},
       },
+      onCmdWCloseTab: () => () => {},
     },
   } as unknown as Window["carrent"];
 }

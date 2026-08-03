@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import "../../test/registerHappyDom";
 
 import { act } from "react";
+import * as React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import {
@@ -22,7 +23,12 @@ import { AppStateProvider } from "../../context/AppStateContext";
 import { RuntimeModelsProvider } from "../../context/RuntimeModelsContext";
 import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
 import { enqueueChatMessage, getThreadDraft } from "../../hooks/chatMessageQueue";
-import { Composer, type ComposerDraftRequest } from "./Composer";
+import {
+  Composer,
+  type AssociationDraftPromotionInput,
+  type ComposerDraftRequest,
+} from "./Composer";
+import type { ThreadWorkDraftSnapshot } from "../../hooks/chatMessageQueue";
 
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
@@ -63,8 +69,66 @@ function composerTree(draftRequest?: ComposerDraftRequest) {
   );
 }
 
-async function renderComposer(options: { threadWork?: AppStateSnapshot["threadWork"] } = {}) {
-  const snapshot: AppStateSnapshot = {
+function AssociationDraftHarness({
+  initialDraft,
+  onDraftChange,
+}: {
+  initialDraft: ThreadWorkDraftSnapshot;
+  onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void;
+}) {
+  return (
+    <Composer
+      mode="association-draft"
+      placement="centered"
+      workspaceId="workspace-1"
+      projectId="project-1"
+      projectName="Carrent"
+      projectPath="/code/carrent"
+      threadId="draft-thread-1"
+      initialDraft={initialDraft}
+      messages={[]}
+      runtimeId="kimi"
+      runtimeMode="approval-required"
+      planMode={false}
+      onDraftChange={onDraftChange}
+      onPromote={async (_input: AssociationDraftPromotionInput) => false}
+      onPromotionRejected={async () => {}}
+      onPromoted={() => {}}
+    />
+  );
+}
+
+function associationDraftTree(
+  initialDraft: ThreadWorkDraftSnapshot,
+  onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void,
+) {
+  return (
+    <AppStateProvider>
+      <ThreadContentProvider>
+        <RuntimeModelsProvider>
+          <MemoryRouter>
+            <AssociationDraftHarness
+              initialDraft={initialDraft}
+              onDraftChange={onDraftChange}
+            />
+          </MemoryRouter>
+        </RuntimeModelsProvider>
+      </ThreadContentProvider>
+    </AppStateProvider>
+  );
+}
+
+async function renderAssociationDraft(initialDraft: ThreadWorkDraftSnapshot) {
+  const snapshot = baseSnapshot({});
+  const authority = createFakeAppStateAuthority(snapshot);
+  installCarrentBridge(authority, snapshot);
+  const drafts: Array<ThreadWorkDraftSnapshot | null> = [];
+  await mount(associationDraftTree(initialDraft, (draft) => drafts.push(draft)));
+  return { authority, drafts };
+}
+
+function baseSnapshot(threadWork: AppStateSnapshot["threadWork"]): AppStateSnapshot {
+  return {
     version: 1,
     workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
     projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
@@ -94,12 +158,16 @@ async function renderComposer(options: { threadWork?: AppStateSnapshot["threadWo
     threadMessages: [],
     threadRuns: [],
     threadPromotionIntents: [],
-    threadWork: options.threadWork ?? {},
+    threadWork,
     lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
     activeWorkspaceId: "workspace-1",
   };
+}
 
-  const authority = createFakeAppStateAuthority(snapshot);
+function installCarrentBridge(
+  authority: ReturnType<typeof createFakeAppStateAuthority>,
+  snapshot: AppStateSnapshot,
+) {
   window.carrent = {
     appState: {
       load: async () => ({ status: "ready", snapshot }),
@@ -177,16 +245,25 @@ async function renderComposer(options: { threadWork?: AppStateSnapshot["threadWo
       onEvent: (_listener: (event: ChatRunEvent) => void) => () => {},
     },
   } as unknown as Window["carrent"];
+}
 
+async function mount(tree: React.ReactNode) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
-    root!.render(composerTree());
+    root!.render(tree);
   });
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 35));
   });
+}
+
+async function renderComposer(options: { threadWork?: AppStateSnapshot["threadWork"] } = {}) {
+  const snapshot = baseSnapshot(options.threadWork ?? {});
+  const authority = createFakeAppStateAuthority(snapshot);
+  installCarrentBridge(authority, snapshot);
+  await mount(composerTree());
   return authority;
 }
 
@@ -230,6 +307,42 @@ async function chooseSkill(description: string) {
   await act(async () => {
     skillButton.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  });
+}
+
+function composerTextElement() {
+  return container!.querySelector<HTMLElement>("[data-composer-text='true']")!;
+}
+
+async function startComposition() {
+  const text = composerTextElement();
+  await act(async () => {
+    text.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+async function endComposition() {
+  const text = composerTextElement();
+  await act(async () => {
+    text.dispatchEvent(new window.CompositionEvent("compositionend", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+async function commitComposerText(next: string) {
+  // Simulates IME commit: replace the editor text the way a committed candidate
+  // would and let Lexical's OnChangePlugin publish the final snapshot.
+  await act(async () => {
+    getLexicalEditor().update(() => {
+      const root = $getRoot();
+      root.clear();
+      const paragraph = $createParagraphNode();
+      paragraph.append($createTextNode(next));
+      root.append(paragraph);
+      paragraph.selectEnd();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
@@ -436,5 +549,178 @@ describe("Composer inline Skills", () => {
     expect(container!.querySelector<HTMLElement>("[data-file-marker='true']")?.textContent).toBe(
       "index.css (line 30)",
     );
+  });
+});
+
+describe("Composer IME composition", () => {
+  async function broadcastPeerDraft(content: string, authority: ReturnType<typeof renderComposer>) {
+    await act(async () => {
+      await authority.command({
+        commandId: "peer-composer-update",
+        type: "thread-work:update",
+        payload: {
+          threadId: "thread-1",
+          work: {
+            draft: { content, attachedSkillNames: [], attachments: [] },
+            queuedMessages: [],
+          },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it("does not replace the editor while IME composition is active past the persistence debounce", async () => {
+    const authority = await renderComposer();
+    await setComposerText("local input");
+
+    await startComposition();
+    await broadcastPeerDraft("draft from peer window", authority);
+    // Past the 300 ms persistence debounce — confirms the readback no longer
+    // races with an active composition.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+
+    expect(getComposerText()).toBe("local input");
+    await endComposition();
+  });
+
+  it("does not persist unconfirmed IME text into shared Thread Composer State", async () => {
+    await renderComposer();
+    await setComposerText("local input");
+    // Persist the baseline before starting composition.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+    expect(getThreadDraft("thread-1")?.content).toBe("local input");
+
+    await startComposition();
+    await commitComposerText("local input 你好");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+
+    expect(getThreadDraft("thread-1")?.content).toBe("local input");
+    await endComposition();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+    expect(getThreadDraft("thread-1")?.content).toBe("local input 你好");
+  });
+
+  it("keeps the committed candidate when a single shared draft arrived during composition", async () => {
+    const authority = await renderComposer();
+    await setComposerText("local input");
+
+    await startComposition();
+    await broadcastPeerDraft("draft from peer window", authority);
+    await endComposition();
+    await commitComposerText("local input 你好");
+
+    expect(getComposerText()).toBe("local input 你好");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+    expect(getThreadDraft("thread-1")?.content).toBe("local input 你好");
+  });
+
+  it("applies the last shared draft when composition is cancelled and the local draft is unchanged", async () => {
+    const authority = await renderComposer();
+    await setComposerText("local input");
+
+    await startComposition();
+    await broadcastPeerDraft("peer one", authority);
+    await broadcastPeerDraft("peer two", authority);
+    await endComposition();
+    // No commitComposerText: the composition is cancelled, so trigger the final
+    // no-op snapshot the way Lexical does after a cancelled composition.
+    await commitComposerText("local input");
+
+    expect(getComposerText()).toBe("peer two");
+  });
+
+  it("keeps existing sync behavior for a different shared draft outside composition", async () => {
+    const authority = await renderComposer();
+    await setComposerText("local input");
+
+    await broadcastPeerDraft("draft from peer window", authority);
+
+    expect(getComposerText()).toBe("draft from peer window");
+  });
+
+  it("ignores an identical shared-draft echo without touching the editor", async () => {
+    const authority = await renderComposer();
+    await setComposerText("echo text");
+    // Persist locally so the authority echoes the same draft back.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+
+    let replaceDraftCalls = 0;
+    const editor = getLexicalEditor();
+    const setEditorState = editor.setEditorState.bind(editor);
+    editor.setEditorState = (state) => {
+      replaceDraftCalls += 1;
+      return setEditorState(state);
+    };
+
+    await broadcastPeerDraft("echo text", authority);
+
+    expect(getComposerText()).toBe("echo text");
+    expect(replaceDraftCalls).toBe(0);
+  });
+
+  it("clears composition state on unmount so a remount does not carry it over", async () => {
+    const authority = await renderComposer();
+    await setComposerText("local input");
+    await startComposition();
+    await broadcastPeerDraft("draft from peer window", authority);
+
+    await act(async () => {
+      root!.unmount();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(composerTree());
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 35));
+    });
+
+    // The remounted Composer has no active composition, so a fresh shared draft
+    // applies immediately instead of being buffered.
+    await broadcastPeerDraft("fresh draft after remount", authority);
+    expect(getComposerText()).toBe("fresh draft after remount");
+  });
+});
+
+describe("Composer association-draft composition", () => {
+  it("persists input through onDraftChange during IME composition", async () => {
+    const initialDraft: ThreadWorkDraftSnapshot = {
+      content: "",
+      attachedSkillNames: [],
+      attachments: [],
+    };
+    const { drafts } = await renderAssociationDraft(initialDraft);
+    await setComposerText("draft input");
+
+    await startComposition();
+    await endComposition();
+    await commitComposerText("draft input 你好");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+
+    expect(getComposerText()).toBe("draft input 你好");
+    const last = drafts[drafts.length - 1];
+    expect(last?.content).toBe("draft input 你好");
+    // Association drafts never subscribe to shared Thread Composer State, so the
+    // composition coordination must not leave a draft behind.
+    expect(getThreadDraft("draft-thread-1")).toBe(null);
   });
 });

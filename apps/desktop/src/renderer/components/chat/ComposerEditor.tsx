@@ -84,6 +84,8 @@ type ComposerEditorProps = {
   skills: SkillRecord[];
   menuItemCount: number;
   menuOpen: boolean;
+  onCompositionEnd: () => void;
+  onCompositionStart: () => void;
   onMenuDismiss: () => void;
   onMenuMove: (direction: 1 | -1) => void;
   onMenuSelect: () => void;
@@ -144,6 +146,39 @@ function ComposerEditorBridge(
       trigger ? { start: trigger.start, end: trigger.end, query: trigger.query } : null,
     );
   }, [props.onTriggerChange]);
+
+  // Notify the parent of IME composition start/end. Lexical sets its root
+  // element lazily and registers its own native listeners on it; React's
+  // synthetic composition handlers are unreliable in that setup, so attach
+  // native listeners directly and keep them in sync via registerRootListener.
+  useEffect(() => {
+    const onCompositionStart = () => props.onCompositionStart();
+    const onCompositionEnd = () => props.onCompositionEnd();
+    let current: HTMLElement | null = null;
+    const detach = (element: HTMLElement | null) => {
+      if (!element) return;
+      element.removeEventListener("compositionstart", onCompositionStart);
+      element.removeEventListener("compositionend", onCompositionEnd);
+    };
+    const attach = (element: HTMLElement | null) => {
+      if (!element) return;
+      element.addEventListener("compositionstart", onCompositionStart);
+      element.addEventListener("compositionend", onCompositionEnd);
+    };
+    const removeRootListener = editor.registerRootListener((next, prev) => {
+      if (next === prev) return;
+      detach(current);
+      current = next;
+      attach(current);
+    });
+    current = editor.getRootElement();
+    attach(current);
+    return () => {
+      removeRootListener();
+      detach(current);
+      current = null;
+    };
+  }, [editor, props.onCompositionStart, props.onCompositionEnd]);
 
   const insertSkill = useCallback(
     (skill: SkillRecord) => {
@@ -333,6 +368,11 @@ function ComposerSkillReferencePlugin({
   useEffect(() => {
     if (skillsDisabled) return;
     return editor.registerNodeTransform(TextNode, (node) => {
+      // Node transforms run inside editor.update, and replacing a node
+      // mid-composition destroys the DOM text node Lexical is composing into,
+      // dropping the IME candidate and the caret. Skip while composing; the
+      // commit triggers a normal update that re-runs this transform after.
+      if (editor.isComposing()) return;
       const content = node.getTextContent();
       const replacements: LexicalNode[] = [];
       let lastIndex = 0;
@@ -360,6 +400,9 @@ function ComposerFileReferencePlugin() {
 
   useEffect(() => {
     return editor.registerNodeTransform(TextNode, (node) => {
+      // See ComposerSkillReferencePlugin: replacing a node mid-composition
+      // destroys the DOM text node Lexical is composing into.
+      if (editor.isComposing()) return;
       const segments = parseFileReferenceSegments(node.getTextContent());
       if (!segments.some((segment) => segment.type === "file")) return;
 

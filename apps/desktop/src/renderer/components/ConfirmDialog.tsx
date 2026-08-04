@@ -29,24 +29,42 @@ export function ConfirmDialog({
       <section
         aria-labelledby="confirm-dialog-title"
         aria-modal="true"
-        className="w-full max-w-md rounded-md border border-border bg-surface-raised p-6 shadow-xl"
+        className="relative w-full max-w-lg rounded-lg border border-border bg-surface-raised p-8 shadow-xl"
         role="dialog"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <h2 className="text-app-16 font-semibold" id="confirm-dialog-title">
+        <button
+          aria-label="Close"
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface-hover hover:text-fg"
+          onClick={onCancel}
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="2"
+            viewBox="0 0 16 16"
+          >
+            <path d="M3 3l10 10M13 3L3 13" />
+          </svg>
+        </button>
+        <h2 className="pr-8 text-app-18 font-semibold" id="confirm-dialog-title">
           {title}
         </h2>
-        <p className="mt-4 text-app-13 leading-5 text-muted">{message}</p>
-        <div className="mt-8 flex justify-end gap-2">
+        <p className="mt-4 text-app-14 leading-6 text-muted">{message}</p>
+        <div className="mt-10 flex justify-end gap-3">
           <button
-            className="h-9 rounded-md border border-border px-3 text-app-13 font-medium hover:bg-surface-hover"
+            className="h-10 rounded-md px-4 text-app-14 font-medium text-muted hover:bg-surface-hover hover:text-fg"
             onClick={onCancel}
             type="button"
           >
             Cancel
           </button>
           <button
-            className="h-9 rounded-md bg-danger px-3 text-app-13 font-medium text-white disabled:opacity-50"
+            className="h-10 rounded-md bg-danger/15 px-4 text-app-14 font-medium text-danger hover:bg-danger/25 disabled:opacity-50"
             onClick={onConfirm}
             type="button"
           >

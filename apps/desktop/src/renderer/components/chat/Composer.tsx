@@ -556,6 +556,24 @@ export function buildThreadDraftSnapshot(input: {
   };
 }
 
+// Compares two drafts by their semantic content only (text, skills, attachments),
+// ignoring `composerState`. The serialized editor state changes on every keystroke
+// (Lexical node keys, selection offsets), so including it in a readback equality
+// check would make a locally-typed draft always differ from the just-persisted
+// copy, echo-looping readback into the editor until the caret is lost.
+function draftsContentEqual(
+  a: ThreadWorkDraftSnapshot | null,
+  b: ThreadWorkDraftSnapshot | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.content === b.content &&
+    JSON.stringify(a.attachedSkillNames) === JSON.stringify(b.attachedSkillNames) &&
+    JSON.stringify(a.attachments) === JSON.stringify(b.attachments)
+  );
+}
+
 async function restoreDraftAttachments(metadata: AttachmentMetadata[]) {
   const attachments: PendingAttachment[] = [];
   const unavailableNames: string[] = [];
@@ -1132,59 +1150,155 @@ export function Composer(props: ComposerProps) {
   const threadDraftSourceKey = `${props.mode}:${props.threadId}:${threadDraftSnapshotKey}`;
   const lastAppliedThreadDraftSourceKeyRef = useRef(threadDraftSourceKey);
 
+  // Applies a shared Thread Composer draft: text and skills are restored
+  // synchronously, then attachment bytes are reloaded. Used both by the regular
+  // readback path and by the post-composition conflict resolution, so the two
+  // paths cannot drift.
+  const applySharedThreadDraft = useCallback(
+    (draft: ThreadWorkDraftSnapshot | null) => {
+      sharedDraftRestoreCleanupRef.current?.();
+      const content = draft?.content ?? "";
+      const restoredSkills = resolveDraftSkillRecords(skills, draft?.attachedSkillNames ?? []);
+      setInput(content);
+      setAttachedSkills(restoredSkills);
+      setPendingDraftSkillNames(
+        draft && draft.attachedSkillNames.length > 0 ? draft.attachedSkillNames : null,
+      );
+      setEditorStateJson(draft?.composerState);
+      editorRef.current?.replaceDraft(content, restoredSkills, draft?.composerState);
+
+      draftRestoreCompleteRef.current = false;
+      let cancelled = false;
+      const cancel = () => {
+        cancelled = true;
+        if (sharedDraftRestoreCleanupRef.current === cancel) {
+          sharedDraftRestoreCleanupRef.current = null;
+        }
+      };
+      sharedDraftRestoreCleanupRef.current = cancel;
+      void (async () => {
+        const { attachments: restored, unavailableNames } = await restoreDraftAttachments(
+          draft?.attachments ?? [],
+        );
+        if (cancelled) {
+          restored.forEach((attachment) => {
+            if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+          });
+          return;
+        }
+        setPendingAttachments((previous) => {
+          previous.forEach((attachment) => {
+            if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+          });
+          return restored;
+        });
+        setAttachmentError(
+          unavailableNames.length > 0
+            ? `文件不可用，请移除或重新添加：${unavailableNames.join(", ")}`
+            : null,
+        );
+        draftRestoreCompleteRef.current = true;
+        if (sharedDraftRestoreCleanupRef.current === cancel) {
+          sharedDraftRestoreCleanupRef.current = null;
+        }
+      })();
+
+      return cancel;
+    },
+    [skills],
+  );
+
+  // Single reset point for every composition flag and buffered draft. Called on
+  // Thread/mode change (effect body + cleanup) and once a post-composition
+  // snapshot is resolved. Keeping it in one place stops those paths from
+  // drifting when a flag is added.
+  const resetCompositionState = useCallback(() => {
+    compositionActiveRef.current = false;
+    compositionEndedRef.current = false;
+    compositionDraftBaseRef.current = undefined;
+    pendingSharedDraftRef.current = undefined;
+    setIsCompositionActive(false);
+  }, []);
+
+  // IME composition handlers. Stable so ComposerEditor's native listeners are
+  // not re-subscribed on every render; they read live state from refs.
+  const handleCompositionStart = useCallback(() => {
+    if (props.mode !== "thread") return;
+    if (compositionActiveRef.current) return;
+    compositionActiveRef.current = true;
+    setIsCompositionActive(true);
+    const { content, attachedSkills, pendingAttachments, composerState } =
+      compositionBaselineInputRef.current;
+    compositionDraftBaseRef.current = buildThreadDraftSnapshot({
+      content,
+      attachedSkills,
+      pendingAttachments,
+      composerState,
+    });
+    pendingSharedDraftRef.current = undefined;
+  }, [props.mode]);
+  const handleCompositionEnd = useCallback(() => {
+    // compositionend fires before Lexical commits its final state. Mark the
+    // composition as ended so the next post-composition onSnapshot resolves the
+    // shared-draft conflict and clears the composition flags.
+    if (!compositionActiveRef.current) return;
+    compositionEndedRef.current = true;
+  }, []);
+
   useEffect(() => {
     if (props.mode !== "thread") return;
     if (lastAppliedThreadDraftSourceKeyRef.current === threadDraftSourceKey) return;
-    lastAppliedThreadDraftSourceKeyRef.current = threadDraftSourceKey;
     const draft = getThreadDraft(props.threadId);
+    // Read the latest local state from a ref instead of the effect closure.
+    // applySharedThreadDraft calls setInput, which (via onSnapshot) changes the
+    // local state; if this effect compared against the stale closure value it
+    // would keep re-applying its own write (apply -> persist -> readback ->
+    // apply ...), clobbering the caret. The ref is reassigned on every render,
+    // so by the time this passive effect runs it holds the committed value.
+    const { content, attachedSkills: liveSkills, pendingAttachments: livePending, composerState } =
+      compositionBaselineInputRef.current;
     const currentDraft = buildThreadDraftSnapshot({
-      content: input,
-      attachedSkills,
-      pendingAttachments,
-      composerState: editorStateJson,
+      content,
+      attachedSkills: liveSkills,
+      pendingAttachments: livePending,
+      composerState,
     });
-    if (JSON.stringify(draft) === JSON.stringify(currentDraft)) return;
-
-    const content = draft?.content ?? "";
-    const restoredSkills = resolveDraftSkillRecords(skills, draft?.attachedSkillNames ?? []);
-    setInput(content);
-    setAttachedSkills(restoredSkills);
-    setPendingDraftSkillNames(
-      draft && draft.attachedSkillNames.length > 0 ? draft.attachedSkillNames : null,
-    );
-    setEditorStateJson(draft?.composerState);
-    editorRef.current?.replaceDraft(content, restoredSkills, draft?.composerState);
-
-    draftRestoreCompleteRef.current = false;
-    let cancelled = false;
-    void (async () => {
-      const { attachments: restored, unavailableNames } = await restoreDraftAttachments(
-        draft?.attachments ?? [],
-      );
-      if (cancelled) {
-        restored.forEach((attachment) => {
-          if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
-        });
-        return;
-      }
-      setPendingAttachments((previous) => {
-        previous.forEach((attachment) => {
-          if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
-        });
-        return restored;
-      });
-      setAttachmentError(
-        unavailableNames.length > 0
-          ? `文件不可用，请移除或重新添加：${unavailableNames.join(", ")}`
-          : null,
-      );
-      draftRestoreCompleteRef.current = true;
-    })();
-
+    // Compare only the semantic fields (content/skills/attachments).
+    // `composerState` is excluded: it is the local editor's serialized state,
+    // which changes on every keystroke (node keys, selection offsets). Including
+    // it here would make a locally-typed draft always look "different" from the
+    // just-persisted one, causing readback to clobber the editor mid-typing and
+    // echo-loop (apply -> persist -> readback -> apply ...) until focus is lost.
+    if (draftsContentEqual(draft, currentDraft)) {
+      lastAppliedThreadDraftSourceKeyRef.current = threadDraftSourceKey;
+      return;
+    }
+    // While IME composition is active, do not touch the editor. Buffer the
+    // latest shared draft so compositionend can decide whether to apply it.
+    if (compositionActiveRef.current) {
+      pendingSharedDraftRef.current = draft;
+      return;
+    }
+    lastAppliedThreadDraftSourceKeyRef.current = threadDraftSourceKey;
+    // TEMP: disabled to isolate whether readback is driving the loop.
+    console.warn("[READBACK-SKIP-APPLY]");
+    return;
+    // return applySharedThreadDraft(draft);
+  }, [props.mode, props.threadId, skills, threadDraftSourceKey, applySharedThreadDraft]);
+  // A buffered shared draft and the composition baseline belong to the
+  // Thread/mode that was active when composition started. On unmount, Thread
+  // switch, or mode change they must be dropped so a stale draft is never
+  // applied to the wrong Thread.
+  useEffect(() => {
+    // Only commit the state reset when composition was actually live, to avoid
+    // a needless render on every Thread/mode switch.
+    if (compositionActiveRef.current) resetCompositionState();
     return () => {
-      cancelled = true;
+      sharedDraftRestoreCleanupRef.current?.();
+      draftRestoreCompleteRef.current = true;
+      resetCompositionState();
     };
-  }, [props.mode, props.threadId, skills, threadDraftSourceKey]);
+  }, [props.mode, props.threadId, resetCompositionState]);
   const [newBranchName, setNewBranchName] = useState(CREATE_BRANCH_DEFAULT_NAME);
   const [creatingBranch, setCreatingBranch] = useState(false);
   const [showCreateBranchInput, setShowCreateBranchInput] = useState(false);
@@ -1207,6 +1321,35 @@ export function Composer(props: ComposerProps) {
   const lastDraftRequestIdRef = useRef<number | null>(null);
   const steerItemRef = useRef<QueuedChatMessage | null>(null);
   const editingQueuedIdRef = useRef<string | null>(null);
+  // IME composition coordination. While a composition is active, shared Thread
+  // Composer State updates must not rewrite the editor (they would clear IME
+  // candidates), and the debounced persistence must not write unconfirmed IME
+  // text. compositionActiveRef gates readback and persistence; compositionEndedRef
+  // is set by compositionend and resolved against the final post-composition
+  // snapshot (which Lexical publishes after compositionend). The state value
+  // cancels an already scheduled persistence effect; refs let native event and
+  // timeout callbacks observe the current composition synchronously.
+  const [isCompositionActive, setIsCompositionActive] = useState(false);
+  const compositionActiveRef = useRef(false);
+  const compositionEndedRef = useRef(false);
+  const compositionDraftBaseRef = useRef<ThreadWorkDraftSnapshot | null | undefined>(undefined);
+  const pendingSharedDraftRef = useRef<ThreadWorkDraftSnapshot | null | undefined>(undefined);
+  const sharedDraftRestoreCleanupRef = useRef<(() => void) | null>(null);
+  // Mirror the snapshot inputs into refs so the compositionstart callback (a
+  // stable native-listener closure) captures the baseline from current state
+  // without re-subscribing the listener on every keystroke.
+  const compositionBaselineInputRef = useRef({
+    content: input,
+    attachedSkills,
+    pendingAttachments,
+    composerState: editorStateJson,
+  });
+  compositionBaselineInputRef.current = {
+    content: input,
+    attachedSkills,
+    pendingAttachments,
+    composerState: editorStateJson,
+  };
   const projectId = props.projectId;
   const project =
     props.mode === "association-draft"
@@ -2920,7 +3063,19 @@ export function Composer(props: ComposerProps) {
     if (!draftRestoreCompleteRef.current || pendingDraftSkillNames !== null) {
       return;
     }
+    // Never persist unconfirmed IME text into shared Thread Composer State: it
+    // would broadcast candidates to other Carrent Windows and, when echoed
+    // back, clear the local composition. Only `mode="thread"` broadcasts and
+    // reads back, so only it needs this guard; association drafts persist via
+    // onDraftChange with no echo path. The post-composition onSnapshot changes
+    // `input`, re-running this effect to persist the final draft.
+    if (props.mode === "thread" && isCompositionActive) {
+      return;
+    }
     const timeout = setTimeout(() => {
+      if (props.mode === "thread" && compositionActiveRef.current) {
+        return;
+      }
       const draft = buildThreadDraftSnapshot({
         content: input,
         attachedSkills,
@@ -2929,10 +3084,26 @@ export function Composer(props: ComposerProps) {
       });
       if (props.mode === "association-draft") {
         associationDraftChangeRef.current?.(draft);
-      } else if (draft) {
-        setThreadDraft(threadId, draft);
       } else {
-        clearThreadDraft(threadId);
+        // Skip the write when the store already holds a semantically equal
+        // draft. Persistence runs on a 300 ms debounce while applySharedThreadDraft
+        // and IME commits churn `input`/`editorStateJson`; without this guard a
+        // stale timer can write an older snapshot back into the store, which
+        // changes threadDraftSourceKey and echoes through readback into the
+        // editor (apply -> persist -> readback -> apply ...), losing the caret.
+        const existing = getThreadDraft(threadId);
+        // Mark the resulting store state as consumed using the FULL source key
+        // (mode:threadId:snapshot) so the readback effect's equality guard holds.
+        const nextSourceKey = `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
+        if (draftsContentEqual(existing, draft)) {
+          lastAppliedThreadDraftSourceKeyRef.current = nextSourceKey;
+        } else if (draft) {
+          setThreadDraft(threadId, draft);
+          lastAppliedThreadDraftSourceKeyRef.current = nextSourceKey;
+        } else {
+          clearThreadDraft(threadId);
+          lastAppliedThreadDraftSourceKeyRef.current = nextSourceKey;
+        }
       }
     }, 300);
     return () => clearTimeout(timeout);
@@ -2944,6 +3115,7 @@ export function Composer(props: ComposerProps) {
     pendingDraftSkillNames,
     editorStateJson,
     props.mode,
+    isCompositionActive,
   ]);
 
   useEffect(() => {
@@ -3583,11 +3755,42 @@ export function Composer(props: ComposerProps) {
                   : undefined
               }
               skillsDisabled={localMcpSkillsDisabled}
+              onCompositionStart={handleCompositionStart}
+              onCompositionEnd={handleCompositionEnd}
               onSnapshot={(snapshot) => {
                 setInput(snapshot.content);
                 setAttachedSkills(snapshot.skills);
                 setEditorStateJson(snapshot.serializedState);
                 setDismissedSkillInput(null);
+                // Only `mode="thread"` subscribes to shared Thread Composer
+                // State, so only it participates in composition coordination.
+                // `association-draft` keeps its input and persistence path
+                // untouched.
+                if (props.mode !== "thread") return;
+                // While IME composition is active, ignore shared-draft updates:
+                // rewriting the editor would clear the candidate text. The only
+                // snapshot worth resolving is the post-composition one, signaled
+                // by compositionend having fired (compositionEndedRef).
+                if (compositionActiveRef.current && !compositionEndedRef.current) return;
+                if (compositionDraftBaseRef.current !== undefined) {
+                  const base = compositionDraftBaseRef.current;
+                  const currentDraft = buildThreadDraftSnapshot({
+                    content: snapshot.content,
+                    attachedSkills: snapshot.skills,
+                    pendingAttachments,
+                    composerState: snapshot.serializedState,
+                  });
+                  const localChanged = JSON.stringify(currentDraft) !== JSON.stringify(base);
+                  const pendingShared = pendingSharedDraftRef.current;
+                  resetCompositionState();
+                  // The local final draft wins: keep the committed text and let
+                  // the debounced persistence save it. Only when the composition
+                  // was cancelled without changing the local draft do we apply
+                  // the last shared draft seen during composition.
+                  if (!localChanged && pendingShared !== undefined) {
+                    applySharedThreadDraft(pendingShared);
+                  }
+                }
               }}
               onTriggerChange={setSkillTrigger}
               onMenuMove={(direction) => {

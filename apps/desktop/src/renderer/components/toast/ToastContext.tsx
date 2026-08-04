@@ -78,7 +78,7 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
 
   return (
     <div
-      className={`pointer-events-auto flex w-[calc(100vw-2rem)] max-w-[34rem] items-start gap-3 rounded-lg border border-border-strong bg-surface-raised px-3.5 py-3 text-app-13 leading-5 text-fg shadow-xl transition-all duration-300 ease-out ${
+      className={`no-drag pointer-events-auto flex w-[calc(100vw-2rem)] max-w-[34rem] items-start gap-3 rounded-lg border border-border-strong bg-surface-raised px-3.5 py-3 text-app-13 leading-5 text-fg shadow-xl transition-all duration-300 ease-out ${
         visible && !exiting
           ? "opacity-100 translate-y-0 scale-100"
           : "opacity-0 -translate-y-3 scale-95"
@@ -131,7 +131,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      <div className="no-drag pointer-events-none fixed inset-x-0 top-0 z-50 flex flex-col items-center justify-start gap-2 p-4">
+      <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex flex-col items-center justify-start gap-2 p-4">
         {toasts.map((toast) => (
           <ToastItem key={toast.id} toast={toast} onRemove={removeToast} />
         ))}

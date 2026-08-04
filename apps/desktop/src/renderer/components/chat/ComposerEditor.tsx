@@ -368,6 +368,11 @@ function ComposerSkillReferencePlugin({
   useEffect(() => {
     if (skillsDisabled) return;
     return editor.registerNodeTransform(TextNode, (node) => {
+      // Node transforms run inside editor.update, and replacing a node
+      // mid-composition destroys the DOM text node Lexical is composing into,
+      // dropping the IME candidate and the caret. Skip while composing; the
+      // commit triggers a normal update that re-runs this transform after.
+      if (editor.isComposing()) return;
       const content = node.getTextContent();
       const replacements: LexicalNode[] = [];
       let lastIndex = 0;
@@ -395,6 +400,9 @@ function ComposerFileReferencePlugin() {
 
   useEffect(() => {
     return editor.registerNodeTransform(TextNode, (node) => {
+      // See ComposerSkillReferencePlugin: replacing a node mid-composition
+      // destroys the DOM text node Lexical is composing into.
+      if (editor.isComposing()) return;
       const segments = parseFileReferenceSegments(node.getTextContent());
       if (!segments.some((segment) => segment.type === "file")) return;
 

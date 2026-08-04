@@ -634,6 +634,12 @@ describe("Composer IME composition", () => {
 
     expect(getThreadDraft("thread-1")?.content).toBe("local input");
     await endComposition();
+    // Lexical publishes a final snapshot after compositionend (its
+    // onCompositionEnd handler re-reads the DOM). happy-dom does not reproduce
+    // that event chain, so drive the editor once more to publish the post-
+    // composition snapshot, which resolves composition state and lets the
+    // debounced persistence save the committed text.
+    await commitComposerText("local input 你好");
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 320));
     });

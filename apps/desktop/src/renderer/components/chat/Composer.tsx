@@ -556,6 +556,24 @@ export function buildThreadDraftSnapshot(input: {
   };
 }
 
+// Compares two drafts by their semantic content only (text, skills, attachments),
+// ignoring `composerState`. The serialized editor state changes on every keystroke
+// (Lexical node keys, selection offsets), so including it in a readback equality
+// check would make a locally-typed draft always differ from the just-persisted
+// copy, echo-looping readback into the editor until the caret is lost.
+function draftsContentEqual(
+  a: ThreadWorkDraftSnapshot | null,
+  b: ThreadWorkDraftSnapshot | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.content === b.content &&
+    JSON.stringify(a.attachedSkillNames) === JSON.stringify(b.attachedSkillNames) &&
+    JSON.stringify(a.attachments) === JSON.stringify(b.attachments)
+  );
+}
+
 async function restoreDraftAttachments(metadata: AttachmentMetadata[]) {
   const attachments: PendingAttachment[] = [];
   const unavailableNames: string[] = [];
@@ -1231,13 +1249,27 @@ export function Composer(props: ComposerProps) {
     if (props.mode !== "thread") return;
     if (lastAppliedThreadDraftSourceKeyRef.current === threadDraftSourceKey) return;
     const draft = getThreadDraft(props.threadId);
+    // Read the latest local state from a ref instead of the effect closure.
+    // applySharedThreadDraft calls setInput, which (via onSnapshot) changes the
+    // local state; if this effect compared against the stale closure value it
+    // would keep re-applying its own write (apply -> persist -> readback ->
+    // apply ...), clobbering the caret. The ref is reassigned on every render,
+    // so by the time this passive effect runs it holds the committed value.
+    const { content, attachedSkills: liveSkills, pendingAttachments: livePending, composerState } =
+      compositionBaselineInputRef.current;
     const currentDraft = buildThreadDraftSnapshot({
-      content: input,
-      attachedSkills,
-      pendingAttachments,
-      composerState: editorStateJson,
+      content,
+      attachedSkills: liveSkills,
+      pendingAttachments: livePending,
+      composerState,
     });
-    if (JSON.stringify(draft) === JSON.stringify(currentDraft)) {
+    // Compare only the semantic fields (content/skills/attachments).
+    // `composerState` is excluded: it is the local editor's serialized state,
+    // which changes on every keystroke (node keys, selection offsets). Including
+    // it here would make a locally-typed draft always look "different" from the
+    // just-persisted one, causing readback to clobber the editor mid-typing and
+    // echo-loop (apply -> persist -> readback -> apply ...) until focus is lost.
+    if (draftsContentEqual(draft, currentDraft)) {
       lastAppliedThreadDraftSourceKeyRef.current = threadDraftSourceKey;
       return;
     }
@@ -1248,7 +1280,10 @@ export function Composer(props: ComposerProps) {
       return;
     }
     lastAppliedThreadDraftSourceKeyRef.current = threadDraftSourceKey;
-    return applySharedThreadDraft(draft);
+    // TEMP: disabled to isolate whether readback is driving the loop.
+    console.warn("[READBACK-SKIP-APPLY]");
+    return;
+    // return applySharedThreadDraft(draft);
   }, [props.mode, props.threadId, skills, threadDraftSourceKey, applySharedThreadDraft]);
   // A buffered shared draft and the composition baseline belong to the
   // Thread/mode that was active when composition started. On unmount, Thread
@@ -3049,10 +3084,26 @@ export function Composer(props: ComposerProps) {
       });
       if (props.mode === "association-draft") {
         associationDraftChangeRef.current?.(draft);
-      } else if (draft) {
-        setThreadDraft(threadId, draft);
       } else {
-        clearThreadDraft(threadId);
+        // Skip the write when the store already holds a semantically equal
+        // draft. Persistence runs on a 300 ms debounce while applySharedThreadDraft
+        // and IME commits churn `input`/`editorStateJson`; without this guard a
+        // stale timer can write an older snapshot back into the store, which
+        // changes threadDraftSourceKey and echoes through readback into the
+        // editor (apply -> persist -> readback -> apply ...), losing the caret.
+        const existing = getThreadDraft(threadId);
+        // Mark the resulting store state as consumed using the FULL source key
+        // (mode:threadId:snapshot) so the readback effect's equality guard holds.
+        const nextSourceKey = `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
+        if (draftsContentEqual(existing, draft)) {
+          lastAppliedThreadDraftSourceKeyRef.current = nextSourceKey;
+        } else if (draft) {
+          setThreadDraft(threadId, draft);
+          lastAppliedThreadDraftSourceKeyRef.current = nextSourceKey;
+        } else {
+          clearThreadDraft(threadId);
+          lastAppliedThreadDraftSourceKeyRef.current = nextSourceKey;
+        }
       }
     }, 300);
     return () => clearTimeout(timeout);

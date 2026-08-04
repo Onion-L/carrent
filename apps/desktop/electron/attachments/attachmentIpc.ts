@@ -67,9 +67,7 @@ function readStoreInput(input: unknown): {
   }
 
   const mimeType =
-    classification.kind === "file" && record.mimeType.length === 0
-      ? "text/plain"
-      : record.mimeType;
+    classification.kind === "file" && record.mimeType.length === 0 ? "text/plain" : record.mimeType;
 
   return {
     name,
@@ -89,8 +87,7 @@ function readIntegrityMetadata(input: unknown): AttachmentIntegrityMetadata {
     typeof record.size !== "number" ||
     !Number.isFinite(record.size) ||
     record.size < 0 ||
-    (record.sha256 !== undefined &&
-      !isValidAttachmentSha256(record.sha256))
+    (record.sha256 !== undefined && !isValidAttachmentSha256(record.sha256))
   ) {
     throw new Error("Invalid attachment metadata.");
   }

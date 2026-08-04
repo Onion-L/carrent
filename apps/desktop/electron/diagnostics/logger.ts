@@ -188,9 +188,10 @@ export function createLogger(options: CreateLoggerOptions): Logger {
 
   function formatLine(level: LogLevel, scope: string, message: string, meta?: LogMeta): string {
     const ts = now().toISOString();
-    const line = meta && Object.keys(meta).length > 0
-      ? `${ts} ${level} [${scope}] ${message} ${safeStringify(meta)}\n`
-      : `${ts} ${level} [${scope}] ${message}\n`;
+    const line =
+      meta && Object.keys(meta).length > 0
+        ? `${ts} ${level} [${scope}] ${message} ${safeStringify(meta)}\n`
+        : `${ts} ${level} [${scope}] ${message}\n`;
     if (Buffer.byteLength(line, "utf8") <= maxLineBytes) return line;
 
     // Byte-level truncation that is safe under multi-byte UTF-8. Keep as much
@@ -210,7 +211,9 @@ export function createLogger(options: CreateLoggerOptions): Logger {
       return JSON.stringify(meta);
     } catch {
       // Circular references etc.: fall back to a shallow, lossy rendering.
-      return `{${Object.keys(meta).map((k) => `${k}=<unserializable>`).join(",")}}`;
+      return `{${Object.keys(meta)
+        .map((k) => `${k}=<unserializable>`)
+        .join(",")}}`;
     }
   }
 

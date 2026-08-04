@@ -3,10 +3,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  createCarrentWindowSessionStore,
-  type WindowSession,
-} from "./carrentWindowSessionStore";
+import { createCarrentWindowSessionStore, type WindowSession } from "./carrentWindowSessionStore";
 
 const SESSION: WindowSession = {
   version: 1,

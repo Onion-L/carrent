@@ -11,16 +11,9 @@
 // details ever reach a notification.
 
 import type { ChatRunAuthorityState, SharedChatRunStatus } from "../../src/shared/chat";
-import type {
-  AppStateSnapshot,
-  AppThreadRecord,
-} from "../../src/shared/workspacePersistence";
+import type { AppStateSnapshot, AppThreadRecord } from "../../src/shared/workspacePersistence";
 
-export type RunNotificationKind =
-  | "completed"
-  | "failed"
-  | "answer-needed"
-  | "approval-needed";
+export type RunNotificationKind = "completed" | "failed" | "answer-needed" | "approval-needed";
 
 // The OS-facing label shown as the notification body. Kept short, English, and
 // free of any Thread content.
@@ -67,11 +60,7 @@ export type NotificationWindowAccess = {
 
 export type RunNotificationCoordinatorOptions = {
   getSnapshot: () => AppStateSnapshot;
-  buildThreadRoute: (
-    workspaceId: string,
-    projectId: string,
-    threadId: string,
-  ) => string;
+  buildThreadRoute: (workspaceId: string, projectId: string, threadId: string) => string;
   windows: NotificationWindowAccess;
   notifications: SystemNotificationAdapter;
   createWindowWithRoute: (route: string) => void;
@@ -79,9 +68,7 @@ export type RunNotificationCoordinatorOptions = {
 
 type ThreadTracking = { runId: string; status: SharedChatRunStatus };
 
-export function createRunNotificationCoordinator(
-  options: RunNotificationCoordinatorOptions,
-) {
+export function createRunNotificationCoordinator(options: RunNotificationCoordinatorOptions) {
   // Last authoritative status seen for each Thread's current Run. Keyed by
   // thread so a Run that is replaced (new runId) resets the transition window.
   const trackingByThread = new Map<string, ThreadTracking>();
@@ -93,9 +80,7 @@ export function createRunNotificationCoordinator(
     snapshot: AppStateSnapshot,
     threadId: string,
   ): { thread: AppThreadRecord; route: string } | null {
-    const thread = snapshot.threads?.find(
-      (item) => item.id === threadId && !item.archived,
-    );
+    const thread = snapshot.threads?.find((item) => item.id === threadId && !item.archived);
     if (!thread) return null;
     return {
       thread,
@@ -108,10 +93,7 @@ export function createRunNotificationCoordinator(
   // completion path uses to decide whether to start another Run. Intermediate
   // completion of such a sequence is suppressed so the notification only fires
   // when the queue is actually idle.
-  function hasAutoContinuingQueuedWork(
-    snapshot: AppStateSnapshot,
-    threadId: string,
-  ): boolean {
+  function hasAutoContinuingQueuedWork(snapshot: AppStateSnapshot, threadId: string): boolean {
     const work = snapshot.threadWork;
     if (!work) return false;
     const queue = work[threadId]?.queuedMessages ?? [];
@@ -147,12 +129,7 @@ export function createRunNotificationCoordinator(
     }
   }
 
-  function show(
-    threadId: string,
-    route: string,
-    title: string,
-    kind: RunNotificationKind,
-  ) {
+  function show(threadId: string, route: string, title: string, kind: RunNotificationKind) {
     // A focused Carrent Window already displaying the Thread makes a system
     // notification redundant.
     if (options.windows.focusedRoute() === route) return;
@@ -184,8 +161,7 @@ export function createRunNotificationCoordinator(
         const tracked = trackingByThread.get(threadId);
         // A new Run for the Thread (different runId) starts a fresh transition
         // window, so a previous Run's terminal status cannot suppress it.
-        const prevStatus =
-          tracked && tracked.runId === run.runId ? tracked.status : null;
+        const prevStatus = tracked && tracked.runId === run.runId ? tracked.status : null;
 
         const kind = eligibleKind(run.status, snapshot, threadId);
         // One uniform rule covers every case: notify on a genuine entry into an
@@ -215,6 +191,4 @@ export function createRunNotificationCoordinator(
   };
 }
 
-export type RunNotificationCoordinator = ReturnType<
-  typeof createRunNotificationCoordinator
->;
+export type RunNotificationCoordinator = ReturnType<typeof createRunNotificationCoordinator>;

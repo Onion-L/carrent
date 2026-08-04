@@ -167,22 +167,28 @@ describe("registerTerminalIpc", () => {
       },
     );
 
-    await handlers.get("terminal:focus")?.({ sender: { id: 42 } }, {
-      projectId: "project-1",
-      terminalId: "terminal-1",
-      focused: true,
-      columns: 100,
-      rows: 30,
-      focusVersion: 4,
-    });
-    await handlers.get("terminal:focus")?.({ sender: { id: 42 } }, {
-      projectId: "project-1",
-      terminalId: "terminal-1",
-      focused: false,
-      columns: 100,
-      rows: 30,
-      focusVersion: 5,
-    });
+    await handlers.get("terminal:focus")?.(
+      { sender: { id: 42 } },
+      {
+        projectId: "project-1",
+        terminalId: "terminal-1",
+        focused: true,
+        columns: 100,
+        rows: 30,
+        focusVersion: 4,
+      },
+    );
+    await handlers.get("terminal:focus")?.(
+      { sender: { id: 42 } },
+      {
+        projectId: "project-1",
+        terminalId: "terminal-1",
+        focused: false,
+        columns: 100,
+        rows: 30,
+        focusVersion: 5,
+      },
+    );
 
     expect(focusCalls).toEqual([
       { contentsId: 42, focused: true },

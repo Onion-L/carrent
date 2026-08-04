@@ -1,10 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import type { ChatRunAuthorityState, SharedChatRun, SharedChatRunStatus } from "../../src/shared/chat";
 import type {
-  AppStateSnapshot,
-  AppThreadRecord,
-} from "../../src/shared/workspacePersistence";
+  ChatRunAuthorityState,
+  SharedChatRun,
+  SharedChatRunStatus,
+} from "../../src/shared/chat";
+import type { AppStateSnapshot, AppThreadRecord } from "../../src/shared/workspacePersistence";
 import {
   createRunNotificationCoordinator,
   type RunNotificationCoordinator,
@@ -68,18 +69,16 @@ function snapshotWithQueue(
         queuedMessages: queued.map((item) => ({
           id: item.id,
           content: item.content,
-          ...(item.requiresConfirmation === undefined ? {} : { requiresConfirmation: item.requiresConfirmation }),
+          ...(item.requiresConfirmation === undefined
+            ? {}
+            : { requiresConfirmation: item.requiresConfirmation }),
         })),
       },
     },
   };
 }
 
-function makeRun(
-  threadId: string,
-  status: SharedChatRunStatus,
-  runId = "run-1",
-): SharedChatRun {
+function makeRun(threadId: string, status: SharedChatRunStatus, runId = "run-1"): SharedChatRun {
   return {
     runId,
     threadId,

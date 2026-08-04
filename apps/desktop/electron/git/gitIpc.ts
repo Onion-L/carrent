@@ -538,25 +538,21 @@ async function getWorkspaceDiff(
       ],
       { timeout: GIT_TIMEOUT_MS, maxBuffer: MAX_DIFF_BUFFER_BYTES },
     ),
-    runGitPatch(
-      repoRoot,
-      [
-        "diff",
-        "--no-color",
-        "--no-renames",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--unified=3",
-        "HEAD",
-        "--",
-        pathspec,
-      ],
-    ),
-    runGit(
-      repoRoot,
-      ["ls-files", "--others", "--exclude-standard", "-z", "--", pathspec],
-      { timeout: GIT_TIMEOUT_MS, maxBuffer: MAX_DIFF_BUFFER_BYTES },
-    ),
+    runGitPatch(repoRoot, [
+      "diff",
+      "--no-color",
+      "--no-renames",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--unified=3",
+      "HEAD",
+      "--",
+      pathspec,
+    ]),
+    runGit(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z", "--", pathspec], {
+      timeout: GIT_TIMEOUT_MS,
+      maxBuffer: MAX_DIFF_BUFFER_BYTES,
+    }),
   ]);
 
   const trackedFiles = parseNumstatZ(trackedSummary.stdout);
@@ -573,7 +569,8 @@ async function getWorkspaceDiff(
   let untrackedPatchBuffer = Buffer.alloc(0);
   let untrackedCount = 0;
   let truncated = trackedFiles.length > MAX_SUMMARY_FILES || trackedPatchResult.truncated;
-  let patchFull = trackedPatchResult.truncated || trackedPatchResult.stdout.length >= MAX_PATCH_BYTES;
+  let patchFull =
+    trackedPatchResult.truncated || trackedPatchResult.stdout.length >= MAX_PATCH_BYTES;
 
   for (const untrackedPath of untrackedPaths) {
     if (files.length >= MAX_SUMMARY_FILES) {
@@ -636,20 +633,17 @@ async function getWorkspaceDiff(
 
     try {
       const [patchResult, numstatResult] = await Promise.all([
-        runGitPatch(
-          repoRoot,
-          [
-            "diff",
-            "--no-index",
-            "--no-color",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--unified=3",
-            "--",
-            "/dev/null",
-            untrackedPath,
-          ],
-        ),
+        runGitPatch(repoRoot, [
+          "diff",
+          "--no-index",
+          "--no-color",
+          "--no-ext-diff",
+          "--no-textconv",
+          "--unified=3",
+          "--",
+          "/dev/null",
+          untrackedPath,
+        ]),
         runGitDiff(
           repoRoot,
           [
@@ -704,7 +698,10 @@ async function getWorkspaceDiff(
       if (untrackedPatchBuffer.length + patchBytes.length > MAX_PATCH_BYTES) {
         const remaining = MAX_PATCH_BYTES - untrackedPatchBuffer.length;
         if (remaining > 0) {
-          untrackedPatchBuffer = Buffer.concat([untrackedPatchBuffer, patchBytes.subarray(0, remaining)]);
+          untrackedPatchBuffer = Buffer.concat([
+            untrackedPatchBuffer,
+            patchBytes.subarray(0, remaining),
+          ]);
         }
         patchFull = true;
         truncated = true;
@@ -763,11 +760,9 @@ function formatBoundedPatch(patch: Buffer, truncated: boolean): string {
 
 async function resolveRepoRoot(projectPath: string): Promise<string | null> {
   try {
-    const { stdout } = await runGit(
-      projectPath,
-      ["rev-parse", "--show-toplevel"],
-      { timeout: GIT_TIMEOUT_MS },
-    );
+    const { stdout } = await runGit(projectPath, ["rev-parse", "--show-toplevel"], {
+      timeout: GIT_TIMEOUT_MS,
+    });
     return stdout.toString("utf8").trim();
   } catch {
     return null;
@@ -776,11 +771,9 @@ async function resolveRepoRoot(projectPath: string): Promise<string | null> {
 
 async function resolveHead(repoRoot: string): Promise<string | null> {
   try {
-    const { stdout } = await runGit(
-      repoRoot,
-      ["rev-parse", "--verify", "HEAD"],
-      { timeout: GIT_TIMEOUT_MS },
-    );
+    const { stdout } = await runGit(repoRoot, ["rev-parse", "--verify", "HEAD"], {
+      timeout: GIT_TIMEOUT_MS,
+    });
     return stdout.toString("utf8").trim();
   } catch {
     return null;
@@ -808,7 +801,8 @@ function parseNumstatZ(buffer: Buffer): Array<{
   binary: boolean;
 }> {
   const text = buffer.toString("utf8");
-  const entries: Array<{ path: string; additions: number; deletions: number; binary: boolean }> = [];
+  const entries: Array<{ path: string; additions: number; deletions: number; binary: boolean }> =
+    [];
   const records = text.split("\0");
 
   for (const record of records) {

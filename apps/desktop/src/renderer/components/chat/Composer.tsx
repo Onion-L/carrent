@@ -1147,6 +1147,9 @@ export function Composer(props: ComposerProps) {
   const [gitLoading, setGitLoading] = useState(false);
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [branchSearchQuery, setBranchSearchQuery] = useState("");
+  const composerSourceKey = `${props.mode}:${props.threadId}`;
+  const composerSourceKeyRef = useRef(composerSourceKey);
+  composerSourceKeyRef.current = composerSourceKey;
   const threadDraftSourceKey = `${props.mode}:${props.threadId}:${threadDraftSnapshotKey}`;
   const lastAppliedThreadDraftSourceKeyRef = useRef(threadDraftSourceKey);
 
@@ -1255,8 +1258,12 @@ export function Composer(props: ComposerProps) {
     // would keep re-applying its own write (apply -> persist -> readback ->
     // apply ...), clobbering the caret. The ref is reassigned on every render,
     // so by the time this passive effect runs it holds the committed value.
-    const { content, attachedSkills: liveSkills, pendingAttachments: livePending, composerState } =
-      compositionBaselineInputRef.current;
+    const {
+      content,
+      attachedSkills: liveSkills,
+      pendingAttachments: livePending,
+      composerState,
+    } = compositionBaselineInputRef.current;
     const currentDraft = buildThreadDraftSnapshot({
       content,
       attachedSkills: liveSkills,
@@ -1280,10 +1287,7 @@ export function Composer(props: ComposerProps) {
       return;
     }
     lastAppliedThreadDraftSourceKeyRef.current = threadDraftSourceKey;
-    // TEMP: disabled to isolate whether readback is driving the loop.
-    console.warn("[READBACK-SKIP-APPLY]");
-    return;
-    // return applySharedThreadDraft(draft);
+    return applySharedThreadDraft(draft);
   }, [props.mode, props.threadId, skills, threadDraftSourceKey, applySharedThreadDraft]);
   // A buffered shared draft and the composition baseline belong to the
   // Thread/mode that was active when composition started. On unmount, Thread
@@ -3056,6 +3060,36 @@ export function Composer(props: ComposerProps) {
     }
     setPendingDraftSkillNames(null);
   }, [initialDraft?.composerState, pendingDraftSkillNames, skills, skillsLoading]);
+
+  useEffect(() => {
+    const sourceKey = composerSourceKey;
+    const sourceMode = props.mode;
+    const sourceThreadId = threadId;
+    return () => {
+      if (
+        sourceMode !== "thread" ||
+        composerSourceKeyRef.current === sourceKey ||
+        compositionActiveRef.current
+      ) {
+        return;
+      }
+      const { content, attachedSkills, pendingAttachments, composerState } =
+        compositionBaselineInputRef.current;
+      const draft = buildThreadDraftSnapshot({
+        content,
+        attachedSkills,
+        pendingAttachments,
+        composerState,
+      });
+      const existing = getThreadDraft(sourceThreadId);
+      if (draftsContentEqual(existing, draft)) return;
+      if (draft) {
+        setThreadDraft(sourceThreadId, draft);
+      } else {
+        clearThreadDraft(sourceThreadId);
+      }
+    };
+  }, [composerSourceKey, props.mode, threadId]);
 
   useEffect(() => {
     // Debounce draft persistence; the workspace save path applies its own

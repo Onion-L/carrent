@@ -76,7 +76,7 @@ describe("classifyAttachmentBytes", () => {
   it("classifies UTF-8 SVG markup as a file, not an image", () => {
     const result = classifyAttachmentBytes({
       mimeType: "image/svg+xml",
-      data: utf8("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>"),
+      data: utf8('<svg xmlns="http://www.w3.org/2000/svg"></svg>'),
     });
 
     expect(result).toEqual({ ok: true, kind: "file" });

@@ -268,8 +268,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   // their revision arrives in a broadcast.
   const dirtyContentThreadsRef = useRef(new Set<string>());
   const inflightContentRef = useRef(new Map<string, number>());
+  const contentSubmissionRef = useRef(new Map<string, symbol>());
   const dirtyWorkThreadsRef = useRef(new Set<string>());
   const inflightWorkRef = useRef(new Map<string, number>());
+  const workSubmissionRef = useRef(new Map<string, symbol>());
   const contentPatchRef = useRef(new Map<string, ThreadContentPatch>());
   const contentFlushTimerRef = useRef<number | null>(null);
   const [hasHydrated, setHasHydrated] = useState(false);
@@ -346,6 +348,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       protectedContent.delete(threadId);
       dirtyContentThreadsRef.current.delete(threadId);
       inflightContentRef.current.delete(threadId);
+      contentSubmissionRef.current.delete(threadId);
       contentPatchRef.current.delete(threadId);
     }
     for (const threadId of protectedWork) {
@@ -353,6 +356,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       protectedWork.delete(threadId);
       dirtyWorkThreadsRef.current.delete(threadId);
       inflightWorkRef.current.delete(threadId);
+      workSubmissionRef.current.delete(threadId);
     }
 
     const latest = snapshotRef.current;
@@ -582,6 +586,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         continue;
       }
       dirtyContentThreadsRef.current.delete(threadId);
+      const submission = Symbol(threadId);
+      contentSubmissionRef.current.set(threadId, submission);
+      inflightContentRef.current.set(threadId, Number.POSITIVE_INFINITY);
       const patch = contentPatchRef.current.get(threadId);
       contentPatchRef.current.delete(threadId);
       const messages = (current.threadMessages ?? []).filter(
@@ -592,22 +599,49 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           threadId,
           ...(patch && Object.keys(patch).length > 0 ? { thread: patch } : {}),
           messages,
-        }).then((result) => {
-          if (result.status === "accepted") {
-            inflightContentRef.current.set(threadId, result.revision);
-          }
-        }),
+        })
+          .then((result) => {
+            if (contentSubmissionRef.current.get(threadId) !== submission) return;
+            contentSubmissionRef.current.delete(threadId);
+            if (result.status === "accepted") {
+              inflightContentRef.current.set(threadId, result.revision);
+            } else {
+              inflightContentRef.current.delete(threadId);
+            }
+          })
+          .catch((error) => {
+            if (contentSubmissionRef.current.get(threadId) === submission) {
+              contentSubmissionRef.current.delete(threadId);
+              inflightContentRef.current.delete(threadId);
+            }
+            throw error;
+          }),
       );
     }
     for (const threadId of workThreadIds) {
       dirtyWorkThreadsRef.current.delete(threadId);
+      const submission = Symbol(threadId);
+      workSubmissionRef.current.set(threadId, submission);
+      inflightWorkRef.current.set(threadId, Number.POSITIVE_INFINITY);
       const work = current.threadWork?.[threadId] ?? null;
       submissions.push(
-        sendCommand("thread-work:update", { threadId, work }).then((result) => {
-          if (result.status === "accepted") {
-            inflightWorkRef.current.set(threadId, result.revision);
-          }
-        }),
+        sendCommand("thread-work:update", { threadId, work })
+          .then((result) => {
+            if (workSubmissionRef.current.get(threadId) !== submission) return;
+            workSubmissionRef.current.delete(threadId);
+            if (result.status === "accepted") {
+              inflightWorkRef.current.set(threadId, result.revision);
+            } else {
+              inflightWorkRef.current.delete(threadId);
+            }
+          })
+          .catch((error) => {
+            if (workSubmissionRef.current.get(threadId) === submission) {
+              workSubmissionRef.current.delete(threadId);
+              inflightWorkRef.current.delete(threadId);
+            }
+            throw error;
+          }),
       );
     }
     await Promise.all(submissions);

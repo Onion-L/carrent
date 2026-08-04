@@ -3,12 +3,7 @@ import { mkdtemp, readFile, rm, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
-import {
-  createLogger,
-  getLogFilePath,
-  LOGGER_ACTIVE_FILENAME,
-  type LogLevel,
-} from "./logger";
+import { createLogger, getLogFilePath, LOGGER_ACTIVE_FILENAME, type LogLevel } from "./logger";
 
 // A minimal in-memory WriteStream double. The real createWriteStream is async
 // to open, which makes "buffered-then-flushed" assertions flaky; this stub
@@ -36,7 +31,10 @@ function createCapturingStreamFactory(captured: CapturedChunk[]) {
 // The logger's open/rotate path awaits real fs I/O (mkdir/rename/unlink), so a
 // microtask flush is not enough. Poll the predicate until it returns a defined
 // value, yielding to the event loop on each tick so fs callbacks can resolve.
-async function waitFor<T>(fn: () => T | undefined | Promise<T | undefined>, timeoutMs = 1000): Promise<T> {
+async function waitFor<T>(
+  fn: () => T | undefined | Promise<T | undefined>,
+  timeoutMs = 1000,
+): Promise<T> {
   const start = Date.now();
   for (;;) {
     const value = await fn();
@@ -266,7 +264,9 @@ describe("createLogger", () => {
   });
 
   it("exposes getLogFilePath pointing at the active file inside the directory", () => {
-    expect(getLogFilePath("/tmp/whatever")).toBe(path.join("/tmp/whatever", LOGGER_ACTIVE_FILENAME));
+    expect(getLogFilePath("/tmp/whatever")).toBe(
+      path.join("/tmp/whatever", LOGGER_ACTIVE_FILENAME),
+    );
   });
 
   it("accepts all three levels through log()", async () => {

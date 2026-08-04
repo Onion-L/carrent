@@ -2,10 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { getMenuPosition } from "./ContextMenu";
-import {
-  ThreadContextMenuContent,
-  type ThreadContextMenuContentProps,
-} from "./ThreadContextMenu";
+import { ThreadContextMenuContent, type ThreadContextMenuContentProps } from "./ThreadContextMenu";
 
 function renderMenu(overrides: Partial<ThreadContextMenuContentProps> = {}) {
   return renderToStaticMarkup(

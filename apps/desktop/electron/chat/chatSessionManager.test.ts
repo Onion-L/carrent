@@ -1694,11 +1694,7 @@ describe("createChatSessionManager", () => {
           event.type === "kimi-timeline" && event.item.type === "tool",
       )
       .map((event) => event.item as Extract<(typeof event)["item"], { type: "tool" }>);
-    expect(toolItems.map((item) => item.status)).toEqual([
-      "pending",
-      "running",
-      "completed",
-    ]);
+    expect(toolItems.map((item) => item.status)).toEqual(["pending", "running", "completed"]);
     // All three updates share one first-seen order and one id (no duplicate cards).
     expect(new Set(toolItems.map((item) => item.order)).size).toBe(1);
     expect(new Set(toolItems.map((item) => item.id)).size).toBe(1);

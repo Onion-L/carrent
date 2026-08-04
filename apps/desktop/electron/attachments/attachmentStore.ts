@@ -236,9 +236,7 @@ export function createAttachmentStore(
     }
   }
 
-  async function deleteOrphanedAttachments(
-    referencedStorageKeys: Set<string>,
-  ): Promise<string[]> {
+  async function deleteOrphanedAttachments(referencedStorageKeys: Set<string>): Promise<string[]> {
     let storedEntries;
     try {
       storedEntries = await readdir(attachmentsDir, { withFileTypes: true });

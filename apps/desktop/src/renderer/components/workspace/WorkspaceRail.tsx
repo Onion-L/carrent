@@ -22,11 +22,7 @@ export function WorkspaceRail() {
     selectWorkspace,
   } = useAppState();
   const { runningThreadIds } = useChatRun();
-  const {
-    requestRename,
-    requestDelete,
-    dialogs: actionDialogs,
-  } = useWorkspaceActionDialogs();
+  const { requestRename, requestDelete, dialogs: actionDialogs } = useWorkspaceActionDialogs();
   const [isCreating, setIsCreating] = useState(false);
   const [menu, setMenu] = useState<{ workspaceId: string; x: number; y: number } | null>(null);
   const isSettingsRoute = location.pathname === "/settings";

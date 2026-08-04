@@ -22,11 +22,7 @@ export function WorkspaceSwitcher() {
     selectWorkspace,
   } = useAppState();
   const { runningThreadIds } = useChatRun();
-  const {
-    requestRename,
-    requestDelete,
-    dialogs: actionDialogs,
-  } = useWorkspaceActionDialogs();
+  const { requestRename, requestDelete, dialogs: actionDialogs } = useWorkspaceActionDialogs();
   const [isOpen, setIsOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [menu, setMenu] = useState<{ workspaceId: string; x: number; y: number } | null>(null);

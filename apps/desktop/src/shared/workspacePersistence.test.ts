@@ -863,32 +863,24 @@ describe("queued message requiresConfirmation stamping", () => {
 
   it("force-stamps requiresConfirmation: true when loading from disk", () => {
     const normalized = normalizeAppStateSnapshot(snapshotWithQueuedMessage(undefined))!;
-    expect(
-      normalized.threadWork!["thread-1"].queuedMessages[0].requiresConfirmation,
-    ).toBe(true);
+    expect(normalized.threadWork!["thread-1"].queuedMessages[0].requiresConfirmation).toBe(true);
   });
 
   it("force-stamps requiresConfirmation: true when persisting to disk", () => {
     // Even a live auto-continuing item (flag false) is stamped on disk so a
     // restarted application never auto-sends recovered queue items.
     const normalized = normalizeAppStateSnapshotForWrite(snapshotWithQueuedMessage(false))!;
-    expect(
-      normalized.threadWork!["thread-1"].queuedMessages[0].requiresConfirmation,
-    ).toBe(true);
+    expect(normalized.threadWork!["thread-1"].queuedMessages[0].requiresConfirmation).toBe(true);
   });
 
   it("preserves the live requiresConfirmation flag in the in-memory authority", () => {
     // A freshly-enqueued, steerable item keeps flag false so the Main Process
     // can tell auto-continuing work from work needing an explicit Send/Steer.
     const auto = normalizeAppStateSnapshotForMemory(snapshotWithQueuedMessage(false))!;
-    expect(
-      auto.threadWork!["thread-1"].queuedMessages[0].requiresConfirmation,
-    ).toBeUndefined();
+    expect(auto.threadWork!["thread-1"].queuedMessages[0].requiresConfirmation).toBeUndefined();
 
     const confirmed = normalizeAppStateSnapshotForMemory(snapshotWithQueuedMessage(true))!;
-    expect(
-      confirmed.threadWork!["thread-1"].queuedMessages[0].requiresConfirmation,
-    ).toBe(true);
+    expect(confirmed.threadWork!["thread-1"].queuedMessages[0].requiresConfirmation).toBe(true);
   });
 });
 

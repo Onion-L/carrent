@@ -12,9 +12,7 @@ describe("ensureCliPaths", () => {
     const parts = env.PATH!.split(":");
     expect(parts).toContain(`${os.homedir()}/.kimi-code/bin`);
     expect(parts).toContain("/opt/homebrew/bin");
-    expect(parts.indexOf(`${os.homedir()}/.kimi-code/bin`)).toBeLessThan(
-      parts.indexOf("/usr/bin"),
-    );
+    expect(parts.indexOf(`${os.homedir()}/.kimi-code/bin`)).toBeLessThan(parts.indexOf("/usr/bin"));
   });
 
   it("keeps the existing PATH entries", () => {

@@ -7,17 +7,21 @@ import { AddProjectButton } from "../components/workspace/AddProjectButton";
 import { useAppState } from "../context/AppStateContext";
 import { useNavigate } from "react-router-dom";
 import { getWorkspaceProjects } from "../lib/workspaceProjects";
-import {
-  getWorkspaceDeleteBlockedReason,
-  useDeleteWorkspace,
-} from "../hooks/useDeleteWorkspace";
+import { getWorkspaceDeleteBlockedReason, useDeleteWorkspace } from "../hooks/useDeleteWorkspace";
 import { useChatRun } from "../hooks/useChatRun";
 
 export function WorkspaceOverviewPage() {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
-  const { activeWorkspaceId, workspaces, projects, associations, threads, renameWorkspace, selectWorkspace } =
-    useAppState();
+  const {
+    activeWorkspaceId,
+    workspaces,
+    projects,
+    associations,
+    threads,
+    renameWorkspace,
+    selectWorkspace,
+  } = useAppState();
   const { runningThreadIds } = useChatRun();
   const deleteWorkspaceWithNavigation = useDeleteWorkspace();
   const [isRenaming, setIsRenaming] = useState(false);

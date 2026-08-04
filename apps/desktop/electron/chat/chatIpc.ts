@@ -344,7 +344,9 @@ export function parseChatQuestionResponse(value: unknown): ChatQuestionResponse 
 }
 
 export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServices) {
-  ipcMainLike.handle("chat:subscribe", (event) => services.runAuthority.subscribe(senderIdOf(event)));
+  ipcMainLike.handle("chat:subscribe", (event) =>
+    services.runAuthority.subscribe(senderIdOf(event)),
+  );
   ipcMainLike.handle("chat:unsubscribe", (event) => {
     services.runAuthority.unsubscribe(senderIdOf(event));
   });

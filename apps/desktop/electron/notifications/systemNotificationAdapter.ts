@@ -6,7 +6,10 @@
 // surfaces custom sound, volume, or permission controls.
 
 import { Notification } from "electron";
-import type { SystemNotificationAdapter, SystemNotificationContent } from "./runNotificationCoordinator";
+import type {
+  SystemNotificationAdapter,
+  SystemNotificationContent,
+} from "./runNotificationCoordinator";
 
 export function createElectronNotificationAdapter(): SystemNotificationAdapter {
   return {

@@ -33,9 +33,15 @@ import type { ThreadWorkDraftSnapshot } from "../../hooks/chatMessageQueue";
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 
-function ComposerHarness({ draftRequest }: { draftRequest?: ComposerDraftRequest }) {
+function ComposerHarness({
+  draftRequest,
+  threadId = "thread-1",
+}: {
+  draftRequest?: ComposerDraftRequest;
+  threadId?: string;
+}) {
   const { hasHydrated, getThreadRouteData } = useThreadContent();
-  const routeData = getThreadRouteData("project-1", "thread-1");
+  const routeData = getThreadRouteData("project-1", threadId);
   if (!hasHydrated || !routeData) {
     return null;
   }
@@ -45,7 +51,7 @@ function ComposerHarness({ draftRequest }: { draftRequest?: ComposerDraftRequest
       mode="thread"
       workspaceId="workspace-1"
       projectId="project-1"
-      threadId="thread-1"
+      threadId={threadId}
       messages={routeData.messages}
       runtimeId="kimi"
       runtimeMode="approval-required"
@@ -55,13 +61,13 @@ function ComposerHarness({ draftRequest }: { draftRequest?: ComposerDraftRequest
   );
 }
 
-function composerTree(draftRequest?: ComposerDraftRequest) {
+function composerTree(draftRequest?: ComposerDraftRequest, threadId = "thread-1") {
   return (
     <AppStateProvider>
       <ThreadContentProvider>
         <RuntimeModelsProvider>
           <MemoryRouter>
-            <ComposerHarness draftRequest={draftRequest} />
+            <ComposerHarness draftRequest={draftRequest} threadId={threadId} />
           </MemoryRouter>
         </RuntimeModelsProvider>
       </ThreadContentProvider>
@@ -144,6 +150,17 @@ function baseSnapshot(threadWork: AppStateSnapshot["threadWork"]): AppStateSnaps
         workspaceId: "workspace-1",
         projectId: "project-1",
         title: "First",
+        createdAt: "2026-07-27T08:00:00.000Z",
+        lastActivityAt: "2026-07-27T08:00:00.000Z",
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
+      {
+        id: "thread-2",
+        workspaceId: "workspace-1",
+        projectId: "project-1",
+        title: "Second",
         createdAt: "2026-07-27T08:00:00.000Z",
         lastActivityAt: "2026-07-27T08:00:00.000Z",
         runtimeId: "kimi",
@@ -256,11 +273,17 @@ async function mount(tree: React.ReactNode) {
   });
 }
 
-async function renderComposer(options: { threadWork?: AppStateSnapshot["threadWork"] } = {}) {
+async function renderComposer(
+  options: {
+    threadWork?: AppStateSnapshot["threadWork"];
+    threadId?: string;
+    authorityOptions?: Parameters<typeof createFakeAppStateAuthority>[1];
+  } = {},
+) {
   const snapshot = baseSnapshot(options.threadWork ?? {});
-  const authority = createFakeAppStateAuthority(snapshot);
+  const authority = createFakeAppStateAuthority(snapshot, options.authorityOptions);
   installCarrentBridge(authority, snapshot);
-  await mount(composerTree());
+  await mount(composerTree(undefined, options.threadId));
   return authority;
 }
 
@@ -353,6 +376,70 @@ afterEach(async () => {
 });
 
 describe("Composer inline Skills", () => {
+  it("clears a persisted draft when the Composer is emptied immediately before switching Threads", async () => {
+    await renderComposer();
+    await setComposerText("old draft");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+    expect(getThreadDraft("thread-1")?.content).toBe("old draft");
+
+    await setComposerText("");
+    await act(async () => {
+      root!.render(composerTree(undefined, "thread-2"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(getThreadDraft("thread-1")).toBe(null);
+    expect(getThreadDraft("thread-2")).toBe(null);
+    expect(getComposerText()).toBe("");
+
+    await act(async () => {
+      root!.render(composerTree(undefined, "thread-1"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(getComposerText()).toBe("");
+  });
+
+  it("keeps a cleared draft when another Thread work command broadcasts first", async () => {
+    await renderComposer({
+      threadId: "thread-2",
+      authorityOptions: {
+        commandHook: async (command) => {
+          if (command.type === "thread-work:update" && command.payload.threadId === "thread-2") {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+          return null;
+        },
+      },
+      threadWork: {
+        "thread-1": {
+          draft: { content: "unchanged", attachedSkillNames: [], attachments: [] },
+          queuedMessages: [],
+        },
+        "thread-2": {
+          draft: { content: "old target", attachedSkillNames: [], attachments: [] },
+          queuedMessages: [],
+        },
+      },
+    });
+    expect(getComposerText()).toBe("old target");
+
+    await setComposerText("");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 650));
+    });
+    expect(getComposerText()).toBe("");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    });
+
+    expect(getComposerText()).toBe("");
+    expect(getThreadDraft("thread-2")).toBe(null);
+    expect(getThreadDraft("thread-1")?.content).toBe("unchanged");
+  });
+
   it("applies a Thread Composer draft broadcast by another Renderer", async () => {
     const authority = await renderComposer();
 

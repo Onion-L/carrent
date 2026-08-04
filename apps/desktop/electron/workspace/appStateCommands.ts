@@ -1087,10 +1087,9 @@ const updateThreadContent: AppStateCommandReducer = (snapshot, payload) => {
     // Replace the Thread's messages in place so global message order is kept.
     const existingById = new Map(threadMessages.map((message) => [message.id, message]));
     const kimiRunMessageIds = new Set(
-      (snapshot.threadRuns ?? [])
-        .flatMap((run) =>
-          run.runtimeId === "kimi" && run.assistantMessageId ? [run.assistantMessageId] : [],
-        ),
+      (snapshot.threadRuns ?? []).flatMap((run) =>
+        run.runtimeId === "kimi" && run.assistantMessageId ? [run.assistantMessageId] : [],
+      ),
     );
     const replacement = (payload.messages as AppThreadMessageRecord[]).map((message) => {
       const existing = existingById.get(message.id);

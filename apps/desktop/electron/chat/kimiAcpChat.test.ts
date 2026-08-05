@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -1966,6 +1966,56 @@ describe("startKimiAcpChatRun", () => {
       });
     });
   }
+
+  it("surfaces the provider error from the Kimi session log when ACP returns an empty end_turn", async () => {
+    const emitted: ChatRunEvent[] = [];
+    const sessionsRoot = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-provider-error-"));
+    const sessionDir = path.join(sessionsRoot, "wd-project", "session-provider-error");
+    const logPath = path.join(sessionDir, "logs", "kimi-code.log");
+    await mkdir(path.dirname(logPath), { recursive: true });
+    await writeFile(
+      path.join(path.dirname(sessionsRoot), "session_index.jsonl"),
+      `${JSON.stringify({ sessionId: "session-provider-error", sessionDir })}\n`,
+    );
+    await writeFile(logPath, "");
+
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-provider-error" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        queueMicrotask(async () => {
+          await appendFile(
+            logPath,
+            `${new Date().toISOString()} WARN  llm request failed  turnStep=0.1 attempt=1/10 model=k3 errorName=APIStatusError errorMessage="403 You've reached your usage limit for this billing cycle. Your quota will be refreshed in the next cycle." statusCode=403\n`,
+          );
+          respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-provider-error",
+      request: makeRequest(),
+      cwd: "/test/project",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+      kimiSessionsRoot: sessionsRoot,
+    });
+    await waitForAsyncEvents();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(emitted.find((event) => event.type === "failed")).toMatchObject({
+      type: "failed",
+      error:
+        "Kimi Code provider error (HTTP 403): You've reached your usage limit for this billing cycle. Your quota will be refreshed in the next cycle.",
+    });
+  });
 
   it("stops the run when Kimi ACP returns cancelled", async () => {
     const emitted: ChatRunEvent[] = [];

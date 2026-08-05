@@ -1,6 +1,6 @@
 {
   "name": "@carrent/desktop",
-  "version": "0.0.1-alpha06",
+  "version": "0.0.1-alpha07",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",

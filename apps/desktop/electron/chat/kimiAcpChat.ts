@@ -67,6 +67,7 @@ class RuntimeSessionResumeError extends Error {}
 export type KimiAcpTransport = {
   send: (message: JsonObject) => void;
   close: () => void | Promise<void>;
+  getStderr?: () => string;
   onMessage: (listener: (message: JsonObject) => void) => void;
   onError: (listener: (error: Error) => void) => void;
   onClose: (
@@ -335,6 +336,9 @@ export function createKimiAcpProcessTransport(
           emitTransportError(new Error(`Kimi ACP stdin error: ${error.message}`));
         }
       });
+    },
+    getStderr() {
+      return stderr;
     },
     async close() {
       child.stdin?.end();
@@ -795,6 +799,11 @@ class KimiAcpRun {
       await this.configureModel(configOptions);
       await this.configureRuntimeMode(configOptions);
 
+      const promptStartedAt = Date.now();
+      const providerLogCursorPromise = captureKimiProviderLogCursor(
+        this.sessionId!,
+        this.options.kimiSessionsRoot ?? getKimiSessionsRoot(),
+      );
       const promptPromise = this.request(
         "session/prompt",
         {
@@ -809,6 +818,11 @@ class KimiAcpRun {
       this.emitThreadLifecycle();
 
       const promptResult = readObject(await promptPromise);
+      const promptError = formatKimiAcpError(readObject(promptResult?.error));
+      if (promptError) {
+        this.fail(promptError);
+        return;
+      }
       const stopReason = readString(promptResult?.stopReason);
       // Kimi currently disguises provider failures (e.g. a 403 from exhausted
       // quota) as "end_turn" — a known upstream issue — so only the values the
@@ -846,7 +860,18 @@ class KimiAcpRun {
       const finalText = this.markFinalMessageSegment();
 
       if (!finalText && !this.presentedPlanReview) {
-        this.fail("Received empty response from Kimi Code.");
+        const providerLogCursor = await providerLogCursorPromise;
+        const providerError = await readKimiProviderFailure({
+          cursor: providerLogCursor,
+          sessionId: this.sessionId!,
+          sessionsRoot: this.options.kimiSessionsRoot ?? getKimiSessionsRoot(),
+          stderr: this.transport.getStderr?.() ?? "",
+          startedAt: promptStartedAt,
+        });
+        this.fail(
+          providerError ??
+            "Kimi Code returned no message. The ACP server did not provide an error detail.",
+        );
         return;
       }
 
@@ -1513,7 +1538,7 @@ class KimiAcpRun {
 
       const error = readObject(message.error);
       if (error) {
-        pending.reject(new Error(readString(error.message) ?? JSON.stringify(error)));
+        pending.reject(new Error(formatKimiAcpError(error) ?? JSON.stringify(error)));
         return;
       }
 
@@ -2887,6 +2912,186 @@ function readTextBlocks(value: unknown): string[] {
     const text = readTextContent(item);
     return text ? [text] : [];
   });
+}
+
+type KimiProviderLogCursor = {
+  logPath: string;
+  byteOffset: number;
+};
+
+async function captureKimiProviderLogCursor(
+  sessionId: string,
+  sessionsRoot: string,
+): Promise<KimiProviderLogCursor | null> {
+  const logPath = await findKimiProviderLogPath(sessionId, sessionsRoot);
+  if (!logPath) {
+    return null;
+  }
+
+  try {
+    const contents = await readFile(logPath);
+    return { logPath, byteOffset: contents.byteLength };
+  } catch {
+    return { logPath, byteOffset: 0 };
+  }
+}
+
+async function readKimiProviderFailure(options: {
+  cursor: KimiProviderLogCursor | null;
+  sessionId: string;
+  sessionsRoot: string;
+  stderr: string;
+  startedAt: number;
+}): Promise<string | null> {
+  const logPath =
+    options.cursor?.logPath ??
+    (await findKimiProviderLogPath(options.sessionId, options.sessionsRoot));
+  if (logPath) {
+    try {
+      const contents = await readFile(logPath);
+      const byteOffset = Math.min(options.cursor?.byteOffset ?? 0, contents.byteLength);
+      const failure = parseKimiProviderLog(
+        contents.subarray(byteOffset).toString("utf8"),
+        options.startedAt,
+      );
+      if (failure) {
+        return failure;
+      }
+      if (byteOffset > 0) {
+        const fullLogFailure = parseKimiProviderLog(contents.toString("utf8"), options.startedAt);
+        if (fullLogFailure) {
+          return fullLogFailure;
+        }
+      }
+    } catch {
+      // The log is only a best-effort fallback for provider errors.
+    }
+  }
+
+  const stderr = options.stderr.trim();
+  return stderr ? `Kimi ACP error: ${stderr}` : null;
+}
+
+async function findKimiProviderLogPath(
+  sessionId: string,
+  sessionsRoot: string,
+): Promise<string | null> {
+  const indexPath = path.join(path.dirname(sessionsRoot), "session_index.jsonl");
+  let indexText: string;
+  try {
+    indexText = await readFile(indexPath, "utf8");
+  } catch {
+    return null;
+  }
+
+  const resolvedSessionsRoot = path.resolve(sessionsRoot);
+  for (const line of indexText.split(/\r?\n/u).reverse()) {
+    if (!line.trim()) {
+      continue;
+    }
+
+    let record: JsonObject | null;
+    try {
+      record = readObject(JSON.parse(line));
+    } catch {
+      continue;
+    }
+
+    if (readString(record?.sessionId) !== sessionId) {
+      continue;
+    }
+
+    const sessionDir = readString(record?.sessionDir);
+    if (!sessionDir) {
+      return null;
+    }
+
+    const resolvedSessionDir = path.resolve(sessionDir);
+    if (!isContainedRelativePath(path.relative(resolvedSessionsRoot, resolvedSessionDir))) {
+      return null;
+    }
+    return path.join(resolvedSessionDir, "logs", "kimi-code.log");
+  }
+
+  return null;
+}
+
+function parseKimiProviderLog(logText: string, startedAt: number): string | null {
+  for (const line of logText.split(/\r?\n/u).reverse()) {
+    const timestamp = Date.parse(/^([^ ]+)\s/u.exec(line)?.[1] ?? "");
+    if (Number.isFinite(timestamp) && timestamp < startedAt) {
+      continue;
+    }
+
+    const match = /acp: turn ended with failed reason\s+error="((?:\\.|[^"\\])*)"/u.exec(line);
+    if (match) {
+      try {
+        const errorText = JSON.parse(`"${match[1]}"`);
+        const error = readObject(JSON.parse(errorText));
+        const formatted = formatKimiAcpError(error, "Kimi Code provider error");
+        if (formatted) {
+          return formatted;
+        }
+      } catch {
+        // Ignore malformed or partially-written log entries.
+      }
+    }
+
+    const requestFailure =
+      /llm request failed\b.*?errorMessage="((?:\\.|[^"\\])*)".*?statusCode=(\d+)/u.exec(line);
+    if (requestFailure) {
+      try {
+        const message = JSON.parse(`"${requestFailure[1]}"`);
+        const statusCode = readStatusCode(requestFailure[2]);
+        const formatted = formatKimiAcpError(
+          { message, ...(statusCode ? { details: { statusCode } } : {}) },
+          "Kimi Code provider error",
+        );
+        if (formatted) {
+          return formatted;
+        }
+      } catch {
+        // Ignore malformed or partially-written log entries.
+      }
+    }
+  }
+
+  return null;
+}
+
+function formatKimiAcpError(error: JsonObject | null, label = "Kimi Code error"): string | null {
+  if (!error) {
+    return null;
+  }
+
+  const details = readObject(error.details);
+  const data = readObject(error.data);
+  const statusCode =
+    readStatusCode(error.statusCode) ??
+    readStatusCode(details?.statusCode) ??
+    readStatusCode(data?.statusCode);
+  const code = readString(error.code);
+  const message = readString(error.message);
+  if (!statusCode && !code && !message) {
+    return null;
+  }
+  if (!statusCode && !code) {
+    return message;
+  }
+
+  const reason = statusCode ? `HTTP ${statusCode}` : (code ?? "ACP");
+  const displayMessage = message
+    ? statusCode
+      ? message.replace(new RegExp(`^${statusCode}\\s+`, "u"), "").trim()
+      : message
+    : "Unknown error";
+  return `${label} (${reason}): ${displayMessage}`;
+}
+
+function readStatusCode(value: unknown): number | null {
+  const statusCode =
+    typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isInteger(statusCode) && statusCode >= 100 && statusCode <= 599 ? statusCode : null;
 }
 
 function getKimiSessionsRoot() {

@@ -563,14 +563,14 @@ export function WorkspaceNavigationPane() {
                                     </span>
                                     {statusMeta ? (
                                       <span
-                                        className={`shrink-0 text-app-11 group-hover/thread:hidden ${statusMeta.className}`}
+                                        className={`shrink-0 text-app-11 group-hover/thread:hidden group-focus-visible/thread:hidden ${statusMeta.className}`}
                                         title={statusMeta.label}
                                       >
                                         {statusMeta.label}
                                       </span>
                                     ) : null}
                                   </button>
-                                  <div className="hidden shrink-0 group-hover/thread:flex group-focus-within/thread:flex">
+                                  <div className="hidden shrink-0 group-hover/thread:flex group-focus-visible/thread:flex">
                                     <button
                                       type="button"
                                       aria-label={

@@ -259,12 +259,26 @@ function ComposerEditorBridge(
         requestAnimationFrame(() => editor.focus());
       },
       replaceDraft(content, skills, serializedState) {
+        // A shared-draft readback can fire while the user is typing. Replacing
+        // the whole editor state drops focus and the caret, so capture them
+        // first and restore afterwards. The caret is tracked as a plain-text
+        // offset because node keys from the old state no longer exist in the
+        // replacement.
+        const rootElement = editor.getRootElement();
+        const hadFocus = rootElement !== null && rootElement.contains(document.activeElement);
+        const caretOffset = hadFocus
+          ? editor.getEditorState().read(() => $caretTextOffset())
+          : null;
         const validState = getValidSerializedState(serializedState);
         if (validState) {
           editor.setEditorState(editor.parseEditorState(validState));
-          return;
+        } else {
+          editor.update(() => initializeEditor(content, skills));
         }
-        editor.update(() => initializeEditor(content, skills));
+        if (hadFocus) {
+          editor.update(() => $selectTextOffset(caretOffset));
+          requestAnimationFrame(() => editor.focus());
+        }
       },
       restoreSkills(skills) {
         editor.update(() => {
@@ -624,6 +638,64 @@ function getValidSerializedState(value?: string) {
   } catch {
     return null;
   }
+}
+
+// Caret position as a plain-text offset from the start of the editor. Used to
+// survive a full editor-state replacement, where old node keys no longer
+// exist. Returns null when the caret cannot be mapped to a text offset.
+function $caretTextOffset(): number | null {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || selection.anchor.type !== "text") return null;
+  const anchorKey = selection.anchor.key;
+  const anchorOffset = selection.anchor.offset;
+  let offset = 0;
+  const visit = (node: LexicalNode): number | null => {
+    if ($isTextNode(node)) {
+      if (node.getKey() === anchorKey) return offset + anchorOffset;
+      offset += node.getTextContentSize();
+      return null;
+    }
+    if ($isElementNode(node)) {
+      for (const child of node.getChildren()) {
+        const found = visit(child);
+        if (found !== null) return found;
+      }
+    }
+    return null;
+  };
+  return visit($getRoot());
+}
+
+// Places a collapsed caret at a plain-text offset. Falls back to the end of
+// the editor when the offset is null or beyond the content length.
+function $selectTextOffset(target: number | null) {
+  if (target === null) {
+    $getRoot().selectEnd();
+    return;
+  }
+  let remaining = target;
+  const visit = (node: LexicalNode): boolean => {
+    if ($isTextNode(node)) {
+      const size = node.getTextContentSize();
+      if (remaining <= size) {
+        node.select(remaining, remaining);
+        return true;
+      }
+      remaining -= size;
+      return false;
+    }
+    if ($isElementNode(node)) {
+      for (const child of node.getChildren()) {
+        if (visit(child)) return true;
+      }
+    }
+    return false;
+  };
+  const root = $getRoot();
+  for (const child of root.getChildren()) {
+    if (visit(child)) return;
+  }
+  root.selectEnd();
 }
 
 function collectComposerState(): Omit<ComposerEditorSnapshot, "serializedState"> {

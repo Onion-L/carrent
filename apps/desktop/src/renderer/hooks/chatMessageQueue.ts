@@ -164,13 +164,33 @@ function queueContentOf(queue: QueuedChatMessage[] | undefined) {
   }));
 }
 
+// Compares drafts by semantic content only (text, skills, attachments),
+// ignoring `composerState`. The serialized editor state changes on every
+// keystroke (Lexical node keys, selection offsets), so a full-JSON compare
+// treats an authority echo of our own draft as "changed", emitting a store
+// bump that needlessly re-runs the Composer's readback effect while typing.
+function draftsEqualSemantic(
+  a: ThreadWorkDraftSnapshot | null | undefined,
+  b: ThreadWorkDraftSnapshot | null | undefined,
+): boolean {
+  const left = a ?? null;
+  const right = b ?? null;
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.content === right.content &&
+    JSON.stringify(left.attachedSkillNames) === JSON.stringify(right.attachedSkillNames) &&
+    JSON.stringify(left.attachments) === JSON.stringify(right.attachments)
+  );
+}
+
 function workEntriesEqual(
   draft: ThreadWorkDraftSnapshot | undefined,
   queue: QueuedChatMessage[] | undefined,
   work: ThreadWorkSnapshot,
 ): boolean {
   return (
-    JSON.stringify(draft ?? null) === JSON.stringify(work.draft ?? null) &&
+    draftsEqualSemantic(draft, work.draft) &&
     JSON.stringify(queueContentOf(queue)) === JSON.stringify(queueContentOf(work.queuedMessages))
   );
 }

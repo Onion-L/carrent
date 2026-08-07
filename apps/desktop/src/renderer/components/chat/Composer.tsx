@@ -1287,6 +1287,13 @@ export function Composer(props: ComposerProps) {
       return;
     }
     lastAppliedThreadDraftSourceKeyRef.current = threadDraftSourceKey;
+    // TEMP: diagnostic to confirm readback is what steals focus while typing.
+    // Remove once the occasional focus-loss report is resolved.
+    console.warn("[composer-readback] applying shared draft over local input", {
+      threadId: props.threadId,
+      storeContent: draft?.content ?? null,
+      localContent: content,
+    });
     return applySharedThreadDraft(draft);
   }, [props.mode, props.threadId, skills, threadDraftSourceKey, applySharedThreadDraft]);
   // A buffered shared draft and the composition baseline belong to the
@@ -3126,17 +3133,20 @@ export function Composer(props: ComposerProps) {
         // changes threadDraftSourceKey and echoes through readback into the
         // editor (apply -> persist -> readback -> apply ...), losing the caret.
         const existing = getThreadDraft(threadId);
-        // Mark the resulting store state as consumed using the FULL source key
-        // (mode:threadId:snapshot) so the readback effect's equality guard holds.
-        const nextSourceKey = `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
         if (draftsContentEqual(existing, draft)) {
-          lastAppliedThreadDraftSourceKeyRef.current = nextSourceKey;
+          lastAppliedThreadDraftSourceKeyRef.current =
+            `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
         } else if (draft) {
           setThreadDraft(threadId, draft);
-          lastAppliedThreadDraftSourceKeyRef.current = nextSourceKey;
+          // Mark the RESULTING store state as consumed: read the snapshot key
+          // after the write, otherwise the ref holds the pre-write key and the
+          // readback effect re-runs once before its equality guard kicks in.
+          lastAppliedThreadDraftSourceKeyRef.current =
+            `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
         } else {
           clearThreadDraft(threadId);
-          lastAppliedThreadDraftSourceKeyRef.current = nextSourceKey;
+          lastAppliedThreadDraftSourceKeyRef.current =
+            `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
         }
       }
     }, 300);

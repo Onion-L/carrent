@@ -17,7 +17,7 @@ export type ChatPermissionRequest = {
   runId: string;
   requestKey?: string;
   threadId: string;
-  provider: "kimi" | "codex" | "claude-code" | "pi";
+  provider: "kimi";
   action: ChatPermissionAction;
   title: string;
   description?: string;

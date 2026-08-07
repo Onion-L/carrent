@@ -13,46 +13,13 @@ export function normalizeRuntimeMode(value: unknown): RuntimeMode {
 }
 
 export function getRuntimeModeLabel(mode: RuntimeMode, runtimeId?: RuntimeId) {
-  // Kimi uses its native permission-mode names so the picker matches what the
-  // CLI/ACP actually negotiates.
-  if (runtimeId === "kimi") {
-    switch (mode) {
-      case "approval-required":
-        return "Approval required";
-      case "auto-accept-edits":
-        return "Auto";
-      case "full-access":
-        return "Yolo";
-    }
-  }
+  void runtimeId;
   switch (mode) {
     case "approval-required":
       return "Approval required";
     case "auto-accept-edits":
-      return "Auto-accept edits";
+      return "Auto";
     case "full-access":
-      return "Full access";
-  }
-}
-
-export function getCodexRuntimeModeArgs(mode: RuntimeMode): string[] {
-  switch (mode) {
-    case "approval-required":
-      return ["--sandbox", "read-only", "-c", 'approval_policy="on-request"'];
-    case "auto-accept-edits":
-      return ["--sandbox", "workspace-write", "-c", 'approval_policy="on-request"'];
-    case "full-access":
-      return ["--dangerously-bypass-approvals-and-sandbox"];
-  }
-}
-
-export function getClaudeRuntimeModeArgs(mode: RuntimeMode): string[] {
-  switch (mode) {
-    case "approval-required":
-      return ["--permission-mode", "default"];
-    case "auto-accept-edits":
-      return ["--permission-mode", "acceptEdits"];
-    case "full-access":
-      return ["--dangerously-skip-permissions"];
+      return "Yolo";
   }
 }

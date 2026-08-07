@@ -22,9 +22,9 @@ describe("registerRuntimeIpc", () => {
     const calls: string[] = [];
     const listResult: RuntimeRecord[] = [
       {
-        id: "codex",
-        name: "Codex",
-        command: "codex",
+        id: "kimi",
+        name: "Kimi Code",
+        command: "kimi",
         availability: "detected",
         enabled: true,
         status: "stopped",
@@ -116,25 +116,25 @@ describe("registerRuntimeIpc", () => {
     ]);
 
     expect(await handlers.get("runtimes:list")?.({})).toEqual(listResult);
-    expect(await handlers.get("runtimes:local-check")?.({}, "codex")).toEqual(localCheckResult);
-    expect(await handlers.get("runtimes:model-ping")?.({}, "claude-code")).toEqual(modelPingResult);
-    expect(await handlers.get("runtimes:list-models")?.({}, "pi")).toEqual(modelListResult);
-    expect(await handlers.get("runtimes:refresh-version")?.({}, "codex")).toEqual(listResult[0]);
-    await handlers.get("runtimes:start")?.({}, "codex");
-    await handlers.get("runtimes:stop")?.({}, "claude-code");
-    await handlers.get("runtimes:restart")?.({}, "codex");
+    expect(await handlers.get("runtimes:local-check")?.({}, "kimi")).toEqual(localCheckResult);
+    expect(await handlers.get("runtimes:model-ping")?.({}, "kimi")).toEqual(modelPingResult);
+    expect(await handlers.get("runtimes:list-models")?.({}, "kimi")).toEqual(modelListResult);
+    expect(await handlers.get("runtimes:refresh-version")?.({}, "kimi")).toEqual(listResult[0]);
+    await handlers.get("runtimes:start")?.({}, "kimi");
+    await handlers.get("runtimes:stop")?.({}, "kimi");
+    await handlers.get("runtimes:restart")?.({}, "kimi");
     await handlers.get("runtimes:start-all")?.({});
     await handlers.get("runtimes:stop-all")?.({});
     await handlers.get("runtimes:restart-all")?.({});
     expect(calls).toEqual([
       "list",
-      "local-check:codex",
-      "model-ping:claude-code",
-      "list-models:pi",
-      "refresh-version:codex",
-      "start:codex",
-      "stop:claude-code",
-      "restart:codex",
+      "local-check:kimi",
+      "model-ping:kimi",
+      "list-models:kimi",
+      "refresh-version:kimi",
+      "start:kimi",
+      "stop:kimi",
+      "restart:kimi",
       "start-all",
       "stop-all",
       "restart-all",

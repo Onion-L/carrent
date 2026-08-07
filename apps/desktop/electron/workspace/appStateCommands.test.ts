@@ -500,7 +500,7 @@ describe("association:set-defaults", () => {
     const next = reduce("association:set-defaults", makeSnapshot(), {
       workspaceId: "ws-a",
       projectId: "proj-1",
-      defaults: { runtimeId: "codex", runtimeModelId: "gpt-5", runtimeMode: "full-access" },
+      defaults: { runtimeId: "kimi", runtimeModelId: "kimi-k2.5", runtimeMode: "full-access" },
     });
 
     const snapshot = next as AppStateSnapshot;
@@ -509,8 +509,8 @@ describe("association:set-defaults", () => {
         (item) => item.workspaceId === "ws-a" && item.projectId === "proj-1",
       ),
     ).toMatchObject({
-      defaultRuntimeId: "codex",
-      defaultRuntimeModelId: "gpt-5",
+      defaultRuntimeId: "kimi",
+      defaultRuntimeModelId: "kimi-k2.5",
       defaultRuntimeMode: "full-access",
     });
   });
@@ -599,12 +599,12 @@ describe("thread:update-config", () => {
   it("updates only the provided fields", () => {
     const next = reduce("thread:update-config", makeSnapshot(), {
       threadId: "t-1",
-      config: { runtimeId: "codex", planMode: true },
+      config: { runtimeId: "kimi", planMode: true },
     });
 
     const thread = (next as AppStateSnapshot).threads?.find((item) => item.id === "t-1");
     expect(thread).toMatchObject({
-      runtimeId: "codex",
+      runtimeId: "kimi",
       runtimeMode: "approval-required",
       planMode: true,
     });
@@ -716,7 +716,7 @@ describe("settings:update", () => {
         enhancedTerminalCompletion: false,
         terminalPanelHeight: 400,
         runtimeEnabledById: { kimi: false },
-        runtimeDefaultModelById: { codex: "gpt-5" },
+        runtimeDefaultModelById: { kimi: "kimi-k2.5" },
       },
     });
 
@@ -728,7 +728,7 @@ describe("settings:update", () => {
       enhancedTerminalCompletion: false,
       terminalPanelHeight: 400,
       runtimeEnabledById: { kimi: false },
-      runtimeDefaultModelById: { codex: "gpt-5" },
+      runtimeDefaultModelById: { kimi: "kimi-k2.5" },
     });
     expect(normalizeAppStateSnapshotForWrite(snapshot)).not.toBe(null);
   });
@@ -888,15 +888,15 @@ describe("thread-draft commands", () => {
     const updated = reduce("thread-draft:update-config", makeSnapshot(), {
       draftId: "d-1",
       config: {
-        runtimeId: "codex",
-        runtimeModelId: "gpt-5",
+        runtimeId: "kimi",
+        runtimeModelId: "kimi-k2.5",
         runtimeMode: "full-access",
         planMode: true,
       },
     }) as AppStateSnapshot;
     expect(updated.threadDrafts?.[0]).toMatchObject({
-      runtimeId: "codex",
-      runtimeModelId: "gpt-5",
+      runtimeId: "kimi",
+      runtimeModelId: "kimi-k2.5",
       runtimeMode: "full-access",
       planMode: true,
     });
@@ -1213,29 +1213,6 @@ describe("thread run and action commands", () => {
       runEventCount: 4,
       parts: [{ item: { id: "run-1-thinking-1", status: "cancelled" } }],
     });
-  });
-
-  it("leaves non-Kimi message replacement behavior unchanged", () => {
-    const recorded = reduce("thread:record-run", makeSnapshot(), runPayload()) as AppStateSnapshot;
-    const codexSnapshot = {
-      ...recorded,
-      threadRuns: recorded.threadRuns?.map((run) => ({ ...run, runtimeId: "codex" as const })),
-      threadMessages: recorded.threadMessages?.map((message) =>
-        message.id === "assistant-1" ? { ...message, content: "first", runEventCount: 1 } : message,
-      ),
-    };
-    const replaced = reduce("thread-content:update", codexSnapshot, {
-      threadId: "t-1",
-      messages: codexSnapshot.threadMessages?.map((message) =>
-        message.id === "assistant-1"
-          ? { ...message, content: "second", runEventCount: 1 }
-          : message,
-      ),
-    }) as AppStateSnapshot;
-
-    expect(replaced.threadMessages?.find((message) => message.id === "assistant-1")?.content).toBe(
-      "second",
-    );
   });
 
   it("rejects recording a run for unknown or archived threads", () => {

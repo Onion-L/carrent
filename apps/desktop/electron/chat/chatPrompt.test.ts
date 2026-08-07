@@ -11,7 +11,7 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
       workingDirectory: "/Users/onion/workbench/timbre",
     },
     threadId: "thread-1",
-    runtimeId: "codex",
+    runtimeId: "kimi",
     runtimeMode: "approval-required",
     planMode: false,
     transcript: [],

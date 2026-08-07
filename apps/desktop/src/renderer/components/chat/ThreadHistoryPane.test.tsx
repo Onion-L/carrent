@@ -45,11 +45,11 @@ describe("getThreadRuntimeSessionId", () => {
         title: "Test",
         createdAt: "2026-07-27T08:00:00.000Z",
         lastActivityAt: "2026-07-27T08:00:00.000Z",
-        runtimeId: "codex",
+        runtimeId: "kimi",
         runtimeMode: "approval-required",
         planMode: false,
       }),
-    ).toBe("codex-session");
+    ).toBe("kimi-session");
   });
 
   it("uses the persisted Kimi runtime", () => {

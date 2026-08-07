@@ -33,9 +33,7 @@ export function RuntimesPage() {
     loading: runtimeModelsLoading,
     error: runtimeModelsError,
     refresh: refreshRuntimeModels,
-  } = useRuntimeModels(
-    selectedRuntime?.id === "pi" || selectedRuntime?.id === "kimi" ? selectedRuntime.id : null,
-  );
+  } = useRuntimeModels(selectedRuntime?.id ?? null);
 
   const getActionState = (id: string) => actionStateById[id] ?? "idle";
 
@@ -107,15 +105,7 @@ export function RuntimesPage() {
                       {selectedRuntime.enabled ? "Ready" : "Disabled"}
                     </span>
                     <span className="text-subtle">·</span>
-                    <span>
-                      {selectedRuntime.id === "kimi"
-                        ? "Moonshot AI"
-                        : selectedRuntime.id === "claude-code"
-                          ? "Anthropic"
-                          : selectedRuntime.id === "codex"
-                            ? "OpenAI"
-                            : selectedRuntime.id}
-                    </span>
+                    <span>Moonshot AI</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -210,7 +200,7 @@ export function RuntimesPage() {
                 </div>
               </div>
 
-              {selectedRuntime.id === "pi" && (
+              {selectedRuntime.id === "kimi" && (
                 <div className="mt-10 border-t border-border pt-6">
                   <div className="flex items-start justify-between gap-4">
                     <div>

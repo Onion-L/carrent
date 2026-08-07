@@ -1,7 +1,4 @@
-import { OpenAIIcon } from "./icons/OpenAIIcon";
-import { ClaudeIcon } from "./icons/ClaudeIcon";
 import { KimiIcon } from "./icons/KimiIcon";
-import { PiIcon } from "./icons/PiIcon";
 
 export function RuntimeIcon({
   name,
@@ -24,39 +21,12 @@ export function RuntimeIcon({
     lg: "h-6 w-6",
   };
 
-  if (key.includes("codex") || key.includes("openai")) {
-    return (
-      <div
-        className={`flex shrink-0 items-center justify-center bg-surface-raised text-fg ${sizeClasses[size]}`}
-      >
-        <OpenAIIcon className={iconSizes[size]} />
-      </div>
-    );
-  }
   if (key.includes("kimi")) {
     return (
       <div
         className={`flex shrink-0 items-center justify-center bg-surface-raised ${sizeClasses[size]}`}
       >
         <KimiIcon className={iconSizes[size]} />
-      </div>
-    );
-  }
-  if (key.includes("claude")) {
-    return (
-      <div
-        className={`flex shrink-0 items-center justify-center bg-surface-raised ${sizeClasses[size]}`}
-      >
-        <ClaudeIcon className={iconSizes[size]} />
-      </div>
-    );
-  }
-  if (key.includes("pi")) {
-    return (
-      <div
-        className={`flex shrink-0 items-center justify-center bg-surface-raised text-fg ${sizeClasses[size]}`}
-      >
-        <PiIcon className={iconSizes[size]} />
       </div>
     );
   }

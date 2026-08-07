@@ -28,10 +28,10 @@ describe("createRuntimeModelsStore", () => {
       now: () => 1000,
     });
 
-    await Promise.all([store.ensureFresh("pi"), store.ensureFresh("pi")]);
+    await Promise.all([store.ensureFresh("kimi"), store.ensureFresh("kimi")]);
 
     expect(calls).toBe(1);
-    expect(store.getState().resultById.pi?.models[0]?.id).toBe("deepseek/deepseek-v4-flash");
+    expect(store.getState().resultById.kimi?.models[0]?.id).toBe("deepseek/deepseek-v4-flash");
   });
 
   it("reuses cached results inside the TTL", async () => {
@@ -45,12 +45,12 @@ describe("createRuntimeModelsStore", () => {
       now: () => now,
     });
 
-    await store.ensureFresh("pi");
+    await store.ensureFresh("kimi");
     now += RUNTIME_MODELS_CACHE_TTL_MS - 1;
-    await store.ensureFresh("pi");
+    await store.ensureFresh("kimi");
 
     expect(calls).toBe(1);
-    expect(store.getState().resultById.pi?.models[0]?.id).toBe("model-1");
+    expect(store.getState().resultById.kimi?.models[0]?.id).toBe("model-1");
   });
 
   it("returns stale data and refreshes in the background after the TTL", async () => {
@@ -71,18 +71,18 @@ describe("createRuntimeModelsStore", () => {
       now: () => now,
     });
 
-    await store.ensureFresh("pi");
+    await store.ensureFresh("kimi");
     now += RUNTIME_MODELS_CACHE_TTL_MS + 1;
 
-    const staleRefresh = store.ensureFresh("pi");
-    expect(store.getState().resultById.pi?.models[0]?.id).toBe("model-1");
-    expect(store.getState().loadingById.pi).toBe(true);
+    const staleRefresh = store.ensureFresh("kimi");
+    expect(store.getState().resultById.kimi?.models[0]?.id).toBe("model-1");
+    expect(store.getState().loadingById.kimi).toBe(true);
 
     resolveRefresh(createListedResult("model-2"));
     await staleRefresh;
 
     expect(calls).toBe(2);
-    expect(store.getState().resultById.pi?.models[0]?.id).toBe("model-2");
+    expect(store.getState().resultById.kimi?.models[0]?.id).toBe("model-2");
   });
 
   it("force refresh ignores the TTL", async () => {
@@ -95,11 +95,11 @@ describe("createRuntimeModelsStore", () => {
       now: () => 1000,
     });
 
-    await store.ensureFresh("pi");
-    await store.refresh("pi");
+    await store.ensureFresh("kimi");
+    await store.refresh("kimi");
 
     expect(calls).toBe(2);
-    expect(store.getState().resultById.pi?.models[0]?.id).toBe("model-2");
+    expect(store.getState().resultById.kimi?.models[0]?.id).toBe("model-2");
   });
 
   it("keeps stale data when refresh fails", async () => {
@@ -117,12 +117,12 @@ describe("createRuntimeModelsStore", () => {
       now: () => now,
     });
 
-    await store.ensureFresh("pi");
+    await store.ensureFresh("kimi");
     now += RUNTIME_MODELS_CACHE_TTL_MS + 1;
-    await store.ensureFresh("pi");
+    await store.ensureFresh("kimi");
 
-    expect(store.getState().resultById.pi?.models[0]?.id).toBe("model-1");
-    expect(store.getState().errorById.pi).toBe("network down");
+    expect(store.getState().resultById.kimi?.models[0]?.id).toBe("model-1");
+    expect(store.getState().errorById.kimi).toBe("network down");
   });
 
   it("keeps stale data when the runtime returns a failed result", async () => {
@@ -144,11 +144,11 @@ describe("createRuntimeModelsStore", () => {
       now: () => now,
     });
 
-    await store.ensureFresh("pi");
+    await store.ensureFresh("kimi");
     now += RUNTIME_MODELS_CACHE_TTL_MS + 1;
-    await store.ensureFresh("pi");
+    await store.ensureFresh("kimi");
 
-    expect(store.getState().resultById.pi?.models[0]?.id).toBe("model-1");
-    expect(store.getState().errorById.pi).toBe("auth missing");
+    expect(store.getState().resultById.kimi?.models[0]?.id).toBe("model-1");
+    expect(store.getState().errorById.kimi).toBe("auth missing");
   });
 });

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 
-import { DEFAULT_RUNTIME_ID, normalizeRuntimeId, runtimeIds, runtimeNameMap } from "./runtimes";
+import {
+  DEFAULT_RUNTIME_ID,
+  normalizePersistedRuntimeId,
+  normalizeRuntimeId,
+  runtimeIds,
+  runtimeNameMap,
+} from "./runtimes";
 
 describe("runtimes", () => {
   it("uses Kimi Code as the default runtime", () => {
@@ -8,13 +14,11 @@ describe("runtimes", () => {
     expect(runtimeNameMap.kimi).toBe("Kimi Code");
   });
 
-  it("keeps legacy runtime ids valid for persisted records", () => {
-    expect(runtimeIds).toContain("codex");
-    expect(runtimeIds).toContain("claude-code");
-    expect(runtimeIds).toContain("pi");
-    expect(normalizeRuntimeId("codex")).toBe("codex");
-    expect(normalizeRuntimeId("claude-code")).toBe("claude-code");
-    expect(normalizeRuntimeId("pi")).toBe("pi");
+  it("exposes only Kimi while migrating legacy persisted ids", () => {
+    expect(runtimeIds).toEqual(["kimi"]);
+    expect(normalizePersistedRuntimeId("codex")).toBe("kimi");
+    expect(normalizePersistedRuntimeId("claude-code")).toBe("kimi");
+    expect(normalizePersistedRuntimeId("pi")).toBe("kimi");
   });
 
   it("normalizes invalid runtime ids to Kimi Code", () => {

@@ -7,7 +7,7 @@ import {
 } from "./attachment";
 import type { ChatPermissionOption } from "./chatPermissions";
 import { isRuntimeMode, type RuntimeMode } from "./runtimeMode";
-import { runtimeIds, type RuntimeId } from "./runtimes";
+import { normalizePersistedRuntimeId, runtimeIds, type RuntimeId } from "./runtimes";
 import { MAX_TERMINAL_PANEL_HEIGHT, MIN_TERMINAL_PANEL_HEIGHT } from "./terminal";
 import {
   normalizeRunChecklistEntries,
@@ -499,7 +499,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       typeof association.order !== "number" ||
       !Number.isInteger(association.order) ||
       association.order < 0 ||
-      !runtimeIds.includes(association.defaultRuntimeId as RuntimeId) ||
+      !normalizePersistedRuntimeId(association.defaultRuntimeId) ||
       !isRuntimeMode(association.defaultRuntimeMode)
     ) {
       return null;
@@ -526,8 +526,8 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       projectId: association.projectId,
       ...(association.alias ? { alias: association.alias } : {}),
       order: association.order,
-      defaultRuntimeId: association.defaultRuntimeId as RuntimeId,
-      ...(association.defaultRuntimeModelId
+      defaultRuntimeId: normalizePersistedRuntimeId(association.defaultRuntimeId)!,
+      ...(association.defaultRuntimeId === "kimi" && association.defaultRuntimeModelId
         ? { defaultRuntimeModelId: association.defaultRuntimeModelId }
         : {}),
       defaultRuntimeMode: association.defaultRuntimeMode,
@@ -559,14 +559,17 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       !isIsoTimestamp(thread.lastActivityAt) ||
       (thread.archived !== undefined && typeof thread.archived !== "boolean") ||
       (thread.pinned !== undefined && typeof thread.pinned !== "boolean") ||
-      !runtimeIds.includes(thread.runtimeId as RuntimeId) ||
+      !normalizePersistedRuntimeId(thread.runtimeId) ||
       !isRuntimeMode(thread.runtimeMode) ||
       typeof thread.planMode !== "boolean"
     ) {
       return null;
     }
-    const runtimeModelId = normalizePersistedModelId(thread.runtimeModelId);
-    if (thread.runtimeModelId !== undefined && !runtimeModelId) return null;
+    const runtimeModelId =
+      thread.runtimeId === "kimi" ? normalizePersistedModelId(thread.runtimeModelId) : undefined;
+    if (thread.runtimeId === "kimi" && thread.runtimeModelId !== undefined && !runtimeModelId) {
+      return null;
+    }
     const runChecklist = normalizeThreadRunChecklist(thread.runChecklist);
     if (thread.runChecklist !== undefined && !runChecklist) return null;
 
@@ -580,7 +583,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       lastActivityAt: thread.lastActivityAt,
       ...(thread.archived === true ? { archived: true } : {}),
       ...(thread.pinned === true ? { pinned: true } : {}),
-      runtimeId: thread.runtimeId as RuntimeId,
+      runtimeId: normalizePersistedRuntimeId(thread.runtimeId)!,
       ...(runtimeModelId ? { runtimeModelId } : {}),
       runtimeMode: thread.runtimeMode,
       planMode: thread.planMode,
@@ -635,7 +638,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       ) ||
       new Set(draft.attachedSkillNames).size !== draft.attachedSkillNames.length ||
       !Array.isArray(draft.attachments) ||
-      !runtimeIds.includes(draft.runtimeId as RuntimeId) ||
+      !normalizePersistedRuntimeId(draft.runtimeId) ||
       !isRuntimeMode(draft.runtimeMode) ||
       typeof draft.planMode !== "boolean"
     ) {
@@ -645,8 +648,11 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       normalizeAttachmentMetadata(attachment, allowLegacyAttachmentKindInference),
     );
     if (attachments.some((attachment) => !attachment)) return null;
-    const runtimeModelId = normalizePersistedModelId(draft.runtimeModelId);
-    if (draft.runtimeModelId !== undefined && !runtimeModelId) return null;
+    const runtimeModelId =
+      draft.runtimeId === "kimi" ? normalizePersistedModelId(draft.runtimeModelId) : undefined;
+    if (draft.runtimeId === "kimi" && draft.runtimeModelId !== undefined && !runtimeModelId) {
+      return null;
+    }
 
     draftIds.add(draft.id);
     draftAssociationKeys.add(associationKey);
@@ -660,7 +666,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       ...(draft.composerState ? { composerState: draft.composerState } : {}),
       attachedSkillNames: [...draft.attachedSkillNames],
       attachments: attachments as AttachmentMetadata[],
-      runtimeId: draft.runtimeId as RuntimeId,
+      runtimeId: normalizePersistedRuntimeId(draft.runtimeId)!,
       ...(runtimeModelId ? { runtimeModelId } : {}),
       runtimeMode: draft.runtimeMode,
       planMode: draft.planMode,
@@ -728,14 +734,17 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
           run.assistantMessageId === run.messageId ||
           messageThreadIds.get(run.assistantMessageId) !== run.threadId)) ||
       !isIsoTimestamp(run.startedAt) ||
-      !runtimeIds.includes(run.runtimeId as RuntimeId) ||
+      !normalizePersistedRuntimeId(run.runtimeId) ||
       !isRuntimeMode(run.runtimeMode) ||
       typeof run.planMode !== "boolean"
     ) {
       return null;
     }
-    const runtimeModelId = normalizePersistedModelId(run.runtimeModelId);
-    if (run.runtimeModelId !== undefined && !runtimeModelId) return null;
+    const runtimeModelId =
+      run.runtimeId === "kimi" ? normalizePersistedModelId(run.runtimeModelId) : undefined;
+    if (run.runtimeId === "kimi" && run.runtimeModelId !== undefined && !runtimeModelId) {
+      return null;
+    }
 
     runIds.add(run.id);
     threadRuns.push({
@@ -746,7 +755,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
         ? { assistantMessageId: run.assistantMessageId }
         : {}),
       startedAt: run.startedAt,
-      runtimeId: run.runtimeId as RuntimeId,
+      runtimeId: normalizePersistedRuntimeId(run.runtimeId)!,
       ...(runtimeModelId ? { runtimeModelId } : {}),
       runtimeMode: run.runtimeMode,
       planMode: run.planMode,
@@ -769,7 +778,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       typeof action.threadId !== "string" ||
       !threadIds.has(action.threadId) ||
       action.action !== "compact" ||
-      !runtimeIds.includes(action.runtimeId as RuntimeId) ||
+      !normalizePersistedRuntimeId(action.runtimeId) ||
       !isIsoTimestamp(action.completedAt)
     ) {
       continue;
@@ -779,7 +788,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       id: action.id,
       threadId: action.threadId,
       action: "compact",
-      runtimeId: action.runtimeId as RuntimeId,
+      runtimeId: normalizePersistedRuntimeId(action.runtimeId)!,
       completedAt: action.completedAt,
     });
   }
@@ -817,7 +826,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       typeof intent.message !== "string" ||
       !Array.isArray(intent.attachments) ||
       !isIsoTimestamp(intent.startedAt) ||
-      !runtimeIds.includes(intent.runtimeId as RuntimeId) ||
+      !normalizePersistedRuntimeId(intent.runtimeId) ||
       !isRuntimeMode(intent.runtimeMode) ||
       typeof intent.planMode !== "boolean"
     ) {
@@ -827,8 +836,11 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       normalizeAttachmentMetadata(attachment, allowLegacyAttachmentKindInference),
     );
     if (attachments.some((attachment) => !attachment)) return null;
-    const runtimeModelId = normalizePersistedModelId(intent.runtimeModelId);
-    if (intent.runtimeModelId !== undefined && !runtimeModelId) return null;
+    const runtimeModelId =
+      intent.runtimeId === "kimi" ? normalizePersistedModelId(intent.runtimeModelId) : undefined;
+    if (intent.runtimeId === "kimi" && intent.runtimeModelId !== undefined && !runtimeModelId) {
+      return null;
+    }
 
     intentDraftIds.add(intent.draftId);
     intentRunIds.add(intent.runId);
@@ -844,7 +856,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       message: intent.message,
       attachments: attachments as AttachmentMetadata[],
       startedAt: intent.startedAt,
-      runtimeId: intent.runtimeId as RuntimeId,
+      runtimeId: normalizePersistedRuntimeId(intent.runtimeId)!,
       ...(runtimeModelId ? { runtimeModelId } : {}),
       runtimeMode: intent.runtimeMode,
       planMode: intent.planMode,
@@ -911,7 +923,8 @@ function normalizePersistedModelId(value: unknown): string | undefined {
 export function normalizeThreadRunChecklist(value: unknown): ThreadRunChecklist | null {
   if (!isRecord(value)) return null;
   if (typeof value.runId !== "string" || !value.runId.trim()) return null;
-  if (!runtimeIds.includes(value.runtimeId as ThreadRunChecklist["runtimeId"])) return null;
+  const runtimeId = normalizePersistedRuntimeId(value.runtimeId);
+  if (!runtimeId) return null;
   if (typeof value.expanded !== "boolean") return null;
   if (
     value.outcome !== "running" &&
@@ -926,7 +939,7 @@ export function normalizeThreadRunChecklist(value: unknown): ThreadRunChecklist 
 
   return {
     runId: value.runId,
-    runtimeId: value.runtimeId as ThreadRunChecklist["runtimeId"],
+    runtimeId,
     outcome: value.outcome as RunChecklistOutcome,
     expanded: value.expanded,
     entries,
@@ -1516,7 +1529,9 @@ export function normalizeProviderSessionSnapshot(value: unknown): ProviderSessio
 
   const sessions: Record<string, string> = {};
   for (const [key, sessionId] of Object.entries(value.sessions)) {
-    sessions[key] = typeof sessionId === "string" ? sessionId : "";
+    if (key.startsWith("kimi:")) {
+      sessions[key] = typeof sessionId === "string" ? sessionId : "";
+    }
   }
 
   return { version: 1, sessions };

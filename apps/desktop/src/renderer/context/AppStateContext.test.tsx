@@ -430,13 +430,13 @@ describe("multi-window synchronization", () => {
     await act(async () => {
       expect(
         await contextValue!.updateThreadConfig("sync-thread-1", {
-          runtimeId: "codex",
+          runtimeId: "kimi",
           planMode: true,
         }),
       ).toBe(true);
     });
     expect(contextB!.threads.find((thread) => thread.id === "sync-thread-1")).toMatchObject({
-      runtimeId: "codex",
+      runtimeId: "kimi",
       planMode: true,
     });
   });
@@ -532,14 +532,14 @@ describe("multi-window synchronization", () => {
     await act(async () => {
       expect(
         await contextB!.updateThreadDraftConfig(draft!.id, {
-          runtimeId: "codex",
+          runtimeId: "kimi",
           runtimeMode: "full-access",
           planMode: true,
         }),
       ).toBe(true);
     });
     expect(contextValue!.threadDrafts[0]).toMatchObject({
-      runtimeId: "codex",
+      runtimeId: "kimi",
       runtimeMode: "full-access",
       planMode: true,
     });
@@ -698,7 +698,7 @@ describe("multi-window synchronization", () => {
     await act(async () => {
       expect(
         await contextValue!.updateThreadDraftConfig(draft!.id, {
-          runtimeId: "codex",
+          runtimeId: "kimi",
           runtimeMode: "full-access",
           planMode: true,
         }),
@@ -726,7 +726,7 @@ describe("multi-window synchronization", () => {
     expect(contextValue!.threadDrafts[0]).toMatchObject({
       content: "restart me",
       attachedSkillNames: ["tdd"],
-      runtimeId: "codex",
+      runtimeId: "kimi",
       runtimeMode: "full-access",
       planMode: true,
     });

@@ -698,11 +698,6 @@ if (!hasSingleInstanceLock) {
       spawn,
       providerSessions: providerSessionStore,
       attachmentStore,
-      browserEnvironment: (request) =>
-        browserManager?.createOpenEnvironment({
-          projectId: request.context.projectId,
-          threadId: request.threadId,
-        }) ?? {},
       carrentBridgeFactory: async () => {
         return bridgeManager.getRuntimeHandle();
       },

@@ -499,6 +499,81 @@ describe("registerChatIpc", () => {
     expect(started).toHaveLength(0);
   });
 
+  it("rejects a legacy runtime in chat:send", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const started: unknown[] = [];
+    registerChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager: {
+          start: (...args) => started.push(args),
+          stop: () => {},
+          removeRuntimeSession: async () => {},
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: async () => {},
+          getStatus: async () => null,
+        },
+      },
+    );
+
+    let error: unknown;
+    try {
+      await handlers.get("chat:send")?.({}, {
+        ...makeRequest(),
+        runtimeId: "codex",
+      } as unknown as ChatTurnRequest);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error instanceof Error ? error.message : String(error)).toBe("Invalid runtime.");
+    expect(started).toHaveLength(0);
+  });
+
+  it("rejects a legacy runtime in status requests", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const statusRequests: unknown[] = [];
+    registerChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          removeRuntimeSession: async () => {},
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: async () => {},
+          getStatus: async (request) => {
+            statusRequests.push(request);
+            return null;
+          },
+          inspectStatus: async (request) => {
+            statusRequests.push(request);
+            return null;
+          },
+        },
+      },
+    );
+
+    for (const channel of ["chat:kimi-status", "chat:session-status"]) {
+      let error: unknown;
+      try {
+        await handlers.get(channel)?.({}, {
+          ...makeRequest(),
+          runtimeId: "codex",
+        } as unknown as ChatTurnRequest);
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error instanceof Error ? error.message : String(error)).toBe("Invalid runtime.");
+    }
+
+    expect(statusRequests).toHaveLength(0);
+  });
+
   it("forwards attachments with the chat:send request", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const started: { runId: string; request: ChatTurnRequest }[] = [];
@@ -679,43 +754,6 @@ describe("registerChatIpc", () => {
     });
   });
 
-  it("rejects legacy runtimes before starting the session", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const started: { runId: string; request: ChatTurnRequest }[] = [];
-
-    registerChatIpc(
-      {
-        handle(channel, listener) {
-          handlers.set(channel, listener);
-        },
-      },
-      {
-        sessionManager: {
-          start: (runId, request) => {
-            started.push({ runId, request });
-          },
-          stop: () => {},
-          removeRuntimeSession: async () => {},
-          deleteThreadData: async () => {},
-          respondToPermission: () => {},
-          respondToQuestion: () => {},
-          shutdown: async () => {},
-          getStatus: async () => null,
-        },
-      },
-    );
-
-    let error = "";
-    try {
-      await handlers.get("chat:send")?.({}, makeRequest({ runtimeId: "codex" }));
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-    }
-
-    expect(error).toContain("unavailable in Carrent V1");
-    expect(started).toHaveLength(0);
-  });
-
   it("chat:stop calls session manager stop", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const stopped: string[] = [];
@@ -744,43 +782,6 @@ describe("registerChatIpc", () => {
 
     await handlers.get("chat:stop")?.({}, "run-123");
     expect(stopped).toEqual(["run-123"]);
-  });
-
-  it("chat:kimi-status returns null for non-kimi runtimes", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-
-    registerChatIpc(
-      {
-        handle(channel, listener) {
-          handlers.set(channel, listener);
-        },
-      },
-      {
-        sessionManager: {
-          start: () => {},
-          stop: () => {},
-          removeRuntimeSession: async () => {},
-          deleteThreadData: async () => {},
-          respondToPermission: () => {},
-          respondToQuestion: () => {},
-          shutdown: async () => {},
-          getStatus: async () => ({
-            sessionId: "session-status",
-            model: "kimi-code/kimi-for-coding",
-            used: 1000,
-            total: 200000,
-            percentage: 0.5,
-            supportedCommands: ["status"],
-          }),
-        },
-      },
-    );
-
-    const result = await handlers.get("chat:kimi-status")?.(
-      {},
-      makeRequest({ runtimeId: "codex" }),
-    );
-    expect(result).toBe(null);
   });
 
   it("chat:kimi-status forwards to the session manager for kimi", async () => {

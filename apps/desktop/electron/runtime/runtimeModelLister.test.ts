@@ -1,82 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import os from "node:os";
 
 import type { RuntimeDescriptor } from "../../src/shared/runtimes";
-import { listKimiRuntimeModels, listRuntimeModels, parsePiModelList } from "./runtimeModelLister";
 import type { KimiAcpTransport } from "../chat/kimiAcpChat";
+import { listKimiRuntimeModels, listRuntimeModels } from "./runtimeModelLister";
 
-const SAMPLE_MODEL_TABLE = `provider    model                   context  max-out  thinking  images
-deepseek    deepseek-v4-flash       1M       384K     yes       no
-minimax-cn  MiniMax-M2.7-highspeed  204.8K   131.1K   yes       no
-`;
-
-function createPiRuntimeDescriptor(): RuntimeDescriptor {
-  return {
-    id: "pi",
-    name: "pi",
-    command: "pi",
-    versionArgs: ["--version"],
-    configMarkers: ["~/.pi"],
-    supportsModelPing: true,
-    detection: {
-      localCheck: {
-        mayUseTokens: false,
-      },
-    },
-    verification: {
-      modelPing: {
-        prompt: "Reply with exactly OK.",
-        mayUseTokens: true,
-      },
-    },
-  };
-}
-
-function createCodexRuntimeDescriptor(): RuntimeDescriptor {
-  return {
-    id: "codex",
-    name: "Codex",
-    command: "codex",
-    versionArgs: ["--version"],
-    configMarkers: ["~/.codex", "~/.config/codex"],
-    supportsModelPing: true,
-    detection: {
-      localCheck: {
-        mayUseTokens: false,
-      },
-    },
-    verification: {
-      modelPing: {
-        prompt: "Reply with exactly OK.",
-        mayUseTokens: true,
-      },
-    },
-  };
-}
-
-function createSuccessResult(stdout: string) {
-  return {
-    ok: true,
-    exitCode: 0,
-    stdout,
-    stderr: "",
-    signal: null,
-    timedOut: false,
-  };
-}
-
-function createFailureResult(stderr: string, stdout = "") {
-  return {
-    ok: false,
-    exitCode: 1,
-    stdout,
-    stderr,
-    signal: null,
-    timedOut: false,
-  };
-}
-
-function createKimiRuntimeDescriptor(): RuntimeDescriptor {
+function createRuntimeDescriptor(): RuntimeDescriptor {
   return {
     id: "kimi",
     name: "Kimi Code",
@@ -84,290 +12,123 @@ function createKimiRuntimeDescriptor(): RuntimeDescriptor {
     versionArgs: ["--version"],
     configMarkers: ["~/.kimi-code", "~/.config/kimi-code"],
     supportsModelPing: false,
-    detection: {
-      localCheck: {
-        mayUseTokens: false,
-      },
-    },
+    detection: { localCheck: { mayUseTokens: false } },
     verification: {},
   };
 }
 
-function respondAcp(
-  transport: FakeKimiAcpTransport,
-  request: Record<string, unknown>,
-  result: unknown,
-) {
-  transport.emitMessage({ jsonrpc: "2.0", id: request.id, result });
-}
-
 class FakeKimiAcpTransport implements KimiAcpTransport {
-  readonly sent: Array<Record<string, unknown>> = [];
-  private readonly messageListeners: Array<(message: Record<string, unknown>) => void> = [];
+  private messageListener: (message: Record<string, unknown>) => void = () => {};
+  private errorListener: (error: Error) => void = () => {};
+  private closeListener: Parameters<KimiAcpTransport["onClose"]>[0] = () => {};
 
   constructor(
-    private readonly onSend: (
-      transport: FakeKimiAcpTransport,
-      message: Record<string, unknown>,
-    ) => void,
+    private readonly failOnInitialize = false,
+    private readonly hasModel = true,
+    private readonly closeOnInitialize = false,
   ) {}
 
   send(message: Record<string, unknown>) {
-    this.sent.push(message);
-    this.onSend(this, message);
+    if (message.method === "initialize") {
+      if (this.failOnInitialize) {
+        this.errorListener(new Error("ACP unavailable"));
+        return;
+      }
+      if (this.closeOnInitialize) {
+        this.closeListener({ code: 1, signal: null, stderr: "ACP exited" });
+        return;
+      }
+      this.messageListener({ jsonrpc: "2.0", id: message.id, result: { protocolVersion: 1 } });
+      return;
+    }
+    if (message.method === "session/new") {
+      this.messageListener({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: {
+          configOptions: this.hasModel
+            ? [
+                {
+                  id: "model",
+                  category: "model",
+                  currentValue: "kimi-for-coding",
+                  options: [
+                    { value: "kimi-for-coding", name: "Kimi for Coding" },
+                    { value: "kimi-for-coding-highspeed", name: "Kimi for Coding High Speed" },
+                  ],
+                },
+              ]
+            : [],
+        },
+      });
+    }
   }
 
   close() {}
-
   onMessage(listener: (message: Record<string, unknown>) => void) {
-    this.messageListeners.push(listener);
+    this.messageListener = listener;
   }
-
-  onError() {}
-
-  onClose() {}
-
-  emitMessage(message: Record<string, unknown>) {
-    this.messageListeners.forEach((listener) => listener(message));
+  onError(listener: (error: Error) => void) {
+    this.errorListener = listener;
+  }
+  onClose(listener: Parameters<KimiAcpTransport["onClose"]>[0]) {
+    this.closeListener = listener;
   }
 }
 
-describe("parsePiModelList", () => {
-  it("maps sample table to expected records", () => {
-    expect(parsePiModelList(SAMPLE_MODEL_TABLE)).toEqual([
-      {
-        id: "deepseek/deepseek-v4-flash",
-        name: "deepseek-v4-flash",
-        provider: "deepseek",
-        source: "cli",
-        contextWindow: "1M",
-        maxOutput: "384K",
-        supportsThinking: true,
-        supportsImages: false,
-      },
-      {
-        id: "minimax-cn/MiniMax-M2.7-highspeed",
-        name: "MiniMax-M2.7-highspeed",
-        provider: "minimax-cn",
-        source: "cli",
-        contextWindow: "204.8K",
-        maxOutput: "131.1K",
-        supportsThinking: true,
-        supportsImages: false,
-      },
-    ]);
-  });
-
-  it("ignores blank and malformed rows", () => {
-    expect(
-      parsePiModelList(`
-
-provider    model                   context  max-out  thinking  images
-malformed
-this        is                      not      a        model     row
-UPPER       HEADER                  context  max-out  thinking  images
-deepseek    bad-flags               1M       384K     maybe     no
-deepseek    extra-column            1M       384K     yes       no      ignored
-deepseek    deepseek-v4-flash       1M       384K     yes       no
-minimax-cn  MiniMax-M2.7-highspeed
-`),
-    ).toEqual([
-      {
-        id: "deepseek/deepseek-v4-flash",
-        name: "deepseek-v4-flash",
-        provider: "deepseek",
-        source: "cli",
-        contextWindow: "1M",
-        maxOutput: "384K",
-        supportsThinking: true,
-        supportsImages: false,
-      },
-    ]);
-  });
-});
-
-describe("listRuntimeModels", () => {
-  it("returns unsupported for non-pi without invoking the CLI", async () => {
-    let runCalls = 0;
-
-    const result = await listRuntimeModels(createCodexRuntimeDescriptor(), {
-      run: async () => {
-        runCalls += 1;
-        return createSuccessResult("");
-      },
-    });
-
-    expect(result).toEqual({
-      state: "unsupported",
-      models: [],
-    });
-    expect(runCalls).toBe(0);
-  });
-
-  it("runs pi --list-models and returns listed with lastListedAt", async () => {
-    const calls: Array<{
-      command: string;
-      args: string[];
-      cwd?: string;
-      timeoutMs?: number;
-    }> = [];
-
-    const result = await listRuntimeModels(createPiRuntimeDescriptor(), {
-      now: () => new Date("2026-04-23T00:00:00.000Z"),
-      run: async (command, args, options) => {
-        calls.push({
-          command,
-          args,
-          cwd: options?.cwd,
-          timeoutMs: options?.timeoutMs,
-        });
-        return createSuccessResult(SAMPLE_MODEL_TABLE);
-      },
-    });
-
+describe("listKimiRuntimeModels", () => {
+  it("reads models from Kimi ACP config options", async () => {
+    const result = await listKimiRuntimeModels("/tmp", () => new FakeKimiAcpTransport());
     expect(result).toEqual({
       state: "listed",
-      models: parsePiModelList(SAMPLE_MODEL_TABLE),
-      lastListedAt: "2026-04-23T00:00:00.000Z",
-    });
-    expect(calls).toEqual([
-      {
-        command: "pi",
-        args: ["--list-models"],
-        cwd: os.homedir(),
-        timeoutMs: 10000,
-      },
-    ]);
-  });
-
-  it("parses model rows from stderr when pi writes the table there", async () => {
-    const result = await listRuntimeModels(createPiRuntimeDescriptor(), {
-      now: () => new Date("2026-04-23T00:00:00.000Z"),
-      run: async () => ({
-        ...createSuccessResult(""),
-        stderr: SAMPLE_MODEL_TABLE,
-      }),
-    });
-
-    expect(result).toEqual({
-      state: "listed",
-      models: parsePiModelList(SAMPLE_MODEL_TABLE),
-      lastListedAt: "2026-04-23T00:00:00.000Z",
+      models: [
+        { id: "kimi-for-coding", name: "Kimi for Coding", source: "cli" },
+        {
+          id: "kimi-for-coding-highspeed",
+          name: "Kimi for Coding High Speed",
+          source: "cli",
+        },
+      ],
+      defaultModelId: "kimi-for-coding",
     });
   });
 
-  it("returns failed with lastError when the CLI fails", async () => {
-    const result = await listRuntimeModels(createPiRuntimeDescriptor(), {
-      now: () => new Date("2026-04-23T00:00:00.000Z"),
-      run: async () => createFailureResult("\n  auth missing\n", "fallback output"),
+  it("is the only runtime model listing path", async () => {
+    const result = await listRuntimeModels(createRuntimeDescriptor(), {
+      kimiTransportFactory: () => new FakeKimiAcpTransport(),
     });
+    expect(result.state).toBe("listed");
+  });
+
+  it("returns a failed result when the ACP transport errors", async () => {
+    const result = await listKimiRuntimeModels("/tmp", () => new FakeKimiAcpTransport(true));
 
     expect(result).toEqual({
       state: "failed",
       models: [],
-      lastListedAt: "2026-04-23T00:00:00.000Z",
-      lastError: "auth missing",
-    });
-  });
-});
-describe("listKimiRuntimeModels", () => {
-  it("returns models from session/new configOptions", async () => {
-    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
-      if (message.method === "initialize") {
-        respondAcp(fakeTransport, message, { protocolVersion: 1 });
-        return;
-      }
-
-      if (message.method === "session/new") {
-        respondAcp(fakeTransport, message, {
-          sessionId: "session-1",
-          configOptions: [
-            {
-              type: "select",
-              id: "model",
-              category: "model",
-              currentValue: "kimi-code/kimi-for-coding",
-              options: [
-                { value: "kimi-code/kimi-for-coding", name: "K2.7 Code High Speed" },
-                { value: "kimi-code/kimi-for-coding-deep", name: "K2.7 Code Deep" },
-              ],
-            },
-          ],
-        });
-      }
-    });
-
-    const result = await listKimiRuntimeModels("/Users/onion/workbench/carrent", () => transport);
-
-    expect(result).toEqual({
-      state: "listed",
-      models: [
-        { id: "kimi-code/kimi-for-coding", name: "K2.7 Code High Speed", source: "cli" },
-        { id: "kimi-code/kimi-for-coding-deep", name: "K2.7 Code Deep", source: "cli" },
-      ],
-      defaultModelId: "kimi-code/kimi-for-coding",
+      lastError: "ACP unavailable",
     });
   });
 
-  it("returns unsupported when there is no model config option", async () => {
-    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
-      if (message.method === "initialize") {
-        respondAcp(fakeTransport, message, { protocolVersion: 1 });
-        return;
-      }
-
-      if (message.method === "session/new") {
-        respondAcp(fakeTransport, message, {
-          sessionId: "session-1",
-          configOptions: [],
-        });
-      }
-    });
-
-    const result = await listKimiRuntimeModels("/Users/onion/workbench/carrent", () => transport);
+  it("returns unsupported when ACP has no model option", async () => {
+    const result = await listKimiRuntimeModels(
+      "/tmp",
+      () => new FakeKimiAcpTransport(false, false),
+    );
 
     expect(result).toEqual({ state: "unsupported", models: [] });
   });
-});
 
-describe("listRuntimeModels for kimi", () => {
-  it("lists Kimi models without invoking the process runner", async () => {
-    let runCalls = 0;
-    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
-      if (message.method === "initialize") {
-        respondAcp(fakeTransport, message, { protocolVersion: 1 });
-        return;
-      }
+  it("returns a failed result when the ACP process closes", async () => {
+    const result = await listKimiRuntimeModels(
+      "/tmp",
+      () => new FakeKimiAcpTransport(false, true, true),
+    );
 
-      if (message.method === "session/new") {
-        respondAcp(fakeTransport, message, {
-          sessionId: "session-1",
-          configOptions: [
-            {
-              type: "select",
-              id: "model",
-              category: "model",
-              currentValue: "kimi-code/kimi-for-coding",
-              options: [{ value: "kimi-code/kimi-for-coding", name: "K2.7 Code High Speed" }],
-            },
-          ],
-        });
-      }
-    });
-
-    const result = await listRuntimeModels(createKimiRuntimeDescriptor(), {
-      run: async () => {
-        runCalls += 1;
-        return createSuccessResult("");
-      },
-      kimiTransportFactory: () => transport,
-    });
-
-    expect(runCalls).toBe(0);
     expect(result).toEqual({
-      state: "listed",
-      models: [{ id: "kimi-code/kimi-for-coding", name: "K2.7 Code High Speed", source: "cli" }],
-      defaultModelId: "kimi-code/kimi-for-coding",
+      state: "failed",
+      models: [],
+      lastError: "Kimi ACP exited: ACP exited",
     });
   });
 });

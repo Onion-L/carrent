@@ -22,7 +22,7 @@ export type ChatQuestionRequest = {
   runId: string;
   requestKey?: string;
   threadId: string;
-  provider: "kimi" | "codex" | "claude-code" | "pi";
+  provider: "kimi";
   source: ChatQuestionSource;
   questions: ChatQuestionItem[];
   skipOptionId?: string;

@@ -620,7 +620,7 @@ describe("createAppStateStore", () => {
           projectId: "project-1",
           alias: "Client Carrent",
           order: 0,
-          defaultRuntimeId: "codex",
+          defaultRuntimeId: "kimi",
           defaultRuntimeModelId: "gpt-5",
           defaultRuntimeMode: "auto-accept-edits",
         },
@@ -756,7 +756,7 @@ describe("createAppStateStore", () => {
     const store = createAppStateStore(baseDir);
     const snapshot: ProviderSessionSnapshot = {
       version: 1,
-      sessions: { "key-1": "sess-abc" },
+      sessions: { "kimi:thread-1": "sess-abc" },
     };
 
     await store.saveProviderSessions(snapshot);

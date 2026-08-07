@@ -78,7 +78,8 @@ export function createRuntimeIpcServices(
       return runLocalCheck(getRuntimeDescriptor(runtimeId));
     },
     async modelPing(runtimeId) {
-      return runModelPing(getRuntimeDescriptor(runtimeId));
+      getRuntimeDescriptor(runtimeId);
+      return runModelPing();
     },
     async listModels(runtimeId) {
       return listRuntimeModels(getRuntimeDescriptor(runtimeId));

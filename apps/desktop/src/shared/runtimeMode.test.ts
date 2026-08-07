@@ -25,7 +25,7 @@ describe("runtimeMode", () => {
 
   it("provides user-facing labels", () => {
     expect(getRuntimeModeLabel("approval-required")).toContain("Approval");
-    expect(getRuntimeModeLabel("full-access")).toContain("Full");
+    expect(getRuntimeModeLabel("full-access")).toBe("Yolo");
   });
 
   it("uses Kimi's native mode names for the Kimi runtime", () => {

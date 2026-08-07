@@ -1,8 +1,4 @@
-import type { ChildProcess } from "node:child_process";
-import path from "node:path";
 import type {
-  ChatReasoningEventPayload,
-  ChatShellEventPayload,
   ChatTurnRequest,
   ChatRunEvent,
   Attachment,
@@ -12,8 +8,6 @@ import type {
 } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import type { ChatQuestionResponse } from "../../src/shared/chatQuestions";
-import { buildChatPrompt } from "./chatPrompt";
-import { getRuntimeCommand, getRuntimeCommandUnavailableMessage } from "./chatRunner";
 import {
   createKimiAcpProcessTransportFactory,
   executeKimiCompact,
@@ -25,24 +19,10 @@ import {
 } from "./kimiAcpChat";
 import { startCarrentBridge, type CarrentBridgeFactory } from "../bridge/carrentBridge";
 import { startQuestionMcpServer, type QuestionMcpServerFactory } from "./questionMcpServer";
-import { getClaudeRuntimeModeArgs, getCodexRuntimeModeArgs } from "../../src/shared/runtimeMode";
-import { extractClaudePermissionRequest } from "./providerPermissionProtocol";
 import type { AttachmentStore } from "../attachments/attachmentStore";
 import { buildProviderSessionKey } from "../../src/shared/providerSessions";
 import type { RuntimeSessionDetachmentReceipt } from "../workspace/projectDirectory";
-import { terminateChildProcess } from "./terminateChildProcess";
 import type { ThreadActionRequest, ThreadActionResult } from "../../src/shared/threadActions";
-
-interface ChatSession {
-  runId: string;
-  threadId: string;
-  child: ChildProcess;
-  stdout: string;
-  stderr: string;
-  stoppedByUser: boolean;
-  endedByPermissionFailure: boolean;
-  timeoutHandle: ReturnType<typeof setTimeout>;
-}
 
 export type SpawnFn = (
   command: string,
@@ -54,7 +34,7 @@ export type SpawnFn = (
     env?: NodeJS.ProcessEnv;
     stdio?: ["ignore" | "pipe", "pipe", "pipe"];
   },
-) => ChildProcess;
+) => import("node:child_process").ChildProcess;
 
 export interface ChatSessionManager {
   start: (runId: string, request: ChatTurnRequest) => void;
@@ -80,638 +60,8 @@ export interface ChatSessionManager {
   executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>;
 }
 
-type ClaudeStreamState = {
-  buffer: string;
-  text: string;
-  finalText: string;
-  reasoningText: string;
-  reasoningStatus: "running" | "completed" | null;
-  sessionId: string | null;
-  shellCommands: Map<string, string>;
-  writtenFiles: Set<string>;
-  workingDirectory: string;
-};
-
-type CodexStreamState = {
-  buffer: string;
-  text: string;
-  writtenFiles: Set<string>;
-  workingDirectory: string;
-};
-
-const MAX_SHELL_OUTPUT_LENGTH = 12_000;
-
-function createClaudeStreamState(workingDirectory: string): ClaudeStreamState {
-  return {
-    buffer: "",
-    text: "",
-    finalText: "",
-    reasoningText: "",
-    reasoningStatus: null,
-    sessionId: null,
-    shellCommands: new Map(),
-    writtenFiles: new Set(),
-    workingDirectory,
-  };
-}
-
-function createCodexStreamState(workingDirectory: string): CodexStreamState {
-  return {
-    buffer: "",
-    text: "",
-    writtenFiles: new Set(),
-    workingDirectory,
-  };
-}
-
-function normalizeRunWrittenFile(workingDirectory: string, reportedPath: string): string | null {
-  const relativePath = path.relative(
-    workingDirectory,
-    path.resolve(workingDirectory, reportedPath),
-  );
-  if (!relativePath || relativePath === ".." || relativePath.startsWith(`..${path.sep}`)) {
-    return null;
-  }
-  return relativePath.split(path.sep).join("/");
-}
-
-function truncateShellOutput(output: string) {
-  if (output.length <= MAX_SHELL_OUTPUT_LENGTH) {
-    return output;
-  }
-
-  return `${output.slice(0, MAX_SHELL_OUTPUT_LENGTH)}\n\n[output truncated]`;
-}
-
-function extractClaudeSessionId(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") {
-    return null;
-  }
-
-  const value = (payload as { session_id?: unknown }).session_id;
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function extractClaudeTextDelta(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") {
-    return null;
-  }
-
-  const event = (payload as { event?: unknown }).event;
-  if (!event || typeof event !== "object") {
-    return null;
-  }
-
-  const delta = (event as { delta?: unknown }).delta;
-  if (!delta || typeof delta !== "object") {
-    return null;
-  }
-
-  const deltaType = (delta as { type?: unknown }).type;
-  if (deltaType !== "text_delta") {
-    return null;
-  }
-
-  const text = (delta as { text?: unknown }).text;
-  return typeof text === "string" && text.length > 0 ? text : null;
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function readObject(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function emitShellEvent(
-  emit: (event: ChatRunEvent) => void,
-  runId: string,
-  requestKey: string | undefined,
-  shell: ChatShellEventPayload,
-) {
-  emit({
-    type: "shell",
-    runId,
-    ...(requestKey ? { requestKey } : {}),
-    shell: {
-      ...shell,
-      output: truncateShellOutput(shell.output),
-    },
-  });
-}
-
-function emitReasoningEvent(
-  emit: (event: ChatRunEvent) => void,
-  runId: string,
-  requestKey: string | undefined,
-  reasoning: ChatReasoningEventPayload,
-) {
-  emit({
-    type: "reasoning",
-    runId,
-    ...(requestKey ? { requestKey } : {}),
-    reasoning,
-  });
-}
-
-function extractCodexShellEvent(payload: unknown): ChatShellEventPayload | null {
-  const envelope = readObject(payload);
-  const item = readObject(envelope?.item);
-  if (!envelope || !item || item.type !== "command_execution") {
-    return null;
-  }
-
-  const id = readString(item.id);
-  const command = readString(item.command);
-  if (!id || !command) {
-    return null;
-  }
-
-  const output = typeof item.aggregated_output === "string" ? item.aggregated_output : "";
-  const exitCode =
-    typeof item.exit_code === "number" || item.exit_code === null ? item.exit_code : null;
-
-  if (envelope.type === "item.started") {
-    return {
-      id,
-      command,
-      output,
-      status: "running",
-      exitCode,
-    };
-  }
-
-  if (envelope.type === "item.completed") {
-    return {
-      id,
-      command,
-      output,
-      status: exitCode === 0 ? "completed" : "failed",
-      exitCode,
-    };
-  }
-
-  return null;
-}
-
-function readReasoningText(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    return value.map(readReasoningText).filter(Boolean).join("\n");
-  }
-
-  const item = readObject(value);
-  if (!item) {
-    return "";
-  }
-
-  return (
-    readString(item.text) ??
-    readString(item.summary) ??
-    readString(item.content) ??
-    readString(item.reasoning) ??
-    readString(item.thinking) ??
-    ""
-  );
-}
-
-function extractCodexReasoningEvent(payload: unknown): ChatReasoningEventPayload | null {
-  const envelope = readObject(payload);
-  const item = readObject(envelope?.item);
-  if (!envelope || !item) {
-    return null;
-  }
-
-  if (item.type !== "reasoning" && item.type !== "reasoning_summary") {
-    return null;
-  }
-
-  const id = readString(item.id) ?? "codex-reasoning";
-  const content =
-    readReasoningText(item.text) ||
-    readReasoningText(item.summary) ||
-    readReasoningText(item.content);
-
-  if (envelope.type === "item.started") {
-    return {
-      id,
-      content,
-      status: "running",
-    };
-  }
-
-  if (envelope.type === "item.completed" && content) {
-    return {
-      id,
-      content,
-      status: "completed",
-    };
-  }
-
-  return null;
-}
-
-function extractCodexAgentMessage(payload: unknown): string | null {
-  const envelope = readObject(payload);
-  const item = readObject(envelope?.item);
-  if (!envelope || !item || envelope.type !== "item.completed" || item.type !== "agent_message") {
-    return null;
-  }
-
-  return readString(item.text);
-}
-
-function extractClaudeBashToolUse(
-  state: ClaudeStreamState,
-  payload: unknown,
-): ChatShellEventPayload[] {
-  const envelope = readObject(payload);
-  const message = readObject(envelope?.message);
-  const content = message?.content;
-  if (envelope?.type !== "assistant" || !Array.isArray(content)) {
-    return [];
-  }
-
-  return content.flatMap((item): ChatShellEventPayload[] => {
-    const block = readObject(item);
-    const input = readObject(block?.input);
-    const id = readString(block?.id);
-    const command = readString(input?.command);
-    if (block?.type !== "tool_use" || block.name !== "Bash" || !id || !command) {
-      return [];
-    }
-
-    state.shellCommands.set(id, command);
-    return [
-      {
-        id,
-        command,
-        output: "",
-        status: "running",
-      },
-    ];
-  });
-}
-
-const CLAUDE_FILE_EDIT_TOOL_NAMES = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
-
-function collectClaudeFileEditToolUse(state: ClaudeStreamState, payload: unknown) {
-  const envelope = readObject(payload);
-  const message = readObject(envelope?.message);
-  const content = message?.content;
-  if (envelope?.type !== "assistant" || !Array.isArray(content)) {
-    return;
-  }
-
-  for (const item of content) {
-    const block = readObject(item);
-    if (block?.type !== "tool_use" || !CLAUDE_FILE_EDIT_TOOL_NAMES.has(String(block.name))) {
-      continue;
-    }
-
-    const filePath = readString(readObject(block.input)?.file_path);
-    const relativePath = filePath
-      ? normalizeRunWrittenFile(state.workingDirectory, filePath)
-      : null;
-    if (relativePath) {
-      state.writtenFiles.add(relativePath);
-    }
-  }
-}
-
-function extractClaudeToolResult(
-  state: ClaudeStreamState,
-  payload: unknown,
-): ChatShellEventPayload[] {
-  const envelope = readObject(payload);
-  const message = readObject(envelope?.message);
-  const content = message?.content;
-  if (envelope?.type !== "user" || !Array.isArray(content)) {
-    return [];
-  }
-
-  const toolUseResult = readObject(envelope.tool_use_result);
-  const stdout = typeof toolUseResult?.stdout === "string" ? toolUseResult.stdout : "";
-  const stderr = typeof toolUseResult?.stderr === "string" ? toolUseResult.stderr : "";
-
-  return content.flatMap((item): ChatShellEventPayload[] => {
-    const block = readObject(item);
-    const id = readString(block?.tool_use_id);
-    if (block?.type !== "tool_result" || !id || !state.shellCommands.has(id)) {
-      return [];
-    }
-
-    const fallbackContent = typeof block.content === "string" ? block.content : "";
-    const output =
-      stdout || stderr
-        ? [stdout, stderr ? `[stderr]\n${stderr}` : ""].filter(Boolean).join("\n")
-        : fallbackContent;
-
-    return [
-      {
-        id,
-        command: state.shellCommands.get(id) ?? "Bash",
-        output,
-        status: block.is_error === true ? "failed" : "completed",
-      },
-    ];
-  });
-}
-
-function extractClaudeFinalText(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") {
-    return null;
-  }
-
-  const result = (payload as { result?: unknown }).result;
-  if (typeof result === "string" && result.length > 0) {
-    return result;
-  }
-
-  const message = (payload as { message?: unknown }).message;
-  if (!message || typeof message !== "object") {
-    return null;
-  }
-
-  const content = (message as { content?: unknown }).content;
-  if (!Array.isArray(content)) {
-    return null;
-  }
-
-  const text = content
-    .map((item) => {
-      if (!item || typeof item !== "object") {
-        return "";
-      }
-
-      const value = (item as { text?: unknown }).text;
-      return typeof value === "string" ? value : "";
-    })
-    .join("");
-
-  return text.length > 0 ? text : null;
-}
-
-function extractClaudeThinkingDelta(payload: unknown): string | null {
-  const envelope = readObject(payload);
-  const event = readObject(envelope?.event);
-  const delta = readObject(event?.delta);
-  if (!delta || delta.type !== "thinking_delta") {
-    return null;
-  }
-
-  return readString(delta.thinking) ?? readString(delta.text);
-}
-
-function extractClaudeThinkingBlock(payload: unknown): string | null {
-  const envelope = readObject(payload);
-  const message = readObject(envelope?.message);
-  const content = message?.content;
-  if (envelope?.type !== "assistant" || !Array.isArray(content)) {
-    return null;
-  }
-
-  const thinking = content
-    .map((item) => {
-      const block = readObject(item);
-      if (block?.type !== "thinking") {
-        return "";
-      }
-
-      return readString(block.thinking) ?? readString(block.text) ?? "";
-    })
-    .filter(Boolean)
-    .join("\n");
-
-  return thinking || null;
-}
-
-function consumeClaudeStreamChunk(
-  state: ClaudeStreamState,
-  chunk: string,
-  onDelta: (text: string) => void,
-  onShell: (shell: ChatShellEventPayload) => void,
-  onReasoning: (reasoning: ChatReasoningEventPayload) => void,
-  onPermissionDenied: (permissionId: string, error: string) => void,
-) {
-  let permissionDenied = false;
-  state.buffer += chunk;
-  const lines = state.buffer.split("\n");
-  state.buffer = lines.pop() ?? "";
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-
-    try {
-      const payload = JSON.parse(trimmed);
-      const sessionId = extractClaudeSessionId(payload);
-      if (sessionId) {
-        state.sessionId = sessionId;
-      }
-
-      // Check for permission denial and emit permission-failed
-      const permissionRequest = extractClaudePermissionRequest(payload);
-      if (permissionRequest) {
-        onPermissionDenied(
-          permissionRequest.id,
-          "Interactive approvals are not supported for Claude in --print mode. Switch runtime mode to Auto-accept edits or Full access.",
-        );
-        permissionDenied = true;
-        continue;
-      }
-
-      const thinkingBlock = extractClaudeThinkingBlock(payload);
-      if (thinkingBlock) {
-        state.reasoningText = thinkingBlock;
-        state.reasoningStatus = "completed";
-        onReasoning({
-          id: "claude-thinking",
-          content: state.reasoningText,
-          status: "completed",
-        });
-      }
-
-      for (const shell of extractClaudeBashToolUse(state, payload)) {
-        onShell(shell);
-      }
-
-      // Record which files this run actually edited so the workspace diff
-      // card can ignore changes made by another thread or the user.
-      collectClaudeFileEditToolUse(state, payload);
-
-      for (const shell of extractClaudeToolResult(state, payload)) {
-        onShell(shell);
-      }
-
-      const finalText = extractClaudeFinalText(payload);
-      if (finalText) {
-        state.finalText = finalText;
-      }
-
-      const thinkingDelta = extractClaudeThinkingDelta(payload);
-      if (thinkingDelta) {
-        state.reasoningText += thinkingDelta;
-        state.reasoningStatus = "running";
-        onReasoning({
-          id: "claude-thinking",
-          content: state.reasoningText,
-          status: "running",
-        });
-        continue;
-      }
-
-      const delta = extractClaudeTextDelta(payload);
-      if (!delta) {
-        continue;
-      }
-
-      state.text += delta;
-      onDelta(delta);
-    } catch {
-      continue;
-    }
-  }
-
-  return permissionDenied;
-}
-
-function consumeCodexStreamChunk(
-  state: CodexStreamState,
-  chunk: string,
-  onDelta: (text: string) => void,
-  onShell: (shell: ChatShellEventPayload) => void,
-  onReasoning: (reasoning: ChatReasoningEventPayload) => void,
-) {
-  state.buffer += chunk;
-  const lines = state.buffer.split("\n");
-  state.buffer = lines.pop() ?? "";
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-
-    try {
-      const payload = JSON.parse(trimmed);
-      const shell = extractCodexShellEvent(payload);
-      if (shell) {
-        onShell(shell);
-        continue;
-      }
-
-      // Best-effort: record files this run changed so the workspace diff card
-      // can ignore changes made by another thread or the user. Items without
-      // a usable changes list are skipped silently.
-      const item = readObject(readObject(payload)?.item);
-      if (item?.type === "file_change" && Array.isArray(item.changes)) {
-        for (const change of item.changes) {
-          const changePath = readString(readObject(change)?.path);
-          const relativePath = changePath
-            ? normalizeRunWrittenFile(state.workingDirectory, changePath)
-            : null;
-          if (relativePath) {
-            state.writtenFiles.add(relativePath);
-          }
-        }
-        continue;
-      }
-
-      const reasoning = extractCodexReasoningEvent(payload);
-      if (reasoning) {
-        onReasoning(reasoning);
-        continue;
-      }
-
-      const text = extractCodexAgentMessage(payload);
-      if (text) {
-        state.text += text;
-        onDelta(text);
-      }
-    } catch {
-      continue;
-    }
-  }
-}
-
 function buildRequestSessionKey(request: ChatTurnRequest) {
   return buildProviderSessionKey(request.runtimeId, request.threadId);
-}
-
-function isRuntimeSessionResumeRejection(error: string) {
-  const normalized = error.toLowerCase();
-  return (
-    /(?:could not|failed to|unable to|refused to) resume/u.test(normalized) ||
-    /(?:session|conversation).*(?:not found|does not exist|no longer exists|invalid)/u.test(
-      normalized,
-    ) ||
-    /(?:not found|does not exist).*(?:session|conversation)/u.test(normalized)
-  );
-}
-
-function getSessionRuntimeCommand(
-  request: ChatTurnRequest,
-  options?: {
-    includeTranscript?: boolean;
-    resumeSessionId?: string | null;
-    allowLegacyRuntimeCommands?: boolean;
-  },
-) {
-  const resumeSessionId = options?.resumeSessionId ?? null;
-  const prompt = buildChatPrompt(request, {
-    includeTranscript: options?.includeTranscript,
-  });
-
-  if (request.runtimeId === "codex") {
-    return {
-      command: "codex",
-      args: [
-        "exec",
-        "--json",
-        "--skip-git-repo-check",
-        "--ephemeral",
-        ...getCodexRuntimeModeArgs(request.runtimeMode),
-        prompt,
-      ],
-    };
-  }
-
-  if (request.runtimeId !== "claude-code") {
-    return getRuntimeCommand(
-      request.runtimeId,
-      prompt,
-      request.runtimeMode,
-      request.runtimeModelId,
-      { allowLegacyRuntimeCommands: options?.allowLegacyRuntimeCommands },
-    );
-  }
-
-  const args = [
-    "--print",
-    "--output-format",
-    "stream-json",
-    "--verbose",
-    "--include-partial-messages",
-    ...getClaudeRuntimeModeArgs(request.runtimeMode),
-  ];
-
-  if (resumeSessionId) {
-    args.push("--resume", resumeSessionId);
-  }
-
-  args.push(prompt);
-
-  return {
-    command: "claude",
-    args,
-  };
 }
 
 export type ProviderSessionStore = {
@@ -729,16 +79,12 @@ export function createChatSessionManager(options: {
   emit: (event: ChatRunEvent) => void;
   spawn: SpawnFn;
   providerSessions?: ProviderSessionStore;
-  allowLegacyRuntimeCommands?: boolean;
   kimiAcpTransportFactory?: KimiAcpTransportFactory;
   carrentBridgeFactory?: CarrentBridgeFactory;
   questionMcpServerFactory?: QuestionMcpServerFactory;
   attachmentStore?: AttachmentStore;
-  shutdownGracePeriodMs?: number;
   threadActionTimeoutMs?: number;
-  browserEnvironment?: (request: ChatTurnRequest) => NodeJS.ProcessEnv;
 }): ChatSessionManager {
-  const sessions = new Map<string, ChatSession>();
   const kimiSessions = new Map<string, { handle: KimiAcpRunHandle; threadId: string }>();
   const pendingKimiRuns = new Map<string, string>();
   const pendingKimiRunTasks = new Map<string, Promise<void>>();
@@ -752,7 +98,6 @@ export function createChatSessionManager(options: {
   >();
   const deletedThreadIds = new Set<string>();
   const relocatingThreadIds = new Set<string>();
-  const TIMEOUT_MS = 120_000;
 
   function resolveAttachmentPaths(request: ChatTurnRequest): ChatTurnRequest {
     if (!request.attachments || request.attachments.length === 0 || !options.attachmentStore) {
@@ -840,7 +185,7 @@ export function createChatSessionManager(options: {
       return;
     }
 
-    if (requestWithAttachments.runtimeId === "kimi") {
+    {
       const requestSessionKey = buildRequestSessionKey(requestWithAttachments);
       pendingKimiRuns.set(runId, requestWithAttachments.threadId);
 
@@ -929,370 +274,6 @@ export function createChatSessionManager(options: {
       void pendingKimiRunTask.finally(() => pendingKimiRunTasks.delete(runId));
       return;
     }
-
-    const unavailableMessage = getRuntimeCommandUnavailableMessage(
-      requestWithAttachments.runtimeId,
-      {
-        allowLegacyRuntimeCommands: options.allowLegacyRuntimeCommands,
-      },
-    );
-    if (unavailableMessage) {
-      options.emit({
-        type: "failed",
-        runId,
-        requestKey: requestWithAttachments.requestKey,
-        error: unavailableMessage,
-      });
-      return;
-    }
-
-    const requestSessionKey = buildRequestSessionKey(requestWithAttachments);
-    let resumeSessionId =
-      requestWithAttachments.runtimeId === "claude-code"
-        ? getResumeSessionId(runId, requestWithAttachments, requestSessionKey)
-        : null;
-
-    if (requestWithAttachments.historyMode === "replace") {
-      const oldSessionId = resumeSessionId;
-      runtimeSessions.delete(requestSessionKey);
-      void options.providerSessions?.delete?.(requestSessionKey, oldSessionId ?? undefined);
-      resumeSessionId = null;
-    }
-
-    spawnAttempt({
-      runId,
-      request: requestWithAttachments,
-      requestSessionKey,
-      resumeSessionId,
-      includeTranscript: !(requestWithAttachments.runtimeId === "claude-code" && resumeSessionId),
-      emitLifecycleEvents: true,
-    });
-  }
-
-  function spawnAttempt({
-    runId,
-    request,
-    requestSessionKey,
-    resumeSessionId,
-    includeTranscript,
-    emitLifecycleEvents,
-  }: {
-    runId: string;
-    request: ChatTurnRequest;
-    requestSessionKey: string;
-    resumeSessionId: string | null;
-    includeTranscript: boolean;
-    emitLifecycleEvents: boolean;
-  }) {
-    let command: string;
-    let args: string[];
-    try {
-      ({ command, args } = getSessionRuntimeCommand(request, {
-        includeTranscript,
-        resumeSessionId,
-        allowLegacyRuntimeCommands: options.allowLegacyRuntimeCommands,
-      }));
-    } catch (error) {
-      options.emit({
-        type: "failed",
-        runId,
-        requestKey: request.requestKey,
-        error: error instanceof Error ? error.message : "Runtime is unavailable.",
-      });
-      return;
-    }
-
-    const timeoutHandle = setTimeout(() => {
-      const session = sessions.get(runId);
-      if (session) {
-        session.child.kill("SIGTERM");
-      }
-    }, TIMEOUT_MS);
-
-    const workingDirectory = request.context.workingDirectory;
-    const child = options.spawn(command, args, {
-      cwd: workingDirectory,
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-      env: { ...process.env, ...options.browserEnvironment?.(request) },
-    });
-    const claudeStreamState =
-      request.runtimeId === "claude-code" ? createClaudeStreamState(workingDirectory) : null;
-    const codexStreamState =
-      request.runtimeId === "codex" ? createCodexStreamState(workingDirectory) : null;
-    const currentWrittenFiles = () => [
-      ...((claudeStreamState ?? codexStreamState)?.writtenFiles ?? []),
-    ];
-
-    const session: ChatSession = {
-      runId,
-      threadId: request.threadId,
-      child,
-      stdout: "",
-      stderr: "",
-      stoppedByUser: false,
-      endedByPermissionFailure: false,
-      timeoutHandle,
-    };
-    sessions.set(runId, session);
-
-    child.stdout?.on("data", (data: Buffer) => {
-      if (session.endedByPermissionFailure) {
-        return;
-      }
-
-      const chunk = data.toString();
-      if (claudeStreamState) {
-        const permissionDenied = consumeClaudeStreamChunk(
-          claudeStreamState,
-          chunk,
-          (text) => {
-            options.emit({
-              type: "delta",
-              runId,
-              requestKey: request.requestKey,
-              text,
-            });
-          },
-          (shell) => {
-            emitShellEvent(options.emit, runId, request.requestKey, shell);
-          },
-          (reasoning) => {
-            emitReasoningEvent(options.emit, runId, request.requestKey, reasoning);
-          },
-          (permissionId, error) => {
-            options.emit({
-              type: "permission-failed",
-              runId,
-              requestKey: request.requestKey,
-              permissionId,
-              error,
-            });
-            session.endedByPermissionFailure = true;
-            clearTimeout(session.timeoutHandle);
-            sessions.delete(runId);
-            session.child.kill("SIGTERM");
-          },
-        );
-        if (permissionDenied) {
-          return;
-        }
-        return;
-      }
-
-      if (codexStreamState) {
-        consumeCodexStreamChunk(
-          codexStreamState,
-          chunk,
-          (text) => {
-            options.emit({
-              type: "delta",
-              runId,
-              requestKey: request.requestKey,
-              text,
-            });
-          },
-          (shell) => {
-            emitShellEvent(options.emit, runId, request.requestKey, shell);
-          },
-          (reasoning) => {
-            emitReasoningEvent(options.emit, runId, request.requestKey, reasoning);
-          },
-        );
-        return;
-      }
-
-      session.stdout += chunk;
-      options.emit({
-        type: "delta",
-        runId,
-        requestKey: request.requestKey,
-        text: chunk,
-      });
-    });
-
-    child.stderr?.on("data", (data: Buffer) => {
-      session.stderr += data.toString();
-    });
-
-    child.on("close", (code, signal) => {
-      clearTimeout(session.timeoutHandle);
-      sessions.delete(runId);
-
-      if (session.endedByPermissionFailure) {
-        return;
-      }
-
-      if (claudeStreamState?.buffer.trim()) {
-        const permissionDenied = consumeClaudeStreamChunk(
-          claudeStreamState,
-          "\n",
-          (text) => {
-            options.emit({
-              type: "delta",
-              runId,
-              requestKey: request.requestKey,
-              text,
-            });
-          },
-          (shell) => {
-            emitShellEvent(options.emit, runId, request.requestKey, shell);
-          },
-          (reasoning) => {
-            emitReasoningEvent(options.emit, runId, request.requestKey, reasoning);
-          },
-          (permissionId, error) => {
-            options.emit({
-              type: "permission-failed",
-              runId,
-              requestKey: request.requestKey,
-              permissionId,
-              error,
-            });
-            session.endedByPermissionFailure = true;
-          },
-        );
-        if (permissionDenied) {
-          return;
-        }
-      }
-
-      if (codexStreamState?.buffer.trim()) {
-        consumeCodexStreamChunk(
-          codexStreamState,
-          "\n",
-          (text) => {
-            options.emit({
-              type: "delta",
-              runId,
-              requestKey: request.requestKey,
-              text,
-            });
-          },
-          (shell) => {
-            emitShellEvent(options.emit, runId, request.requestKey, shell);
-          },
-          (reasoning) => {
-            emitReasoningEvent(options.emit, runId, request.requestKey, reasoning);
-          },
-        );
-      }
-
-      if (claudeStreamState?.reasoningText && claudeStreamState.reasoningStatus === "running") {
-        claudeStreamState.reasoningStatus = "completed";
-        emitReasoningEvent(options.emit, runId, request.requestKey, {
-          id: "claude-thinking",
-          content: claudeStreamState.reasoningText,
-          status: "completed",
-        });
-      }
-
-      if (session.stoppedByUser) {
-        options.emit({
-          type: "stopped",
-          runId,
-          requestKey: request.requestKey,
-          writtenFiles: currentWrittenFiles(),
-        });
-        return;
-      }
-
-      if (signal === "SIGTERM") {
-        options.emit({
-          type: "failed",
-          runId,
-          requestKey: request.requestKey,
-          error: "Command timed out. Try again or simplify your request.",
-          writtenFiles: currentWrittenFiles(),
-        });
-        return;
-      }
-
-      if (code !== 0) {
-        const stderr = session.stderr.trim();
-        const error = stderr
-          ? `Runtime returned an error: ${stderr}`
-          : `Runtime exited with code ${code}`;
-        options.emit({
-          type: "failed",
-          runId,
-          requestKey: request.requestKey,
-          error,
-          writtenFiles: currentWrittenFiles(),
-          ...(resumeSessionId && isRuntimeSessionResumeRejection(stderr)
-            ? {
-                runtimeSessionRecovery: {
-                  runtimeId: request.runtimeId,
-                  threadId: request.threadId,
-                },
-              }
-            : {}),
-        });
-        return;
-      }
-
-      const text = claudeStreamState
-        ? (claudeStreamState.text || claudeStreamState.finalText).trim()
-        : codexStreamState
-          ? codexStreamState.text.trim()
-          : session.stdout.trim();
-      if (!text) {
-        options.emit({
-          type: "failed",
-          runId,
-          requestKey: request.requestKey,
-          error: "Received empty response from runtime.",
-          writtenFiles: currentWrittenFiles(),
-        });
-        return;
-      }
-
-      if (claudeStreamState?.sessionId && !deletedThreadIds.has(request.threadId)) {
-        runtimeSessions.set(requestSessionKey, claudeStreamState.sessionId);
-        Promise.resolve(
-          options.providerSessions?.set(requestSessionKey, claudeStreamState.sessionId),
-        ).catch(() => {
-          // Best-effort persistence; do not block UI on save failure.
-        });
-      }
-
-      options.emit({
-        type: "completed",
-        runId,
-        requestKey: request.requestKey,
-        text,
-        finishedAt: new Date().toISOString(),
-        writtenFiles: currentWrittenFiles(),
-      });
-    });
-
-    child.on("error", (err) => {
-      clearTimeout(session.timeoutHandle);
-      sessions.delete(runId);
-
-      const normalized = err.message.includes("ENOENT")
-        ? `Runtime not found. Make sure ${command} is installed and available in your PATH.`
-        : err.message;
-
-      options.emit({
-        type: "failed",
-        runId,
-        requestKey: request.requestKey,
-        error: normalized,
-        writtenFiles: currentWrittenFiles(),
-      });
-    });
-
-    if (!emitLifecycleEvents) {
-      return;
-    }
-
-    options.emit({
-      type: "started",
-      runId,
-      requestKey: request.requestKey,
-      threadId: request.threadId,
-    });
   }
 
   function stop(runId: string) {
@@ -1305,13 +286,6 @@ export function createChatSessionManager(options: {
     if (kimiSession) {
       kimiSession.handle.stop();
       kimiSessions.delete(runId);
-      return;
-    }
-
-    const session = sessions.get(runId);
-    if (session) {
-      session.stoppedByUser = true;
-      session.child.kill("SIGTERM");
     }
   }
 
@@ -1331,20 +305,12 @@ export function createChatSessionManager(options: {
     for (const [, kimiSession] of kimiSessions) {
       terminations.push(kimiSession.handle.shutdown());
     }
-    for (const [, session] of sessions) {
-      session.stoppedByUser = true;
-      clearTimeout(session.timeoutHandle);
-      terminations.push(
-        terminateChildProcess(session.child, options.shutdownGracePeriodMs ?? 5_000),
-      );
-    }
     await Promise.all(terminations);
     kimiSessions.clear();
-    sessions.clear();
   }
 
   async function executeThreadAction(request: ThreadActionRequest): Promise<ThreadActionResult> {
-    if (request.action !== "compact" || request.runtimeId !== "kimi") {
+    if (request.action !== "compact") {
       throw new Error("Compact is not supported by the selected Runtime.");
     }
     if (!request.workingDirectory) {
@@ -1432,11 +398,6 @@ export function createChatSessionManager(options: {
         stop(runId);
       }
     }
-    for (const [runId, session] of sessions) {
-      if (threadIdSet.has(session.threadId)) {
-        stop(runId);
-      }
-    }
 
     for (const key of runtimeSessions.keys()) {
       if (threadIds.some((threadId) => key.endsWith(`:${threadId}`))) {
@@ -1512,13 +473,12 @@ export function createChatSessionManager(options: {
     const ids = new Set(threadIds);
     return (
       [...pendingKimiRuns.values()].some((threadId) => ids.has(threadId)) ||
-      [...kimiSessions.values()].some((session) => ids.has(session.threadId)) ||
-      [...sessions.values()].some((session) => ids.has(session.threadId))
+      [...kimiSessions.values()].some((session) => ids.has(session.threadId))
     );
   }
 
   function hasLiveRuns() {
-    return pendingKimiRuns.size > 0 || kimiSessions.size > 0 || sessions.size > 0;
+    return pendingKimiRuns.size > 0 || kimiSessions.size > 0;
   }
 
   async function detachRuntimeSessions(
@@ -1577,9 +537,6 @@ export function createChatSessionManager(options: {
     receipt.threadIds.forEach((threadId) => relocatingThreadIds.delete(threadId));
   }
 
-  // Since no provider currently supports interactive stdin-based approval (per spike findings),
-  // we emit permission-failed for all responses when in approval-required mode.
-  // The pending permission infrastructure is in place for future provider support.
   function respondToPermission(response: ChatPermissionResponse) {
     const kimiSession = kimiSessions.get(response.runId);
     if (kimiSession) {
@@ -1587,27 +544,11 @@ export function createChatSessionManager(options: {
       return;
     }
 
-    const session = sessions.get(response.runId);
-
-    if (!session) {
-      options.emit({
-        type: "permission-failed",
-        runId: response.runId,
-        permissionId: response.permissionId,
-        error: "Permission request not found. The run may have already ended.",
-      });
-      return;
-    }
-
-    // Since no provider actually emits pending permission requests in the current CLI modes,
-    // we always emit permission-failed here. This maintains the protocol contract
-    // while correctly indicating that interactive approval is not available.
     options.emit({
       type: "permission-failed",
       runId: response.runId,
       permissionId: response.permissionId,
-      error:
-        "Interactive approvals are not supported for the current provider and CLI mode. Switch runtime mode to Auto-accept edits or Full access.",
+      error: "Permission request not found. The run may have already ended.",
     });
   }
 
@@ -1646,7 +587,6 @@ export function createChatSessionManager(options: {
 
   async function getStatus(request: ChatTurnRequest) {
     if (
-      request.runtimeId !== "kimi" ||
       deletedThreadIds.has(request.threadId) ||
       relocatingThreadIds.has(request.threadId) ||
       hasLiveRunForThreads([request.threadId]) ||
@@ -1680,11 +620,7 @@ export function createChatSessionManager(options: {
   }
 
   async function inspectStatus(request: ChatTurnRequest) {
-    if (
-      request.runtimeId !== "kimi" ||
-      deletedThreadIds.has(request.threadId) ||
-      relocatingThreadIds.has(request.threadId)
-    ) {
+    if (deletedThreadIds.has(request.threadId) || relocatingThreadIds.has(request.threadId)) {
       return null;
     }
     if (hasLiveRunForThreads([request.threadId])) {

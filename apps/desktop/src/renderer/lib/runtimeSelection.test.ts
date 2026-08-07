@@ -8,62 +8,37 @@ import {
   resolveRuntimeEnabled,
 } from "./runtimeSelection";
 
-function makeRuntime(overrides: Partial<RuntimeRecord>): RuntimeRecord {
+function makeRuntime(overrides: Partial<RuntimeRecord> = {}): RuntimeRecord {
   return {
-    id: "codex",
-    name: "Codex",
-    command: "codex",
+    id: "kimi",
+    name: "Kimi Code",
+    command: "kimi",
     availability: "detected",
     enabled: true,
     status: "stopped",
     configuration: "configured",
     verification: "never",
-    supportsModelPing: true,
+    supportsModelPing: false,
     ...overrides,
   };
 }
 
 describe("runtimeSelection", () => {
-  it("defaults detected runtimes to enabled", () => {
-    expect(resolveRuntimeEnabled(makeRuntime({ id: "codex" }), {})).toBe(true);
+  it("defaults detected Kimi to enabled", () => {
+    expect(resolveRuntimeEnabled(makeRuntime(), {})).toBe(true);
   });
 
-  it("defaults unavailable runtimes to disabled", () => {
-    expect(
-      resolveRuntimeEnabled(makeRuntime({ id: "codex", availability: "unavailable" }), {}),
-    ).toBe(false);
+  it("does not enable unavailable Kimi", () => {
+    const runtime = makeRuntime({ availability: "unavailable" });
+    expect(resolveRuntimeEnabled(runtime, { kimi: true })).toBe(false);
+    expect(getDetectedRuntimes([runtime])).toEqual([]);
+    expect(getChatRuntimeOptions([runtime])).toEqual([]);
+    expect(isChatRuntimeAvailable("kimi", [runtime])).toBe(false);
   });
 
-  it("lets persisted settings override detected defaults", () => {
-    expect(resolveRuntimeEnabled(makeRuntime({ id: "codex" }), { codex: false })).toBe(false);
-  });
-
-  it("does not enable unavailable runtimes from persisted settings", () => {
-    expect(
-      resolveRuntimeEnabled(makeRuntime({ id: "kimi", availability: "unavailable" }), {
-        kimi: true,
-      }),
-    ).toBe(false);
-  });
-
-  it("lists only detected runtimes for the Runtime page", () => {
-    const runtimes = [
-      makeRuntime({ id: "codex", name: "Codex" }),
-      makeRuntime({ id: "pi", name: "pi", availability: "unavailable" }),
-    ];
-
-    expect(getDetectedRuntimes(runtimes).map((runtime) => runtime.id)).toEqual(["codex"]);
-  });
-
-  it("lists only enabled and detected runtimes for chat", () => {
-    const runtimes = [
-      makeRuntime({ id: "codex", name: "Codex", enabled: false }),
-      makeRuntime({ id: "claude-code", name: "Claude Code", command: "claude" }),
-      makeRuntime({ id: "pi", name: "pi", availability: "unavailable", enabled: true }),
-    ];
-
-    expect(getChatRuntimeOptions(runtimes).map((runtime) => runtime.id)).toEqual(["claude-code"]);
-    expect(isChatRuntimeAvailable("codex", runtimes)).toBe(false);
-    expect(isChatRuntimeAvailable("claude-code", runtimes)).toBe(true);
+  it("respects the persisted enabled state", () => {
+    const runtime = makeRuntime();
+    expect(resolveRuntimeEnabled(runtime, { kimi: false })).toBe(false);
+    expect(getChatRuntimeOptions([{ ...runtime, enabled: false }])).toEqual([]);
   });
 });

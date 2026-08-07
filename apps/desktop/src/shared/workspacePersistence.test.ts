@@ -241,7 +241,19 @@ describe("normalizeAppStateSnapshot", () => {
       activeWorkspaceId: "workspace-2",
     };
 
-    expect(normalizeAppStateSnapshot(snapshot)).toEqual(snapshot);
+    expect(normalizeAppStateSnapshot(snapshot)).toEqual({
+      ...snapshot,
+      associations: [
+        snapshot.associations[0],
+        {
+          workspaceId: "workspace-2",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "auto-accept-edits",
+        },
+      ],
+    });
   });
 
   it("rejects duplicate Project directories and broken Association references", () => {
@@ -379,7 +391,88 @@ describe("normalizeAppStateSnapshot", () => {
       activeWorkspaceId: "workspace-1",
     };
 
-    expect(normalizeAppStateSnapshot(snapshot)).toEqual(snapshot);
+    expect(normalizeAppStateSnapshot(snapshot)).toEqual({
+      ...snapshot,
+      threadDrafts: [
+        {
+          id: "draft-2",
+          threadId: "thread-2",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          content: "Unsent request",
+          attachedSkillNames: ["tdd"],
+          attachments: [],
+          runtimeId: "kimi",
+          runtimeMode: "full-access",
+          planMode: true,
+        },
+      ],
+    });
+  });
+
+  it("clears legacy runtime models when migrating Thread Runs", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Legacy run",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      threadMessages: [
+        {
+          id: "message-1",
+          threadId: "thread-1",
+          role: "user",
+          content: "Legacy run",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          attachments: [],
+        },
+      ],
+      threadRuns: [
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          messageId: "message-1",
+          startedAt: "2026-07-27T08:00:00.000Z",
+          runtimeId: "codex",
+          runtimeModelId: "gpt-5",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      activeWorkspaceId: "workspace-1",
+    };
+
+    expect(normalizeAppStateSnapshot(snapshot)?.threadRuns).toEqual([
+      {
+        id: "run-1",
+        threadId: "thread-1",
+        messageId: "message-1",
+        startedAt: "2026-07-27T08:00:00.000Z",
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+      },
+    ]);
   });
 
   it("round-trips complete Thread content in App State", () => {

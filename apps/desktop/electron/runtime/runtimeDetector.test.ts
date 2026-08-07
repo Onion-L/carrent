@@ -8,9 +8,9 @@ import { detectRuntime } from "./runtimeDetector";
 
 function createRuntimeDescriptor(): RuntimeDescriptor {
   return {
-    id: "codex",
-    name: "Codex",
-    command: "codex",
+    id: "kimi",
+    name: "Kimi Code",
+    command: "kimi",
     versionArgs: ["--version"],
     configMarkers: ["~/.codex", "~/.config/codex"],
     supportsModelPing: true,
@@ -89,11 +89,11 @@ describe("detectRuntime", () => {
       expect(calls).toEqual([
         {
           command: "which",
-          args: ["codex"],
+          args: ["kimi"],
           cwd: os.homedir(),
         },
         {
-          command: "codex",
+          command: "kimi",
           args: ["--version"],
           cwd: os.homedir(),
         },
@@ -131,7 +131,7 @@ describe("detectRuntime", () => {
 
     expect(calls[0]).toEqual({
       command: "where",
-      args: ["codex"],
+      args: ["kimi"],
       cwd: os.homedir(),
     });
     expect(calls).toHaveLength(2);
@@ -154,7 +154,7 @@ describe("detectRuntime", () => {
     expect(result.path).toBeUndefined();
     expect(result.version).toBeUndefined();
     expect(result.lastError).toBe(
-      'Runtime command not found: codex. Install Codex and make "codex" available in PATH.',
+      'Runtime command not found: kimi. Install Kimi Code and make "kimi" available in PATH.',
     );
   });
 
@@ -355,6 +355,6 @@ describe("detectRuntime", () => {
     expect(result.availability).toBe("detected");
     expect(result.status).toBe("stopped");
     expect(result.pid).toBeUndefined();
-    expect(calls).toEqual(["which", "codex"]);
+    expect(calls).toEqual(["which", "kimi"]);
   });
 });

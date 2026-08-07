@@ -839,8 +839,8 @@ export function getDisplayRuntimeModel({
 }
 
 export function getComposerRuntimeLabel(runtime: Pick<RuntimeRecord, "id" | "name">) {
-  if (runtime.id === "kimi") return "Kimi for coding";
-  return runtime.name;
+  void runtime;
+  return "Kimi for coding";
 }
 
 export function formatKimiModelLabel(modelName: string) {
@@ -859,12 +859,13 @@ export function getRuntimeSelectionLabel({
   runtimeName: string;
   modelName?: string;
 }) {
-  if (!modelName) return runtimeId === "kimi" ? "Kimi for Coding" : runtimeName;
-  return runtimeId === "kimi" ? modelName : `${runtimeName} · ${modelName}`;
+  void runtimeId;
+  void runtimeName;
+  return modelName ?? "Kimi for Coding";
 }
 
 export function supportsRuntimeModelSelection(runtimeId: RuntimeId | null) {
-  return runtimeId === "kimi" || runtimeId === "pi";
+  return runtimeId === "kimi";
 }
 
 export function getChatHistoryMode(isReplacement: boolean): "continue" | "replace" {
@@ -3151,19 +3152,16 @@ export function Composer(props: ComposerProps) {
         // editor (apply -> persist -> readback -> apply ...), losing the caret.
         const existing = getThreadDraft(threadId);
         if (draftsContentEqual(existing, draft)) {
-          lastAppliedThreadDraftSourceKeyRef.current =
-            `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
+          lastAppliedThreadDraftSourceKeyRef.current = `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
         } else if (draft) {
           setThreadDraft(threadId, draft);
           // Mark the RESULTING store state as consumed: read the snapshot key
           // after the write, otherwise the ref holds the pre-write key and the
           // readback effect re-runs once before its equality guard kicks in.
-          lastAppliedThreadDraftSourceKeyRef.current =
-            `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
+          lastAppliedThreadDraftSourceKeyRef.current = `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
         } else {
           clearThreadDraft(threadId);
-          lastAppliedThreadDraftSourceKeyRef.current =
-            `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
+          lastAppliedThreadDraftSourceKeyRef.current = `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
         }
       }
     }, 300);
@@ -4145,7 +4143,7 @@ export function Composer(props: ComposerProps) {
                         !cascadingModels.some((model) => model.id === props.runtimeModelId) ? (
                           <button
                             onClick={() => {
-                              props.onRuntimeIdChange?.(cascadingRuntimeId ?? "pi");
+                              props.onRuntimeIdChange?.(cascadingRuntimeId ?? "kimi");
                               props.onRuntimeModelIdChange?.(props.runtimeModelId);
                               closeRuntimePicker();
                             }}
@@ -4171,7 +4169,7 @@ export function Composer(props: ComposerProps) {
                               <button
                                 key={model.id}
                                 onClick={() => {
-                                  props.onRuntimeIdChange?.(cascadingRuntimeId ?? "pi");
+                                  props.onRuntimeIdChange?.(cascadingRuntimeId ?? "kimi");
                                   props.onRuntimeModelIdChange?.(model.id);
                                   closeRuntimePicker();
                                 }}

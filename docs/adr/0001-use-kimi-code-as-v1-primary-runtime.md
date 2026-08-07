@@ -11,4 +11,4 @@ Carrent V1 will optimize around Kimi Code as the primary runtime instead of tryi
 
 ## Consequences
 
-For V1, Codex, Claude Code, and pi are disabled as available runtimes while their existing configuration and persisted thread data remain readable. Provider/profile work should be designed around configuring the selected runtime, not around Carrent becoming a general API client.
+Carrent supports only Kimi Code through ACP. Legacy runtime configuration is migrated to Kimi when persisted state is loaded, incompatible model overrides are cleared, and legacy provider sessions are discarded. Provider/profile work should be designed around Kimi rather than a general runtime abstraction.

@@ -6,11 +6,13 @@ export type RuntimeConfigState = "configured" | "missing" | "unknown";
 
 export type RuntimeVerificationState = "never" | "passed" | "failed" | "unsupported";
 
-export type RuntimeId = "kimi" | "codex" | "claude-code" | "pi";
+export type RuntimeId = "kimi";
 
 export const DEFAULT_RUNTIME_ID: RuntimeId = "kimi";
 
-export const runtimeIds: RuntimeId[] = ["kimi", "codex", "claude-code", "pi"];
+export const runtimeIds: RuntimeId[] = ["kimi"];
+
+const persistedRuntimeIds = new Set(["kimi", "codex", "claude-code", "pi"]);
 
 export interface RuntimeRecord {
   id: RuntimeId;
@@ -98,11 +100,12 @@ export type RuntimeDescriptor = RuntimeDescriptorWithModelPing | RuntimeDescript
 
 export const runtimeNameMap: Record<RuntimeId, string> = {
   kimi: "Kimi Code",
-  codex: "Codex",
-  "claude-code": "Claude Code",
-  pi: "pi",
 };
 
 export function normalizeRuntimeId(value: unknown): RuntimeId {
   return runtimeIds.includes(value as RuntimeId) ? (value as RuntimeId) : DEFAULT_RUNTIME_ID;
+}
+
+export function normalizePersistedRuntimeId(value: unknown): RuntimeId | null {
+  return typeof value === "string" && persistedRuntimeIds.has(value) ? "kimi" : null;
 }

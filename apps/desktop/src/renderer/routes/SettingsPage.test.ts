@@ -79,17 +79,6 @@ describe("Kimi connection check", () => {
 
     expect(markup).toContain("Authentication required. Run `kimi login`.");
   });
-
-  it("does not show another runtime's model-list error", () => {
-    const markup = renderToStaticMarkup(
-      createElement(KimiConnectionCheckError, {
-        runtimeId: "pi",
-        error: "Authentication required.",
-      }),
-    );
-
-    expect(markup).toBe("");
-  });
 });
 
 describe("readRtkGainStats", () => {

@@ -194,12 +194,21 @@ async function typeComposerText(message: string) {
 async function submitComposerMessage(message: string, runId: string) {
   nextRunId = runId;
   await typeComposerText(message);
-  const sendButton = container!.querySelector<SVGElement>(".lucide-arrow-up")?.closest("button");
+  const sendButton = await waitForSendButton();
   expect(sendButton?.disabled).toBe(false);
   await act(async () => {
     sendButton!.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+}
+
+async function waitForSendButton() {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const button = container!.querySelector<HTMLButtonElement>('button[aria-label="Send message"]');
+    if (button) return button;
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+  }
+  return null;
 }
 
 describe("getRunChecklistProgress", () => {
@@ -320,7 +329,7 @@ describe("RunChecklist", () => {
     await typeComposerText("Continue the work");
     expect(container!.textContent).toContain("Implement the checklist");
 
-    const sendButton = container!.querySelector<SVGElement>(".lucide-arrow-up")?.closest("button");
+    const sendButton = await waitForSendButton();
     expect(sendButton?.disabled).toBe(false);
     await act(async () => {
       sendButton!.click();

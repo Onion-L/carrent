@@ -85,11 +85,8 @@ describe("mergeComposerDraftContent", () => {
 });
 
 describe("supportsRuntimeModelSelection", () => {
-  it("supports model selection for Kimi and pi runtimes", () => {
+  it("supports model selection for Kimi", () => {
     expect(supportsRuntimeModelSelection("kimi")).toBe(true);
-    expect(supportsRuntimeModelSelection("pi")).toBe(true);
-    expect(supportsRuntimeModelSelection("codex")).toBe(false);
-    expect(supportsRuntimeModelSelection("claude-code")).toBe(false);
   });
 });
 
@@ -378,10 +375,6 @@ describe("getComposerRuntimeLabel", () => {
   it("uses the product label for the Kimi coding runtime", () => {
     expect(getComposerRuntimeLabel({ id: "kimi", name: "Kimi Code" })).toBe("Kimi for coding");
   });
-
-  it("uses the runtime name for non-Kimi runtimes", () => {
-    expect(getComposerRuntimeLabel({ id: "codex", name: "Codex" })).toBe("Codex");
-  });
 });
 
 describe("formatKimiModelLabel", () => {
@@ -400,16 +393,6 @@ describe("getRuntimeSelectionLabel", () => {
         modelName: "kimi-for-coding-highspeed",
       }),
     ).toBe("kimi-for-coding-highspeed");
-  });
-
-  it("keeps the runtime prefix for other runtimes", () => {
-    expect(
-      getRuntimeSelectionLabel({
-        runtimeId: "pi",
-        runtimeName: "pi",
-        modelName: "deepseek-v4-flash",
-      }),
-    ).toBe("pi · deepseek-v4-flash");
   });
 });
 
@@ -595,11 +578,6 @@ describe("getActionablePermissionsForThread", () => {
             ...kimiPermission,
             id: "perm-other-thread",
             threadId: "thread-2",
-          },
-          {
-            ...kimiPermission,
-            id: "perm-legacy",
-            provider: "claude-code",
           },
         ],
       }),
@@ -921,7 +899,6 @@ describe("plan slash helpers", () => {
   it("does not parse non-leading or similar commands", () => {
     expect(getPlanSubmissionState("please use /plan", "kimi", false).command).toBe(null);
     expect(getPlanSubmissionState("/planner task", "kimi", false).command).toBe(null);
-    expect(getPlanSubmissionState("/plan task", "codex", false).command).toBe(null);
   });
 
   it("keeps an already attached marker active for normal input", () => {
@@ -941,9 +918,6 @@ describe("plan slash helpers", () => {
     expect(
       shouldShowPlanSlashSuggestion("kimi", "use /plan", getSkillSlashTrigger("use /plan")),
     ).toBe(false);
-    expect(shouldShowPlanSlashSuggestion("codex", "/plan", getSkillSlashTrigger("/plan"))).toBe(
-      false,
-    );
   });
 });
 

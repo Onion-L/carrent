@@ -20,7 +20,7 @@ import {
   assertValidAttachmentStorageKey,
   isValidAttachmentSha256,
 } from "../../src/shared/attachment";
-import { runtimeIds, runtimeNameMap, type RuntimeId } from "../../src/shared/runtimes";
+import { runtimeIds, type RuntimeId } from "../../src/shared/runtimes";
 import type { ChatSessionManager } from "./chatSessionManager";
 import type { ThreadActionRequest } from "../../src/shared/threadActions";
 import type { ChatRunAuthority } from "./chatRunAuthority";
@@ -45,6 +45,12 @@ function senderIdOf(event: unknown): number {
   const id = (event as { sender?: { id?: unknown } } | null)?.sender?.id;
   if (typeof id !== "number") throw new Error("Unknown Run subscriber.");
   return id;
+}
+
+function assertSupportedRuntime(request: ChatTurnRequest) {
+  if (!runtimeIds.includes(request.runtimeId as RuntimeId)) {
+    throw new Error("Invalid runtime.");
+  }
 }
 
 const MAX_DELETE_THREAD_IDS = 10_000;
@@ -353,10 +359,7 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
 
   ipcMainLike.handle("chat:send", async (_event, request) => {
     const req = request as ChatTurnRequest;
-    const unavailableMessage = getV1UnavailableRuntimeMessage(req.runtimeId);
-    if (unavailableMessage) {
-      throw new Error(unavailableMessage);
-    }
+    assertSupportedRuntime(req);
     if (
       services.isProjectDirectoryAvailable &&
       !(await services.isProjectDirectoryAvailable(req.context.workingDirectory))
@@ -426,27 +429,17 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
 
   ipcMainLike.handle("chat:kimi-status", async (_event, request) => {
     const req = request as ChatTurnRequest;
-    if (req.runtimeId !== "kimi") {
-      return null;
-    }
-
+    assertSupportedRuntime(req);
     return services.sessionManager.getStatus(req) as Promise<KimiSessionStatus | null>;
   });
 
   ipcMainLike.handle("chat:session-status", async (_event, request) => {
     const req = request as ChatTurnRequest;
-    if (req.runtimeId !== "kimi" || !services.sessionManager.inspectStatus) {
+    assertSupportedRuntime(req);
+    if (!services.sessionManager.inspectStatus) {
       return null;
     }
 
     return services.sessionManager.inspectStatus(req) as Promise<KimiSessionStatus | null>;
   });
-}
-
-function getV1UnavailableRuntimeMessage(runtimeId: RuntimeId) {
-  if (runtimeId === "kimi") {
-    return null;
-  }
-
-  return `${runtimeNameMap[runtimeId]} is unavailable in Carrent V1. Use Kimi Code.`;
 }

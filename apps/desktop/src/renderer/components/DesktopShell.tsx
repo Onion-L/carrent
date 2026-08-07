@@ -198,7 +198,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
           projects={projects}
           associations={associations}
           onClose={() => setIsThreadSearchOpen(false)}
-          onSelect={async (entry) => {
+          onSelect={(entry) => {
             setIsThreadSearchOpen(false);
             const path = buildThreadPath(
               entry.thread.workspaceId,
@@ -206,8 +206,12 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
               entry.thread.id,
             );
             if (path === location.pathname) return;
-            await selectWorkspace(entry.thread.workspaceId);
+            // Navigate before selecting; see WorkspaceRail for why the order
+            // matters (avoids an activeWorkspaceId bounce).
             navigate(path);
+            void selectWorkspace(entry.thread.workspaceId).catch((error) => {
+              console.error("[app-state] failed to select Workspace", error);
+            });
           }}
         />
       )}

@@ -68,14 +68,20 @@ export function WorkspaceRail() {
                 aria-label={workspace.name}
                 aria-current={active ? "page" : undefined}
                 title={workspace.name}
-                onClick={async () => {
-                  if (
-                    (await selectWorkspace(workspace.id)) ||
-                    (location.pathname === "/settings" && workspace.id === activeWorkspaceId)
-                  ) {
-                    navigate(
-                      getWorkspaceRestorePath(workspace.id, threads, lastThreadIdByWorkspace),
-                    );
+                onClick={() => {
+                  const isActive = workspace.id === activeWorkspaceId;
+                  if (isActive && location.pathname !== "/settings") return;
+                  // Navigate before selecting: while the route still points at
+                  // the previous Workspace, a select broadcast would make the
+                  // NavigationCoordinator re-remember the old route's Thread
+                  // and flip activeWorkspaceId back, visibly bouncing the UI.
+                  navigate(
+                    getWorkspaceRestorePath(workspace.id, threads, lastThreadIdByWorkspace),
+                  );
+                  if (!isActive) {
+                    void selectWorkspace(workspace.id).catch((error) => {
+                      console.error("[app-state] failed to select Workspace", error);
+                    });
                   }
                 }}
                 onContextMenu={(event) => {

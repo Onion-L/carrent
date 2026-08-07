@@ -96,12 +96,17 @@ export function WorkspaceSwitcher() {
                       role="menuitemradio"
                       aria-checked={active}
                       aria-label={workspace.name}
-                      onClick={async () => {
+                      onClick={() => {
                         setIsOpen(false);
-                        if (active || !(await selectWorkspace(workspace.id))) return;
+                        if (active) return;
+                        // Navigate before selecting; see WorkspaceRail for why
+                        // the order matters (avoids an activeWorkspaceId bounce).
                         navigate(
                           getWorkspaceRestorePath(workspace.id, threads, lastThreadIdByWorkspace),
                         );
+                        void selectWorkspace(workspace.id).catch((error) => {
+                          console.error("[app-state] failed to select Workspace", error);
+                        });
                       }}
                       className="flex min-h-10 min-w-0 flex-1 items-center gap-3 px-3 text-left text-app-14 text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
                     >

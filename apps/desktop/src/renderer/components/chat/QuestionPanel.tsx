@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { CircleAlert } from "lucide-react";
 
 import {
@@ -117,6 +117,19 @@ export function QuestionPanel({ question }: { question: ChatQuestionRequest }) {
   );
   const { questionIndex, drafts } = draftState;
   const item = question.questions[questionIndex];
+  const [activeIndex, setActiveIndex] = useState(0);
+  const listboxRef = useRef<HTMLDivElement>(null);
+
+  // Focus the option list when the panel appears or the question changes so
+  // arrow keys work without touching the mouse. Never steal focus back from
+  // something already inside the list (the Other input, a clicked option).
+  useEffect(() => {
+    setActiveIndex(0);
+    const listbox = listboxRef.current;
+    if (listbox && !listbox.contains(document.activeElement)) {
+      listbox.focus();
+    }
+  }, [question.id, questionIndex]);
 
   if (!item) {
     return null;
@@ -151,6 +164,69 @@ export function QuestionPanel({ question }: { question: ChatQuestionRequest }) {
     void respondToQuestion(buildQuestionSubmitResponse(question, drafts));
   };
 
+  const goToNextQuestion = () => {
+    updateDraftState((current) => ({
+      ...current,
+      questionIndex: Math.min(question.questions.length - 1, current.questionIndex + 1),
+    }));
+  };
+
+  const optionIds = item.options.map((option) => option.optionId);
+  if (showOther) {
+    optionIds.push(CHAT_QUESTION_OTHER_OPTION_ID);
+  }
+
+  const moveSelection = (delta: number) => {
+    const lastIndex = optionIds.length - 1;
+    if (lastIndex < 0) {
+      return;
+    }
+    const clamp = (index: number) => Math.max(0, Math.min(lastIndex, index));
+    if (item.multiSelect) {
+      // Multi-select moves a highlight cursor instead; Space toggles the choice.
+      setActiveIndex((current) => clamp(current + delta));
+      return;
+    }
+    const currentIndex =
+      draft.optionIds.length === 1 ? optionIds.indexOf(draft.optionIds[0]) : -1;
+    const origin = currentIndex === -1 ? (delta > 0 ? -1 : optionIds.length) : currentIndex;
+    const nextId = optionIds[clamp(origin + delta)];
+    if (nextId) {
+      updateDraft({ ...draft, optionIds: [nextId] });
+    }
+  };
+
+  const handleListboxKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (target.tagName === "INPUT") {
+        // The single-line Other input has no use for vertical arrows; hand
+        // control back to the list so they keep moving the selection.
+        listboxRef.current?.focus();
+      }
+      moveSelection(event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (event.key === " " && item.multiSelect && target === listboxRef.current) {
+      event.preventDefault();
+      const optionId = optionIds[activeIndex];
+      if (optionId) {
+        updateDraft(toggleQuestionOption(item, draft, optionId));
+      }
+      return;
+    }
+    if (event.key === "Enter" && target.tagName !== "BUTTON") {
+      // Buttons keep their native Enter click; everywhere else Enter advances.
+      event.preventDefault();
+      if (isLastQuestion) {
+        handleSubmit();
+      } else if (isQuestionDraftValid(draft)) {
+        goToNextQuestion();
+      }
+    }
+  };
+
   return (
     <div className="rounded-xl border border-border bg-surface px-4 py-3">
       <div className="flex items-start gap-2.5">
@@ -168,43 +244,70 @@ export function QuestionPanel({ question }: { question: ChatQuestionRequest }) {
         </div>
       </div>
       <div
-        className="mt-3 flex flex-col gap-1.5"
+        ref={listboxRef}
+        tabIndex={-1}
+        onKeyDown={handleListboxKeyDown}
+        className="mt-3 flex flex-col gap-1.5 outline-none"
         role="listbox"
         aria-label={item.question}
         aria-multiselectable={item.multiSelect || undefined}
       >
-        {item.options.map((option) => (
+        {item.options.map((option, index) => (
           <OptionButton
             key={option.optionId}
             label={option.label}
             description={option.description}
             isSelected={draft.optionIds.includes(option.optionId)}
+            isActive={item.multiSelect && index === activeIndex}
             multiSelect={item.multiSelect}
             onSelect={() => updateDraft(toggleQuestionOption(item, draft, option.optionId))}
           />
         ))}
         {showOther ? (
-          <OptionButton
-            label="Other"
-            isSelected={otherSelected}
-            multiSelect={item.multiSelect}
-            onSelect={() =>
+          // Other carries its free-text input inline on the same row: no box,
+          // the answer reads as a continuation of the option label itself.
+          <div
+            role="option"
+            aria-selected={otherSelected}
+            tabIndex={-1}
+            onClick={() =>
               updateDraft(toggleQuestionOption(item, draft, CHAT_QUESTION_OTHER_OPTION_ID))
             }
-          />
+            className={`flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition ${
+              otherSelected
+                ? "border-border-strong bg-surface-hover"
+                : item.multiSelect && activeIndex === optionIds.length - 1
+                  ? "border-border-strong"
+                  : "border-border hover:bg-surface-raised"
+            }`}
+          >
+            <span
+              className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center border ${
+                item.multiSelect ? "rounded-[4px]" : "rounded-full"
+              } ${otherSelected ? "border-fg bg-fg" : "border-border-strong"}`}
+            >
+              {otherSelected ? (
+                <span
+                  className={`h-1.5 w-1.5 bg-bg ${item.multiSelect ? "rounded-[1px]" : "rounded-full"}`}
+                />
+              ) : null}
+            </span>
+            <span className="shrink-0 text-app-13 font-medium text-fg">Other</span>
+            {otherSelected ? (
+              <input
+                type="text"
+                value={draft.otherText}
+                onChange={(event) => updateDraft({ ...draft, otherText: event.target.value })}
+                onClick={(event) => event.stopPropagation()}
+                aria-label="Custom answer"
+                placeholder="Type your answer"
+                autoFocus
+                className="min-w-0 flex-1 bg-transparent p-0 text-app-13 text-fg outline-none placeholder:text-subtle"
+              />
+            ) : null}
+          </div>
         ) : null}
       </div>
-      {otherSelected ? (
-        <input
-          type="text"
-          value={draft.otherText}
-          onChange={(event) => updateDraft({ ...draft, otherText: event.target.value })}
-          aria-label="Custom answer"
-          placeholder="Type your answer"
-          autoFocus
-          className="mt-2 w-full rounded-lg border border-border bg-bg px-3 py-2 text-app-13 text-fg outline-none placeholder:text-subtle focus:border-border-strong"
-        />
-      ) : null}
       <div className="mt-3 flex items-center justify-end gap-2">
         <button
           type="button"
@@ -237,12 +340,7 @@ export function QuestionPanel({ question }: { question: ChatQuestionRequest }) {
         {!isLastQuestion ? (
           <button
             type="button"
-            onClick={() =>
-              updateDraftState((current) => ({
-                ...current,
-                questionIndex: Math.min(question.questions.length - 1, current.questionIndex + 1),
-              }))
-            }
+            onClick={goToNextQuestion}
             disabled={!isQuestionDraftValid(draft)}
             className="rounded-md bg-fg px-3 py-1.5 text-app-12 font-medium text-bg transition hover:opacity-90 disabled:opacity-30"
           >
@@ -267,12 +365,14 @@ function OptionButton({
   label,
   description,
   isSelected,
+  isActive,
   multiSelect,
   onSelect,
 }: {
   label: string;
   description?: string;
   isSelected: boolean;
+  isActive: boolean;
   multiSelect: boolean;
   onSelect: () => void;
 }) {
@@ -285,7 +385,9 @@ function OptionButton({
       className={`flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition ${
         isSelected
           ? "border-border-strong bg-surface-hover"
-          : "border-border hover:bg-surface-raised"
+          : isActive
+            ? "border-border-strong"
+            : "border-border hover:bg-surface-raised"
       }`}
     >
       <span

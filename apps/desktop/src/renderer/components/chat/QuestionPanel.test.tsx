@@ -120,6 +120,14 @@ async function click(element: HTMLElement) {
   });
 }
 
+async function keydown(element: Element, key: string) {
+  await act(async () => {
+    element.dispatchEvent(
+      new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key }),
+    );
+  });
+}
+
 async function startRunForThread() {
   const request: ChatTurnRequest = {
     workspace: { kind: "chat" },
@@ -201,9 +209,10 @@ describe("QuestionPanel", () => {
     expect(listbox.getAttribute("aria-multiselectable")).toBe(null);
 
     const typescript = optionByLabel("TypeScript");
-    expect(typescript.getAttribute("aria-selected")).toBe("false");
+    // Single-select questions render with the first option preselected.
+    expect(typescript.getAttribute("aria-selected")).toBe("true");
     await click(typescript);
-    expect(optionByLabel("TypeScript").getAttribute("aria-selected")).toBe("true");
+    expect(optionByLabel("TypeScript").getAttribute("aria-selected")).toBe("false");
   });
 
   it("marks a multi-select question as aria-multiselectable", async () => {
@@ -236,7 +245,6 @@ describe("QuestionPanel", () => {
   it("replaces the selection for a single-select question", async () => {
     await renderPanel(makeQuestion());
 
-    await click(optionByLabel("TypeScript"));
     await click(optionByLabel("JavaScript"));
 
     expect(optionByLabel("TypeScript").getAttribute("aria-selected")).toBe("false");
@@ -257,10 +265,10 @@ describe("QuestionPanel", () => {
   });
 
   it("disables Next until the current question has a valid answer", async () => {
-    await renderPanel(makeQuestion({ questions: [LANGUAGE_ITEM, FEATURES_ITEM] }));
+    await renderPanel(makeQuestion({ questions: [FEATURES_ITEM, LANGUAGE_ITEM] }));
 
     expect(actionButton("Next").disabled).toBe(true);
-    await click(optionByLabel("TypeScript"));
+    await click(optionByLabel("Logging"));
     expect(actionButton("Next").disabled).toBe(false);
   });
 
@@ -287,7 +295,7 @@ describe("QuestionPanel", () => {
       ),
     ).toBe(false);
 
-    await click(optionByLabel("TypeScript"));
+    // TypeScript comes preselected, so Next is available right away.
     await click(actionButton("Next"));
 
     expect(container!.textContent).toContain("Question 2 of 2");
@@ -313,7 +321,6 @@ describe("QuestionPanel", () => {
   it("keeps selections when navigating Back and Next", async () => {
     await renderPanel(makeQuestion({ questions: [LANGUAGE_ITEM, FEATURES_ITEM] }));
 
-    await click(optionByLabel("TypeScript"));
     await click(actionButton("Next"));
     await click(optionByLabel("Logging"));
 
@@ -328,6 +335,47 @@ describe("QuestionPanel", () => {
     await renderPanel(makeQuestion());
 
     expect(container!.textContent).not.toContain("Question 1 of 1");
+  });
+
+  it("moves the single-select selection with the arrow keys", async () => {
+    await renderPanel(makeQuestion());
+
+    const listbox = container!.querySelector('[role="listbox"]')!;
+    await keydown(listbox, "ArrowDown");
+    expect(optionByLabel("JavaScript").getAttribute("aria-selected")).toBe("true");
+    expect(optionByLabel("TypeScript").getAttribute("aria-selected")).toBe("false");
+
+    await keydown(listbox, "ArrowUp");
+    expect(optionByLabel("TypeScript").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("submits the preselected answer with Enter", async () => {
+    const question = makeQuestion();
+    await renderPanel(question);
+
+    await keydown(container!.querySelector('[role="listbox"]')!, "Enter");
+
+    expect(questionResponses).toEqual([
+      {
+        questionId: question.id,
+        runId: "run-1",
+        action: "submit",
+        answers: [{ questionIndex: 0, optionIds: ["mcp-q1-opt-1"] }],
+      },
+    ]);
+  });
+
+  it("moves a highlight and toggles with Space for multi-select questions", async () => {
+    await renderPanel(makeQuestion({ questions: [FEATURES_ITEM] }));
+
+    const listbox = container!.querySelector('[role="listbox"]')!;
+    await keydown(listbox, " ");
+    expect(optionByLabel("Logging").getAttribute("aria-selected")).toBe("true");
+
+    await keydown(listbox, "ArrowDown");
+    await keydown(listbox, " ");
+    expect(optionByLabel("Metrics").getAttribute("aria-selected")).toBe("true");
+    expect(optionByLabel("Logging").getAttribute("aria-selected")).toBe("true");
   });
 
   it("sends a skip response through Skip", async () => {

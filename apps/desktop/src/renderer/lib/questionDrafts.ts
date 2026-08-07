@@ -20,8 +20,13 @@ export type QuestionDraftState = {
 // when the question is resolved or interrupted.
 const stateByQuestionId = new Map<string, QuestionDraftState>();
 
+// Single-select questions start with the first option selected so the panel is
+// answerable with the keyboard alone: arrows move the selection, Enter submits.
 export function createQuestionDrafts(question: ChatQuestionRequest): QuestionDraft[] {
-  return question.questions.map(() => ({ optionIds: [], otherText: "" }));
+  return question.questions.map((item) => ({
+    optionIds: item.multiSelect ? [] : item.options.slice(0, 1).map((option) => option.optionId),
+    otherText: "",
+  }));
 }
 
 export function getQuestionDraftsFromAnswers(

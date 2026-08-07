@@ -74,10 +74,10 @@ describe("getPendingQuestionForThread", () => {
 });
 
 describe("createQuestionDrafts", () => {
-  it("starts one empty draft per question so navigation retains work", () => {
+  it("preselects the first option of single-select questions for keyboard use", () => {
     expect(
       createQuestionDrafts(makeQuestion({ questions: [LANGUAGE_ITEM, FEATURES_ITEM] })),
-    ).toEqual([makeDraft(), makeDraft()]);
+    ).toEqual([makeDraft({ optionIds: ["mcp-q1-opt-1"] }), makeDraft()]);
   });
 });
 

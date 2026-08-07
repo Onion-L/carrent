@@ -100,7 +100,7 @@ describe("question draft store", () => {
 
     expect(getQuestionDraftState("q-new")).toBe(null);
     expect(createQuestionDrafts(makeQuestion())).toEqual([
-      { optionIds: [], otherText: "" },
+      { optionIds: ["opt_ts"], otherText: "" },
       { optionIds: [], otherText: "" },
     ]);
     clearQuestionDraftState("q-old");

@@ -5,6 +5,7 @@ import {
   Box,
   Check,
   CheckCircle2,
+  ChevronRight,
   CircleDot,
   Copy,
   FileText,
@@ -551,6 +552,135 @@ function isRawThoughtPart(part: ActivityPart) {
   return part.type === "reasoning" && part.id.startsWith("kimi-thinking-");
 }
 
+export type KimiTimelineGroupableItem = Extract<
+  KimiTimelinePresentationItem,
+  { type: "kimi-thinking" | "kimi-tool" | "kimi-subagent" }
+>;
+
+export type KimiTimelineActivityGroup = {
+  type: "kimi-activity-group";
+  id: string;
+  items: KimiTimelineGroupableItem[];
+};
+
+export type KimiTimelineDisplayItem = KimiTimelinePresentationItem | KimiTimelineActivityGroup;
+
+function kimiTimelineItemId(item: KimiTimelineGroupableItem) {
+  return item.type === "kimi-subagent" ? item.task.id : item.id;
+}
+
+// Collapses runs of consecutive thinking/tool/subagent entries into a single
+// expandable group. Text messages break a run, so the visible order of events
+// is never changed. Runs of a single item stay inline.
+export function groupKimiTimelineItems(
+  items: KimiTimelinePresentationItem[],
+): KimiTimelineDisplayItem[] {
+  const result: KimiTimelineDisplayItem[] = [];
+  let buffer: KimiTimelineGroupableItem[] = [];
+
+  const flush = () => {
+    if (buffer.length >= 2) {
+      result.push({
+        type: "kimi-activity-group",
+        id: `kimi-activity-group-${kimiTimelineItemId(buffer[0]!)}`,
+        items: buffer,
+      });
+    } else {
+      result.push(...buffer);
+    }
+    buffer = [];
+  };
+
+  for (const item of items) {
+    if (item.type === "text") {
+      flush();
+      result.push(item);
+    } else {
+      buffer.push(item);
+    }
+  }
+  flush();
+
+  return result;
+}
+
+export function formatKimiActivityGroupLabel(
+  items: KimiTimelineGroupableItem[],
+  { active = false }: { active?: boolean } = {},
+) {
+  const thoughts = items.filter((item) => item.type === "kimi-thinking").length;
+  const tools = items.filter((item) => item.type === "kimi-tool").length;
+  const subagents = items.length - thoughts - tools;
+  const parts: string[] = [];
+  if (tools > 0) parts.push(`${tools} tool call${tools === 1 ? "" : "s"}`);
+  if (thoughts > 0) parts.push(`${thoughts} thought${thoughts === 1 ? "" : "s"}`);
+  if (subagents > 0) parts.push(`${subagents} subagent${subagents === 1 ? "" : "s"}`);
+  return `${active ? "Running" : "Ran"} ${parts.join(" · ")}`;
+}
+
+function isKimiTimelineItemActive(item: KimiTimelineGroupableItem) {
+  if (item.type === "kimi-subagent") {
+    return item.task.status === "running";
+  }
+  if (item.status === "running") {
+    return true;
+  }
+  return item.type === "kimi-tool" && item.status === "pending";
+}
+
+function renderKimiTimelineItem(
+  item: KimiTimelinePresentationItem,
+  onSelectSubagent?: (taskId: string) => void,
+) {
+  if (item.type === "text") {
+    return <MarkdownContent key={item.id}>{item.content}</MarkdownContent>;
+  }
+  if (item.type === "kimi-thinking" || item.type === "kimi-tool") {
+    return <AgentActivityList key={item.id} items={[item]} />;
+  }
+  return <KimiSubagentItem key={item.task.id} task={item.task} onSelect={onSelectSubagent} />;
+}
+
+function KimiActivityGroup({
+  group,
+  onSelectSubagent,
+}: {
+  group: KimiTimelineActivityGroup;
+  onSelectSubagent?: (taskId: string) => void;
+}) {
+  const isActive = group.items.some(isKimiTimelineItemActive);
+  const [expanded, setExpanded] = useState(isActive);
+
+  // Live groups stay expanded while their items are still running and fold
+  // away as soon as the last one settles.
+  useEffect(() => {
+    if (!isActive) {
+      setExpanded(false);
+    }
+  }, [isActive]);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="group flex w-full items-center gap-2 text-left text-app-13 leading-6 text-muted transition hover:text-fg"
+        aria-expanded={expanded}
+      >
+        <ChevronRight
+          className={`h-4 w-4 shrink-0 transition ${expanded ? "rotate-90" : ""}`}
+        />
+        <span>{formatKimiActivityGroupLabel(group.items, { active: isActive })}</span>
+      </button>
+      {expanded ? (
+        <div className="mt-2 flex flex-col gap-3 border-l border-border pl-5">
+          {group.items.map((item) => renderKimiTimelineItem(item, onSelectSubagent))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function getAssistantMessagePresentation(
   parts: MessagePart[],
   runStatus: Message["runStatus"],
@@ -752,17 +882,17 @@ function AssistantMessage({
             finishedAt={message.runFinishedAt}
             duration={message.duration}
           />
-          {presentation.timelineItems!.map((item) => {
-            if (item.type === "text") {
-              return <MarkdownContent key={item.id}>{item.content}</MarkdownContent>;
-            }
-            if (item.type === "kimi-thinking" || item.type === "kimi-tool") {
-              return <AgentActivityList key={item.id} items={[item]} />;
-            }
-            return (
-              <KimiSubagentItem key={item.task.id} task={item.task} onSelect={onSelectSubagent} />
-            );
-          })}
+          {groupKimiTimelineItems(presentation.timelineItems!).map((item) =>
+            item.type === "kimi-activity-group" ? (
+              <KimiActivityGroup
+                key={item.id}
+                group={item}
+                onSelectSubagent={onSelectSubagent}
+              />
+            ) : (
+              renderKimiTimelineItem(item, onSelectSubagent)
+            ),
+          )}
           {planReviewParts.map((review) => (
             <PlanReviewBlock key={review.id} review={review} />
           ))}

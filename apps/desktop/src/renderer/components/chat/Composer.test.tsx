@@ -12,17 +12,28 @@ import {
   $getRoot,
   $getSelection,
   $isRangeSelection,
+  KEY_ENTER_COMMAND,
   PASTE_COMMAND,
   type LexicalEditor,
 } from "lexical";
 
-import type { ChatRunEvent } from "../../../shared/chat";
+import type {
+  ChatRunAuthorityChange,
+  ChatRunAuthorityState,
+  ChatRunEvent,
+} from "../../../shared/chat";
 import type { AppStateSnapshot } from "../../../shared/workspacePersistence";
 import { createFakeAppStateAuthority } from "../../test/fakeAppStateAuthority";
 import { AppStateProvider } from "../../context/AppStateContext";
 import { RuntimeModelsProvider } from "../../context/RuntimeModelsContext";
 import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
-import { clearThreadDraft, enqueueChatMessage, getThreadDraft } from "../../hooks/chatMessageQueue";
+import {
+  clearThreadDraft,
+  enqueueChatMessage,
+  getQueuedMessages,
+  getThreadDraft,
+  removeQueuedChatMessage,
+} from "../../hooks/chatMessageQueue";
 import {
   Composer,
   type AssociationDraftPromotionInput,
@@ -32,6 +43,11 @@ import type { ThreadWorkDraftSnapshot } from "../../hooks/chatMessageQueue";
 
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
+let emitChatEvent: ((event: ChatRunEvent) => void) | null = null;
+let emitChatAuthorityChange: ((update: ChatRunAuthorityChange) => void) | null = null;
+let activeChatAuthorityState: ChatRunAuthorityState | null = null;
+let sentChatMessages: string[] = [];
+let sentChatRunIds: string[] = [];
 
 function ComposerHarness({
   draftRequest,
@@ -181,7 +197,13 @@ function baseSnapshot(threadWork: AppStateSnapshot["threadWork"]): AppStateSnaps
 function installCarrentBridge(
   authority: ReturnType<typeof createFakeAppStateAuthority>,
   snapshot: AppStateSnapshot,
+  options: { authorityState?: ChatRunAuthorityState } = {},
 ) {
+  emitChatEvent = null;
+  emitChatAuthorityChange = null;
+  activeChatAuthorityState = options.authorityState ?? null;
+  sentChatMessages = [];
+  sentChatRunIds = [];
   window.carrent = {
     appState: {
       load: async () => ({ status: "ready", snapshot }),
@@ -249,14 +271,74 @@ function installCarrentBridge(
     mcpServer: {
       getStatus: async () => ({ enabled: true, running: true }),
     },
+    git: {
+      workspaceSnapshot: async () => ({ state: "ready", baseRevision: "base" }),
+      workspaceDiff: async () => ({ state: "ready", files: [] }),
+    },
     chat: {
-      send: async () => ({ runId: "run-1" }),
+      send: async (request: { message: string; requestKey?: string }) => {
+        const runId = `run-${sentChatRunIds.length + 1}`;
+        sentChatMessages.push(request.message);
+        sentChatRunIds.push(runId);
+        if (activeChatAuthorityState) {
+          queueMicrotask(() => {
+            const baseRevision = activeChatAuthorityState!.revision;
+            const completedEvent: ChatRunEvent = {
+              type: "completed",
+              runId,
+              requestKey: request.requestKey,
+              text: "done",
+              finishedAt: "2026-08-07T00:00:02.000Z",
+            };
+            const completedRun = {
+              runId,
+              requestKey: request.requestKey,
+              threadId: "thread-2",
+              status: "completed" as const,
+              stopRequested: false,
+              eventCount: 1,
+              events: [completedEvent],
+              pendingPermissions: [],
+              pendingQuestions: [],
+            };
+            activeChatAuthorityState = {
+              revision: baseRevision + 1,
+              runs: [...activeChatAuthorityState!.runs, completedRun],
+            };
+            emitChatAuthorityChange?.({
+              baseRevision,
+              revision: baseRevision + 1,
+              run: completedRun,
+              event: completedEvent,
+            });
+          });
+        }
+        return { runId };
+      },
       stop: async () => {},
       deleteThreadData: async () => {},
       respondToPermission: async () => {},
       respondToQuestion: async () => {},
       getKimiStatus: async () => null,
-      onEvent: (_listener: (event: ChatRunEvent) => void) => () => {},
+      ...(activeChatAuthorityState
+        ? {
+            onChanged: (listener: (update: ChatRunAuthorityChange) => void) => {
+              emitChatAuthorityChange = listener;
+              return () => {
+                if (emitChatAuthorityChange === listener) emitChatAuthorityChange = null;
+              };
+            },
+            subscribe: async () => activeChatAuthorityState!,
+            unsubscribe: async () => {},
+          }
+        : {
+            onEvent: (listener: (event: ChatRunEvent) => void) => {
+              emitChatEvent = listener;
+              return () => {
+                if (emitChatEvent === listener) emitChatEvent = null;
+              };
+            },
+          }),
     },
   } as unknown as Window["carrent"];
 }
@@ -278,11 +360,12 @@ async function renderComposer(
     threadWork?: AppStateSnapshot["threadWork"];
     threadId?: string;
     authorityOptions?: Parameters<typeof createFakeAppStateAuthority>[1];
+    authorityState?: ChatRunAuthorityState;
   } = {},
 ) {
   const snapshot = baseSnapshot(options.threadWork ?? {});
   const authority = createFakeAppStateAuthority(snapshot, options.authorityOptions);
-  installCarrentBridge(authority, snapshot);
+  installCarrentBridge(authority, snapshot, { authorityState: options.authorityState });
   await mount(composerTree(undefined, options.threadId));
   return authority;
 }
@@ -318,6 +401,28 @@ async function setComposerText(input: string, cursor = input.length) {
     text.focus();
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+}
+
+async function submitComposer() {
+  await act(async () => {
+    getLexicalEditor().dispatchCommand(
+      KEY_ENTER_COMMAND,
+      new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+async function waitForQueueFlush(threadId: string, expectedSentCount: number) {
+  const deadline = Date.now() + 500;
+  while (
+    Date.now() < deadline &&
+    (sentChatMessages.length !== expectedSentCount || getQueuedMessages(threadId).length > 0)
+  ) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  }
 }
 
 async function chooseSkill(description: string) {
@@ -376,6 +481,103 @@ afterEach(async () => {
 });
 
 describe("Composer inline Skills", () => {
+  it("automatically sends the next queued message when a Run completes", async () => {
+    const threadId = "thread-2";
+    await renderComposer({ threadId });
+
+    try {
+      await setComposerText("first message");
+      await submitComposer();
+      expect(sentChatMessages).toEqual(["first message"]);
+
+      await setComposerText("queued message");
+      await submitComposer();
+      expect(sentChatMessages).toEqual(["first message"]);
+      expect(getQueuedMessages(threadId).map((item) => item.content)).toEqual(["queued message"]);
+
+      await act(async () => {
+        emitChatEvent?.({
+          type: "completed",
+          runId: sentChatRunIds[0]!,
+          text: "done",
+          finishedAt: "2026-08-07T00:00:00.000Z",
+        });
+      });
+      await waitForQueueFlush(threadId, 2);
+
+      expect(sentChatMessages).toEqual(["first message", "queued message"]);
+      expect(getQueuedMessages(threadId)).toEqual([]);
+    } finally {
+      const latestRunId = sentChatRunIds.at(-1);
+      if (latestRunId) {
+        await act(async () => {
+          emitChatEvent?.({
+            type: "completed",
+            runId: latestRunId,
+            text: "done",
+            finishedAt: "2026-08-07T00:00:01.000Z",
+          });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+      getQueuedMessages(threadId).forEach((item) => removeQueuedChatMessage(threadId, item.id));
+    }
+  });
+
+  it("automatically sends a queued message when a shared Run completes", async () => {
+    const threadId = "thread-2";
+    const sharedRun = {
+      runId: "shared-run",
+      requestKey: "shared-request",
+      threadId,
+      status: "running" as const,
+      stopRequested: false,
+      eventCount: 0,
+      events: [],
+      pendingPermissions: [],
+      pendingQuestions: [],
+    };
+    const completedEvent: ChatRunEvent = {
+      type: "completed",
+      runId: sharedRun.runId,
+      requestKey: sharedRun.requestKey,
+      text: "done",
+      finishedAt: "2026-08-07T00:00:00.000Z",
+    };
+
+    await renderComposer({
+      threadId,
+      authorityState: { revision: 1, runs: [sharedRun] },
+    });
+
+    try {
+      await setComposerText("queued message");
+      await submitComposer();
+      expect(sentChatMessages).toEqual([]);
+      expect(getQueuedMessages(threadId).map((item) => item.content)).toEqual(["queued message"]);
+
+      await act(async () => {
+        emitChatAuthorityChange?.({
+          baseRevision: 1,
+          revision: 2,
+          run: {
+            ...sharedRun,
+            status: "completed",
+            eventCount: 1,
+            events: [completedEvent],
+          },
+          event: completedEvent,
+        });
+      });
+      await waitForQueueFlush(threadId, 1);
+
+      expect(sentChatMessages).toEqual(["queued message"]);
+      expect(getQueuedMessages(threadId)).toEqual([]);
+    } finally {
+      getQueuedMessages(threadId).forEach((item) => removeQueuedChatMessage(threadId, item.id));
+    }
+  });
+
   it("clears a persisted draft when the Composer is emptied immediately before switching Threads", async () => {
     await renderComposer();
     await setComposerText("old draft");

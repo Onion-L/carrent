@@ -4,13 +4,17 @@ import { createElement } from "react";
 
 import {
   buildUserMessageEditContent,
+  formatKimiActivityGroupLabel,
   getAssistantMessagePresentation,
   getUserMessageEditDraft,
+  groupKimiTimelineItems,
   MessageTimeline,
   parseFileReferenceSegments,
   parseSkillReferenceSegments,
   splitLeadingSkillReferences,
   UserMessageAttachmentList,
+  type KimiTimelineGroupableItem,
+  type KimiTimelinePresentationItem,
 } from "./MessageTimeline";
 import type { Message } from "../../../shared/threadContent";
 import { getPlanReviewStatusLabel } from "./PlanReviewBlock";
@@ -793,5 +797,101 @@ describe("ErrorBlock", () => {
     );
 
     expect(markup).toContain("Remove Runtime Session and retry");
+  });
+});
+
+function makeThinkingItem(id: string): KimiTimelineGroupableItem {
+  return { type: "kimi-thinking", id, content: `thought ${id}`, status: "completed" };
+}
+
+function makeToolItem(id: string): KimiTimelineGroupableItem {
+  return {
+    type: "kimi-tool",
+    id,
+    title: "Read",
+    kind: "read",
+    command: "",
+    filePath: "src/a.ts",
+    input: "",
+    output: "",
+    error: "",
+    status: "completed",
+  };
+}
+
+function makeTextItem(id: string): KimiTimelinePresentationItem {
+  return { type: "text", id, content: `text ${id}` };
+}
+
+describe("groupKimiTimelineItems", () => {
+  it("collapses a continuous run of thoughts and tools into one group", () => {
+    const grouped = groupKimiTimelineItems([
+      makeThinkingItem("t1"),
+      makeToolItem("tool-1"),
+      makeToolItem("tool-2"),
+      makeThinkingItem("t2"),
+    ]);
+
+    expect(grouped).toEqual([
+      {
+        type: "kimi-activity-group",
+        id: "kimi-activity-group-t1",
+        items: [
+          makeThinkingItem("t1"),
+          makeToolItem("tool-1"),
+          makeToolItem("tool-2"),
+          makeThinkingItem("t2"),
+        ],
+      },
+    ]);
+  });
+
+  it("splits groups at text messages without reordering", () => {
+    const grouped = groupKimiTimelineItems([
+      makeToolItem("tool-1"),
+      makeThinkingItem("t1"),
+      makeTextItem("m1"),
+      makeToolItem("tool-2"),
+      makeToolItem("tool-3"),
+    ]);
+
+    expect(grouped.map((item) => item.type)).toEqual([
+      "kimi-activity-group",
+      "text",
+      "kimi-activity-group",
+    ]);
+    expect(grouped[1]).toEqual(makeTextItem("m1"));
+    expect(grouped[0]).toMatchObject({ id: "kimi-activity-group-tool-1" });
+    expect(grouped[2]).toMatchObject({ id: "kimi-activity-group-tool-2" });
+  });
+
+  it("keeps a single activity item inline instead of grouping it", () => {
+    const grouped = groupKimiTimelineItems([makeTextItem("m1"), makeToolItem("tool-1")]);
+
+    expect(grouped).toEqual([makeTextItem("m1"), makeToolItem("tool-1")]);
+  });
+});
+
+describe("formatKimiActivityGroupLabel", () => {
+  it("summarizes tool calls and thoughts in English", () => {
+    expect(
+      formatKimiActivityGroupLabel([
+        makeThinkingItem("t1"),
+        makeToolItem("tool-1"),
+        makeToolItem("tool-2"),
+      ]),
+    ).toBe("Ran 2 tool calls · 1 thought");
+  });
+
+  it("uses singular forms for single items", () => {
+    expect(formatKimiActivityGroupLabel([makeToolItem("tool-1")])).toBe("Ran 1 tool call");
+  });
+
+  it("uses the Running verb while items are still active", () => {
+    expect(
+      formatKimiActivityGroupLabel([makeThinkingItem("t1"), makeToolItem("tool-1")], {
+        active: true,
+      }),
+    ).toBe("Running 1 tool call · 1 thought");
   });
 });

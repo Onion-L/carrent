@@ -1343,6 +1343,8 @@ export function Composer(props: ComposerProps) {
   const activeAssistantMessageIdRef = useRef<string | null>(null);
   const flushTypewriterRef = useRef<VoidFunction | null>(null);
   const wasSendingRef = useRef(false);
+  const wasSendingForQueueRef = useRef(false);
+  const queueDrainRequestedRef = useRef(false);
   const [stopGuarded, setStopGuarded] = useState(() => getStopGuardRemainingMs(props.threadId) > 0);
   const lastSubmitRequestIdRef = useRef<number | null>(null);
   const lastDraftRequestIdRef = useRef<number | null>(null);
@@ -2650,18 +2652,6 @@ export function Composer(props: ComposerProps) {
         content: getMessageTranscriptContent(m),
       }));
 
-    const flushQueuedMessage = (item: QueuedChatMessage) => {
-      // The coordinator clears the finished run only after these callbacks
-      // return; sending synchronously would be rejected as a duplicate run.
-      setTimeout(() => {
-        void handleSend({ content: item.content, attachments: item.attachments }).then((sent) => {
-          if (!sent) {
-            unshiftQueuedChatMessage(threadId, item);
-          }
-        });
-      }, 0);
-    };
-
     const requestedRunId = `run-${crypto.randomUUID()}`;
     const runtimeModelIdForSend = getRuntimeModelIdForSend({
       runtimeId: props.runtimeId,
@@ -2888,15 +2878,9 @@ export function Composer(props: ComposerProps) {
           markThreadActivity(threadId);
           startTypewriter(assistantMsg.id);
           captureWorkspaceDiff();
-          // A steer request that arrived just as the run finished wins over
-          // the regular queue.
-          const nextQueued =
-            steerItemRef.current ??
-            shiftQueuedChatMessage(threadId, { blockedId: editingQueuedIdRef.current });
-          steerItemRef.current = null;
-          if (nextQueued) {
-            flushQueuedMessage(nextQueued);
-          }
+          // Drain the queue after the coordinator publishes the terminal Run
+          // state. The callback itself runs before that state transition.
+          queueDrainRequestedRef.current = true;
         },
         onError: (error, runId, writtenFiles, runtimeSessionRecovery) => {
           runWrittenFilesRef.current = writtenFiles ?? [];
@@ -2922,6 +2906,7 @@ export function Composer(props: ComposerProps) {
           activeAssistantMessageIdRef.current = null;
           flushTypewriterRef.current = null;
           captureWorkspaceDiff();
+          queueDrainRequestedRef.current = false;
           // A failed run must not swallow a steer request; put it back.
           if (steerItemRef.current) {
             unshiftQueuedChatMessage(threadId, steerItemRef.current);
@@ -2941,11 +2926,7 @@ export function Composer(props: ComposerProps) {
           captureWorkspaceDiff();
           // A user-initiated stop only sends a pending steer message; the
           // rest of the queue stays put until the next send or completion.
-          const nextQueued = steerItemRef.current;
-          steerItemRef.current = null;
-          if (nextQueued) {
-            flushQueuedMessage(nextQueued);
-          }
+          queueDrainRequestedRef.current = steerItemRef.current !== null;
         },
       },
     );
@@ -2998,6 +2979,24 @@ export function Composer(props: ComposerProps) {
     return true;
   };
 
+  const flushQueuedMessage = (item: QueuedChatMessage) => {
+    // Wait for the coordinator's terminal state to be visible before starting
+    // the next Run, then restore the item if the new request is rejected.
+    setTimeout(() => {
+      void handleSend({ content: item.content, attachments: item.attachments }).then((sent) => {
+        if (sent) {
+          // A queued item can be reintroduced by an older Thread Work
+          // broadcast that was already in flight when the item was shifted.
+          if (getQueuedMessages(threadId).some((queued) => queued.id === item.id)) {
+            removeQueuedChatMessage(threadId, item.id);
+          }
+        } else {
+          unshiftQueuedChatMessage(threadId, item);
+        }
+      });
+    }, 0);
+  };
+
   const handleSteerQueuedMessage = (item: QueuedChatMessage) => {
     const queuedItem = getQueuedMessages(threadId).find((queued) => queued.id === item.id);
     if (!queuedItem) {
@@ -3023,6 +3022,29 @@ export function Composer(props: ComposerProps) {
     steerItemRef.current = queuedItem;
     void stop(threadId);
   };
+
+  useEffect(() => {
+    const wasSending = wasSendingForQueueRef.current;
+    wasSendingForQueueRef.current = isThreadSending;
+    if (!wasSending || isThreadSending) {
+      return;
+    }
+
+    const sharedRunCompleted = sharedRun?.status === "completed";
+    const shouldDrain = queueDrainRequestedRef.current || sharedRunCompleted;
+    queueDrainRequestedRef.current = false;
+    if (!shouldDrain) {
+      return;
+    }
+
+    const nextQueued =
+      steerItemRef.current ??
+      shiftQueuedChatMessage(threadId, { blockedId: editingQueuedIdRef.current });
+    steerItemRef.current = null;
+    if (nextQueued) {
+      flushQueuedMessage(nextQueued);
+    }
+  }, [flushQueuedMessage, isThreadSending, sharedRun?.runId, sharedRun?.status, threadId]);
 
   useEffect(() => {
     // A pending steer belongs to the thread it was created in. When the
@@ -3550,7 +3572,7 @@ export function Composer(props: ComposerProps) {
           </div>
         ) : null}
         {queuedMessages.length > 0 ? (
-          <div className="max-h-40 divide-y divide-border overflow-y-auto rounded-t-xl border border-b-0 border-border bg-bg/45">
+          <div className="mx-3 max-h-40 divide-y divide-border overflow-y-auto rounded-t-xl border border-b-0 border-border bg-bg/45">
             {queuedMessages.map((item) => {
               const isEditingQueued = editingQueuedId === item.id;
               return (

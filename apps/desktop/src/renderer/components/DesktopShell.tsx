@@ -149,7 +149,9 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
                 title={isTerminalOpen ? "Hide Integrated Terminal" : "Show Integrated Terminal"}
                 aria-pressed={isTerminalOpen}
                 onClick={() => setIsTerminalOpen((open) => !open)}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
+                className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-surface-hover active:scale-95 ${
+                  isTerminalOpen ? "text-fg" : "text-subtle hover:text-fg"
+                }`}
               >
                 <SquareTerminal className="h-4 w-4" />
               </button>

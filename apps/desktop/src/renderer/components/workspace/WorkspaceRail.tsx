@@ -75,9 +75,7 @@ export function WorkspaceRail() {
                   // the previous Workspace, a select broadcast would make the
                   // NavigationCoordinator re-remember the old route's Thread
                   // and flip activeWorkspaceId back, visibly bouncing the UI.
-                  navigate(
-                    getWorkspaceRestorePath(workspace.id, threads, lastThreadIdByWorkspace),
-                  );
+                  navigate(getWorkspaceRestorePath(workspace.id, threads, lastThreadIdByWorkspace));
                   if (!isActive) {
                     void selectWorkspace(workspace.id).catch((error) => {
                       console.error("[app-state] failed to select Workspace", error);

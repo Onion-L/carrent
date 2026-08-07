@@ -187,8 +187,7 @@ export function QuestionPanel({ question }: { question: ChatQuestionRequest }) {
       setActiveIndex((current) => clamp(current + delta));
       return;
     }
-    const currentIndex =
-      draft.optionIds.length === 1 ? optionIds.indexOf(draft.optionIds[0]) : -1;
+    const currentIndex = draft.optionIds.length === 1 ? optionIds.indexOf(draft.optionIds[0]) : -1;
     const origin = currentIndex === -1 ? (delta > 0 ? -1 : optionIds.length) : currentIndex;
     const nextId = optionIds[clamp(origin + delta)];
     if (nextId) {

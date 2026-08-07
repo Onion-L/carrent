@@ -667,9 +667,7 @@ function KimiActivityGroup({
         className="group flex w-full items-center gap-2 text-left text-app-13 leading-6 text-muted transition hover:text-fg"
         aria-expanded={expanded}
       >
-        <ChevronRight
-          className={`h-4 w-4 shrink-0 transition ${expanded ? "rotate-90" : ""}`}
-        />
+        <ChevronRight className={`h-4 w-4 shrink-0 transition ${expanded ? "rotate-90" : ""}`} />
         <span>{formatKimiActivityGroupLabel(group.items, { active: isActive })}</span>
       </button>
       {expanded ? (
@@ -884,11 +882,7 @@ function AssistantMessage({
           />
           {groupKimiTimelineItems(presentation.timelineItems!).map((item) =>
             item.type === "kimi-activity-group" ? (
-              <KimiActivityGroup
-                key={item.id}
-                group={item}
-                onSelectSubagent={onSelectSubagent}
-              />
+              <KimiActivityGroup key={item.id} group={item} onSelectSubagent={onSelectSubagent} />
             ) : (
               renderKimiTimelineItem(item, onSelectSubagent)
             ),

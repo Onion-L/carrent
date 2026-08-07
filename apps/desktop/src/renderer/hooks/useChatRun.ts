@@ -781,7 +781,7 @@ export function useChatRun() {
   }, []);
 
   const respondToPermission = useCallback(async (response: ChatPermissionResponse) => {
-    await window.carrent.chat.respondToPermission(response);
+    return window.carrent.chat.respondToPermission(response);
   }, []);
 
   const respondToQuestion = useCallback(async (response: ChatQuestionResponse) => {

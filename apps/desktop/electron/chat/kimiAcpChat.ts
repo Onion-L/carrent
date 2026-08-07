@@ -701,6 +701,7 @@ class KimiAcpRun {
   private bridge: CarrentBridgeHandle | null = null;
   private lastPlanMode: boolean | null = null;
   private presentedPlanReview = false;
+  private exitedPlanReviewWithoutRunning = false;
   // Canonical real path -> original display name for the current request's File
   // Attachments. Exact-match read-only allowlist; never a directory grant.
   private attachmentTargets: Map<string, string> | null = null;
@@ -711,6 +712,7 @@ class KimiAcpRun {
     {
       acpRequestId: JsonRpcId;
       options: ChatPermissionOption[];
+      planReview: boolean;
     }
   >();
   private pendingQuestions = new Map<string, PendingQuestion>();
@@ -1218,6 +1220,10 @@ class KimiAcpRun {
       return;
     }
 
+    if (pendingPermission.planReview) {
+      this.exitedPlanReviewWithoutRunning = selectedOption.optionId === "plan_reject_and_exit";
+    }
+
     try {
       this.respond(pendingPermission.acpRequestId, {
         outcome: {
@@ -1613,18 +1619,10 @@ class KimiAcpRun {
       params,
       permissionOptions: options,
     });
-    const conversationOption = permission.planReview
-      ? findPlanConversationOption(permission.options)
-      : null;
-    if (permission.planReview && !conversationOption) {
-      await this.respond(id, { outcome: { outcome: "cancelled" } });
-      this.fail("Kimi Plan Review did not include an option to return to the conversation.");
-      return;
-    }
-
     this.pendingPermissions.set(permission.id, {
       acpRequestId: id,
       options,
+      planReview: !!permission.planReview,
     });
     this.emit({
       type: "permission-requested",
@@ -1633,13 +1631,8 @@ class KimiAcpRun {
       permission,
     });
 
-    if (conversationOption) {
+    if (permission.planReview) {
       this.presentedPlanReview = true;
-      this.respondToPermission({
-        runId: this.options.runId,
-        permissionId: permission.id,
-        optionId: conversationOption.optionId,
-      });
     }
   }
 
@@ -1844,7 +1837,7 @@ class KimiAcpRun {
 
     if (updateType === "agent_message_chunk") {
       this.completeThinkingSegment();
-      if (this.presentedPlanReview) {
+      if (this.exitedPlanReviewWithoutRunning) {
         return;
       }
       if (!text) return;
@@ -1976,6 +1969,10 @@ class KimiAcpRun {
           this.emitPlanModeChanged(true);
         }
       }
+    }
+
+    if (title === "ExitPlanMode" && this.presentedPlanReview) {
+      return;
     }
 
     // TodoList drives the Run Checklist surface; when no checklist snapshot
@@ -2889,17 +2886,6 @@ function buildKimiPlanReview(title: string, content: unknown, options: ChatPermi
   }
 
   return { content: plan };
-}
-
-function findPlanConversationOption(options: ChatPermissionOption[]) {
-  return (
-    options.find((option) => option.optionId === "plan_reject_and_exit") ??
-    options.find(
-      (option) =>
-        option.kind === "reject_once" && option.name.trim().toLowerCase() === "reject and exit",
-    ) ??
-    null
-  );
 }
 
 function readTextBlocks(value: unknown): string[] {

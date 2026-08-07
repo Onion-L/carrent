@@ -213,7 +213,6 @@ describe("edit without content change", () => {
 
     // Initially the old assistant answer is visible.
     expect(container!.textContent).toContain("old answer");
-    console.log("[DEBUG] container HTML before hover:", container!.innerHTML);
 
     // Hover the user message bubble to reveal the Edit button.
     const userBubble = [...container!.querySelectorAll<HTMLParagraphElement>("p")].find((p) =>
@@ -225,7 +224,6 @@ describe("edit without content change", () => {
       userBubble!.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
-    console.log("[DEBUG] container HTML after hover:", container!.innerHTML);
 
     // Enter edit mode on the user message.
     const editButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(

@@ -947,10 +947,17 @@ export function createChatSessionManager(options: {
     }
 
     const requestSessionKey = buildRequestSessionKey(requestWithAttachments);
-    const resumeSessionId =
+    let resumeSessionId =
       requestWithAttachments.runtimeId === "claude-code"
         ? getResumeSessionId(runId, requestWithAttachments, requestSessionKey)
         : null;
+
+    if (requestWithAttachments.historyMode === "replace") {
+      const oldSessionId = resumeSessionId;
+      runtimeSessions.delete(requestSessionKey);
+      void options.providerSessions?.delete?.(requestSessionKey, oldSessionId ?? undefined);
+      resumeSessionId = null;
+    }
 
     spawnAttempt({
       runId,

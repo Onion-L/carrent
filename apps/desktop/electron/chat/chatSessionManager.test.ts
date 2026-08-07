@@ -4353,6 +4353,62 @@ describe("createChatSessionManager", () => {
     expect(spawnCalls[1]).toContain("sess-resume");
   });
 
+  it("does not resume a claude session for a replacement run", async () => {
+    const firstChild = createMockChildProcess();
+    const secondChild = createMockChildProcess();
+    const spawnCalls: string[][] = [];
+    const children = [firstChild, secondChild];
+    const persistedSessions = new Map<string, string>();
+    const deletedSessions: Array<{ key: string; sessionId: string | undefined }> = [];
+
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: (_command, args) => {
+        spawnCalls.push(args);
+        const child = children.shift();
+        if (!child) {
+          throw new Error("missing mock child");
+        }
+        return child;
+      },
+      providerSessions: {
+        get: (key) => persistedSessions.get(key),
+        set: (key, sessionId) => {
+          persistedSessions.set(key, sessionId);
+        },
+        delete: (key, sessionId) => {
+          deletedSessions.push({ key, sessionId });
+          if (!sessionId || persistedSessions.get(key) === sessionId) {
+            persistedSessions.delete(key);
+          }
+        },
+      },
+    });
+
+    manager.start("run-first", makeRequest({ runtimeId: "claude-code" }));
+    firstChild.stdout.emit(
+      "data",
+      Buffer.from('{"type":"system","subtype":"init","session_id":"sess-resume"}\n'),
+    );
+    firstChild.stdout.emit(
+      "data",
+      Buffer.from('{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Hi"}}}\n'),
+    );
+    firstChild.emit("close", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    manager.start("run-replace", makeRequest({ runtimeId: "claude-code", historyMode: "replace" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(spawnCalls).toHaveLength(2);
+    expect(spawnCalls[0]).not.toContain("--resume");
+    expect(spawnCalls[1]).not.toContain("--resume");
+    expect(deletedSessions).toEqual([{ key: "claude-code:thread-1", sessionId: "sess-resume" }]);
+    expect(persistedSessions.has("claude-code:thread-1")).toBe(false);
+  });
+
   it("passes read-only sandbox for approval-required codex runs", async () => {
     const mockChild = createMockChildProcess();
     let capturedArgs: string[] = [];

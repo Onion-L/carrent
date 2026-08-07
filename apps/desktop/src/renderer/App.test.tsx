@@ -2497,6 +2497,168 @@ describe("Association Thread Drafts", () => {
     });
   });
 
+  it("prunes the previous assistant answer when editing a user message without changing content", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const saved = await renderApp(
+      existingThreadState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      requests,
+    );
+    const originalBubble = [...container!.querySelectorAll<HTMLDivElement>(".bg-user-bubble")].find(
+      (element) => element.textContent?.trim() === "Original request",
+    )!.parentElement!.parentElement!;
+    await act(async () => {
+      originalBubble.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
+    });
+    await click(
+      [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.title === "Edit",
+      )!,
+    );
+    await click(
+      [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "发送",
+      )!,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    // The previous assistant response should be removed from the live timeline
+    // and from the persisted state after the content flush.
+    expect(container!.textContent).not.toContain("Original response");
+    expect(container!.textContent).toContain("Original request");
+    const assistantMessages = saved
+      .at(-1)
+      ?.threadMessages?.filter(
+        (message) => message.role === "assistant" && message.threadId === "thread-1",
+      );
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages?.[0]?.content).toBe("");
+    expect(assistantMessages?.[0]?.runStatus).toBe("running");
+
+    await act(async () => {
+      emitChatEvent?.({
+        type: "stopped",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  });
+
+  it("ignores a rapid second edit-send click while the first run is starting", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const saved = await renderApp(
+      existingThreadState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      requests,
+    );
+    const originalBubble = [...container!.querySelectorAll<HTMLDivElement>(".bg-user-bubble")].find(
+      (element) => element.textContent?.trim() === "Original request",
+    )!.parentElement!.parentElement!;
+    await act(async () => {
+      originalBubble.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
+    });
+    await click(
+      [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.title === "Edit",
+      )!,
+    );
+    const sendButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "发送",
+    )!;
+
+    // Simulate a double-click by firing two click events back-to-back.
+    await act(async () => {
+      sendButton.click();
+      sendButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(container!.textContent).not.toContain("Original response");
+    expect(container!.textContent).toContain("Original request");
+    const assistantMessages = saved
+      .at(-1)
+      ?.threadMessages?.filter(
+        (message) => message.role === "assistant" && message.threadId === "thread-1",
+      );
+    expect(assistantMessages).toHaveLength(1);
+    expect(requests).toHaveLength(1);
+
+    await act(async () => {
+      emitChatEvent?.({
+        type: "stopped",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  });
+
+  it("fills the new assistant with a repeated answer when the runtime returns the same text", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const saved = await renderApp(
+      existingThreadState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      requests,
+    );
+    const originalBubble = [...container!.querySelectorAll<HTMLDivElement>(".bg-user-bubble")].find(
+      (element) => element.textContent?.trim() === "Original request",
+    )!.parentElement!.parentElement!;
+    await act(async () => {
+      originalBubble.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
+    });
+    await click(
+      [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.title === "Edit",
+      )!,
+    );
+    await click(
+      [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "发送",
+      )!,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    // The runtime returns the exact same text as the pruned assistant answer.
+    await act(async () => {
+      emitChatEvent?.({
+        type: "text-snapshot",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+        text: "Original response",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // Only one assistant message exists, but its content now matches the old answer.
+    const assistantMessages = saved
+      .at(-1)
+      ?.threadMessages?.filter(
+        (message) => message.role === "assistant" && message.threadId === "thread-1",
+      );
+    expect(assistantMessages).toHaveLength(1);
+    expect(container!.textContent).toContain("Original response");
+
+    await act(async () => {
+      emitChatEvent?.({
+        type: "stopped",
+        runId: requests[0].runId!,
+        requestKey: requests[0].requestKey,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  });
+
   it("does not dispatch an existing Thread Run when App State persistence fails", async () => {
     const requests: ChatTurnRequest[] = [];
     const threadState: AppStateSnapshot = {

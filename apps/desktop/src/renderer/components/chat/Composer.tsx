@@ -75,6 +75,7 @@ import {
   parseLeadingStatusCommand,
 } from "../../lib/threadActions";
 import { QuestionPanel, getPendingQuestionForThread } from "./QuestionPanel";
+import { PlanDecisionPanel } from "./PlanDecisionPanel";
 import { RunChecklist } from "./RunChecklist";
 import {
   buildQuestionAnswerRecords,
@@ -134,9 +135,6 @@ import {
   type ComposerEditorTrigger,
 } from "./ComposerEditor";
 import { formatSkillLabel } from "./skillLabel";
-
-export const PLAN_REVIEW_FOLLOW_UP_TEXT =
-  "Does this plan look good? Reply naturally to start execution or describe what you want changed.";
 
 function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: string }) {
   switch (mode) {
@@ -896,6 +894,23 @@ export function getActionablePermissionsForThread({
   );
 }
 
+export function getPendingPlanReviewForThread({
+  pendingPermissions,
+  threadId,
+}: {
+  pendingPermissions: ChatPermissionRequest[];
+  threadId: string;
+}) {
+  return (
+    pendingPermissions.find(
+      (permission) =>
+        permission.threadId === threadId &&
+        permission.provider === "kimi" &&
+        !!permission.planReview,
+    ) ?? null
+  );
+}
+
 export function getPermissionOption(
   permission: ChatPermissionRequest,
   kind: ChatPermissionOptionKind,
@@ -1610,7 +1625,6 @@ export function Composer(props: ComposerProps) {
               options: permission.options,
             },
           });
-          updatePart({ kind: "append-text", content: PLAN_REVIEW_FOLLOW_UP_TEXT });
         },
         onPermissionResolved: (resolution) =>
           updatePart({
@@ -1807,6 +1821,10 @@ export function Composer(props: ComposerProps) {
     !isSessionStatusLoading;
   const threadPermissions = useMemo(
     () => getActionablePermissionsForThread({ pendingPermissions, threadId }),
+    [pendingPermissions, threadId],
+  );
+  const pendingPlanReview = useMemo(
+    () => getPendingPlanReviewForThread({ pendingPermissions, threadId }),
     [pendingPermissions, threadId],
   );
   const threadQuestion = useMemo(
@@ -2791,7 +2809,6 @@ export function Composer(props: ComposerProps) {
                 options: permission.options,
               },
             });
-            updateLocalMessageTextPart(assistantMsg.id, PLAN_REVIEW_FOLLOW_UP_TEXT);
           }
         },
         onPermissionResolved: (resolution) => {
@@ -3233,6 +3250,32 @@ export function Composer(props: ComposerProps) {
       optionId,
     });
   };
+  const handlePlanResponse = async (permission: ChatPermissionRequest, optionId: string) => {
+    const result = await respondToPermission({
+      runId: permission.runId,
+      permissionId: permission.id,
+      optionId,
+    });
+    return result.accepted;
+  };
+  const handlePlanRevision = async (
+    permission: ChatPermissionRequest,
+    optionId: string,
+    feedback: string,
+  ) => {
+    const queuedId = `plan-revision-${crypto.randomUUID()}`;
+    enqueueChatMessage(threadId, { id: queuedId, content: feedback });
+    try {
+      const accepted = await handlePlanResponse(permission, optionId);
+      if (!accepted) {
+        removeQueuedChatMessage(threadId, queuedId);
+      }
+      return accepted;
+    } catch (error) {
+      removeQueuedChatMessage(threadId, queuedId);
+      throw error;
+    }
+  };
   const isCenteredPlacement = props.placement === "centered";
   // A pending permission turns the Composer into approval mode: the text
   // input is replaced by the request plus Allow/Deny controls until the user
@@ -3295,6 +3338,26 @@ export function Composer(props: ComposerProps) {
       onExpandedChange={(expanded) => updateRunChecklist(threadId, { kind: "expanded", expanded })}
     />
   ) : null;
+
+  // Plan Review is an explicit decision point. Keep it ahead of structured
+  // questions to match the Thread Status precedence for Approval Requests.
+  if (pendingPlanReview) {
+    return (
+      <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"}>
+        <div className="relative mx-auto w-full max-w-[56rem]">
+          {runChecklistPanel}
+          <PlanDecisionPanel
+            key={pendingPlanReview.id}
+            permission={pendingPlanReview}
+            onRespond={(optionId) => handlePlanResponse(pendingPlanReview, optionId)}
+            onRequestRevision={(optionId, feedback) =>
+              handlePlanRevision(pendingPlanReview, optionId, feedback)
+            }
+          />
+        </div>
+      </div>
+    );
+  }
 
   // A pending structured question fully replaces the Composer surface (text
   // input, attachments, Skill and Runtime controls, queued-message controls)

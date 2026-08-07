@@ -3,10 +3,10 @@ import { describe, expect, it } from "bun:test";
 import "../../test/registerHappyDom";
 
 import {
-  PLAN_REVIEW_FOLLOW_UP_TEXT,
   buildThreadDraftSnapshot,
   getCascadingPanelPosition,
   getActionablePermissionsForThread,
+  getPendingPlanReviewForThread,
   buildSkillReference,
   canSubmitComposerContent,
   createWorkspaceDiffCapture,
@@ -605,6 +605,27 @@ describe("getActionablePermissionsForThread", () => {
       }),
     ).toEqual([kimiPermission]);
   });
+
+  it("separates a pending Plan Review from ordinary permissions", () => {
+    const planReview = {
+      ...kimiPermission,
+      id: "plan-review",
+      planReview: { content: "# Plan" },
+    };
+
+    expect(
+      getActionablePermissionsForThread({
+        threadId: "thread-1",
+        pendingPermissions: [kimiPermission, planReview],
+      }),
+    ).toEqual([kimiPermission]);
+    expect(
+      getPendingPlanReviewForThread({
+        threadId: "thread-1",
+        pendingPermissions: [kimiPermission, planReview],
+      }),
+    ).toEqual(planReview);
+  });
 });
 
 describe("getPermissionShortcutKind", () => {
@@ -809,11 +830,6 @@ describe("parseLeadingSkillReferences", () => {
 });
 
 describe("plan slash helpers", () => {
-  it("asks for a natural-language response after showing a plan", () => {
-    expect(PLAN_REVIEW_FOLLOW_UP_TEXT).toContain("Reply naturally");
-    expect(PLAN_REVIEW_FOLLOW_UP_TEXT).not.toContain("button");
-  });
-
   it("includes Plan Review content in fresh-session transcripts", () => {
     expect(
       getMessageTranscriptContent({
@@ -821,7 +837,7 @@ describe("plan slash helpers", () => {
         role: "assistant",
         timestamp: "12:00",
         threadId: "thread-1",
-        content: PLAN_REVIEW_FOLLOW_UP_TEXT,
+        content: "",
         parts: [
           {
             type: "reasoning",
@@ -837,10 +853,9 @@ describe("plan slash helpers", () => {
             status: "rejected",
             options: [],
           },
-          { type: "text", content: PLAN_REVIEW_FOLLOW_UP_TEXT },
         ],
       }),
-    ).toBe(`# Plan\n\n- Implement the feature\n\n${PLAN_REVIEW_FOLLOW_UP_TEXT}`);
+    ).toBe("# Plan\n\n- Implement the feature");
   });
 
   it("keeps ordinary transcript content unchanged", () => {

@@ -2377,7 +2377,7 @@ describe("startKimiAcpChatRun", () => {
     });
   });
 
-  it("shows a native Plan Review and returns control to the conversation", async () => {
+  it("keeps a native Plan Review pending until the user chooses an approach", async () => {
     const emitted: ChatRunEvent[] = [];
     let promptRequest: Record<string, unknown> | null = null;
     const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
@@ -2495,7 +2495,7 @@ describe("startKimiAcpChatRun", () => {
               sessionId: "session-plan",
               update: {
                 sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: "The plan was rejected." },
+                content: { type: "text", text: "Implementation complete." },
               },
             },
           });
@@ -2506,7 +2506,7 @@ describe("startKimiAcpChatRun", () => {
       }
     });
 
-    startKimiAcpChatRun({
+    const handle = startKimiAcpChatRun({
       runId: "run-kimi-plan-review",
       request: makeRequest({ planMode: true, message: "Implement the feature" }),
       cwd: "/Users/onion/workbench/carrent",
@@ -2532,60 +2532,154 @@ describe("startKimiAcpChatRun", () => {
       "plan_reject_and_exit",
     ]);
 
+    expect(transport.sent.some((message) => message.id === "permission-plan")).toBe(false);
+    handle.respondToPermission({
+      runId: "run-kimi-plan-review",
+      permissionId: permission.permission.id,
+      optionId: "plan_opt_0",
+    });
+    await waitForAsyncEvents();
+
     expect(transport.sent.find((message) => message.id === "permission-plan")?.result).toEqual({
-      outcome: { outcome: "selected", optionId: "plan_reject_and_exit" },
+      outcome: { outcome: "selected", optionId: "plan_opt_0" },
     });
     expect(emitted.find((event) => event.type === "permission-resolved")).toMatchObject({
       type: "permission-resolved",
-      optionId: "plan_reject_and_exit",
-      optionName: "Reject and Exit",
-      optionKind: "reject_once",
+      optionId: "plan_opt_0",
+      optionName: "Approach A",
+      optionKind: "allow_once",
     });
     expect(
       emitted.filter((event) => event.type === "plan-mode-changed").map((event) => event.enabled),
     ).toEqual([true, false]);
     expect(emitted.find((event) => event.type === "completed")).toMatchObject({
       type: "completed",
+      text: "Implementation complete.",
+    });
+    expect(
+      emitted.some(
+        (event) =>
+          event.type === "kimi-timeline" &&
+          event.item.type === "tool" &&
+          event.item.title === "ExitPlanMode",
+      ),
+    ).toBe(false);
+  });
+
+  it("hides the internal ExitPlanMode rejection after the user exits without running", async () => {
+    const emitted: ChatRunEvent[] = [];
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-plan-exit" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        queueMicrotask(() => {
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            id: "permission-plan-exit",
+            method: "session/request_permission",
+            params: {
+              sessionId: "session-plan-exit",
+              options: [
+                { optionId: "plan_approve", name: "Approve", kind: "allow_once" },
+                {
+                  optionId: "plan_reject_and_exit",
+                  name: "Reject and Exit",
+                  kind: "reject_once",
+                },
+              ],
+              toolCall: {
+                toolCallId: "tool-exit-plan",
+                title: "ExitPlanMode",
+                content: [
+                  {
+                    type: "content",
+                    content: { type: "text", text: "Requesting approval to exit Plan mode" },
+                  },
+                  {
+                    type: "content",
+                    content: { type: "text", text: "# Plan\n\n- Implement it" },
+                  },
+                ],
+              },
+            },
+          });
+        });
+        return;
+      }
+      if (message.id === "permission-plan-exit" && "result" in message) {
+        queueMicrotask(() => {
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-plan-exit",
+              update: {
+                sessionUpdate: "tool_call_update",
+                toolCallId: "tool-exit-plan",
+                title: "ExitPlanMode",
+                status: "failed",
+                rawOutput: "Plan rejected by user. Plan mode deactivated.",
+              },
+            },
+          });
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-plan-exit",
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "The plan was rejected." },
+              },
+            },
+          });
+          if (promptRequest) {
+            respondAcp(fakeTransport, promptRequest, { stopReason: "end_turn" });
+          }
+        });
+      }
+    });
+
+    const handle = startKimiAcpChatRun({
+      runId: "run-kimi-plan-exit",
+      request: makeRequest({ planMode: false, message: "Implement the feature" }),
+      cwd: "/Users/onion/workbench/carrent",
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+
+    const permission = emitted.find(
+      (event): event is Extract<ChatRunEvent, { type: "permission-requested" }> =>
+        event.type === "permission-requested",
+    )!;
+    handle.respondToPermission({
+      runId: "run-kimi-plan-exit",
+      permissionId: permission.permission.id,
+      optionId: "plan_reject_and_exit",
+    });
+    await waitForAsyncEvents();
+
+    expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+      type: "completed",
       text: "",
     });
-    expect(emitted.some((event) => event.type === "delta")).toBe(false);
     expect(
-      emitted
-        .filter(
-          (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
-            event.type === "kimi-timeline",
-        )
-        .map((event) => event.item),
-    ).toEqual([
-      {
-        type: "tool",
-        id: "kimi-run-kimi-plan-review-tool-item-0",
-        order: 0,
-        toolCallId: "tool-exit-plan",
-        title: "ExitPlanMode",
-        kind: "",
-        command: "",
-        filePath: "",
-        input: "",
-        output: "Plan mode deactivated. All tools are now available.",
-        error: "",
-        status: "completed",
-      },
-      {
-        type: "thinking",
-        id: "kimi-run-kimi-plan-review-thinking-1",
-        order: 1,
-        content: "Waiting for conversation",
-        status: "running",
-      },
-      {
-        type: "thinking",
-        id: "kimi-run-kimi-plan-review-thinking-1",
-        order: 1,
-        content: "Waiting for conversation",
-        status: "completed",
-      },
-    ]);
+      emitted.some(
+        (event) =>
+          event.type === "kimi-timeline" &&
+          ((event.item.type === "tool" && event.item.title === "ExitPlanMode") ||
+            (event.item.type === "message" && event.item.content.includes("rejected"))),
+      ),
+    ).toBe(false);
   });
 
   it("syncs Kimi-initiated EnterPlanMode tool results", async () => {

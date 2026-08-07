@@ -748,9 +748,14 @@ describe("Plan Review presentation", () => {
     ],
   };
 
-  it("keeps the plan presentation conversational after resolution", () => {
-    expect(getPlanReviewStatusLabel(review)).toBe("Plan");
-    expect(getPlanReviewStatusLabel({ ...review, status: "rejected" })).toBe("Plan");
+  it("keeps the plan outcome visible after resolution", () => {
+    expect(getPlanReviewStatusLabel(review)).toBe("Plan ready");
+    expect(getPlanReviewStatusLabel({ ...review, status: "approved" })).toBe("Plan approved");
+    expect(getPlanReviewStatusLabel({ ...review, status: "revision-requested" })).toBe(
+      "Revision requested",
+    );
+    expect(getPlanReviewStatusLabel({ ...review, status: "rejected" })).toBe("Plan closed");
+    expect(getPlanReviewStatusLabel({ ...review, status: "interrupted" })).toBe("Plan interrupted");
   });
 });
 

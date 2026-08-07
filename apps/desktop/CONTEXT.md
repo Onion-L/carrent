@@ -113,8 +113,8 @@ A Runtime-owned autonomous lifecycle that pursues one durable objective across m
 _Avoid_: Long Run, Carrent workflow, background task
 
 **Plan Review**:
-A read-only plan presentation followed by a normal user reply. The next message tells the Runtime whether to execute, explain, or revise without Carrent-owned approval buttons or keyword matching.
-_Avoid_: Generic approval request, plan action card
+A read-only plan presentation that waits for an explicit user decision before the Runtime proceeds. The user can approve an approach and run it, request changes with feedback for the next Plan Mode turn, or exit Plan Mode without execution; Carrent maps those actions onto the Runtime's native plan options without exposing protocol wording.
+_Avoid_: Generic approval request, implicit approval through a normal message
 
 **Agent Activity**:
 The ordered activity trail produced during a coding agent run, including reasoning summaries, tool activity, file activity, and shell commands.

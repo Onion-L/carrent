@@ -19,6 +19,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, "electron/preload.ts"),
+          browserMenuOverlay: resolve(__dirname, "electron/browserMenuOverlayPreload.ts"),
         },
       },
     },

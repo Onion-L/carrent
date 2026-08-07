@@ -60,6 +60,53 @@ export type BrowserClearDataRequest = BrowserThreadTarget & {
   scope: "project" | "all";
 };
 
+export type BrowserMenuMode = "main" | "data" | "settings";
+
+export type BrowserMenuOpenRequest = BrowserTabTarget & {
+  anchor: BrowserBounds;
+  theme: "light" | "dark";
+};
+
+export type BrowserMenuSession = { token: string };
+
+export type BrowserMenuUpdateRequest = BrowserTabTarget & {
+  token: string;
+  anchor: BrowserBounds;
+};
+
+export type BrowserMenuCloseRequest = BrowserTabTarget & { token: string };
+
+export type BrowserMenuAction =
+  | { type: "set-mode"; mode: BrowserMenuMode }
+  | { type: "find" }
+  | { type: "zoom"; action: "in" | "out" | "reset" }
+  | { type: "copy-link" }
+  | { type: "open-external" }
+  | { type: "devtools" }
+  | { type: "clear-data"; scope: "project" | "all" }
+  | { type: "set-search-engine"; searchEngine: BrowserSearchEngine };
+
+export type BrowserMenuActionEvent = BrowserTabTarget & {
+  token: string;
+  action: BrowserMenuAction;
+};
+
+export type BrowserMenuClosedEvent = BrowserTabTarget & { token: string };
+
+export type BrowserMenuOverlayState = BrowserTabTarget & {
+  token: string;
+  mode: BrowserMenuMode;
+  zoomFactor: number;
+  searchEngine: BrowserSearchEngine;
+  theme: "light" | "dark";
+};
+
+export type BrowserMenuOverlayApi = {
+  ready: () => Promise<void>;
+  action: (request: { token: string; action: BrowserMenuAction }) => Promise<void>;
+  onState: (listener: (state: BrowserMenuOverlayState) => void) => VoidFunction;
+};
+
 export type BrowserApi = {
   activate: (target: BrowserThreadTarget | null) => Promise<BrowserThreadState | null>;
   open: (request: BrowserOpenRequest) => Promise<BrowserThreadState>;
@@ -69,6 +116,9 @@ export type BrowserApi = {
   navigate: (request: BrowserNavigateRequest) => Promise<BrowserThreadState>;
   action: (request: BrowserActionRequest) => Promise<BrowserThreadState>;
   zoom: (request: BrowserZoomRequest) => Promise<BrowserThreadState>;
+  openMenu: (request: BrowserMenuOpenRequest) => Promise<BrowserMenuSession>;
+  updateMenu: (request: BrowserMenuUpdateRequest) => Promise<void>;
+  closeMenu: (request: BrowserMenuCloseRequest) => Promise<void>;
   find: (target: BrowserTabTarget & { text: string; forward?: boolean }) => Promise<void>;
   stopFind: (target: BrowserTabTarget) => Promise<void>;
   continueCertificate: (target: BrowserTabTarget) => Promise<BrowserThreadState>;
@@ -84,6 +134,8 @@ export type BrowserApi = {
   onState: (listener: (state: BrowserThreadState) => void) => VoidFunction;
   onFocusAddress: (listener: () => void) => VoidFunction;
   onFind: (listener: () => void) => VoidFunction;
+  onMenuAction: (listener: (event: BrowserMenuActionEvent) => void) => VoidFunction;
+  onMenuClosed: (listener: (event: BrowserMenuClosedEvent) => void) => VoidFunction;
 };
 
 export const SEARCH_ENGINE_URLS: Record<BrowserSearchEngine, string> = {

@@ -38,6 +38,22 @@ class FakeWebContents {
     this.listeners.set(event, listeners);
   }
 
+  once(event: string, listener: Listener) {
+    const wrapped: Listener = (...args) => {
+      const listeners = this.listeners.get(event) ?? [];
+      this.listeners.set(
+        event,
+        listeners.filter((candidate) => candidate !== wrapped),
+      );
+      listener(...args);
+    };
+    this.on(event, wrapped);
+  }
+
+  emit(event: string, ...args: unknown[]) {
+    for (const listener of (this.listeners.get(event) ?? []).slice()) listener(...args);
+  }
+
   send(channel: string, value: unknown) {
     this.sent.push([channel, value]);
   }
@@ -78,6 +94,7 @@ class FakeWebContents {
   stopFindInPage() {}
 
   close() {
+    this.emit("destroyed");
     this.closed = true;
     contentsById.delete(this.id);
   }
@@ -87,8 +104,10 @@ class FakeWebContentsView {
   readonly webContents = new FakeWebContents();
   bounds: unknown = null;
   visible = false;
+  backgroundColor: string | null = null;
+  borderRadius: number | null = null;
 
-  constructor() {
+  constructor(readonly options?: unknown) {
     createdViews.push(this);
   }
 
@@ -99,13 +118,29 @@ class FakeWebContentsView {
   setVisible(visible: boolean) {
     this.visible = visible;
   }
+
+  setBackgroundColor(color: string) {
+    this.backgroundColor = color;
+  }
+
+  setBorderRadius(radius: number) {
+    this.borderRadius = radius;
+  }
 }
 
 class FakeBrowserWindow {
   readonly contentView = {
     children: new Set<FakeWebContentsView>(),
-    addChildView: (view: FakeWebContentsView) => this.contentView.children.add(view),
-    removeChildView: (view: FakeWebContentsView) => this.contentView.children.delete(view),
+    order: [] as FakeWebContentsView[],
+    addChildView: (view: FakeWebContentsView) => {
+      this.contentView.children.add(view);
+      this.contentView.order = this.contentView.order.filter((candidate) => candidate !== view);
+      this.contentView.order.push(view);
+    },
+    removeChildView: (view: FakeWebContentsView) => {
+      this.contentView.children.delete(view);
+      this.contentView.order = this.contentView.order.filter((candidate) => candidate !== view);
+    },
   };
   readonly listeners = new Map<string, Listener[]>();
   readonly webContents: FakeWebContents;
@@ -183,6 +218,8 @@ describe("BrowserManager", () => {
       const manager = createBrowserManager({
         userDataPath: directory,
         createAuxiliaryWindow: () => new FakeBrowserWindow() as never,
+        browserMenuOverlayPreload: "/browser-menu-overlay-preload.mjs",
+        loadBrowserMenuOverlay: () => {},
         resolveOwner: () => 17,
         resolveProjectTarget: () => ({ ownerId: 17, target }),
       });
@@ -221,6 +258,8 @@ describe("BrowserManager", () => {
           auxiliaryWindow = new FakeBrowserWindow();
           return auxiliaryWindow as never;
         },
+        browserMenuOverlayPreload: "/browser-menu-overlay-preload.mjs",
+        loadBrowserMenuOverlay: () => {},
         resolveOwner: () => 17,
         resolveProjectTarget: () => ({ ownerId: 17, target }),
       });
@@ -232,6 +271,128 @@ describe("BrowserManager", () => {
 
       expect(createdViews[0].webContents.closed).toBe(true);
       expect((auxiliaryWindow as FakeBrowserWindow | null)?.destroyed).toBe(true);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the page attached below a menu overlay and closes only on mouse down", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "carrent-browser-manager-"));
+    try {
+      const window = new FakeBrowserWindow(17);
+      const target = { projectId: "project-1", threadId: "thread-1" };
+      const manager = createBrowserManager({
+        userDataPath: directory,
+        createAuxiliaryWindow: () => new FakeBrowserWindow() as never,
+        browserMenuOverlayPreload: "/browser-menu-overlay-preload.mjs",
+        loadBrowserMenuOverlay: () => {},
+        resolveOwner: () => 17,
+        resolveProjectTarget: () => ({ ownerId: 17, target }),
+      });
+
+      manager.activate(17, target);
+      const state = await manager.open(17, target);
+      manager.setBounds(17, target, { x: 0, y: 84, width: 600, height: 400 });
+      manager.setVisible(17, target, true);
+
+      const session = manager.openMenu(17, {
+        ...target,
+        tabId: state.activeTabId!,
+        anchor: { x: 560, y: 46, width: 32, height: 32 },
+        theme: "dark",
+      });
+      const pageView = createdViews[0];
+      const menuView = createdViews[1];
+
+      expect(pageView.visible).toBe(true);
+      expect(window.contentView.order).toEqual([pageView, menuView]);
+      expect(menuView.bounds).toEqual({ x: 304, y: 80, width: 288, height: 278 });
+
+      manager.menuOverlayReady(menuView.webContents.id);
+      expect(menuView.visible).toBe(true);
+
+      manager.setBounds(17, target, { x: 0, y: 84, width: 620, height: 420 });
+      expect(window.contentView.order).toEqual([pageView, menuView]);
+
+      pageView.webContents.emit(
+        "before-mouse-event",
+        { preventDefault: () => {} },
+        { type: "mouseWheel" },
+      );
+      expect(window.contentView.order).toEqual([pageView, menuView]);
+
+      let prevented = false;
+      pageView.webContents.emit(
+        "before-mouse-event",
+        { preventDefault: () => (prevented = true) },
+        { type: "mouseDown" },
+      );
+      expect(prevented).toBe(false);
+      expect(window.contentView.order).toEqual([pageView]);
+      expect(menuView.webContents.closed).toBe(true);
+
+      manager.closeMenu(17, { ...target, tabId: state.activeTabId!, token: session.token });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("resizes menu modes and rejects stale overlay actions", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "carrent-browser-manager-"));
+    try {
+      const window = new FakeBrowserWindow(17);
+      const target = { projectId: "project-1", threadId: "thread-1" };
+      const manager = createBrowserManager({
+        userDataPath: directory,
+        createAuxiliaryWindow: () => new FakeBrowserWindow() as never,
+        browserMenuOverlayPreload: "/browser-menu-overlay-preload.mjs",
+        loadBrowserMenuOverlay: () => {},
+        resolveOwner: () => 17,
+        resolveProjectTarget: () => ({ ownerId: 17, target }),
+      });
+
+      manager.activate(17, target);
+      const state = await manager.open(17, target);
+      manager.setBounds(17, target, { x: 0, y: 84, width: 600, height: 400 });
+      manager.setVisible(17, target, true);
+      const session = manager.openMenu(17, {
+        ...target,
+        tabId: state.activeTabId!,
+        anchor: { x: 560, y: 46, width: 32, height: 32 },
+        theme: "dark",
+      });
+      const menuView = createdViews[1];
+
+      manager.menuOverlayAction(menuView.webContents.id, session.token, {
+        type: "set-mode",
+        mode: "settings",
+      });
+      expect(menuView.bounds).toEqual({ x: 304, y: 80, width: 288, height: 167 });
+      expect(() =>
+        manager.menuOverlayAction(menuView.webContents.id, "stale-token", {
+          type: "zoom",
+          action: "in",
+        }),
+      ).toThrow("Browser menu overlay mismatch.");
+
+      manager.menuOverlayAction(menuView.webContents.id, session.token, {
+        type: "zoom",
+        action: "in",
+      });
+      expect(window.webContents.sent.at(-1)).toEqual([
+        "browser:menu-action",
+        {
+          ...target,
+          tabId: state.activeTabId,
+          token: session.token,
+          action: { type: "zoom", action: "in" },
+        },
+      ]);
+      expect(menuView.webContents.closed).toBe(false);
+
+      manager.newTab(17, target);
+      expect(menuView.webContents.closed).toBe(true);
+      expect(window.contentView.order).toEqual([createdViews[2]]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

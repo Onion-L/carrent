@@ -15,6 +15,11 @@ export const SETTINGS_TABS = [
     description: "Theme and text size",
   },
   {
+    id: "local-server",
+    label: "Local Server",
+    description: "Skills and MCP access",
+  },
+  {
     id: "archives",
     label: "Archived Threads",
     description: "Restore or permanently delete",

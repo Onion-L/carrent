@@ -48,6 +48,12 @@ import type {
   BrowserActionRequest,
   BrowserApi,
   BrowserClearDataRequest,
+  BrowserMenuActionEvent,
+  BrowserMenuCloseRequest,
+  BrowserMenuClosedEvent,
+  BrowserMenuOpenRequest,
+  BrowserMenuSession,
+  BrowserMenuUpdateRequest,
   BrowserNavigateRequest,
   BrowserOpenRequest,
   BrowserSearchEngine,
@@ -119,6 +125,12 @@ const carrent = {
       ipcRenderer.invoke("browser:action", request) as Promise<BrowserThreadState>,
     zoom: (request: BrowserZoomRequest) =>
       ipcRenderer.invoke("browser:zoom", request) as Promise<BrowserThreadState>,
+    openMenu: (request: BrowserMenuOpenRequest) =>
+      ipcRenderer.invoke("browser:menu-open", request) as Promise<BrowserMenuSession>,
+    updateMenu: (request: BrowserMenuUpdateRequest) =>
+      ipcRenderer.invoke("browser:menu-update", request) as Promise<void>,
+    closeMenu: (request: BrowserMenuCloseRequest) =>
+      ipcRenderer.invoke("browser:menu-close", request) as Promise<void>,
     find: (request: BrowserTabTarget & { text: string; forward?: boolean }) =>
       ipcRenderer.invoke("browser:find", request) as Promise<void>,
     stopFind: (target: BrowserTabTarget) =>
@@ -154,6 +166,18 @@ const carrent = {
       const wrapped = () => listener();
       ipcRenderer.on("browser:find", wrapped);
       return () => ipcRenderer.removeListener("browser:find", wrapped);
+    },
+    onMenuAction: (listener: (event: BrowserMenuActionEvent) => void) => {
+      const wrapped = (_event: IpcRendererEvent, actionEvent: BrowserMenuActionEvent) =>
+        listener(actionEvent);
+      ipcRenderer.on("browser:menu-action", wrapped);
+      return () => ipcRenderer.removeListener("browser:menu-action", wrapped);
+    },
+    onMenuClosed: (listener: (event: BrowserMenuClosedEvent) => void) => {
+      const wrapped = (_event: IpcRendererEvent, closedEvent: BrowserMenuClosedEvent) =>
+        listener(closedEvent);
+      ipcRenderer.on("browser:menu-closed", wrapped);
+      return () => ipcRenderer.removeListener("browser:menu-closed", wrapped);
     },
   } satisfies BrowserApi,
   runtimes: {
@@ -299,6 +323,7 @@ const carrent = {
       ipcRenderer.invoke("project-directory:relocate", request) as Promise<ProjectRelocationResult>,
   },
   settings: {
+    getAppVersion: () => ipcRenderer.invoke("settings:app-version") as Promise<string>,
     checkForUpdates: () =>
       ipcRenderer.invoke("settings:check-for-updates") as Promise<{
         hasUpdate: boolean;

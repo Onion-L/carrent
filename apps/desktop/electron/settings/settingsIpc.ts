@@ -12,7 +12,12 @@ interface IpcMainLike {
   ) => void;
 }
 
-export function registerSettingsIpc(ipcMainLike: IpcMainLike): void {
+export function registerSettingsIpc(
+  ipcMainLike: IpcMainLike,
+  getAppVersion: () => string,
+): void {
+  ipcMainLike.handle("settings:app-version", async () => getAppVersion());
+
   ipcMainLike.handle("settings:check-for-updates", async () => {
     return { hasUpdate: false };
   });

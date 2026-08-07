@@ -1,4 +1,12 @@
-import { Archive, Monitor, Palette, Settings, SlidersHorizontal, UserRound } from "lucide-react";
+import {
+  Archive,
+  Monitor,
+  Palette,
+  Server,
+  Settings,
+  SlidersHorizontal,
+  UserRound,
+} from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   buildSettingsPath,
@@ -11,6 +19,7 @@ const iconByTabId: Record<SettingsTabId, typeof Monitor> = {
   runtime: Monitor,
   personalization: UserRound,
   interface: Palette,
+  "local-server": Server,
   archives: Archive,
   about: SlidersHorizontal,
 };
@@ -40,6 +49,7 @@ export function SettingsTabsPane() {
               <button
                 key={tab.id}
                 type="button"
+                aria-label={tab.label}
                 aria-current={isActive ? "page" : undefined}
                 onClick={() => navigate(buildSettingsPath(tab.id), { state: location.state })}
                 className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition ${

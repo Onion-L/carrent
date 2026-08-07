@@ -7,6 +7,7 @@ import {
   clipboard,
   webContents,
   screen,
+  type WebContents,
 } from "electron";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -159,6 +160,17 @@ function getZoomController(contentsId: number) {
 
 const DEFAULT_WINDOW_WIDTH = 1280;
 const DEFAULT_WINDOW_HEIGHT = 840;
+
+function loadBrowserMenuOverlay(contents: WebContents) {
+  const query = { browserMenuOverlay: "1" };
+  if (process.env.ELECTRON_RENDERER_URL) {
+    const url = new URL(process.env.ELECTRON_RENDERER_URL);
+    url.searchParams.set("browserMenuOverlay", "1");
+    void contents.loadURL(url.toString());
+  } else {
+    void contents.loadFile(join(__dirname, "../renderer/index.html"), { query });
+  }
+}
 
 function createBrowserWindow(target: BrowserThreadTarget) {
   const window = new BrowserWindow({
@@ -509,6 +521,8 @@ if (!hasSingleInstanceLock) {
     browserManager = createBrowserManager({
       userDataPath,
       createAuxiliaryWindow: createBrowserWindow,
+      browserMenuOverlayPreload: join(__dirname, "../preload/browserMenuOverlay.mjs"),
+      loadBrowserMenuOverlay,
       resolveOwner: (target) => {
         const suffix = `/project/${encodeURIComponent(target.projectId)}/thread/${encodeURIComponent(target.threadId)}`;
         const matching = BrowserWindow.getAllWindows().filter((window) =>
@@ -561,7 +575,7 @@ if (!hasSingleInstanceLock) {
     registerAttachmentIpc(guardedIpcMain, { attachmentStore });
     registerSkillIpc(guardedIpcMain);
     registerGitIpc(guardedIpcMain);
-    registerSettingsIpc(guardedIpcMain);
+    registerSettingsIpc(guardedIpcMain, () => app.getVersion());
     const terminalCompletionService = createTerminalCompletionService();
     const terminalHistory = createTerminalHistory(
       parseZshHistory(readHistoryTail(join(app.getPath("home"), ".zsh_history"))),

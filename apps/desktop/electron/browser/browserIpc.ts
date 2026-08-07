@@ -2,6 +2,10 @@ import type {
   BrowserActionRequest,
   BrowserBounds,
   BrowserClearDataRequest,
+  BrowserMenuAction,
+  BrowserMenuCloseRequest,
+  BrowserMenuOpenRequest,
+  BrowserMenuUpdateRequest,
   BrowserNavigateRequest,
   BrowserOpenRequest,
   BrowserSearchEngine,
@@ -57,6 +61,49 @@ function bounds(input: unknown): BrowserBounds {
   return result as BrowserBounds;
 }
 
+function menuOpenRequest(input: unknown): BrowserMenuOpenRequest {
+  const value = record(input);
+  const request = tabTarget(value);
+  if (value.theme !== "light" && value.theme !== "dark") {
+    throw new Error("Invalid browser menu theme.");
+  }
+  return { ...request, anchor: bounds(value.anchor), theme: value.theme };
+}
+
+function menuAction(input: unknown): BrowserMenuAction {
+  const value = record(input);
+  const type = text(value, "type", 32);
+  if (type === "set-mode") {
+    if (!(["main", "data", "settings"] as unknown[]).includes(value.mode)) {
+      throw new Error("Invalid browser menu mode.");
+    }
+    return { type, mode: value.mode as "main" | "data" | "settings" };
+  }
+  if (type === "zoom") {
+    if (!(["in", "out", "reset"] as unknown[]).includes(value.action)) {
+      throw new Error("Invalid browser zoom action.");
+    }
+    return { type, action: value.action as "in" | "out" | "reset" };
+  }
+  if (type === "clear-data") {
+    if (value.scope !== "project" && value.scope !== "all") {
+      throw new Error("Invalid browser data scope.");
+    }
+    return { type, scope: value.scope };
+  }
+  if (type === "set-search-engine") {
+    const searchEngine = text(value, "searchEngine", 32);
+    if (!["google", "bing", "duckduckgo"].includes(searchEngine)) {
+      throw new Error("Invalid browser search engine.");
+    }
+    return { type, searchEngine: searchEngine as BrowserSearchEngine };
+  }
+  if (type === "find" || type === "copy-link" || type === "open-external" || type === "devtools") {
+    return { type };
+  }
+  throw new Error("Invalid browser menu action.");
+}
+
 export function registerBrowserIpc(ipcMain: IpcMainLike, manager: BrowserManager) {
   ipcMain.handle("browser:activate", (event, input) =>
     manager.activate(senderId(event), input === null ? null : target(input)),
@@ -100,6 +147,33 @@ export function registerBrowserIpc(ipcMain: IpcMainLike, manager: BrowserManager
       throw new Error("Invalid browser zoom action.");
     }
     return manager.zoom(senderId(event), request, request.tabId, value.action);
+  });
+  ipcMain.handle("browser:menu-open", (event, input) => {
+    return manager.openMenu(senderId(event), menuOpenRequest(input));
+  });
+  ipcMain.handle("browser:menu-update", (event, input) => {
+    const value = record(input);
+    const request = tabTarget(value);
+    manager.updateMenu(senderId(event), {
+      ...request,
+      token: text(value, "token", 256),
+      anchor: bounds(value.anchor),
+    } satisfies BrowserMenuUpdateRequest);
+  });
+  ipcMain.handle("browser:menu-close", (event, input) => {
+    const value = record(input);
+    const request = tabTarget(value);
+    manager.closeMenu(senderId(event), {
+      ...request,
+      token: text(value, "token", 256),
+    } satisfies BrowserMenuCloseRequest);
+  });
+  ipcMain.handle("browser:menu-overlay-ready", (event) =>
+    manager.menuOverlayReady(senderId(event)),
+  );
+  ipcMain.handle("browser:menu-overlay-action", (event, input) => {
+    const value = record(input);
+    manager.menuOverlayAction(senderId(event), text(value, "token", 256), menuAction(value.action));
   });
   ipcMain.handle("browser:set-bounds", (event, input) => {
     const value = record(input);

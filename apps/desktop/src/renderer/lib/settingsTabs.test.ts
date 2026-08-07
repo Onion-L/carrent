@@ -9,5 +9,6 @@ describe("settings tabs", () => {
 
   it("builds the settings path for a tab", () => {
     expect(buildSettingsPath("interface")).toBe("/settings?tab=interface");
+    expect(buildSettingsPath("local-server")).toBe("/settings?tab=local-server");
   });
 });

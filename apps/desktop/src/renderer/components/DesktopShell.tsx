@@ -3,7 +3,6 @@ import { PanelLeftClose, PanelLeftOpen, Search, SquareTerminal } from "lucide-re
 import { useLocation, useNavigate } from "react-router-dom";
 import { ThreadHistoryPane } from "./chat/ThreadHistoryPane";
 import { SettingsTabsPane } from "./settings/SettingsTabsPane";
-import { McpServerControl } from "./mcp/McpServerControl";
 import { DesktopHeaderActionsSlot } from "./DesktopHeaderActions";
 import { WorkspaceNavigationPane } from "./workspace/WorkspaceNavigationPane";
 import { WorkspaceRail } from "./workspace/WorkspaceRail";
@@ -155,7 +154,6 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
                 <SquareTerminal className="h-4 w-4" />
               </button>
             ) : null}
-            <McpServerControl />
           </div>
         </header>
 

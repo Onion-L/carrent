@@ -30,4 +30,47 @@ describe("registerBrowserIpc", () => {
       [17, { projectId: "project-1", threadId: "thread-1", tabId: "tab-1" }, "tab-1"],
     ]);
   });
+
+  it("opens the menu for the requesting Renderer", async () => {
+    const handlers = new Map<string, (event: unknown, input?: unknown) => unknown>();
+    const calls: unknown[][] = [];
+    const manager = {
+      openMenu: (...args: unknown[]) => {
+        calls.push(args);
+        return { token: "menu-1" };
+      },
+    } as unknown as BrowserManager;
+
+    registerBrowserIpc(
+      {
+        handle: (channel, listener) => handlers.set(channel, listener),
+      },
+      manager,
+    );
+
+    const opened = await handlers.get("browser:menu-open")?.(
+      { sender: { id: 17 } },
+      {
+        projectId: "project-1",
+        threadId: "thread-1",
+        tabId: "tab-1",
+        anchor: { x: 500, y: 50, width: 32, height: 32 },
+        theme: "dark",
+      },
+    );
+
+    expect(calls).toEqual([
+      [
+        17,
+        {
+          projectId: "project-1",
+          threadId: "thread-1",
+          tabId: "tab-1",
+          anchor: { x: 500, y: 50, width: 32, height: 32 },
+          theme: "dark",
+        },
+      ],
+    ]);
+    expect(opened).toEqual({ token: "menu-1" });
+  });
 });

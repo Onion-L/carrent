@@ -217,6 +217,11 @@ function installBridge(
         browserListeners.add(listener);
         return () => browserListeners.delete(listener);
       },
+      openMenu: async () => ({ token: "test-menu" }),
+      updateMenu: async () => {},
+      closeMenu: async () => {},
+      onMenuAction: () => () => {},
+      onMenuClosed: () => () => {},
       onFocusAddress: () => () => {},
       onFind: () => () => {},
     },
@@ -1367,6 +1372,19 @@ describe("three-level navigation", () => {
     expect(currentPathname).toBe(entryPath);
     expect(buttonNamed("Personal").getAttribute("aria-current")).toBe("page");
     expect(buttonNamed("Settings").getAttribute("aria-current")).toBe(null);
+  });
+
+  it("keeps the Local MCP Server control in Settings instead of the header", async () => {
+    const entryPath = "/workspace/workspace-1/project/project-1/thread/thread-1";
+    await renderApp(navigationState(), entryPath, [], false, [], false);
+
+    expect(container!.querySelector('header button[title="Local MCP Server"]')).toBe(null);
+
+    await click(buttonNamed("Settings"));
+    await click(buttonNamed("Local Server"));
+
+    expect(container!.textContent).toContain("Carrent Local Server");
+    expect(buttonNamed("Local MCP Server").getAttribute("aria-checked")).toBe("false");
   });
 
   it("switches the active Workspace directly from Settings", async () => {

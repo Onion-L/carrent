@@ -37,7 +37,7 @@ import type { RtkGainStats } from "../shared/rtk";
 import type { MainWindowApi } from "../shared/mainWindow";
 import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
 import type { TerminalApi } from "../shared/terminal";
-import type { BrowserApi } from "../shared/browser";
+import type { BrowserApi, BrowserMenuOverlayApi } from "../shared/browser";
 import type {
   AppStateAuthorityState,
   AppStateCommand,
@@ -46,6 +46,7 @@ import type {
 
 declare global {
   interface Window {
+    browserMenuOverlay: BrowserMenuOverlayApi;
     carrent: {
       platform: NodeJS.Platform;
       electronVersion: string;
@@ -131,6 +132,7 @@ declare global {
         relocate: (request: ProjectRelocationRequest) => Promise<ProjectRelocationResult>;
       };
       settings: {
+        getAppVersion: () => Promise<string>;
         checkForUpdates: () => Promise<{ hasUpdate: boolean; latestVersion?: string }>;
         rtkGain: () => Promise<RtkGainStats>;
         readGlobalAgentInstructions: () => Promise<{

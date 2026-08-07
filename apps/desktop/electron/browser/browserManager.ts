@@ -5,18 +5,24 @@ import {
   shell,
   webContents,
   type Session,
+  type WebContents,
 } from "electron";
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
   BrowserBounds,
+  BrowserMenuAction,
+  BrowserMenuCloseRequest,
+  BrowserMenuOpenRequest,
+  BrowserMenuUpdateRequest,
   BrowserSearchEngine,
   BrowserTab,
   BrowserThreadState,
   BrowserThreadTarget,
 } from "../../src/shared/browser";
 import { isBrowserUrl, resolveBrowserInput } from "./browserNavigation";
+import { createBrowserMenuOverlay } from "./browserMenuOverlay";
 import { installBrowserOpener } from "./browserOpener";
 
 type TabRecord = {
@@ -44,6 +50,8 @@ type BrowserOpenBinding =
 type BrowserManagerDependencies = {
   userDataPath: string;
   createAuxiliaryWindow: (target: BrowserThreadTarget) => BrowserWindow;
+  browserMenuOverlayPreload: string;
+  loadBrowserMenuOverlay: (contents: WebContents) => void;
   resolveOwner: (target: BrowserThreadTarget) => number | null;
   resolveProjectTarget: (
     projectId: string,
@@ -83,6 +91,8 @@ function loopbackUrl(value: string) {
 export function createBrowserManager({
   userDataPath,
   createAuxiliaryWindow,
+  browserMenuOverlayPreload,
+  loadBrowserMenuOverlay,
   resolveOwner,
   resolveProjectTarget,
 }: BrowserManagerDependencies) {
@@ -97,6 +107,16 @@ export function createBrowserManager({
   let openerPath: string | null = null;
   let searchEngine: BrowserSearchEngine = "google";
   const knownProjectIds = new Set<string>();
+  const menuOverlays = createBrowserMenuOverlay({
+    preloadPath: browserMenuOverlayPreload,
+    loadOverlay: loadBrowserMenuOverlay,
+    onClosed: ({ ownerId, projectId, threadId, tabId, token }) => {
+      const owner = webContents.fromId(ownerId);
+      if (owner && !owner.isDestroyed()) {
+        owner.send("browser:menu-closed", { projectId, threadId, tabId, token });
+      }
+    },
+  });
 
   try {
     openerPath = installBrowserOpener(userDataPath);
@@ -172,6 +192,14 @@ export function createBrowserManager({
   });
 
   const sendState = (thread: ThreadRecord) => {
+    const menuOwnerId = contentOwnerId(thread);
+    const menuTab = activeTab(thread);
+    if (menuOwnerId !== null && menuTab) {
+      menuOverlays.updateState(menuOwnerId, {
+        zoomFactor: menuTab.state.zoomFactor,
+        searchEngine,
+      });
+    }
     const ids = new Set<number>();
     for (const [ownerId, threadId] of ownerThread) {
       if (threadId === thread.threadId) ids.add(ownerId);
@@ -215,6 +243,10 @@ export function createBrowserManager({
     return presentation;
   };
 
+  const closeThreadMenus = (thread: ThreadRecord, exceptOwnerId?: number) => {
+    menuOverlays.closeThread(thread.threadId, exceptOwnerId);
+  };
+
   const syncAttachment = (thread: ThreadRecord) => {
     for (const tab of thread.tabs.values()) detachView(tab.view);
     const tab = activeTab(thread);
@@ -228,11 +260,15 @@ export function createBrowserManager({
       host !== null &&
       !host.isDestroyed() &&
       presentation.bounds !== null;
-    if (!visible || !tab || !host || !presentation?.bounds) return;
+    if (!visible || !tab || !host || !presentation?.bounds) {
+      if (ownerId !== null) menuOverlays.close(ownerId);
+      return;
+    }
     host.contentView.addChildView(tab.view);
     attachedWindowByView.set(tab.view.webContents.id, host);
     tab.view.setBounds(validBounds(presentation.bounds));
     tab.view.setVisible(true);
+    menuOverlays.bringToFront(ownerId as number);
   };
 
   const getThread = (target: BrowserThreadTarget) => {
@@ -376,6 +412,11 @@ export function createBrowserManager({
         updateTabState(thread, tab);
       }
     });
+    view.webContents.on("before-mouse-event", (_event, input) => {
+      if (input.type !== "mouseDown" || thread.activeTabId !== id) return;
+      const ownerId = contentOwnerId(thread);
+      if (ownerId !== null) menuOverlays.close(ownerId);
+    });
 
     void view.webContents.loadURL(initialUrl);
     return tab;
@@ -384,6 +425,7 @@ export function createBrowserManager({
   function closeTab(thread: ThreadRecord, tabId: string) {
     const tab = thread.tabs.get(tabId);
     if (!tab) throw new Error("Browser tab not found.");
+    closeThreadMenus(thread);
     detachView(tab.view);
     tab.view.webContents.close();
     thread.tabs.delete(tabId);
@@ -414,7 +456,10 @@ export function createBrowserManager({
     thread.open = true;
     thread.focusSequence += 1;
     let tab = activeTab(thread);
-    if (!tab || (url && tab.state.url)) tab = createTab(thread);
+    if (!tab || (url && tab.state.url)) {
+      closeThreadMenus(thread);
+      tab = createTab(thread);
+    }
     if (url) await navigateTab(thread, tab, url);
     syncAttachment(thread);
     sendState(thread);
@@ -445,18 +490,21 @@ export function createBrowserManager({
       if (previousId && previousId !== target?.threadId) {
         const previous = threads.get(previousId);
         if (previous) {
+          menuOverlays.close(ownerId);
           presentationFor(previous, ownerId).visible = false;
           syncAttachment(previous);
           sendState(previous);
         }
       }
       if (!target) {
+        menuOverlays.close(ownerId);
         ownerThread.delete(ownerId);
         return null;
       }
       ownerThread.set(ownerId, target.threadId);
       const thread = getThread(target);
       thread.sideOwnerId = ownerId;
+      closeThreadMenus(thread, ownerId);
       presentationFor(thread, ownerId);
       if (
         thread.placement === "window" &&
@@ -476,9 +524,11 @@ export function createBrowserManager({
         ownerThread.set(ownerId, thread.threadId);
         thread.sideOwnerId = ownerId;
       }
+      closeThreadMenus(thread, ownerId);
       presentationFor(thread, ownerId).visible = true;
       thread.open = true;
       thread.focusSequence += 1;
+      closeThreadMenus(thread);
       createTab(thread);
       syncAttachment(thread);
       sendState(thread);
@@ -488,6 +538,7 @@ export function createBrowserManager({
       const thread = getThread(target);
       requireOwner(ownerId, thread);
       if (!thread.tabs.has(tabId)) throw new Error("Browser tab not found.");
+      if (thread.activeTabId !== tabId) closeThreadMenus(thread);
       thread.activeTabId = tabId;
       syncAttachment(thread);
       sendState(thread);
@@ -547,6 +598,89 @@ export function createBrowserManager({
       updateTabState(thread, tab);
       return snapshot(thread, ownerId);
     },
+    openMenu(ownerId: number, request: BrowserMenuOpenRequest) {
+      const thread = getThread(request);
+      requireOwner(ownerId, thread);
+      const tab = activeTab(thread);
+      const host = hostWindow(thread);
+      const presentation = thread.sidePresentations.get(ownerId);
+      if (
+        contentOwnerId(thread) !== ownerId ||
+        !tab ||
+        tab.state.id !== request.tabId ||
+        !host ||
+        host.isDestroyed() ||
+        presentation?.visible !== true ||
+        presentation.bounds === null ||
+        attachedWindowByView.get(tab.view.webContents.id) !== host
+      ) {
+        throw new Error("Browser menu target is not visible.");
+      }
+      return menuOverlays.open(ownerId, host, request, tab.state.zoomFactor, searchEngine);
+    },
+    updateMenu(ownerId: number, request: BrowserMenuUpdateRequest) {
+      const thread = getThread(request);
+      requireOwner(ownerId, thread);
+      const tab = activeTab(thread);
+      if (contentOwnerId(thread) !== ownerId || tab?.state.id !== request.tabId) {
+        return;
+      }
+      menuOverlays.update(ownerId, request.token, validBounds(request.anchor));
+    },
+    closeMenu(ownerId: number, request: BrowserMenuCloseRequest) {
+      const thread = getThread(request);
+      if (
+        ownerThread.get(ownerId) !== thread.threadId &&
+        auxiliaryOwners.get(ownerId) !== thread.threadId
+      ) {
+        return;
+      }
+      menuOverlays.close(ownerId, request.token);
+    },
+    menuOverlayReady(contentsId: number) {
+      menuOverlays.ready(contentsId);
+    },
+    menuOverlayAction(contentsId: number, token: string, action: BrowserMenuAction) {
+      const record = menuOverlays.requireSender(contentsId, token);
+      const thread = getThread(record);
+      const tab = activeTab(thread);
+      if (
+        contentOwnerId(thread) !== record.ownerId ||
+        tab?.state.id !== record.tabId ||
+        (ownerThread.get(record.ownerId) !== thread.threadId &&
+          auxiliaryOwners.get(record.ownerId) !== thread.threadId)
+      ) {
+        menuOverlays.close(record.ownerId, token);
+        throw new Error("Browser menu target mismatch.");
+      }
+      if (action.type === "set-mode") {
+        if (!menuOverlays.setMode(contentsId, token, action.mode)) {
+          throw new Error("Browser menu overlay mismatch.");
+        }
+        return;
+      }
+      const owner = webContents.fromId(record.ownerId);
+      if (!owner || owner.isDestroyed()) {
+        menuOverlays.close(record.ownerId, token);
+        throw new Error("Browser owner not found.");
+      }
+      owner.send("browser:menu-action", {
+        projectId: record.projectId,
+        threadId: record.threadId,
+        tabId: record.tabId,
+        token,
+        action,
+      });
+      if (
+        action.type === "find" ||
+        action.type === "copy-link" ||
+        action.type === "open-external" ||
+        action.type === "devtools" ||
+        action.type === "clear-data"
+      ) {
+        menuOverlays.close(record.ownerId, token);
+      }
+    },
     setBounds(ownerId: number, target: BrowserThreadTarget, bounds: BrowserBounds) {
       const thread = getThread(target);
       if (
@@ -565,17 +699,20 @@ export function createBrowserManager({
       )
         return;
       presentationFor(thread, ownerId).visible = visible;
+      if (!visible) menuOverlays.close(ownerId);
       syncAttachment(thread);
     },
     popOut(ownerId: number, target: BrowserThreadTarget) {
       const thread = getThread(target);
       requireOwner(ownerId, thread);
+      closeThreadMenus(thread);
       if (!thread.auxiliaryWindow || thread.auxiliaryWindow.isDestroyed()) {
         const window = createAuxiliaryWindow(target);
         thread.auxiliaryWindow = window;
         auxiliaryOwners.set(window.webContents.id, thread.threadId);
         window.on("closed", () => {
           if (threads.get(thread.threadId) !== thread) return;
+          menuOverlays.close(window.webContents.id);
           auxiliaryOwners.delete(window.webContents.id);
           thread.sidePresentations.delete(window.webContents.id);
           thread.auxiliaryWindow = null;
@@ -593,6 +730,7 @@ export function createBrowserManager({
     dock(ownerId: number, target: BrowserThreadTarget) {
       const thread = getThread(target);
       requireOwner(ownerId, thread);
+      closeThreadMenus(thread);
       const window = thread.auxiliaryWindow;
       thread.placement = "side";
       thread.auxiliaryWindow = null;
@@ -698,6 +836,7 @@ export function createBrowserManager({
       return false;
     },
     destroyOwner(ownerId: number) {
+      menuOverlays.close(ownerId);
       const threadId = ownerThread.get(ownerId);
       ownerThread.delete(ownerId);
       if (!threadId) return;
@@ -713,6 +852,7 @@ export function createBrowserManager({
       if (!threadId) return;
       const thread = threads.get(threadId);
       if (!thread || thread.placement !== "side") return;
+      closeThreadMenus(thread);
       thread.sideOwnerId = ownerId;
       syncAttachment(thread);
       sendState(thread);
@@ -776,6 +916,7 @@ export function createBrowserManager({
       for (const threadId of deleting) {
         const thread = threads.get(threadId);
         if (!thread) continue;
+        closeThreadMenus(thread);
         threads.delete(threadId);
         for (const [ownerId, ownedThreadId] of ownerThread) {
           if (ownedThreadId === threadId) ownerThread.delete(ownerId);

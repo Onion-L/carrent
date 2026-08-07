@@ -1,26 +1,23 @@
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
-  ChevronRight,
-  Copy,
-  ExternalLink,
   Globe2,
   LoaderCircle,
   Maximize2,
+  Minimize2,
   MoreVertical,
   Minus,
   Plus,
   RefreshCw,
   Search,
   ShieldAlert,
-  SquareCode,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   BrowserClearDataRequest,
-  BrowserSearchEngine,
+  BrowserMenuSession,
+  BrowserTabTarget,
   BrowserThreadState,
   BrowserThreadTarget,
 } from "../../../shared/browser";
@@ -31,8 +28,11 @@ export function useBrowserThread(target: BrowserThreadTarget | null) {
 
   useEffect(() => {
     let cancelled = false;
+    setState(null);
     const unsubscribe = window.carrent.browser.onState((next) => {
-      if (target && next.threadId === target.threadId) setState(next);
+      if (target && next.projectId === target.projectId && next.threadId === target.threadId) {
+        setState(next);
+      }
     });
     void window.carrent.browser.activate(target).then((next) => {
       if (!cancelled) setState(next);
@@ -63,23 +63,28 @@ type BrowserWorkspaceProps = {
   setState: (state: BrowserThreadState) => void;
   visible: boolean;
   standalone?: boolean;
+  fullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 };
 
 function IconButton({
   label,
   disabled,
   active,
+  buttonRef,
   onClick,
   children,
 }: {
   label: string;
   disabled?: boolean;
   active?: boolean;
+  buttonRef?: React.Ref<HTMLButtonElement>;
   onClick: () => void;
   children: React.ReactNode;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       aria-label={label}
       title={label}
@@ -100,6 +105,8 @@ export function BrowserWorkspace({
   setState,
   visible,
   standalone = false,
+  fullscreen = false,
+  onToggleFullscreen,
 }: BrowserWorkspaceProps) {
   const activeTab = state.tabs.find((tab) => tab.id === state.activeTabId) ?? null;
   const canContinueCertificate = (() => {
@@ -113,21 +120,20 @@ export function BrowserWorkspace({
   })();
   const viewportRef = useRef<HTMLDivElement>(null);
   const sectionRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuRequestId = useRef(0);
   const addressRef = useRef<HTMLInputElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
   const [address, setAddress] = useState(activeTab?.url ?? "");
-  const [menu, setMenu] = useState<"main" | "data" | "settings" | null>(null);
+  const [menuSession, setMenuSession] = useState<
+    (BrowserMenuSession & { target: BrowserTabTarget }) | null
+  >(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState("");
   const [confirmScope, setConfirmScope] = useState<BrowserClearDataRequest["scope"] | null>(null);
   const [hostOverlayOpen, setHostOverlayOpen] = useState(false);
   const nativeVisible =
-    visible &&
-    !menu &&
-    !findOpen &&
-    !confirmScope &&
-    !hostOverlayOpen &&
-    !activeTab?.certificateError;
+    visible && !findOpen && !confirmScope && !hostOverlayOpen && !activeTab?.certificateError;
 
   useEffect(() => {
     const update = () => {
@@ -182,6 +188,106 @@ export function BrowserWorkspace({
 
   const tabTarget = activeTab ? { ...target, tabId: activeTab.id } : null;
   const run = async (operation: Promise<BrowserThreadState>) => setState(await operation);
+
+  useEffect(() => {
+    menuRequestId.current += 1;
+    setMenuSession(null);
+  }, [activeTab?.id, target.projectId, target.threadId]);
+
+  useEffect(
+    () =>
+      window.carrent.browser.onMenuClosed((event) => {
+        setMenuSession((current) => (current?.token === event.token ? null : current));
+      }),
+    [],
+  );
+
+  useEffect(
+    () =>
+      window.carrent.browser.onMenuAction((event) => {
+        if (
+          event.projectId !== target.projectId ||
+          event.threadId !== target.threadId ||
+          event.tabId !== activeTab?.id ||
+          event.action.type === "set-mode"
+        ) {
+          return;
+        }
+        const action = event.action;
+        if (action.type !== "zoom" && action.type !== "set-search-engine") {
+          setMenuSession(null);
+        }
+        if (action.type === "find") {
+          setFindOpen(true);
+          window.setTimeout(() => findRef.current?.focus());
+        } else if (action.type === "zoom") {
+          void run(window.carrent.browser.zoom({ ...event, action: action.action }));
+        } else if (action.type === "copy-link") {
+          if (activeTab.url) void window.carrent.clipboard.writeText(activeTab.url);
+        } else if (action.type === "open-external") {
+          void window.carrent.browser.openExternal(event);
+        } else if (action.type === "devtools") {
+          void run(window.carrent.browser.action({ ...event, action: "devtools" }));
+        } else if (action.type === "clear-data") {
+          setConfirmScope(action.scope);
+        } else if (action.type === "set-search-engine") {
+          void run(
+            window.carrent.browser.setSearchEngine({
+              projectId: event.projectId,
+              threadId: event.threadId,
+              searchEngine: action.searchEngine,
+            }),
+          );
+        }
+      }),
+    [activeTab?.id, activeTab?.url, target.projectId, target.threadId],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (menuSession) {
+        void window.carrent.browser.closeMenu({
+          ...menuSession.target,
+          token: menuSession.token,
+        });
+      }
+    };
+  }, [menuSession]);
+
+  useLayoutEffect(() => {
+    if (!menuSession) return;
+    const button = menuButtonRef.current;
+    const section = sectionRef.current;
+    if (!button || !section) return;
+    const update = () => {
+      const rect = button.getBoundingClientRect();
+      void window.carrent.browser.updateMenu({
+        ...menuSession.target,
+        token: menuSession.token,
+        anchor: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+      });
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(button);
+    observer.observe(section);
+    window.addEventListener("resize", update);
+    update();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [menuSession]);
+
+  useEffect(() => {
+    if (!menuSession) return;
+    const closeOnHostPointer = (event: PointerEvent) => {
+      const button = menuButtonRef.current;
+      if (button && event.target instanceof Node && button.contains(event.target)) return;
+      setMenuSession(null);
+    };
+    document.addEventListener("pointerdown", closeOnHostPointer, true);
+    return () => document.removeEventListener("pointerdown", closeOnHostPointer, true);
+  }, [menuSession]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -239,6 +345,32 @@ export function BrowserWorkspace({
     if (!confirmScope) return;
     setState(await window.carrent.browser.clearData({ ...target, scope: confirmScope }));
     setConfirmScope(null);
+  };
+
+  const toggleMenu = async () => {
+    const requestId = ++menuRequestId.current;
+    if (menuSession) {
+      setMenuSession(null);
+      void window.carrent.browser.closeMenu({
+        ...menuSession.target,
+        token: menuSession.token,
+      });
+      return;
+    }
+    const button = menuButtonRef.current;
+    if (!tabTarget || !button) return;
+    const rect = button.getBoundingClientRect();
+    const requestTarget = tabTarget;
+    const session = await window.carrent.browser.openMenu({
+      ...requestTarget,
+      anchor: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+      theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
+    });
+    if (menuRequestId.current !== requestId) {
+      void window.carrent.browser.closeMenu({ ...requestTarget, token: session.token });
+      return;
+    }
+    setMenuSession({ ...session, target: requestTarget });
   };
 
   return (
@@ -301,10 +433,14 @@ export function BrowserWorkspace({
           </IconButton>
         ) : (
           <IconButton
-            label="Open in window"
-            onClick={() => void run(window.carrent.browser.popOut(target))}
+            label={fullscreen ? "Exit browser fullscreen" : "Enter browser fullscreen"}
+            onClick={() => onToggleFullscreen?.()}
           >
-            <Maximize2 className="h-4 w-4" />
+            {fullscreen ? (
+              <Minimize2 className="h-4 w-4" />
+            ) : (
+              <Maximize2 className="h-4 w-4" />
+            )}
           </IconButton>
         )}
       </div>
@@ -356,47 +492,12 @@ export function BrowserWorkspace({
         </form>
         <IconButton
           label="Browser menu"
-          active={menu !== null}
-          onClick={() => setMenu(menu ? null : "main")}
+          active={menuSession !== null}
+          buttonRef={menuButtonRef}
+          onClick={() => void toggleMenu()}
         >
           <MoreVertical className="h-4 w-4" />
         </IconButton>
-
-        {menu ? (
-          <BrowserMenu
-            menu={menu}
-            state={state}
-            onMenu={setMenu}
-            onFind={() => {
-              setMenu(null);
-              setFindOpen(true);
-              window.setTimeout(() => findRef.current?.focus());
-            }}
-            onZoom={(action) =>
-              tabTarget && void run(window.carrent.browser.zoom({ ...tabTarget, action }))
-            }
-            onCopy={() => {
-              if (activeTab?.url) void window.carrent.clipboard.writeText(activeTab.url);
-              setMenu(null);
-            }}
-            onExternal={() => {
-              if (tabTarget) void window.carrent.browser.openExternal(tabTarget);
-              setMenu(null);
-            }}
-            onDevTools={() => {
-              if (tabTarget)
-                void window.carrent.browser.action({ ...tabTarget, action: "devtools" });
-              setMenu(null);
-            }}
-            onClear={(scope) => {
-              setMenu(null);
-              setConfirmScope(scope);
-            }}
-            onSearchEngine={(searchEngine) =>
-              void run(window.carrent.browser.setSearchEngine({ ...target, searchEngine }))
-            }
-          />
-        ) : null}
       </div>
 
       {findOpen ? (
@@ -472,137 +573,5 @@ export function BrowserWorkspace({
         />
       ) : null}
     </section>
-  );
-}
-
-function MenuItem({
-  icon,
-  label,
-  trailing,
-  onClick,
-}: {
-  icon?: React.ReactNode;
-  label: string;
-  trailing?: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex h-9 w-full items-center gap-3 rounded-md px-2 text-left text-app-13 text-fg hover:bg-surface-hover"
-    >
-      <span className="flex h-4 w-4 items-center justify-center text-muted">{icon}</span>
-      <span className="min-w-0 flex-1">{label}</span>
-      {trailing}
-    </button>
-  );
-}
-
-function BrowserMenu({
-  menu,
-  state,
-  onMenu,
-  onFind,
-  onZoom,
-  onCopy,
-  onExternal,
-  onDevTools,
-  onClear,
-  onSearchEngine,
-}: {
-  menu: "main" | "data" | "settings";
-  state: BrowserThreadState;
-  onMenu: (menu: "main" | "data" | "settings" | null) => void;
-  onFind: () => void;
-  onZoom: (action: "in" | "out" | "reset") => void;
-  onCopy: () => void;
-  onExternal: () => void;
-  onDevTools: () => void;
-  onClear: (scope: "project" | "all") => void;
-  onSearchEngine: (engine: BrowserSearchEngine) => void;
-}) {
-  const active = state.tabs.find((tab) => tab.id === state.activeTabId);
-  return (
-    <div className="absolute right-2 top-10 z-30 w-72 rounded-md border border-border bg-surface-raised p-1.5 shadow-xl">
-      {menu === "main" ? (
-        <>
-          <MenuItem icon={<Search className="h-4 w-4" />} label="Find in page" onClick={onFind} />
-          <div className="my-1 flex h-10 items-center gap-2 border-y border-border px-2">
-            <span className="min-w-0 flex-1 text-app-13">Zoom</span>
-            <IconButton label="Zoom out" onClick={() => onZoom("out")}>
-              <Minus className="h-3.5 w-3.5" />
-            </IconButton>
-            <button
-              type="button"
-              onClick={() => onZoom("reset")}
-              className="w-12 text-center text-app-12 text-muted hover:text-fg"
-            >
-              {Math.round((active?.zoomFactor ?? 1) * 100)}%
-            </button>
-            <IconButton label="Zoom in" onClick={() => onZoom("in")}>
-              <Plus className="h-3.5 w-3.5" />
-            </IconButton>
-          </div>
-          <MenuItem
-            icon={<Copy className="h-4 w-4" />}
-            label="Copy current link"
-            onClick={onCopy}
-          />
-          <MenuItem
-            icon={<ExternalLink className="h-4 w-4" />}
-            label="Open in system browser"
-            onClick={onExternal}
-          />
-          <MenuItem
-            icon={<SquareCode className="h-4 w-4" />}
-            label="Developer tools"
-            onClick={onDevTools}
-          />
-          <MenuItem
-            label="Clear browsing data"
-            trailing={<ChevronRight className="h-4 w-4 text-subtle" />}
-            onClick={() => onMenu("data")}
-          />
-          <MenuItem
-            label="Browser settings"
-            trailing={<ChevronRight className="h-4 w-4 text-subtle" />}
-            onClick={() => onMenu("settings")}
-          />
-        </>
-      ) : null}
-      {menu === "data" ? (
-        <>
-          <MenuItem
-            icon={<ArrowLeft className="h-4 w-4" />}
-            label="Clear browsing data"
-            onClick={() => onMenu("main")}
-          />
-          <div className="my-1 border-t border-border" />
-          <MenuItem label="Clear current project data" onClick={() => onClear("project")} />
-          <MenuItem label="Clear all browsing data" onClick={() => onClear("all")} />
-        </>
-      ) : null}
-      {menu === "settings" ? (
-        <>
-          <MenuItem
-            icon={<ArrowLeft className="h-4 w-4" />}
-            label="Search engine"
-            onClick={() => onMenu("main")}
-          />
-          <div className="my-1 border-t border-border" />
-          {(["google", "bing", "duckduckgo"] as const).map((engine) => (
-            <MenuItem
-              key={engine}
-              label={
-                engine === "duckduckgo" ? "DuckDuckGo" : engine[0].toUpperCase() + engine.slice(1)
-              }
-              icon={state.searchEngine === engine ? <Check className="h-4 w-4" /> : undefined}
-              onClick={() => onSearchEngine(engine)}
-            />
-          ))}
-        </>
-      ) : null}
-    </div>
   );
 }

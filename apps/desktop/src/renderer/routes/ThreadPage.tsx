@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
-import { Globe2 } from "lucide-react";
+import { PanelRight } from "lucide-react";
 
 import { ChatHeader } from "../components/chat/ChatHeader";
 import {
@@ -112,6 +112,7 @@ function ThreadPageContent() {
     open: openBrowser,
   } = useBrowserThread(browserTarget);
   const [browserVisible, setBrowserVisible] = useState(false);
+  const [browserFullscreen, setBrowserFullscreen] = useState(false);
   const [browserWidth, setBrowserWidth] = useState<number | null>(null);
   const browserFocusSequence = useRef(0);
   const inspectorInput = getThreadInspectorInput(routeData);
@@ -134,18 +135,34 @@ function ThreadPageContent() {
 
   useEffect(() => {
     setBrowserVisible(false);
-    browserFocusSequence.current = browserState?.focusSequence ?? 0;
+    setBrowserFullscreen(false);
+    browserFocusSequence.current = 0;
   }, [routeData?.thread.id]);
 
+  const activeBrowserState =
+    browserTarget &&
+    browserState?.projectId === browserTarget.projectId &&
+    browserState.threadId === browserTarget.threadId
+      ? browserState
+      : null;
+
   useEffect(() => {
-    if (!browserState || browserState.focusSequence <= browserFocusSequence.current) return;
-    browserFocusSequence.current = browserState.focusSequence;
-    if (browserState.placement === "side") {
+    if (!browserVisible || activeBrowserState?.placement !== "side") {
+      setBrowserFullscreen(false);
+    }
+  }, [activeBrowserState?.placement, browserVisible]);
+
+  useEffect(() => {
+    if (!activeBrowserState || activeBrowserState.focusSequence <= browserFocusSequence.current) {
+      return;
+    }
+    browserFocusSequence.current = activeBrowserState.focusSequence;
+    if (activeBrowserState.placement === "side") {
       closeDiff();
       setInspectorOpen(false);
       setBrowserVisible(true);
     }
-  }, [browserState?.focusSequence, browserState?.placement, closeDiff]);
+  }, [activeBrowserState?.focusSequence, activeBrowserState?.placement, closeDiff]);
 
   const handleSubmitUserEdit = (draft: UserMessageEditDraft) => {
     if (!routeData) {
@@ -246,10 +263,10 @@ function ThreadPageContent() {
   const rightPane = resolveRightPane({ diffOpen: diffState.open, inspectorOpen });
   const showBrowser =
     browserVisible &&
-    browserState?.open === true &&
-    browserState.placement === "side" &&
-    browserState.contentOwned &&
-    rightPane === null &&
+    activeBrowserState?.open === true &&
+    activeBrowserState.placement === "side" &&
+    activeBrowserState.contentOwned &&
+    (browserFullscreen || rightPane === null) &&
     browserTarget !== null;
 
   if (workspaceId && !appThread) {
@@ -291,18 +308,21 @@ function ThreadPageContent() {
             onClick={() => {
               if (showBrowser) {
                 setBrowserVisible(false);
+                setBrowserFullscreen(false);
                 return;
               }
               closeDiff();
               setInspectorOpen(false);
               setBrowserVisible(true);
-              if (!browserState?.open || !browserState.contentOwned) void openBrowser();
+              if (!activeBrowserState?.open || !activeBrowserState.contentOwned) {
+                void openBrowser();
+              }
             }}
             className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-surface-hover ${
               showBrowser ? "text-fg" : "text-muted hover:text-fg"
             }`}
           >
-            <Globe2 className="h-4 w-4" />
+            <PanelRight className="h-4 w-4" />
           </button>
         </DesktopHeaderPortal>
       ) : null}
@@ -338,7 +358,18 @@ function ThreadPageContent() {
         )}
       </div>
 
-      {rightPane === "diff" && diffState.open ? (
+      {showBrowser && browserFullscreen && browserTarget && activeBrowserState ? (
+        <div className="absolute inset-0 z-30 flex min-h-0 min-w-0">
+          <BrowserWorkspace
+            target={browserTarget}
+            state={activeBrowserState}
+            setState={setBrowserState}
+            visible
+            fullscreen
+            onToggleFullscreen={() => setBrowserFullscreen(false)}
+          />
+        </div>
+      ) : rightPane === "diff" && diffState.open ? (
         <WorkspaceDiffViewer
           snapshot={diffState.snapshot}
           files={diffState.files}
@@ -366,7 +397,7 @@ function ThreadPageContent() {
             onClose={() => setInspectorOpen(false)}
           />
         </div>
-      ) : showBrowser && browserTarget && browserState ? (
+      ) : showBrowser && browserTarget && activeBrowserState ? (
         <div
           className="relative flex h-full min-w-[22rem] max-w-[70%] shrink-0 border-l border-border"
           style={{ width: browserWidth ?? "45%" }}
@@ -398,9 +429,15 @@ function ThreadPageContent() {
           />
           <BrowserWorkspace
             target={browserTarget}
-            state={browserState}
+            state={activeBrowserState}
             setState={setBrowserState}
             visible
+            onToggleFullscreen={() => {
+              closeDiff();
+              setInspectorOpen(false);
+              setBrowserVisible(true);
+              setBrowserFullscreen(true);
+            }}
           />
         </div>
       ) : null}

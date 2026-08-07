@@ -24,6 +24,7 @@ import { resolveSettingsTabId, SETTINGS_TABS } from "../lib/settingsTabs";
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, parseFontSizeInput, stepFontSize } from "../lib/fontSize";
 import { RuntimeIcon } from "../components/RuntimeIcon";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { McpServerControl } from "../components/mcp/McpServerControl";
 import { useRuntimeModels } from "../hooks/useRuntimeModels";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { formatAbsoluteTime } from "../lib/formatRelativeTime";
@@ -267,6 +268,22 @@ function Field({
       <div className="shrink-0 text-app-13 text-muted">{value}</div>
     </div>
   );
+}
+
+function AppVersionField() {
+  const [version, setVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.carrent.settings.getAppVersion().then((value) => {
+      if (!cancelled) setVersion(value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return <Field label="Version" value={version ? `v${version}` : "…"} />;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1310,6 +1327,12 @@ export function SettingsPage() {
               </Section>
             ) : null}
 
+            {activeTabId === "local-server" ? (
+              <Section title="Local Server">
+                <McpServerControl />
+              </Section>
+            ) : null}
+
             {activeTabId === "archives" ? (
               <ArchivedThreadsPanel
                 threads={threads}
@@ -1324,7 +1347,7 @@ export function SettingsPage() {
 
             {activeTabId === "about" ? (
               <Section title="About">
-                <Field label="Version" value="v0.1.0" />
+                <AppVersionField />
                 <CheckForUpdatesRow />
               </Section>
             ) : null}

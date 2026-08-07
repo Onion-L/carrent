@@ -100,6 +100,9 @@ import { readHistoryTail } from "./terminal/completion/historyFile";
 import { createZshShellIntegration } from "./terminal/completion/shellIntegration";
 import { createWindowZoomController } from "./windowZoom";
 import type { MainWindowZoomAction } from "../src/shared/mainWindow";
+import { createBrowserManager, type BrowserManager } from "./browser/browserManager";
+import { registerBrowserIpc } from "./browser/browserIpc";
+import type { BrowserThreadTarget } from "../src/shared/browser";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -137,6 +140,7 @@ let logger: Logger | null = null;
 // Most recently active saved window, for Dock activation / repeated launch
 // "recent-position recovery" when no Carrent Window exists but a session does.
 let recentRestoredWindow: RestoredWindow | null = null;
+let browserManager: BrowserManager | null = null;
 
 // Carrent Windows are peers: every window provides complete navigation and
 // owns only its route, history, and presentation state. The registry tracks
@@ -155,6 +159,42 @@ function getZoomController(contentsId: number) {
 
 const DEFAULT_WINDOW_WIDTH = 1280;
 const DEFAULT_WINDOW_HEIGHT = 840;
+
+function createBrowserWindow(target: BrowserThreadTarget) {
+  const window = new BrowserWindow({
+    width: 1100,
+    height: 760,
+    minWidth: 720,
+    minHeight: 520,
+    backgroundColor: "#181818",
+    autoHideMenuBar: true,
+    frame: process.platform !== "darwin",
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 16, y: 14 },
+    show: false,
+    webPreferences: {
+      preload: join(__dirname, "../preload/index.mjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  window.setTitle("Browser");
+  window.once("ready-to-show", () => window.show());
+  const query = {
+    browserWindow: "1",
+    threadId: target.threadId,
+    projectId: target.projectId,
+  };
+  if (process.env.ELECTRON_RENDERER_URL) {
+    const url = new URL(process.env.ELECTRON_RENDERER_URL);
+    for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+    void window.loadURL(url.toString());
+  } else {
+    void window.loadFile(join(__dirname, "../renderer/index.html"), { query });
+  }
+  return window;
+}
 
 function resolveNormalBounds(window: BrowserWindow): WindowBounds {
   // The *normal* (un-maximized) bounds, so a maximized source window never
@@ -234,7 +274,10 @@ function createWindow(
     windowRegistry.setInitialRoute(window.id, options.initialPath);
   }
 
-  window.on("focus", () => windowRegistry.setActive(window.id));
+  window.on("focus", () => {
+    windowRegistry.setActive(window.id);
+    browserManager?.focusOwner(window.webContents.id);
+  });
 
   window.on("ready-to-show", () => {
     if (options.restoreMaximized) {
@@ -272,6 +315,7 @@ function createWindow(
     zoomControllersByContentsId.delete(contentsId);
     windowRegistry.setTerminalFocused(contentsId, false);
     windowRegistry.unregister(windowId);
+    browserManager?.destroyOwner(contentsId);
   });
 
   window.webContents.on("did-start-navigation", (event) => {
@@ -324,7 +368,11 @@ function createWindow(
   });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (
+      !browserManager?.openForRoute(window.webContents.id, windowRegistry.getRoute(window.id), url)
+    ) {
+      void shell.openExternal(url);
+    }
     return { action: "deny" };
   });
 
@@ -348,6 +396,8 @@ if (!hasSingleInstanceLock) {
 } else {
   app.setAsDefaultProtocolClient("carrent");
   app.on("second-instance", (_event, argv) => {
+    const browserUrl = argv.find((value) => value.startsWith("carrent://browser/open"));
+    if (browserUrl && browserManager?.handleOpenProtocol(browserUrl)) return;
     const targeting = windowRegistry.handleSecondInstance(argv);
     // A repeated launch with no Carrent Window re-creates one, optionally with
     // the deep-link route as its initial path.
@@ -357,10 +407,15 @@ if (!hasSingleInstanceLock) {
   });
   app.on("open-url", (event, url) => {
     event.preventDefault();
+    if (browserManager?.handleOpenProtocol(url)) return;
     const targeting = windowRegistry.handleOpenUrl(url);
     if (targeting.needsWindow) {
       createRecoveredWindow(resolveIconPath(), targeting.route);
     }
+  });
+  app.on("certificate-error", (event, contents, url, error, _certificate, callback) => {
+    if (!browserManager?.handleCertificateError(contents.id, url, error, callback)) return;
+    event.preventDefault();
   });
   ipcMain.on("windows:route-changed", (event, route: unknown) => {
     if (typeof route !== "string" || !route.startsWith("/") || route.length > 4_096) return;
@@ -451,6 +506,42 @@ if (!hasSingleInstanceLock) {
     const guardedIpcMain = appStateIpcGate.ipcMain;
     let providerSessionStore: PersistentProviderSessionStore | null = null;
     appStateStore = store;
+    browserManager = createBrowserManager({
+      userDataPath,
+      createAuxiliaryWindow: createBrowserWindow,
+      resolveOwner: (target) => {
+        const suffix = `/project/${encodeURIComponent(target.projectId)}/thread/${encodeURIComponent(target.threadId)}`;
+        const matching = BrowserWindow.getAllWindows().filter((window) =>
+          windowRegistry.getRoute(window.id)?.endsWith(suffix),
+        );
+        const focused = BrowserWindow.getFocusedWindow();
+        const window = (focused && matching.includes(focused) ? focused : matching.at(-1)) ?? null;
+        return window?.webContents.id ?? null;
+      },
+      resolveProjectTarget: (projectId) => {
+        const matching = BrowserWindow.getAllWindows().flatMap((window) => {
+          const route = windowRegistry.getRoute(window.id);
+          const match = route?.match(/^\/workspace\/[^/]+\/project\/([^/]+)\/thread\/([^/]+)$/u);
+          if (!match) return [];
+          try {
+            const target = {
+              projectId: decodeURIComponent(match[1]),
+              threadId: decodeURIComponent(match[2]),
+            };
+            return target.projectId === projectId ? [{ window, target }] : [];
+          } catch {
+            return [];
+          }
+        });
+        const activeWindowId = windowRegistry.getActive()?.id;
+        const resolved =
+          matching.find(({ window }) => window.id === activeWindowId) ?? matching.at(-1) ?? null;
+        return resolved
+          ? { ownerId: resolved.window.webContents.id, target: resolved.target }
+          : null;
+      },
+    });
+    registerBrowserIpc(guardedIpcMain, browserManager);
     registerRuntimeIpc(guardedIpcMain);
 
     const attachmentStore = createAttachmentStore(userDataPath);
@@ -488,6 +579,8 @@ if (!hasSingleInstanceLock) {
       complete: (input) => terminalCompletionService.complete(input),
       createShellIntegration: (input) =>
         createZshShellIntegration({ ...input, baseDirectory: app.getPath("temp") }),
+      browserEnvironment: (input) =>
+        browserManager?.createProjectOpenEnvironment(input.projectId) ?? {},
     });
     registerTerminalIpc(guardedIpcMain, terminalSessionManager, windowRegistry);
 
@@ -605,6 +698,11 @@ if (!hasSingleInstanceLock) {
       spawn,
       providerSessions: providerSessionStore,
       attachmentStore,
+      browserEnvironment: (request) =>
+        browserManager?.createOpenEnvironment({
+          projectId: request.context.projectId,
+          threadId: request.threadId,
+        }) ?? {},
       carrentBridgeFactory: async () => {
         return bridgeManager.getRuntimeHandle();
       },
@@ -684,6 +782,7 @@ if (!hasSingleInstanceLock) {
       },
       onActiveChange: setAppStateTransactionActiveEverywhere,
       onSnapshotCommitted: (snapshot) => appStateAuthority.adoptExternalSnapshot(snapshot),
+      onThreadsDeleted: (threadIds) => browserManager?.deleteThreads(threadIds),
     });
     waitForThreadDeletion = threadDeletionManager.waitForIdle;
     registerChatIpc(guardedIpcMain, {

@@ -199,6 +199,42 @@ describe("TerminalSessionManager", () => {
     });
   });
 
+  it("injects a Project-scoped browser opener into every Project Terminal Tab", () => {
+    const starts: Parameters<PtyAdapter["spawn"]>[] = [];
+    const browserInputs: Array<{ projectId: string }> = [];
+    const manager = createTerminalSessionManager({
+      pty: {
+        spawn(...args) {
+          starts.push(args);
+          return new FakePty();
+        },
+      },
+      emit: () => {},
+      env: { SHELL: "/bin/zsh", PATH: "/opt/bin" },
+      browserEnvironment: (input): Record<string, string> => {
+        browserInputs.push(input);
+        return {
+          BROWSER: "/tmp/carrent-browser-opener",
+          CARRENT_BROWSER_TOKEN: input.projectId,
+        };
+      },
+    });
+
+    manager.create({
+      ownerId: 7,
+      projectId: "project-1",
+      projectName: "Carrent",
+      workingDirectory: "/work/carrent",
+      enhancedCompletion: false,
+    });
+
+    expect(starts[0][2].env).toMatchObject({
+      BROWSER: "/tmp/carrent-browser-opener",
+      CARRENT_BROWSER_TOKEN: "project-1",
+    });
+    expect(browserInputs).toEqual([{ projectId: "project-1" }]);
+  });
+
   it("groups Tabs by Project and routes input, resize, output, titles, and exit", () => {
     const { manager, processes, events } = setup();
     const first = manager.create({

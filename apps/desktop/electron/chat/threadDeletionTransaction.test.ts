@@ -116,6 +116,7 @@ function request() {
 describe("thread deletion transaction", () => {
   it("commits App State, sessions, and attachments as one operation", async () => {
     const harness = createHarness();
+    const deletedBrowserThreads: string[][] = [];
     const manager = createThreadDeletionTransactionManager({
       journalStore: harness.journalStore,
       appStateStore: harness.appStateStore,
@@ -131,6 +132,7 @@ describe("thread deletion transaction", () => {
         rollbackThreadDataDeletion: async () => {},
       },
       createOperationId: () => "operation-1",
+      onThreadsDeleted: (threadIds) => deletedBrowserThreads.push(threadIds),
     });
 
     await manager.deleteThread(request());
@@ -141,6 +143,7 @@ describe("thread deletion transaction", () => {
       "commit:operation-1",
     ]);
     expect(harness.getJournal()).toBe(null);
+    expect(deletedBrowserThreads).toEqual([["thread-1"]]);
   });
 
   it("rolls every store back when a pre-commit write fails", async () => {

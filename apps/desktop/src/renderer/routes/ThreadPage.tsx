@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
+import { Globe2 } from "lucide-react";
 
 import { ChatHeader } from "../components/chat/ChatHeader";
 import {
@@ -31,6 +32,7 @@ import type { Message } from "../../shared/threadContent";
 import { useChatRun } from "../hooks/useChatRun";
 import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
 import { useToast } from "../components/toast/ToastContext";
+import { BrowserWorkspace, useBrowserThread } from "../components/browser/BrowserWorkspace";
 
 export function resolveThreadRouteData(
   getThreadRouteData: ReturnType<typeof useThreadContent>["getThreadRouteData"],
@@ -102,6 +104,16 @@ function ThreadPageContent() {
   const { state: diffState, closeDiff } = useThreadContentDiff();
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const browserTarget =
+    appProject && routeData ? { projectId: appProject.id, threadId: routeData.thread.id } : null;
+  const {
+    state: browserState,
+    setState: setBrowserState,
+    open: openBrowser,
+  } = useBrowserThread(browserTarget);
+  const [browserVisible, setBrowserVisible] = useState(false);
+  const [browserWidth, setBrowserWidth] = useState<number | null>(null);
+  const browserFocusSequence = useRef(0);
   const inspectorInput = getThreadInspectorInput(routeData);
   const inspectorTasks = useMemo(
     () => collectSubagentTasks(inspectorInput?.messages ?? []),
@@ -119,6 +131,21 @@ function ThreadPageContent() {
     setInspectorOpen(false);
     closeDiff();
   }, [routeData?.thread.id]);
+
+  useEffect(() => {
+    setBrowserVisible(false);
+    browserFocusSequence.current = browserState?.focusSequence ?? 0;
+  }, [routeData?.thread.id]);
+
+  useEffect(() => {
+    if (!browserState || browserState.focusSequence <= browserFocusSequence.current) return;
+    browserFocusSequence.current = browserState.focusSequence;
+    if (browserState.placement === "side") {
+      closeDiff();
+      setInspectorOpen(false);
+      setBrowserVisible(true);
+    }
+  }, [browserState?.focusSequence, browserState?.placement, closeDiff]);
 
   const handleSubmitUserEdit = (draft: UserMessageEditDraft) => {
     if (!routeData) {
@@ -217,6 +244,13 @@ function ThreadPageContent() {
   ) : null;
 
   const rightPane = resolveRightPane({ diffOpen: diffState.open, inspectorOpen });
+  const showBrowser =
+    browserVisible &&
+    browserState?.open === true &&
+    browserState.placement === "side" &&
+    browserState.contentOwned &&
+    rightPane === null &&
+    browserTarget !== null;
 
   if (workspaceId && !appThread) {
     return <Navigate replace to={`/workspace/${workspaceId}/project/${projectId}`} />;
@@ -247,6 +281,31 @@ function ThreadPageContent() {
           />
         </DesktopHeaderPortal>
       )}
+      {browserTarget ? (
+        <DesktopHeaderPortal>
+          <button
+            type="button"
+            aria-label={showBrowser ? "Hide browser" : "Show browser"}
+            title={showBrowser ? "Hide browser" : "Show browser"}
+            aria-pressed={showBrowser}
+            onClick={() => {
+              if (showBrowser) {
+                setBrowserVisible(false);
+                return;
+              }
+              closeDiff();
+              setInspectorOpen(false);
+              setBrowserVisible(true);
+              if (!browserState?.open || !browserState.contentOwned) void openBrowser();
+            }}
+            className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-surface-hover ${
+              showBrowser ? "text-fg" : "text-muted hover:text-fg"
+            }`}
+          >
+            <Globe2 className="h-4 w-4" />
+          </button>
+        </DesktopHeaderPortal>
+      ) : null}
       <div className="flex h-full min-w-0 flex-1 flex-col">
         <ChatHeader title={routeData?.thread.title ?? "Thread not found"} breadcrumb={breadcrumb} />
         {routeData && isEmptyThread ? (
@@ -305,6 +364,43 @@ function ThreadPageContent() {
             selectedTaskId={selectedTaskId}
             onSelectTask={setSelectedTaskId}
             onClose={() => setInspectorOpen(false)}
+          />
+        </div>
+      ) : showBrowser && browserTarget && browserState ? (
+        <div
+          className="relative flex h-full min-w-[22rem] max-w-[70%] shrink-0 border-l border-border"
+          style={{ width: browserWidth ?? "45%" }}
+        >
+          <div
+            className="absolute bottom-0 left-0 top-0 z-20 w-1 -translate-x-1/2 cursor-col-resize"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              const startX = event.clientX;
+              const startWidth =
+                event.currentTarget.parentElement?.getBoundingClientRect().width ?? 520;
+              const onMove = (moveEvent: MouseEvent) => {
+                setBrowserWidth(
+                  Math.max(
+                    352,
+                    Math.min(window.innerWidth * 0.7, startWidth + startX - moveEvent.clientX),
+                  ),
+                );
+              };
+              const onUp = () => {
+                document.body.style.userSelect = "";
+                document.removeEventListener("mousemove", onMove);
+                document.removeEventListener("mouseup", onUp);
+              };
+              document.body.style.userSelect = "none";
+              document.addEventListener("mousemove", onMove);
+              document.addEventListener("mouseup", onUp);
+            }}
+          />
+          <BrowserWorkspace
+            target={browserTarget}
+            state={browserState}
+            setState={setBrowserState}
+            visible
           />
         </div>
       ) : null}

@@ -60,6 +60,7 @@ type Dependencies = {
   fallbackShell?: string;
   isExecutable?: (path: string) => boolean;
   createId?: () => string;
+  browserEnvironment?: (input: { projectId: string }) => Record<string, string>;
   createShellIntegration?: (input: {
     homeDirectory: string;
     originalZdotdir?: string;
@@ -162,6 +163,7 @@ export function createTerminalSessionManager({
   fallbackShell = "/bin/zsh",
   isExecutable = () => true,
   createId = randomUUID,
+  browserEnvironment,
   createShellIntegration,
   complete,
   history,
@@ -313,6 +315,7 @@ export function createTerminalSessionManager({
         tabNumber === 1 ? input.projectName : `${input.projectName} ${tabNumber}`,
       );
       const launchEnvironment = terminalEnvironment(env);
+      Object.assign(launchEnvironment, browserEnvironment?.({ projectId }));
       let integration: ZshShellIntegration | undefined;
       if (input.enhancedCompletion && shell.endsWith("/zsh") && createShellIntegration) {
         try {

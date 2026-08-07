@@ -103,6 +103,14 @@ function installBridge(
 ) {
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
   const terminalListeners = new Set<(event: import("../shared/terminal").TerminalEvent) => void>();
+  const browserListeners = new Set<
+    (state: import("../shared/browser").BrowserThreadState) => void
+  >();
+  let browserState: import("../shared/browser").BrowserThreadState | null = null;
+  const requireBrowserState = () => {
+    if (!browserState) throw new Error("Browser is not open.");
+    return structuredClone(browserState);
+  };
   let commandAttempt = 0;
   const terminalTabsByProject = new Map<string, import("../shared/terminal").TerminalTab[]>();
   const terminalOutputById = new Map<string, string>();
@@ -161,6 +169,57 @@ function installBridge(
     },
   });
   window.carrent = {
+    browser: {
+      activate: async (target: import("../shared/browser").BrowserThreadTarget | null) =>
+        target && browserState?.threadId === target.threadId ? requireBrowserState() : null,
+      open: async (request: import("../shared/browser").BrowserOpenRequest) => {
+        browserState = {
+          threadId: request.threadId,
+          projectId: request.projectId,
+          open: true,
+          placement: "side",
+          activeTabId: "browser-tab-1",
+          tabs: [
+            {
+              id: "browser-tab-1",
+              title: "New Tab",
+              url: request.url ?? "",
+              loading: false,
+              canGoBack: false,
+              canGoForward: false,
+              zoomFactor: 1,
+            },
+          ],
+          searchEngine: "google",
+          focusSequence: 1,
+          contentOwned: true,
+        };
+        for (const listener of browserListeners) listener(requireBrowserState());
+        return requireBrowserState();
+      },
+      newTab: async () => requireBrowserState(),
+      activateTab: async () => requireBrowserState(),
+      closeTab: async () => requireBrowserState(),
+      navigate: async () => requireBrowserState(),
+      action: async () => requireBrowserState(),
+      zoom: async () => requireBrowserState(),
+      find: async () => {},
+      stopFind: async () => {},
+      continueCertificate: async () => requireBrowserState(),
+      setBounds: async () => {},
+      setVisible: async () => {},
+      popOut: async () => requireBrowserState(),
+      dock: async () => requireBrowserState(),
+      openExternal: async () => {},
+      clearData: async () => requireBrowserState(),
+      setSearchEngine: async () => requireBrowserState(),
+      onState: (listener: (state: import("../shared/browser").BrowserThreadState) => void) => {
+        browserListeners.add(listener);
+        return () => browserListeners.delete(listener);
+      },
+      onFocusAddress: () => () => {},
+      onFind: () => () => {},
+    },
     appState: {
       load: async () => ({ status: "ready", snapshot: loadedAppState }),
       reread: async () => ({ status: "ready", snapshot: loadedAppState }),
@@ -4178,6 +4237,55 @@ describe("Archived Thread lifecycle", () => {
     expect(saved.at(-1)?.associations).toEqual([]);
     expect(terminalCloseProjectRequests).toEqual(["project-1"]);
     expect(currentPathname).toBe("/workspace/workspace-1");
+  });
+});
+
+describe("Integrated Browser", () => {
+  it("opens an empty browser bound to the current Thread", async () => {
+    await renderApp(
+      {
+        version: 1,
+        workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+        projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+        associations: [
+          {
+            workspaceId: "workspace-1",
+            projectId: "project-1",
+            order: 0,
+            defaultRuntimeId: "kimi",
+            defaultRuntimeMode: "approval-required",
+          },
+        ],
+        threads: [
+          {
+            id: "thread-1",
+            workspaceId: "workspace-1",
+            projectId: "project-1",
+            title: "Browser Thread",
+            createdAt: "2026-08-07T08:00:00.000Z",
+            lastActivityAt: "2026-08-07T08:00:00.000Z",
+            runtimeId: "kimi",
+            runtimeMode: "approval-required",
+            planMode: false,
+          },
+        ],
+        threadDrafts: [],
+        threadMessages: [],
+        threadRuns: [],
+        threadPromotionIntents: [],
+        lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
+        activeWorkspaceId: "workspace-1",
+      },
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+    );
+
+    await click(buttonNamed("Show browser"));
+
+    expect(container!.querySelector<HTMLInputElement>('input[aria-label="Address"]')).not.toBe(
+      null,
+    );
+    expect(container!.textContent).toContain("New Tab");
+    expect(container!.textContent).toContain("Start browsing");
   });
 });
 

@@ -39,6 +39,9 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   const [isThreadSearchOpen, setIsThreadSearchOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const projectRoute = location.pathname.match(/^\/workspace\/[^/]+\/project\/([^/]+)(?:\/|$)/u);
+  const threadRoute = location.pathname.match(
+    /^\/workspace\/[^/]+\/project\/[^/]+\/thread\/([^/]+)$/u,
+  );
   const currentProject = projectRoute
     ? (projects.find((project) => project.id === decodeURIComponent(projectRoute[1])) ?? null)
     : null;
@@ -178,6 +181,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
                 <IntegratedTerminal
                   project={currentProject}
+                  threadId={threadRoute ? decodeURIComponent(threadRoute[1]) : null}
                   isOpen={isTerminalOpen && canOpenTerminal}
                   onOpenChange={setIsTerminalOpen}
                 />

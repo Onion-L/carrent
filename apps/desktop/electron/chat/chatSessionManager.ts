@@ -51,6 +51,7 @@ export type SpawnFn = (
     cwd: string;
     timeout?: number;
     windowsHide?: boolean;
+    env?: NodeJS.ProcessEnv;
     stdio?: ["ignore" | "pipe", "pipe", "pipe"];
   },
 ) => ChildProcess;
@@ -735,6 +736,7 @@ export function createChatSessionManager(options: {
   attachmentStore?: AttachmentStore;
   shutdownGracePeriodMs?: number;
   threadActionTimeoutMs?: number;
+  browserEnvironment?: (request: ChatTurnRequest) => NodeJS.ProcessEnv;
 }): ChatSessionManager {
   const sessions = new Map<string, ChatSession>();
   const kimiSessions = new Map<string, { handle: KimiAcpRunHandle; threadId: string }>();
@@ -1005,6 +1007,7 @@ export function createChatSessionManager(options: {
       cwd: workingDirectory,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
+      env: { ...process.env, ...options.browserEnvironment?.(request) },
     });
     const claudeStreamState =
       request.runtimeId === "claude-code" ? createClaudeStreamState(workingDirectory) : null;

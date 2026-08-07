@@ -162,6 +162,7 @@ export function createThreadDeletionTransactionManager(options: {
   createOperationId?: () => string;
   onActiveChange?: (active: boolean) => void;
   onSnapshotCommitted?: (snapshot: AppStateSnapshot) => void;
+  onThreadsDeleted?: (threadIds: string[]) => void;
 }) {
   let queue = Promise.resolve();
 
@@ -265,6 +266,12 @@ export function createThreadDeletionTransactionManager(options: {
             await options.journalStore.clear();
             recoveryPending = false;
             throw error;
+          }
+
+          try {
+            options.onThreadsDeleted?.(transactionRequest.threadData.threadIds);
+          } catch {
+            // In-memory cleanup cannot roll back an already committed deletion.
           }
 
           try {

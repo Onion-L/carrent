@@ -8,11 +8,18 @@ import "@carrent/ui/globals.css";
 import "../styles/index.css";
 
 import App from "./App";
+import { BrowserWindowApp } from "./components/browser/BrowserWindowApp";
+
+const isBrowserWindow = new URLSearchParams(window.location.search).get("browserWindow") === "1";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <HashRouter>
-      <App />
-    </HashRouter>
+    {isBrowserWindow ? (
+      <BrowserWindowApp />
+    ) : (
+      <HashRouter>
+        <App />
+      </HashRouter>
+    )}
   </React.StrictMode>,
 );

@@ -44,6 +44,18 @@ import type {
   TerminalTarget,
   TerminalWriteRequest,
 } from "../src/shared/terminal";
+import type {
+  BrowserActionRequest,
+  BrowserApi,
+  BrowserClearDataRequest,
+  BrowserNavigateRequest,
+  BrowserOpenRequest,
+  BrowserSearchEngine,
+  BrowserTabTarget,
+  BrowserThreadState,
+  BrowserThreadTarget,
+  BrowserZoomRequest,
+} from "../src/shared/browser";
 
 const mainWindow: MainWindowApi = {
   onNavigate: (listener) => {
@@ -90,6 +102,60 @@ const carrent = {
   platform: process.platform,
   electronVersion: process.versions.electron,
   mainWindow,
+  browser: {
+    activate: (target: BrowserThreadTarget | null) =>
+      ipcRenderer.invoke("browser:activate", target) as Promise<BrowserThreadState | null>,
+    open: (request: BrowserOpenRequest) =>
+      ipcRenderer.invoke("browser:open", request) as Promise<BrowserThreadState>,
+    newTab: (target: BrowserThreadTarget) =>
+      ipcRenderer.invoke("browser:new-tab", target) as Promise<BrowserThreadState>,
+    activateTab: (target: BrowserTabTarget) =>
+      ipcRenderer.invoke("browser:activate-tab", target) as Promise<BrowserThreadState>,
+    closeTab: (target: BrowserTabTarget) =>
+      ipcRenderer.invoke("browser:close-tab", target) as Promise<BrowserThreadState>,
+    navigate: (request: BrowserNavigateRequest) =>
+      ipcRenderer.invoke("browser:navigate", request) as Promise<BrowserThreadState>,
+    action: (request: BrowserActionRequest) =>
+      ipcRenderer.invoke("browser:action", request) as Promise<BrowserThreadState>,
+    zoom: (request: BrowserZoomRequest) =>
+      ipcRenderer.invoke("browser:zoom", request) as Promise<BrowserThreadState>,
+    find: (request: BrowserTabTarget & { text: string; forward?: boolean }) =>
+      ipcRenderer.invoke("browser:find", request) as Promise<void>,
+    stopFind: (target: BrowserTabTarget) =>
+      ipcRenderer.invoke("browser:stop-find", target) as Promise<void>,
+    continueCertificate: (target: BrowserTabTarget) =>
+      ipcRenderer.invoke("browser:continue-certificate", target) as Promise<BrowserThreadState>,
+    setBounds: (
+      request: BrowserThreadTarget & { bounds: import("../src/shared/browser").BrowserBounds },
+    ) => ipcRenderer.invoke("browser:set-bounds", request) as Promise<void>,
+    setVisible: (request: BrowserThreadTarget & { visible: boolean }) =>
+      ipcRenderer.invoke("browser:set-visible", request) as Promise<void>,
+    popOut: (target: BrowserThreadTarget) =>
+      ipcRenderer.invoke("browser:pop-out", target) as Promise<BrowserThreadState>,
+    dock: (target: BrowserThreadTarget) =>
+      ipcRenderer.invoke("browser:dock", target) as Promise<BrowserThreadState>,
+    openExternal: (target: BrowserTabTarget) =>
+      ipcRenderer.invoke("browser:open-external", target) as Promise<void>,
+    clearData: (request: BrowserClearDataRequest) =>
+      ipcRenderer.invoke("browser:clear-data", request) as Promise<BrowserThreadState>,
+    setSearchEngine: (request: BrowserThreadTarget & { searchEngine: BrowserSearchEngine }) =>
+      ipcRenderer.invoke("browser:set-search-engine", request) as Promise<BrowserThreadState>,
+    onState: (listener: (state: BrowserThreadState) => void) => {
+      const wrapped = (_event: IpcRendererEvent, state: BrowserThreadState) => listener(state);
+      ipcRenderer.on("browser:state", wrapped);
+      return () => ipcRenderer.removeListener("browser:state", wrapped);
+    },
+    onFocusAddress: (listener: () => void) => {
+      const wrapped = () => listener();
+      ipcRenderer.on("browser:focus-address", wrapped);
+      return () => ipcRenderer.removeListener("browser:focus-address", wrapped);
+    },
+    onFind: (listener: () => void) => {
+      const wrapped = () => listener();
+      ipcRenderer.on("browser:find", wrapped);
+      return () => ipcRenderer.removeListener("browser:find", wrapped);
+    },
+  } satisfies BrowserApi,
   runtimes: {
     list: () => ipcRenderer.invoke("runtimes:list"),
     localCheck: (id: RuntimeId) => ipcRenderer.invoke("runtimes:local-check", id),

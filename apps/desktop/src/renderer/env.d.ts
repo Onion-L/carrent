@@ -37,6 +37,7 @@ import type { RtkGainStats } from "../shared/rtk";
 import type { MainWindowApi } from "../shared/mainWindow";
 import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
 import type { TerminalApi } from "../shared/terminal";
+import type { BrowserApi } from "../shared/browser";
 import type {
   AppStateAuthorityState,
   AppStateCommand,
@@ -49,6 +50,7 @@ declare global {
       platform: NodeJS.Platform;
       electronVersion: string;
       mainWindow: MainWindowApi;
+      browser: BrowserApi;
       runtimes: {
         list: () => Promise<RuntimeRecord[]>;
         localCheck: (id: RuntimeId) => Promise<RuntimeVerificationResult>;

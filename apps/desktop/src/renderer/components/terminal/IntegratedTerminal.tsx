@@ -40,6 +40,7 @@ const MAX_VISIBLE_CANDIDATES = 12;
 
 function TerminalViewport({
   tab,
+  threadId,
   visible,
   register,
   onCreateTab,
@@ -53,6 +54,7 @@ function TerminalViewport({
   onFocusChange,
 }: {
   tab: TerminalTab;
+  threadId: string | null;
   visible: boolean;
   register: (terminalId: string, controller: TerminalController) => VoidFunction;
   onCreateTab: () => void;
@@ -130,7 +132,11 @@ function TerminalViewport({
     terminal.loadAddon(
       new WebLinksAddon((event, uri) => {
         if (!(event as MouseEvent).metaKey) return;
-        void window.carrent.shell.openExternal(uri);
+        if (threadId) {
+          void window.carrent.browser.open({ projectId: tab.projectId, threadId, url: uri });
+        } else {
+          void window.carrent.shell.openExternal(uri);
+        }
       }),
     );
     terminal.open(container);
@@ -252,7 +258,7 @@ function TerminalViewport({
       unregister();
       terminal.dispose();
     };
-  }, [onFocusChange, register, tab.id, tab.projectId]);
+  }, [onFocusChange, register, tab.id, tab.projectId, threadId]);
 
   useEffect(() => {
     if (!visible) return;
@@ -267,10 +273,12 @@ function TerminalViewport({
 
 export function IntegratedTerminal({
   project,
+  threadId,
   isOpen,
   onOpenChange,
 }: {
   project: AppProjectRecord | null;
+  threadId: string | null;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -607,6 +615,7 @@ export function IntegratedTerminal({
   return (
     <section
       aria-label="Integrated Terminal"
+      data-terminal-maximized={isMaximized ? "true" : undefined}
       className={`${isMaximized ? "absolute inset-0 z-30" : "relative shrink-0 border-t"} overflow-hidden border-border bg-[#151514] ${
         isOpen && project ? "" : "hidden"
       }`}
@@ -742,6 +751,7 @@ export function IntegratedTerminal({
           <div key={tab.id} className={tab.id === activeTab?.id ? "relative h-full p-2" : "hidden"}>
             <TerminalViewport
               tab={tab}
+              threadId={threadId}
               visible={isOpen && tab.id === activeTab?.id}
               register={register}
               onCreateTab={() => void createTab()}

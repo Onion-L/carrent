@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronRight, CircleDashed, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronRight, CircleDashed, Sparkles, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { KimiToolTimelineStatus } from "../../../shared/chat";
 import type { MessagePart } from "../../../shared/threadContent";
@@ -60,6 +60,43 @@ export function formatAgentActivityDuration(durationMs: number) {
 
 function padDurationPart(value: number) {
   return value.toString().padStart(2, "0");
+}
+
+const RUNNING_PHRASES = [
+  "Model is thinking…",
+  "Model is working…",
+  "Thinking…",
+  "Working…",
+  "Processing…",
+  "Pondering…",
+  "Crunching…",
+  "Cooking…",
+];
+
+const RUNNING_PHRASE_INTERVAL_MS = 3500;
+
+function pickRunningPhrase(exclude?: string) {
+  const candidates = exclude
+    ? RUNNING_PHRASES.filter((phrase) => phrase !== exclude)
+    : RUNNING_PHRASES;
+  return candidates[Math.floor(Math.random() * candidates.length)]!;
+}
+
+function useRunningPhrase(enabled: boolean) {
+  const [phrase, setPhrase] = useState(() => pickRunningPhrase());
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    const timer = window.setInterval(
+      () => setPhrase((current) => pickRunningPhrase(current)),
+      RUNNING_PHRASE_INTERVAL_MS,
+    );
+    return () => window.clearInterval(timer);
+  }, [enabled]);
+
+  return phrase;
 }
 
 function capitalize(value: string) {
@@ -441,6 +478,7 @@ export function AgentActivityBlock({
   const StatusIcon = status.icon;
   const isRunning = resolvedStatus === "running";
   const isCompleted = resolvedStatus === "completed";
+  const runningPhrase = useRunningPhrase(isRunning);
   const elapsedMs = startedAt != null ? Math.max(0, (finishedAt ?? now) - startedAt) : undefined;
   const durationLabel =
     duration ?? (elapsedMs != null ? formatAgentActivityDuration(elapsedMs) : undefined);
@@ -448,18 +486,25 @@ export function AgentActivityBlock({
     status: resolvedStatus,
     duration: durationLabel,
   });
-  const displayTitle =
-    isRunning || isCompleted ? `${status.label}${durationLabel ? ` ${durationLabel}` : ""}` : title;
+  const displayTitle = isCompleted
+    ? `${status.label}${durationLabel ? ` ${durationLabel}` : ""}`
+    : title;
   const headerClassName = `group flex w-full items-center text-left text-app-13 leading-5 text-subtle transition hover:text-muted ${
     isRunning
-      ? "border-b border-border pb-2 pt-1"
+      ? "gap-2 border-b border-border pb-2 pt-1"
       : isCompleted
         ? "gap-2 border-b border-border pb-2 pt-1"
         : "gap-2.5 py-1"
   }`;
-  const headerContent = (
+  const headerContent = isRunning ? (
     <>
-      {!isRunning && !isCompleted && (
+      <Sparkles className="h-3.5 w-3.5 shrink-0 animate-pulse text-muted" />
+      <span className="shimmer-text min-w-0 flex-1 truncate font-medium">{runningPhrase}</span>
+      {durationLabel ? <span className="shrink-0 text-subtle">{durationLabel}</span> : null}
+    </>
+  ) : (
+    <>
+      {!isCompleted && (
         <>
           {collapsible ? (
             <ChevronRight
@@ -470,7 +515,7 @@ export function AgentActivityBlock({
         </>
       )}
       <span
-        className={`${isRunning || !isCompleted ? "flex-1" : ""} min-w-0 truncate font-medium ${status.className}`}
+        className={`${!isCompleted ? "flex-1" : ""} min-w-0 truncate font-medium ${status.className}`}
       >
         {displayTitle}
       </span>

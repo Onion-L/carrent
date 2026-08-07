@@ -285,6 +285,19 @@ export function createChatRunCoordinator() {
     getSnapshot() {
       return snapshot;
     },
+    reset() {
+      pendingByRequestKey.clear();
+      requestKeyByRunId.clear();
+      requestKeyByThreadId.clear();
+      pendingPermissionById.clear();
+      pendingQuestionById.clear();
+      observersByThreadId.clear();
+      deliveredEventCountByRunId.clear();
+      kimiTimelineItemsByRunId.clear();
+      authorityState = null;
+      updateSnapshot(null);
+      emit();
+    },
     getPendingRunId(threadId?: string) {
       if (authorityState) {
         const run = authorityState.runs.find(
@@ -678,6 +691,12 @@ let chatAuthorityResyncRequested = false;
 
 export function hasLiveRunForThread(threadId: string) {
   return chatRunCoordinator.getSnapshot().runningThreadIds.includes(threadId);
+}
+
+// Test-only: renderer tests share one process, so a Run left unfinished by one
+// test file would otherwise stay "running" for every later file.
+export function resetChatRunsForTests() {
+  chatRunCoordinator.reset();
 }
 
 function createRequestKey() {

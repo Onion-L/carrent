@@ -1,0 +1,2 @@
+[test]
+preload = ["./apps/desktop/src/renderer/test/resetChatRuns.ts"]

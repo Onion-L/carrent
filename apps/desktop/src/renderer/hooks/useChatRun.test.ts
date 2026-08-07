@@ -1676,4 +1676,27 @@ describe("createChatRunCoordinator", () => {
     expect(coordinator.getSnapshot().pendingQuestions).toHaveLength(0);
     expect(coordinator.getSnapshot().runningThreadIds).toEqual(["thread-1", "thread-2"]);
   });
+
+  it("resets every pending Run back to an idle snapshot", () => {
+    const coordinator = createChatRunCoordinator();
+    coordinator.beginRequest("req-1", "thread-1", {});
+    coordinator.attachRunId("req-1", "run-1");
+    coordinator.handleEvent({
+      type: "permission-requested",
+      runId: "run-1",
+      requestKey: "req-1",
+      permission: makePermissionEvent(),
+    } satisfies ChatRunEvent);
+    expect(coordinator.getSnapshot().runningThreadIds).toEqual(["thread-1"]);
+    expect(coordinator.getSnapshot().pendingPermissions).toHaveLength(1);
+
+    coordinator.reset();
+
+    const snapshot = coordinator.getSnapshot();
+    expect(snapshot.isSending).toBe(false);
+    expect(snapshot.runningThreadIds).toEqual([]);
+    expect(snapshot.pendingPermissions).toEqual([]);
+    expect(snapshot.pendingQuestions).toEqual([]);
+    expect(snapshot.runs).toEqual([]);
+  });
 });

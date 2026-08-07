@@ -76,6 +76,7 @@ export async function startCarrentBridge(
   options: {
     runId?: string;
     homeDir?: string;
+    projectDir?: string;
     token?: string;
     catalog?: SkillCatalogBridgeService;
     audit?: (entry: CarrentBridgeAuditEntry) => void;
@@ -86,7 +87,8 @@ export async function startCarrentBridge(
   const bridge = new CarrentBridgeServer({
     runId: options.runId,
     token,
-    catalog: options.catalog ?? createDefaultSkillCatalogService(options.homeDir),
+    catalog:
+      options.catalog ?? createDefaultSkillCatalogService(options.homeDir, options.projectDir),
     audit: options.audit ?? recordDefaultAuditEntry,
     now: options.now ?? (() => new Date()),
   });
@@ -100,13 +102,16 @@ function recordDefaultAuditEntry(entry: CarrentBridgeAuditEntry) {
   }
 }
 
-function createDefaultSkillCatalogService(homeDir = os.homedir()): SkillCatalogBridgeService {
+function createDefaultSkillCatalogService(
+  homeDir = os.homedir(),
+  projectDir?: string,
+): SkillCatalogBridgeService {
   return {
-    listSkills: () => listInstalledSkills(homeDir),
-    readSkill: (locator) => readSkill(locator, { homeDir }),
-    listSkillResources: (locator) => listSkillResources(locator, { homeDir }),
+    listSkills: () => listInstalledSkills({ homeDir, projectDir }),
+    readSkill: (locator) => readSkill(locator, { homeDir, projectDir }),
+    listSkillResources: (locator) => listSkillResources(locator, { homeDir, projectDir }),
     readSkillResource: (locator, resourcePath) =>
-      readSkillResource(locator, resourcePath, { homeDir }),
+      readSkillResource(locator, resourcePath, { homeDir, projectDir }),
   };
 }
 
@@ -281,6 +286,7 @@ function formatSkillMetadata(skill: SkillRecord) {
     name: skill.name,
     description: skill.description,
     source: skill.source,
+    scope: skill.scope,
     path: skill.path,
     declaredPath: skill.declaredPath ?? skill.path,
     realPath: skill.realPath ?? skill.path,

@@ -1,40 +1,42 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { SkillRecord } from "../../shared/skills";
 
-export function useSkills() {
+export function useSkills(projectDir?: string) {
   const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
+  const refresh = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
 
-    async function loadSkills() {
-      try {
-        const nextSkills = await window.carrent.skills.list();
-        if (!cancelled) {
-          setSkills(nextSkills);
-          setError(null);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-          setSkills([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+    try {
+      const nextSkills = await window.carrent.skills.list(projectDir);
+      if (requestId === requestIdRef.current) {
+        setSkills(nextSkills);
+        setError(null);
+      }
+    } catch (err) {
+      if (requestId === requestIdRef.current) {
+        setError(err instanceof Error ? err.message : String(err));
+        setSkills([]);
+      }
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
       }
     }
+  }, [projectDir]);
 
-    void loadSkills();
+  useEffect(() => {
+    void refresh();
 
     return () => {
-      cancelled = true;
+      requestIdRef.current += 1;
     };
-  }, []);
+  }, [refresh]);
 
-  return { skills, loading, error };
+  return { skills, loading, error, refresh };
 }

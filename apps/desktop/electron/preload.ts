@@ -244,7 +244,8 @@ const carrent = {
       ipcRenderer.invoke("attachments:read", metadata) as Promise<Uint8Array>,
   },
   skills: {
-    list: () => ipcRenderer.invoke("skills:list") as Promise<SkillRecord[]>,
+    list: (projectDir?: string) =>
+      ipcRenderer.invoke("skills:list", projectDir) as Promise<SkillRecord[]>,
   },
   dialog: {
     openDirectory: () =>

@@ -48,6 +48,7 @@ let emitChatAuthorityChange: ((update: ChatRunAuthorityChange) => void) | null =
 let activeChatAuthorityState: ChatRunAuthorityState | null = null;
 let sentChatMessages: string[] = [];
 let sentChatRunIds: string[] = [];
+let listedSkillProjectDirs: Array<string | undefined> = [];
 
 function ComposerHarness({
   draftRequest,
@@ -204,6 +205,7 @@ function installCarrentBridge(
   activeChatAuthorityState = options.authorityState ?? null;
   sentChatMessages = [];
   sentChatRunIds = [];
+  listedSkillProjectDirs = [];
   window.carrent = {
     appState: {
       load: async () => ({ status: "ready", snapshot }),
@@ -235,38 +237,41 @@ function installCarrentBridge(
       listModels: async () => ({ state: "listed", models: [] }),
     },
     skills: {
-      list: async () => [
-        {
-          name: "grilling",
-          description: "Different Skill with the same name.",
-          path: "/skills/other/grilling/SKILL.md",
-          source: "codex",
-        },
-        {
-          name: "grilling",
-          description: "Stress-test a plan.",
-          path: "/skills/grilling/SKILL.md",
-          source: "agents",
-        },
-        {
-          name: "pdf",
-          description: "Work with PDF files.",
-          path: "/skills/pdf/SKILL.md",
-          source: "codex",
-        },
-        {
-          name: "tdd",
-          description: "Develop test-first.",
-          path: "/skills/tdd/SKILL.md",
-          source: "agents",
-        },
-        {
-          name: "implement",
-          description: "Implement a request.",
-          path: "/skills/implement/SKILL.md",
-          source: "agents",
-        },
-      ],
+      list: async (projectDir) => {
+        listedSkillProjectDirs.push(projectDir);
+        return [
+          {
+            name: "grilling",
+            description: "Different Skill with the same name.",
+            path: "/skills/other/grilling/SKILL.md",
+            source: "codex",
+          },
+          {
+            name: "grilling",
+            description: "Stress-test a plan.",
+            path: "/skills/grilling/SKILL.md",
+            source: "agents",
+          },
+          {
+            name: "pdf",
+            description: "Work with PDF files.",
+            path: "/skills/pdf/SKILL.md",
+            source: "codex",
+          },
+          {
+            name: "tdd",
+            description: "Develop test-first.",
+            path: "/skills/tdd/SKILL.md",
+            source: "agents",
+          },
+          {
+            name: "implement",
+            description: "Implement a request.",
+            path: "/skills/implement/SKILL.md",
+            source: "agents",
+          },
+        ];
+      },
     },
     mcpServer: {
       getStatus: async () => ({ enabled: true, running: true }),
@@ -720,6 +725,16 @@ describe("Composer inline Skills", () => {
     await setComposerText("/");
 
     expect(container!.textContent).toContain("Plan mode");
+  });
+
+  it("loads and refreshes Skills for the current project", async () => {
+    await renderComposer();
+
+    expect(listedSkillProjectDirs).toEqual(["/code/carrent"]);
+
+    await setComposerText("/");
+
+    expect(listedSkillProjectDirs).toEqual(["/code/carrent", "/code/carrent"]);
   });
 
   it("preserves surrounding text and keeps multiple Skills inside the editable flow", async () => {

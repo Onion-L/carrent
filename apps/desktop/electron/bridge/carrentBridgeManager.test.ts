@@ -31,14 +31,17 @@ function createFakeHandle(id: string): FakeHandle {
 
 function createFakeStartBridge() {
   const calls: string[] = [];
+  const projectDirs: Array<string | undefined> = [];
   const handles: FakeHandle[] = [];
 
   return {
     calls,
+    projectDirs,
     handles,
-    async startBridge(options?: { runId?: string }) {
+    async startBridge(options?: { runId?: string; projectDir?: string }) {
       const runId = options?.runId ?? "missing";
       calls.push(runId);
+      projectDirs.push(options?.projectDir);
       const handle = createFakeHandle(runId);
       handles.push(handle);
       return handle;
@@ -128,6 +131,34 @@ describe("createCarrentBridgeManager", () => {
 
     await manager.stop();
     expect(bridge.handles[0]?.closed).toBe(true);
+  });
+
+  it("starts a project-scoped server for a runtime run", async () => {
+    const bridge = createFakeStartBridge();
+    const manager = createCarrentBridgeManager({ startBridge: bridge.startBridge });
+
+    await manager.initialize();
+    const runtimeHandle = await manager.getRuntimeHandle({
+      runId: "run-1",
+      cwd: "/code/carrent",
+    });
+    await runtimeHandle?.close();
+
+    expect(bridge.calls).toEqual(["global", "run-1"]);
+    expect(bridge.projectDirs).toEqual([undefined, "/code/carrent"]);
+    expect(bridge.handles[0]?.closed).toBe(false);
+    expect(bridge.handles[1]?.closed).toBe(true);
+  });
+
+  it("closes project-scoped runtime servers when the preference is turned off", async () => {
+    const bridge = createFakeStartBridge();
+    const manager = createCarrentBridgeManager({ startBridge: bridge.startBridge });
+
+    await manager.initialize();
+    await manager.getRuntimeHandle({ runId: "run-1", cwd: "/code/carrent" });
+    await manager.stop();
+
+    expect(bridge.handles.map((handle) => handle.closed)).toEqual([true, true]);
   });
 
   it("closes a late-started server if the user turns it off while starting", async () => {

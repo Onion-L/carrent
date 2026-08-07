@@ -3,7 +3,7 @@ import type { Dirent } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { SkillRecord, SkillSource } from "../../src/shared/skills";
+import type { SkillRecord, SkillScope, SkillSource } from "../../src/shared/skills";
 
 const SKILL_FILE = "SKILL.md";
 const MAX_SKILL_FILE_BYTES = 96 * 1024;
@@ -14,10 +14,17 @@ const MAX_RESOURCE_COUNT = 300;
 type SkillRoot = {
   path: string;
   source: SkillSource;
+  scope: SkillScope;
   maxDepth: number;
 };
 
+export type SkillCatalogOptions = {
+  homeDir?: string;
+  projectDir?: string;
+};
+
 export type ResolvedSkillRecord = SkillRecord & {
+  scope: SkillScope;
   declaredPath: string;
   realPath: string;
   declaredRootPath: string;
@@ -62,16 +69,39 @@ export class SkillCatalogError extends Error {
   }
 }
 
-export async function listInstalledSkills(homeDir = os.homedir()): Promise<SkillRecord[]> {
+export async function listInstalledSkills(
+  options: SkillCatalogOptions = {},
+): Promise<SkillRecord[]> {
+  const homeDir = options.homeDir ?? os.homedir();
+  const projectDir = options.projectDir?.trim();
+  const projectRoots: SkillRoot[] = projectDir
+    ? [
+        {
+          path: path.join(projectDir, ".agents", "skills"),
+          source: "agents",
+          scope: "project",
+          maxDepth: 2,
+        },
+        {
+          path: path.join(projectDir, ".codex", "skills"),
+          source: "codex",
+          scope: "project",
+          maxDepth: 3,
+        },
+      ]
+    : [];
   const roots: SkillRoot[] = [
+    ...projectRoots,
     {
       path: path.join(homeDir, ".agents", "skills"),
       source: "agents",
+      scope: "user",
       maxDepth: 2,
     },
     {
       path: path.join(homeDir, ".codex", "skills"),
       source: "codex",
+      scope: "user",
       maxDepth: 3,
     },
   ];
@@ -82,12 +112,13 @@ export async function listInstalledSkills(homeDir = os.homedir()): Promise<Skill
         (await collectSkillFiles(root.path, root.maxDepth)).map((skillPath) => ({
           path: skillPath,
           source: root.source,
+          scope: root.scope,
         })),
       ),
     )
   ).flat();
 
-  const skills = await Promise.all(
+  const skills: Array<ResolvedSkillRecord | null> = await Promise.all(
     skillFiles.map(async (skillFile) => {
       try {
         const content = await readLimitedTextFile(skillFile.path);
@@ -107,6 +138,7 @@ export async function listInstalledSkills(homeDir = os.homedir()): Promise<Skill
           ...metadata,
           path: declaredPath,
           source: skillFile.source,
+          scope: skillFile.scope,
           declaredPath,
           realPath,
           declaredRootPath,
@@ -118,16 +150,24 @@ export async function listInstalledSkills(homeDir = os.homedir()): Promise<Skill
     }),
   );
 
+  const seenNames = new Set<string>();
   return skills
     .filter((skill): skill is ResolvedSkillRecord => skill !== null)
+    .filter((skill) => {
+      if (seenNames.has(skill.name)) {
+        return false;
+      }
+      seenNames.add(skill.name);
+      return true;
+    })
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 }
 
 export async function readSkill(
   locator: SkillLocator,
-  options: { homeDir?: string } = {},
+  options: SkillCatalogOptions = {},
 ): Promise<SkillReadResult> {
-  const skill = await findInstalledSkill(locator, options.homeDir);
+  const skill = await findInstalledSkill(locator, options);
   return {
     skill,
     content: await readBoundedTextFile(skill.realPath, MAX_SKILL_FILE_BYTES),
@@ -136,9 +176,9 @@ export async function readSkill(
 
 export async function listSkillResources(
   locator: SkillLocator,
-  options: { homeDir?: string } = {},
+  options: SkillCatalogOptions = {},
 ): Promise<{ skill: ResolvedSkillRecord; resources: SkillResourceRecord[] }> {
-  const skill = await findInstalledSkill(locator, options.homeDir);
+  const skill = await findInstalledSkill(locator, options);
   const resources = await collectSkillResources(skill.realRootPath, {
     maxDepth: MAX_RESOURCE_DEPTH,
     maxCount: MAX_RESOURCE_COUNT,
@@ -149,9 +189,9 @@ export async function listSkillResources(
 export async function readSkillResource(
   locator: SkillLocator,
   resourcePath: string,
-  options: { homeDir?: string } = {},
+  options: SkillCatalogOptions = {},
 ): Promise<SkillResourceReadResult> {
-  const skill = await findInstalledSkill(locator, options.homeDir);
+  const skill = await findInstalledSkill(locator, options);
   const normalizedResourcePath = normalizeResourcePath(resourcePath);
   const candidatePath = path.resolve(skill.realRootPath, normalizedResourcePath);
   const targetRealPath = await realpath(candidatePath).catch(() => {
@@ -232,9 +272,9 @@ async function readLimitedTextFile(filePath: string) {
 
 async function findInstalledSkill(
   locator: SkillLocator,
-  homeDir = os.homedir(),
+  options: SkillCatalogOptions = {},
 ): Promise<ResolvedSkillRecord> {
-  const skills = await listInstalledSkills(homeDir);
+  const skills = await listInstalledSkills(options);
   const skill =
     skills.find((candidate) => {
       if (locator.name && candidate.name === locator.name) {

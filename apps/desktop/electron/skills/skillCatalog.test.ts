@@ -55,6 +55,116 @@ description: Use official OpenAI docs.
 });
 
 describe("listInstalledSkills", () => {
+  it("lists project skills alongside user skills", async () => {
+    const homeDir = await createTempHome();
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-project-skills-"));
+    try {
+      const userSkillPath = await writeSkill(
+        homeDir,
+        ".agents/skills/user-skill/SKILL.md",
+        `---
+name: user-skill
+description: A user skill.
+---
+`,
+      );
+      const projectSkillPath = await writeSkill(
+        projectDir,
+        ".agents/skills/project-skill/SKILL.md",
+        `---
+name: project-skill
+description: A project skill.
+---
+`,
+      );
+
+      const skills = await listInstalledSkills({ homeDir, projectDir });
+
+      expect(
+        skills.map(({ name, path: skillPath, scope }) => ({ name, path: skillPath, scope })),
+      ).toEqual([
+        { name: "project-skill", path: projectSkillPath, scope: "project" },
+        { name: "user-skill", path: userSkillPath, scope: "user" },
+      ]);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+      await rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers a project skill when its name matches a user skill", async () => {
+    const homeDir = await createTempHome();
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-project-skills-"));
+    try {
+      await writeSkill(
+        homeDir,
+        ".agents/skills/shared/SKILL.md",
+        `---
+name: shared
+description: User version.
+---
+`,
+      );
+      const projectSkillPath = await writeSkill(
+        projectDir,
+        ".agents/skills/shared/SKILL.md",
+        `---
+name: shared
+description: Project version.
+---
+`,
+      );
+
+      expect(await listInstalledSkills({ homeDir, projectDir })).toMatchObject([
+        {
+          name: "shared",
+          description: "Project version.",
+          path: projectSkillPath,
+          scope: "project",
+        },
+      ]);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+      await rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not expose skills from another project", async () => {
+    const homeDir = await createTempHome();
+    const firstProjectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-project-one-"));
+    const secondProjectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-project-two-"));
+    try {
+      await writeSkill(
+        firstProjectDir,
+        ".agents/skills/first-only/SKILL.md",
+        `---
+name: first-only
+description: First project only.
+---
+`,
+      );
+      await writeSkill(
+        secondProjectDir,
+        ".agents/skills/second-only/SKILL.md",
+        `---
+name: second-only
+description: Second project only.
+---
+`,
+      );
+
+      expect(
+        (await listInstalledSkills({ homeDir, projectDir: secondProjectDir })).map(
+          (skill) => skill.name,
+        ),
+      ).toEqual(["second-only"]);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+      await rm(firstProjectDir, { recursive: true, force: true });
+      await rm(secondProjectDir, { recursive: true, force: true });
+    }
+  });
+
   it("lists skills from agents and codex roots while ignoring plugin caches", async () => {
     const homeDir = await createTempHome();
     try {
@@ -86,7 +196,7 @@ description: Control the in-app Browser.
 `,
       );
 
-      const skills = await listInstalledSkills(homeDir);
+      const skills = await listInstalledSkills({ homeDir });
 
       expect(skills).toEqual([
         {
@@ -94,6 +204,7 @@ description: Control the in-app Browser.
           description: "Interview the user relentlessly.",
           path: grillingPath,
           source: "agents",
+          scope: "user",
           declaredPath: grillingPath,
           realPath: await realpath(grillingPath),
           declaredRootPath: path.dirname(grillingPath),
@@ -104,6 +215,7 @@ description: Control the in-app Browser.
           description: "Use official OpenAI docs.",
           path: docsPath,
           source: "codex",
+          scope: "user",
           declaredPath: docsPath,
           realPath: await realpath(docsPath),
           declaredRootPath: path.dirname(docsPath),
@@ -134,7 +246,7 @@ outside
       );
       await symlink(outsideSkill, path.join(declaredRoot, "SKILL.md"));
 
-      expect(await listInstalledSkills(homeDir)).toEqual([]);
+      expect(await listInstalledSkills({ homeDir })).toEqual([]);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
       await rm(outsideDir, { recursive: true, force: true });
@@ -146,7 +258,7 @@ outside
     try {
       await writeSkill(homeDir, ".agents/skills/invalid/SKILL.md", "# invalid");
 
-      expect(await listInstalledSkills(homeDir)).toEqual([]);
+      expect(await listInstalledSkills({ homeDir })).toEqual([]);
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }

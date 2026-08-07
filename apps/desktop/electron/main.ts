@@ -712,8 +712,8 @@ if (!hasSingleInstanceLock) {
       spawn,
       providerSessions: providerSessionStore,
       attachmentStore,
-      carrentBridgeFactory: async () => {
-        return bridgeManager.getRuntimeHandle();
+      carrentBridgeFactory: async ({ runId, cwd }) => {
+        return bridgeManager.getRuntimeHandle({ runId, cwd });
       },
     });
     runNotificationCoordinator = createRunNotificationCoordinator({

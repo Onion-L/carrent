@@ -5,7 +5,8 @@ import { registerSkillIpc } from "./skillIpc";
 
 describe("registerSkillIpc", () => {
   it("registers skills:list and dispatches to the service", async () => {
-    const handlers = new Map<string, (event: unknown) => unknown>();
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const projectDirs: Array<string | undefined> = [];
     const result: SkillRecord[] = [
       {
         name: "grilling",
@@ -22,13 +23,15 @@ describe("registerSkillIpc", () => {
         },
       },
       {
-        async list() {
+        async list(projectDir) {
+          projectDirs.push(projectDir);
           return result;
         },
       },
     );
 
     expect([...handlers.keys()]).toEqual(["skills:list"]);
-    expect(await handlers.get("skills:list")?.({})).toEqual(result);
+    expect(await handlers.get("skills:list")?.({}, "/code/carrent")).toEqual(result);
+    expect(projectDirs).toEqual(["/code/carrent"]);
   });
 });

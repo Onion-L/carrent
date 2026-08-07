@@ -9,14 +9,17 @@ interface IpcMainLike {
 }
 
 export interface SkillIpcServices {
-  list: () => Promise<SkillRecord[]>;
+  list: (projectDir?: string) => Promise<SkillRecord[]>;
 }
 
 export function registerSkillIpc(
   ipcMainLike: IpcMainLike,
   services: SkillIpcServices = {
-    list: () => listInstalledSkills(),
+    list: (projectDir) => listInstalledSkills({ projectDir }),
   },
 ) {
-  ipcMainLike.handle("skills:list", async () => services.list());
+  ipcMainLike.handle("skills:list", async (_event, value) => {
+    const projectDir = typeof value === "string" && value.trim() ? value : undefined;
+    return services.list(projectDir);
+  });
 }

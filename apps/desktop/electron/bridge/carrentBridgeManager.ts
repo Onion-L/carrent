@@ -19,7 +19,10 @@ export type CarrentBridgeManager = {
   stop: () => Promise<McpServerStatus>;
   getStatus: () => McpServerStatus;
   getHandle: () => CarrentBridgeHandle | null;
-  getRuntimeHandle: () => Promise<CarrentBridgeHandle | null>;
+  getRuntimeHandle: (context?: {
+    runId: string;
+    cwd: string;
+  }) => Promise<CarrentBridgeHandle | null>;
 };
 
 export function createMcpServerPreferenceStore(baseDir: string): McpServerPreferenceStore {
@@ -83,6 +86,7 @@ export function createCarrentBridgeManager(
   let enabled = defaultEnabled;
   let handle: CarrentBridgeHandle | null = null;
   let starting: Promise<CarrentBridgeHandle> | null = null;
+  const runtimeHandles = new Set<CarrentBridgeHandle>();
   let lastError: string | undefined;
 
   function status(error?: string): McpServerStatus {
@@ -151,6 +155,13 @@ export function createCarrentBridgeManager(
     }
   }
 
+  async function closeRuntimeHandles(): Promise<string | undefined> {
+    const handles = [...runtimeHandles];
+    runtimeHandles.clear();
+    const results = await Promise.all(handles.map((runtimeHandle) => closeHandle(runtimeHandle)));
+    return results.find((error) => error !== undefined);
+  }
+
   return {
     async initialize() {
       try {
@@ -181,6 +192,7 @@ export function createCarrentBridgeManager(
       const preferenceError = await savePreference(false);
       const currentHandle = handle;
       handle = null;
+      const runtimeCloseError = await closeRuntimeHandles();
       const closeError = await closeHandle(currentHandle);
 
       if (starting) {
@@ -189,7 +201,7 @@ export function createCarrentBridgeManager(
           const lateHandle = await inFlight;
           if (lateHandle !== currentHandle) {
             const lateCloseError = await closeHandle(lateHandle);
-            return status(preferenceError ?? closeError ?? lateCloseError);
+            return status(preferenceError ?? runtimeCloseError ?? closeError ?? lateCloseError);
           }
         } catch {
           // The in-flight start already failed; stopping still leaves the server off.
@@ -200,7 +212,7 @@ export function createCarrentBridgeManager(
         }
       }
 
-      return status(preferenceError ?? closeError);
+      return status(preferenceError ?? runtimeCloseError ?? closeError);
     },
 
     getStatus() {
@@ -211,9 +223,31 @@ export function createCarrentBridgeManager(
       return enabled ? handle : null;
     },
 
-    async getRuntimeHandle() {
+    async getRuntimeHandle(context) {
       if (!enabled) {
         return null;
+      }
+
+      if (context) {
+        const runtimeHandle = await startBridge({
+          runId: context.runId,
+          projectDir: context.cwd,
+        });
+        if (!enabled) {
+          await runtimeHandle.close().catch(() => {});
+          return null;
+        }
+        runtimeHandles.add(runtimeHandle);
+        let closed = false;
+        return {
+          mcpServer: runtimeHandle.mcpServer,
+          async close() {
+            if (closed) return;
+            closed = true;
+            runtimeHandles.delete(runtimeHandle);
+            await runtimeHandle.close();
+          },
+        };
       }
 
       const currentHandle = handle ?? (await ensureStarted());

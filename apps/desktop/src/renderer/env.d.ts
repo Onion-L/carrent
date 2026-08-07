@@ -97,7 +97,7 @@ declare global {
         read: (metadata: AttachmentIntegrityMetadata) => Promise<Uint8Array>;
       };
       skills: {
-        list: () => Promise<SkillRecord[]>;
+        list: (projectDir?: string) => Promise<SkillRecord[]>;
       };
       dialog: {
         openDirectory: () => Promise<{ canceled: boolean; filePaths: string[] }>;

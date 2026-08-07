@@ -1100,6 +1100,17 @@ export function Composer(props: ComposerProps) {
     removeMessages,
   } = useThreadContent();
   const { projects, threads, threadRuns, threadActions, recordThreadAction } = useAppState();
+  const projectId = props.projectId;
+  const project =
+    props.mode === "association-draft"
+      ? {
+          id: props.projectId,
+          name: props.projectName,
+          workingDirectory: props.projectPath,
+        }
+      : projectId
+        ? (projects.find((item) => item.id === projectId) ?? null)
+        : null;
   const {
     runningThreadIds,
     runs: sharedRuns,
@@ -1112,7 +1123,12 @@ export function Composer(props: ComposerProps) {
   } = useChatRun();
   const { compactingThreadIds, execute: executeThreadAction } = useThreadActions();
   const { runtimes, loading: runtimesLoading, refresh: refreshRuntimes } = useRuntimes();
-  const { skills, loading: skillsLoading, error: skillsError } = useSkills();
+  const {
+    skills,
+    loading: skillsLoading,
+    error: skillsError,
+    refresh: refreshSkills,
+  } = useSkills(project?.workingDirectory);
   const { status: mcpServerStatus } = useMcpServer();
   const { showToast } = useToast();
   const threadDraftSnapshotKey = useSyncExternalStore(subscribeToThreadWork, () =>
@@ -1379,17 +1395,6 @@ export function Composer(props: ComposerProps) {
     pendingAttachments,
     composerState: editorStateJson,
   };
-  const projectId = props.projectId;
-  const project =
-    props.mode === "association-draft"
-      ? {
-          id: props.projectId,
-          name: props.projectName,
-          workingDirectory: props.projectPath,
-        }
-      : projectId
-        ? (projects.find((item) => item.id === projectId) ?? null)
-        : null;
   const threadId = props.threadId;
   const thread =
     props.mode === "association-draft"
@@ -1540,6 +1545,12 @@ export function Composer(props: ComposerProps) {
           })
         : "Select runtime";
   const localMcpSkillsDisabled = props.runtimeId === "kimi" && !mcpServerStatus.enabled;
+  const skillMenuOpen = !!skillTrigger && !localMcpSkillsDisabled;
+  useEffect(() => {
+    if (skillMenuOpen) {
+      void refreshSkills();
+    }
+  }, [refreshSkills, skillMenuOpen]);
   const filteredSkills = useMemo(
     () =>
       skillTrigger && !localMcpSkillsDisabled
@@ -3560,7 +3571,7 @@ export function Composer(props: ComposerProps) {
                         <span className="ml-2 text-app-12 text-subtle">{skill.description}</span>
                       </span>
                       <span className="shrink-0 text-app-10 uppercase text-subtle">
-                        {skill.source}
+                        {skill.scope === "project" ? "project" : skill.source}
                       </span>
                     </button>
                   );

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
+import os from "node:os";
+import path from "node:path";
 
 import { SkillCatalogError, type ResolvedSkillRecord } from "../skills/skillCatalog";
 import {
@@ -15,6 +18,7 @@ const grillingSkill: ResolvedSkillRecord = {
   name: "grilling",
   description: "Interview the user relentlessly.",
   source: "agents",
+  scope: "user",
   path: "/skills/grilling/SKILL.md",
   declaredPath: "/skills/grilling/SKILL.md",
   realPath: "/real/skills/grilling/SKILL.md",
@@ -228,6 +232,7 @@ describe("startCarrentBridge", () => {
             name: "grilling",
             description: "Interview the user relentlessly.",
             source: "agents",
+            scope: "user",
             path: "/skills/grilling/SKILL.md",
             declaredPath: "/skills/grilling/SKILL.md",
             realPath: "/real/skills/grilling/SKILL.md",
@@ -261,6 +266,55 @@ describe("startCarrentBridge", () => {
       ]);
     } finally {
       await bridge.close();
+    }
+  });
+
+  it("exposes skills from the runtime project", async () => {
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "carrent-bridge-home-"));
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-bridge-project-"));
+    const skillDir = path.join(projectDir, ".agents", "skills", "project-release");
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      path.join(skillDir, "SKILL.md"),
+      `---
+name: project-release
+description: Release this project.
+---
+
+# Project Release
+`,
+    );
+    const bridge = await startCarrentBridge({
+      token: "project-skill-token",
+      homeDir,
+      projectDir,
+    });
+
+    try {
+      const listed = await rpc(bridge.mcpServer.url, "tools/call", { name: "list_skills" });
+      expect(resultObject(listed).structuredContent).toMatchObject({
+        skills: [
+          {
+            name: "project-release",
+            scope: "project",
+            path: path.join(skillDir, "SKILL.md"),
+          },
+        ],
+      });
+
+      const read = await rpc(bridge.mcpServer.url, "tools/call", {
+        name: "read_skill",
+        arguments: { name: "project-release" },
+      });
+      const readContent = resultObject(read).structuredContent as JsonObject;
+      expect(readContent).toMatchObject({
+        skill: { name: "project-release", scope: "project" },
+      });
+      expect(readContent.content).toContain("# Project Release");
+    } finally {
+      await bridge.close();
+      await rm(homeDir, { recursive: true, force: true });
+      await rm(projectDir, { recursive: true, force: true });
     }
   });
 

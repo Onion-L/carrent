@@ -217,7 +217,11 @@ export function createChatSessionManager(options: {
             options.kimiAcpTransportFactory ?? createKimiAcpProcessTransportFactory(options.spawn);
           const bridgeFactory =
             options.carrentBridgeFactory ??
-            ((bridgeOptions) => startCarrentBridge({ runId: bridgeOptions.runId }));
+            ((bridgeOptions) =>
+              startCarrentBridge({
+                runId: bridgeOptions.runId,
+                projectDir: bridgeOptions.cwd,
+              }));
           // The Run-scoped question server is an internal interaction surface:
           // it starts for every Kimi Run regardless of the Local MCP Server
           // preference that gates the Carrent Bridge.

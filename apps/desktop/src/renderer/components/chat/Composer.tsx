@@ -3695,7 +3695,7 @@ export function Composer(props: ComposerProps) {
           data-composer-surface
           className={`relative border bg-surface-raised/90 p-3 transition-colors duration-200 ${
             queuedMessages.length > 0 ? "rounded-b-xl" : "rounded-xl"
-          } ${isCenteredPlacement ? "" : "shadow-[0_18px_60px_rgb(0_0_0/0.18)]"} ${
+          } ${
             activePermission
               ? "border-warning/40"
               : "border-border focus-within:border-border-strong"

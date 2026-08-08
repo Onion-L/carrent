@@ -24,6 +24,7 @@ import type {
 } from "../../../shared/chat";
 import type { AppStateSnapshot } from "../../../shared/workspacePersistence";
 import { createFakeAppStateAuthority } from "../../test/fakeAppStateAuthority";
+import { chunkStreamingAnswer, LONG_STREAMING_ANSWER } from "../../test/streamingFixture";
 import { AppStateProvider } from "../../context/AppStateContext";
 import { RuntimeModelsProvider } from "../../context/RuntimeModelsContext";
 import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
@@ -1456,5 +1457,150 @@ describe("Composer streaming text reveal", () => {
 
     expect(frameCallbacks.size).toBe(0);
     await runAllAnimationFrames();
+  });
+
+  it("bounds visible commits to one per frame across the long-answer fixture", async () => {
+    const driver = await renderStreamingComposer();
+    const chunks = chunkStreamingAnswer(LONG_STREAMING_ANSWER);
+    const chunksPerFrame = 2;
+
+    const visibleSnapshots: string[] = [];
+    let frames = 0;
+    for (let i = 0; i < chunks.length; i += chunksPerFrame) {
+      // Sample after every single delta: while Runtime deltas arrive inside
+      // one animation frame nothing new may become visible. A regression to
+      // per-delta synchronous commits would show up here immediately.
+      let contentBeforeBatch: string | null = null;
+      for (const chunk of chunks.slice(i, i + chunksPerFrame)) {
+        await act(async () => {
+          driver.emit(runEvent({ type: "delta", text: chunk }));
+        });
+        const content = latestAssistantMessage?.content ?? "";
+        if (contentBeforeBatch === null) {
+          contentBeforeBatch = content;
+        } else {
+          expect(content).toBe(contentBeforeBatch);
+        }
+      }
+      await runAnimationFrame();
+      frames += 1;
+      visibleSnapshots.push(latestAssistantMessage?.content ?? "");
+    }
+
+    // Visible text only ever grows as a prefix of the authoritative answer.
+    let visibleCommits = 0;
+    let previous = "";
+    for (const visible of visibleSnapshots) {
+      expect(LONG_STREAMING_ANSWER.startsWith(visible)).toBe(true);
+      expect(visible.length).toBeGreaterThanOrEqual(previous.length);
+      if (visible !== previous) {
+        visibleCommits += 1;
+      }
+      previous = visible;
+    }
+    expect(visibleCommits).toBeLessThanOrEqual(frames);
+
+    await act(async () => {
+      driver.emit(
+        runEvent({
+          type: "completed",
+          text: LONG_STREAMING_ANSWER,
+          finishedAt: "2026-08-07T00:00:00.000Z",
+        }),
+        "completed",
+      );
+    });
+    // The terminal state is never delayed by the remaining reveal animation.
+    expect(latestAssistantMessage?.runStatus).toBe("completed");
+
+    await runAllAnimationFrames();
+    expect(latestAssistantMessage?.content).toBe(LONG_STREAMING_ANSWER);
+
+    // Deliberate baseline telemetry for the epic: compare future runs against
+    // these counts to spot reveal regressions.
+    console.log(
+      `[streaming-baseline] deltas=${chunks.length} frames=${frames} visibleCommits=${visibleCommits}`,
+    );
+  });
+
+  it("resynchronizes from a snapshot mid-stream without duplication or reordering", async () => {
+    const driver = await renderStreamingComposer();
+    const chunks = chunkStreamingAnswer(LONG_STREAMING_ANSWER);
+    const half = Math.floor(chunks.length / 2);
+    const firstHalf = chunks.slice(0, half).join("");
+
+    await act(async () => {
+      chunks.slice(0, half).forEach((chunk) => {
+        driver.emit(runEvent({ type: "delta", text: chunk }));
+      });
+    });
+    await runAnimationFrame();
+
+    // The authority replaces the streamed text with a corrected snapshot.
+    const corrected = firstHalf.replace("Streaming", "Checked");
+    expect(corrected).not.toBe(firstHalf);
+    const authoritativeAnswer = corrected + chunks.slice(half).join("");
+
+    await act(async () => {
+      driver.emit(runEvent({ type: "text-snapshot", text: corrected }));
+    });
+    expect(latestAssistantMessage?.content).toBe(corrected);
+
+    // Sample visible text between the snapshot and completion: it must stay a
+    // monotonically growing prefix of the authoritative answer — a duplicated
+    // stale suffix would break the prefix property here, not just at the end.
+    let previous = corrected;
+    for (const chunk of chunks.slice(half)) {
+      await act(async () => {
+        driver.emit(runEvent({ type: "delta", text: chunk }));
+      });
+      // No new commit while the delta waits for its frame.
+      expect(latestAssistantMessage?.content).toBe(previous);
+      await runAnimationFrame();
+      const visible = latestAssistantMessage?.content ?? "";
+      expect(authoritativeAnswer.startsWith(visible)).toBe(true);
+      expect(visible.length).toBeGreaterThanOrEqual(previous.length);
+      previous = visible;
+    }
+
+    await act(async () => {
+      driver.emit(
+        runEvent({
+          type: "completed",
+          text: authoritativeAnswer,
+          finishedAt: "2026-08-07T00:00:00.000Z",
+        }),
+        "completed",
+      );
+    });
+    await runAllAnimationFrames();
+
+    expect(latestAssistantMessage?.runStatus).toBe("completed");
+    expect(latestAssistantMessage?.content).toBe(authoritativeAnswer);
+  });
+
+  it("keeps all received fixture text when a long stream is cancelled", async () => {
+    const driver = await renderStreamingComposer();
+    const chunks = chunkStreamingAnswer(LONG_STREAMING_ANSWER);
+    const half = Math.floor(chunks.length / 2);
+    const received = chunks.slice(0, half).join("");
+
+    await act(async () => {
+      chunks.slice(0, half).forEach((chunk) => {
+        driver.emit(runEvent({ type: "delta", text: chunk }));
+      });
+    });
+    await runAnimationFrame();
+    expect(latestAssistantMessage?.content.length ?? 0).toBeLessThan(received.length);
+
+    await act(async () => {
+      driver.emit(runEvent({ type: "stopped" }), "cancelled");
+    });
+
+    expect(latestAssistantMessage?.runStatus).toBe("cancelled");
+    expect(latestAssistantMessage?.content).toBe(received);
+
+    await runAllAnimationFrames();
+    expect(latestAssistantMessage?.content).toBe(received);
   });
 });

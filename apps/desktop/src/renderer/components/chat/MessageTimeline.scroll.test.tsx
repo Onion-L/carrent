@@ -7,6 +7,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 
 import type { Message } from "../../../shared/threadContent";
+import {
+  clearPendingAnimationFrames,
+  pendingAnimationFrameCount,
+  restoreAnimationFrames,
+  runAnimationFrame,
+  stubAnimationFrames,
+} from "../../test/animationFrames";
 import { MessageTimeline } from "./MessageTimeline";
 
 function userMessage(id: string, content: string): Message {
@@ -39,46 +46,6 @@ let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 let scrollCalls: ScrollCall[] = [];
 const originalScrollTo = Element.prototype.scrollTo;
-
-let realRequestAnimationFrame: typeof window.requestAnimationFrame | null = null;
-let realCancelAnimationFrame: typeof window.cancelAnimationFrame | null = null;
-let frameCallbacks = new Map<number, FrameRequestCallback>();
-
-function stubAnimationFrames() {
-  realRequestAnimationFrame = window.requestAnimationFrame;
-  realCancelAnimationFrame = window.cancelAnimationFrame;
-  frameCallbacks = new Map();
-  let nextId = 1;
-  window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
-    const id = nextId;
-    nextId += 1;
-    frameCallbacks.set(id, callback);
-    return id;
-  }) as typeof window.requestAnimationFrame;
-  window.cancelAnimationFrame = ((id: number) => {
-    frameCallbacks.delete(id);
-  }) as typeof window.cancelAnimationFrame;
-}
-
-function restoreAnimationFrames() {
-  if (realRequestAnimationFrame) {
-    window.requestAnimationFrame = realRequestAnimationFrame;
-    realRequestAnimationFrame = null;
-  }
-  if (realCancelAnimationFrame) {
-    window.cancelAnimationFrame = realCancelAnimationFrame;
-    realCancelAnimationFrame = null;
-  }
-  frameCallbacks = new Map();
-}
-
-function runAnimationFrame() {
-  const callbacks = [...frameCallbacks.values()];
-  frameCallbacks.clear();
-  act(() => {
-    callbacks.forEach((callback) => callback(0));
-  });
-}
 
 function stubScrollTo() {
   Element.prototype.scrollTo = function (options?: ScrollToOptions) {
@@ -196,7 +163,7 @@ describe("MessageTimeline streaming follow", () => {
     );
 
     // Three updates before one frame produce a single scheduled follow.
-    expect(frameCallbacks.size).toBe(1);
+    expect(pendingAnimationFrameCount()).toBe(1);
     expect(scrollCalls).toHaveLength(0);
 
     runAnimationFrame();
@@ -220,7 +187,7 @@ describe("MessageTimeline streaming follow", () => {
     // 900px above the bottom: outside the near-bottom threshold.
     mockScrollLayout({ scrollHeight: 2000, clientHeight: 500, scrollTop: 600 });
     scrollCalls = [];
-    frameCallbacks.clear();
+    clearPendingAnimationFrames();
 
     renderTimeline(
       [userMessage("m1", "hello"), assistantMessage("a1", "streamed while reading")],
@@ -258,13 +225,13 @@ describe("MessageTimeline streaming follow", () => {
     stubAnimationFrames();
 
     renderTimeline([userMessage("m1", "hello")], "thread-1");
-    expect(frameCallbacks.size).toBeGreaterThan(0);
+    expect(pendingAnimationFrameCount()).toBeGreaterThan(0);
     scrollCalls = [];
 
     act(() => root!.unmount());
     root = null;
 
-    expect(frameCallbacks.size).toBe(0);
+    expect(pendingAnimationFrameCount()).toBe(0);
     runAnimationFrame();
     expect(scrollCalls).toHaveLength(0);
   });

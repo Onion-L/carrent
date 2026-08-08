@@ -73,4 +73,23 @@ describe("registerBrowserIpc", () => {
     ]);
     expect(opened).toEqual({ token: "menu-1" });
   });
+
+  it("updates the browser view theme", async () => {
+    const handlers = new Map<string, (event: unknown, input?: unknown) => unknown>();
+    const themes: string[] = [];
+    const manager = {
+      setTheme: (theme: string) => themes.push(theme),
+    } as unknown as BrowserManager;
+
+    registerBrowserIpc(
+      {
+        handle: (channel, listener) => handlers.set(channel, listener),
+      },
+      manager,
+    );
+
+    await handlers.get("browser:set-theme")?.({ sender: { id: 17 } }, "light");
+
+    expect(themes).toEqual(["light"]);
+  });
 });

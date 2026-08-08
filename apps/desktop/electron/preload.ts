@@ -58,6 +58,7 @@ import type {
   BrowserNavigateRequest,
   BrowserOpenRequest,
   BrowserSearchEngine,
+  BrowserTheme,
   BrowserTabTarget,
   BrowserThreadState,
   BrowserThreadTarget,
@@ -153,6 +154,8 @@ const carrent = {
       ipcRenderer.invoke("browser:clear-data", request) as Promise<BrowserThreadState>,
     setSearchEngine: (request: BrowserThreadTarget & { searchEngine: BrowserSearchEngine }) =>
       ipcRenderer.invoke("browser:set-search-engine", request) as Promise<BrowserThreadState>,
+    setTheme: (theme: BrowserTheme) =>
+      ipcRenderer.invoke("browser:set-theme", theme) as Promise<void>,
     onState: (listener: (state: BrowserThreadState) => void) => {
       const wrapped = (_event: IpcRendererEvent, state: BrowserThreadState) => listener(state);
       ipcRenderer.on("browser:state", wrapped);

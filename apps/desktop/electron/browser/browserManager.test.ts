@@ -209,6 +209,34 @@ afterEach(() => {
 });
 
 describe("BrowserManager", () => {
+  it("updates existing and new browser views for the current theme", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "carrent-browser-manager-"));
+    try {
+      new FakeBrowserWindow(17);
+      const target = { projectId: "project-1", threadId: "thread-1" };
+      const manager = createBrowserManager({
+        userDataPath: directory,
+        createAuxiliaryWindow: () => new FakeBrowserWindow() as never,
+        browserMenuOverlayPreload: "/browser-menu-overlay-preload.mjs",
+        loadBrowserMenuOverlay: () => {},
+        resolveOwner: () => 17,
+        resolveProjectTarget: () => ({ ownerId: 17, target }),
+      });
+
+      manager.activate(17, target);
+      await manager.open(17, target);
+      expect(createdViews[0].backgroundColor).toBe("#151514");
+
+      manager.setTheme("light");
+      expect(createdViews[0].backgroundColor).toBe("#fffffc");
+
+      manager.newTab(17, target);
+      expect(createdViews[1].backgroundColor).toBe("#fffffc");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("moves native content ownership without leaving stale state in another window", async () => {
     const directory = mkdtempSync(join(tmpdir(), "carrent-browser-manager-"));
     try {

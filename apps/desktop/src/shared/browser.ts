@@ -1,4 +1,5 @@
 export type BrowserSearchEngine = "google" | "bing" | "duckduckgo";
+export type BrowserTheme = "light" | "dark";
 
 export type BrowserBounds = {
   x: number;
@@ -131,6 +132,7 @@ export type BrowserApi = {
   setSearchEngine: (
     target: BrowserThreadTarget & { searchEngine: BrowserSearchEngine },
   ) => Promise<BrowserThreadState>;
+  setTheme: (theme: BrowserTheme) => Promise<void>;
   onState: (listener: (state: BrowserThreadState) => void) => VoidFunction;
   onFocusAddress: (listener: () => void) => VoidFunction;
   onFind: (listener: () => void) => VoidFunction;

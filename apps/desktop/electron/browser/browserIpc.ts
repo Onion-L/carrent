@@ -9,6 +9,7 @@ import type {
   BrowserNavigateRequest,
   BrowserOpenRequest,
   BrowserSearchEngine,
+  BrowserTheme,
   BrowserTabTarget,
   BrowserThreadTarget,
   BrowserZoomRequest,
@@ -224,5 +225,9 @@ export function registerBrowserIpc(ipcMain: IpcMainLike, manager: BrowserManager
       target(value),
       text(value, "searchEngine", 32) as BrowserSearchEngine,
     );
+  });
+  ipcMain.handle("browser:set-theme", (_event, input) => {
+    if (input !== "light" && input !== "dark") throw new Error("Invalid browser theme.");
+    manager.setTheme(input as BrowserTheme);
   });
 }

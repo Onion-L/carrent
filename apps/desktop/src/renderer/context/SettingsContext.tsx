@@ -61,6 +61,7 @@ function applyResolvedTheme(theme: "dark" | "light", animate: boolean) {
   const root = document.documentElement;
   const apply = () => {
     root.dataset.theme = theme;
+    void window.carrent?.browser?.setTheme?.(theme);
   };
 
   if (!animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {

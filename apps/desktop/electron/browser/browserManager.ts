@@ -18,6 +18,7 @@ import type {
   BrowserMenuUpdateRequest,
   BrowserSearchEngine,
   BrowserTab,
+  BrowserTheme,
   BrowserThreadState,
   BrowserThreadTarget,
 } from "../../src/shared/browser";
@@ -60,6 +61,10 @@ type BrowserManagerDependencies = {
 
 const SEARCH_ENGINES = new Set<BrowserSearchEngine>(["google", "bing", "duckduckgo"]);
 const DEFAULT_TITLE = "New Tab";
+const BROWSER_BACKGROUND_COLORS: Record<BrowserTheme, string> = {
+  dark: "#151514",
+  light: "#fffffc",
+};
 
 function projectPartition(projectId: string) {
   const key = createHash("sha256").update(projectId).digest("hex").slice(0, 24);
@@ -106,6 +111,7 @@ export function createBrowserManager({
   const settingsPath = join(userDataPath, "browser-settings.json");
   let openerPath: string | null = null;
   let searchEngine: BrowserSearchEngine = "google";
+  let theme: BrowserTheme = "dark";
   const knownProjectIds = new Set<string>();
   const menuOverlays = createBrowserMenuOverlay({
     preloadPath: browserMenuOverlayPreload,
@@ -325,6 +331,7 @@ export function createBrowserManager({
         sandbox: true,
       },
     });
+    view.setBackgroundColor(BROWSER_BACKGROUND_COLORS[theme]);
     const tab: TabRecord = {
       view,
       state: {
@@ -812,6 +819,14 @@ export function createBrowserManager({
       persistSettings();
       for (const thread of threads.values()) sendState(thread);
       return snapshot(getThread(target), ownerId);
+    },
+    setTheme(value: BrowserTheme) {
+      theme = value;
+      for (const thread of threads.values()) {
+        for (const tab of thread.tabs.values()) {
+          tab.view.setBackgroundColor(BROWSER_BACKGROUND_COLORS[theme]);
+        }
+      }
     },
     handleCertificateError(
       contentsId: number,

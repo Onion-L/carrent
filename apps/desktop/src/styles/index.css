@@ -56,8 +56,8 @@
   }
 
   [data-theme="light"] {
-    --color-bg: 247 247 244;
-    --color-sidebar: 250 250 247;
+    --color-bg: 255 255 252;
+    --color-sidebar: 247 247 244;
     --color-surface: 255 255 252;
     --color-surface-raised: 250 250 247;
     --color-surface-hover: 235 235 230;

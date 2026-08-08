@@ -558,7 +558,7 @@ export function WorkspaceNavigationPane() {
                             <div
                               className={`flex min-h-9 items-center gap-1 rounded-md pl-12 pr-3 text-left transition ${
                                 active
-                                  ? "bg-surface-raised text-fg"
+                                  ? "bg-surface-hover text-fg shadow-[inset_0_0_0_1px_rgb(var(--color-border-strong)/0.32)]"
                                   : "text-muted hover:bg-surface-hover hover:text-fg"
                               }`}
                             >

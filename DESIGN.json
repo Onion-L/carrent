@@ -187,7 +187,7 @@
       "paper-canvas": {
         "role": "neutral",
         "displayName": "Paper Canvas",
-        "canonical": "#f7f7f4",
+        "canonical": "#fffffc",
         "tonalRamp": [
           "oklch(15% 0.004 106.4727)",
           "oklch(27% 0.004 106.4727)",
@@ -202,7 +202,7 @@
       "paper-sidebar": {
         "role": "neutral",
         "displayName": "Warm Paper Rail",
-        "canonical": "#fafaf7",
+        "canonical": "#f7f7f4",
         "tonalRamp": [
           "oklch(15% 0.004 106.4719)",
           "oklch(27% 0.004 106.4719)",

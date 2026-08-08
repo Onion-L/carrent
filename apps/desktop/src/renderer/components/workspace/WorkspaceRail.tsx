@@ -47,7 +47,7 @@ export function WorkspaceRail() {
 
   return (
     <>
-      <aside className="flex h-full min-h-0 flex-col items-center bg-sidebar px-1.5 py-1">
+      <aside className="flex h-full min-h-0 flex-col items-center bg-bg px-1.5 py-1">
         <button
           aria-label="Create Workspace"
           title="Create Workspace"

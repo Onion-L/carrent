@@ -139,7 +139,7 @@ export function OpenInMenu({
   return (
     <>
       <div
-        className={`order-first flex h-7 items-stretch overflow-hidden rounded-md border border-border transition ${
+        className={`order-first flex h-7 items-stretch overflow-hidden rounded-md border border-border bg-bg transition ${
           disabled ? "cursor-not-allowed text-subtle" : anchor ? "text-fg" : "text-muted"
         }`}
       >

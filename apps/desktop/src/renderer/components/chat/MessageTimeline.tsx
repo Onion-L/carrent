@@ -73,6 +73,12 @@ function getMessageTimestamp(message: Message) {
 const SKILL_REFERENCE_PATTERN = /\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\)/gu;
 const LEADING_SKILL_REFERENCE_PATTERN = /^\s*(\[\$([^\]\n]+)\]\(([^)\n]+\/SKILL\.md)\))\s*/u;
 
+const NEAR_BOTTOM_THRESHOLD = 80;
+
+function distanceToBottom(el: HTMLDivElement) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight;
+}
+
 export function parseSkillReferenceSegments(content: string): UserMessageSegment[] {
   const segments: UserMessageSegment[] = [];
   let lastIndex = 0;
@@ -1121,9 +1127,7 @@ export function MessageTimeline({
     if (!el) return;
 
     const handleScroll = () => {
-      const threshold = 80;
-      const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-      setShowScrollButton(distanceToBottom > threshold);
+      setShowScrollButton(distanceToBottom(el) > NEAR_BOTTOM_THRESHOLD);
     };
 
     el.addEventListener("scroll", handleScroll);
@@ -1131,15 +1135,30 @@ export function MessageTimeline({
     return () => el.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Streaming updates follow the bottom at most once per animation frame and
+  // snap instantly: restarting a smooth animation on every delta makes the
+  // view bounce. The near-bottom check runs when the frame fires, so a user
+  // who scrolled up in the meantime is left alone.
+  const followFrameRef = useRef<number | null>(null);
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    const threshold = 80;
-    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distanceToBottom < threshold) {
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-    }
+    if (!el || followFrameRef.current !== null) return;
+    followFrameRef.current = requestAnimationFrame(() => {
+      followFrameRef.current = null;
+      if (distanceToBottom(el) < NEAR_BOTTOM_THRESHOLD) {
+        el.scrollTo({ top: el.scrollHeight });
+      }
+    });
   }, [messages, threadActions]);
+
+  useEffect(
+    () => () => {
+      if (followFrameRef.current !== null) {
+        cancelAnimationFrame(followFrameRef.current);
+      }
+    },
+    [],
+  );
 
   const scrollToBottom = () => {
     const el = scrollRef.current;
@@ -1234,6 +1253,7 @@ export function MessageTimeline({
       {showScrollButton && (
         <button
           onClick={scrollToBottom}
+          aria-label="Scroll to bottom"
           className="absolute bottom-4 left-1/2 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-border-strong bg-surface-raised text-muted shadow-lg transition hover:border-border-strong hover:bg-surface-hover hover:text-fg"
         >
           <ArrowDown className="h-3.5 w-3.5" />

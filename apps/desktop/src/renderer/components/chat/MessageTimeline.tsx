@@ -643,21 +643,24 @@ function renderKimiTimelineItem(
 
 function KimiActivityGroup({
   group,
+  hasFollowingText,
   onSelectSubagent,
 }: {
   group: KimiTimelineActivityGroup;
+  hasFollowingText: boolean;
   onSelectSubagent?: (taskId: string) => void;
 }) {
   const isActive = group.items.some(isKimiTimelineItemActive);
-  const [expanded, setExpanded] = useState(isActive);
+  const shouldCollapse = !isActive && hasFollowingText;
+  const [expanded, setExpanded] = useState(!shouldCollapse);
 
-  // Live groups stay expanded while their items are still running and fold
-  // away as soon as the last one settles.
+  // Groups stay expanded while running and after their items settle; they
+  // only fold away once formal text output starts after the group.
   useEffect(() => {
-    if (!isActive) {
+    if (shouldCollapse) {
       setExpanded(false);
     }
-  }, [isActive]);
+  }, [shouldCollapse]);
 
   return (
     <div>
@@ -837,6 +840,9 @@ function AssistantMessage({
 
   const copyText =
     presentation.answerText || textParts.map((part) => part.content).join("\n") || content;
+  const kimiDisplayItems = hasKimiTimeline
+    ? groupKimiTimelineItems(presentation.timelineItems!)
+    : [];
 
   const handleCopy = async () => {
     try {
@@ -880,9 +886,16 @@ function AssistantMessage({
             finishedAt={message.runFinishedAt}
             duration={message.duration}
           />
-          {groupKimiTimelineItems(presentation.timelineItems!).map((item) =>
+          {kimiDisplayItems.map((item, index) =>
             item.type === "kimi-activity-group" ? (
-              <KimiActivityGroup key={item.id} group={item} onSelectSubagent={onSelectSubagent} />
+              <KimiActivityGroup
+                key={item.id}
+                group={item}
+                hasFollowingText={kimiDisplayItems
+                  .slice(index + 1)
+                  .some((later) => later.type === "text")}
+                onSelectSubagent={onSelectSubagent}
+              />
             ) : (
               renderKimiTimelineItem(item, onSelectSubagent)
             ),

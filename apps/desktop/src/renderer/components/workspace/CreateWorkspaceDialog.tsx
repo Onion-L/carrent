@@ -73,7 +73,7 @@ export function CreateWorkspaceDialog({
             setName(event.target.value);
             setError(null);
           }}
-          className="mt-1.5 h-10 w-full rounded-md border border-border-strong bg-bg px-3 text-app-14 text-fg outline-none transition focus-visible:ring-2 focus-visible:ring-fg/25"
+          className="mt-1.5 h-10 w-full rounded-md border border-border-strong bg-surface-raised px-3 text-app-14 text-fg outline-none transition focus-visible:ring-2 focus-visible:ring-fg/25"
         />
 
         <div className="mt-5 flex items-center justify-between gap-3">

@@ -32,6 +32,17 @@ import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadAc
 import type { SkillRecord } from "../shared/skills";
 
 mock.module("./assets/logo.png", () => ({ default: "logo.png" }));
+for (const icon of [
+  "cursor-dark",
+  "cursor-light",
+  "finder",
+  "vscode",
+  "xcode",
+  "zed-dark",
+  "zed-light",
+]) {
+  mock.module(`./assets/editors/${icon}.png`, () => ({ default: `${icon}.png` }));
+}
 const { default: App } = await import("./App");
 
 const emptyAppState: AppStateSnapshot = {

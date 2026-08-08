@@ -48,7 +48,9 @@ let emitChatAuthorityChange: ((update: ChatRunAuthorityChange) => void) | null =
 let activeChatAuthorityState: ChatRunAuthorityState | null = null;
 let sentChatMessages: string[] = [];
 let sentChatRunIds: string[] = [];
+let sentChatRequestKeys: Array<string | undefined> = [];
 let listedSkillProjectDirs: Array<string | undefined> = [];
+let latestAssistantMessage: { content: string; runStatus?: string } | null = null;
 
 function ComposerHarness({
   draftRequest,
@@ -62,6 +64,13 @@ function ComposerHarness({
   if (!hasHydrated || !routeData) {
     return null;
   }
+
+  const assistantMessage = [...routeData.messages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  latestAssistantMessage = assistantMessage
+    ? { content: assistantMessage.content, runStatus: assistantMessage.runStatus }
+    : null;
 
   return (
     <Composer
@@ -198,13 +207,14 @@ function baseSnapshot(threadWork: AppStateSnapshot["threadWork"]): AppStateSnaps
 function installCarrentBridge(
   authority: ReturnType<typeof createFakeAppStateAuthority>,
   snapshot: AppStateSnapshot,
-  options: { authorityState?: ChatRunAuthorityState } = {},
+  options: { authorityState?: ChatRunAuthorityState; disableAutoComplete?: boolean } = {},
 ) {
   emitChatEvent = null;
   emitChatAuthorityChange = null;
   activeChatAuthorityState = options.authorityState ?? null;
   sentChatMessages = [];
   sentChatRunIds = [];
+  sentChatRequestKeys = [];
   listedSkillProjectDirs = [];
   window.carrent = {
     appState: {
@@ -285,7 +295,8 @@ function installCarrentBridge(
         const runId = `run-${sentChatRunIds.length + 1}`;
         sentChatMessages.push(request.message);
         sentChatRunIds.push(runId);
-        if (activeChatAuthorityState) {
+        sentChatRequestKeys.push(request.requestKey);
+        if (activeChatAuthorityState && !options.disableAutoComplete) {
           queueMicrotask(() => {
             const baseRevision = activeChatAuthorityState!.revision;
             const completedEvent: ChatRunEvent = {
@@ -366,11 +377,15 @@ async function renderComposer(
     threadId?: string;
     authorityOptions?: Parameters<typeof createFakeAppStateAuthority>[1];
     authorityState?: ChatRunAuthorityState;
+    disableAutoComplete?: boolean;
   } = {},
 ) {
   const snapshot = baseSnapshot(options.threadWork ?? {});
   const authority = createFakeAppStateAuthority(snapshot, options.authorityOptions);
-  installCarrentBridge(authority, snapshot, { authorityState: options.authorityState });
+  installCarrentBridge(authority, snapshot, {
+    authorityState: options.authorityState,
+    disableAutoComplete: options.disableAutoComplete,
+  });
   await mount(composerTree(undefined, options.threadId));
   return authority;
 }
@@ -1083,5 +1098,292 @@ describe("Composer association-draft composition", () => {
     // Association drafts never subscribe to shared Thread Composer State, so the
     // composition coordination must not leave a draft behind.
     expect(getThreadDraft("draft-thread-1")).toBe(null);
+  });
+});
+
+describe("Composer streaming text reveal", () => {
+  const threadId = "thread-1";
+
+  let realRequestAnimationFrame: typeof window.requestAnimationFrame;
+  let realCancelAnimationFrame: typeof window.cancelAnimationFrame;
+  let frameCallbacks = new Map<number, FrameRequestCallback>();
+
+  function stubAnimationFrames() {
+    realRequestAnimationFrame = window.requestAnimationFrame;
+    realCancelAnimationFrame = window.cancelAnimationFrame;
+    frameCallbacks = new Map();
+    let nextId = 1;
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      const id = nextId;
+      nextId += 1;
+      frameCallbacks.set(id, callback);
+      return id;
+    }) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = ((id: number) => {
+      frameCallbacks.delete(id);
+    }) as typeof window.cancelAnimationFrame;
+  }
+
+  function restoreAnimationFrames() {
+    window.requestAnimationFrame = realRequestAnimationFrame;
+    window.cancelAnimationFrame = realCancelAnimationFrame;
+    frameCallbacks = new Map();
+  }
+
+  async function runAnimationFrame() {
+    const callbacks = [...frameCallbacks.values()];
+    frameCallbacks.clear();
+    await act(async () => {
+      callbacks.forEach((callback) => callback(0));
+    });
+  }
+
+  async function runAllAnimationFrames() {
+    let guard = 0;
+    while (frameCallbacks.size > 0 && guard < 10_000) {
+      await runAnimationFrame();
+      guard += 1;
+    }
+  }
+
+  function runEvent(event: Omit<ChatRunEvent, "runId" | "requestKey">): ChatRunEvent {
+    return {
+      ...event,
+      runId: sentChatRunIds[0]!,
+      requestKey: sentChatRequestKeys[0]!,
+    } as ChatRunEvent;
+  }
+
+  function createAuthorityRunDriver() {
+    let revision = 1;
+    const events: ChatRunEvent[] = [];
+    return {
+      emit(
+        event: ChatRunEvent,
+        status: "running" | "completed" | "failed" | "cancelled" = "running",
+      ) {
+        events.push(event);
+        emitChatAuthorityChange?.({
+          baseRevision: revision,
+          revision: revision + 1,
+          run: {
+            runId: sentChatRunIds[0]!,
+            requestKey: sentChatRequestKeys[0]!,
+            threadId,
+            status,
+            stopRequested: false,
+            eventCount: events.length,
+            events: [...events],
+            pendingPermissions: [],
+            pendingQuestions: [],
+          },
+          event,
+        });
+        revision += 1;
+      },
+    };
+  }
+
+  async function renderStreamingComposer() {
+    await renderComposer({
+      threadId,
+      authorityState: { revision: 1, runs: [] },
+      disableAutoComplete: true,
+    });
+    await setComposerText("stream please");
+    await submitComposer();
+    expect(sentChatMessages).toEqual(["stream please"]);
+    stubAnimationFrames();
+    return createAuthorityRunDriver();
+  }
+
+  afterEach(() => {
+    restoreAnimationFrames();
+  });
+
+  it("does not reveal the whole chunk when its authoritative event is applied", async () => {
+    const driver = await renderStreamingComposer();
+    const chunk = "chunky streaming text ".repeat(10);
+
+    await act(async () => {
+      driver.emit(runEvent({ type: "delta", text: chunk }));
+    });
+    expect(latestAssistantMessage?.content.length ?? 0).toBeLessThan(chunk.length);
+
+    await runAnimationFrame();
+    expect(latestAssistantMessage?.content.length ?? 0).toBeGreaterThan(0);
+    expect(latestAssistantMessage?.content.length ?? 0).toBeLessThan(chunk.length);
+
+    await runAllAnimationFrames();
+    expect(latestAssistantMessage?.content).toBe(chunk);
+  });
+
+  it("coalesces several deltas into one progressive step per frame", async () => {
+    const driver = await renderStreamingComposer();
+    const parts = ["alpha ".repeat(20), "beta ".repeat(20), "gamma ".repeat(20)];
+    const fullText = parts.join("");
+
+    await act(async () => {
+      parts.forEach((part) => driver.emit(runEvent({ type: "delta", text: part })));
+    });
+    await runAnimationFrame();
+
+    const visible = latestAssistantMessage?.content ?? "";
+    expect(visible.length).toBeGreaterThan(0);
+    expect(visible.length).toBeLessThan(fullText.length);
+    expect(fullText.startsWith(visible)).toBe(true);
+
+    await runAllAnimationFrames();
+    expect(latestAssistantMessage?.content).toBe(fullText);
+  });
+
+  it("flushes buffered text before agent activity parts appear", async () => {
+    const driver = await renderStreamingComposer();
+    const text = "the answer so far";
+
+    await act(async () => {
+      driver.emit(runEvent({ type: "delta", text }));
+    });
+    expect(latestAssistantMessage?.content).not.toBe(text);
+
+    await act(async () => {
+      driver.emit(
+        runEvent({
+          type: "reasoning",
+          reasoning: { id: "reasoning-1", content: "thinking", status: "running" },
+        }),
+      );
+    });
+    expect(latestAssistantMessage?.content).toBe(text);
+
+    await act(async () => {
+      driver.emit(
+        runEvent({ type: "completed", text, finishedAt: "2026-08-07T00:00:00.000Z" }),
+        "completed",
+      );
+    });
+    await runAllAnimationFrames();
+    expect(latestAssistantMessage?.content).toBe(text);
+  });
+
+  it("completes the Run without waiting for the remaining text animation", async () => {
+    const driver = await renderStreamingComposer();
+    const text = "short final answer text";
+
+    await act(async () => {
+      driver.emit(runEvent({ type: "delta", text }));
+      driver.emit(
+        runEvent({ type: "completed", text, finishedAt: "2026-08-07T00:00:00.000Z" }),
+        "completed",
+      );
+    });
+
+    // The terminal state is applied immediately even though the reveal is
+    // still animating within its catch-up ceiling.
+    expect(latestAssistantMessage?.runStatus).toBe("completed");
+    expect(latestAssistantMessage?.content.length ?? 0).toBeLessThan(text.length);
+
+    await runAllAnimationFrames();
+    expect(latestAssistantMessage?.content).toBe(text);
+  });
+
+  it("shows a huge remaining backlog immediately when the Run completes", async () => {
+    const driver = await renderStreamingComposer();
+    const text = "x".repeat(50_000);
+
+    await act(async () => {
+      driver.emit(
+        runEvent({ type: "completed", text, finishedAt: "2026-08-07T00:00:00.000Z" }),
+        "completed",
+      );
+    });
+
+    expect(latestAssistantMessage?.content).toBe(text);
+  });
+
+  it("replaces buffered text atomically when a snapshot arrives", async () => {
+    const driver = await renderStreamingComposer();
+    const snapshotText = "authoritative replacement text";
+
+    await act(async () => {
+      driver.emit(runEvent({ type: "delta", text: "stale incremental text" }));
+    });
+    await act(async () => {
+      driver.emit(runEvent({ type: "text-snapshot", text: snapshotText }));
+    });
+
+    expect(latestAssistantMessage?.content).toBe(snapshotText);
+
+    await runAllAnimationFrames();
+    expect(latestAssistantMessage?.content).toBe(snapshotText);
+
+    await act(async () => {
+      driver.emit(
+        runEvent({
+          type: "completed",
+          text: snapshotText,
+          finishedAt: "2026-08-07T00:00:00.000Z",
+        }),
+        "completed",
+      );
+    });
+    await runAllAnimationFrames();
+    expect(latestAssistantMessage?.content).toBe(snapshotText);
+  });
+
+  it("flushes all received text when the Run fails", async () => {
+    const driver = await renderStreamingComposer();
+    const text = "partial answer before the failure";
+
+    await act(async () => {
+      driver.emit(runEvent({ type: "delta", text }));
+    });
+    await act(async () => {
+      driver.emit(runEvent({ type: "failed", error: "boom" }), "failed");
+    });
+
+    expect(latestAssistantMessage?.runStatus).toBe("failed");
+    expect(latestAssistantMessage?.content).toBe(text);
+
+    await runAllAnimationFrames();
+    expect(latestAssistantMessage?.content).toBe(text);
+  });
+
+  it("flushes all received text when the Run is cancelled", async () => {
+    const driver = await renderStreamingComposer();
+    const text = "partial answer before the stop";
+
+    await act(async () => {
+      driver.emit(runEvent({ type: "delta", text }));
+    });
+    await act(async () => {
+      driver.emit(runEvent({ type: "stopped" }), "cancelled");
+    });
+
+    expect(latestAssistantMessage?.runStatus).toBe("cancelled");
+    expect(latestAssistantMessage?.content).toBe(text);
+  });
+
+  it("stops local reveal scheduling when the composer unmounts mid-animation", async () => {
+    const driver = await renderStreamingComposer();
+    const text = "answer that must survive unmount";
+
+    await act(async () => {
+      driver.emit(runEvent({ type: "delta", text }));
+      driver.emit(
+        runEvent({ type: "completed", text, finishedAt: "2026-08-07T00:00:00.000Z" }),
+        "completed",
+      );
+    });
+    expect(latestAssistantMessage?.content.length ?? 0).toBeLessThan(text.length);
+    expect(frameCallbacks.size).toBeGreaterThan(0);
+
+    await act(async () => {
+      root!.unmount();
+    });
+    root = null;
+
+    expect(frameCallbacks.size).toBe(0);
+    await runAllAnimationFrames();
   });
 });

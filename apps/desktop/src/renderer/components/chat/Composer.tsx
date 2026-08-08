@@ -58,11 +58,7 @@ import { deriveThreadTitle } from "../../lib/threadTitle";
 import { ImageAttachmentLightbox, type LightboxItem } from "./ImageAttachmentLightbox";
 import { splitPatchIntoFileBlocks } from "./WorkspaceDiffViewer";
 
-import {
-  TYPEWRITER_INTERVAL_MS,
-  getNextTypewriterText,
-  hasPendingTypewriterText,
-} from "./typewriter";
+import { StreamingTextRevealer } from "./typewriter";
 import { useThreadContent } from "../../context/ThreadContentContext";
 import { useAppState } from "../../context/AppStateContext";
 import { useChatRun } from "../../hooks/useChatRun";
@@ -1353,10 +1349,6 @@ export function Composer(props: ComposerProps) {
   const branchPickerRef = useRef<HTMLDivElement>(null);
   const skillItemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const runtimeCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const receivedTextRef = useRef("");
-  const visibleTextRef = useRef("");
-  const typewriterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const activeAssistantMessageIdRef = useRef<string | null>(null);
   const flushTypewriterRef = useRef<VoidFunction | null>(null);
   const wasSendingRef = useRef(false);
   const wasSendingForQueueRef = useRef(false);
@@ -1873,18 +1865,6 @@ export function Composer(props: ComposerProps) {
     [currentBranch, visibleGitBranches, worktreeBranchNames],
   );
 
-  const stopTypewriter = () => {
-    if (typewriterTimerRef.current) {
-      clearInterval(typewriterTimerRef.current);
-      typewriterTimerRef.current = null;
-    }
-  };
-
-  const flushActiveTypewriter = () => {
-    stopTypewriter();
-    flushTypewriterRef.current?.();
-  };
-
   const closeRuntimePicker = () => {
     if (runtimeCloseTimerRef.current) {
       clearTimeout(runtimeCloseTimerRef.current);
@@ -1911,7 +1891,7 @@ export function Composer(props: ComposerProps) {
 
   useEffect(() => {
     return () => {
-      flushActiveTypewriter();
+      flushTypewriterRef.current?.();
       if (runtimeCloseTimerRef.current) {
         clearTimeout(runtimeCloseTimerRef.current);
       }
@@ -2555,45 +2535,6 @@ export function Composer(props: ComposerProps) {
       });
     };
 
-    const flushPendingTypewriterText = () => {
-      const activeMessageId = activeAssistantMessageIdRef.current;
-      if (!activeMessageId) {
-        return;
-      }
-
-      if (visibleTextRef.current !== receivedTextRef.current) {
-        const nextText = receivedTextRef.current;
-        const delta = nextText.slice(visibleTextRef.current.length);
-        visibleTextRef.current = nextText;
-        updateLocalMessageTextPart(activeMessageId, delta);
-      }
-    };
-
-    const startTypewriter = (messageId: string) => {
-      activeAssistantMessageIdRef.current = messageId;
-
-      if (typewriterTimerRef.current) {
-        return;
-      }
-
-      typewriterTimerRef.current = setInterval(() => {
-        const nextVisibleText = getNextTypewriterText(
-          visibleTextRef.current,
-          receivedTextRef.current,
-        );
-
-        if (nextVisibleText !== visibleTextRef.current) {
-          const delta = nextVisibleText.slice(visibleTextRef.current.length);
-          visibleTextRef.current = nextVisibleText;
-          updateLocalMessageTextPart(messageId, delta);
-        }
-
-        if (!hasPendingTypewriterText(visibleTextRef.current, receivedTextRef.current)) {
-          stopTypewriter();
-        }
-      }, TYPEWRITER_INTERVAL_MS);
-    };
-
     // Files this run reported as written; set by the terminal callbacks
     // before the diff capture reads it.
     const runWrittenFilesRef = { current: [] as string[] };
@@ -2630,19 +2571,13 @@ export function Composer(props: ComposerProps) {
 
     const assistantMsg = appendLocalMessage("assistant", "", undefined, "running");
 
-    flushActiveTypewriter();
-    receivedTextRef.current = "";
-    visibleTextRef.current = "";
-    activeAssistantMessageIdRef.current = assistantMsg.id;
+    flushTypewriterRef.current?.();
+    const textRevealer = new StreamingTextRevealer({
+      onReveal: (text) => updateLocalMessageTextPart(assistantMsg.id, text),
+    });
     flushTypewriterRef.current = () => {
-      const activeMessageId = activeAssistantMessageIdRef.current;
-      if (!activeMessageId) {
-        return;
-      }
-
-      flushPendingTypewriterText();
-
-      activeAssistantMessageIdRef.current = null;
+      textRevealer.flush();
+      textRevealer.dispose();
       flushTypewriterRef.current = null;
     };
 
@@ -2760,33 +2695,26 @@ export function Composer(props: ComposerProps) {
           updateRunChecklist(threadId, { kind: "started", runId });
         },
         onDelta: (text) => {
-          receivedTextRef.current += text;
-          startTypewriter(assistantMsg.id);
+          textRevealer.appendDelta(text);
         },
         onTextSnapshot: (text) => {
-          stopTypewriter();
-          receivedTextRef.current = text;
-          visibleTextRef.current = text;
+          textRevealer.applySnapshot(text);
           updateMessageParts(assistantMsg.id, { kind: "replace-text", content: text });
         },
         onReasoning: (reasoning) => {
-          stopTypewriter();
-          flushPendingTypewriterText();
+          textRevealer.flush();
           updateLocalMessageReasoningPart(assistantMsg.id, reasoning);
         },
         onKimiTimeline: (item) => {
-          stopTypewriter();
-          flushPendingTypewriterText();
+          textRevealer.flush();
           updateMessageParts(assistantMsg.id, { kind: "upsert-kimi-timeline", item });
         },
         onShell: (shell) => {
-          stopTypewriter();
-          flushPendingTypewriterText();
+          textRevealer.flush();
           updateLocalMessageShellPart(assistantMsg.id, shell);
         },
         onSubagentTask: (task) => {
-          stopTypewriter();
-          flushPendingTypewriterText();
+          textRevealer.flush();
           updateLocalMessageSubagentTaskPart(assistantMsg.id, task);
         },
         onChecklist: (checklist, owner) => {
@@ -2799,6 +2727,7 @@ export function Composer(props: ComposerProps) {
         },
         onPermissionRequested: (permission) => {
           markThreadActivity(threadId, Date.parse(permission.createdAt));
+          textRevealer.flush();
           if (permission.planReview) {
             updateMessageParts(assistantMsg.id, {
               kind: "upsert-plan-review",
@@ -2834,6 +2763,7 @@ export function Composer(props: ComposerProps) {
           }
         },
         onQuestionRequested: (question) => {
+          textRevealer.flush();
           updateMessageParts(assistantMsg.id, {
             kind: "upsert-question",
             question: {
@@ -2873,21 +2803,22 @@ export function Composer(props: ComposerProps) {
           props.onPlanModeChange?.(enabled);
         },
         onEventApplied: (count) => {
-          flushPendingTypewriterText();
+          // Event acknowledgement must not flush pending reveal text; the
+          // frame scheduler owns the visible cadence.
           updateMessageRunEventCount(assistantMsg.id, count);
         },
         onComplete: (text, runId, writtenFiles) => {
           runWrittenFilesRef.current = writtenFiles ?? [];
           updateRunChecklist(threadId, { kind: "outcome", runId, outcome: "completed" });
-          if (!receivedTextRef.current || text.startsWith(receivedTextRef.current)) {
-            receivedTextRef.current = text;
-          }
           // A foreground task can never outlive its parent Run; detached
           // tasks keep their state.
           updateMessageParts(assistantMsg.id, { kind: "interrupt-subagent-tasks" });
           updateMessageRunStatus(assistantMsg.id, "completed");
           markThreadActivity(threadId);
-          startTypewriter(assistantMsg.id);
+          // Remaining buffered text finishes through the adaptive scheduler
+          // within a short ceiling; larger backlogs appear immediately. Run
+          // completion itself never waits on the reveal.
+          textRevealer.finish(text);
           captureWorkspaceDiff();
           // Drain the queue after the coordinator publishes the terminal Run
           // state. The callback itself runs before that state transition.
@@ -2898,8 +2829,7 @@ export function Composer(props: ComposerProps) {
           if (runId) {
             updateRunChecklist(threadId, { kind: "outcome", runId, outcome: "failed" });
           }
-          stopTypewriter();
-          flushPendingTypewriterText();
+          flushTypewriterRef.current?.();
           updateMessageParts(assistantMsg.id, { kind: "interrupt-subagent-tasks" });
           updateMessageParts(assistantMsg.id, {
             kind: "upsert-error",
@@ -2914,8 +2844,6 @@ export function Composer(props: ComposerProps) {
           });
           updateMessageRunStatus(assistantMsg.id, "failed");
           markThreadActivity(threadId);
-          activeAssistantMessageIdRef.current = null;
-          flushTypewriterRef.current = null;
           captureWorkspaceDiff();
           queueDrainRequestedRef.current = false;
           // A failed run must not swallow a steer request; put it back.
@@ -2927,13 +2855,10 @@ export function Composer(props: ComposerProps) {
         onStop: (runId, writtenFiles) => {
           runWrittenFilesRef.current = writtenFiles ?? [];
           updateRunChecklist(threadId, { kind: "outcome", runId, outcome: "cancelled" });
-          stopTypewriter();
-          flushPendingTypewriterText();
+          flushTypewriterRef.current?.();
           updateMessageParts(assistantMsg.id, { kind: "interrupt-subagent-tasks" });
           updateMessageRunStatus(assistantMsg.id, "cancelled");
           markThreadActivity(threadId);
-          activeAssistantMessageIdRef.current = null;
-          flushTypewriterRef.current = null;
           captureWorkspaceDiff();
           // A user-initiated stop only sends a pending steer message; the
           // rest of the queue stays put until the next send or completion.

@@ -3508,7 +3508,7 @@ export function Composer(props: ComposerProps) {
           </div>
         ) : null}
         {queuedMessages.length > 0 ? (
-          <div className="mx-3 max-h-40 divide-y divide-border overflow-y-auto rounded-t-xl border border-b-0 border-border bg-bg/45">
+          <div className="mx-3 mb-2 max-h-40 divide-y divide-border overflow-y-auto rounded-xl border border-border bg-bg/45">
             {queuedMessages.map((item) => {
               const isEditingQueued = editingQueuedId === item.id;
               return (
@@ -3618,9 +3618,7 @@ export function Composer(props: ComposerProps) {
         ) : null}
         <div
           data-composer-surface
-          className={`relative border bg-surface-raised/90 p-3 transition-colors duration-200 ${
-            queuedMessages.length > 0 ? "rounded-b-xl" : "rounded-xl"
-          } ${
+          className={`relative rounded-xl border bg-surface-raised/90 p-3 transition-colors duration-200 ${
             activePermission
               ? "border-warning/40"
               : "border-border focus-within:border-border-strong"

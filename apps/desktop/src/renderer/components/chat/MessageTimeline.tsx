@@ -13,7 +13,7 @@ import {
   Pencil,
   XCircle,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   type Message,
   type MessagePart,
@@ -801,7 +801,10 @@ export function getAssistantMessagePresentation(
   };
 }
 
-function AssistantMessage({
+// Memoized on message identity: Run updates replace only the active message
+// record, so completed history skips re-rendering (and Markdown re-parsing)
+// for every streamed delta.
+const AssistantMessage = memo(function AssistantMessage({
   message,
   timestamp,
   onRemoveRuntimeSessionAndRetry,
@@ -987,9 +990,9 @@ function AssistantMessage({
       </div>
     </div>
   );
-}
+});
 
-function ChangedFilesMessageItem({
+const ChangedFilesMessageItem = memo(function ChangedFilesMessageItem({
   message,
   timestamp,
 }: {
@@ -1031,7 +1034,7 @@ function ChangedFilesMessageItem({
       </div>
     </div>
   );
-}
+});
 
 export function EmptyThreadPrompt({ projectName }: { projectName?: string }) {
   return (

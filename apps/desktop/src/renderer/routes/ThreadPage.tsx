@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { PanelRight } from "lucide-react";
 
@@ -103,6 +103,11 @@ function ThreadPageContent() {
     workspaceId && !appThread
       ? null
       : resolveThreadRouteData(getThreadRouteData, projectId, threadId);
+  // Timeline message components are memoized on prop identity, so the
+  // callbacks they receive must stay referentially stable across the renders
+  // a streaming Run produces.
+  const routeDataRef = useRef(routeData);
+  routeDataRef.current = routeData;
   const appWorkspace = workspaces.find((workspace) => workspace.id === workspaceId);
   const appProject = projects.find((project) => project.id === projectId);
   const appAssociation = associations.find(
@@ -182,13 +187,14 @@ function ThreadPageContent() {
     closeDiff,
   ]);
 
-  const handleSubmitUserEdit = (draft: UserMessageEditDraft) => {
-    if (!routeData) {
+  const handleSubmitUserEdit = useCallback((draft: UserMessageEditDraft) => {
+    const data = routeDataRef.current;
+    if (!data) {
       return;
     }
 
     setSubmitRequest({
-      threadId: routeData.thread.id,
+      threadId: data.thread.id,
       request: {
         messageId: draft.messageId,
         content: draft.content,
@@ -196,38 +202,47 @@ function ThreadPageContent() {
         requestId: Date.now(),
       },
     });
-  };
+  }, []);
 
-  const handleRuntimeSessionRetry = async (request: RuntimeSessionRetryRequest) => {
-    if (!routeData) return;
-    const userMessage = routeData.messages.find(
-      (message) => message.id === request.userMessageId && message.role === "user",
-    );
-    if (!userMessage || userMessage.role !== "user") {
-      showToast("The original request is unavailable.", "error");
-      return;
-    }
+  const handleRuntimeSessionRetry = useCallback(
+    async (request: RuntimeSessionRetryRequest) => {
+      const data = routeDataRef.current;
+      if (!data) return;
+      const userMessage = data.messages.find(
+        (message) => message.id === request.userMessageId && message.role === "user",
+      );
+      if (!userMessage || userMessage.role !== "user") {
+        showToast("The original request is unavailable.", "error");
+        return;
+      }
 
-    try {
-      await window.carrent.chat.removeRuntimeSession({
-        runtimeId: request.runtimeId,
+      try {
+        await window.carrent.chat.removeRuntimeSession({
+          runtimeId: request.runtimeId,
+          threadId: request.threadId,
+        });
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : String(error), "error");
+        return;
+      }
+
+      setSubmitRequest({
         threadId: request.threadId,
+        request: {
+          messageId: userMessage.id,
+          content: userMessage.content,
+          attachments: userMessage.attachments,
+          requestId: Date.now(),
+        },
       });
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : String(error), "error");
-      return;
-    }
+    },
+    [showToast],
+  );
 
-    setSubmitRequest({
-      threadId: request.threadId,
-      request: {
-        messageId: userMessage.id,
-        content: userMessage.content,
-        attachments: userMessage.attachments,
-        requestId: Date.now(),
-      },
-    });
-  };
+  const handleSelectSubagent = useCallback((taskId: string) => {
+    setSelectedTaskId(taskId);
+    setInspectorOpen(true);
+  }, []);
   const isEmptyThread = routeData?.messages.length === 0;
   const composer = routeData ? (
     <Composer
@@ -374,10 +389,7 @@ function ThreadPageContent() {
               threadId={routeData?.thread.id}
               onSubmitUserEdit={hasLiveRun ? undefined : handleSubmitUserEdit}
               onRemoveRuntimeSessionAndRetry={handleRuntimeSessionRetry}
-              onSelectSubagent={(taskId) => {
-                setSelectedTaskId(taskId);
-                setInspectorOpen(true);
-              }}
+              onSelectSubagent={handleSelectSubagent}
             />
             {composer}
           </>

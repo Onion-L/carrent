@@ -64,6 +64,58 @@ describe("historical attachment integrity", () => {
   });
 });
 
+describe("streaming Markdown output integrity", () => {
+  it("renders headings, lists, links, emphasis, code and math after batched content updates", async () => {
+    const initial = "# Answer\n\nFirst paragraph with **bold** text.";
+    const full = [
+      "# Answer",
+      "",
+      "First paragraph with **bold** and *italic* text plus [a link](https://example.com).",
+      "",
+      "- first item",
+      "- second item",
+      "",
+      "```ts",
+      "const answer: number = 42;",
+      "```",
+      "",
+      String.raw`\[ \frac{a}{b} \]`,
+    ].join("\n");
+    const streaming: Message = {
+      id: "assistant-markdown",
+      role: "assistant",
+      threadId: "thread-1",
+      type: "text",
+      timestamp: "09:00",
+      createdAt: 1000,
+      content: initial,
+      runStatus: "running",
+    };
+
+    await act(async () => {
+      root.render(<MessageTimeline messages={[streaming]} threadActions={[]} />);
+    });
+    expect(container.querySelector("ul")).toBe(null);
+
+    await act(async () => {
+      root.render(
+        <MessageTimeline
+          messages={[{ ...streaming, content: full, runStatus: "completed" }]}
+          threadActions={[]}
+        />,
+      );
+    });
+
+    expect(container.querySelector("h1")?.textContent).toBe("Answer");
+    expect(container.querySelector("strong")?.textContent).toBe("bold");
+    expect(container.querySelector("em")?.textContent).toBe("italic");
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("https://example.com");
+    expect(container.querySelectorAll("li")).toHaveLength(2);
+    expect(container.querySelector("pre code")?.textContent).toContain("const answer: number = 42;");
+    expect(container.querySelector(".katex-display")).not.toBe(null);
+  });
+});
+
 describe("Kimi message timeline", () => {
   it("renders ordinary text in ACP order while Thinking stays collapsed", async () => {
     const message: Message = {

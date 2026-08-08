@@ -38,6 +38,7 @@ import type { MainWindowApi } from "../shared/mainWindow";
 import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
 import type { TerminalApi } from "../shared/terminal";
 import type { BrowserApi, BrowserMenuOverlayApi } from "../shared/browser";
+import type { EditorsApi } from "../shared/editors";
 import type {
   AppStateAuthorityState,
   AppStateCommand,
@@ -107,6 +108,7 @@ declare global {
         revealPath: (filePath: string) => Promise<void>;
         openExternal: (url: string) => Promise<void>;
       };
+      editors?: EditorsApi;
       clipboard: {
         writeText: (text: string) => Promise<void>;
         readText: () => Promise<string>;

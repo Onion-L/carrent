@@ -3,6 +3,7 @@ import { Navigate, useParams } from "react-router-dom";
 import { PanelRight } from "lucide-react";
 
 import { ChatHeader } from "../components/chat/ChatHeader";
+import { OpenInMenu } from "../components/chat/OpenInMenu";
 import {
   Composer,
   type ComposerDraftRequest,
@@ -287,6 +288,14 @@ function ThreadPageContent() {
 
   return (
     <div className="relative flex h-full w-full">
+      {appProject ? (
+        <DesktopHeaderPortal>
+          <OpenInMenu
+            workingDirectory={appProject.workingDirectory}
+            disabled={projectDirectoryStatusById[appProject.id] === "unavailable"}
+          />
+        </DesktopHeaderPortal>
+      ) : null}
       {shouldShowInspectorToggle({
         hasProjectEnvironment: !!inspectorInput,
         taskCount: inspectorTasks.length,

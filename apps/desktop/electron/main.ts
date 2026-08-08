@@ -60,6 +60,7 @@ import {
 import { registerMcpServerIpc } from "./bridge/mcpServerIpc";
 import { registerSettingsIpc } from "./settings/settingsIpc";
 import { registerDialogIpc } from "./dialog/dialogIpc";
+import { registerEditorsIpc } from "./editors/editorIpc";
 import { spawn } from "node:child_process";
 import { cascadeWindowBounds, type WindowBounds } from "./carrentWindowGeometry";
 import { consumeWindowCreationSmokeFailure, openThreadInNewWindow } from "./carrentWindowOpener";
@@ -671,6 +672,8 @@ if (!hasSingleInstanceLock) {
     registerDialogIpc(guardedIpcMain, () =>
       dialog.showOpenDialog({ properties: ["openDirectory"] }),
     );
+
+    registerEditorsIpc(guardedIpcMain);
 
     guardedIpcMain.handle("shell:open-path", async (_event, filePath) => {
       if (typeof filePath !== "string") throw new Error("Invalid file path.");

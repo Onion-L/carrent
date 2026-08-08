@@ -1,5 +1,6 @@
-import { CheckCircle2, ChevronRight, CircleDashed, Sparkles, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronRight, CircleDashed, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
+import { ThinkingOrb } from "thinking-orbs";
 import type { KimiToolTimelineStatus } from "../../../shared/chat";
 import type { MessagePart } from "../../../shared/threadContent";
 
@@ -236,13 +237,15 @@ function KimiThinkingItemView({ item }: { item: KimiThinkingItem }) {
         className="group flex w-full items-center gap-2.5 text-left text-app-12 leading-5 text-muted"
         aria-expanded={expanded}
       >
-        <ChevronRight
-          className={`h-3.5 w-3.5 shrink-0 translate-y-px transition ${expanded ? "rotate-90" : ""}`}
-        />
         <StatusIcon
           className={`h-3.5 w-3.5 shrink-0 ${meta.className} ${isRunning ? "animate-spin" : ""}`}
         />
         <span>{isRunning ? "Thinking" : "Thought"}</span>
+        <ChevronRight
+          className={`h-3.5 w-3.5 shrink-0 text-subtle transition group-hover:text-muted ${
+            expanded ? "rotate-90" : "opacity-0 group-hover:opacity-100"
+          }`}
+        />
       </button>
       {expanded ? (
         <pre className="mt-2 whitespace-pre-wrap break-words pl-7 text-app-12 leading-5 text-muted">
@@ -282,14 +285,16 @@ function ShellStepItem({ step }: { step: ShellPart }) {
           className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta.className} ${isRunning ? "animate-spin" : ""}`}
         />
         <pre
-          className={`flex-1 whitespace-pre-wrap break-words font-mono text-app-12 leading-5 text-muted ${expanded ? "" : "line-clamp-1"}`}
+          className={`min-w-0 whitespace-pre-wrap break-words font-mono text-app-12 leading-5 text-muted ${expanded ? "" : "line-clamp-1"}`}
         >
           <span className="text-muted">$ </span>
           {step.command}
         </pre>
         {canExpand && (
           <ChevronRight
-            className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-subtle transition group-hover:text-muted ${expanded ? "rotate-90" : ""}`}
+            className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-subtle transition group-hover:text-muted ${
+              expanded ? "rotate-90" : "opacity-0 group-hover:opacity-100"
+            }`}
           />
         )}
       </button>
@@ -334,6 +339,15 @@ function describeKimiToolActivity(tool: KimiToolItem) {
   return `${tool.title}${target}`;
 }
 
+// Web search / fetch tools (ACP kind "fetch", or titles like "WebSearch" /
+// "FetchURL") get the animated searching orb while running.
+function isWebSearchTool(item: KimiToolItem) {
+  const haystack = `${item.title} ${item.kind}`.toLowerCase();
+  return (
+    haystack.includes("fetch") || haystack.includes("websearch") || haystack.includes("web search")
+  );
+}
+
 function KimiToolItemView({ item }: { item: KimiToolItem }) {
   const [expanded, setExpanded] = useState(false);
   const meta = getStepStatusMeta(item);
@@ -352,22 +366,28 @@ function KimiToolItemView({ item }: { item: KimiToolItem }) {
         className={`group flex w-full items-start gap-2.5 text-left ${canExpand ? "cursor-pointer" : "cursor-default"}`}
         aria-expanded={canExpand ? expanded : undefined}
       >
-        <StatusIcon
-          className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta.className} ${isRunning ? "animate-spin" : ""}`}
-        />
+        {isRunning && isWebSearchTool(item) ? (
+          <ThinkingOrb state="searching" size={20} className="shrink-0" />
+        ) : (
+          <StatusIcon
+            className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta.className} ${isRunning ? "animate-spin" : ""}`}
+          />
+        )}
         {hasShellCommand ? (
           <pre
-            className={`flex-1 whitespace-pre-wrap break-words font-mono text-app-12 leading-5 text-muted ${expanded ? "" : "line-clamp-1"}`}
+            className={`min-w-0 whitespace-pre-wrap break-words font-mono text-app-12 leading-5 text-muted ${expanded ? "" : "line-clamp-1"}`}
           >
             <span className="text-muted">$ </span>
             {item.command}
           </pre>
         ) : (
-          <span className="flex-1 text-app-12 leading-5 text-muted">{label}</span>
+          <span className="min-w-0 text-app-12 leading-5 text-muted">{label}</span>
         )}
         {canExpand && (
           <ChevronRight
-            className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-subtle transition group-hover:text-muted ${expanded ? "rotate-90" : ""}`}
+            className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-subtle transition group-hover:text-muted ${
+              expanded ? "rotate-90" : "opacity-0 group-hover:opacity-100"
+            }`}
           />
         )}
       </button>
@@ -498,32 +518,23 @@ export function AgentActivityBlock({
   }`;
   const headerContent = isRunning ? (
     <>
-      <Sparkles className="h-3.5 w-3.5 shrink-0 animate-pulse text-muted" />
+      <ThinkingOrb state="shaping" size={20} className="shrink-0" />
       <span className="shimmer-text min-w-0 flex-1 truncate font-medium">{runningPhrase}</span>
       {durationLabel ? <span className="shrink-0 text-subtle">{durationLabel}</span> : null}
     </>
   ) : (
     <>
-      {!isCompleted && (
-        <>
-          {collapsible ? (
-            <ChevronRight
-              className={`h-3.5 w-3.5 shrink-0 transition ${expanded ? "rotate-90" : ""}`}
-            />
-          ) : null}
-          <StatusIcon className={`h-3.5 w-3.5 shrink-0 ${status.className}`} />
-        </>
-      )}
+      {collapsible ? (
+        <ChevronRight
+          className={`h-3.5 w-3.5 shrink-0 transition ${expanded ? "rotate-90" : ""}`}
+        />
+      ) : null}
+      {!isCompleted && <StatusIcon className={`h-3.5 w-3.5 shrink-0 ${status.className}`} />}
       <span
         className={`${!isCompleted ? "flex-1" : ""} min-w-0 truncate font-medium ${status.className}`}
       >
         {displayTitle}
       </span>
-      {isCompleted && collapsible && (
-        <ChevronRight
-          className={`h-3.5 w-3.5 shrink-0 translate-y-px transition ${expanded ? "rotate-90" : ""}`}
-        />
-      )}
     </>
   );
 

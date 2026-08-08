@@ -32,6 +32,7 @@ import type {
   GitWorkspaceSnapshotResult,
 } from "./git/gitIpc";
 import type { RtkGainStats } from "../src/shared/rtk";
+import type { DetectedEditor, EditorsApi } from "../src/shared/editors";
 import type { MainWindowApi, MainWindowZoomAction } from "../src/shared/mainWindow";
 import type { ThreadActionRequest, ThreadActionResult } from "../src/shared/threadActions";
 import type {
@@ -261,6 +262,11 @@ const carrent = {
       ipcRenderer.invoke("shell:reveal-path", filePath) as Promise<void>,
     openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url) as Promise<void>,
   },
+  editors: {
+    list: () => ipcRenderer.invoke("editors:list") as Promise<DetectedEditor[]>,
+    open: (editorId: string, workingDirectory: string) =>
+      ipcRenderer.invoke("editors:open", editorId, workingDirectory) as Promise<string>,
+  } satisfies EditorsApi,
   clipboard: {
     writeText: (text: string) => ipcRenderer.invoke("clipboard:write-text", text),
     readText: () => ipcRenderer.invoke("clipboard:read-text") as Promise<string>,

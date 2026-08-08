@@ -154,7 +154,18 @@ describe("buildKimiPromptParts", () => {
     );
 
     expect(parts).toEqual([
-      { type: "text", text: "Inspect the attached images and describe what you see." },
+      {
+        type: "text",
+        text: [
+          "Inspect the attached images and describe what you see.",
+          "",
+          "# Files mentioned by the user:",
+          "",
+          `## screen.png: ${imagePath}`,
+          "",
+          `<image name=[Image #1] path=${JSON.stringify(imagePath)}>`,
+        ].join("\n"),
+      },
       {
         type: "image",
         data: Buffer.from("image bytes").toString("base64"),
@@ -184,7 +195,7 @@ describe("buildKimiPromptParts", () => {
     expect(text).toContain("user: Follow up");
   });
 
-  it("does not duplicate local image paths in text when including transcript", async () => {
+  it("includes Codex-style local image paths in text when including transcript", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-image-transcript-"));
     const imagePath = path.join(dir, "a1.png");
     await writeFile(imagePath, Buffer.from("image bytes"));
@@ -211,8 +222,8 @@ describe("buildKimiPromptParts", () => {
     expect(parts).toHaveLength(2);
     const text = (parts[0] as { text: string }).text;
     expect(text).toContain("user: Earlier");
-    expect(text).not.toContain("Attached images:");
-    expect(text).not.toContain(imagePath);
+    expect(text).toContain(`## screen.png: ${imagePath}`);
+    expect(text).toContain(`<image name=[Image #1] path=${JSON.stringify(imagePath)}>`);
     expect(parts[1]).toEqual({
       type: "image",
       data: Buffer.from("image bytes").toString("base64"),
@@ -255,7 +266,18 @@ describe("buildKimiPromptParts", () => {
     );
 
     expect(parts).toEqual([
-      { type: "text", text: "Check these" },
+      {
+        type: "text",
+        text: [
+          "Check these",
+          "",
+          "# Files mentioned by the user:",
+          "",
+          `## screen.png: ${imagePath}`,
+          "",
+          `<image name=[Image #1] path=${JSON.stringify(imagePath)}>`,
+        ].join("\n"),
+      },
       {
         type: "resource_link",
         uri: `file://${filePath}`,

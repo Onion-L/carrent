@@ -614,6 +614,7 @@ export async function buildKimiPromptParts(
         : DEFAULT_IMAGE_ONLY_PROMPT
       : "");
   const parts: Array<Record<string, unknown>> = [];
+  let text = "";
 
   if (options?.includeTranscript === true && request.transcript.length > 0) {
     const promptRequest: ChatTurnRequest = {
@@ -621,12 +622,17 @@ export async function buildKimiPromptParts(
       message: messageText,
       attachments: request.attachments?.map(({ localPath: _localPath, ...metadata }) => metadata),
     };
-    parts.push({
-      type: "text",
-      text: buildChatPrompt(promptRequest, { includeTranscript: true }),
-    });
+    text = buildChatPrompt(promptRequest, { includeTranscript: true });
   } else if (messageText) {
-    parts.push({ type: "text", text: messageText });
+    text = messageText;
+  }
+
+  const imagePathContext = buildImagePathContext(storedAttachments ?? []);
+  if (imagePathContext) {
+    text = text ? `${text}\n\n${imagePathContext}` : imagePathContext;
+  }
+  if (text) {
+    parts.push({ type: "text", text });
   }
 
   for (const attachment of storedAttachments ?? []) {
@@ -655,6 +661,22 @@ export async function buildKimiPromptParts(
   }
 
   return parts;
+}
+
+function buildImagePathContext(
+  attachments: Array<Attachment & { localPath: string }>,
+): string | null {
+  const images = attachments.filter((attachment) => attachment.kind === "image");
+  if (images.length === 0) return null;
+
+  const lines = ["# Files mentioned by the user:", ""];
+  for (const attachment of images) {
+    lines.push(`## ${attachment.name}: ${attachment.localPath}`, "");
+  }
+  images.forEach((attachment, index) => {
+    lines.push(`<image name=[Image #${index + 1}] path=${JSON.stringify(attachment.localPath)}>`);
+  });
+  return lines.join("\n");
 }
 
 class KimiAcpRun {

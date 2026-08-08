@@ -29,6 +29,7 @@ import { useAppState } from "../context/AppStateContext";
 import { WorkspaceDiffProvider, useThreadContentDiff } from "../context/WorkspaceDiffContext";
 import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
 import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
+import type { BrowserThreadState } from "../../shared/browser";
 import type { Message } from "../../shared/threadContent";
 import { useChatRun } from "../hooks/useChatRun";
 import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
@@ -55,6 +56,15 @@ export function getThreadInspectorInput(
   }
 
   return { projectPath: routeData.project.workingDirectory, messages: routeData.messages };
+}
+
+export function recordBrowserFocusSequence(
+  seenSequences: Map<string, number>,
+  state: Pick<BrowserThreadState, "threadId" | "focusSequence">,
+) {
+  const previous = seenSequences.get(state.threadId);
+  seenSequences.set(state.threadId, state.focusSequence);
+  return previous !== undefined && state.focusSequence > previous;
 }
 
 function ThreadPageContent() {
@@ -115,7 +125,7 @@ function ThreadPageContent() {
   const [browserVisible, setBrowserVisible] = useState(false);
   const [browserFullscreen, setBrowserFullscreen] = useState(false);
   const [browserWidth, setBrowserWidth] = useState<number | null>(null);
-  const browserFocusSequence = useRef(0);
+  const browserFocusSequences = useRef(new Map<string, number>());
   const inspectorInput = getThreadInspectorInput(routeData);
   const inspectorTasks = useMemo(
     () => collectSubagentTasks(inspectorInput?.messages ?? []),
@@ -137,7 +147,6 @@ function ThreadPageContent() {
   useEffect(() => {
     setBrowserVisible(false);
     setBrowserFullscreen(false);
-    browserFocusSequence.current = 0;
   }, [routeData?.thread.id]);
 
   const activeBrowserState =
@@ -154,16 +163,24 @@ function ThreadPageContent() {
   }, [activeBrowserState?.placement, browserVisible]);
 
   useEffect(() => {
-    if (!activeBrowserState || activeBrowserState.focusSequence <= browserFocusSequence.current) {
+    if (
+      !activeBrowserState ||
+      !recordBrowserFocusSequence(browserFocusSequences.current, activeBrowserState)
+    ) {
       return;
     }
-    browserFocusSequence.current = activeBrowserState.focusSequence;
     if (activeBrowserState.placement === "side") {
       closeDiff();
       setInspectorOpen(false);
       setBrowserVisible(true);
     }
-  }, [activeBrowserState?.focusSequence, activeBrowserState?.placement, closeDiff]);
+  }, [
+    activeBrowserState?.focusSequence,
+    activeBrowserState?.placement,
+    activeBrowserState?.projectId,
+    activeBrowserState?.threadId,
+    closeDiff,
+  ]);
 
   const handleSubmitUserEdit = (draft: UserMessageEditDraft) => {
     if (!routeData) {

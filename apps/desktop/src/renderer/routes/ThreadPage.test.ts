@@ -8,7 +8,11 @@ import {
   resolveRightPane,
   shouldShowInspectorToggle,
 } from "../components/chat/ThreadInspectorPane";
-import { getThreadInspectorInput, resolveThreadRouteData } from "./ThreadPage";
+import {
+  getThreadInspectorInput,
+  recordBrowserFocusSequence,
+  resolveThreadRouteData,
+} from "./ThreadPage";
 
 type TextMessage = {
   id: string;
@@ -91,6 +95,30 @@ describe("resolveThreadRouteData", () => {
         "thread-2",
       ),
     ).toBe(null);
+  });
+});
+
+describe("recordBrowserFocusSequence", () => {
+  it("does not reopen a hidden browser when returning to a thread", () => {
+    const seenSequences = new Map<string, number>();
+
+    expect(
+      recordBrowserFocusSequence(seenSequences, { threadId: "thread-1", focusSequence: 1 }),
+    ).toBe(false);
+    expect(
+      recordBrowserFocusSequence(seenSequences, { threadId: "thread-2", focusSequence: 1 }),
+    ).toBe(false);
+    expect(
+      recordBrowserFocusSequence(seenSequences, { threadId: "thread-1", focusSequence: 1 }),
+    ).toBe(false);
+  });
+
+  it("reports a new browser focus event for an already seen thread", () => {
+    const seenSequences = new Map([["thread-1", 1]]);
+
+    expect(
+      recordBrowserFocusSequence(seenSequences, { threadId: "thread-1", focusSequence: 2 }),
+    ).toBe(true);
   });
 });
 

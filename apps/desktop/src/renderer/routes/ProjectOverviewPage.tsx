@@ -4,6 +4,7 @@ import { PanelRight } from "lucide-react";
 
 import { useAppState } from "../context/AppStateContext";
 import { ChatHeader } from "../components/chat/ChatHeader";
+import { OpenInMenu } from "../components/chat/OpenInMenu";
 import { Composer } from "../components/chat/Composer";
 import { EmptyThreadPrompt } from "../components/chat/MessageTimeline";
 import {
@@ -137,6 +138,12 @@ export function ProjectOverviewPage() {
   if (openDraft) {
     return (
       <div className="relative flex h-full w-full">
+        <DesktopHeaderPortal>
+          <OpenInMenu
+            workingDirectory={project.workingDirectory}
+            disabled={projectDirectoryStatusById[project.id] === "unavailable"}
+          />
+        </DesktopHeaderPortal>
         <DesktopHeaderPortal>
           <ThreadInspectorToggle
             open={inspectorOpen}

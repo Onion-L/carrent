@@ -60,10 +60,12 @@ export function MenuItem({
 export function ContextMenuShell({
   anchor,
   onClose,
+  align = "start",
   children,
 }: {
   anchor: { x: number; y: number };
   onClose: (returnFocus?: boolean) => void;
+  align?: "start" | "end";
   children: ReactNode;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -75,14 +77,16 @@ export function ContextMenuShell({
     }
 
     const menuRect = menuRef.current.getBoundingClientRect();
+    const point =
+      align === "end" ? { x: anchor.x - menuRect.width, y: anchor.y } : anchor;
     setPosition(
       getMenuPosition(
-        anchor,
+        point,
         { width: menuRect.width, height: menuRect.height },
         { width: window.innerWidth, height: window.innerHeight },
       ),
     );
-  }, [anchor]);
+  }, [anchor, align]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -117,17 +121,25 @@ export function ContextMenuShell({
   }, [onClose]);
 
   return createPortal(
-    <div
-      ref={menuRef}
-      className="fixed z-50"
-      style={{
-        left: position?.left ?? -10000,
-        top: position?.top ?? -10000,
-        visibility: position ? "visible" : "hidden",
-      }}
-    >
-      {children}
-    </div>,
+    <>
+      {/* Catches outside clicks, including over the header drag region
+          where Electron otherwise swallows pointer events. */}
+      <div
+        className="no-drag fixed inset-0 z-40"
+        onPointerDown={() => onClose()}
+      />
+      <div
+        ref={menuRef}
+        className="fixed z-50"
+        style={{
+          left: position?.left ?? -10000,
+          top: position?.top ?? -10000,
+          visibility: position ? "visible" : "hidden",
+        }}
+      >
+        {children}
+      </div>
+    </>,
     document.body,
   );
 }

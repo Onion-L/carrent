@@ -3507,115 +3507,6 @@ export function Composer(props: ComposerProps) {
             </div>
           </div>
         ) : null}
-        {queuedMessages.length > 0 ? (
-          <div className="mx-3 mb-2 max-h-40 divide-y divide-border overflow-y-auto rounded-xl border border-border bg-bg/45">
-            {queuedMessages.map((item) => {
-              const isEditingQueued = editingQueuedId === item.id;
-              return (
-                <div key={item.id} className="flex items-center gap-x-2.5 px-3 py-2">
-                  <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-subtle" />
-                  {isEditingQueued ? (
-                    <input
-                      autoFocus
-                      value={editingQueuedText}
-                      onChange={(event) => setEditingQueuedText(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          commitQueuedEdit();
-                        } else if (event.key === "Escape") {
-                          event.preventDefault();
-                          cancelQueuedEdit();
-                        }
-                      }}
-                      onBlur={commitQueuedEdit}
-                      aria-label="Edit queued message"
-                      className="h-6 min-w-0 flex-1 rounded-sm bg-transparent text-app-13 text-fg outline-none focus-visible:ring-2 focus-visible:ring-fg/25"
-                    />
-                  ) : (
-                    <span className="min-w-0 flex-1 truncate text-app-13 text-fg">
-                      {item.content}
-                    </span>
-                  )}
-                  {item.attachments && item.attachments.length > 0 ? (
-                    <span className="flex shrink-0 items-center gap-1 text-app-11 text-subtle">
-                      <Paperclip className="h-3 w-3" />
-                      {item.attachments.length}
-                    </span>
-                  ) : null}
-                  {item.requiresConfirmation ? (
-                    <span
-                      aria-label="Restored queued message"
-                      className="shrink-0 text-app-11 text-subtle"
-                    >
-                      Restored
-                    </span>
-                  ) : null}
-                  {isEditingQueued ? (
-                    <div className="ml-auto flex shrink-0 items-center gap-0.5">
-                      <button
-                        type="button"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={commitQueuedEdit}
-                        aria-label="Save queued message"
-                        title="Save"
-                        className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
-                      >
-                        <Check className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={cancelQueuedEdit}
-                        aria-label="Cancel editing queued message"
-                        title="Cancel"
-                        className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="ml-auto flex shrink-0 items-center gap-0.5">
-                      <button
-                        type="button"
-                        onClick={() => handleSteerQueuedMessage(item)}
-                        className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-app-11 text-muted transition hover:bg-surface-hover hover:text-fg"
-                        title={
-                          isThreadSending ? "Stop the current run and send this now" : "Send now"
-                        }
-                      >
-                        <Zap className="h-3 w-3" />
-                        {isThreadSending ? "Steer" : "Send"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          editingQueuedIdRef.current = item.id;
-                          setEditingQueuedId(item.id);
-                          setEditingQueuedText(item.content);
-                        }}
-                        aria-label="Edit queued message"
-                        title="Edit"
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeQueuedChatMessage(threadId, item.id)}
-                        aria-label="Delete queued message"
-                        title="Delete"
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-danger"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ) : null}
         <div
           data-composer-surface
           className={`relative rounded-xl border bg-surface-raised/90 p-3 transition-colors duration-200 ${
@@ -3624,6 +3515,122 @@ export function Composer(props: ComposerProps) {
               : "border-border focus-within:border-border-strong"
           }`}
         >
+          {queuedMessages.length > 0 ? (
+            <div className="-mx-3 -mt-3 mb-2 rounded-t-xl border-b border-border bg-bg/45">
+              <div className="px-3 pt-2 text-app-10 font-medium uppercase tracking-wide text-subtle">
+                Queue · {queuedMessages.length}
+              </div>
+              <div className="max-h-32 divide-y divide-border/60 overflow-y-auto pb-1">
+                {queuedMessages.map((item) => {
+                  const isEditingQueued = editingQueuedId === item.id;
+                  return (
+                    <div key={item.id} className="group flex items-center gap-x-2 px-3 py-1.5">
+                      <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-subtle" />
+                      {isEditingQueued ? (
+                        <input
+                          autoFocus
+                          value={editingQueuedText}
+                          onChange={(event) => setEditingQueuedText(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              commitQueuedEdit();
+                            } else if (event.key === "Escape") {
+                              event.preventDefault();
+                              cancelQueuedEdit();
+                            }
+                          }}
+                          onBlur={commitQueuedEdit}
+                          aria-label="Edit queued message"
+                          className="h-6 min-w-0 flex-1 rounded-sm bg-transparent text-app-13 text-fg outline-none focus-visible:ring-2 focus-visible:ring-fg/25"
+                        />
+                      ) : (
+                        <span className="min-w-0 flex-1 truncate text-app-13 text-muted transition group-hover:text-fg">
+                          {item.content}
+                        </span>
+                      )}
+                      {item.attachments && item.attachments.length > 0 ? (
+                        <span className="flex shrink-0 items-center gap-1 text-app-11 text-subtle">
+                          <Paperclip className="h-3 w-3" />
+                          {item.attachments.length}
+                        </span>
+                      ) : null}
+                      {item.requiresConfirmation ? (
+                        <span
+                          aria-label="Restored queued message"
+                          className="shrink-0 text-app-11 text-subtle"
+                        >
+                          Restored
+                        </span>
+                      ) : null}
+                      {isEditingQueued ? (
+                        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                          <button
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={commitQueuedEdit}
+                            aria-label="Save queued message"
+                            title="Save"
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={cancelQueuedEdit}
+                            aria-label="Cancel editing queued message"
+                            title="Cancel"
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                          <button
+                            type="button"
+                            onClick={() => handleSteerQueuedMessage(item)}
+                            className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-app-11 text-muted transition hover:bg-surface-hover hover:text-fg"
+                            title={
+                              isThreadSending
+                                ? "Stop the current run and send this now"
+                                : "Send now"
+                            }
+                          >
+                            <Zap className="h-3 w-3" />
+                            {isThreadSending ? "Steer" : "Send"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              editingQueuedIdRef.current = item.id;
+                              setEditingQueuedId(item.id);
+                              setEditingQueuedText(item.content);
+                            }}
+                            aria-label="Edit queued message"
+                            title="Edit"
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeQueuedChatMessage(threadId, item.id)}
+                            aria-label="Delete queued message"
+                            title="Delete"
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-danger"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
           {pendingAttachments.length > 0 && (
             <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
               {pendingAttachments.map((attachment) => {

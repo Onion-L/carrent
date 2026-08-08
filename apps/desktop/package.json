@@ -1,6 +1,6 @@
 {
   "name": "@carrent/desktop",
-  "version": "0.0.1-alpha10",
+  "version": "0.0.1-alpha11",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -72,6 +72,28 @@
       "target": [
         "dmg",
         "zip"
+      ]
+    },
+    "dmg": {
+      "icon": "build/icon.icns",
+      "background": "build/background.png",
+      "iconSize": 80,
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        {
+          "x": 130,
+          "y": 220,
+          "type": "file"
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     }
   }

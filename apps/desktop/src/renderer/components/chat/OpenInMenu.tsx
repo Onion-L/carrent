@@ -93,7 +93,7 @@ export function OpenInMenu({
 
     const rect = triggerRef.current?.getBoundingClientRect();
     setAnchor({
-      x: rect?.left ?? 0,
+      x: rect?.right ?? 0,
       y: (rect?.bottom ?? 0) + 4,
     });
   };
@@ -139,7 +139,7 @@ export function OpenInMenu({
   return (
     <>
       <div
-        className={`order-first flex h-7 items-stretch overflow-hidden rounded-md border border-border bg-bg transition ${
+        className={`order-first flex h-8 items-stretch overflow-hidden rounded-md border border-border bg-bg transition ${
           disabled ? "cursor-not-allowed text-subtle" : anchor ? "text-fg" : "text-muted"
         }`}
       >
@@ -154,7 +154,7 @@ export function OpenInMenu({
           {defaultEditor ? (
             <>
               {editorIcon(defaultEditor.id, isDark)}
-              <span className="text-xs font-medium">{defaultEditor.name}</span>
+              <span className="text-app-13 font-medium">{defaultEditor.name}</span>
             </>
           ) : (
             <SquarePen className="h-4 w-4" />
@@ -176,7 +176,7 @@ export function OpenInMenu({
         </button>
       </div>
       {anchor ? (
-        <ContextMenuShell anchor={anchor} onClose={closeMenu}>
+        <ContextMenuShell anchor={anchor} onClose={closeMenu} align="end">
           <div
             role="menu"
             aria-label="Open working directory in"

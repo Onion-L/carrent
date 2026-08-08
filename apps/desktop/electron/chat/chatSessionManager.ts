@@ -96,6 +96,11 @@ export function createChatSessionManager(options: {
     string,
     Promise<import("../../src/shared/chat").KimiSessionStatus | null>
   >();
+  // A Run that arrived while a Runtime Session status request was active is
+  // deferred until that request settles, instead of failing. One per Thread:
+  // the run authority guarantees a single active Run per Thread.
+  const deferredRuns = new Map<string, { runId: string; request: ChatTurnRequest }>();
+  const stoppedDeferredRuns = new Set<string>();
   const deletedThreadIds = new Set<string>();
   const relocatingThreadIds = new Set<string>();
 
@@ -152,16 +157,18 @@ export function createChatSessionManager(options: {
       });
       return;
     }
+    // A passive Runtime Session status refresh must be transparent to queued
+    // work. Defer the Run until the active status request settles rather than
+    // emitting a failure the user would have to resend.
     if (activeStatusRequests.has(request.threadId)) {
-      options.emit({
-        type: "failed",
-        runId,
-        requestKey: request.requestKey,
-        error: "Session status is loading.",
-      });
+      deferredRuns.set(request.threadId, { runId, request });
       return;
     }
 
+    beginRun(runId, request);
+  }
+
+  function beginRun(runId: string, request: ChatTurnRequest) {
     if (!request.context.workingDirectory) {
       options.emit({
         type: "failed",
@@ -280,10 +287,68 @@ export function createChatSessionManager(options: {
     }
   }
 
+  // Called from the `finally` of a Runtime Session status request so a Run that
+  // arrived mid-refresh starts once the refresh has settled, after re-checking
+  // cancellation, deletion, and project relocation.
+  function startDeferredRun(threadId: string) {
+    const deferred = deferredRuns.get(threadId);
+    if (!deferred) return;
+    const { runId, request } = deferred;
+
+    if (stoppedDeferredRuns.has(runId)) {
+      stoppedDeferredRuns.delete(runId);
+      deferredRuns.delete(threadId);
+      options.emit({
+        type: "stopped",
+        runId,
+        requestKey: request.requestKey,
+      });
+      return;
+    }
+    if (deletedThreadIds.has(threadId)) {
+      deferredRuns.delete(threadId);
+      options.emit({
+        type: "failed",
+        runId,
+        requestKey: request.requestKey,
+        error: "Thread has been deleted.",
+      });
+      return;
+    }
+    if (relocatingThreadIds.has(threadId)) {
+      deferredRuns.delete(threadId);
+      options.emit({
+        type: "failed",
+        runId,
+        requestKey: request.requestKey,
+        error: "Project relocation is in progress.",
+      });
+      return;
+    }
+    // Another status request began before this one settled; wait again. Every
+    // status request's `finally` drains, so the deferral is bounded.
+    if (activeStatusRequests.has(threadId)) {
+      return;
+    }
+
+    deferredRuns.delete(threadId);
+    beginRun(runId, request);
+  }
+
   function stop(runId: string) {
     if (pendingKimiRuns.has(runId)) {
       stoppedPendingKimiRuns.add(runId);
       return;
+    }
+
+    // A Run deferred behind a status request has not started its transport
+    // yet; mark it so the deferred drain emits `stopped` instead of starting
+    // it. This mirrors the pending-run stop pattern.
+    for (const deferred of deferredRuns.values()) {
+      if (deferred.runId === runId) {
+        stoppedDeferredRuns.add(runId);
+        return;
+      }
     }
 
     const kimiSession = kimiSessions.get(runId);
@@ -303,6 +368,10 @@ export function createChatSessionManager(options: {
     for (const runId of pendingKimiRuns.keys()) {
       stoppedPendingKimiRuns.add(runId);
     }
+    // Drop any Runs still deferred behind a status request so the deferred
+    // drain does not start them after shutdown begins.
+    deferredRuns.clear();
+    stoppedDeferredRuns.clear();
     await Promise.all(pendingKimiRunTasks.values());
 
     const terminations: Promise<void>[] = [];
@@ -620,6 +689,7 @@ export function createChatSessionManager(options: {
       if (activeStatusRequests.get(request.threadId) === task) {
         activeStatusRequests.delete(request.threadId);
       }
+      startDeferredRun(request.threadId);
     }
   }
 
@@ -655,6 +725,7 @@ export function createChatSessionManager(options: {
       if (activeStatusRequests.get(request.threadId) === task) {
         activeStatusRequests.delete(request.threadId);
       }
+      startDeferredRun(request.threadId);
     }
   }
 

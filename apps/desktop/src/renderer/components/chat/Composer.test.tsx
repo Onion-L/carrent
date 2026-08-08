@@ -207,7 +207,13 @@ function baseSnapshot(threadWork: AppStateSnapshot["threadWork"]): AppStateSnaps
 function installCarrentBridge(
   authority: ReturnType<typeof createFakeAppStateAuthority>,
   snapshot: AppStateSnapshot,
-  options: { authorityState?: ChatRunAuthorityState; disableAutoComplete?: boolean } = {},
+  options: {
+    authorityState?: ChatRunAuthorityState;
+    disableAutoComplete?: boolean;
+    getKimiStatus?: (
+      request: Record<string, unknown>,
+    ) => Promise<unknown>;
+  } = {},
 ) {
   emitChatEvent = null;
   emitChatAuthorityChange = null;
@@ -335,7 +341,9 @@ function installCarrentBridge(
       deleteThreadData: async () => {},
       respondToPermission: async () => {},
       respondToQuestion: async () => {},
-      getKimiStatus: async () => null,
+      getKimiStatus:
+        options.getKimiStatus ??
+        (async () => null),
       ...(activeChatAuthorityState
         ? {
             onChanged: (listener: (update: ChatRunAuthorityChange) => void) => {
@@ -378,6 +386,7 @@ async function renderComposer(
     authorityOptions?: Parameters<typeof createFakeAppStateAuthority>[1];
     authorityState?: ChatRunAuthorityState;
     disableAutoComplete?: boolean;
+    getKimiStatus?: (request: Record<string, unknown>) => Promise<unknown>;
   } = {},
 ) {
   const snapshot = baseSnapshot(options.threadWork ?? {});
@@ -385,6 +394,7 @@ async function renderComposer(
   installCarrentBridge(authority, snapshot, {
     authorityState: options.authorityState,
     disableAutoComplete: options.disableAutoComplete,
+    getKimiStatus: options.getKimiStatus,
   });
   await mount(composerTree(undefined, options.threadId));
   return authority;
@@ -594,6 +604,67 @@ describe("Composer inline Skills", () => {
       expect(sentChatMessages).toEqual(["queued message"]);
       expect(getQueuedMessages(threadId)).toEqual([]);
     } finally {
+      getQueuedMessages(threadId).forEach((item) => removeQueuedChatMessage(threadId, item.id));
+    }
+  });
+
+  it("drains the queue after a Run completes even while a passive status refresh is in flight", async () => {
+    const threadId = "thread-2";
+    // The passive Kimi status refresh stays pending so the renderer's drain
+    // effect runs while a status request is notionally active — the queue-drain
+    // race that used to surface as a failed message.
+    let resolveKimiStatus!: (value: unknown) => void;
+    let kimiStatusCalls = 0;
+    await renderComposer({
+      threadId,
+      getKimiStatus: () => {
+        kimiStatusCalls += 1;
+        return new Promise((resolve) => {
+          resolveKimiStatus = resolve;
+        });
+      },
+    });
+
+    try {
+      await setComposerText("first message");
+      await submitComposer();
+      expect(sentChatMessages).toEqual(["first message"]);
+
+      await setComposerText("queued message");
+      await submitComposer();
+      expect(sentChatMessages).toEqual(["first message"]);
+      expect(getQueuedMessages(threadId).map((item) => item.content)).toEqual(["queued message"]);
+
+      await act(async () => {
+        emitChatEvent?.({
+          type: "completed",
+          runId: sentChatRunIds[0]!,
+          text: "done",
+          finishedAt: "2026-08-07T00:00:00.000Z",
+        });
+      });
+      await waitForQueueFlush(threadId, 2);
+
+      // The passive status refresh fired as part of completion, yet the queued
+      // message was still sent — the drain is not blocked by the in-flight
+      // status request.
+      expect(kimiStatusCalls).toBeGreaterThan(0);
+      expect(sentChatMessages).toEqual(["first message", "queued message"]);
+      expect(getQueuedMessages(threadId)).toEqual([]);
+    } finally {
+      resolveKimiStatus?.(null);
+      const latestRunId = sentChatRunIds.at(-1);
+      if (latestRunId) {
+        await act(async () => {
+          emitChatEvent?.({
+            type: "completed",
+            runId: latestRunId,
+            text: "done",
+            finishedAt: "2026-08-07T00:00:01.000Z",
+          });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
       getQueuedMessages(threadId).forEach((item) => removeQueuedChatMessage(threadId, item.id));
     }
   });

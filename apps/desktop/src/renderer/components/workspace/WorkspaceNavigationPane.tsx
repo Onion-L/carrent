@@ -41,6 +41,11 @@ const STATUS_META: Record<ThreadDisplayStatus, { label: string; className: strin
   failed: { label: "Failed", className: "font-medium text-danger" },
 };
 
+// A project shows only the first few threads once it has more than the
+// threshold; a "Show more" button expands the rest in place.
+const THREAD_LIST_COLLAPSE_THRESHOLD = 10;
+const THREAD_LIST_PREVIEW_COUNT = 5;
+
 export function WorkspaceNavigationPane() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -67,6 +72,9 @@ export function WorkspaceNavigationPane() {
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
+  const [expandedThreadListProjectIds, setExpandedThreadListProjectIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
   const [threadMenu, setThreadMenu] = useState<{
     threadId: string;
@@ -89,6 +97,34 @@ export function WorkspaceNavigationPane() {
           thread.projectId === pendingProjectRemoval.projectId,
       ).length
     : 0;
+
+  const toggleThreadListExpanded = (projectId: string) => {
+    setExpandedThreadListProjectIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(projectId)) {
+        next.delete(projectId);
+      } else {
+        next.add(projectId);
+      }
+      return next;
+    });
+  };
+
+  // Keep newly created threads visible: when a thread appears in a project
+  // whose list is still collapsed, expand that list.
+  const knownThreadIdsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const previousIds = knownThreadIdsRef.current;
+    knownThreadIdsRef.current = new Set(threads.map((thread) => thread.id));
+    if (!previousIds) return;
+    const newProjectIds = new Set(
+      threads
+        .filter((thread) => !previousIds.has(thread.id) && !thread.archived)
+        .map((thread) => thread.projectId),
+    );
+    if (newProjectIds.size === 0) return;
+    setExpandedThreadListProjectIds((prev) => new Set([...prev, ...newProjectIds]));
+  }, [threads]);
 
   const commitProjectRename = async (
     workspaceId: string,
@@ -262,6 +298,12 @@ export function WorkspaceNavigationPane() {
           );
           const projectUnavailable = projectDirectoryStatusById[project.id] === "unavailable";
           const expanded = !collapsedProjectIds.has(project.id);
+          const threadListExpanded = expandedThreadListProjectIds.has(project.id);
+          const threadListCollapsible = projectThreads.length > THREAD_LIST_COLLAPSE_THRESHOLD;
+          const visibleThreads =
+            threadListCollapsible && !threadListExpanded
+              ? projectThreads.slice(0, THREAD_LIST_PREVIEW_COUNT)
+              : projectThreads;
           const hasAffectedLiveRun = threads.some(
             (thread) =>
               thread.workspaceId === association.workspaceId &&
@@ -455,7 +497,7 @@ export function WorkspaceNavigationPane() {
                     </p>
                   ) : (
                     <>
-                      {projectThreads.map((thread) => {
+                      {visibleThreads.map((thread) => {
                         const threadPath = buildThreadPath(
                           association.workspaceId,
                           project.id,
@@ -658,6 +700,18 @@ export function WorkspaceNavigationPane() {
                           </div>
                         );
                       })}
+                      {threadListCollapsible ? (
+                        <button
+                          type="button"
+                          aria-expanded={threadListExpanded}
+                          onClick={() => toggleThreadListExpanded(project.id)}
+                          className="flex min-h-9 w-full items-center rounded-md pl-12 pr-3 text-left text-app-12 text-subtle transition hover:bg-surface-hover hover:text-fg"
+                        >
+                          {threadListExpanded
+                            ? "Show less"
+                            : `Show more (${projectThreads.length - THREAD_LIST_PREVIEW_COUNT})`}
+                        </button>
+                      ) : null}
                     </>
                   )}
                 </div>

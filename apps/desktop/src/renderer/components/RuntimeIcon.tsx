@@ -24,7 +24,7 @@ export function RuntimeIcon({
   if (key.includes("kimi")) {
     return (
       <div
-        className={`flex shrink-0 items-center justify-center bg-surface-raised ${sizeClasses[size]}`}
+        className={`flex shrink-0 items-center justify-center bg-surface-raised text-fg ${sizeClasses[size]}`}
       >
         <KimiIcon className={iconSizes[size]} />
       </div>

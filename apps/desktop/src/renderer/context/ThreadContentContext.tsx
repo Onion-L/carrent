@@ -735,7 +735,7 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
     updateThreadContent((content) => ({
       ...content,
       threads: content.threads.map((thread) =>
-        thread.id === threadId ? { ...thread, title } : thread,
+        thread.id === threadId ? { ...thread, title, customTitle: true } : thread,
       ),
     }));
     return true;

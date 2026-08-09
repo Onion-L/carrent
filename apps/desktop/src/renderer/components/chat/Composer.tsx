@@ -2918,7 +2918,7 @@ export function Composer(props: ComposerProps) {
     }
 
     if (props.mode === "thread") {
-      if (thread && thread.title === "New thread") {
+      if (thread && thread.title === "New thread" && !thread.customTitle) {
         const title =
           deriveThreadTitle(messageText, { fallback: "" }) ||
           attachmentMetadata[0]?.name ||

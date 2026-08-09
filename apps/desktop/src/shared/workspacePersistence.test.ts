@@ -849,6 +849,51 @@ describe("normalizeAppStateSnapshot", () => {
     ).toBe(null);
   });
 
+  it("persists a thread's customTitle flag and rejects non-boolean values", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "New thread",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
+          customTitle: true,
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      threadDrafts: [],
+      threadMessages: [],
+      threadRuns: [],
+      threadPromotionIntents: [],
+      activeWorkspaceId: "workspace-1",
+    };
+
+    const normalized = normalizeAppStateSnapshot(snapshot);
+    expect(normalized?.threads?.[0]?.customTitle).toBe(true);
+    expect(
+      normalizeAppStateSnapshot({
+        ...snapshot,
+        threads: [{ ...snapshot.threads[0], customTitle: "yes" }],
+      }),
+    ).toBe(null);
+  });
+
   it("rejects persisted App State attachments without an explicit kind", () => {
     const snapshot = {
       version: APP_STATE_SNAPSHOT_VERSION,

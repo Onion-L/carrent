@@ -56,6 +56,7 @@ const FRESH_INSTALL_EVIDENCE_PREFIXES = [
   "app-state.initialized.tmp-",
   "workspace.json.tmp-",
   "provider-sessions.json.tmp-",
+  "provider-sessions.corrupt-",
   "thread-deletion-journal.json.tmp-",
   "app-state.recovery-",
   "app-state.imported-",
@@ -282,13 +283,28 @@ export async function initializeSqliteAppState(
 
   const suffix = completedAt.replaceAll(":", "-");
   const diagnostics: string[] = [];
-  const threadIds = new Set((snapshot.threads ?? []).map((thread) => thread.id));
+  const threadRuntimeIds = new Map(
+    (snapshot.threads ?? []).map((thread) => [thread.id, thread.runtimeId]),
+  );
   let providerSessions: Record<string, string> = {};
   try {
-    const normalized = normalizeProviderSessionSnapshot(
-      JSON.parse(await readFile(providerSessionsPath, "utf-8")),
-    );
+    const parsed = JSON.parse(await readFile(providerSessionsPath, "utf-8"));
+    const normalized = normalizeProviderSessionSnapshot(parsed);
     if (!normalized) throw new Error("Invalid Runtime Session snapshot.");
+    const rawSessions =
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as { sessions?: unknown }).sessions === "object" &&
+      (parsed as { sessions?: unknown }).sessions !== null &&
+      !Array.isArray((parsed as { sessions?: unknown }).sessions)
+        ? ((parsed as { sessions: Record<string, unknown> }).sessions ?? {})
+        : {};
+    for (const key of Object.keys(rawSessions)) {
+      if (!(key in normalized.sessions)) {
+        diagnostics.push("An invalid Runtime Session mapping was discarded.");
+      }
+    }
     providerSessions = Object.fromEntries(
       Object.entries(normalized.sessions).filter(([key, sessionId]) => {
         const separator = key.indexOf(":");
@@ -300,7 +316,7 @@ export async function initializeSqliteAppState(
         const valid =
           runtimeIds.includes(runtimeId) &&
           threadId.length > 0 &&
-          threadIds.has(threadId) &&
+          threadRuntimeIds.get(threadId) === runtimeId &&
           sessionId.trim().length > 0 &&
           sessionId.trim() === sessionId &&
           !inconsistent;

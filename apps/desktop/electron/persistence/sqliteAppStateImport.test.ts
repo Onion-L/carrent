@@ -189,7 +189,7 @@ describe("initializeSqliteAppState", () => {
 
   it("uses SQLite when the committed marker exists and ignores a remaining JSON source", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "carrent-sqlite-import-"));
-    const snapshot = completeSnapshot();
+    const snapshot = completeSnapshot(10 * 1024 * 1024);
     const appStatePath = join(baseDir, "app-state.json");
     const sqlite = createSqliteAppStateStore(join(baseDir, "carrent.sqlite"), {
       driver: bunSqliteDriver,
@@ -269,6 +269,7 @@ describe("initializeSqliteAppState", () => {
             "kimi:thread-empty": "",
             "kimi:/legacy/project:thread-1": "session-legacy",
             "kimi:thread-number": 42,
+            "codex:thread-1": "session-wrong-runtime",
           },
         }),
         "utf-8",
@@ -282,7 +283,7 @@ describe("initializeSqliteAppState", () => {
       expect(result.status).toBe("ready");
       if (result.status !== "ready") throw new Error("Expected ready App State.");
       expect(result.providerSessions).toEqual({ "kimi:thread-1": "session-valid" });
-      expect(result.diagnostics.length).toBe(3);
+      expect(result.diagnostics.length).toBe(4);
     } finally {
       await sqlite.close();
       await rm(baseDir, { recursive: true, force: true });
@@ -317,7 +318,7 @@ describe("initializeSqliteAppState", () => {
 
   it("rolls back an interrupted import and retries it without merging or duplication", async () => {
     const baseDir = await mkdtemp(join(tmpdir(), "carrent-sqlite-import-"));
-    const snapshot = completeSnapshot();
+    const snapshot = completeSnapshot(10 * 1024 * 1024);
     const sqlite = createSqliteAppStateStore(join(baseDir, "carrent.sqlite"), {
       driver: bunSqliteDriver,
     });
@@ -429,6 +430,7 @@ describe("initializeSqliteAppState", () => {
     ["workspace.json", "file"],
     ["carrent-chat", "directory"],
     ["app-state.json.tmp-interrupted", "file"],
+    ["provider-sessions.corrupt-interrupted.json", "file"],
     ["attachments-delete-interrupted", "directory"],
     ["attachments-backup-interrupted", "directory"],
   ] as const) {
@@ -566,7 +568,11 @@ describe("initializeSqliteAppState", () => {
       driver: bunSqliteDriver,
     });
     try {
-      await writeFile(join(baseDir, "app-state.json"), JSON.stringify(completeSnapshot()), "utf-8");
+      await writeFile(
+        join(baseDir, "app-state.json"),
+        JSON.stringify(completeSnapshot(10 * 1024 * 1024)),
+        "utf-8",
+      );
       await writeFile(
         join(baseDir, "provider-sessions.json"),
         JSON.stringify({ version: 1, sessions: { "kimi:thread-1": "session-1" } }),

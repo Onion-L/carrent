@@ -193,4 +193,40 @@ describe("SqliteAppStateStore", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("closes a newly opened connection when initialization fails", async () => {
+    const dir = await makeTempDir();
+    let closeCount = 0;
+    try {
+      const store = createSqliteAppStateStore(join(dir, "carrent.sqlite"), {
+        driver: {
+          open: (path) => {
+            const client = bunSqliteDriver.open(path);
+            return {
+              ...client,
+              pragma: () => {
+                throw new Error("simulated pragma failure");
+              },
+              close: () => {
+                closeCount += 1;
+                client.close();
+              },
+            };
+          },
+        },
+      });
+
+      let openError: unknown;
+      try {
+        await store.open();
+      } catch (error) {
+        openError = error;
+      }
+      expect(String(openError)).toContain("simulated pragma failure");
+      expect(store.isOpen).toBe(false);
+      expect(closeCount).toBe(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

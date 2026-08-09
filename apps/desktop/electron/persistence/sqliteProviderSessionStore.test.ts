@@ -23,9 +23,7 @@ async function makeTempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "carrent-sqlite-provider-"));
 }
 
-async function reloadFromDisk(
-  dir: string,
-): Promise<{
+async function reloadFromDisk(dir: string): Promise<{
   sqlite: ReturnType<typeof createSqliteAppStateStore>;
   store: SqliteProviderSessionStore;
 }> {
@@ -129,6 +127,47 @@ describe("createSqliteProviderSessionStore", () => {
       expect(error instanceof Error).toBe(true);
       // The cache was not advanced to the new value because the write did not commit.
       expect(store.get("kimi:thread-a")).toBe("session-old");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the in-memory cache unchanged when the transaction fails after its callback", async () => {
+    const dir = await makeTempDir();
+    try {
+      const sqlite = createSqliteAppStateStore(join(dir, "carrent.sqlite"), {
+        driver: bunSqliteDriver,
+      });
+      await sqlite.open();
+      const seed = snapshot({ "kimi:thread-a": "session-old" });
+      await sqlite.run((client) => replaceProviderSessions(client, seed.sessions));
+      const failingStore: typeof sqlite = {
+        ...sqlite,
+        run: ((work) =>
+          sqlite.run((client) =>
+            work({
+              ...client,
+              transaction: (transactionWork) =>
+                client.transaction(() => {
+                  transactionWork();
+                  throw new Error("simulated commit failure");
+                }),
+            }),
+          )) as typeof sqlite.run,
+      };
+      const store = createSqliteProviderSessionStore(failingStore, seed);
+
+      let commitError: unknown;
+      try {
+        await store.set("kimi:thread-a", "session-new");
+      } catch (error) {
+        commitError = error;
+      }
+      expect(String(commitError)).toContain("simulated commit failure");
+
+      expect(store.get("kimi:thread-a")).toBe("session-old");
+      expect(await sqlite.run((client) => readProviderSessions(client))).toEqual(seed.sessions);
+      await sqlite.close();
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -556,7 +556,7 @@ describe("thread deletion transaction", () => {
           const removed = { "kimi:thread-1": "session-1" };
           committed = true;
           onCommitted?.(removed);
-          return { removedProviderSessions: removed };
+          return { appState: afterAppState, removedProviderSessions: removed };
         },
         hasCommittedThreadDeletion: async () => committed,
         clearCommittedThreadDeletionMarker: async () => {
@@ -595,6 +595,51 @@ describe("thread deletion transaction", () => {
     });
     expect("request" in savedJournals[0]!).toBe(false);
     expect("removedProviderSessions" in savedJournals[0]!).toBe(false);
+  });
+
+  it("publishes the committed SQLite snapshot after another external transaction changed it", async () => {
+    const harness = createHarness();
+    const committedAppState: AppStateSnapshot = {
+      ...afterAppState,
+      projects: [
+        {
+          ...afterAppState.projects[0],
+          workingDirectory: "/code/carrent-relocated",
+        },
+      ],
+    };
+    let published: AppStateSnapshot | null = null;
+    const manager = createThreadDeletionTransactionManager({
+      journalStore: harness.journalStore,
+      appStateStore: {
+        ...harness.appStateStore,
+        deleteAppStateForThreads: async (_operationId, _threadIds, _scope, onCommitted) => {
+          const removedProviderSessions = { "kimi:thread-1": "session-1" };
+          onCommitted?.(removedProviderSessions);
+          return { appState: committedAppState, removedProviderSessions };
+        },
+        hasCommittedThreadDeletion: async () => true,
+        clearCommittedThreadDeletionMarker: async () => {},
+      },
+      attachmentStore: harness.attachmentStore,
+      sessionManager: {
+        deleteThreadData: async () => ({
+          threadIds: ["thread-1"],
+          removedProviderSessions: {},
+          detachedRuntimeSessions: {},
+        }),
+        rollbackThreadDataDeletion: async () => {},
+        adoptCommittedProviderSessionDeletion: () => {},
+      },
+      createOperationId: () => "sqlite-concurrent-operation",
+      onSnapshotCommitted: (snapshot) => {
+        published = snapshot;
+      },
+    });
+
+    await manager.deleteThread(request());
+
+    expect(published).toEqual(committedAppState);
   });
 
   it("finishes staged attachment cleanup when SQLite committed before the journal phase changed", async () => {

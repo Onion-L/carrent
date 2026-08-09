@@ -127,57 +127,46 @@ export function createSqliteProviderSessionStore(
     },
     consumeInvalidMappingNotice: (key) => invalidRequests.delete(key),
     set: (key, sessionId) =>
-      sqliteStore.run((client) =>
-        // The database write and the cache update commit in one transaction: if
-        // the write throws, the transaction rolls back and the cache stays at
-        // the pre-commit state (issue 04: the in-memory mapping changes only
-        // after the database commits).
+      sqliteStore.run((client) => {
+        const nextSessions = { ...sessions, [key]: sessionId };
         client.transaction(() => {
           upsertProviderSession(client, key, sessionId);
-          sessions = { ...sessions, [key]: sessionId };
-        }),
-      ),
+        });
+        sessions = nextSessions;
+      }),
     delete: (key, sessionId) =>
-      sqliteStore.run((client) =>
+      sqliteStore.run((client) => {
+        // Conditional delete: skip when the caller supplied a stale session
+        // id, so a concurrent newer mapping cannot be cleared by an older one.
+        if (sessionId !== undefined && sessions[key] !== sessionId) return;
+        const nextSessions = { ...sessions };
+        delete nextSessions[key];
         client.transaction(() => {
-          // Conditional delete: skip when the caller supplied a stale session
-          // id, so a concurrent newer mapping cannot be cleared by an older
-          // one. The check and the row-level delete run in one transaction.
-          if (sessionId !== undefined && sessions[key] !== sessionId) {
-            return;
-          }
           deleteProviderSessionIfMatching(client, key, sessionId);
-          const nextSessions = { ...sessions };
-          delete nextSessions[key];
-          sessions = nextSessions;
-        }),
-      ),
+        });
+        sessions = nextSessions;
+      }),
     deleteThreads: (threadIds) =>
-      sqliteStore.run((client) =>
+      sqliteStore.run((client) => {
+        const { removed, remaining } = partitionSessionsByThreads(sessions, threadIds);
         client.transaction(() => {
-          // Compute the removed set from the in-memory cache — which mirrors
-          // the committed database state — so the caller can restore exactly
-          // what was detached, including a mapping loaded but not yet
-          // rewritten. Every row delete and the cache update commit together,
-          // so a partial failure cannot leave the database diverged from the
-          // caller-observed cache.
-          const { removed, remaining } = partitionSessionsByThreads(sessions, threadIds);
           // `deleteProviderSessionByKey` is a no-op when the row was never
           // persisted, so a restore can always re-insert it.
           for (const key of Object.keys(removed)) {
             deleteProviderSessionByKey(client, key);
           }
-          sessions = remaining;
-          return removed;
-        }),
-      ),
+        });
+        sessions = remaining;
+        return removed;
+      }),
     restoreThreads: (restoredSessions) =>
-      sqliteStore.run((client) =>
+      sqliteStore.run((client) => {
+        const nextSessions = { ...sessions, ...restoredSessions };
         client.transaction(() => {
           restoreProviderSessions(client, restoredSessions);
-          sessions = { ...sessions, ...restoredSessions };
-        }),
-      ),
+        });
+        sessions = nextSessions;
+      }),
     adoptCommittedProviderSessionDeletion: (removedSessions) => {
       const nextSessions = { ...sessions };
       for (const [key, sessionId] of Object.entries(removedSessions)) {
@@ -194,12 +183,12 @@ export function createSqliteProviderSessionStore(
       sessions = { ...sessions, ...restoredSessions };
     },
     reinitialize: (nextSnapshot) =>
-      sqliteStore.run((client) =>
+      sqliteStore.run((client) => {
         client.transaction(() => {
           replaceProviderSessions(client, nextSnapshot.sessions);
-          sessions = { ...nextSnapshot.sessions };
-          invalidRequests.clear();
-        }),
-      ),
+        });
+        sessions = { ...nextSnapshot.sessions };
+        invalidRequests.clear();
+      }),
   };
 }

@@ -109,9 +109,7 @@ function buildDiagnostic(
  * leak into a recovery-required result.
  */
 
-function recoveryResult(
-  diagnostics: AppStateDiagnostic[],
-): AppStateLoadResult {
+function recoveryResult(diagnostics: AppStateDiagnostic[]): AppStateLoadResult {
   return { status: "recovery-required", diagnostics: [...diagnostics] };
 }
 
@@ -334,7 +332,10 @@ export function createSqliteAppStateLifecycle(
         ]);
       }
       return recoveryResult([
-        diagnostic("reset-write", "Reset fresh database initialization failed; staged files were restored."),
+        diagnostic(
+          "reset-write",
+          "Reset fresh database initialization failed; staged files were restored.",
+        ),
       ]);
     }
 

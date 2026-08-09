@@ -59,7 +59,10 @@ type TransactionAppStateStore = {
     threadIds: string[],
     scope?: ThreadDeletionScope,
     onCommitted?: (removedProviderSessions: Record<string, string>) => void,
-  ) => Promise<{ removedProviderSessions: Record<string, string> }>;
+  ) => Promise<{
+    appState: AppStateSnapshot;
+    removedProviderSessions: Record<string, string>;
+  }>;
   hasCommittedThreadDeletion?: (operationId: string) => Promise<boolean>;
   clearCommittedThreadDeletionMarker?: (operationId: string) => Promise<void>;
 };
@@ -342,7 +345,7 @@ export function createThreadDeletionTransactionManager(options: {
               // so a failure rolls back every deleted row and leaves the
               // pre-deletion state authoritative; the catch below restores the
               // staged attachments and Runtime Sessions.
-              await deleteAppStateForThreads(
+              const deletionResult = await deleteAppStateForThreads(
                 journal.operationId,
                 transactionRequest.threadData.threadIds,
                 request.scope,
@@ -350,7 +353,7 @@ export function createThreadDeletionTransactionManager(options: {
                   options.sessionManager.adoptCommittedProviderSessionDeletion!(removedSessions),
               );
               try {
-                options.onSnapshotCommitted?.(transactionRequest.afterAppState);
+                options.onSnapshotCommitted?.(deletionResult.appState);
               } catch {
                 // The in-memory authority can reload the committed database state.
               }

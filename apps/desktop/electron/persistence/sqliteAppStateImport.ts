@@ -184,13 +184,13 @@ export async function initializeSqliteAppState(
         entries = options.readDirectory
           ? await options.readDirectory(baseDir)
           : await readdir(baseDir);
-      } catch (inspectionError) {
+      } catch {
         return recoveryDiagnostic(
           appStatePath,
           appVersion,
           completedAt,
           "read",
-          `Carrent-owned data evidence could not be inspected: ${String(inspectionError)}`,
+          "Carrent-owned data evidence could not be inspected.",
         );
       }
       const evidence = entries.find(
@@ -255,7 +255,7 @@ export async function initializeSqliteAppState(
       appVersion,
       completedAt,
       "read",
-      `App State could not be read: ${String(error)}`,
+      "App State could not be read.",
     );
   }
   let parsedAppState: unknown;
@@ -340,13 +340,13 @@ export async function initializeSqliteAppState(
 
   try {
     await copySource(appStatePath, join(baseDir, `app-state.recovery-${suffix}.json`));
-  } catch (error) {
+  } catch {
     return recoveryDiagnostic(
       appStatePath,
       appVersion,
       completedAt,
       "read",
-      `App State recovery copy could not be created: ${String(error)}`,
+      "App State recovery copy could not be created.",
     );
   }
 
@@ -370,8 +370,8 @@ export async function initializeSqliteAppState(
 
   try {
     await renameFile(appStatePath, join(baseDir, `app-state.imported-${suffix}.json`));
-  } catch (error) {
-    diagnostics.push(`Imported App State source could not be renamed: ${String(error)}`);
+  } catch {
+    diagnostics.push("Imported App State source could not be renamed.");
   }
 
   return {

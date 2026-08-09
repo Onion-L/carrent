@@ -472,13 +472,14 @@ describe("initializeSqliteAppState", () => {
       const result = await initializeSqliteAppState(sqlite, baseDir, {
         now: () => COMPLETED_AT,
         readDirectory: async () => {
-          throw new Error("inspection denied");
+          throw new Error("inspection denied with secret-session-id");
         },
       });
 
       expect(result.status).toBe("recovery-required");
       if (result.status !== "recovery-required") throw new Error("Expected recovery.");
       expect(result.diagnostics[0]?.summary).toContain("could not be inspected");
+      expect(result.diagnostics[0]?.summary).not.toContain("secret-session-id");
     } finally {
       await sqlite.close();
       await rm(baseDir, { recursive: true, force: true });
@@ -498,13 +499,14 @@ describe("initializeSqliteAppState", () => {
       const imported = await initializeSqliteAppState(sqlite, baseDir, {
         now: () => COMPLETED_AT,
         renameFile: async () => {
-          throw new Error("rename denied");
+          throw new Error("rename denied with secret-thread-title");
         },
       });
 
       expect(imported.status).toBe("ready");
       if (imported.status !== "ready") throw new Error("Expected ready App State.");
       expect(imported.diagnostics).toHaveLength(1);
+      expect(imported.diagnostics[0]).not.toContain("secret-thread-title");
       await writeFile(appStatePath, "{malformed after commit", "utf-8");
 
       const restarted = await initializeSqliteAppState(sqlite, baseDir, {
@@ -619,11 +621,13 @@ describe("initializeSqliteAppState", () => {
       const result = await initializeSqliteAppState(sqlite, baseDir, {
         now: () => COMPLETED_AT,
         copySource: async () => {
-          throw new Error("copy denied");
+          throw new Error("copy denied with secret-draft-content");
         },
       });
 
       expect(result.status).toBe("recovery-required");
+      if (result.status !== "recovery-required") throw new Error("Expected recovery.");
+      expect(result.diagnostics[0]?.summary).not.toContain("secret-draft-content");
       expect(
         await sqlite.run((client) => ({
           marker: client.get("SELECT value FROM app_metadata WHERE key = ?", "json-import-v1"),

@@ -137,7 +137,9 @@ async function pathExists(path: string): Promise<boolean> {
   return existsSync(path);
 }
 
-async function seedMarkerAsFresh(store: ReturnType<typeof createSqliteAppStateStore>): Promise<void> {
+async function seedMarkerAsFresh(
+  store: ReturnType<typeof createSqliteAppStateStore>,
+): Promise<void> {
   await store.open();
   await store.run((client) =>
     client.run(
@@ -351,7 +353,9 @@ describe("SQLite App State recovery lifecycle", () => {
         const snapshot = emptySnapshot();
         snapshot.workspaces = [{ id: "workspace-1", name: "Work", order: 0 }];
         snapshot.activeWorkspaceId = "workspace-1";
-        snapshot.projects = [{ id: "project-1", name: "Carrent", workingDirectory: "/work/carrent" }];
+        snapshot.projects = [
+          { id: "project-1", name: "Carrent", workingDirectory: "/work/carrent" },
+        ];
         snapshot.associations = [
           {
             workspaceId: "workspace-1",
@@ -383,7 +387,9 @@ describe("SQLite App State recovery lifecycle", () => {
         // corrupted into a value the strict parse rejects.
         const snapshot = emptySnapshot();
         snapshot.workspaces = [{ id: "workspace-1", name: "Work", order: 0 }];
-        snapshot.projects = [{ id: "project-1", name: "Carrent", workingDirectory: "/work/carrent" }];
+        snapshot.projects = [
+          { id: "project-1", name: "Carrent", workingDirectory: "/work/carrent" },
+        ];
         snapshot.associations = [
           {
             workspaceId: "workspace-1",
@@ -473,7 +479,11 @@ describe("SQLite App State recovery lifecycle", () => {
         expect(await pathExists(join(baseDir, "attachments"))).toBe(false);
         expect(await pathExists(join(baseDir, "carrent-chat"))).toBe(false);
         expect(await pathExists(join(baseDir, "attachments-delete-stale"))).toBe(false);
-        expect(await pathExists(join(baseDir, "app-state.imported-" + NOW.replaceAll(":", "-") + ".json"))).toBe(false);
+        expect(
+          await pathExists(
+            join(baseDir, "app-state.imported-" + NOW.replaceAll(":", "-") + ".json"),
+          ),
+        ).toBe(false);
         // A fresh database exists with the no-source marker.
         expect(await pathExists(dbPath)).toBe(true);
       },
@@ -666,7 +676,14 @@ describe("SQLite App State recovery lifecycle", () => {
             // mimics content that must not leak) never reaches the summary.
             expect(diagnostic.stage).toBe("read");
             const keys = Object.keys(diagnostic).sort();
-            expect(keys).toEqual(["appVersion", "dataPath", "occurredAt", "stage", "subsystem", "summary"]);
+            expect(keys).toEqual([
+              "appVersion",
+              "dataPath",
+              "occurredAt",
+              "stage",
+              "subsystem",
+              "summary",
+            ]);
             expect(diagnostic.summary).not.toContain("SECRET-session-id-do-not-leak");
           }
         } finally {
@@ -732,9 +749,8 @@ describe("SQLite App State recovery lifecycle", () => {
             void id;
           },
         };
-        const { recoverThreadDeletionTransaction } = await import(
-          "../chat/threadDeletionTransaction"
-        );
+        const { recoverThreadDeletionTransaction } =
+          await import("../chat/threadDeletionTransaction");
         await recoverThreadDeletionTransaction({
           journalStore,
           appStateStore: {

@@ -117,7 +117,10 @@ export interface SqliteAppStateStore {
     threadIds: string[],
     scope?: ThreadDeletionScope,
     onCommitted?: (removedProviderSessions: Record<string, string>) => void,
-  ): Promise<{ removedProviderSessions: Record<string, string> }>;
+  ): Promise<{
+    appState: AppStateSnapshot;
+    removedProviderSessions: Record<string, string>;
+  }>;
   hasCommittedThreadDeletion(operationId: string): Promise<boolean>;
   clearCommittedThreadDeletionMarker(operationId: string): Promise<void>;
   /** Update one Project path and detach its Runtime Session mappings atomically. */
@@ -233,16 +236,25 @@ export function createSqliteAppStateStore(
       open(p: string): SqliteClient;
     };
     const opened = driver.open(path);
-    const verified = applyAndVerifyPragmas(opened, pragmas);
-    const outcome = runMigrations(opened, migrations, { now });
-    client = opened;
-    return {
-      migrations: {
-        appliedVersion: outcome.appliedVersion,
-        newlyApplied: outcome.newlyApplied,
-      },
-      pragmas: verified,
-    };
+    try {
+      const verified = applyAndVerifyPragmas(opened, pragmas);
+      const outcome = runMigrations(opened, migrations, { now });
+      client = opened;
+      return {
+        migrations: {
+          appliedVersion: outcome.appliedVersion,
+          newlyApplied: outcome.newlyApplied,
+        },
+        pragmas: verified,
+      };
+    } catch (error) {
+      try {
+        opened.close();
+      } catch {
+        // Preserve the initialization error that caused recovery-required.
+      }
+      throw error;
+    }
   }
 
   function run<T>(work: (client: SqliteClient) => T | Promise<T>): Promise<T> {
@@ -282,14 +294,20 @@ export function createSqliteAppStateStore(
     threadIds: string[],
     scope?: ThreadDeletionScope,
     onCommitted?: (removedProviderSessions: Record<string, string>) => void,
-  ): Promise<{ removedProviderSessions: Record<string, string> }> {
+  ): Promise<{
+    appState: AppStateSnapshot;
+    removedProviderSessions: Record<string, string>;
+  }> {
     // The whole row-level deletion owns one transaction on the serialized
     // queue, so any constraint or statement failure rolls back every deleted
     // row and leaves the pre-deletion state authoritative.
     return run((connection) => {
-      const result = connection.transaction(() =>
-        deleteThreadsFromAppState(connection, operationId, threadIds, scope),
-      );
+      const result = connection.transaction(() => {
+        const deletion = deleteThreadsFromAppState(connection, operationId, threadIds, scope);
+        const appState = readAppStateSnapshot(connection);
+        if (!appState) throw new Error("Thread deletion produced invalid App State.");
+        return { appState, ...deletion };
+      });
       onCommitted?.(result.removedProviderSessions);
       return result;
     });

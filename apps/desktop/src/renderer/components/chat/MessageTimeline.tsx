@@ -390,29 +390,33 @@ function UserMessage({
   if (isEditing) {
     return (
       <div className="relative flex justify-end">
-        <div className="w-full max-w-[80%] rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
-          <div className="flex min-h-20 flex-wrap items-start gap-2">
-            {editState.skills.map((skill) => (
-              <SkillBadge key={skill.path} name={skill.name} path={skill.path} />
-            ))}
-            <textarea
-              value={draftBody}
-              onChange={(event) => setDraftBody(event.target.value)}
-              onKeyDown={(event) => {
-                if (
-                  event.key === "Enter" &&
-                  !event.shiftKey &&
-                  !event.nativeEvent.isComposing &&
-                  event.keyCode !== 229
-                ) {
-                  event.preventDefault();
-                  handleSubmitEdit();
-                }
-              }}
-              className="min-h-16 min-w-[14rem] flex-1 resize-none bg-transparent text-app-15 leading-6 text-user-bubble-fg outline-none placeholder:text-subtle"
-              autoFocus
-            />
-          </div>
+        <div className="w-full max-w-[90%] rounded-xl rounded-tr-sm border border-user-bubble-fg/10 bg-user-bubble p-3 shadow-lg">
+          {editState.skills.length > 0 && (
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              {editState.skills.map((skill) => (
+                <SkillBadge key={skill.path} name={skill.name} path={skill.path} />
+              ))}
+            </div>
+          )}
+          <textarea
+            aria-label="编辑消息"
+            rows={8}
+            value={draftBody}
+            onChange={(event) => setDraftBody(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing &&
+                event.keyCode !== 229
+              ) {
+                event.preventDefault();
+                handleSubmitEdit();
+              }
+            }}
+            className="block min-h-48 max-h-[55vh] w-full resize-y overflow-y-auto rounded-lg border border-user-bubble-fg/10 bg-user-bubble-fg/[0.04] px-3 py-2 text-app-15 leading-6 text-user-bubble-fg outline-none transition focus-visible:border-user-bubble-fg/30 focus-visible:ring-2 focus-visible:ring-user-bubble-fg/15"
+            autoFocus
+          />
           {attachments && attachments.length > 0 && (
             <div className="mt-2">
               <UserMessageAttachmentList
@@ -421,11 +425,11 @@ function UserMessage({
               />
             </div>
           )}
-          <div className="mt-5 flex justify-end gap-3">
+          <div className="mt-3 flex justify-end gap-2 border-t border-user-bubble-fg/10 pt-3">
             <button
               type="button"
               onClick={onCancelEdit}
-              className="rounded-full border border-white/10 px-4 py-2 text-app-15 font-semibold text-user-bubble-fg transition hover:bg-white/5"
+              className="min-h-8 rounded-md px-3 py-1.5 text-app-12 font-medium text-user-bubble-fg/75 transition hover:bg-user-bubble-fg/10 hover:text-user-bubble-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-user-bubble-fg/25"
             >
               取消
             </button>
@@ -433,7 +437,7 @@ function UserMessage({
               type="button"
               onClick={handleSubmitEdit}
               disabled={!canSubmitEdit}
-              className="rounded-full bg-white px-4 py-2 text-app-15 font-semibold text-black transition hover:bg-white/90 disabled:opacity-40"
+              className="min-h-8 rounded-md bg-user-bubble-fg px-3 py-1.5 text-app-12 font-medium text-user-bubble transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-user-bubble-fg/40 disabled:cursor-not-allowed disabled:opacity-40"
             >
               发送
             </button>

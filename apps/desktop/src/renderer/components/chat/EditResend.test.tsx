@@ -198,6 +198,27 @@ async function renderEditScenario() {
   return authority;
 }
 
+async function enterEditMode() {
+  const userBubble = [...container!.querySelectorAll<HTMLParagraphElement>("p")].find((p) =>
+    p.textContent?.includes("hello"),
+  )?.parentElement?.parentElement;
+  expect(userBubble).toBeDefined();
+  await act(async () => {
+    userBubble!.dispatchEvent(new window.MouseEvent("mouseenter", { bubbles: true }));
+    userBubble!.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+
+  const editButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.title === "Edit",
+  );
+  expect(editButton).toBeDefined();
+  await act(async () => {
+    editButton!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 afterEach(async () => {
   if (root) {
     await act(async () => root!.unmount());
@@ -208,32 +229,30 @@ afterEach(async () => {
 });
 
 describe("edit without content change", () => {
+  it("opens a spacious, resizable message editor with compact actions", async () => {
+    await renderEditScenario();
+    await enterEditMode();
+
+    const editor = container!.querySelector<HTMLTextAreaElement>('textarea[aria-label="编辑消息"]');
+    expect(editor?.getAttribute("rows")).toBe("8");
+    expect(editor?.classList.contains("min-h-48")).toBe(true);
+    expect(editor?.classList.contains("max-h-[55vh]")).toBe(true);
+    expect(editor?.classList.contains("resize-y")).toBe(true);
+
+    const sendButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "发送",
+    );
+    expect(sendButton?.classList.contains("text-app-12")).toBe(true);
+    expect(sendButton?.classList.contains("rounded-md")).toBe(true);
+  });
+
   it("prunes the previous assistant answer and starts a new run", async () => {
     await renderEditScenario();
 
     // Initially the old assistant answer is visible.
     expect(container!.textContent).toContain("old answer");
 
-    // Hover the user message bubble to reveal the Edit button.
-    const userBubble = [...container!.querySelectorAll<HTMLParagraphElement>("p")].find((p) =>
-      p.textContent?.includes("hello"),
-    )?.parentElement?.parentElement;
-    expect(userBubble).toBeDefined();
-    await act(async () => {
-      userBubble!.dispatchEvent(new window.MouseEvent("mouseenter", { bubbles: true }));
-      userBubble!.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
-
-    // Enter edit mode on the user message.
-    const editButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.title === "Edit",
-    );
-    expect(editButton).toBeDefined();
-    await act(async () => {
-      editButton!.click();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await enterEditMode();
 
     // Submit without changing the textarea content.
     const sendButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(

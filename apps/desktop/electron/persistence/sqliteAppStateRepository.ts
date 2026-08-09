@@ -52,6 +52,54 @@ type DraftRow = {
   runtime_mode: RuntimeMode;
   plan_mode: number;
 };
+type MessageRow = {
+  id: string;
+  thread_id: string;
+  role: "user" | "assistant";
+  message: string;
+  created_at: string;
+  payload: string | null;
+};
+type RunRow = {
+  id: string;
+  thread_id: string;
+  message_id: string;
+  assistant_message_id: string | null;
+  started_at: string;
+  runtime_id: RuntimeId;
+  runtime_model_id: string | null;
+  runtime_mode: RuntimeMode;
+  plan_mode: number;
+};
+type ActionRow = {
+  id: string;
+  thread_id: string;
+  action: "compact";
+  runtime_id: RuntimeId;
+  completed_at: string;
+};
+type PromotionIntentRow = {
+  draft_id: string;
+  thread_id: string;
+  workspace_id: string;
+  project_id: string;
+  title: string;
+  run_id: string;
+  message_id: string;
+  message: string;
+  attachments: string;
+  message_created_at: string | null;
+  started_at: string;
+  runtime_id: RuntimeId;
+  runtime_model_id: string | null;
+  runtime_mode: RuntimeMode;
+  plan_mode: number;
+};
+type ThreadWorkRow = {
+  thread_id: string;
+  draft: string | null;
+  queued_messages: string;
+};
 
 function parseJson(value: string | null): unknown {
   if (value === null) return undefined;
@@ -60,6 +108,20 @@ function parseJson(value: string | null): unknown {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Parse a stored JSON column that must be valid when present. Malformed stored
+ * JSON marks the load invalid so the repository returns null for the whole
+ * Snapshot instead of silently dropping the value and returning a partial
+ * history. (`JSON.parse` never yields `undefined` for valid input, so an
+ * `undefined` result from a non-null column means the stored text was
+ * malformed.)
+ */
+function parseRequiredJson(value: string, invalid: { current: boolean }): unknown {
+  const parsed = parseJson(value);
+  if (parsed === undefined) invalid.current = true;
+  return parsed;
 }
 
 function nextTemporaryValue(used: Set<string>, sequence: { value: number }): string {
@@ -72,7 +134,7 @@ function nextTemporaryValue(used: Set<string>, sequence: { value: number }): str
   return candidate;
 }
 
-export function replaceAppStateIdentityGraph(
+export function replaceAppStateSnapshot(
   client: RepositoryClient,
   snapshot: AppStateSnapshot,
 ): void {
@@ -261,6 +323,89 @@ export function replaceAppStateIdentityGraph(
     );
   }
 
+  // Thread history is part of the snapshot, so a full replacement rewrites it:
+  // wipe the history tables (runs first — they reference messages) and insert
+  // exactly what the snapshot carries. Threads and Drafts were upserted above,
+  // so every foreign key target already exists.
+  client.run("DELETE FROM thread_runs");
+  client.run("DELETE FROM thread_actions");
+  client.run("DELETE FROM promotion_intents");
+  client.run("DELETE FROM thread_work");
+  client.run("DELETE FROM thread_messages");
+  for (const message of snapshot.threadMessages ?? []) {
+    const { id, threadId, role, content, createdAt, ...payload } = message;
+    client.run(
+      `INSERT INTO thread_messages (id, thread_id, role, message, created_at, payload)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      id,
+      threadId,
+      role,
+      content,
+      createdAt,
+      JSON.stringify(payload),
+    );
+  }
+  for (const run of snapshot.threadRuns ?? []) {
+    client.run(
+      `INSERT INTO thread_runs (
+         id, thread_id, message_id, assistant_message_id, started_at,
+         runtime_id, runtime_model_id, runtime_mode, plan_mode
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      run.id,
+      run.threadId,
+      run.messageId,
+      run.assistantMessageId ?? null,
+      run.startedAt,
+      run.runtimeId,
+      run.runtimeModelId ?? null,
+      run.runtimeMode,
+      run.planMode ? 1 : 0,
+    );
+  }
+  for (const action of snapshot.threadActions ?? []) {
+    client.run(
+      `INSERT INTO thread_actions (id, thread_id, action, runtime_id, completed_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      action.id,
+      action.threadId,
+      action.action,
+      action.runtimeId,
+      action.completedAt,
+    );
+  }
+  for (const intent of snapshot.threadPromotionIntents ?? []) {
+    client.run(
+      `INSERT INTO promotion_intents (
+         draft_id, thread_id, workspace_id, project_id, title, run_id, message_id,
+         message, attachments, message_created_at, started_at, runtime_id,
+         runtime_model_id, runtime_mode, plan_mode
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      intent.draftId,
+      intent.threadId,
+      intent.workspaceId,
+      intent.projectId,
+      intent.title,
+      intent.runId,
+      intent.messageId,
+      intent.message,
+      JSON.stringify(intent.attachments),
+      intent.messageCreatedAt ?? null,
+      intent.startedAt,
+      intent.runtimeId,
+      intent.runtimeModelId ?? null,
+      intent.runtimeMode,
+      intent.planMode ? 1 : 0,
+    );
+  }
+  for (const [threadId, work] of Object.entries(snapshot.threadWork ?? {})) {
+    client.run(
+      `INSERT INTO thread_work (thread_id, draft, queued_messages) VALUES (?, ?, ?)`,
+      threadId,
+      work.draft ? JSON.stringify(work.draft) : null,
+      JSON.stringify(work.queuedMessages),
+    );
+  }
+
   const nextAssociationKeys = new Set(
     snapshot.associations.map(({ workspaceId, projectId }) => `${workspaceId}\u0000${projectId}`),
   );
@@ -303,7 +448,8 @@ export function replaceAppStateIdentityGraph(
   }
 }
 
-export function readAppStateIdentityGraph(client: RepositoryClient): AppStateSnapshot | null {
+export function readAppStateSnapshot(client: RepositoryClient): AppStateSnapshot | null {
+  const invalid = { current: false };
   const workspaces = client
     .all<WorkspaceRow>(
       'SELECT id, name, "order" AS order_value FROM workspaces ORDER BY "order", id',
@@ -352,7 +498,9 @@ export function readAppStateIdentityGraph(client: RepositoryClient): AppStateSna
       ...(row.runtime_model_id === null ? {} : { runtimeModelId: row.runtime_model_id }),
       runtimeMode: row.runtime_mode,
       planMode: row.plan_mode === 1,
-      ...(row.run_checklist === null ? {} : { runChecklist: parseJson(row.run_checklist) }),
+      ...(row.run_checklist === null
+        ? {}
+        : { runChecklist: parseRequiredJson(row.run_checklist, invalid) }),
     }));
   const threadDrafts = client
     .all<DraftRow>(
@@ -369,13 +517,100 @@ export function readAppStateIdentityGraph(client: RepositoryClient): AppStateSna
       projectId: row.project_id,
       content: row.content,
       ...(row.composer_state === null ? {} : { composerState: row.composer_state }),
-      attachedSkillNames: parseJson(row.attached_skill_names),
-      attachments: parseJson(row.attachments),
+      attachedSkillNames: parseRequiredJson(row.attached_skill_names, invalid),
+      attachments: parseRequiredJson(row.attachments, invalid),
       runtimeId: row.runtime_id,
       ...(row.runtime_model_id === null ? {} : { runtimeModelId: row.runtime_model_id }),
       runtimeMode: row.runtime_mode,
       planMode: row.plan_mode === 1,
     }));
+  const threadMessages = client
+    .all<MessageRow>(
+      `SELECT id, thread_id, role, message, created_at, payload
+       FROM thread_messages
+       ORDER BY thread_id, created_at, id`,
+    )
+    .map((row) => ({
+      // A missing payload leaves the record without its required attachment
+      // metadata, so the snapshot normalizer below rejects the whole load
+      // instead of returning a partial history; a malformed payload is caught
+      // explicitly by parseRequiredJson.
+      ...(row.payload === null
+        ? {}
+        : (parseRequiredJson(row.payload, invalid) as Record<string, unknown>)),
+      id: row.id,
+      threadId: row.thread_id,
+      role: row.role,
+      content: row.message,
+      createdAt: row.created_at,
+    }));
+  const threadRuns = client
+    .all<RunRow>(
+      `SELECT id, thread_id, message_id, assistant_message_id, started_at,
+              runtime_id, runtime_model_id, runtime_mode, plan_mode
+       FROM thread_runs
+       ORDER BY thread_id, started_at, id`,
+    )
+    .map((row) => ({
+      id: row.id,
+      threadId: row.thread_id,
+      messageId: row.message_id,
+      ...(row.assistant_message_id === null
+        ? {}
+        : { assistantMessageId: row.assistant_message_id }),
+      startedAt: row.started_at,
+      runtimeId: row.runtime_id,
+      ...(row.runtime_model_id === null ? {} : { runtimeModelId: row.runtime_model_id }),
+      runtimeMode: row.runtime_mode,
+      planMode: row.plan_mode === 1,
+    }));
+  const threadActions = client
+    .all<ActionRow>(
+      `SELECT id, thread_id, action, runtime_id, completed_at
+       FROM thread_actions
+       ORDER BY thread_id, completed_at, id`,
+    )
+    .map((row) => ({
+      id: row.id,
+      threadId: row.thread_id,
+      action: row.action,
+      runtimeId: row.runtime_id,
+      completedAt: row.completed_at,
+    }));
+  const threadPromotionIntents = client
+    .all<PromotionIntentRow>(
+      `SELECT draft_id, thread_id, workspace_id, project_id, title, run_id, message_id,
+              message, attachments, message_created_at, started_at, runtime_id,
+              runtime_model_id, runtime_mode, plan_mode
+       FROM promotion_intents
+       ORDER BY draft_id`,
+    )
+    .map((row) => ({
+      draftId: row.draft_id,
+      threadId: row.thread_id,
+      workspaceId: row.workspace_id,
+      projectId: row.project_id,
+      title: row.title,
+      runId: row.run_id,
+      messageId: row.message_id,
+      message: row.message,
+      attachments: parseRequiredJson(row.attachments, invalid),
+      ...(row.message_created_at === null ? {} : { messageCreatedAt: row.message_created_at }),
+      startedAt: row.started_at,
+      runtimeId: row.runtime_id,
+      ...(row.runtime_model_id === null ? {} : { runtimeModelId: row.runtime_model_id }),
+      runtimeMode: row.runtime_mode,
+      planMode: row.plan_mode === 1,
+    }));
+  const threadWork: Record<string, unknown> = {};
+  for (const row of client.all<ThreadWorkRow>(
+    "SELECT thread_id, draft, queued_messages FROM thread_work ORDER BY thread_id",
+  )) {
+    threadWork[row.thread_id] = {
+      ...(row.draft === null ? {} : { draft: parseRequiredJson(row.draft, invalid) }),
+      queuedMessages: parseRequiredJson(row.queued_messages, invalid),
+    };
+  }
   const settingsValue = client.get<{ value: string }>(
     "SELECT value FROM settings WHERE id = 1",
   )?.value;
@@ -396,6 +631,8 @@ export function readAppStateIdentityGraph(client: RepositoryClient): AppStateSna
       "active_workspace_id",
     )?.value ?? null;
 
+  if (invalid.current) return null;
+
   return normalizeAppStateSnapshotForWrite({
     version: APP_STATE_SNAPSHOT_VERSION,
     workspaces,
@@ -403,11 +640,11 @@ export function readAppStateIdentityGraph(client: RepositoryClient): AppStateSna
     associations,
     threads,
     threadDrafts,
-    threadMessages: [],
-    threadRuns: [],
-    threadActions: [],
-    threadPromotionIntents: [],
-    threadWork: {},
+    threadMessages,
+    threadRuns,
+    threadActions,
+    threadPromotionIntents,
+    threadWork,
     ...(settings ? { settings } : {}),
     lastThreadIdByWorkspace,
     activeWorkspaceId,

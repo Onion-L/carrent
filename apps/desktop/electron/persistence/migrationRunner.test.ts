@@ -13,7 +13,7 @@ async function makeTempDir(): Promise<string> {
 describe("migration registry", () => {
   it("is the contiguous sequence 1..n", () => {
     expect(() => assertMigrationsWellFormed(MIGRATIONS)).not.toThrow();
-    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2]);
+    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2, 3]);
   });
 
   it("rejects a reordered or gapped registry", () => {
@@ -32,8 +32,8 @@ describe("runMigrations", () => {
       const db = openBunSqliteClient(join(dir, "app.db"));
       const outcome = runMigrations(db, MIGRATIONS, { now: () => "2026-08-09T00:00:00.000Z" });
 
-      expect(outcome.appliedVersion).toBe(2);
-      expect(outcome.newlyApplied).toEqual([1, 2]);
+      expect(outcome.appliedVersion).toBe(3);
+      expect(outcome.newlyApplied).toEqual([1, 2, 3]);
 
       const recorded = db.get<{ version: number; name: string; applied_at: string }>(
         "SELECT version, name, applied_at FROM schema_migrations WHERE version = ?",
@@ -85,12 +85,12 @@ describe("runMigrations", () => {
 
       const second = openBunSqliteClient(path);
       const outcome = runMigrations(second, MIGRATIONS, { now: () => "2026-08-09T00:00:01.000Z" });
-      expect(outcome.appliedVersion).toBe(2);
+      expect(outcome.appliedVersion).toBe(3);
       expect(outcome.newlyApplied).toEqual([]);
 
       // No duplicate migration rows exist after a second run.
       const count = second.get<{ c: number }>("SELECT COUNT(*) AS c FROM schema_migrations")?.c;
-      expect(count).toBe(2);
+      expect(count).toBe(3);
       second.close();
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -110,7 +110,7 @@ describe("runMigrations", () => {
       const failingRegistry: Migration[] = [
         ...MIGRATIONS,
         {
-          version: 3,
+          version: 4,
           name: "failing",
           up: (ctx) => {
             ctx.exec("CREATE TABLE sentinel (id INTEGER PRIMARY KEY)");
@@ -122,7 +122,7 @@ describe("runMigrations", () => {
       const db = openBunSqliteClient(path);
       expect(() => runMigrations(db, failingRegistry)).toThrow("injected failure");
 
-      // The failed migration left no trace: no sentinel table, no version-3 row.
+      // The failed migration left no trace: no sentinel table, no version-4 row.
       const sentinel = db
         .all<{ name: string }>(
           "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sentinel'",
@@ -132,7 +132,7 @@ describe("runMigrations", () => {
       const recorded = db
         .all<{ version: number }>("SELECT version FROM schema_migrations ORDER BY version")
         .map((row) => row.version);
-      expect(recorded).toEqual([1, 2]);
+      expect(recorded).toEqual([1, 2, 3]);
       db.close();
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -298,6 +298,79 @@ describe("runMigrations", () => {
           .all<{ version: number }>("SELECT version FROM schema_migrations ORDER BY version")
           .map((row) => row.version),
       ).toEqual([1]);
+      upgrade.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("upgrades a version-2 database by adding and backfilling message payloads", async () => {
+    const dir = await makeTempDir();
+    try {
+      const path = join(dir, "app.db");
+      const setup = openBunSqliteClient(path);
+      runMigrations(setup, MIGRATIONS.slice(0, 2), {
+        now: () => "2026-08-09T00:00:00.000Z",
+      });
+      setup.exec("PRAGMA foreign_keys = ON");
+      setup.run('INSERT INTO workspaces (id, name, "order") VALUES (?, ?, ?)', "w1", "Work", 0);
+      setup.run(
+        `INSERT INTO projects (id, name, working_directory, working_directory_identity)
+         VALUES (?, ?, ?, ?)`,
+        "p1",
+        "Project",
+        "/work/project",
+        "/work/project",
+      );
+      setup.run(
+        `INSERT INTO workspace_project_associations
+           (workspace_id, project_id, "order", default_runtime_id, default_runtime_mode)
+         VALUES (?, ?, ?, ?, ?)`,
+        "w1",
+        "p1",
+        0,
+        "kimi",
+        "approval-required",
+      );
+      setup.run(
+        `INSERT INTO threads (
+           id, workspace_id, project_id, title, created_at, last_activity_at,
+           runtime_id, runtime_mode, plan_mode
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        "thread-1",
+        "w1",
+        "p1",
+        "Existing",
+        "2026-08-09T00:00:00.000Z",
+        "2026-08-09T00:00:00.000Z",
+        "kimi",
+        "approval-required",
+        0,
+      );
+      // A message row written before payloads existed.
+      setup.run(
+        `INSERT INTO thread_messages (id, thread_id, role, message, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        "message-1",
+        "thread-1",
+        "user",
+        "pre-payload",
+        "2026-08-09T00:00:00.000Z",
+      );
+      setup.close();
+
+      const upgrade = openBunSqliteClient(path);
+      const outcome = runMigrations(upgrade, MIGRATIONS, {
+        now: () => "2026-08-09T00:00:01.000Z",
+      });
+      expect(outcome.appliedVersion).toBe(3);
+      expect(outcome.newlyApplied).toEqual([3]);
+
+      const message = upgrade.get<{ payload: string }>(
+        "SELECT payload FROM thread_messages WHERE id = ?",
+        "message-1",
+      );
+      expect(message?.payload).toBe('{"attachments":[]}');
       upgrade.close();
     } finally {
       await rm(dir, { recursive: true, force: true });

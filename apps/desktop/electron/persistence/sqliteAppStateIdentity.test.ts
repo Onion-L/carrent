@@ -309,7 +309,7 @@ describe("SQLite App State identity graph", () => {
     }
   });
 
-  it("preserves existing conversation rows when replacing Thread identity metadata", async () => {
+  it("replaces conversation rows from the snapshot when rewriting Thread identity metadata", async () => {
     const dir = await mkdtemp(join(tmpdir(), "carrent-sqlite-identity-"));
     try {
       const store = createSqliteAppStateStore(join(dir, "carrent.sqlite"), {
@@ -320,13 +320,14 @@ describe("SQLite App State identity graph", () => {
       await store.saveAppStateSnapshot(snapshot);
       await store.run((client) => {
         client.run(
-          `INSERT INTO thread_messages (id, thread_id, role, message, created_at)
-           VALUES (?, ?, ?, ?, ?)`,
+          `INSERT INTO thread_messages (id, thread_id, role, message, created_at, payload)
+           VALUES (?, ?, ?, ?, ?, ?)`,
           "message-1",
           "thread-current",
           "user",
           "keep me",
           "2026-08-09T08:30:00.000Z",
+          '{"attachments":[]}',
         );
         client.run(
           `INSERT INTO thread_actions (id, thread_id, action, runtime_id, completed_at)
@@ -344,6 +345,8 @@ describe("SQLite App State identity graph", () => {
         );
       });
 
+      // The snapshot claims this Thread has no history, so a full replacement
+      // removes the rows that are not part of it.
       const renamed: AppStateSnapshot = {
         ...snapshot,
         threads: snapshot.threads?.map((thread) =>
@@ -359,7 +362,7 @@ describe("SQLite App State identity graph", () => {
           ?.count,
         work: client.get<{ count: number }>("SELECT COUNT(*) AS count FROM thread_work")?.count,
       }));
-      expect(counts).toEqual({ messages: 1, actions: 1, work: 1 });
+      expect(counts).toEqual({ messages: 0, actions: 0, work: 0 });
       expect((await store.loadAppStateSnapshot())?.threads?.[0]?.title).toBe("Renamed identity");
       await store.close();
     } finally {

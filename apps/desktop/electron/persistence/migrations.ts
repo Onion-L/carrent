@@ -47,6 +47,11 @@ export const MIGRATIONS: readonly Migration[] = [
     name: "enforce-identity-graph-constraints",
     up: enforceIdentityGraphConstraints,
   },
+  {
+    version: 3,
+    name: "thread-message-payloads",
+    up: addThreadMessagePayloads,
+  },
 ];
 
 /**
@@ -291,6 +296,24 @@ export const INITIAL_APP_STATE_SCHEMA_SQL = `
  */
 function initialStateSchema(context: MigrationContext): void {
   context.exec(INITIAL_APP_STATE_SCHEMA_SQL);
+}
+
+/**
+ * Thread history storage: a message's identity, ownership, role, content, and
+ * timestamp stay in normalized columns (they are the query fields), while the
+ * non-query nested structures — activity parts, attachment metadata, changed
+ * files and their snapshot, and run flags — persist as one validated JSON
+ * payload per message. Attachment bytes never enter SQLite; the payload only
+ * carries their metadata (storage keys, hashes, dimensions).
+ *
+ * Rows written before this migration have no payload; backfill them with the
+ * minimal valid payload so they still satisfy the snapshot normalizer.
+ */
+function addThreadMessagePayloads(context: MigrationContext): void {
+  context.exec(`
+    ALTER TABLE thread_messages ADD COLUMN payload TEXT;
+    UPDATE thread_messages SET payload = '{"attachments":[]}' WHERE payload IS NULL;
+  `);
 }
 
 function enforceIdentityGraphConstraints(context: MigrationContext): void {

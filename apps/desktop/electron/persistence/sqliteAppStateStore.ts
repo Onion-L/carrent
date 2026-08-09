@@ -3,13 +3,10 @@ import { dirname } from "node:path";
 import { MIGRATIONS } from "./migrations";
 import { runMigrations } from "./migrationRunner";
 import { getSqliteDriver } from "./runtimeSqlite";
-import {
-  readAppStateIdentityGraph,
-  replaceAppStateIdentityGraph,
-} from "./sqliteAppStateRepository";
+import { readAppStateSnapshot, replaceAppStateSnapshot } from "./sqliteAppStateRepository";
 import type { SqliteClient, SqliteDriver } from "./sqliteClient";
 import {
-  normalizeAppStateSnapshotForWrite,
+  normalizePersistedAppStateSnapshot,
   type AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
 
@@ -94,9 +91,9 @@ export interface SqliteAppStateStore {
    * the command-aware persistence use.
    */
   run<T>(work: (client: SqliteClient) => T | Promise<T>): Promise<T>;
-  /** Replace the persisted identity graph atomically after validating it. */
+  /** Replace the persisted App State Snapshot atomically after validating it. */
   saveAppStateSnapshot(snapshot: AppStateSnapshot): Promise<void>;
-  /** Load the persisted identity graph, or null when stored rows are invalid. */
+  /** Load the persisted App State Snapshot, or null when stored rows are invalid. */
   loadAppStateSnapshot(): Promise<AppStateSnapshot | null>;
   /**
    * Resolves once every operation submitted so far has settled, so quit-time
@@ -229,15 +226,19 @@ export function createSqliteAppStateStore(
   }
 
   function saveAppStateSnapshot(snapshot: AppStateSnapshot): Promise<void> {
-    const normalized = normalizeAppStateSnapshotForWrite(snapshot);
+    // Full replacement is reserved for complete snapshots (import, recovery,
+    // reset, test fixtures): the persisted-snapshot normalizer requires every
+    // history collection to be present, so a partial snapshot is rejected
+    // loudly instead of silently wiping the rows it omits.
+    const normalized = normalizePersistedAppStateSnapshot(snapshot);
     if (!normalized) return Promise.reject(new Error("Invalid App State snapshot."));
     return run((connection) =>
-      connection.transaction(() => replaceAppStateIdentityGraph(connection, normalized)),
+      connection.transaction(() => replaceAppStateSnapshot(connection, normalized)),
     );
   }
 
   function loadAppStateSnapshot(): Promise<AppStateSnapshot | null> {
-    return run((connection) => readAppStateIdentityGraph(connection));
+    return run((connection) => readAppStateSnapshot(connection));
   }
 
   async function close(): Promise<void> {

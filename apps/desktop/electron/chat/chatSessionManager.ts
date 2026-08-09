@@ -5,6 +5,7 @@ import type {
   DeleteThreadDataRequest,
   RuntimeSessionRecovery,
   ThreadDataDeletionReceipt,
+  ThreadDataDeletionOptions,
 } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import type { ChatQuestionResponse } from "../../src/shared/chatQuestions";
@@ -42,8 +43,12 @@ export interface ChatSessionManager {
   shutdown: () => Promise<void>;
   hasLiveRuns?: () => boolean;
   removeRuntimeSession: (request: RuntimeSessionRecovery) => Promise<void>;
-  deleteThreadData: (request: DeleteThreadDataRequest) => Promise<ThreadDataDeletionReceipt | void>;
+  deleteThreadData: (
+    request: DeleteThreadDataRequest,
+    options?: ThreadDataDeletionOptions,
+  ) => Promise<ThreadDataDeletionReceipt | void>;
   rollbackThreadDataDeletion?: (receipt: ThreadDataDeletionReceipt) => Promise<void>;
+  adoptCommittedThreadDeletion?: (removedSessions: Record<string, string>) => void;
   hasLiveRunForThreads?: (threadIds: string[]) => boolean;
   detachRuntimeSessions?: (threadIds: string[]) => Promise<RuntimeSessionDetachmentReceipt>;
   restoreRuntimeSessions?: (receipt: RuntimeSessionDetachmentReceipt) => Promise<void>;
@@ -73,6 +78,7 @@ export type ProviderSessionStore = {
     threadIds: string[],
   ) => Record<string, string> | void | Promise<Record<string, string> | void>;
   restoreThreads?: (sessions: Record<string, string>) => void | Promise<void>;
+  adoptCommittedThreadDeletion?: (removedSessions: Record<string, string>) => void;
 };
 
 export function createChatSessionManager(options: {
@@ -435,12 +441,19 @@ export function createChatSessionManager(options: {
     }
   }
 
-  async function deleteThreadData(request: DeleteThreadDataRequest) {
+  async function deleteThreadData(
+    request: DeleteThreadDataRequest,
+    deletionOptions: ThreadDataDeletionOptions = {},
+  ) {
     const threadIds = [...new Set(request.threadIds)];
     if (threadIds.length === 0) {
       throw new Error("At least one thread is required for deletion.");
     }
-    if (options.providerSessions && !options.providerSessions.deleteThreads) {
+    if (
+      !deletionOptions.deferProviderSessionDeletion &&
+      options.providerSessions &&
+      !options.providerSessions.deleteThreads
+    ) {
       throw new Error("Provider session cleanup is unavailable.");
     }
     if (request.attachmentStorageKeys.length > 0 && !options.attachmentStore) {
@@ -481,7 +494,9 @@ export function createChatSessionManager(options: {
 
     let removedProviderSessions: Record<string, string> | void = undefined;
     try {
-      removedProviderSessions = await options.providerSessions?.deleteThreads?.(threadIds);
+      removedProviderSessions = deletionOptions.deferProviderSessionDeletion
+        ? undefined
+        : await options.providerSessions?.deleteThreads?.(threadIds);
       if (request.attachmentStorageKeys.length > 0) {
         await options.attachmentStore!.deleteAttachments(request.attachmentStorageKeys);
       }
@@ -541,6 +556,12 @@ export function createChatSessionManager(options: {
       if (!restored) throw rollbackError;
     }
   }
+
+  const adoptCommittedThreadDeletion = options.providerSessions?.adoptCommittedThreadDeletion
+    ? (removedSessions: Record<string, string>) => {
+        options.providerSessions!.adoptCommittedThreadDeletion!(removedSessions);
+      }
+    : undefined;
 
   function hasLiveRunForThreads(threadIds: string[]) {
     const ids = new Set(threadIds);
@@ -759,6 +780,7 @@ export function createChatSessionManager(options: {
     removeRuntimeSession,
     deleteThreadData,
     rollbackThreadDataDeletion,
+    adoptCommittedThreadDeletion,
     hasLiveRunForThreads,
     detachRuntimeSessions,
     restoreRuntimeSessions,

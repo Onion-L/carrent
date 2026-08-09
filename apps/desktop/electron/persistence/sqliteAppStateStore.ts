@@ -4,8 +4,10 @@ import { MIGRATIONS } from "./migrations";
 import { runMigrations } from "./migrationRunner";
 import { getSqliteDriver } from "./runtimeSqlite";
 import { readAppStateSnapshot, replaceAppStateSnapshot } from "./sqliteAppStateRepository";
+import { deleteThreadsFromAppState, threadDeletionOperationKey } from "./sqliteAppStateDeletion";
 import type { SqliteClient, SqliteDriver } from "./sqliteClient";
 import type { AppStateCommand } from "../../src/shared/appStateAuthority";
+import type { ThreadDeletionScope } from "../../src/shared/chat";
 import {
   normalizePersistedAppStateSnapshot,
   type AppStateSnapshot,
@@ -103,6 +105,20 @@ export interface SqliteAppStateStore {
   ): Promise<void>;
   /** Load the persisted App State Snapshot, or null when stored rows are invalid. */
   loadAppStateSnapshot(): Promise<AppStateSnapshot | null>;
+  /**
+   * Permanently delete the Thread-owned relational state for `threadIds`,
+   * scoped by `scope` (threads / association / workspace), in one database
+   * transaction. Returns the removed Provider Session mappings so the caller
+   * can restore them on rollback. A failure rolls back every deleted row.
+   */
+  deleteAppStateForThreads(
+    operationId: string,
+    threadIds: string[],
+    scope?: ThreadDeletionScope,
+    onCommitted?: (removedProviderSessions: Record<string, string>) => void,
+  ): Promise<{ removedProviderSessions: Record<string, string> }>;
+  hasCommittedThreadDeletion(operationId: string): Promise<boolean>;
+  clearCommittedThreadDeletionMarker(operationId: string): Promise<void>;
   /**
    * Resolves once every operation submitted so far has settled, so quit-time
    * flows can drain pending writes before the process exits.
@@ -249,6 +265,43 @@ export function createSqliteAppStateStore(
     return run((connection) => readAppStateSnapshot(connection));
   }
 
+  function deleteAppStateForThreads(
+    operationId: string,
+    threadIds: string[],
+    scope?: ThreadDeletionScope,
+    onCommitted?: (removedProviderSessions: Record<string, string>) => void,
+  ): Promise<{ removedProviderSessions: Record<string, string> }> {
+    // The whole row-level deletion owns one transaction on the serialized
+    // queue, so any constraint or statement failure rolls back every deleted
+    // row and leaves the pre-deletion state authoritative.
+    return run((connection) => {
+      const result = connection.transaction(() =>
+        deleteThreadsFromAppState(connection, operationId, threadIds, scope),
+      );
+      onCommitted?.(result.removedProviderSessions);
+      return result;
+    });
+  }
+
+  function hasCommittedThreadDeletion(operationId: string): Promise<boolean> {
+    return run(
+      (connection) =>
+        connection.get(
+          "SELECT key FROM app_metadata WHERE key = ?",
+          threadDeletionOperationKey(operationId),
+        ) !== null,
+    );
+  }
+
+  function clearCommittedThreadDeletionMarker(operationId: string): Promise<void> {
+    return run((connection) => {
+      connection.run(
+        "DELETE FROM app_metadata WHERE key = ?",
+        threadDeletionOperationKey(operationId),
+      );
+    });
+  }
+
   function persistAppStateCommand(
     command: AppStateCommand,
     before: AppStateSnapshot,
@@ -281,6 +334,9 @@ export function createSqliteAppStateStore(
     saveAppStateSnapshot,
     persistAppStateCommand,
     loadAppStateSnapshot,
+    deleteAppStateForThreads,
+    hasCommittedThreadDeletion,
+    clearCommittedThreadDeletionMarker,
     waitForIdle,
     close,
     get isOpen() {

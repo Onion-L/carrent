@@ -5,6 +5,8 @@ import { randomUUID } from "node:crypto";
 import type {
   DeleteThreadDataRequest,
   ThreadDataDeletionReceipt,
+  ThreadDataDeletionOptions,
+  ThreadDeletionScope,
   ThreadDeletionTransactionRequest,
 } from "../../src/shared/chat";
 import { applyThreadDeletionToAppState } from "../../src/shared/chat";
@@ -17,8 +19,22 @@ export type ThreadDeletionJournal = {
   version: 1;
   operationId: string;
   phase: "preparing" | "committed";
-  request: ThreadDeletionTransactionRequest;
-  removedProviderSessions: Record<string, string>;
+  /**
+   * Attachment storage keys staged for deletion, so recovery can finish or roll
+   * back the file phase. Requirement: the journal records only the operation,
+   * target attachments, and file phase — not full before/after App State
+   * Snapshots or Runtime Session content.
+   */
+  attachmentStorageKeys: string[];
+  /**
+   * Carried only by the JSON-era full-snapshot path so its recovery can restore
+   * the pre-deletion snapshot and Runtime Sessions. The SQLite row-level path
+   * omits these: the database transaction is authoritative, so a `preparing`
+   * journal means the deletion rolled back and recovery only restores staged
+   * attachment files.
+   */
+  request?: ThreadDeletionTransactionRequest;
+  removedProviderSessions?: Record<string, string>;
 };
 
 export type ThreadDeletionJournalStore = {
@@ -33,6 +49,19 @@ type TransactionAppStateStore = {
   loadProviderSessions: () => Promise<ProviderSessionSnapshot>;
   saveProviderSessions: (snapshot: ProviderSessionSnapshot) => Promise<void>;
   saveAppStateSnapshot: (snapshot: AppStateSnapshot) => Promise<void>;
+  /**
+   * Optional row-level deletion (SQLite path). When present, the manager deletes
+   * Thread-owned rows inside one database transaction instead of replacing the
+   * full App State Snapshot, and uses the returned mappings for rollback.
+   */
+  deleteAppStateForThreads?: (
+    operationId: string,
+    threadIds: string[],
+    scope?: ThreadDeletionScope,
+    onCommitted?: (removedProviderSessions: Record<string, string>) => void,
+  ) => Promise<{ removedProviderSessions: Record<string, string> }>;
+  hasCommittedThreadDeletion?: (operationId: string) => Promise<boolean>;
+  clearCommittedThreadDeletionMarker?: (operationId: string) => Promise<void>;
 };
 
 type TransactionAttachmentStore = {
@@ -42,8 +71,12 @@ type TransactionAttachmentStore = {
 };
 
 type TransactionSessionManager = {
-  deleteThreadData: (request: DeleteThreadDataRequest) => Promise<ThreadDataDeletionReceipt | void>;
+  deleteThreadData: (
+    request: DeleteThreadDataRequest,
+    options?: ThreadDataDeletionOptions,
+  ) => Promise<ThreadDataDeletionReceipt | void>;
   rollbackThreadDataDeletion: (receipt: ThreadDataDeletionReceipt) => Promise<void>;
+  adoptCommittedThreadDeletion?: (removedSessions: Record<string, string>) => void;
 };
 
 function removedProviderSessions(
@@ -56,6 +89,26 @@ function removedProviderSessions(
       suffixes.some((suffix) => key.endsWith(suffix)),
     ),
   );
+}
+
+function collectScopedThreadIds(
+  snapshot: AppStateSnapshot,
+  requestedThreadIds: string[],
+  scope?: ThreadDeletionScope,
+): string[] {
+  const ids = new Set(requestedThreadIds);
+  if (scope?.kind === "association") {
+    for (const thread of snapshot.threads ?? []) {
+      if (thread.workspaceId === scope.workspaceId && thread.projectId === scope.projectId) {
+        ids.add(thread.id);
+      }
+    }
+  } else if (scope?.kind === "workspace") {
+    for (const thread of snapshot.threads ?? []) {
+      if (thread.workspaceId === scope.workspaceId) ids.add(thread.id);
+    }
+  }
+  return [...ids];
 }
 
 async function retryTwice(operation: () => Promise<void>) {
@@ -103,17 +156,27 @@ async function restorePreparingTransaction(options: {
 }) {
   const rollbackErrors: unknown[] = [];
   const { journal } = options;
-  const operations = [
-    () => options.appStateStore.saveAppStateSnapshot(journal.request.beforeAppState),
-    async () => {
-      const current = await options.appStateStore.loadProviderSessions();
-      await options.appStateStore.saveProviderSessions({
-        version: 1,
-        sessions: { ...current.sessions, ...journal.removedProviderSessions },
+  // The JSON-era full-snapshot path carried the pre-deletion snapshot and
+  // removed Provider Sessions in the journal so recovery can restore them. The
+  // SQLite row-level path omits them: a `preparing` journal means the database
+  // deletion rolled back, so recovery only needs to restore the staged
+  // attachment files — the relational rows and Runtime Sessions are intact.
+  const operations: Array<() => Promise<void>> = [];
+  if (journal.request) {
+    operations.push(() =>
+      options.appStateStore.saveAppStateSnapshot(journal.request!.beforeAppState),
+    );
+    if (journal.removedProviderSessions) {
+      operations.push(async () => {
+        const current = await options.appStateStore.loadProviderSessions();
+        await options.appStateStore.saveProviderSessions({
+          version: 1,
+          sessions: { ...current.sessions, ...journal.removedProviderSessions! },
+        });
       });
-    },
-    () => options.attachmentStore.rollbackDeletion(journal.operationId),
-  ];
+    }
+  }
+  operations.push(() => options.attachmentStore.rollbackDeletion(journal.operationId));
   for (const operation of operations) {
     try {
       await retryTwice(operation);
@@ -136,6 +199,7 @@ async function finishCommittedTransaction(options: {
   const { journal } = options;
   await retryTwice(async () => {
     await options.attachmentStore.commitDeletion(journal.operationId);
+    await options.appStateStore.clearCommittedThreadDeletionMarker?.(journal.operationId);
     await options.journalStore.clear();
   });
 }
@@ -147,7 +211,12 @@ export async function recoverThreadDeletionTransaction(options: {
 }) {
   const journal = await options.journalStore.load();
   if (!journal) return;
-  if (journal.phase === "committed") {
+  const databaseCommitted =
+    journal.phase === "committed" ||
+    (options.appStateStore.hasCommittedThreadDeletion
+      ? await options.appStateStore.hasCommittedThreadDeletion(journal.operationId)
+      : false);
+  if (databaseCommitted) {
     await finishCommittedTransaction({ ...options, journal });
     return;
   }
@@ -196,26 +265,52 @@ export function createThreadDeletionTransactionManager(options: {
           if (!beforeAppState) {
             throw new Error("Thread deletion requires persisted App State.");
           }
-          const afterAppState = applyThreadDeletionToAppState(
+          const threadIds = collectScopedThreadIds(
             beforeAppState,
             request.threadData.threadIds,
+            request.scope,
+          );
+          const afterAppState = applyThreadDeletionToAppState(
+            beforeAppState,
+            threadIds,
             request.scope,
           );
           const transactionRequest: ThreadDeletionTransactionRequest = {
             ...request,
             beforeAppState,
             afterAppState,
+            threadData: { ...request.threadData, threadIds },
           };
-          const providerSnapshot = await options.appStateStore.loadProviderSessions();
+          const deleteAppStateForThreads = options.appStateStore.deleteAppStateForThreads;
+          if (
+            deleteAppStateForThreads &&
+            (!options.appStateStore.hasCommittedThreadDeletion ||
+              !options.appStateStore.clearCommittedThreadDeletionMarker ||
+              !options.sessionManager.adoptCommittedThreadDeletion)
+          ) {
+            throw new Error("SQLite Thread deletion coordination is unavailable.");
+          }
+          // The SQLite row-level path writes a slim journal (operation, target
+          // attachments, file phase) because the database transaction is
+          // authoritative; the JSON-era full-snapshot path still carries the
+          // before/after snapshot and removed sessions for its own recovery.
+          const providerSnapshot = deleteAppStateForThreads
+            ? null
+            : await options.appStateStore.loadProviderSessions();
           const journal: ThreadDeletionJournal = {
             version: 1,
             operationId: options.createOperationId?.() ?? randomUUID(),
             phase: "preparing",
-            request: transactionRequest,
-            removedProviderSessions: removedProviderSessions(
-              providerSnapshot,
-              transactionRequest.threadData.threadIds,
-            ),
+            attachmentStorageKeys: transactionRequest.threadData.attachmentStorageKeys,
+            ...(deleteAppStateForThreads
+              ? {}
+              : {
+                  request: transactionRequest,
+                  removedProviderSessions: removedProviderSessions(
+                    providerSnapshot!,
+                    transactionRequest.threadData.threadIds,
+                  ),
+                }),
           };
           await options.journalStore.save(journal);
           recoveryPending = true;
@@ -228,28 +323,54 @@ export function createThreadDeletionTransactionManager(options: {
             );
             const deletionReceipt =
               transactionRequest.threadData.threadIds.length > 0
-                ? await options.sessionManager.deleteThreadData({
-                    ...transactionRequest.threadData,
-                    attachmentStorageKeys: [],
-                  })
+                ? await options.sessionManager.deleteThreadData(
+                    {
+                      ...transactionRequest.threadData,
+                      attachmentStorageKeys: [],
+                    },
+                    deleteAppStateForThreads ? { deferProviderSessionDeletion: true } : undefined,
+                  )
                 : undefined;
             receipt = deletionReceipt ?? {
               threadIds: transactionRequest.threadData.threadIds,
-              removedProviderSessions: journal.removedProviderSessions,
+              removedProviderSessions: journal.removedProviderSessions ?? {},
               detachedRuntimeSessions: {},
             };
-            await options.appStateStore.saveAppStateSnapshot(transactionRequest.afterAppState);
-            options.onSnapshotCommitted?.(transactionRequest.afterAppState);
-            await options.journalStore.save({ ...journal, phase: "committed" });
+            if (deleteAppStateForThreads) {
+              // Row-level: delete the Thread-owned rows in one database
+              // transaction. The transaction owns the whole relational deletion,
+              // so a failure rolls back every deleted row and leaves the
+              // pre-deletion state authoritative; the catch below restores the
+              // staged attachments and Runtime Sessions.
+              await deleteAppStateForThreads(
+                journal.operationId,
+                transactionRequest.threadData.threadIds,
+                request.scope,
+                (removedSessions) =>
+                  options.sessionManager.adoptCommittedThreadDeletion!(removedSessions),
+              );
+              try {
+                options.onSnapshotCommitted?.(transactionRequest.afterAppState);
+              } catch {
+                // The in-memory authority can reload the committed database state.
+              }
+            } else {
+              await options.appStateStore.saveAppStateSnapshot(transactionRequest.afterAppState);
+              options.onSnapshotCommitted?.(transactionRequest.afterAppState);
+              await options.journalStore.save({ ...journal, phase: "committed" });
+            }
           } catch (error) {
             const rollbackErrors: unknown[] = [];
-            const operations = [
-              () => options.appStateStore.saveAppStateSnapshot(transactionRequest.beforeAppState),
-              ...(receipt
-                ? [() => options.sessionManager.rollbackThreadDataDeletion(receipt!)]
-                : []),
-              () => options.attachmentStore.rollbackDeletion(journal.operationId),
-            ];
+            const operations: Array<() => Promise<void>> = [];
+            if (!deleteAppStateForThreads) {
+              operations.push(() =>
+                options.appStateStore.saveAppStateSnapshot(transactionRequest.beforeAppState),
+              );
+            }
+            if (receipt) {
+              operations.push(() => options.sessionManager.rollbackThreadDataDeletion(receipt!));
+            }
+            operations.push(() => options.attachmentStore.rollbackDeletion(journal.operationId));
             for (const operation of operations) {
               try {
                 await retryTwice(operation);
@@ -266,6 +387,15 @@ export function createThreadDeletionTransactionManager(options: {
             await options.journalStore.clear();
             recoveryPending = false;
             throw error;
+          }
+
+          if (deleteAppStateForThreads) {
+            try {
+              await options.journalStore.save({ ...journal, phase: "committed" });
+            } catch {
+              // The database operation marker is authoritative. A preparing
+              // file journal is therefore safely completed during recovery.
+            }
           }
 
           try {

@@ -68,6 +68,10 @@ export type DeleteThreadDataRequest = {
   attachmentStorageKeys: string[];
 };
 
+export type ThreadDataDeletionOptions = {
+  deferProviderSessionDeletion?: boolean;
+};
+
 export type ThreadDataDeletionReceipt = {
   threadIds: string[];
   removedProviderSessions: Record<string, string>;

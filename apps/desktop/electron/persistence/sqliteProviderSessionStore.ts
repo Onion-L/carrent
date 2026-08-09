@@ -42,6 +42,7 @@ export type SqliteProviderSessionStore = ProviderSessionStore & {
    * `reinitialize` owned the same responsibility.
    */
   reinitialize: (snapshot: ProviderSessionSnapshot) => Promise<void>;
+  adoptCommittedThreadDeletion: (removedSessions: Record<string, string>) => void;
 };
 
 function buildInvalidKeyDiagnostic(storedKey: string, requestKey: string): string {
@@ -170,6 +171,13 @@ export function createSqliteProviderSessionStore(
           sessions = { ...sessions, ...restoredSessions };
         }),
       ),
+    adoptCommittedThreadDeletion: (removedSessions) => {
+      const nextSessions = { ...sessions };
+      for (const [key, sessionId] of Object.entries(removedSessions)) {
+        if (nextSessions[key] === sessionId) delete nextSessions[key];
+      }
+      sessions = nextSessions;
+    },
     reinitialize: (nextSnapshot) =>
       sqliteStore.run((client) =>
         client.transaction(() => {

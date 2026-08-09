@@ -3,6 +3,7 @@ import {
   getProjectWorkingDirectoryIdentity,
   type AppProjectRecord,
   type AppStateSnapshot,
+  type AppThreadActionRecord,
   type AppThreadMessageRecord,
   type AppThreadRecord,
   type AppThreadRunRecord,
@@ -187,6 +188,93 @@ function insertRun(client: CommandClient, run: AppThreadRunRecord): void {
     run.runtimeMode,
     run.planMode ? 1 : 0,
   );
+}
+
+// Keep in sync with replaceAppStateSnapshot's `thread_actions` insert
+// (sqliteAppStateRepository.ts).
+function insertAction(client: CommandClient, action: AppThreadActionRecord): void {
+  client.run(
+    `INSERT INTO thread_actions (id, thread_id, action, runtime_id, completed_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    action.id,
+    action.threadId,
+    action.action,
+    action.runtimeId,
+    action.completedAt,
+  );
+}
+
+// Keep in sync with replaceAppStateSnapshot's `threads` upsert column list and
+// encodings (sqliteAppStateRepository.ts). The reducer always produces a fully
+// resolved `after` thread, so writing every metadata column from `after` (rather
+// than per-command column subsets) is simpler and avoids drift between the
+// incremental path and a full-snapshot replace.
+function updateThreadMetadata(client: CommandClient, thread: AppThreadRecord): void {
+  client.run(
+    `UPDATE threads SET
+       workspace_id = ?, project_id = ?, title = ?, custom_title = ?,
+       archived = ?, pinned = ?, created_at = ?, last_activity_at = ?,
+       runtime_id = ?, runtime_model_id = ?, runtime_mode = ?, plan_mode = ?,
+       run_checklist = ?
+     WHERE id = ?`,
+    thread.workspaceId,
+    thread.projectId,
+    thread.title,
+    thread.customTitle === true ? 1 : 0,
+    thread.archived === true ? 1 : 0,
+    thread.pinned === true ? 1 : 0,
+    thread.createdAt,
+    thread.lastActivityAt,
+    thread.runtimeId,
+    thread.runtimeModelId ?? null,
+    thread.runtimeMode,
+    thread.planMode ? 1 : 0,
+    thread.runChecklist ? JSON.stringify(thread.runChecklist) : null,
+    thread.id,
+  );
+}
+
+// The persisted message row identity used for change detection: the `message`
+// column plus the JSON payload derived the same way `insertMessage` builds it.
+// Two messages with the same id whose identity differs need an UPDATE; matching
+// identity is left untouched so an unaffected message history isn't rewritten.
+function messageRowIdentity(message: AppThreadMessageRecord): { message: string; payload: string } {
+  const { id: _id, threadId: _threadId, role: _role, content, createdAt: _createdAt, ...payload } =
+    message;
+  return { message: content, payload: JSON.stringify(payload) };
+}
+
+function updateMessageRow(client: CommandClient, message: AppThreadMessageRecord): void {
+  const { message: content, payload } = messageRowIdentity(message);
+  client.run(
+    `UPDATE thread_messages SET message = ?, payload = ? WHERE id = ?`,
+    content,
+    payload,
+    message.id,
+  );
+}
+
+// The Thread columns an incremental command can change. Two threads whose
+// identity matches need no metadata write, so a streamed message update that
+// did not patch the Thread record leaves the Thread row untouched. Comparison
+// is by value (not reference) because the snapshot normalizer produces fresh
+// object references even when a command did not change the Thread.
+function threadMetadataIdentity(thread: AppThreadRecord): string {
+  return JSON.stringify({
+    workspaceId: thread.workspaceId,
+    projectId: thread.projectId,
+    title: thread.title,
+    customTitle: thread.customTitle === true,
+    archived: thread.archived === true,
+    pinned: thread.pinned === true,
+    createdAt: thread.createdAt,
+    lastActivityAt: thread.lastActivityAt,
+    runtimeId: thread.runtimeId,
+    runtimeModelId: thread.runtimeModelId ?? null,
+    runtimeMode: thread.runtimeMode,
+    planMode: thread.planMode,
+    runChecklist: thread.runChecklist ?? null,
+  });
 }
 
 function persistWorkspaceCreate(
@@ -476,6 +564,211 @@ export function persistIncrementalAppStateCommand(
       client.run("DELETE FROM threads WHERE id = ?", restored.threadId);
       client.run("DELETE FROM promotion_intents WHERE draft_id = ?", draftId);
       insertDraft(client, restored);
+      return;
+    }
+    case "thread:archive": {
+      const threadId = payloadId(command, "threadId");
+      const thread = requireAfterEntity(
+        (after.threads ?? []).find((item) => item.id === threadId),
+        command,
+        "Thread",
+      );
+      // Only the owning Thread row changes; archiving also clears the
+      // remembered Thread location when it pointed at this Thread (mirrors the
+      // reducer's `lastThreadIdByWorkspace` cleanup). Existing history rows are
+      // untouched.
+      updateThreadMetadata(client, thread);
+      const remembered = before.lastThreadIdByWorkspace?.[thread.workspaceId];
+      if (remembered === threadId) {
+        client.run(
+          "DELETE FROM workspace_last_threads WHERE workspace_id = ?",
+          thread.workspaceId,
+        );
+      }
+      return;
+    }
+    case "thread:restore": {
+      const threadId = payloadId(command, "threadId");
+      const thread = requireAfterEntity(
+        (after.threads ?? []).find((item) => item.id === threadId),
+        command,
+        "Thread",
+      );
+      updateThreadMetadata(client, thread);
+      return;
+    }
+    case "thread:update-config": {
+      const threadId = payloadId(command, "threadId");
+      const thread = requireAfterEntity(
+        (after.threads ?? []).find((item) => item.id === threadId),
+        command,
+        "Thread",
+      );
+      // One Thread row. Writing the full metadata set from `after` mirrors the
+      // reducer's resolved runtime config (a blank modelId clears it) without
+      // per-column drift.
+      updateThreadMetadata(client, thread);
+      return;
+    }
+    case "thread:record-run": {
+      const threadId = payloadId(command, "threadId");
+      const thread = requireAfterEntity(
+        (after.threads ?? []).find((item) => item.id === threadId),
+        command,
+        "Thread",
+      );
+      // Append the Run and any not-yet-present messages, and bump the Thread's
+      // activity time. The reducer dedupes an already-present initial user
+      // message, so only INSERT messages that are new to this Thread.
+      const beforeMessageIds = new Set(
+        (before.threadMessages ?? [])
+          .filter((message) => message.threadId === threadId)
+          .map((message) => message.id),
+      );
+      const newMessages = (after.threadMessages ?? []).filter(
+        (message) => message.threadId === threadId && !beforeMessageIds.has(message.id),
+      );
+      for (const newMessage of newMessages) insertMessage(client, newMessage);
+      const newRunIds = new Set(
+        (before.threadRuns ?? [])
+          .filter((run) => run.threadId === threadId)
+          .map((run) => run.id),
+      );
+      const newRuns = (after.threadRuns ?? []).filter(
+        (run) => run.threadId === threadId && !newRunIds.has(run.id),
+      );
+      for (const newRun of newRuns) insertRun(client, newRun);
+      updateThreadMetadata(client, thread);
+      return;
+    }
+    case "thread:rollback-run": {
+      const threadId = payloadId(command, "threadId");
+      const thread = requireAfterEntity(
+        (after.threads ?? []).find((item) => item.id === threadId),
+        command,
+        "Thread",
+      );
+      // Delete the rolled-back messages and Run, then recompute the Thread's
+      // activity time from `after`.
+      const afterMessageIds = new Set(
+        (after.threadMessages ?? []).map((message) => message.id),
+      );
+      const removedMessages = (before.threadMessages ?? [])
+        .filter((message) => message.threadId === threadId && !afterMessageIds.has(message.id))
+        .map((message) => message.id);
+      for (const removedId of removedMessages) {
+        client.run("DELETE FROM thread_messages WHERE id = ?", removedId);
+      }
+      const afterRunIds = new Set((after.threadRuns ?? []).map((run) => run.id));
+      const removedRuns = (before.threadRuns ?? [])
+        .filter((run) => run.threadId === threadId && !afterRunIds.has(run.id))
+        .map((run) => run.id);
+      for (const removedId of removedRuns) {
+        client.run("DELETE FROM thread_runs WHERE id = ?", removedId);
+      }
+      updateThreadMetadata(client, thread);
+      return;
+    }
+    case "thread:record-action": {
+      const actionPayload = payloadRecord(command).action;
+      if (
+        typeof actionPayload !== "object" ||
+        actionPayload === null ||
+        typeof (actionPayload as Record<string, unknown>).id !== "string"
+      ) {
+        throw new Error(`Invalid action for incremental App State command: ${command.type}`);
+      }
+      const actionId = (actionPayload as Record<string, unknown>).id as string;
+      const threadId = payloadId(command, "threadId");
+      // The reducer bumps the owning Thread's activity time to the action's
+      // completion, so both commit in the same transaction.
+      const thread = requireAfterEntity(
+        (after.threads ?? []).find((item) => item.id === threadId),
+        command,
+        "Thread",
+      );
+      const action = requireAfterEntity(
+        (after.threadActions ?? []).find((item) => item.id === actionId),
+        command,
+        "Thread Action",
+      );
+      insertAction(client, action);
+      updateThreadMetadata(client, thread);
+      return;
+    }
+    case "thread-content:update": {
+      const threadId = payloadId(command, "threadId");
+      // Diff the owning Thread's before/after messages by id: insert new ids,
+      // delete removed ids, and update only rows whose content or payload
+      // actually changed. `after` already carries the reducer's reconciled
+      // messages (it swaps regressing event-count messages for the existing
+      // row), so persisting `after` preserves the run-event-count
+      // anti-regression and interrupted-message reconciliation without
+      // re-deriving them here. Unaffected message history is left untouched.
+      const beforeMessages = new Map(
+        (before.threadMessages ?? [])
+          .filter((message) => message.threadId === threadId)
+          .map((message) => [message.id, message]),
+      );
+      const afterMessages = new Map(
+        (after.threadMessages ?? [])
+          .filter((message) => message.threadId === threadId)
+          .map((message) => [message.id, message]),
+      );
+      for (const id of beforeMessages.keys()) {
+        if (!afterMessages.has(id)) {
+          client.run("DELETE FROM thread_messages WHERE id = ?", id);
+        }
+      }
+      for (const [id, afterMessage] of afterMessages) {
+        const beforeMessage = beforeMessages.get(id);
+        if (beforeMessage === undefined) {
+          insertMessage(client, afterMessage);
+          continue;
+        }
+        const beforeIdentity = messageRowIdentity(beforeMessage);
+        const afterIdentity = messageRowIdentity(afterMessage);
+        if (
+          beforeIdentity.message !== afterIdentity.message ||
+          beforeIdentity.payload !== afterIdentity.payload
+        ) {
+          updateMessageRow(client, afterMessage);
+        }
+      }
+      // Thread metadata changes only when the reducer patched title/activity/
+      // pin/runChecklist; a pure streamed message update writes no Thread row.
+      // Compare by value (not reference): the snapshot normalizer produces fresh
+      // object references even when a command did not change the Thread.
+      const beforeThread = (before.threads ?? []).find((item) => item.id === threadId);
+      const afterThread = (after.threads ?? []).find((item) => item.id === threadId);
+      if (
+        afterThread &&
+        (!beforeThread ||
+          threadMetadataIdentity(beforeThread) !== threadMetadataIdentity(afterThread))
+      ) {
+        updateThreadMetadata(client, afterThread);
+      }
+      return;
+    }
+    case "thread-work:update": {
+      const threadId = payloadId(command, "threadId");
+      // The Thread Composer State (composer draft + queued messages) lives on
+      // the owning Thread only. A null work value removes the entry; the
+      // queued-message restart-confirmation rule is enforced by the snapshot
+      // normalizer on load, not by this write.
+      const work = after.threadWork?.[threadId];
+      if (work) {
+        client.run(
+          `INSERT INTO thread_work (thread_id, draft, queued_messages) VALUES (?, ?, ?)
+           ON CONFLICT(thread_id) DO UPDATE SET
+             draft = excluded.draft, queued_messages = excluded.queued_messages`,
+          threadId,
+          work.draft ? JSON.stringify(work.draft) : null,
+          JSON.stringify(work.queuedMessages),
+        );
+      } else {
+        client.run("DELETE FROM thread_work WHERE thread_id = ?", threadId);
+      }
       return;
     }
     default:

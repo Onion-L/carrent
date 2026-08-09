@@ -22,6 +22,7 @@ export function registerAppStateIpc(
     result: AppStateLoadResult,
     source: AppStateIpcResultSource,
   ) => Promise<AppStateLoadResult> | AppStateLoadResult,
+  onRecoveryTransactionActive: (active: boolean) => void = () => {},
 ) {
   let appStateResult = initialAppStateResult;
   const consumeAppStateResult = () => {
@@ -33,14 +34,24 @@ export function registerAppStateIpc(
   };
   ipcMainLike.handle("app-state:load", () => consumeAppStateResult());
   ipcMainLike.handle("app-state:reread", async () => {
-    const result = await store.initializeAppState();
-    appStateResult = await prepareAppStateResult(result, "reread");
-    return consumeAppStateResult();
+    onRecoveryTransactionActive(true);
+    try {
+      const result = await store.initializeAppState();
+      appStateResult = await prepareAppStateResult(result, "reread");
+      return consumeAppStateResult();
+    } finally {
+      onRecoveryTransactionActive(false);
+    }
   });
   ipcMainLike.handle("app-state:full-reset", async () => {
-    const result = await store.fullResetAppState();
-    appStateResult = await prepareAppStateResult(result, "full-reset");
-    return consumeAppStateResult();
+    onRecoveryTransactionActive(true);
+    try {
+      const result = await store.fullResetAppState();
+      appStateResult = await prepareAppStateResult(result, "full-reset");
+      return consumeAppStateResult();
+    } finally {
+      onRecoveryTransactionActive(false);
+    }
   });
   ipcMainLike.handle("provider-sessions:load", () => store.loadProviderSessions());
   ipcMainLike.handle("provider-sessions:save", (_event, snapshot) =>

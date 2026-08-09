@@ -97,6 +97,26 @@ describe("registerAppStateIpc", () => {
     expect(resetCalls).toBe(1);
   });
 
+  it("keeps App State commands blocked for the full reread and reset transaction", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const activity: boolean[] = [];
+    registerAppStateIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      createAppStateStoreStub(),
+      readyAppStateResult,
+      async (result) => {
+        expect(activity.at(-1)).toBe(true);
+        return result;
+      },
+      (active) => activity.push(active),
+    );
+
+    await handlers.get("app-state:reread")?.({});
+    await handlers.get("app-state:full-reset")?.({});
+
+    expect(activity).toEqual([true, false, true, false]);
+  });
+
   it("delivers reset notices only once", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const snapshot = {

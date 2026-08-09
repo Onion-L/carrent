@@ -109,7 +109,7 @@ export function createAppStateAuthority(options: {
     const normalized = normalizeAppStateSnapshotForMemory(next);
     if (!normalized) return rejected("invalid", "Command produced an invalid App State snapshot.");
     try {
-      await options.store.saveAppStateSnapshot(normalized);
+      await options.store.persistAppStateCommand(command, snapshot, normalized);
     } catch (error) {
       return rejected("persistence-failed", String(error));
     }
@@ -159,8 +159,19 @@ export function createAppStateAuthority(options: {
 
     replaceState(result: AppStateLoadResult) {
       if (result.status === "ready") {
-        snapshot = result.snapshot;
+        const normalized = normalizeAppStateSnapshotForMemory(result.snapshot);
+        if (!normalized) {
+          available = false;
+          return;
+        }
+        snapshot = normalized;
         available = true;
+        revision += 1;
+        notifyPersisted(snapshot);
+        const state = currentState();
+        for (const subscriberId of subscribers) {
+          options.publish(subscriberId, state);
+        }
       } else {
         available = false;
       }

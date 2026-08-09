@@ -30,11 +30,6 @@ import {
   recoverThreadDeletionTransaction,
 } from "./chat/threadDeletionTransaction";
 import {
-  createPersistentProviderSessionStore,
-  type PersistentProviderSessionStore,
-} from "./chat/providerSessionStore";
-import { createAppStateStore } from "./workspace/appStateStore";
-import {
   createAppStateAuthority,
   registerAppStateAuthorityIpc,
 } from "./workspace/appStateAuthority";
@@ -47,7 +42,13 @@ import {
   isProjectDirectoryAvailable,
   registerProjectDirectoryIpc,
 } from "./workspace/projectDirectory";
-import type { AppStateStore } from "./workspace/appStateStore";
+import { createSqliteAppStateStore } from "./persistence/sqliteAppStateStore";
+import { createSqliteAppStateLifecycle } from "./persistence/sqliteAppStateLifecycle";
+import {
+  createSqliteProductionAppStateStore,
+  type SqliteProductionAppStateStore,
+} from "./persistence/sqliteProductionAppStateStore";
+import { createSqliteProviderSessionStore } from "./persistence/sqliteProviderSessionStore";
 import { createAttachmentStore } from "./attachments/attachmentStore";
 import { reconcileAttachmentsAfterValidStateLoad } from "./attachments/attachmentReconciliation";
 import { registerAttachmentIpc } from "./attachments/attachmentIpc";
@@ -126,7 +127,7 @@ function isExecutableFile(path: string) {
   }
 }
 
-let appStateStore: AppStateStore | null = null;
+let appStateStore: SqliteProductionAppStateStore | null = null;
 let chatSessionManager: ChatSessionManager | null = null;
 let chatRunAuthority: ChatRunAuthority | null = null;
 let runNotificationCoordinator: RunNotificationCoordinator | null = null;
@@ -510,14 +511,18 @@ if (!hasSingleInstanceLock) {
         console.error("[app] failed to persist quit warning preference", error),
     });
     await liveRunQuitWarning.initialize();
-    const store = createAppStateStore(userDataPath, { appVersion: app.getVersion() });
+    const sqliteStore = createSqliteAppStateStore(join(userDataPath, "carrent.sqlite"));
+    const sqliteLifecycle = createSqliteAppStateLifecycle(sqliteStore, userDataPath, {
+      appVersion: app.getVersion(),
+    });
+    const store = createSqliteProductionAppStateStore(sqliteStore, sqliteLifecycle);
     const appStateInitialization = await store.initializeAppState();
     const appStateIpcGate = createAppStateIpcGate(ipcMain, {
       status: "recovery-required",
       diagnostics: [],
     });
     const guardedIpcMain = appStateIpcGate.ipcMain;
-    let providerSessionStore: PersistentProviderSessionStore | null = null;
+    let providerSessionStore: ReturnType<typeof createSqliteProviderSessionStore> | null = null;
     appStateStore = store;
     browserManager = createBrowserManager({
       userDataPath,
@@ -659,11 +664,17 @@ if (!hasSingleInstanceLock) {
     const setAppStateTransactionActiveEverywhere = (active: boolean) => {
       appStateAuthority.setTransactionActive(active);
     };
-    registerAppStateIpc(guardedIpcMain, store, startupAppStateResult, async (result, source) => {
-      const applied = await appStateLifecycle.apply(result, source);
-      appStateAuthority.replaceState(applied);
-      return applied;
-    });
+    registerAppStateIpc(
+      guardedIpcMain,
+      store,
+      startupAppStateResult,
+      async (result, source) => {
+        const applied = await appStateLifecycle.apply(result, source);
+        appStateAuthority.replaceState(applied);
+        return applied;
+      },
+      (active) => appStateAuthority.setTransactionActive(active),
+    );
     appStateFlush = createAppStateFlush(guardedIpcMain, appStateAuthority, (subscriberId) => {
       const contents = webContents.fromId(subscriberId);
       return contents && !contents.isDestroyed() ? contents : null;
@@ -709,7 +720,7 @@ if (!hasSingleInstanceLock) {
       startupAppStateResult,
     );
 
-    providerSessionStore = createPersistentProviderSessionStore(store, providerSessionsSnapshot);
+    providerSessionStore = createSqliteProviderSessionStore(sqliteStore, providerSessionsSnapshot);
     const sessionManager = createChatSessionManager({
       emit: (event) => chatRunAuthority?.handleEvent(event),
       spawn,
@@ -885,6 +896,7 @@ const appShutdown = createAppShutdown({
       const captured = await windowCapture.capture();
       await windowSessionStore.save(captureSession(captured));
     }
+    await appStateStore?.close();
   },
   liveRunQuitPolicy: {
     hasLiveRuns: () => chatSessionManager?.hasLiveRuns?.() ?? false,

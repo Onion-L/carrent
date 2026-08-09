@@ -19,6 +19,7 @@ import {
   type AppStateSnapshot,
   type ProviderSessionSnapshot,
 } from "../../src/shared/workspacePersistence";
+import type { AppStateCommand } from "../../src/shared/appStateAuthority";
 
 export type AppStateStore = {
   waitForWrites: () => Promise<void>;
@@ -26,6 +27,11 @@ export type AppStateStore = {
   fullResetAppState: () => Promise<AppStateLoadResult>;
   loadAppStateSnapshot: () => Promise<AppStateSnapshot | null>;
   saveAppStateSnapshot: (snapshot: AppStateSnapshot) => Promise<void>;
+  persistAppStateCommand: (
+    command: AppStateCommand,
+    before: AppStateSnapshot,
+    after: AppStateSnapshot,
+  ) => Promise<void>;
   loadProviderSessions: () => Promise<ProviderSessionSnapshot>;
   saveProviderSessions: (snapshot: ProviderSessionSnapshot) => Promise<void>;
 };
@@ -387,6 +393,10 @@ export function createAppStateStore(
           await atomicWrite(initializedMarkerPath, `${APP_STATE_SNAPSHOT_VERSION}\n`);
         }
       });
+    },
+
+    persistAppStateCommand(_command, _before, after) {
+      return this.saveAppStateSnapshot(after);
     },
 
     async loadProviderSessions(): Promise<ProviderSessionSnapshot> {

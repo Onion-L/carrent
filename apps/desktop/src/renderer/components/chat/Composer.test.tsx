@@ -211,9 +211,8 @@ function installCarrentBridge(
   options: {
     authorityState?: ChatRunAuthorityState;
     disableAutoComplete?: boolean;
-    getKimiStatus?: (
-      request: Record<string, unknown>,
-    ) => Promise<unknown>;
+    getKimiStatus?: (request: Record<string, unknown>) => Promise<unknown>;
+    workspaceDiff?: () => Promise<unknown>;
   } = {},
 ) {
   emitChatEvent = null;
@@ -295,7 +294,7 @@ function installCarrentBridge(
     },
     git: {
       workspaceSnapshot: async () => ({ state: "ready", baseRevision: "base" }),
-      workspaceDiff: async () => ({ state: "ready", files: [] }),
+      workspaceDiff: options.workspaceDiff ?? (async () => ({ state: "ready", files: [] })),
     },
     chat: {
       send: async (request: { message: string; requestKey?: string }) => {
@@ -342,9 +341,7 @@ function installCarrentBridge(
       deleteThreadData: async () => {},
       respondToPermission: async () => {},
       respondToQuestion: async () => {},
-      getKimiStatus:
-        options.getKimiStatus ??
-        (async () => null),
+      getKimiStatus: options.getKimiStatus ?? (async () => null),
       ...(activeChatAuthorityState
         ? {
             onChanged: (listener: (update: ChatRunAuthorityChange) => void) => {
@@ -388,6 +385,7 @@ async function renderComposer(
     authorityState?: ChatRunAuthorityState;
     disableAutoComplete?: boolean;
     getKimiStatus?: (request: Record<string, unknown>) => Promise<unknown>;
+    workspaceDiff?: () => Promise<unknown>;
   } = {},
 ) {
   const snapshot = baseSnapshot(options.threadWork ?? {});
@@ -396,6 +394,7 @@ async function renderComposer(
     authorityState: options.authorityState,
     disableAutoComplete: options.disableAutoComplete,
     getKimiStatus: options.getKimiStatus,
+    workspaceDiff: options.workspaceDiff,
   });
   await mount(composerTree(undefined, options.threadId));
   return authority;
@@ -538,6 +537,153 @@ describe("Composer inline Skills", () => {
 
       expect(sentChatMessages).toEqual(["first message", "queued message"]);
       expect(getQueuedMessages(threadId)).toEqual([]);
+    } finally {
+      const latestRunId = sentChatRunIds.at(-1);
+      if (latestRunId) {
+        await act(async () => {
+          emitChatEvent?.({
+            type: "completed",
+            runId: latestRunId,
+            text: "done",
+            finishedAt: "2026-08-07T00:00:01.000Z",
+          });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+      getQueuedMessages(threadId).forEach((item) => removeQueuedChatMessage(threadId, item.id));
+    }
+  });
+
+  it("sends only one queued message per completed Run", async () => {
+    const threadId = "thread-2";
+    const sharedRun = {
+      runId: "shared-run",
+      requestKey: "shared-request",
+      threadId,
+      status: "running" as const,
+      stopRequested: false,
+      eventCount: 0,
+      events: [],
+      pendingPermissions: [],
+      pendingQuestions: [],
+    };
+    const completedEvent: ChatRunEvent = {
+      type: "completed",
+      runId: sharedRun.runId,
+      requestKey: sharedRun.requestKey,
+      text: "done",
+      finishedAt: "2026-08-07T00:00:00.000Z",
+    };
+
+    await renderComposer({
+      threadId,
+      authorityState: { revision: 1, runs: [sharedRun] },
+    });
+
+    try {
+      await setComposerText("queued one");
+      await submitComposer();
+      await setComposerText("queued two");
+      await submitComposer();
+      expect(sentChatMessages).toEqual([]);
+      expect(getQueuedMessages(threadId).map((item) => item.content)).toEqual([
+        "queued one",
+        "queued two",
+      ]);
+
+      await act(async () => {
+        emitChatAuthorityChange?.({
+          baseRevision: 1,
+          revision: 2,
+          run: {
+            ...sharedRun,
+            status: "completed",
+            eventCount: 1,
+            events: [completedEvent],
+          },
+          event: completedEvent,
+        });
+      });
+      const sentDeadline = Date.now() + 500;
+      while (Date.now() < sentDeadline && sentChatMessages.length < 1) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        });
+      }
+      // Let any erroneously admitted extra drain settle before asserting.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+
+      // The completed run record lingers in the shared state; it must not
+      // re-admit the drain effect and flush the rest of the queue.
+      expect(sentChatMessages).toEqual(["queued one"]);
+      expect(getQueuedMessages(threadId).map((item) => item.content)).toEqual(["queued two"]);
+    } finally {
+      const latestRunId = sentChatRunIds.at(-1);
+      if (latestRunId) {
+        await act(async () => {
+          emitChatEvent?.({
+            type: "completed",
+            runId: latestRunId,
+            text: "done",
+            finishedAt: "2026-08-07T00:00:02.000Z",
+          });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+      getQueuedMessages(threadId).forEach((item) => removeQueuedChatMessage(threadId, item.id));
+    }
+  });
+  it("waits for workspace diff capture before sending the next queued message", async () => {
+    const threadId = "thread-2";
+    let resolveWorkspaceDiff!: (result: unknown) => void;
+    await renderComposer({
+      threadId,
+      workspaceDiff: () =>
+        new Promise((resolve) => {
+          resolveWorkspaceDiff = resolve;
+        }),
+    });
+
+    try {
+      await setComposerText("first message");
+      await submitComposer();
+      await setComposerText("queued message");
+      await submitComposer();
+
+      await act(async () => {
+        emitChatEvent?.({
+          type: "completed",
+          runId: sentChatRunIds[0]!,
+          text: "done",
+          writtenFiles: ["src/changed.ts"],
+          finishedAt: "2026-08-07T00:00:00.000Z",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(sentChatMessages).toEqual(["first message"]);
+
+      resolveWorkspaceDiff({
+        state: "ready",
+        baseRevision: "base",
+        capturedAt: "2026-08-07T00:00:00.000Z",
+        projectRelativeRoot: ".",
+        files: [
+          {
+            path: "src/changed.ts",
+            additions: 1,
+            deletions: 0,
+            binary: false,
+            untracked: false,
+          },
+        ],
+        patch: "diff --git a/src/changed.ts b/src/changed.ts\n",
+        truncated: false,
+      });
+      await waitForQueueFlush(threadId, 2);
+
+      expect(sentChatMessages).toEqual(["first message", "queued message"]);
     } finally {
       const latestRunId = sentChatRunIds.at(-1);
       if (latestRunId) {

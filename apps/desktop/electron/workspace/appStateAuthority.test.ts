@@ -266,6 +266,25 @@ describe("createAppStateAuthority", () => {
     expect(after).toEqual({ status: "accepted", revision: 1 });
   });
 
+  it("stays unavailable until every overlapping App State transaction finishes", async () => {
+    const { authority } = createHarness();
+    authority.setTransactionActive(true);
+    authority.setTransactionActive(true);
+    authority.setTransactionActive(false);
+
+    expect(await authority.submit(1, command())).toEqual({
+      status: "rejected",
+      reason: "unavailable",
+      revision: 0,
+    });
+
+    authority.setTransactionActive(false);
+    expect(await authority.submit(1, command({ commandId: "cmd-2" }))).toEqual({
+      status: "accepted",
+      revision: 1,
+    });
+  });
+
   it("publishes state from a reread or full reset as a new revision", async () => {
     const { authority, published } = createHarness();
     authority.subscribe(1);

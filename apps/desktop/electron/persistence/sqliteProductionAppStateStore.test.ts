@@ -75,15 +75,31 @@ describe("SQLite production App State authority", () => {
         { subscriberId: 11, revision: 1 },
         { subscriberId: 22, revision: 1 },
       ]);
+      const concurrent = await Promise.all([
+        authority.submit(11, {
+          commandId: "command-rename",
+          type: "workspace:rename",
+          payload: { workspaceId: "workspace-1", name: "Carrent Renamed" },
+        }),
+        authority.submit(22, {
+          commandId: "command-settings",
+          type: "settings:update",
+          payload: { settings: { enhancedCompletion: false } },
+        }),
+      ]);
+      expect(concurrent).toEqual([
+        { status: "accepted", revision: 2 },
+        { status: "accepted", revision: 3 },
+      ]);
       expect(
         await authority.submit(22, {
-          ...createWorkspaceCommand("command-stale", 0),
+          ...createWorkspaceCommand("command-stale", 2),
           payload: {
             ...createWorkspaceCommand("ignored").payload,
             workspace: { id: "workspace-2", name: "Stale", order: 1 },
           },
         }),
-      ).toEqual({ status: "rejected", reason: "stale", revision: 1 });
+      ).toEqual({ status: "rejected", reason: "stale", revision: 3 });
 
       await store.close();
       const reopenedSqlite = createSqliteAppStateStore(path, { driver: bunSqliteDriver });
@@ -93,7 +109,7 @@ describe("SQLite production App State authority", () => {
       expect(reopened.status).toBe("ready");
       if (reopened.status === "ready") {
         expect(reopened.snapshot.workspaces.map((workspace) => workspace.name)).toEqual([
-          "Carrent",
+          "Carrent Renamed",
         ]);
       }
       expect(await readdir(dir)).not.toContain("app-state.json");

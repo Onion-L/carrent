@@ -765,8 +765,8 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
   };
 
   const removeThreadFromState = (threadId: string) => {
-    // Snapshot removal flows through commands (rollback / thread:remove) and
-    // their broadcasts; this only resets local selection.
+    // Snapshot removal is published by the Main Process authority after the
+    // deletion transaction commits; this only resets local selection.
     setSelectedThreadId((prev) => (prev === threadId ? null : prev));
   };
 
@@ -804,8 +804,15 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
         threadData: deletion.request,
       });
     } else {
-      await window.carrent.chat.deleteThreadData(deletion.request);
-      await removeThreadSnapshot(threadId);
+      await removeThreadSnapshot(threadId, async (snapshots) => {
+        if (!window.carrent.chat.deleteThreadTransaction) {
+          throw new Error("Thread deletion transaction is unavailable.");
+        }
+        await window.carrent.chat.deleteThreadTransaction({
+          ...snapshots,
+          threadData: deletion.request,
+        });
+      });
     }
 
     removeThreadWork([threadId]);

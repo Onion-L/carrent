@@ -48,7 +48,7 @@ export function createAppStateAuthority(options: {
       : createEmptyAppStateSnapshot();
   let available = options.initialResult.status === "ready";
   let revision = 0;
-  let transactionActive = false;
+  let activeTransactionCount = 0;
   const subscribers = new Set<number>();
   const appliedCommands = new Map<string, number>();
   let queue: Promise<unknown> = Promise.resolve();
@@ -80,8 +80,19 @@ export function createAppStateAuthority(options: {
     }
   }
 
+  function publishSnapshot(next: AppStateSnapshot, beforePublish?: () => void) {
+    snapshot = next;
+    revision += 1;
+    beforePublish?.();
+    notifyPersisted(snapshot);
+    const state = currentState();
+    for (const subscriberId of subscribers) {
+      options.publish(subscriberId, state);
+    }
+  }
+
   async function process(command: AppStateCommand): Promise<AppStateCommandResult> {
-    if (!available || transactionActive) return rejected("unavailable");
+    if (!available || activeTransactionCount > 0) return rejected("unavailable");
     if (
       typeof command?.commandId !== "string" ||
       command.commandId.length === 0 ||
@@ -113,14 +124,7 @@ export function createAppStateAuthority(options: {
     } catch (error) {
       return rejected("persistence-failed", String(error));
     }
-    snapshot = normalized;
-    revision += 1;
-    rememberCommand(command.commandId);
-    notifyPersisted(snapshot);
-    const state = currentState();
-    for (const subscriberId of subscribers) {
-      options.publish(subscriberId, state);
-    }
+    publishSnapshot(normalized, () => rememberCommand(command.commandId));
     return { status: "accepted", revision, ...(data !== undefined ? { data } : {}) };
   }
 
@@ -164,14 +168,8 @@ export function createAppStateAuthority(options: {
           available = false;
           return;
         }
-        snapshot = normalized;
         available = true;
-        revision += 1;
-        notifyPersisted(snapshot);
-        const state = currentState();
-        for (const subscriberId of subscribers) {
-          options.publish(subscriberId, state);
-        }
+        publishSnapshot(normalized);
       } else {
         available = false;
       }
@@ -185,17 +183,11 @@ export function createAppStateAuthority(options: {
       if (!available) return;
       const normalized = normalizeAppStateSnapshotForMemory(next);
       if (!normalized) return;
-      snapshot = normalized;
-      revision += 1;
-      notifyPersisted(snapshot);
-      const state = currentState();
-      for (const subscriberId of subscribers) {
-        options.publish(subscriberId, state);
-      }
+      publishSnapshot(normalized);
     },
 
     setTransactionActive(active: boolean) {
-      transactionActive = active;
+      activeTransactionCount = Math.max(0, activeTransactionCount + (active ? 1 : -1));
     },
   };
 }

@@ -117,6 +117,51 @@ describe("registerAppStateIpc", () => {
     expect(activity).toEqual([true, false, true, false]);
   });
 
+  it("serializes overlapping reread and reset operations while both hold the command gate", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const events: string[] = [];
+    let finishReread!: () => void;
+    const rereadGate = new Promise<void>((resolve) => {
+      finishReread = resolve;
+    });
+    registerAppStateIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      createAppStateStoreStub({
+        initializeAppState: async () => {
+          events.push("reread:start");
+          await rereadGate;
+          events.push("reread:end");
+          return readyAppStateResult;
+        },
+        fullResetAppState: async () => {
+          events.push("reset:start");
+          return readyAppStateResult;
+        },
+      }),
+      readyAppStateResult,
+      preserveAppStateResult,
+      (active) => events.push(active ? "gate:on" : "gate:off"),
+    );
+
+    const reread = Promise.resolve(handlers.get("app-state:reread")?.({}));
+    const reset = Promise.resolve(handlers.get("app-state:full-reset")?.({}));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(events).toEqual(["gate:on", "gate:on", "reread:start"]);
+
+    finishReread();
+    await Promise.all([reread, reset]);
+    expect(events).toEqual([
+      "gate:on",
+      "gate:on",
+      "reread:start",
+      "reread:end",
+      "gate:off",
+      "reset:start",
+      "gate:off",
+    ]);
+  });
+
   it("delivers reset notices only once", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const snapshot = {

@@ -1,7 +1,4 @@
-export function deriveThreadTitle(
-  content: string,
-  options: { fallback?: string } = {},
-): string {
+export function deriveThreadTitle(content: string, options: { fallback?: string } = {}): string {
   const { fallback = "New thread" } = options;
   const trimmed = content.trim();
 

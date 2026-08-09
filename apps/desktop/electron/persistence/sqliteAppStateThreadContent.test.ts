@@ -214,7 +214,10 @@ function sortedThreadMessages(
     .sort(byId);
 }
 
-function threadById(snapshot: AppStateSnapshot | null, threadId: string): AppThreadRecord | undefined {
+function threadById(
+  snapshot: AppStateSnapshot | null,
+  threadId: string,
+): AppThreadRecord | undefined {
   return (snapshot?.threads ?? []).find((thread) => thread.id === threadId);
 }
 
@@ -317,9 +320,7 @@ describe("SQLite App State Thread content & Run incremental persistence", () => 
       const loaded = await store.loadAppStateSnapshot();
       // The new user message and assistant placeholder are appended, the run is
       // recorded, and the thread activity time advances.
-      expect(threadById(loaded, ACTIVE_THREAD_ID)?.lastActivityAt).toBe(
-        "2026-08-09T08:30:00.000Z",
-      );
+      expect(threadById(loaded, ACTIVE_THREAD_ID)?.lastActivityAt).toBe("2026-08-09T08:30:00.000Z");
       expect(loaded?.threadRuns?.map((run) => run.id)).toContain("run-next");
       expect(await auditedEntries(store)).toEqual([
         "thread_messages:insert:message-active-assistant-next",
@@ -415,9 +416,7 @@ describe("SQLite App State Thread content & Run incremental persistence", () => 
         "message-active-existing",
       );
       // lastActivityAt recomputed to the latest remaining message's createdAt.
-      expect(threadById(loaded, ACTIVE_THREAD_ID)?.lastActivityAt).toBe(
-        "2026-08-09T08:05:00.000Z",
-      );
+      expect(threadById(loaded, ACTIVE_THREAD_ID)?.lastActivityAt).toBe("2026-08-09T08:05:00.000Z");
       expect(await auditedEntries(store)).toEqual([
         "thread_messages:delete:message-active-existing",
         "thread_messages:delete:message-active-user",
@@ -444,9 +443,7 @@ describe("SQLite App State Thread content & Run incremental persistence", () => 
 
       const loaded = await store.loadAppStateSnapshot();
       expect(loaded?.threadActions?.map((action) => action.id)).toEqual(["action-1"]);
-      expect(threadById(loaded, ACTIVE_THREAD_ID)?.lastActivityAt).toBe(
-        "2026-08-09T09:00:00.000Z",
-      );
+      expect(threadById(loaded, ACTIVE_THREAD_ID)?.lastActivityAt).toBe("2026-08-09T09:00:00.000Z");
       // The action insert and the activity-time update commit together; the
       // unrelated history thread's activity is untouched.
       expect(await auditedEntries(store)).toEqual([
@@ -530,9 +527,7 @@ describe("SQLite App State Thread content & Run incremental persistence", () => 
       // not regress. The reducer keeps the existing row, so `after` carries the
       // existing (higher-count) message; persistence must not write a regression.
       const regressing = existing.map((message) =>
-        message.id === "message-active-existing"
-          ? { ...message, runEventCount: 3 }
-          : message,
+        message.id === "message-active-existing" ? { ...message, runEventCount: 3 } : message,
       );
       const value = command("thread-content:update", {
         threadId: ACTIVE_THREAD_ID,

@@ -239,8 +239,14 @@ function updateThreadMetadata(client: CommandClient, thread: AppThreadRecord): v
 // Two messages with the same id whose identity differs need an UPDATE; matching
 // identity is left untouched so an unaffected message history isn't rewritten.
 function messageRowIdentity(message: AppThreadMessageRecord): { message: string; payload: string } {
-  const { id: _id, threadId: _threadId, role: _role, content, createdAt: _createdAt, ...payload } =
-    message;
+  const {
+    id: _id,
+    threadId: _threadId,
+    role: _role,
+    content,
+    createdAt: _createdAt,
+    ...payload
+  } = message;
   return { message: content, payload: JSON.stringify(payload) };
 }
 
@@ -580,10 +586,7 @@ export function persistIncrementalAppStateCommand(
       updateThreadMetadata(client, thread);
       const remembered = before.lastThreadIdByWorkspace?.[thread.workspaceId];
       if (remembered === threadId) {
-        client.run(
-          "DELETE FROM workspace_last_threads WHERE workspace_id = ?",
-          thread.workspaceId,
-        );
+        client.run("DELETE FROM workspace_last_threads WHERE workspace_id = ?", thread.workspaceId);
       }
       return;
     }
@@ -630,9 +633,7 @@ export function persistIncrementalAppStateCommand(
       );
       for (const newMessage of newMessages) insertMessage(client, newMessage);
       const newRunIds = new Set(
-        (before.threadRuns ?? [])
-          .filter((run) => run.threadId === threadId)
-          .map((run) => run.id),
+        (before.threadRuns ?? []).filter((run) => run.threadId === threadId).map((run) => run.id),
       );
       const newRuns = (after.threadRuns ?? []).filter(
         (run) => run.threadId === threadId && !newRunIds.has(run.id),
@@ -650,9 +651,7 @@ export function persistIncrementalAppStateCommand(
       );
       // Delete the rolled-back messages and Run, then recompute the Thread's
       // activity time from `after`.
-      const afterMessageIds = new Set(
-        (after.threadMessages ?? []).map((message) => message.id),
-      );
+      const afterMessageIds = new Set((after.threadMessages ?? []).map((message) => message.id));
       const removedMessages = (before.threadMessages ?? [])
         .filter((message) => message.threadId === threadId && !afterMessageIds.has(message.id))
         .map((message) => message.id);

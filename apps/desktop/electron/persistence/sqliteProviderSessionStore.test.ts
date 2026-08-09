@@ -25,7 +25,10 @@ async function makeTempDir(): Promise<string> {
 
 async function reloadFromDisk(
   dir: string,
-): Promise<{ sqlite: ReturnType<typeof createSqliteAppStateStore>; store: SqliteProviderSessionStore }> {
+): Promise<{
+  sqlite: ReturnType<typeof createSqliteAppStateStore>;
+  store: SqliteProviderSessionStore;
+}> {
   // The production reload path reads the persisted mappings from SQLite and
   // hands them to a fresh store as the seed snapshot. Reconstructing the same
   // path here proves the store is round-trippable across restarts.
@@ -266,11 +269,7 @@ describe("createSqliteProviderSessionStore", () => {
         await sqlite.run((client) =>
           client.transaction(() => {
             deleteProviderSessionByKey(client, "kimi:thread-a");
-            client.run(
-              "INSERT INTO app_metadata (key, value) VALUES (?, ?)",
-              "touched",
-              "1",
-            );
+            client.run("INSERT INTO app_metadata (key, value) VALUES (?, ?)", "touched", "1");
             throw new Error("command rolled back");
           }),
         );
@@ -323,10 +322,7 @@ describe("createSqliteProviderSessionStore", () => {
             const failingClient = {
               ...client,
               run: (sql: string, ...params: Parameters<typeof originalRun>[1][]) => {
-                if (
-                  typeof sql === "string" &&
-                  sql.startsWith("DELETE FROM provider_sessions")
-                ) {
+                if (typeof sql === "string" && sql.startsWith("DELETE FROM provider_sessions")) {
                   deleteCount += 1;
                   if (deleteCount === 2) {
                     throw new Error("simulated mid-batch disk fault");

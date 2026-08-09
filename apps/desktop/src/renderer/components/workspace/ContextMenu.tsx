@@ -77,8 +77,7 @@ export function ContextMenuShell({
     }
 
     const menuRect = menuRef.current.getBoundingClientRect();
-    const point =
-      align === "end" ? { x: anchor.x - menuRect.width, y: anchor.y } : anchor;
+    const point = align === "end" ? { x: anchor.x - menuRect.width, y: anchor.y } : anchor;
     setPosition(
       getMenuPosition(
         point,
@@ -124,10 +123,7 @@ export function ContextMenuShell({
     <>
       {/* Catches outside clicks, including over the header drag region
           where Electron otherwise swallows pointer events. */}
-      <div
-        className="no-drag fixed inset-0 z-40"
-        onPointerDown={() => onClose()}
-      />
+      <div className="no-drag fixed inset-0 z-40" onPointerDown={() => onClose()} />
       <div
         ref={menuRef}
         className="fixed z-50"

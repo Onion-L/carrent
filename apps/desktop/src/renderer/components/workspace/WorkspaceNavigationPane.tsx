@@ -596,9 +596,7 @@ export function WorkspaceNavigationPane() {
                                     onClick={() => navigate(threadPath)}
                                     className="flex min-w-0 flex-1 self-stretch items-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20"
                                   >
-                                    {thread.pinned && (
-                                      <Pin className="mr-1 h-3 w-3 shrink-0" />
-                                    )}
+                                    {thread.pinned && <Pin className="mr-1 h-3 w-3 shrink-0" />}
                                     <MarqueeText
                                       className={`min-w-0 flex-1 text-app-13 ${active ? "font-semibold" : "font-normal"}`}
                                     >

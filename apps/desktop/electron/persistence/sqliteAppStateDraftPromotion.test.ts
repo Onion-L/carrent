@@ -76,7 +76,10 @@ function openDraftPayload(draft: AssociationThreadDraftRecord) {
   };
 }
 
-function promotionPayload(draft: AssociationThreadDraftRecord, startedAt = "2026-08-09T09:00:00.000Z") {
+function promotionPayload(
+  draft: AssociationThreadDraftRecord,
+  startedAt = "2026-08-09T09:00:00.000Z",
+) {
   return {
     draftId: draft.id,
     threadId: draft.threadId,
@@ -387,7 +390,10 @@ describe("SQLite App State Thread Draft lifecycle persistence", () => {
       await clearAudit(store);
 
       // A second client wins the race in the reducer: created:false, no-op.
-      const replay = reduceResult(promoted, command("thread-draft:promote", promotionPayload(draft)));
+      const replay = reduceResult(
+        promoted,
+        command("thread-draft:promote", promotionPayload(draft)),
+      );
       expect(replay.noOp).toBe(true);
       expect(replay.data).toMatchObject({ created: false, thread: { id: "thread-promoted" } });
 
@@ -397,7 +403,10 @@ describe("SQLite App State Thread Draft lifecycle persistence", () => {
       // draft/intent without inserting again.
       const competingBefore = baseSnapshot();
       competingBefore.threadDrafts = [draftRecord()];
-      const competingAfter = reduce(competingBefore, command("thread-draft:promote", promotionPayload(draft)));
+      const competingAfter = reduce(
+        competingBefore,
+        command("thread-draft:promote", promotionPayload(draft)),
+      );
       await store.persistAppStateCommand(
         command("thread-draft:promote", promotionPayload(draft)),
         competingBefore,
@@ -477,7 +486,10 @@ describe("SQLite App State Thread Draft lifecycle persistence", () => {
 
       // The draft is already restored, so the reducer returns the same snapshot
       // reference and the authority never persists this command.
-      const again = reduceResult(rolledBack, command("thread-draft:rollback-promotion", { draft: draftRecord() }));
+      const again = reduceResult(
+        rolledBack,
+        command("thread-draft:rollback-promotion", { draft: draftRecord() }),
+      );
       expect(again.noOp).toBe(true);
       expect(await auditedEntries(store)).toEqual([]);
     });

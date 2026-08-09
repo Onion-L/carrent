@@ -7,10 +7,7 @@ import { ChatHeader } from "../components/chat/ChatHeader";
 import { OpenInMenu } from "../components/chat/OpenInMenu";
 import { Composer } from "../components/chat/Composer";
 import { EmptyThreadPrompt } from "../components/chat/MessageTimeline";
-import {
-  ThreadInspectorPane,
-  ThreadInspectorToggle,
-} from "../components/chat/ThreadInspectorPane";
+import { ThreadInspectorPane, ThreadInspectorToggle } from "../components/chat/ThreadInspectorPane";
 import { DesktopHeaderPortal } from "../components/DesktopHeaderActions";
 import { BrowserWorkspace, useBrowserThread } from "../components/browser/BrowserWorkspace";
 import type { AssociationThreadDraftRecord } from "../../shared/workspacePersistence";

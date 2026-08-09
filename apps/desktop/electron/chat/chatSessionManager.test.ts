@@ -3267,9 +3267,9 @@ describe("createChatSessionManager", () => {
     manager.start("run-conflict", makeRequest({ runtimeId: "kimi" }));
     // The Run is deferred behind the active status request instead of failing:
     // no failure is emitted and it has not started a Run transport yet.
-    expect(
-      emitted.some((event) => event.type === "failed" && event.runId === "run-conflict"),
-    ).toBe(false);
+    expect(emitted.some((event) => event.type === "failed" && event.runId === "run-conflict")).toBe(
+      false,
+    );
 
     expect(
       await manager.inspectStatus!(makeRequest({ runtimeId: "kimi", threadId: "thread-2" })),
@@ -3401,9 +3401,9 @@ describe("createChatSessionManager", () => {
     // failure is emitted and no second transport is started yet.
     manager.start("run-deferred", makeRequest({ runtimeId: "kimi" }));
     await waitForAsyncEvents();
-    expect(
-      emitted.some((event) => event.type === "failed" && event.runId === "run-deferred"),
-    ).toBe(false);
+    expect(emitted.some((event) => event.type === "failed" && event.runId === "run-deferred")).toBe(
+      false,
+    );
     expect(transports).toHaveLength(1);
 
     // Once the status request settles, the deferred Run starts.
@@ -3412,9 +3412,9 @@ describe("createChatSessionManager", () => {
     await waitForAsyncEvents();
 
     expect(transports.length).toBe(2);
-    expect(emitted.some((event) => event.type === "started" && event.runId === "run-deferred")).toBe(
-      true,
-    );
+    expect(
+      emitted.some((event) => event.type === "started" && event.runId === "run-deferred"),
+    ).toBe(true);
   });
 
   it("does not start a deferred Run that was stopped before the status refresh settled", async () => {
@@ -3662,7 +3662,10 @@ describe("createChatSessionManager", () => {
     const statusTask = manager.getStatus(makeRequest({ runtimeId: "kimi", threadId: "thread-1" }));
     await waitForAsyncEvents();
 
-    manager.start("run-deferred-thread-1", makeRequest({ runtimeId: "kimi", threadId: "thread-1" }));
+    manager.start(
+      "run-deferred-thread-1",
+      makeRequest({ runtimeId: "kimi", threadId: "thread-1" }),
+    );
     await waitForAsyncEvents();
 
     // thread-2 has no status request in flight, so its Run starts immediately
@@ -3670,9 +3673,9 @@ describe("createChatSessionManager", () => {
     manager.start("run-thread-2", makeRequest({ runtimeId: "kimi", threadId: "thread-2" }));
     await waitForAsyncEvents();
 
-    expect(emitted.some((event) => event.type === "started" && event.runId === "run-thread-2")).toBe(
-      true,
-    );
+    expect(
+      emitted.some((event) => event.type === "started" && event.runId === "run-thread-2"),
+    ).toBe(true);
     expect(
       emitted.some((event) => event.type === "started" && event.runId === "run-deferred-thread-1"),
     ).toBe(false);

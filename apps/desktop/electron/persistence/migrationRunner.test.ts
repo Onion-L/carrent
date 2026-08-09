@@ -13,7 +13,7 @@ async function makeTempDir(): Promise<string> {
 describe("migration registry", () => {
   it("is the contiguous sequence 1..n", () => {
     expect(() => assertMigrationsWellFormed(MIGRATIONS)).not.toThrow();
-    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1]);
+    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2]);
   });
 
   it("rejects a reordered or gapped registry", () => {
@@ -26,14 +26,14 @@ describe("migration registry", () => {
 });
 
 describe("runMigrations", () => {
-  it("creates the initial schema from an empty database and records version 1", async () => {
+  it("creates the schema from an empty database and records every migration", async () => {
     const dir = await makeTempDir();
     try {
       const db = openBunSqliteClient(join(dir, "app.db"));
       const outcome = runMigrations(db, MIGRATIONS, { now: () => "2026-08-09T00:00:00.000Z" });
 
-      expect(outcome.appliedVersion).toBe(1);
-      expect(outcome.newlyApplied).toEqual([1]);
+      expect(outcome.appliedVersion).toBe(2);
+      expect(outcome.newlyApplied).toEqual([1, 2]);
 
       const recorded = db.get<{ version: number; name: string; applied_at: string }>(
         "SELECT version, name, applied_at FROM schema_migrations WHERE version = ?",
@@ -85,12 +85,12 @@ describe("runMigrations", () => {
 
       const second = openBunSqliteClient(path);
       const outcome = runMigrations(second, MIGRATIONS, { now: () => "2026-08-09T00:00:01.000Z" });
-      expect(outcome.appliedVersion).toBe(1);
+      expect(outcome.appliedVersion).toBe(2);
       expect(outcome.newlyApplied).toEqual([]);
 
-      // Only one migration row exists after a second run.
+      // No duplicate migration rows exist after a second run.
       const count = second.get<{ c: number }>("SELECT COUNT(*) AS c FROM schema_migrations")?.c;
-      expect(count).toBe(1);
+      expect(count).toBe(2);
       second.close();
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -110,7 +110,7 @@ describe("runMigrations", () => {
       const failingRegistry: Migration[] = [
         ...MIGRATIONS,
         {
-          version: 2,
+          version: 3,
           name: "failing",
           up: (ctx) => {
             ctx.exec("CREATE TABLE sentinel (id INTEGER PRIMARY KEY)");
@@ -122,7 +122,7 @@ describe("runMigrations", () => {
       const db = openBunSqliteClient(path);
       expect(() => runMigrations(db, failingRegistry)).toThrow("injected failure");
 
-      // The failed migration left no trace: no sentinel table, no version-2 row.
+      // The failed migration left no trace: no sentinel table, no version-3 row.
       const sentinel = db
         .all<{ name: string }>(
           "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sentinel'",
@@ -132,7 +132,7 @@ describe("runMigrations", () => {
       const recorded = db
         .all<{ version: number }>("SELECT version FROM schema_migrations ORDER BY version")
         .map((row) => row.version);
-      expect(recorded).toEqual([1]);
+      expect(recorded).toEqual([1, 2]);
       db.close();
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -223,6 +223,82 @@ describe("runMigrations", () => {
       ).toThrow();
 
       db.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a version-1 database with an existing reserved Thread ID conflict", async () => {
+    const dir = await makeTempDir();
+    try {
+      const path = join(dir, "app.db");
+      const setup = openBunSqliteClient(path);
+      runMigrations(setup, MIGRATIONS.slice(0, 1), {
+        now: () => "2026-08-09T00:00:00.000Z",
+      });
+      setup.exec("PRAGMA foreign_keys = ON");
+      setup.run('INSERT INTO workspaces (id, name, "order") VALUES (?, ?, ?)', "w1", "Work", 0);
+      setup.run(
+        `INSERT INTO projects (id, name, working_directory, working_directory_identity)
+         VALUES (?, ?, ?, ?)`,
+        "p1",
+        "Project",
+        "/work/project",
+        "/work/project",
+      );
+      setup.run(
+        `INSERT INTO workspace_project_associations
+           (workspace_id, project_id, "order", default_runtime_id, default_runtime_mode)
+         VALUES (?, ?, ?, ?, ?)`,
+        "w1",
+        "p1",
+        0,
+        "kimi",
+        "approval-required",
+      );
+      setup.run(
+        `INSERT INTO threads (
+           id, workspace_id, project_id, title, created_at, last_activity_at,
+           runtime_id, runtime_mode, plan_mode
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        "reserved-1",
+        "w1",
+        "p1",
+        "Existing",
+        "2026-08-09T00:00:00.000Z",
+        "2026-08-09T00:00:00.000Z",
+        "kimi",
+        "approval-required",
+        0,
+      );
+      setup.run(
+        `INSERT INTO thread_drafts (
+           id, reserved_thread_id, workspace_id, project_id, content,
+           attached_skill_names, attachments, runtime_id, runtime_mode, plan_mode
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        "draft-1",
+        "reserved-1",
+        "w1",
+        "p1",
+        "Conflict",
+        "[]",
+        "[]",
+        "kimi",
+        "approval-required",
+        0,
+      );
+      setup.close();
+
+      const upgrade = openBunSqliteClient(path);
+      expect(() => runMigrations(upgrade, MIGRATIONS)).toThrow(
+        /conflicts with an existing Thread/u,
+      );
+      expect(
+        upgrade
+          .all<{ version: number }>("SELECT version FROM schema_migrations ORDER BY version")
+          .map((row) => row.version),
+      ).toEqual([1]);
+      upgrade.close();
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

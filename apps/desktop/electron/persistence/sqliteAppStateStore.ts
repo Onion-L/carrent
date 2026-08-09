@@ -3,7 +3,15 @@ import { dirname } from "node:path";
 import { MIGRATIONS } from "./migrations";
 import { runMigrations } from "./migrationRunner";
 import { getSqliteDriver } from "./runtimeSqlite";
+import {
+  readAppStateIdentityGraph,
+  replaceAppStateIdentityGraph,
+} from "./sqliteAppStateRepository";
 import type { SqliteClient, SqliteDriver } from "./sqliteClient";
+import {
+  normalizeAppStateSnapshotForWrite,
+  type AppStateSnapshot,
+} from "../../src/shared/workspacePersistence";
 
 /**
  * Connection PRAGMAs applied on every fresh database. The PRD fixes these:
@@ -86,6 +94,10 @@ export interface SqliteAppStateStore {
    * the command-aware persistence use.
    */
   run<T>(work: (client: SqliteClient) => T | Promise<T>): Promise<T>;
+  /** Replace the persisted identity graph atomically after validating it. */
+  saveAppStateSnapshot(snapshot: AppStateSnapshot): Promise<void>;
+  /** Load the persisted identity graph, or null when stored rows are invalid. */
+  loadAppStateSnapshot(): Promise<AppStateSnapshot | null>;
   /**
    * Resolves once every operation submitted so far has settled, so quit-time
    * flows can drain pending writes before the process exits.
@@ -216,6 +228,18 @@ export function createSqliteAppStateStore(
     return queue.then(() => {});
   }
 
+  function saveAppStateSnapshot(snapshot: AppStateSnapshot): Promise<void> {
+    const normalized = normalizeAppStateSnapshotForWrite(snapshot);
+    if (!normalized) return Promise.reject(new Error("Invalid App State snapshot."));
+    return run((connection) =>
+      connection.transaction(() => replaceAppStateIdentityGraph(connection, normalized)),
+    );
+  }
+
+  function loadAppStateSnapshot(): Promise<AppStateSnapshot | null> {
+    return run((connection) => readAppStateIdentityGraph(connection));
+  }
+
   async function close(): Promise<void> {
     await queue.then(() => {
       if (client) {
@@ -228,6 +252,8 @@ export function createSqliteAppStateStore(
   return {
     open,
     run,
+    saveAppStateSnapshot,
+    loadAppStateSnapshot,
     waitForIdle,
     close,
     get isOpen() {

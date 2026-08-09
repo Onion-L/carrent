@@ -42,6 +42,11 @@ export const MIGRATIONS: readonly Migration[] = [
     name: "initial-app-state-schema",
     up: initialStateSchema,
   },
+  {
+    version: 2,
+    name: "enforce-identity-graph-constraints",
+    up: enforceIdentityGraphConstraints,
+  },
 ];
 
 /**
@@ -286,4 +291,165 @@ export const INITIAL_APP_STATE_SCHEMA_SQL = `
  */
 function initialStateSchema(context: MigrationContext): void {
   context.exec(INITIAL_APP_STATE_SCHEMA_SQL);
+}
+
+function enforceIdentityGraphConstraints(context: MigrationContext): void {
+  const existingConstraintViolation = context.get<{ problem: string }>(`
+    SELECT 'Workspace ID is required' AS problem FROM workspaces WHERE id IS NULL
+    UNION ALL
+    SELECT 'Project ID is required' FROM projects WHERE id IS NULL
+    UNION ALL
+    SELECT 'Thread ID is required' FROM threads WHERE id IS NULL
+    UNION ALL
+    SELECT 'Thread Draft ID is required' FROM thread_drafts WHERE id IS NULL
+    UNION ALL
+    SELECT 'invalid Association Runtime ID'
+      FROM workspace_project_associations WHERE default_runtime_id NOT IN ('kimi')
+    UNION ALL
+    SELECT 'invalid Thread Runtime ID' FROM threads WHERE runtime_id NOT IN ('kimi')
+    UNION ALL
+    SELECT 'invalid Thread Draft Runtime ID' FROM thread_drafts WHERE runtime_id NOT IN ('kimi')
+    LIMIT 1
+  `);
+  if (existingConstraintViolation) throw new Error(existingConstraintViolation.problem);
+
+  const existingConflict = context.get<{ reserved_thread_id: string }>(
+    `SELECT draft.reserved_thread_id
+     FROM thread_drafts AS draft
+     INNER JOIN threads AS thread ON thread.id = draft.reserved_thread_id
+     LIMIT 1`,
+  );
+  if (existingConflict) {
+    throw new Error(
+      `Thread Draft reserved ID conflicts with an existing Thread: ${existingConflict.reserved_thread_id}`,
+    );
+  }
+
+  context.exec(`
+    CREATE TRIGGER workspaces_id_required_insert
+    BEFORE INSERT ON workspaces
+    WHEN NEW.id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'Workspace ID is required');
+    END;
+
+    CREATE TRIGGER workspaces_id_required_update
+    BEFORE UPDATE OF id ON workspaces
+    WHEN NEW.id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'Workspace ID is required');
+    END;
+
+    CREATE TRIGGER projects_id_required_insert
+    BEFORE INSERT ON projects
+    WHEN NEW.id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'Project ID is required');
+    END;
+
+    CREATE TRIGGER projects_id_required_update
+    BEFORE UPDATE OF id ON projects
+    WHEN NEW.id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'Project ID is required');
+    END;
+
+    CREATE TRIGGER threads_id_required_insert
+    BEFORE INSERT ON threads
+    WHEN NEW.id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'Thread ID is required');
+    END;
+
+    CREATE TRIGGER threads_id_required_update
+    BEFORE UPDATE OF id ON threads
+    WHEN NEW.id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'Thread ID is required');
+    END;
+
+    CREATE TRIGGER thread_drafts_id_required_insert
+    BEFORE INSERT ON thread_drafts
+    WHEN NEW.id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'Thread Draft ID is required');
+    END;
+
+    CREATE TRIGGER thread_drafts_id_required_update
+    BEFORE UPDATE OF id ON thread_drafts
+    WHEN NEW.id IS NULL
+    BEGIN
+      SELECT RAISE(ABORT, 'Thread Draft ID is required');
+    END;
+
+    CREATE TRIGGER thread_drafts_reserved_thread_insert
+    BEFORE INSERT ON thread_drafts
+    WHEN EXISTS (SELECT 1 FROM threads WHERE id = NEW.reserved_thread_id)
+    BEGIN
+      SELECT RAISE(ABORT, 'reserved Thread ID conflicts with an existing Thread');
+    END;
+
+    CREATE TRIGGER thread_drafts_reserved_thread_update
+    BEFORE UPDATE OF reserved_thread_id ON thread_drafts
+    WHEN EXISTS (SELECT 1 FROM threads WHERE id = NEW.reserved_thread_id)
+    BEGIN
+      SELECT RAISE(ABORT, 'reserved Thread ID conflicts with an existing Thread');
+    END;
+
+    CREATE TRIGGER threads_reserved_identity_insert
+    BEFORE INSERT ON threads
+    WHEN EXISTS (SELECT 1 FROM thread_drafts WHERE reserved_thread_id = NEW.id)
+    BEGIN
+      SELECT RAISE(ABORT, 'Thread ID conflicts with a reserved Thread ID');
+    END;
+
+    CREATE TRIGGER threads_reserved_identity_update
+    BEFORE UPDATE OF id ON threads
+    WHEN EXISTS (SELECT 1 FROM thread_drafts WHERE reserved_thread_id = NEW.id)
+    BEGIN
+      SELECT RAISE(ABORT, 'Thread ID conflicts with a reserved Thread ID');
+    END;
+
+    CREATE TRIGGER associations_runtime_id_insert
+    BEFORE INSERT ON workspace_project_associations
+    WHEN NEW.default_runtime_id NOT IN ('kimi')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid Association Runtime ID');
+    END;
+
+    CREATE TRIGGER associations_runtime_id_update
+    BEFORE UPDATE OF default_runtime_id ON workspace_project_associations
+    WHEN NEW.default_runtime_id NOT IN ('kimi')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid Association Runtime ID');
+    END;
+
+    CREATE TRIGGER threads_runtime_id_insert
+    BEFORE INSERT ON threads
+    WHEN NEW.runtime_id NOT IN ('kimi')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid Thread Runtime ID');
+    END;
+
+    CREATE TRIGGER threads_runtime_id_update
+    BEFORE UPDATE OF runtime_id ON threads
+    WHEN NEW.runtime_id NOT IN ('kimi')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid Thread Runtime ID');
+    END;
+
+    CREATE TRIGGER thread_drafts_runtime_id_insert
+    BEFORE INSERT ON thread_drafts
+    WHEN NEW.runtime_id NOT IN ('kimi')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid Thread Draft Runtime ID');
+    END;
+
+    CREATE TRIGGER thread_drafts_runtime_id_update
+    BEFORE UPDATE OF runtime_id ON thread_drafts
+    WHEN NEW.runtime_id NOT IN ('kimi')
+    BEGIN
+      SELECT RAISE(ABORT, 'invalid Thread Draft Runtime ID');
+    END;
+  `);
 }

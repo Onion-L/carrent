@@ -791,7 +791,7 @@ if (!hasSingleInstanceLock) {
       sessionManager: {
         deleteThreadData: sessionManager.deleteThreadData,
         rollbackThreadDataDeletion: sessionManager.rollbackThreadDataDeletion,
-        adoptCommittedThreadDeletion: sessionManager.adoptCommittedThreadDeletion,
+        adoptCommittedProviderSessionDeletion: sessionManager.adoptCommittedProviderSessionDeletion,
       },
       onActiveChange: setAppStateTransactionActiveEverywhere,
       onSnapshotCommitted: (snapshot) => appStateAuthority.adoptExternalSnapshot(snapshot),

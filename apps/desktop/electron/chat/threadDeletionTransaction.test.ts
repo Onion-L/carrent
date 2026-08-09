@@ -575,7 +575,7 @@ describe("thread deletion transaction", () => {
           };
         },
         rollbackThreadDataDeletion: async () => {},
-        adoptCommittedThreadDeletion: (removed) => {
+        adoptCommittedProviderSessionDeletion: (removed) => {
           adopted = removed;
         },
       },

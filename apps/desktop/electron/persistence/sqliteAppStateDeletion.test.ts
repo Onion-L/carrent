@@ -398,7 +398,7 @@ describe("SQLite App State Thread deletion", () => {
         "delete-session",
         ["thread-deleted"],
         undefined,
-        sessionStore.adoptCommittedThreadDeletion,
+        sessionStore.adoptCommittedProviderSessionDeletion,
       );
       await staleWrite;
 

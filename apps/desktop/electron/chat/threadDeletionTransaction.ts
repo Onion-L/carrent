@@ -76,7 +76,7 @@ type TransactionSessionManager = {
     options?: ThreadDataDeletionOptions,
   ) => Promise<ThreadDataDeletionReceipt | void>;
   rollbackThreadDataDeletion: (receipt: ThreadDataDeletionReceipt) => Promise<void>;
-  adoptCommittedThreadDeletion?: (removedSessions: Record<string, string>) => void;
+  adoptCommittedProviderSessionDeletion?: (removedSessions: Record<string, string>) => void;
 };
 
 function removedProviderSessions(
@@ -286,7 +286,7 @@ export function createThreadDeletionTransactionManager(options: {
             deleteAppStateForThreads &&
             (!options.appStateStore.hasCommittedThreadDeletion ||
               !options.appStateStore.clearCommittedThreadDeletionMarker ||
-              !options.sessionManager.adoptCommittedThreadDeletion)
+              !options.sessionManager.adoptCommittedProviderSessionDeletion)
           ) {
             throw new Error("SQLite Thread deletion coordination is unavailable.");
           }
@@ -347,7 +347,7 @@ export function createThreadDeletionTransactionManager(options: {
                 transactionRequest.threadData.threadIds,
                 request.scope,
                 (removedSessions) =>
-                  options.sessionManager.adoptCommittedThreadDeletion!(removedSessions),
+                  options.sessionManager.adoptCommittedProviderSessionDeletion!(removedSessions),
               );
               try {
                 options.onSnapshotCommitted?.(transactionRequest.afterAppState);

@@ -42,7 +42,9 @@ export type SqliteProviderSessionStore = ProviderSessionStore & {
    * `reinitialize` owned the same responsibility.
    */
   reinitialize: (snapshot: ProviderSessionSnapshot) => Promise<void>;
-  adoptCommittedThreadDeletion: (removedSessions: Record<string, string>) => void;
+  adoptCommittedProviderSessionDeletion: (removedSessions: Record<string, string>) => void;
+  detachThreadsFromCache: (threadIds: string[]) => Record<string, string>;
+  restoreThreadsToCache: (sessions: Record<string, string>) => void;
 };
 
 function buildInvalidKeyDiagnostic(storedKey: string, requestKey: string): string {
@@ -57,6 +59,19 @@ function parseRuntimeId(key: string): RuntimeId | null {
   if (separator === -1) return null;
   const candidate = key.slice(0, separator) as RuntimeId;
   return runtimeIds.includes(candidate) ? candidate : null;
+}
+
+function partitionSessionsByThreads(
+  current: Record<string, string>,
+  threadIds: string[],
+): { removed: Record<string, string>; remaining: Record<string, string> } {
+  const suffixes = [...new Set(threadIds)].map((threadId) => `:${threadId}`);
+  const removed: Record<string, string> = {};
+  const remaining: Record<string, string> = {};
+  for (const [key, sessionId] of Object.entries(current)) {
+    (suffixes.some((suffix) => key.endsWith(suffix)) ? removed : remaining)[key] = sessionId;
+  }
+  return { removed, remaining };
 }
 
 export function createSqliteProviderSessionStore(
@@ -146,21 +161,13 @@ export function createSqliteProviderSessionStore(
           // rewritten. Every row delete and the cache update commit together,
           // so a partial failure cannot leave the database diverged from the
           // caller-observed cache.
-          const suffixes = [...new Set(threadIds)].map((threadId) => `:${threadId}`);
-          const removed = Object.fromEntries(
-            Object.entries(sessions).filter(([key]) =>
-              suffixes.some((suffix) => key.endsWith(suffix)),
-            ),
-          );
+          const { removed, remaining } = partitionSessionsByThreads(sessions, threadIds);
           // `deleteProviderSessionByKey` is a no-op when the row was never
           // persisted, so a restore can always re-insert it.
           for (const key of Object.keys(removed)) {
             deleteProviderSessionByKey(client, key);
           }
-          const removedKeys = new Set(Object.keys(removed));
-          sessions = Object.fromEntries(
-            Object.entries(sessions).filter(([key]) => !removedKeys.has(key)),
-          );
+          sessions = remaining;
           return removed;
         }),
       ),
@@ -171,12 +178,20 @@ export function createSqliteProviderSessionStore(
           sessions = { ...sessions, ...restoredSessions };
         }),
       ),
-    adoptCommittedThreadDeletion: (removedSessions) => {
+    adoptCommittedProviderSessionDeletion: (removedSessions) => {
       const nextSessions = { ...sessions };
       for (const [key, sessionId] of Object.entries(removedSessions)) {
         if (nextSessions[key] === sessionId) delete nextSessions[key];
       }
       sessions = nextSessions;
+    },
+    detachThreadsFromCache: (threadIds) => {
+      const { removed, remaining } = partitionSessionsByThreads(sessions, threadIds);
+      sessions = remaining;
+      return removed;
+    },
+    restoreThreadsToCache: (restoredSessions) => {
+      sessions = { ...sessions, ...restoredSessions };
     },
     reinitialize: (nextSnapshot) =>
       sqliteStore.run((client) =>

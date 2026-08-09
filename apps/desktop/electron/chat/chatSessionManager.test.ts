@@ -3405,6 +3405,13 @@ describe("createChatSessionManager", () => {
       false,
     );
     expect(transports).toHaveLength(1);
+    expect(manager.hasLiveRunForThreads?.(["thread-1"])).toBe(true);
+    expect(manager.hasLiveRuns?.()).toBe(true);
+    expect(
+      await getErrorMessage(
+        manager.detachRuntimeSessions?.(["thread-1"]) ?? Promise.resolve(undefined),
+      ),
+    ).toBe("Stop the Project's live Run before relocating its directory.");
 
     // Once the status request settles, the deferred Run starts.
     completeStatus();
@@ -3917,6 +3924,50 @@ describe("createChatSessionManager", () => {
     await manager.restoreRuntimeSessions!(receipt);
     expect(providerSessions.get("kimi:thread-1")).toBe("kimi-session");
     expect(providerSessions.get("claude-code:thread-1")).toBe("claude-session");
+  });
+
+  it("detaches Provider Sessions from cache before an atomic Project relocation commits", async () => {
+    const providerSessions = new Map([["kimi:thread-1", "kimi-session"]]);
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: () => createMockChildProcess(),
+      providerSessions: {
+        get: (key) => providerSessions.get(key),
+        set: (key, sessionId) => {
+          providerSessions.set(key, sessionId);
+        },
+        detachThreadsFromCache: (threadIds) => {
+          const removed: Record<string, string> = {};
+          for (const [key, sessionId] of providerSessions) {
+            if (threadIds.some((threadId) => key.endsWith(`:${threadId}`))) {
+              removed[key] = sessionId;
+              providerSessions.delete(key);
+            }
+          }
+          return removed;
+        },
+        restoreThreadsToCache: (restored) => {
+          Object.entries(restored).forEach(([key, sessionId]) => {
+            providerSessions.set(key, sessionId);
+          });
+        },
+      },
+    });
+
+    const receipt = await manager.detachRuntimeSessions!(["thread-1"], {
+      deferProviderSessionDeletion: true,
+    });
+    expect(receipt.providerSessions).toEqual({ "kimi:thread-1": "kimi-session" });
+    expect(providerSessions.has("kimi:thread-1")).toBe(false);
+
+    await manager.restoreRuntimeSessions?.(receipt);
+    expect(providerSessions.get("kimi:thread-1")).toBe("kimi-session");
+
+    const committedReceipt = await manager.detachRuntimeSessions!(["thread-1"], {
+      deferProviderSessionDeletion: true,
+    });
+    manager.completeRuntimeSessionDetachment?.(committedReceipt);
+    expect(providerSessions.has("kimi:thread-1")).toBe(false);
   });
 
   it("restores provider sessions when attachment cleanup fails", async () => {

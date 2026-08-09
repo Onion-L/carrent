@@ -13,6 +13,7 @@ import {
   type AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
 import { persistIncrementalAppStateCommand } from "./sqliteAppStateCommands";
+import { relocateProjectInAppState } from "./sqliteAppStateRelocation";
 
 /**
  * Connection PRAGMAs applied on every fresh database. The PRD fixes these:
@@ -119,6 +120,17 @@ export interface SqliteAppStateStore {
   ): Promise<{ removedProviderSessions: Record<string, string> }>;
   hasCommittedThreadDeletion(operationId: string): Promise<boolean>;
   clearCommittedThreadDeletionMarker(operationId: string): Promise<void>;
+  /** Update one Project path and detach its Runtime Session mappings atomically. */
+  relocateProject(request: {
+    projectId: string;
+    beforeWorkingDirectory: string;
+    targetDirectory: string;
+    threadIds: string[];
+    providerSessions: Record<string, string>;
+  }): Promise<{
+    appState: AppStateSnapshot;
+    removedProviderSessions: Record<string, string>;
+  }>;
   /**
    * Resolves once every operation submitted so far has settled, so quit-time
    * flows can drain pending writes before the process exits.
@@ -302,6 +314,26 @@ export function createSqliteAppStateStore(
     });
   }
 
+  function relocateProject(request: {
+    projectId: string;
+    beforeWorkingDirectory: string;
+    targetDirectory: string;
+    threadIds: string[];
+    providerSessions: Record<string, string>;
+  }): Promise<{
+    appState: AppStateSnapshot;
+    removedProviderSessions: Record<string, string>;
+  }> {
+    return run((connection) => {
+      return connection.transaction(() => {
+        const result = relocateProjectInAppState(connection, request);
+        const appState = readAppStateSnapshot(connection);
+        if (!appState) throw new Error("Project relocation produced invalid App State.");
+        return { appState, ...result };
+      });
+    });
+  }
+
   function persistAppStateCommand(
     command: AppStateCommand,
     before: AppStateSnapshot,
@@ -337,6 +369,7 @@ export function createSqliteAppStateStore(
     deleteAppStateForThreads,
     hasCommittedThreadDeletion,
     clearCommittedThreadDeletionMarker,
+    relocateProject,
     waitForIdle,
     close,
     get isOpen() {

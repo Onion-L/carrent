@@ -5,10 +5,12 @@ import { runMigrations } from "./migrationRunner";
 import { getSqliteDriver } from "./runtimeSqlite";
 import { readAppStateSnapshot, replaceAppStateSnapshot } from "./sqliteAppStateRepository";
 import type { SqliteClient, SqliteDriver } from "./sqliteClient";
+import type { AppStateCommand } from "../../src/shared/appStateAuthority";
 import {
   normalizePersistedAppStateSnapshot,
   type AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
+import { persistIncrementalAppStateCommand } from "./sqliteAppStateCommands";
 
 /**
  * Connection PRAGMAs applied on every fresh database. The PRD fixes these:
@@ -93,6 +95,12 @@ export interface SqliteAppStateStore {
   run<T>(work: (client: SqliteClient) => T | Promise<T>): Promise<T>;
   /** Replace the persisted App State Snapshot atomically after validating it. */
   saveAppStateSnapshot(snapshot: AppStateSnapshot): Promise<void>;
+  /** Persist one validated ordinary command by updating only its owned rows. */
+  persistAppStateCommand(
+    command: AppStateCommand,
+    before: AppStateSnapshot,
+    after: AppStateSnapshot,
+  ): Promise<void>;
   /** Load the persisted App State Snapshot, or null when stored rows are invalid. */
   loadAppStateSnapshot(): Promise<AppStateSnapshot | null>;
   /**
@@ -241,6 +249,23 @@ export function createSqliteAppStateStore(
     return run((connection) => readAppStateSnapshot(connection));
   }
 
+  function persistAppStateCommand(
+    command: AppStateCommand,
+    before: AppStateSnapshot,
+    after: AppStateSnapshot,
+  ): Promise<void> {
+    const normalizedBefore = normalizePersistedAppStateSnapshot(before);
+    const normalizedAfter = normalizePersistedAppStateSnapshot(after);
+    if (!normalizedBefore || !normalizedAfter) {
+      return Promise.reject(new Error("Invalid App State command snapshots."));
+    }
+    return run((connection) =>
+      connection.transaction(() =>
+        persistIncrementalAppStateCommand(connection, command, normalizedBefore, normalizedAfter),
+      ),
+    );
+  }
+
   async function close(): Promise<void> {
     await queue.then(() => {
       if (client) {
@@ -254,6 +279,7 @@ export function createSqliteAppStateStore(
     open,
     run,
     saveAppStateSnapshot,
+    persistAppStateCommand,
     loadAppStateSnapshot,
     waitForIdle,
     close,

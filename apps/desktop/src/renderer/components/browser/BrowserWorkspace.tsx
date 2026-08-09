@@ -436,11 +436,7 @@ export function BrowserWorkspace({
             label={fullscreen ? "Exit browser fullscreen" : "Enter browser fullscreen"}
             onClick={() => onToggleFullscreen?.()}
           >
-            {fullscreen ? (
-              <Minimize2 className="h-4 w-4" />
-            ) : (
-              <Maximize2 className="h-4 w-4" />
-            )}
+            {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </IconButton>
         )}
       </div>

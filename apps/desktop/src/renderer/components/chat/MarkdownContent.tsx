@@ -78,11 +78,7 @@ const components: Components = {
   hr: () => <hr className="border-border" />,
 };
 
-export const MarkdownContent = memo(function MarkdownContent({
-  children,
-}: {
-  children: string;
-}) {
+export const MarkdownContent = memo(function MarkdownContent({ children }: { children: string }) {
   const content = normalizeMathDelimiters(children);
 
   return (

@@ -64,9 +64,11 @@ function createHarness(
 ) {
   const published: Array<{ subscriberId: number; state: AppStateAuthorityState }> = [];
   const saved: AppStateSnapshot[] = [];
+  const persistedCommands: AppStateCommand[] = [];
   const authority = createAppStateAuthority({
     store: createAppStateStoreStub({
-      saveAppStateSnapshot: async (snapshot) => {
+      persistAppStateCommand: async (persistedCommand, _before, snapshot) => {
+        persistedCommands.push(persistedCommand);
         saved.push(snapshot);
         await options.saveAppStateSnapshot?.(snapshot);
       },
@@ -78,7 +80,7 @@ function createHarness(
       published.push({ subscriberId, state });
     },
   });
-  return { authority, published, saved };
+  return { authority, published, saved, persistedCommands };
 }
 
 describe("createAppStateAuthority", () => {
@@ -101,7 +103,7 @@ describe("createAppStateAuthority", () => {
   });
 
   it("accepts a command, advances the revision, persists, and broadcasts to every subscriber", async () => {
-    const { authority, published, saved } = createHarness();
+    const { authority, published, saved, persistedCommands } = createHarness();
     authority.subscribe(1);
     authority.subscribe(2);
 
@@ -110,6 +112,7 @@ describe("createAppStateAuthority", () => {
     expect(result).toEqual({ status: "accepted", revision: 1 });
     expect(saved).toHaveLength(1);
     expect(saved[0].workspaces[0]?.name).toBe("Core");
+    expect(persistedCommands).toEqual([command({ payload: { name: "Core" } })]);
     expect(published).toHaveLength(2);
     expect(published[0]).toEqual({
       subscriberId: 1,
@@ -263,18 +266,42 @@ describe("createAppStateAuthority", () => {
     expect(after).toEqual({ status: "accepted", revision: 1 });
   });
 
-  it("replaces state from a reread or full reset without resetting the revision", async () => {
+  it("stays unavailable until every overlapping App State transaction finishes", async () => {
     const { authority } = createHarness();
+    authority.setTransactionActive(true);
+    authority.setTransactionActive(true);
+    authority.setTransactionActive(false);
+
+    expect(await authority.submit(1, command())).toEqual({
+      status: "rejected",
+      reason: "unavailable",
+      revision: 0,
+    });
+
+    authority.setTransactionActive(false);
+    expect(await authority.submit(1, command({ commandId: "cmd-2" }))).toEqual({
+      status: "accepted",
+      revision: 1,
+    });
+  });
+
+  it("publishes state from a reread or full reset as a new revision", async () => {
+    const { authority, published } = createHarness();
+    authority.subscribe(1);
     await authority.submit(1, command({ payload: { name: "Core" } }));
 
     const replacement = createEmptyAppStateSnapshot();
     authority.replaceState(readyResult(replacement));
 
-    expect(authority.getState()).toEqual({ revision: 1, snapshot: replacement });
+    expect(authority.getState()).toEqual({ revision: 2, snapshot: replacement });
+    expect(published.at(-1)).toEqual({
+      subscriberId: 1,
+      state: { revision: 2, snapshot: replacement },
+    });
 
     authority.replaceState(recoveryResult());
     const blocked = await authority.submit(1, command({ commandId: "cmd-2" }));
-    expect(blocked).toEqual({ status: "rejected", reason: "unavailable", revision: 1 });
+    expect(blocked).toEqual({ status: "rejected", reason: "unavailable", revision: 2 });
   });
 
   it("stops broadcasting to an unsubscribed client", async () => {

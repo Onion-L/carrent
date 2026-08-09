@@ -111,7 +111,9 @@ describe("streaming Markdown output integrity", () => {
     expect(container.querySelector("em")?.textContent).toBe("italic");
     expect(container.querySelector("a")?.getAttribute("href")).toBe("https://example.com");
     expect(container.querySelectorAll("li")).toHaveLength(2);
-    expect(container.querySelector("pre code")?.textContent).toContain("const answer: number = 42;");
+    expect(container.querySelector("pre code")?.textContent).toContain(
+      "const answer: number = 42;",
+    );
     expect(container.querySelector(".katex-display")).not.toBe(null);
   });
 });

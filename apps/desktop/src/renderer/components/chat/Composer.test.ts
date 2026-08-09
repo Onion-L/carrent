@@ -940,7 +940,7 @@ describe("createWorkspaceDiffCapture", () => {
       getRunWritePaths: () => [],
       showToast: () => {},
     });
-    captureClean();
+    await captureClean();
 
     const captureUnavailable = createWorkspaceDiffCapture({
       mode: "thread",
@@ -952,9 +952,7 @@ describe("createWorkspaceDiffCapture", () => {
       getRunWritePaths: () => [],
       showToast: () => {},
     });
-    captureUnavailable();
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await captureUnavailable();
   });
 
   it("appends a ready result with files", async () => {
@@ -979,8 +977,7 @@ describe("createWorkspaceDiffCapture", () => {
       getRunWritePaths: () => ["a.txt"],
       showToast: () => {},
     });
-    capture();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await capture();
     expect(appended).toEqual({ threadId: "t1", result: { state: "ready" } });
   });
 
@@ -1007,10 +1004,10 @@ describe("createWorkspaceDiffCapture", () => {
       getRunWritePaths: () => ["a.txt"],
       showToast: () => {},
     });
-    capture();
-    capture();
-    capture();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    const firstCapture = capture();
+    expect(capture()).toBe(firstCapture);
+    expect(capture()).toBe(firstCapture);
+    await firstCapture;
     expect(diffCalls).toBe(1);
   });
 
@@ -1030,8 +1027,7 @@ describe("createWorkspaceDiffCapture", () => {
         toasts.push({ message, type });
       },
     });
-    capture();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await capture();
     expect(toasts).toEqual([
       { message: "Run finished, but workspace diff could not be captured.", type: "error" },
     ]);
@@ -1056,8 +1052,7 @@ describe("createWorkspaceDiffCapture", () => {
       getRunWritePaths: () => [],
       showToast: () => {},
     });
-    capture();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await capture();
     expect(baselineCalls).toBe(1);
     expect(receivedBase).toBe("baseline-sha");
   });
@@ -1079,8 +1074,7 @@ describe("createWorkspaceDiffCapture", () => {
       getRunWritePaths: () => [],
       showToast: () => {},
     });
-    capture();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await capture();
     expect(receivedBase).toBeUndefined();
   });
 
@@ -1106,8 +1100,7 @@ describe("createWorkspaceDiffCapture", () => {
       getRunWritePaths: () => [],
       showToast: () => {},
     });
-    capture();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await capture();
   });
 
   it("matches project-relative run paths inside a nested repository project", async () => {
@@ -1140,8 +1133,7 @@ describe("createWorkspaceDiffCapture", () => {
       getRunWritePaths: () => ["src/a.ts"],
       showToast: () => {},
     });
-    capture();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await capture();
     expect(appended).toEqual(["packages/app/src/a.ts"]);
   });
 
@@ -1181,8 +1173,7 @@ describe("createWorkspaceDiffCapture", () => {
       getRunWritePaths: () => ["a.txt"],
       showToast: () => {},
     });
-    capture();
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await capture();
 
     expect(appendedPatch).toContain("+owned");
     expect(appendedPatch).not.toContain("other.txt");

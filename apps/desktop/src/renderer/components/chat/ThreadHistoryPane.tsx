@@ -24,6 +24,7 @@ import {
   getProjectThreads,
   type ThreadDisplayStatus,
 } from "../../lib/projectThreads";
+import { MarqueeText } from "../MarqueeText";
 import { useToast } from "../toast/ToastContext";
 
 const THREAD_STATUS_META: Record<ThreadDisplayStatus, { label: string; className: string }> = {
@@ -437,9 +438,9 @@ export function ThreadHistoryPane() {
                             className="flex min-w-0 flex-1 self-stretch items-center gap-2 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20"
                           >
                             <span className="h-2 w-2 shrink-0 rounded-full border border-subtle/70" />
-                            <span className="min-w-0 flex-1 truncate text-app-13 font-medium">
+                            <MarqueeText className="min-w-0 flex-1 text-app-13 font-medium">
                               {thread.title}
-                            </span>
+                            </MarqueeText>
                             {statusMeta ? (
                               <span
                                 className={`shrink-0 text-app-11 group-hover:hidden ${statusMeta.className}`}

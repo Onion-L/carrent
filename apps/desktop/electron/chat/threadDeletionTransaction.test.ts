@@ -429,6 +429,7 @@ describe("thread deletion transaction", () => {
       version: 1,
       operationId: "operation-3",
       phase: "preparing",
+      attachmentStorageKeys: ["attachment.png"],
       request: request(),
       removedProviderSessions: {
         "kimi:thread-1": "session-1",
@@ -461,6 +462,7 @@ describe("thread deletion transaction", () => {
       version: 1,
       operationId: "operation-4",
       phase: "committed",
+      attachmentStorageKeys: ["attachment.png"],
       request: request(),
       removedProviderSessions: {
         "kimi:thread-1": "session-1",
@@ -527,6 +529,166 @@ describe("thread deletion transaction", () => {
     });
 
     expect(commitAttempts).toBe(3);
+    expect(harness.getJournal()).toBe(null);
+  });
+
+  it("uses the SQLite operation marker as the commit point and writes a slim file journal", async () => {
+    const harness = createHarness();
+    const savedJournals: ThreadDeletionJournal[] = [];
+    let committed = false;
+    let completed = false;
+    let adopted: Record<string, string> | null = null;
+    let deferred = false;
+    const manager = createThreadDeletionTransactionManager({
+      journalStore: {
+        ...harness.journalStore,
+        save: async (journal) => {
+          savedJournals.push(structuredClone(journal));
+          await harness.journalStore.save(journal);
+        },
+      },
+      appStateStore: {
+        ...harness.appStateStore,
+        deleteAppStateForThreads: async (operationId, threadIds, scope, onCommitted) => {
+          expect(operationId).toBe("sqlite-operation");
+          expect(threadIds).toEqual(["thread-1"]);
+          expect(scope).toBeUndefined();
+          const removed = { "kimi:thread-1": "session-1" };
+          committed = true;
+          onCommitted?.(removed);
+          return { appState: afterAppState, removedProviderSessions: removed };
+        },
+        hasCommittedThreadDeletion: async () => committed,
+        clearCommittedThreadDeletionMarker: async () => {
+          completed = true;
+          committed = false;
+        },
+      },
+      attachmentStore: harness.attachmentStore,
+      sessionManager: {
+        deleteThreadData: async (_request, options) => {
+          deferred = options?.deferProviderSessionDeletion === true;
+          return {
+            threadIds: ["thread-1"],
+            removedProviderSessions: {},
+            detachedRuntimeSessions: {},
+          };
+        },
+        rollbackThreadDataDeletion: async () => {},
+        adoptCommittedProviderSessionDeletion: (removed) => {
+          adopted = removed;
+        },
+      },
+      createOperationId: () => "sqlite-operation",
+    });
+
+    await manager.deleteThread(request());
+
+    expect(deferred).toBe(true);
+    expect(adopted).toEqual({ "kimi:thread-1": "session-1" });
+    expect(completed).toBe(true);
+    expect(savedJournals[0]).toEqual({
+      version: 1,
+      operationId: "sqlite-operation",
+      phase: "preparing",
+      attachmentStorageKeys: ["attachment.png"],
+    });
+    expect("request" in savedJournals[0]!).toBe(false);
+    expect("removedProviderSessions" in savedJournals[0]!).toBe(false);
+  });
+
+  it("publishes the committed SQLite snapshot after another external transaction changed it", async () => {
+    const harness = createHarness();
+    const committedAppState: AppStateSnapshot = {
+      ...afterAppState,
+      projects: [
+        {
+          ...afterAppState.projects[0],
+          workingDirectory: "/code/carrent-relocated",
+        },
+      ],
+    };
+    let published: AppStateSnapshot | null = null;
+    const manager = createThreadDeletionTransactionManager({
+      journalStore: harness.journalStore,
+      appStateStore: {
+        ...harness.appStateStore,
+        deleteAppStateForThreads: async (_operationId, _threadIds, _scope, onCommitted) => {
+          const removedProviderSessions = { "kimi:thread-1": "session-1" };
+          onCommitted?.(removedProviderSessions);
+          return { appState: committedAppState, removedProviderSessions };
+        },
+        hasCommittedThreadDeletion: async () => true,
+        clearCommittedThreadDeletionMarker: async () => {},
+      },
+      attachmentStore: harness.attachmentStore,
+      sessionManager: {
+        deleteThreadData: async () => ({
+          threadIds: ["thread-1"],
+          removedProviderSessions: {},
+          detachedRuntimeSessions: {},
+        }),
+        rollbackThreadDataDeletion: async () => {},
+        adoptCommittedProviderSessionDeletion: () => {},
+      },
+      createOperationId: () => "sqlite-concurrent-operation",
+      onSnapshotCommitted: (snapshot) => {
+        published = snapshot;
+      },
+    });
+
+    await manager.deleteThread(request());
+
+    expect(published).toEqual(committedAppState);
+  });
+
+  it("finishes staged attachment cleanup when SQLite committed before the journal phase changed", async () => {
+    const harness = createHarness();
+    harness.setJournal({
+      version: 1,
+      operationId: "sqlite-recovery",
+      phase: "preparing",
+      attachmentStorageKeys: ["attachment.png"],
+    });
+    let completed = false;
+
+    await recoverThreadDeletionTransaction({
+      journalStore: harness.journalStore,
+      appStateStore: {
+        ...harness.appStateStore,
+        hasCommittedThreadDeletion: async () => true,
+        clearCommittedThreadDeletionMarker: async () => {
+          completed = true;
+        },
+      },
+      attachmentStore: harness.attachmentStore,
+    });
+
+    expect(harness.attachmentEvents).toEqual(["commit:sqlite-recovery"]);
+    expect(completed).toBe(true);
+    expect(harness.getJournal()).toBe(null);
+  });
+
+  it("finishes a committed file journal after its SQLite marker was already cleared", async () => {
+    const harness = createHarness();
+    harness.setJournal({
+      version: 1,
+      operationId: "sqlite-marker-cleared",
+      phase: "committed",
+      attachmentStorageKeys: ["attachment.png"],
+    });
+
+    await recoverThreadDeletionTransaction({
+      journalStore: harness.journalStore,
+      appStateStore: {
+        ...harness.appStateStore,
+        hasCommittedThreadDeletion: async () => false,
+        clearCommittedThreadDeletionMarker: async () => {},
+      },
+      attachmentStore: harness.attachmentStore,
+    });
+
+    expect(harness.attachmentEvents).toEqual(["commit:sqlite-marker-cleared"]);
     expect(harness.getJournal()).toBe(null);
   });
 });

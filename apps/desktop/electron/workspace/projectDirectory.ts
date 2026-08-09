@@ -9,18 +9,32 @@ import {
 export type RuntimeSessionDetachmentReceipt = {
   threadIds: string[];
   providerSessions: Record<string, string>;
+  providerSessionsDetachedFromCache: boolean;
   runtimeSessions: Record<string, string>;
 };
 
 type ProjectRelocationStore = {
-  waitForWrites: () => Promise<void>;
+  waitForWrites?: () => Promise<void>;
   loadAppStateSnapshot: () => Promise<AppStateSnapshot | null>;
-  saveAppStateSnapshot: (snapshot: AppStateSnapshot) => Promise<void>;
+  saveAppStateSnapshot?: (snapshot: AppStateSnapshot) => Promise<void>;
+  relocateProject?: (request: {
+    projectId: string;
+    beforeWorkingDirectory: string;
+    targetDirectory: string;
+    threadIds: string[];
+    providerSessions: Record<string, string>;
+  }) => Promise<{
+    appState: AppStateSnapshot;
+    removedProviderSessions: Record<string, string>;
+  }>;
 };
 
 type ProjectRelocationSessionManager = {
   hasLiveRunForThreads: (threadIds: string[]) => boolean;
-  detachRuntimeSessions: (threadIds: string[]) => Promise<RuntimeSessionDetachmentReceipt>;
+  detachRuntimeSessions: (
+    threadIds: string[],
+    options?: { deferProviderSessionDeletion?: boolean },
+  ) => Promise<RuntimeSessionDetachmentReceipt>;
   restoreRuntimeSessions: (receipt: RuntimeSessionDetachmentReceipt) => Promise<void>;
   completeRuntimeSessionDetachment: (receipt: RuntimeSessionDetachmentReceipt) => void;
 };
@@ -83,7 +97,7 @@ export function createProjectRelocationManager(options: {
             throw new Error("Selected Project Working Directory is unavailable.");
           }
 
-          await options.appStateStore.waitForWrites();
+          await options.appStateStore.waitForWrites?.();
           const beforeAppState = await options.appStateStore.loadAppStateSnapshot();
           if (!beforeAppState) {
             throw new Error("Project relocation requires persisted App State.");
@@ -109,23 +123,43 @@ export function createProjectRelocationManager(options: {
             throw new Error("Stop the Project's live Run before relocating its directory.");
           }
 
-          const afterAppState: AppStateSnapshot = {
-            ...beforeAppState,
-            projects: beforeAppState.projects.map((item) =>
-              item.id === project.id ? { ...item, workingDirectory: targetDirectory } : item,
-            ),
+          const atomicRelocation = options.appStateStore.relocateProject;
+          const receipt = await options.sessionManager.detachRuntimeSessions(threadIds, {
+            deferProviderSessionDeletion: Boolean(atomicRelocation),
+          });
+          let result: {
+            appState: AppStateSnapshot;
+            removedProviderSessions: Record<string, string>;
           };
-          const receipt = await options.sessionManager.detachRuntimeSessions(threadIds);
           try {
-            await options.appStateStore.saveAppStateSnapshot(afterAppState);
-            options.onSnapshotCommitted?.(afterAppState);
-            options.sessionManager.completeRuntimeSessionDetachment(receipt);
+            if (atomicRelocation) {
+              result = await atomicRelocation({
+                projectId: project.id,
+                beforeWorkingDirectory: project.workingDirectory,
+                targetDirectory,
+                threadIds,
+                providerSessions: receipt.providerSessions,
+              });
+            } else {
+              if (!options.appStateStore.saveAppStateSnapshot) {
+                throw new Error("Project relocation persistence is unavailable.");
+              }
+              const appState: AppStateSnapshot = {
+                ...beforeAppState,
+                projects: beforeAppState.projects.map((item) =>
+                  item.id === project.id ? { ...item, workingDirectory: targetDirectory } : item,
+                ),
+              };
+              await options.appStateStore.saveAppStateSnapshot(appState);
+              result = { appState, removedProviderSessions: receipt.providerSessions };
+            }
           } catch (error) {
             const rollbackErrors: unknown[] = [];
-            for (const operation of [
-              () => options.appStateStore.saveAppStateSnapshot(beforeAppState),
-              () => options.sessionManager.restoreRuntimeSessions(receipt),
-            ]) {
+            const operations = [() => options.sessionManager.restoreRuntimeSessions(receipt)];
+            if (!atomicRelocation && options.appStateStore.saveAppStateSnapshot) {
+              operations.unshift(() => options.appStateStore.saveAppStateSnapshot!(beforeAppState));
+            }
+            for (const operation of operations) {
               try {
                 await retryTwice(operation);
               } catch (rollbackError) {
@@ -140,8 +174,13 @@ export function createProjectRelocationManager(options: {
             }
             throw error;
           }
-
-          return { appState: afterAppState };
+          options.sessionManager.completeRuntimeSessionDetachment(receipt);
+          try {
+            options.onSnapshotCommitted?.(result.appState);
+          } catch {
+            // The database commit is authoritative; publication observers cannot roll it back.
+          }
+          return { appState: result.appState };
         } finally {
           options.onActiveChange?.(false);
         }

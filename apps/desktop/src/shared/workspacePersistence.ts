@@ -75,6 +75,10 @@ export type AppThreadRecord = {
   workspaceId: string;
   projectId: string;
   title: string;
+  // Set when the user renames the thread manually, so the Composer never
+  // overwrites it with an auto-derived title (even when renamed back to the
+  // default "New thread").
+  customTitle?: boolean;
   createdAt: string;
   lastActivityAt: string;
   archived?: boolean;
@@ -557,6 +561,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       thread.title.trim() !== thread.title ||
       !isIsoTimestamp(thread.createdAt) ||
       !isIsoTimestamp(thread.lastActivityAt) ||
+      (thread.customTitle !== undefined && typeof thread.customTitle !== "boolean") ||
       (thread.archived !== undefined && typeof thread.archived !== "boolean") ||
       (thread.pinned !== undefined && typeof thread.pinned !== "boolean") ||
       !normalizePersistedRuntimeId(thread.runtimeId) ||
@@ -581,6 +586,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       title: thread.title,
       createdAt: thread.createdAt,
       lastActivityAt: thread.lastActivityAt,
+      ...(thread.customTitle === true ? { customTitle: true } : {}),
       ...(thread.archived === true ? { archived: true } : {}),
       ...(thread.pinned === true ? { pinned: true } : {}),
       runtimeId: normalizePersistedRuntimeId(thread.runtimeId)!,

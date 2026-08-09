@@ -5,6 +5,7 @@ import type {
   DeleteThreadDataRequest,
   RuntimeSessionRecovery,
   ThreadDataDeletionReceipt,
+  ThreadDataDeletionOptions,
 } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import type { ChatQuestionResponse } from "../../src/shared/chatQuestions";
@@ -42,10 +43,17 @@ export interface ChatSessionManager {
   shutdown: () => Promise<void>;
   hasLiveRuns?: () => boolean;
   removeRuntimeSession: (request: RuntimeSessionRecovery) => Promise<void>;
-  deleteThreadData: (request: DeleteThreadDataRequest) => Promise<ThreadDataDeletionReceipt | void>;
+  deleteThreadData: (
+    request: DeleteThreadDataRequest,
+    options?: ThreadDataDeletionOptions,
+  ) => Promise<ThreadDataDeletionReceipt | void>;
   rollbackThreadDataDeletion?: (receipt: ThreadDataDeletionReceipt) => Promise<void>;
+  adoptCommittedProviderSessionDeletion?: (removedSessions: Record<string, string>) => void;
   hasLiveRunForThreads?: (threadIds: string[]) => boolean;
-  detachRuntimeSessions?: (threadIds: string[]) => Promise<RuntimeSessionDetachmentReceipt>;
+  detachRuntimeSessions?: (
+    threadIds: string[],
+    options?: { deferProviderSessionDeletion?: boolean },
+  ) => Promise<RuntimeSessionDetachmentReceipt>;
   restoreRuntimeSessions?: (receipt: RuntimeSessionDetachmentReceipt) => Promise<void>;
   completeRuntimeSessionDetachment?: (receipt: RuntimeSessionDetachmentReceipt) => void;
   resetRuntimeSessions?: () => void;
@@ -73,6 +81,9 @@ export type ProviderSessionStore = {
     threadIds: string[],
   ) => Record<string, string> | void | Promise<Record<string, string> | void>;
   restoreThreads?: (sessions: Record<string, string>) => void | Promise<void>;
+  adoptCommittedProviderSessionDeletion?: (removedSessions: Record<string, string>) => void;
+  detachThreadsFromCache?: (threadIds: string[]) => Record<string, string>;
+  restoreThreadsToCache?: (sessions: Record<string, string>) => void;
 };
 
 export function createChatSessionManager(options: {
@@ -435,12 +446,19 @@ export function createChatSessionManager(options: {
     }
   }
 
-  async function deleteThreadData(request: DeleteThreadDataRequest) {
+  async function deleteThreadData(
+    request: DeleteThreadDataRequest,
+    deletionOptions: ThreadDataDeletionOptions = {},
+  ) {
     const threadIds = [...new Set(request.threadIds)];
     if (threadIds.length === 0) {
       throw new Error("At least one thread is required for deletion.");
     }
-    if (options.providerSessions && !options.providerSessions.deleteThreads) {
+    if (
+      !deletionOptions.deferProviderSessionDeletion &&
+      options.providerSessions &&
+      !options.providerSessions.deleteThreads
+    ) {
       throw new Error("Provider session cleanup is unavailable.");
     }
     if (request.attachmentStorageKeys.length > 0 && !options.attachmentStore) {
@@ -481,7 +499,9 @@ export function createChatSessionManager(options: {
 
     let removedProviderSessions: Record<string, string> | void = undefined;
     try {
-      removedProviderSessions = await options.providerSessions?.deleteThreads?.(threadIds);
+      removedProviderSessions = deletionOptions.deferProviderSessionDeletion
+        ? undefined
+        : await options.providerSessions?.deleteThreads?.(threadIds);
       if (request.attachmentStorageKeys.length > 0) {
         await options.attachmentStore!.deleteAttachments(request.attachmentStorageKeys);
       }
@@ -542,29 +562,54 @@ export function createChatSessionManager(options: {
     }
   }
 
+  const adoptCommittedProviderSessionDeletion = options.providerSessions
+    ?.adoptCommittedProviderSessionDeletion
+    ? (removedSessions: Record<string, string>) => {
+        options.providerSessions!.adoptCommittedProviderSessionDeletion!(removedSessions);
+      }
+    : undefined;
+
   function hasLiveRunForThreads(threadIds: string[]) {
     const ids = new Set(threadIds);
     return (
       [...pendingKimiRuns.values()].some((threadId) => ids.has(threadId)) ||
-      [...kimiSessions.values()].some((session) => ids.has(session.threadId))
+      [...kimiSessions.values()].some((session) => ids.has(session.threadId)) ||
+      [...deferredRuns.keys()].some((threadId) => ids.has(threadId))
     );
   }
 
   function hasLiveRuns() {
-    return pendingKimiRuns.size > 0 || kimiSessions.size > 0;
+    return pendingKimiRuns.size > 0 || kimiSessions.size > 0 || deferredRuns.size > 0;
   }
 
   async function detachRuntimeSessions(
     threadIds: string[],
+    detachmentOptions: { deferProviderSessionDeletion?: boolean } = {},
   ): Promise<RuntimeSessionDetachmentReceipt> {
     const uniqueThreadIds = [...new Set(threadIds)];
     if (hasLiveRunForThreads(uniqueThreadIds)) {
       throw new Error("Stop the Project's live Run before relocating its directory.");
     }
-    if (options.providerSessions && !options.providerSessions.deleteThreads) {
+    if (
+      detachmentOptions.deferProviderSessionDeletion &&
+      options.providerSessions &&
+      (!options.providerSessions.detachThreadsFromCache ||
+        !options.providerSessions.restoreThreadsToCache)
+    ) {
+      throw new Error("Provider session cache detachment is unavailable.");
+    }
+    if (
+      !detachmentOptions.deferProviderSessionDeletion &&
+      options.providerSessions &&
+      !options.providerSessions.deleteThreads
+    ) {
       throw new Error("Provider session cleanup is unavailable.");
     }
-    if (options.providerSessions && !options.providerSessions.restoreThreads) {
+    if (
+      !detachmentOptions.deferProviderSessionDeletion &&
+      options.providerSessions &&
+      !options.providerSessions.restoreThreads
+    ) {
       throw new Error("Provider session rollback is unavailable.");
     }
 
@@ -577,11 +622,13 @@ export function createChatSessionManager(options: {
     Object.keys(runtimeSessionEntries).forEach((key) => runtimeSessions.delete(key));
 
     try {
-      const providerSessions =
-        (await options.providerSessions?.deleteThreads?.(uniqueThreadIds)) ?? {};
+      const providerSessions = detachmentOptions.deferProviderSessionDeletion
+        ? (options.providerSessions?.detachThreadsFromCache?.(uniqueThreadIds) ?? {})
+        : ((await options.providerSessions?.deleteThreads?.(uniqueThreadIds)) ?? {});
       return {
         threadIds: uniqueThreadIds,
         providerSessions,
+        providerSessionsDetachedFromCache: detachmentOptions.deferProviderSessionDeletion === true,
         runtimeSessions: runtimeSessionEntries,
       };
     } catch (error) {
@@ -595,10 +642,17 @@ export function createChatSessionManager(options: {
 
   async function restoreRuntimeSessions(receipt: RuntimeSessionDetachmentReceipt) {
     if (Object.keys(receipt.providerSessions).length > 0) {
-      if (!options.providerSessions?.restoreThreads) {
-        throw new Error("Provider session rollback is unavailable.");
+      if (receipt.providerSessionsDetachedFromCache) {
+        if (!options.providerSessions?.restoreThreadsToCache) {
+          throw new Error("Provider session cache rollback is unavailable.");
+        }
+        options.providerSessions.restoreThreadsToCache(receipt.providerSessions);
+      } else {
+        if (!options.providerSessions?.restoreThreads) {
+          throw new Error("Provider session rollback is unavailable.");
+        }
+        await options.providerSessions.restoreThreads(receipt.providerSessions);
       }
-      await options.providerSessions.restoreThreads(receipt.providerSessions);
     }
     Object.entries(receipt.runtimeSessions).forEach(([key, sessionId]) => {
       runtimeSessions.set(key, sessionId);
@@ -759,6 +813,7 @@ export function createChatSessionManager(options: {
     removeRuntimeSession,
     deleteThreadData,
     rollbackThreadDataDeletion,
+    adoptCommittedProviderSessionDeletion,
     hasLiveRunForThreads,
     detachRuntimeSessions,
     restoreRuntimeSessions,

@@ -642,20 +642,19 @@ export function createWorkspaceDiffCapture(options: {
   ) => void;
   getRunWritePaths: () => readonly string[];
   showToast: (message: string, type: "error") => void;
-}): () => void {
-  let captured = false;
+}): () => Promise<void> {
+  let capturePromise: Promise<void> | null = null;
   // Snapshots the worktree at send time so the diff captured after the run
   // only contains what changed during this run, not every pre-existing
   // uncommitted change. Baseline failures fall back to a HEAD diff.
   const baselinePromise = options.captureBaseline(options.projectPath).catch(() => null);
 
   return () => {
-    if (captured) {
-      return;
+    if (capturePromise) {
+      return capturePromise;
     }
-    captured = true;
 
-    void (async () => {
+    capturePromise = (async () => {
       try {
         const baseRevision = (await baselinePromise) ?? undefined;
         const result = await options.workspaceDiff(options.projectPath, baseRevision);
@@ -681,6 +680,7 @@ export function createWorkspaceDiffCapture(options: {
         options.showToast("Run finished, but workspace diff could not be captured.", "error");
       }
     })();
+    return capturePromise;
   };
 }
 
@@ -1353,6 +1353,8 @@ export function Composer(props: ComposerProps) {
   const wasSendingRef = useRef(false);
   const wasSendingForQueueRef = useRef(false);
   const queueDrainRequestedRef = useRef(false);
+  const workspaceDiffCapturePendingRef = useRef(false);
+  const [queueDrainVersion, setQueueDrainVersion] = useState(0);
   const [stopGuarded, setStopGuarded] = useState(() => getStopGuardRemainingMs(props.threadId) > 0);
   const lastSubmitRequestIdRef = useRef<number | null>(null);
   const lastDraftRequestIdRef = useRef<number | null>(null);
@@ -1418,6 +1420,11 @@ export function Composer(props: ComposerProps) {
   const queuedMessages = useQueuedMessages(threadId);
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
   const [editingQueuedText, setEditingQueuedText] = useState("");
+
+  const requestQueueDrain = () => {
+    queueDrainRequestedRef.current = true;
+    setQueueDrainVersion((version) => version + 1);
+  };
 
   const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
   const isPreparingAttachmentsRef = useRef(false);
@@ -2819,10 +2826,13 @@ export function Composer(props: ComposerProps) {
           // within a short ceiling; larger backlogs appear immediately. Run
           // completion itself never waits on the reveal.
           textRevealer.finish(text);
-          captureWorkspaceDiff();
-          // Drain the queue after the coordinator publishes the terminal Run
-          // state. The callback itself runs before that state transition.
-          queueDrainRequestedRef.current = true;
+          workspaceDiffCapturePendingRef.current = true;
+          void captureWorkspaceDiff().finally(() => {
+            workspaceDiffCapturePendingRef.current = false;
+            // The capture appends its message before this rerender asks the
+            // queue to send the next Run, preserving the conversation order.
+            requestQueueDrain();
+          });
         },
         onError: (error, runId, writtenFiles, runtimeSessionRecovery) => {
           runWrittenFilesRef.current = writtenFiles ?? [];
@@ -2859,10 +2869,15 @@ export function Composer(props: ComposerProps) {
           updateMessageParts(assistantMsg.id, { kind: "interrupt-subagent-tasks" });
           updateMessageRunStatus(assistantMsg.id, "cancelled");
           markThreadActivity(threadId);
-          captureWorkspaceDiff();
-          // A user-initiated stop only sends a pending steer message; the
-          // rest of the queue stays put until the next send or completion.
-          queueDrainRequestedRef.current = steerItemRef.current !== null;
+          if (steerItemRef.current) {
+            workspaceDiffCapturePendingRef.current = true;
+            void captureWorkspaceDiff().finally(() => {
+              workspaceDiffCapturePendingRef.current = false;
+              requestQueueDrain();
+            });
+          } else {
+            captureWorkspaceDiff();
+          }
         },
       },
     );
@@ -2903,7 +2918,7 @@ export function Composer(props: ComposerProps) {
     }
 
     if (props.mode === "thread") {
-      if (thread && thread.title === "New thread") {
+      if (thread && thread.title === "New thread" && !thread.customTitle) {
         const title =
           deriveThreadTitle(messageText, { fallback: "" }) ||
           attachmentMetadata[0]?.name ||
@@ -2962,12 +2977,18 @@ export function Composer(props: ComposerProps) {
   useEffect(() => {
     const wasSending = wasSendingForQueueRef.current;
     wasSendingForQueueRef.current = isThreadSending;
-    if (!wasSending || isThreadSending) {
+    const sharedRunCompleted =
+      sharedRun?.status === "completed" && !workspaceDiffCapturePendingRef.current;
+    const queueDrainRequested = queueDrainRequestedRef.current;
+    // Only the sending→idle transition or an explicit request may admit a
+    // drain. sharedRunCompleted alone must not, because the completed run
+    // record lingers in the shared state and would re-admit the effect on
+    // every render, draining the whole queue at once.
+    if (isThreadSending || (!wasSending && !queueDrainRequested)) {
       return;
     }
 
-    const sharedRunCompleted = sharedRun?.status === "completed";
-    const shouldDrain = queueDrainRequestedRef.current || sharedRunCompleted;
+    const shouldDrain = queueDrainRequested || sharedRunCompleted;
     queueDrainRequestedRef.current = false;
     if (!shouldDrain) {
       return;
@@ -2980,7 +3001,14 @@ export function Composer(props: ComposerProps) {
     if (nextQueued) {
       flushQueuedMessage(nextQueued);
     }
-  }, [flushQueuedMessage, isThreadSending, sharedRun?.runId, sharedRun?.status, threadId]);
+  }, [
+    flushQueuedMessage,
+    isThreadSending,
+    queueDrainVersion,
+    sharedRun?.runId,
+    sharedRun?.status,
+    threadId,
+  ]);
 
   useEffect(() => {
     // A pending steer belongs to the thread it was created in. When the
@@ -3507,130 +3535,125 @@ export function Composer(props: ComposerProps) {
             </div>
           </div>
         ) : null}
+        {queuedMessages.length > 0 ? (
+          <div className="relative mx-4 -mb-3 rounded-t-xl border border-border bg-bg/45 px-3 pt-1 pb-4">
+            <div className="max-h-32 divide-y divide-border/60 overflow-y-auto">
+              {queuedMessages.map((item) => {
+                const isEditingQueued = editingQueuedId === item.id;
+                return (
+                  <div key={item.id} className="group flex items-center gap-x-2 py-1.5">
+                    <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-subtle" />
+                    {isEditingQueued ? (
+                      <input
+                        autoFocus
+                        value={editingQueuedText}
+                        onChange={(event) => setEditingQueuedText(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            commitQueuedEdit();
+                          } else if (event.key === "Escape") {
+                            event.preventDefault();
+                            cancelQueuedEdit();
+                          }
+                        }}
+                        onBlur={commitQueuedEdit}
+                        aria-label="Edit queued message"
+                        className="h-6 min-w-0 flex-1 rounded-sm bg-transparent text-app-13 text-fg outline-none focus-visible:ring-2 focus-visible:ring-fg/25"
+                      />
+                    ) : (
+                      <span className="min-w-0 flex-1 truncate text-app-13 text-muted transition group-hover:text-fg">
+                        {item.content}
+                      </span>
+                    )}
+                    {item.attachments && item.attachments.length > 0 ? (
+                      <span className="flex shrink-0 items-center gap-1 text-app-11 text-subtle">
+                        <Paperclip className="h-3 w-3" />
+                        {item.attachments.length}
+                      </span>
+                    ) : null}
+                    {item.requiresConfirmation ? (
+                      <span
+                        aria-label="Restored queued message"
+                        className="shrink-0 text-app-11 text-subtle"
+                      >
+                        Restored
+                      </span>
+                    ) : null}
+                    {isEditingQueued ? (
+                      <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={commitQueuedEdit}
+                          aria-label="Save queued message"
+                          title="Save"
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={cancelQueuedEdit}
+                          aria-label="Cancel editing queued message"
+                          title="Cancel"
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                        <button
+                          type="button"
+                          onClick={() => handleSteerQueuedMessage(item)}
+                          className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-app-11 text-muted transition hover:bg-surface-hover hover:text-fg"
+                          title={
+                            isThreadSending ? "Stop the current run and send this now" : "Send now"
+                          }
+                        >
+                          <Zap className="h-3 w-3" />
+                          {isThreadSending ? "Steer" : "Send"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            editingQueuedIdRef.current = item.id;
+                            setEditingQueuedId(item.id);
+                            setEditingQueuedText(item.content);
+                          }}
+                          aria-label="Edit queued message"
+                          title="Edit"
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeQueuedChatMessage(threadId, item.id)}
+                          aria-label="Delete queued message"
+                          title="Delete"
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-danger"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
         <div
           data-composer-surface
-          className={`relative rounded-xl border bg-surface-raised/90 p-3 transition-colors duration-200 ${
+          className={`relative z-10 rounded-xl border bg-surface-raised/90 p-3 transition-colors duration-200 ${
             activePermission
               ? "border-warning/40"
               : "border-border focus-within:border-border-strong"
           }`}
         >
-          {queuedMessages.length > 0 ? (
-            <div className="-mx-3 -mt-3 mb-2 rounded-t-xl border-b border-border bg-bg/45">
-              <div className="px-3 pt-2 text-app-10 font-medium uppercase tracking-wide text-subtle">
-                Queue · {queuedMessages.length}
-              </div>
-              <div className="max-h-32 divide-y divide-border/60 overflow-y-auto pb-1">
-                {queuedMessages.map((item) => {
-                  const isEditingQueued = editingQueuedId === item.id;
-                  return (
-                    <div key={item.id} className="group flex items-center gap-x-2 px-3 py-1.5">
-                      <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-subtle" />
-                      {isEditingQueued ? (
-                        <input
-                          autoFocus
-                          value={editingQueuedText}
-                          onChange={(event) => setEditingQueuedText(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              commitQueuedEdit();
-                            } else if (event.key === "Escape") {
-                              event.preventDefault();
-                              cancelQueuedEdit();
-                            }
-                          }}
-                          onBlur={commitQueuedEdit}
-                          aria-label="Edit queued message"
-                          className="h-6 min-w-0 flex-1 rounded-sm bg-transparent text-app-13 text-fg outline-none focus-visible:ring-2 focus-visible:ring-fg/25"
-                        />
-                      ) : (
-                        <span className="min-w-0 flex-1 truncate text-app-13 text-muted transition group-hover:text-fg">
-                          {item.content}
-                        </span>
-                      )}
-                      {item.attachments && item.attachments.length > 0 ? (
-                        <span className="flex shrink-0 items-center gap-1 text-app-11 text-subtle">
-                          <Paperclip className="h-3 w-3" />
-                          {item.attachments.length}
-                        </span>
-                      ) : null}
-                      {item.requiresConfirmation ? (
-                        <span
-                          aria-label="Restored queued message"
-                          className="shrink-0 text-app-11 text-subtle"
-                        >
-                          Restored
-                        </span>
-                      ) : null}
-                      {isEditingQueued ? (
-                        <div className="ml-auto flex shrink-0 items-center gap-0.5">
-                          <button
-                            type="button"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={commitQueuedEdit}
-                            aria-label="Save queued message"
-                            title="Save"
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
-                          >
-                            <Check className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={cancelQueuedEdit}
-                            aria-label="Cancel editing queued message"
-                            title="Cancel"
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-                          <button
-                            type="button"
-                            onClick={() => handleSteerQueuedMessage(item)}
-                            className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-app-11 text-muted transition hover:bg-surface-hover hover:text-fg"
-                            title={
-                              isThreadSending
-                                ? "Stop the current run and send this now"
-                                : "Send now"
-                            }
-                          >
-                            <Zap className="h-3 w-3" />
-                            {isThreadSending ? "Steer" : "Send"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              editingQueuedIdRef.current = item.id;
-                              setEditingQueuedId(item.id);
-                              setEditingQueuedText(item.content);
-                            }}
-                            aria-label="Edit queued message"
-                            title="Edit"
-                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeQueuedChatMessage(threadId, item.id)}
-                            aria-label="Delete queued message"
-                            title="Delete"
-                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-danger"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
           {pendingAttachments.length > 0 && (
             <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
               {pendingAttachments.map((attachment) => {

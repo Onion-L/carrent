@@ -205,7 +205,10 @@ type AppStateContextValue = {
     threadId: string,
     cleanup: (snapshots: ThreadDeletionAppStateSnapshots) => Promise<void>,
   ) => Promise<boolean>;
-  removeThreadSnapshot: (threadId: string) => Promise<boolean>;
+  removeThreadSnapshot: (
+    threadId: string,
+    cleanup: (snapshots: ThreadDeletionAppStateSnapshots) => Promise<void>,
+  ) => Promise<boolean>;
   removeAssociation: (
     workspaceId: string,
     projectId: string,
@@ -1424,15 +1427,30 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [deleteCascade],
   );
 
-  // Snapshot part of deleting a Thread from history; Thread data cleanup runs
-  // through chat.deleteThreadData first.
   const removeThreadSnapshot = useCallback(
-    async (threadId: string) => {
+    async (
+      threadId: string,
+      cleanup: (snapshots: ThreadDeletionAppStateSnapshots) => Promise<void>,
+    ) => {
       const current = snapshotRef.current;
-      if (!(current.threads ?? []).some((thread) => thread.id === threadId)) return false;
-      return submitCommand("thread:remove", { threadId });
+      if (
+        !(current.threads ?? []).some((thread) => thread.id === threadId) ||
+        mutatingThreadIdsRef.current.has(threadId)
+      ) {
+        return false;
+      }
+      mutatingThreadIdsRef.current.add(threadId);
+      try {
+        await cleanup({
+          beforeAppState: current,
+          afterAppState: applyThreadDeletionToAppState(current, [threadId]),
+        });
+        return true;
+      } finally {
+        mutatingThreadIdsRef.current.delete(threadId);
+      }
     },
-    [submitCommand],
+    [],
   );
 
   const updateSettings = useCallback(

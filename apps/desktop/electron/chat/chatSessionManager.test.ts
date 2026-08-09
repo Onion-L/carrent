@@ -3267,9 +3267,9 @@ describe("createChatSessionManager", () => {
     manager.start("run-conflict", makeRequest({ runtimeId: "kimi" }));
     // The Run is deferred behind the active status request instead of failing:
     // no failure is emitted and it has not started a Run transport yet.
-    expect(
-      emitted.some((event) => event.type === "failed" && event.runId === "run-conflict"),
-    ).toBe(false);
+    expect(emitted.some((event) => event.type === "failed" && event.runId === "run-conflict")).toBe(
+      false,
+    );
 
     expect(
       await manager.inspectStatus!(makeRequest({ runtimeId: "kimi", threadId: "thread-2" })),
@@ -3401,10 +3401,17 @@ describe("createChatSessionManager", () => {
     // failure is emitted and no second transport is started yet.
     manager.start("run-deferred", makeRequest({ runtimeId: "kimi" }));
     await waitForAsyncEvents();
-    expect(
-      emitted.some((event) => event.type === "failed" && event.runId === "run-deferred"),
-    ).toBe(false);
+    expect(emitted.some((event) => event.type === "failed" && event.runId === "run-deferred")).toBe(
+      false,
+    );
     expect(transports).toHaveLength(1);
+    expect(manager.hasLiveRunForThreads?.(["thread-1"])).toBe(true);
+    expect(manager.hasLiveRuns?.()).toBe(true);
+    expect(
+      await getErrorMessage(
+        manager.detachRuntimeSessions?.(["thread-1"]) ?? Promise.resolve(undefined),
+      ),
+    ).toBe("Stop the Project's live Run before relocating its directory.");
 
     // Once the status request settles, the deferred Run starts.
     completeStatus();
@@ -3412,9 +3419,9 @@ describe("createChatSessionManager", () => {
     await waitForAsyncEvents();
 
     expect(transports.length).toBe(2);
-    expect(emitted.some((event) => event.type === "started" && event.runId === "run-deferred")).toBe(
-      true,
-    );
+    expect(
+      emitted.some((event) => event.type === "started" && event.runId === "run-deferred"),
+    ).toBe(true);
   });
 
   it("does not start a deferred Run that was stopped before the status refresh settled", async () => {
@@ -3662,7 +3669,10 @@ describe("createChatSessionManager", () => {
     const statusTask = manager.getStatus(makeRequest({ runtimeId: "kimi", threadId: "thread-1" }));
     await waitForAsyncEvents();
 
-    manager.start("run-deferred-thread-1", makeRequest({ runtimeId: "kimi", threadId: "thread-1" }));
+    manager.start(
+      "run-deferred-thread-1",
+      makeRequest({ runtimeId: "kimi", threadId: "thread-1" }),
+    );
     await waitForAsyncEvents();
 
     // thread-2 has no status request in flight, so its Run starts immediately
@@ -3670,9 +3680,9 @@ describe("createChatSessionManager", () => {
     manager.start("run-thread-2", makeRequest({ runtimeId: "kimi", threadId: "thread-2" }));
     await waitForAsyncEvents();
 
-    expect(emitted.some((event) => event.type === "started" && event.runId === "run-thread-2")).toBe(
-      true,
-    );
+    expect(
+      emitted.some((event) => event.type === "started" && event.runId === "run-thread-2"),
+    ).toBe(true);
     expect(
       emitted.some((event) => event.type === "started" && event.runId === "run-deferred-thread-1"),
     ).toBe(false);
@@ -3914,6 +3924,50 @@ describe("createChatSessionManager", () => {
     await manager.restoreRuntimeSessions!(receipt);
     expect(providerSessions.get("kimi:thread-1")).toBe("kimi-session");
     expect(providerSessions.get("claude-code:thread-1")).toBe("claude-session");
+  });
+
+  it("detaches Provider Sessions from cache before an atomic Project relocation commits", async () => {
+    const providerSessions = new Map([["kimi:thread-1", "kimi-session"]]);
+    const manager = createChatSessionManager({
+      emit: () => {},
+      spawn: () => createMockChildProcess(),
+      providerSessions: {
+        get: (key) => providerSessions.get(key),
+        set: (key, sessionId) => {
+          providerSessions.set(key, sessionId);
+        },
+        detachThreadsFromCache: (threadIds) => {
+          const removed: Record<string, string> = {};
+          for (const [key, sessionId] of providerSessions) {
+            if (threadIds.some((threadId) => key.endsWith(`:${threadId}`))) {
+              removed[key] = sessionId;
+              providerSessions.delete(key);
+            }
+          }
+          return removed;
+        },
+        restoreThreadsToCache: (restored) => {
+          Object.entries(restored).forEach(([key, sessionId]) => {
+            providerSessions.set(key, sessionId);
+          });
+        },
+      },
+    });
+
+    const receipt = await manager.detachRuntimeSessions!(["thread-1"], {
+      deferProviderSessionDeletion: true,
+    });
+    expect(receipt.providerSessions).toEqual({ "kimi:thread-1": "kimi-session" });
+    expect(providerSessions.has("kimi:thread-1")).toBe(false);
+
+    await manager.restoreRuntimeSessions?.(receipt);
+    expect(providerSessions.get("kimi:thread-1")).toBe("kimi-session");
+
+    const committedReceipt = await manager.detachRuntimeSessions!(["thread-1"], {
+      deferProviderSessionDeletion: true,
+    });
+    manager.completeRuntimeSessionDetachment?.(committedReceipt);
+    expect(providerSessions.has("kimi:thread-1")).toBe(false);
   });
 
   it("restores provider sessions when attachment cleanup fails", async () => {

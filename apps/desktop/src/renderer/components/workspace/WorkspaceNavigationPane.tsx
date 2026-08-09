@@ -28,6 +28,7 @@ import {
   type ThreadDisplayStatus,
 } from "../../lib/projectThreads";
 import { getWorkspaceProjects } from "../../lib/workspaceProjects";
+import { MarqueeText } from "../MarqueeText";
 import { useToast } from "../toast/ToastContext";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { AddProjectButton } from "./AddProjectButton";
@@ -595,14 +596,12 @@ export function WorkspaceNavigationPane() {
                                     onClick={() => navigate(threadPath)}
                                     className="flex min-w-0 flex-1 self-stretch items-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20"
                                   >
-                                    <span
-                                      className={`min-w-0 flex-1 truncate text-app-13 ${active ? "font-semibold" : "font-normal"}`}
+                                    {thread.pinned && <Pin className="mr-1 h-3 w-3 shrink-0" />}
+                                    <MarqueeText
+                                      className={`min-w-0 flex-1 text-app-13 ${active ? "font-semibold" : "font-normal"}`}
                                     >
-                                      {thread.pinned && (
-                                        <Pin className="mr-1 inline h-3 w-3 align-[-1px]" />
-                                      )}
                                       {thread.title}
-                                    </span>
+                                    </MarqueeText>
                                     {statusMeta ? (
                                       <span
                                         className={`shrink-0 text-app-11 group-hover/thread:hidden group-focus-visible/thread:hidden ${statusMeta.className}`}

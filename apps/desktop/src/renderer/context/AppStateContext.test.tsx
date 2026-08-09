@@ -632,6 +632,23 @@ describe("multi-window synchronization", () => {
     expect(contextB!.threads.map((thread) => thread.id)).toEqual(["sync-thread-2"]);
   });
 
+  it("publishes a history thread deletion through the external transaction", async () => {
+    await renderClients();
+    const cleanup = async (snapshots: ThreadDeletionAppStateSnapshots) => {
+      testAuthority?.commitThreadDeletion({
+        ...snapshots,
+        threadData: { threadIds: ["sync-thread-1"], attachmentStorageKeys: [] },
+      });
+    };
+
+    await act(async () => {
+      expect(await contextValue!.removeThreadSnapshot("sync-thread-1", cleanup)).toBe(true);
+    });
+
+    expect(contextValue!.threads.map((thread) => thread.id)).toEqual(["sync-thread-2"]);
+    expect(contextB!.threads.map((thread) => thread.id)).toEqual(["sync-thread-2"]);
+  });
+
   it("rejects a command with a stale base revision without touching either client", async () => {
     await renderClients();
 

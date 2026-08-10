@@ -276,6 +276,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const inflightWorkRef = useRef(new Map<string, number>());
   const workSubmissionRef = useRef(new Map<string, symbol>());
   const contentPatchRef = useRef(new Map<string, ThreadContentPatch>());
+  // Message ids removed intentionally (e.g. edit-resend prune). Omitted ids in a
+  // full-list flush are not deletes; only these explicit ids are.
+  const pendingDeleteMessageIdsRef = useRef(new Map<string, Set<string>>());
   const contentFlushTimerRef = useRef<number | null>(null);
   const [hasHydrated, setHasHydrated] = useState(false);
   const [recoveryDiagnostics, setRecoveryDiagnostics] = useState<AppStateDiagnostic[] | null>(null);
@@ -561,93 +564,132 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [snapshot.projects]);
 
   const sendCommand = useCallback(
-    (type: string, payload: unknown) =>
-      appStateBridgeRef.current.command({ commandId: crypto.randomUUID(), type, payload }),
+    (type: string, payload: unknown, baseRevision?: number) =>
+      appStateBridgeRef.current.command({
+        commandId: crypto.randomUUID(),
+        type,
+        payload,
+        ...(baseRevision !== undefined ? { baseRevision } : {}),
+      }),
     [],
   );
 
   // Submits every pending optimistic Thread content edit (messages, Thread
   // record patches, Thread work) as bounded commands right away. Other
   // commands call this first so the authority always applies them on top of
-  // the locally staged state.
+  // the locally staged state. Commands run sequentially so each carries a
+  // baseRevision that still matches after the previous accept.
   const flushPendingContent = useCallback(async () => {
     if (contentFlushTimerRef.current !== null) {
       window.clearTimeout(contentFlushTimerRef.current);
       contentFlushTimerRef.current = null;
     }
-    const contentThreadIds = [...dirtyContentThreadsRef.current];
-    const workThreadIds = [...dirtyWorkThreadsRef.current];
-    if (contentThreadIds.length === 0 && workThreadIds.length === 0) return;
 
-    const current = snapshotRef.current;
-    const submissions: Promise<void>[] = [];
-    for (const threadId of contentThreadIds) {
-      const thread = (current.threads ?? []).find((item) => item.id === threadId);
-      if (!thread) {
+    // Bounded retries: a concurrent accepted command can advance the revision
+    // between our capture and submit; re-dirty and try again with the latest.
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const contentThreadIds = [...dirtyContentThreadsRef.current];
+      const workThreadIds = [...dirtyWorkThreadsRef.current];
+      if (contentThreadIds.length === 0 && workThreadIds.length === 0) return;
+
+      let retryNeeded = false;
+      for (const threadId of contentThreadIds) {
+        const current = snapshotRef.current;
+        const thread = (current.threads ?? []).find((item) => item.id === threadId);
+        if (!thread) {
+          dirtyContentThreadsRef.current.delete(threadId);
+          contentPatchRef.current.delete(threadId);
+          pendingDeleteMessageIdsRef.current.delete(threadId);
+          continue;
+        }
         dirtyContentThreadsRef.current.delete(threadId);
+        const submission = Symbol(threadId);
+        contentSubmissionRef.current.set(threadId, submission);
+        inflightContentRef.current.set(threadId, Number.POSITIVE_INFINITY);
+        const patch = contentPatchRef.current.get(threadId);
         contentPatchRef.current.delete(threadId);
-        continue;
-      }
-      dirtyContentThreadsRef.current.delete(threadId);
-      const submission = Symbol(threadId);
-      contentSubmissionRef.current.set(threadId, submission);
-      inflightContentRef.current.set(threadId, Number.POSITIVE_INFINITY);
-      const patch = contentPatchRef.current.get(threadId);
-      contentPatchRef.current.delete(threadId);
-      const messages = (current.threadMessages ?? []).filter(
-        (message) => message.threadId === threadId,
-      );
-      submissions.push(
-        sendCommand("thread-content:update", {
-          threadId,
-          ...(patch && Object.keys(patch).length > 0 ? { thread: patch } : {}),
-          messages,
-        })
-          .then((result) => {
-            if (contentSubmissionRef.current.get(threadId) !== submission) return;
+        const deleteMessageIds = [...(pendingDeleteMessageIdsRef.current.get(threadId) ?? [])];
+        pendingDeleteMessageIdsRef.current.delete(threadId);
+        const messages = (current.threadMessages ?? []).filter(
+          (message) => message.threadId === threadId,
+        );
+        try {
+          const result = await sendCommand(
+            "thread-content:update",
+            {
+              threadId,
+              ...(patch && Object.keys(patch).length > 0 ? { thread: patch } : {}),
+              messages,
+              ...(deleteMessageIds.length > 0 ? { deleteMessageIds } : {}),
+            },
+            revisionRef.current,
+          );
+          if (contentSubmissionRef.current.get(threadId) !== submission) continue;
+          contentSubmissionRef.current.delete(threadId);
+          if (result.status === "accepted") {
+            inflightContentRef.current.set(threadId, result.revision);
+          } else {
+            if (result.reason === "stale") {
+              // Re-dirty before clearing inflight so a concurrent broadcast still
+              // treats local optimistic content as protected.
+              dirtyContentThreadsRef.current.add(threadId);
+              if (patch && Object.keys(patch).length > 0) {
+                contentPatchRef.current.set(threadId, {
+                  ...contentPatchRef.current.get(threadId),
+                  ...patch,
+                });
+              }
+              if (deleteMessageIds.length > 0) {
+                const pending = pendingDeleteMessageIdsRef.current.get(threadId) ?? new Set();
+                for (const id of deleteMessageIds) pending.add(id);
+                pendingDeleteMessageIdsRef.current.set(threadId, pending);
+              }
+              retryNeeded = true;
+            }
+            inflightContentRef.current.delete(threadId);
+          }
+        } catch (error) {
+          if (contentSubmissionRef.current.get(threadId) === submission) {
             contentSubmissionRef.current.delete(threadId);
-            if (result.status === "accepted") {
-              inflightContentRef.current.set(threadId, result.revision);
-            } else {
-              inflightContentRef.current.delete(threadId);
+            inflightContentRef.current.delete(threadId);
+          }
+          throw error;
+        }
+      }
+      for (const threadId of workThreadIds) {
+        const current = snapshotRef.current;
+        dirtyWorkThreadsRef.current.delete(threadId);
+        const submission = Symbol(threadId);
+        workSubmissionRef.current.set(threadId, submission);
+        inflightWorkRef.current.set(threadId, Number.POSITIVE_INFINITY);
+        const work = current.threadWork?.[threadId] ?? null;
+        try {
+          const result = await sendCommand(
+            "thread-work:update",
+            { threadId, work },
+            revisionRef.current,
+          );
+          if (workSubmissionRef.current.get(threadId) !== submission) continue;
+          workSubmissionRef.current.delete(threadId);
+          if (result.status === "accepted") {
+            inflightWorkRef.current.set(threadId, result.revision);
+          } else {
+            if (result.reason === "stale") {
+              dirtyWorkThreadsRef.current.add(threadId);
+              retryNeeded = true;
             }
-          })
-          .catch((error) => {
-            if (contentSubmissionRef.current.get(threadId) === submission) {
-              contentSubmissionRef.current.delete(threadId);
-              inflightContentRef.current.delete(threadId);
-            }
-            throw error;
-          }),
-      );
-    }
-    for (const threadId of workThreadIds) {
-      dirtyWorkThreadsRef.current.delete(threadId);
-      const submission = Symbol(threadId);
-      workSubmissionRef.current.set(threadId, submission);
-      inflightWorkRef.current.set(threadId, Number.POSITIVE_INFINITY);
-      const work = current.threadWork?.[threadId] ?? null;
-      submissions.push(
-        sendCommand("thread-work:update", { threadId, work })
-          .then((result) => {
-            if (workSubmissionRef.current.get(threadId) !== submission) return;
+            inflightWorkRef.current.delete(threadId);
+          }
+        } catch (error) {
+          if (workSubmissionRef.current.get(threadId) === submission) {
             workSubmissionRef.current.delete(threadId);
-            if (result.status === "accepted") {
-              inflightWorkRef.current.set(threadId, result.revision);
-            } else {
-              inflightWorkRef.current.delete(threadId);
-            }
-          })
-          .catch((error) => {
-            if (workSubmissionRef.current.get(threadId) === submission) {
-              workSubmissionRef.current.delete(threadId);
-              inflightWorkRef.current.delete(threadId);
-            }
-            throw error;
-          }),
-      );
+            inflightWorkRef.current.delete(threadId);
+          }
+          throw error;
+        }
+      }
+      if (!retryNeeded) return;
     }
-    await Promise.all(submissions);
   }, [sendCommand]);
 
   const scheduleContentFlush = useCallback(() => {
@@ -738,9 +780,28 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       for (const threadId of messageThreadIds) {
         const before = previous.threadMessages.filter((message) => message.threadId === threadId);
         const after = content.threadMessages.filter((message) => message.threadId === threadId);
+        const beforeIds = new Set(before.map((message) => message.id));
+        const afterIds = new Set(after.map((message) => message.id));
+        const pendingDeletes = pendingDeleteMessageIdsRef.current.get(threadId) ?? new Set();
+        let deletesChanged = false;
+        for (const id of beforeIds) {
+          if (!afterIds.has(id) && !pendingDeletes.has(id)) {
+            pendingDeletes.add(id);
+            deletesChanged = true;
+          }
+        }
+        for (const id of afterIds) {
+          if (pendingDeletes.delete(id)) deletesChanged = true;
+        }
+        if (pendingDeletes.size > 0) {
+          pendingDeleteMessageIdsRef.current.set(threadId, pendingDeletes);
+        } else if (deletesChanged) {
+          pendingDeleteMessageIdsRef.current.delete(threadId);
+        }
         if (
           before.length !== after.length ||
-          before.some((message, index) => message !== after[index])
+          before.some((message, index) => message !== after[index]) ||
+          pendingDeletes.size > 0
         ) {
           dirtyContentThreadsRef.current.add(threadId);
         }

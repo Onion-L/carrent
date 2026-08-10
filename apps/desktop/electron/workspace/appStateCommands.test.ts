@@ -1330,7 +1330,7 @@ describe("thread-content:update / thread-work:update", () => {
     attachments: [],
   });
 
-  it("patches thread title and pin while replacing messages in place", () => {
+  it("patches thread title and pin while merging messages by id", () => {
     const base = makeSnapshot({
       threadMessages: [message("m-1", "t-1", "one"), message("m-2", "t-2", "two")],
     });
@@ -1343,9 +1343,120 @@ describe("thread-content:update / thread-work:update", () => {
 
     const patched = next.threads?.find((thread) => thread.id === "t-1");
     expect(patched).toMatchObject({ title: "Renamed", pinned: true });
-    // The replaced list lands where the thread's messages were.
-    expect(next.threadMessages?.map((item) => item.id)).toEqual(["m-3", "m-2"]);
+    // Existing Thread messages stay; new ids append. Other threads are untouched.
+    expect(next.threadMessages?.map((item) => item.id)).toEqual(["m-1", "m-3", "m-2"]);
     expect(normalizeAppStateSnapshotForWrite(next)).not.toBe(null);
+  });
+
+  it("does not delete messages omitted from a thread-content payload", () => {
+    const base = makeSnapshot({
+      threadMessages: [
+        message("m-1", "t-1", "kept"),
+        message("m-2", "t-1", "also kept"),
+        message("m-other", "t-2", "other"),
+      ],
+    });
+
+    const next = reduce("thread-content:update", base, {
+      threadId: "t-1",
+      messages: [message("m-1", "t-1", "updated")],
+    }) as AppStateSnapshot;
+
+    expect(next.threadMessages?.map((item) => item.id)).toEqual(["m-1", "m-2", "m-other"]);
+    expect(next.threadMessages?.find((item) => item.id === "m-1")?.content).toBe("updated");
+    expect(next.threadMessages?.find((item) => item.id === "m-2")?.content).toBe("also kept");
+  });
+
+  it("deletes only message ids listed in deleteMessageIds", () => {
+    const base = makeSnapshot({
+      threadMessages: [
+        message("m-1", "t-1", "keep"),
+        message("m-2", "t-1", "prune me"),
+        message("m-3", "t-1", "also prune"),
+        message("m-other", "t-2", "other"),
+      ],
+    });
+
+    const next = reduce("thread-content:update", base, {
+      threadId: "t-1",
+      messages: [message("m-1", "t-1", "keep")],
+      deleteMessageIds: ["m-2", "m-3"],
+    }) as AppStateSnapshot;
+
+    expect(next.threadMessages?.map((item) => item.id)).toEqual(["m-1", "m-other"]);
+  });
+
+  it("preserves newer message ids when a stale payload omits them", async () => {
+    const authority = createAppStateAuthority({
+      store: createAppStateStoreStub({
+        persistAppStateCommand: async (_command, _before, snapshot) => {
+          // Persistence is a no-op beyond capturing the accepted snapshot.
+          void snapshot;
+        },
+      }),
+      initialResult: { status: "ready", snapshot: makeSnapshot({ threadMessages: [] }) },
+      reducers: appStateCommandReducers,
+      publish: () => {},
+    });
+    authority.subscribe(1);
+
+    const first = await authority.submit(1, {
+      commandId: "content-1",
+      type: "thread-content:update",
+      baseRevision: 0,
+      payload: {
+        threadId: "t-1",
+        messages: [message("m-old", "t-1", "cancelled turn")],
+      },
+    });
+    expect(first).toMatchObject({ status: "accepted", revision: 1 });
+
+    const newer = await authority.submit(1, {
+      commandId: "content-2",
+      type: "thread-content:update",
+      baseRevision: 1,
+      payload: {
+        threadId: "t-1",
+        messages: [
+          message("m-old", "t-1", "cancelled turn"),
+          message("m-new-user", "t-1", "replacement answer"),
+          message("m-new-assistant", "t-1", "completed response"),
+        ],
+      },
+    });
+    expect(newer).toMatchObject({ status: "accepted", revision: 2 });
+
+    const stale = await authority.submit(2, {
+      commandId: "content-stale",
+      type: "thread-content:update",
+      baseRevision: 1,
+      payload: {
+        threadId: "t-1",
+        messages: [message("m-old", "t-1", "cancelled turn")],
+      },
+    });
+    expect(stale).toEqual({ status: "rejected", reason: "stale", revision: 2 });
+
+    // Defense in depth: even without baseRevision, omitted ids must not delete.
+    const omittedWithoutRevision = await authority.submit(2, {
+      commandId: "content-omit",
+      type: "thread-content:update",
+      payload: {
+        threadId: "t-1",
+        messages: [message("m-old", "t-1", "stale rewrite")],
+      },
+    });
+    expect(omittedWithoutRevision).toMatchObject({ status: "accepted", revision: 3 });
+
+    const ids =
+      authority
+        .getState()
+        .snapshot.threadMessages?.filter((item) => item.threadId === "t-1")
+        .map((item) => item.id) ?? [];
+    expect(ids).toEqual(["m-old", "m-new-user", "m-new-assistant"]);
+    expect(
+      authority.getState().snapshot.threadMessages?.find((item) => item.id === "m-old")?.content,
+    ).toBe("stale rewrite");
   });
 
   it("clears pin and run checklist, and validates the checklist", () => {

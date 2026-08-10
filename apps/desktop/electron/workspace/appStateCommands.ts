@@ -1039,8 +1039,8 @@ const removeThread: AppStateCommandReducer = (snapshot, payload) => {
 };
 
 // Bounded Thread content update: patches the mutable Thread record fields and
-// replaces the Thread's message list in place. Covers rename/pin/activity/
-// Run Checklist updates and every message mutation.
+// merges message upserts by id (never deletes by omission). Covers
+// rename/pin/activity/Run Checklist updates and message append/stream updates.
 const updateThreadContent: AppStateCommandReducer = (snapshot, payload) => {
   if (!isRecord(payload) || typeof payload.threadId !== "string") return null;
   const thread = (snapshot.threads ?? []).find((item) => item.id === payload.threadId);
@@ -1079,19 +1079,33 @@ const updateThreadContent: AppStateCommandReducer = (snapshot, payload) => {
   }
 
   let threadMessages = snapshot.threadMessages ?? [];
-  if (payload.messages !== undefined) {
-    if (!Array.isArray(payload.messages)) return null;
-    if (payload.messages.some((message) => !isRecord(message) || message.threadId !== thread.id)) {
-      return null;
+  const deleteIds = new Set<string>();
+  if (payload.deleteMessageIds !== undefined) {
+    if (!Array.isArray(payload.deleteMessageIds)) return null;
+    for (const id of payload.deleteMessageIds) {
+      if (typeof id !== "string" || id.length === 0) return null;
+      deleteIds.add(id);
     }
-    // Replace the Thread's messages in place so global message order is kept.
+  }
+
+  if (payload.messages !== undefined || deleteIds.size > 0) {
+    if (payload.messages !== undefined) {
+      if (!Array.isArray(payload.messages)) return null;
+      if (payload.messages.some((message) => !isRecord(message) || message.threadId !== thread.id)) {
+        return null;
+      }
+    }
+    // Merge by message id: upsert/update payload messages, keep authoritative
+    // messages omitted from the payload. Deletes only happen for ids listed in
+    // deleteMessageIds (edit-resend prune) or via thread:rollback-run /
+    // Permanent Thread Deletion.
     const existingById = new Map(threadMessages.map((message) => [message.id, message]));
     const kimiRunMessageIds = new Set(
       (snapshot.threadRuns ?? []).flatMap((run) =>
         run.runtimeId === "kimi" && run.assistantMessageId ? [run.assistantMessageId] : [],
       ),
     );
-    const replacement = (payload.messages as AppThreadMessageRecord[]).map((message) => {
+    const reconcileIncoming = (message: AppThreadMessageRecord): AppThreadMessageRecord => {
       const existing = existingById.get(message.id);
       if (!existing || !kimiRunMessageIds.has(message.id)) return message;
 
@@ -1118,7 +1132,24 @@ const updateThreadContent: AppStateCommandReducer = (snapshot, payload) => {
         return existing;
       }
       return message;
-    });
+    };
+
+    const incoming = (payload.messages as AppThreadMessageRecord[] | undefined) ?? [];
+    const reconciledById = new Map<string, AppThreadMessageRecord>();
+    for (const message of incoming) {
+      if (deleteIds.has(message.id)) continue;
+      reconciledById.set(message.id, reconcileIncoming(message));
+    }
+
+    const existingThreadMessages = threadMessages.filter(
+      (message) => message.threadId === thread.id && !deleteIds.has(message.id),
+    );
+    const existingThreadIds = new Set(existingThreadMessages.map((message) => message.id));
+    const appended = incoming
+      .filter((message) => !existingThreadIds.has(message.id) && !deleteIds.has(message.id))
+      .map((message) => reconciledById.get(message.id)!)
+      .filter(Boolean);
+
     const updated: AppThreadMessageRecord[] = [];
     let inserted = false;
     for (const message of threadMessages) {
@@ -1127,11 +1158,15 @@ const updateThreadContent: AppStateCommandReducer = (snapshot, payload) => {
         continue;
       }
       if (!inserted) {
-        updated.push(...replacement);
+        // Keep existing Thread message order; apply payload updates in place.
+        for (const existing of existingThreadMessages) {
+          updated.push(reconciledById.get(existing.id) ?? existing);
+        }
+        updated.push(...appended);
         inserted = true;
       }
     }
-    if (!inserted) updated.push(...replacement);
+    if (!inserted) updated.push(...appended);
     threadMessages = updated;
   }
 

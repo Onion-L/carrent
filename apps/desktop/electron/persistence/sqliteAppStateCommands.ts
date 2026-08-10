@@ -698,12 +698,14 @@ export function persistIncrementalAppStateCommand(
     case "thread-content:update": {
       const threadId = payloadId(command, "threadId");
       // Diff the owning Thread's before/after messages by id: insert new ids,
-      // delete removed ids, and update only rows whose content or payload
-      // actually changed. `after` already carries the reducer's reconciled
-      // messages (it swaps regressing event-count messages for the existing
-      // row), so persisting `after` preserves the run-event-count
-      // anti-regression and interrupted-message reconciliation without
-      // re-deriving them here. Unaffected message history is left untouched.
+      // delete ids the reducer actually removed (explicit delete paths only —
+      // thread-content:update no longer drops omitted ids), and update only
+      // rows whose content or payload actually changed. `after` already carries
+      // the reducer's reconciled messages (it swaps regressing event-count
+      // messages for the existing row), so persisting `after` preserves the
+      // run-event-count anti-regression and interrupted-message reconciliation
+      // without re-deriving them here. Unaffected message history is left
+      // untouched.
       const beforeMessages = new Map(
         (before.threadMessages ?? [])
           .filter((message) => message.threadId === threadId)

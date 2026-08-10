@@ -5,6 +5,7 @@ import "../test/registerHappyDom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
+import type { AppStateCommand } from "../../shared/appStateAuthority";
 import type { ThreadDeletionAppStateSnapshots } from "../../shared/chat";
 import type {
   AppStateSnapshot,
@@ -159,6 +160,86 @@ describe("recordThreadRun", () => {
 
     expect(recorded).toBe(true);
     expect(savedSnapshot?.threadMessages?.[0]?.createdAt).toBe("2026-07-29T12:31:39.718Z");
+  });
+});
+
+describe("thread content flush concurrency", () => {
+  it("submits thread-content:update with the current authority baseRevision", async () => {
+    const commands: AppStateCommand[] = [];
+    savedSnapshot = null;
+    contextValue = null;
+    const authority = createFakeAppStateAuthority(baseSnapshot, {
+      onPersist: (next) => {
+        savedSnapshot = next;
+      },
+      commandHook: async (command) => {
+        commands.push(command);
+        return null;
+      },
+    });
+    testAuthority = authority;
+    window.carrent = {
+      appState: {
+        load: async () => ({ status: "ready", snapshot: baseSnapshot }),
+        reread: async () => ({ status: "ready", snapshot: baseSnapshot }),
+        fullReset: async () => ({ status: "ready", snapshot: baseSnapshot }),
+        subscribe: authority.subscribe,
+        unsubscribe: authority.unsubscribe,
+        command: authority.command,
+        onChanged: authority.onChanged,
+        onFlushRequest: () => () => {},
+        flushDone: async () => {},
+      },
+      projectDirectories: { check: async () => ({ available: true }) },
+      terminal: { closeProject: async () => {} },
+    } as unknown as Window["carrent"];
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(
+        <AppStateProvider>
+          <Probe />
+        </AppStateProvider>,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // Advance authority revision so the flush is not at 0.
+    await act(async () => {
+      expect(await contextValue!.renameWorkspace("workspace-1", "Renamed")).toMatchObject({
+        ok: true,
+      });
+    });
+    const revisionBeforeFlush = testAuthority!.getState().revision;
+    expect(revisionBeforeFlush).toBeGreaterThan(0);
+
+    await act(async () => {
+      contextValue!.updateThreadContent((content) => ({
+        ...content,
+        threadMessages: [
+          ...content.threadMessages,
+          {
+            id: "message-flush-1",
+            threadId: "thread-1",
+            role: "user",
+            content: "flush me",
+            createdAt: "2026-07-29T13:00:00.000Z",
+            attachments: [],
+          },
+        ],
+      }));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    const contentUpdate = commands.find((command) => command.type === "thread-content:update");
+    expect(contentUpdate).toBeDefined();
+    expect(contentUpdate?.baseRevision).toBe(revisionBeforeFlush);
   });
 });
 

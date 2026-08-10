@@ -546,10 +546,9 @@ describe("SQLite App State Thread content & Run incremental persistence", () => 
     });
   });
 
-  it("deletes a message removed from the thread content", async () => {
-    // Use a snapshot whose active thread has a run-unreferenced user message
-    // that can be removed without leaving a dangling Run reference (the
-    // normalizer rejects runs whose message ids no longer exist).
+  it("does not delete messages when a thread-content payload omits them", async () => {
+    // thread-content:update merges by id; an empty messages array is not a
+    // wipe. Explicit removal uses deleteMessageIds or thread:rollback-run.
     const seeded: AppStateSnapshot = {
       ...baseSnapshot(),
       threadRuns: [],
@@ -578,10 +577,8 @@ describe("SQLite App State Thread content & Run incremental persistence", () => 
       const loaded = await store.loadAppStateSnapshot();
       expect(
         loaded?.threadMessages?.some((message) => message.id === "message-active-standalone"),
-      ).toBe(false);
-      expect(await auditedEntries(store)).toEqual([
-        "thread_messages:delete:message-active-standalone",
-      ]);
+      ).toBe(true);
+      expect(await auditedEntries(store)).toEqual([]);
     });
   });
 

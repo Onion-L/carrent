@@ -145,72 +145,101 @@ function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: s
 
 function ContextUsageIndicator({
   status,
-  onHover,
+  loadState,
+  onRefresh,
 }: {
   status: KimiSessionStatus | null;
-  onHover: () => void;
+  loadState: "loading" | "ready" | "error";
+  onRefresh: () => void;
 }) {
-  const [showPopover, setShowPopover] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => setMounted(true), 30);
-    return () => clearTimeout(timer);
-  }, []);
-
-  if (!status) {
-    return null;
-  }
+    if (!isPinned) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setIsPinned(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isPinned]);
 
   const radius = 8;
   const circumference = 2 * Math.PI * radius;
-  const offset = circumference * (1 - Math.min(status.percentage, 100) / 100);
+  const percentage = status?.percentage ?? 0;
+  const offset = circumference * (1 - Math.min(percentage, 100) / 100);
+  const showPopover = isHovered || isPinned;
 
   return (
     <div
-      className={`relative flex h-8 w-8 cursor-pointer items-center justify-center transition-all duration-300 ease-out ${
-        mounted ? "scale-100 opacity-100" : "scale-50 opacity-0"
-      }`}
+      ref={rootRef}
+      className="relative flex h-8 w-8 items-center justify-center"
       onMouseEnter={() => {
-        setShowPopover(true);
-        onHover();
+        setIsHovered(true);
+        onRefresh();
       }}
-      onMouseLeave={() => setShowPopover(false)}
-      title="Kimi context usage"
+      onMouseLeave={() => setIsHovered(false)}
     >
-      <svg className="h-5 w-5 -rotate-90" viewBox="0 0 20 20">
-        <circle
-          cx="10"
-          cy="10"
-          r={radius}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className="text-border-strong"
-        />
-        <circle
-          cx="10"
-          cy="10"
-          r={radius}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-          className={status.percentage > 90 ? "text-danger" : "text-fg"}
-        />
-      </svg>
+      <button
+        type="button"
+        className="flex h-8 w-8 items-center justify-center"
+        title="Kimi context usage"
+        aria-label="Kimi context usage"
+        aria-expanded={showPopover}
+        onClick={() => {
+          setIsPinned((pinned) => !pinned);
+          if (!isHovered) onRefresh();
+        }}
+      >
+        {loadState === "error" ? (
+          <span className="text-app-11 font-medium text-muted">--</span>
+        ) : (
+          <svg className="h-5 w-5 -rotate-90" viewBox="0 0 20 20">
+            <circle
+              cx="10"
+              cy="10"
+              r={radius}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="text-border-strong"
+            />
+            <circle
+              cx="10"
+              cy="10"
+              r={radius}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeDasharray={circumference}
+              strokeDashoffset={offset}
+              strokeLinecap="round"
+              className={percentage > 90 ? "text-danger" : "text-fg"}
+            />
+          </svg>
+        )}
+      </button>
       {showPopover && (
         <div className="absolute bottom-full right-0 mb-2 w-52 rounded-lg border border-border-strong bg-surface px-3 py-2 shadow-xl">
-          <div className="text-app-11 text-muted">Context usage</div>
-          <div className="mt-0.5 text-app-12 font-medium text-fg">
-            {status.used.toLocaleString()} / {status.total.toLocaleString()} (
-            {status.percentage.toFixed(1)}%)
-          </div>
-          {status.model ? (
-            <div className="mt-1 truncate text-app-11 text-subtle">{status.model}</div>
-          ) : null}
+          {loadState === "error" ? (
+            <div className="text-app-12 text-muted">暂时无法获取</div>
+          ) : status ? (
+            <>
+              <div className="text-app-11 text-muted">Context usage</div>
+              <div className="mt-0.5 text-app-12 font-medium text-fg">
+                {status.used.toLocaleString()} / {status.total.toLocaleString()} (
+                {status.percentage.toFixed(1)}%)
+              </div>
+              {status.model ? (
+                <div className="mt-1 truncate text-app-11 text-subtle">{status.model}</div>
+              ) : null}
+            </>
+          ) : (
+            <div className="text-app-12 text-muted">暂无 Context 数据</div>
+          )}
         </div>
       )}
     </div>
@@ -1166,6 +1195,9 @@ export function Composer(props: ComposerProps) {
   const [threadActionError, setThreadActionError] = useState<string | null>(null);
   const [lightboxAttachmentIndex, setLightboxAttachmentIndex] = useState<number | null>(null);
   const [kimiStatus, setKimiStatus] = useState<KimiSessionStatus | null>(null);
+  const [kimiStatusLoadState, setKimiStatusLoadState] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
   const [latestCompactBoundary, setLatestCompactBoundary] = useState<AppThreadActionRecord | null>(
     null,
   );
@@ -1466,6 +1498,8 @@ export function Composer(props: ComposerProps) {
       return;
     }
 
+    setKimiStatusLoadState("loading");
+
     const context = {
       kind: "project" as const,
       projectId: props.projectId,
@@ -1488,8 +1522,9 @@ export function Composer(props: ComposerProps) {
         message: "",
       });
       setKimiStatus(status);
+      setKimiStatusLoadState("ready");
     } catch {
-      setKimiStatus(null);
+      setKimiStatusLoadState("error");
     }
   }, [
     props.mode,
@@ -1906,7 +1941,7 @@ export function Composer(props: ComposerProps) {
   }, []);
 
   useEffect(() => {
-    setKimiStatus(null);
+    setKimiStatusLoadState("loading");
   }, [threadId, props.runtimeId, projectId, project?.workingDirectory]);
 
   useEffect(() => {
@@ -4286,7 +4321,8 @@ export function Composer(props: ComposerProps) {
                 <ContextUsageIndicator
                   key={threadId}
                   status={kimiStatus}
-                  onHover={refreshKimiStatus}
+                  loadState={kimiStatusLoadState}
+                  onRefresh={refreshKimiStatus}
                 />
               ) : null}
               {isThreadSending ? (

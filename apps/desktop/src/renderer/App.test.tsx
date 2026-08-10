@@ -78,6 +78,11 @@ type TestTerminalEvent = import("../shared/terminal").TerminalEvent extends infe
   : never;
 let emitTerminalEvent: ((event: TestTerminalEvent) => void) | null = null;
 
+type KimiStatusSource =
+  | KimiSessionStatus
+  | null
+  | (() => KimiSessionStatus | null | Promise<KimiSessionStatus | null>);
+
 function NavigationProbe() {
   const location = useLocation();
   const navigationType = useNavigationType();
@@ -101,7 +106,7 @@ function installBridge(
   deleteThreadTransactionGate?: Promise<void>,
   projectDirectoryAvailable: boolean | boolean[] | (() => boolean) = true,
   projectRelocationRequests: ProjectRelocationRequest[] = [],
-  kimiStatus: KimiSessionStatus | null | (() => KimiSessionStatus | null) = null,
+  kimiStatus: KimiStatusSource = null,
   executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>,
   sessionStatus:
     | KimiSessionStatus
@@ -539,7 +544,7 @@ type RenderAppOptions = {
   projectDirectoryAvailable?: boolean | boolean[] | (() => boolean);
   projectRelocationRequests?: ProjectRelocationRequest[];
   strictMode?: boolean;
-  kimiStatus?: KimiSessionStatus | null | (() => KimiSessionStatus | null);
+  kimiStatus?: KimiStatusSource;
   executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>;
   sessionStatus?:
     | KimiSessionStatus
@@ -3100,6 +3105,129 @@ describe("Runtime Session Status", () => {
     });
   }
 
+  it("keeps the Context indicator visible without a Runtime Session", async () => {
+    await renderApp(
+      statusAppState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      { kimiStatus: null },
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const indicator = container!.querySelector<HTMLButtonElement>(
+      '[aria-label="Kimi context usage"]',
+    )!;
+    expect(indicator).not.toBe(null);
+
+    await act(async () => {
+      indicator.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(container!.textContent).toContain("暂无 Context 数据");
+
+    await act(async () => {
+      indicator.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true }));
+    });
+    expect(container!.textContent).not.toContain("暂无 Context 数据");
+
+    await act(async () => {
+      indicator.click();
+      indicator.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(container!.textContent).toContain("暂无 Context 数据");
+
+    await act(async () => {
+      indicator.click();
+    });
+    expect(container!.textContent).not.toContain("暂无 Context 数据");
+
+    await act(async () => {
+      indicator.click();
+    });
+    expect(container!.textContent).toContain("暂无 Context 数据");
+
+    await act(async () => {
+      document.body.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
+    });
+    expect(container!.textContent).not.toContain("暂无 Context 数据");
+  });
+
+  it("shows an unavailable Context state when status refresh fails", async () => {
+    await renderApp(
+      statusAppState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      {
+        kimiStatus: () => {
+          throw new Error("transport failed");
+        },
+      },
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const indicator = container!.querySelector<HTMLButtonElement>(
+      '[aria-label="Kimi context usage"]',
+    )!;
+    expect(indicator.textContent).toBe("--");
+
+    await act(async () => {
+      indicator.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(container!.textContent).toContain("暂时无法获取");
+  });
+
+  it("keeps the previous Context usage visible while refreshing", async () => {
+    let refreshStatus!: (status: KimiSessionStatus | null) => void;
+    let statusCalls = 0;
+    await renderApp(
+      statusAppState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      {
+        kimiStatus: () => {
+          statusCalls += 1;
+          if (statusCalls === 1) return passiveStatus;
+          return new Promise((resolve) => {
+            refreshStatus = resolve;
+          });
+        },
+      },
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const indicator = container!.querySelector<HTMLButtonElement>(
+      '[aria-label="Kimi context usage"]',
+    )!;
+    await act(async () => {
+      indicator.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(container!.textContent).toContain("35,193 / 1,048,576 (3.4%)");
+
+    await act(async () => {
+      refreshStatus(null);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(container!.textContent).toContain("暂无 Context 数据");
+  });
+
   it("executes Status from the slash menu and renders normalized values without a Run", async () => {
     const chatRequests: ChatTurnRequest[] = [];
     const statusRequests: ChatTurnRequest[] = [];
@@ -3129,7 +3257,11 @@ describe("Runtime Session Status", () => {
     });
 
     const usageIndicator = container!.querySelector<HTMLElement>('[title="Kimi context usage"]')!;
-    usageIndicator.click();
+    await act(async () => {
+      usageIndicator.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      usageIndicator.click();
+    });
     expect(statusRequests).toHaveLength(0);
 
     const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;

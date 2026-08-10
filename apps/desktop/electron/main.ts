@@ -105,6 +105,7 @@ import { createWindowZoomController } from "./windowZoom";
 import type { MainWindowZoomAction } from "../src/shared/mainWindow";
 import { createBrowserManager, type BrowserManager } from "./browser/browserManager";
 import { registerBrowserIpc } from "./browser/browserIpc";
+import { isHttpOrHttpsUrl } from "./browser/browserNavigation";
 import type { BrowserThreadTarget } from "../src/shared/browser";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -385,7 +386,9 @@ function createWindow(
     if (
       !browserManager?.openForRoute(window.webContents.id, windowRegistry.getRoute(window.id), url)
     ) {
-      void shell.openExternal(url);
+      if (isHttpOrHttpsUrl(url)) {
+        void shell.openExternal(url);
+      }
     }
     return { action: "deny" };
   });

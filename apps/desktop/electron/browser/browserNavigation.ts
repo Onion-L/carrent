@@ -29,3 +29,12 @@ export function isBrowserUrl(value: string) {
     return false;
   }
 }
+
+export function isHttpOrHttpsUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}

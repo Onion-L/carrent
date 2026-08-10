@@ -57,7 +57,7 @@ Do not commit secrets, local paths, or generated release artifacts. Runtime-rela
 
 ### Issue tracker
 
-Issues and PRDs are tracked as local markdown files under `.scratch/`; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+Issues and PRDs are tracked as GitHub Issues; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

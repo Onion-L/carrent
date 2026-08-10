@@ -57,6 +57,212 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
 }
 
 describe("registerChatIpc", () => {
+  it("enqueues automatic title work only after the first Run is accepted", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const titleJobs: Array<{ threadId: string; runId: string; source: string }> = [];
+    const sessionManager = {
+      start: () => {},
+      stop: () => {},
+      removeRuntimeSession: async () => {},
+      deleteThreadData: async () => {},
+      respondToPermission: () => {},
+      respondToQuestion: () => {},
+      shutdown: async () => {},
+      getStatus: async () => null,
+    };
+    const runAuthority = createChatRunAuthority({
+      start: sessionManager.start,
+      stop: sessionManager.stop,
+      respondToPermission: sessionManager.respondToPermission,
+      respondToQuestion: sessionManager.respondToQuestion,
+      publish: () => {},
+    });
+    registerProductionChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager,
+        runAuthority,
+        threadTitleCoordinator: {
+          enqueue: (job) => {
+            titleJobs.push(job);
+            return true;
+          },
+        },
+      },
+    );
+
+    const result = await handlers.get("chat:send")?.(
+      { sender: { id: 7 } },
+      makeRequest({
+        runId: "run-1",
+        requestKey: "request-1",
+        automaticTitleSource: "Visible first request",
+      }),
+    );
+    runAuthority.handleEvent({
+      type: "failed",
+      runId: "run-1",
+      requestKey: "request-1",
+      error: "Later asynchronous failure",
+    });
+
+    expect(result).toMatchObject({ accepted: true, runId: "run-1" });
+    expect(titleJobs).toEqual([
+      {
+        threadId: "thread-1",
+        runId: "run-1",
+        source: "Visible first request",
+      },
+    ]);
+  });
+
+  it("does not enqueue automatic title work when synchronous Run startup fails", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const titleJobs: unknown[] = [];
+    const sessionManager = {
+      start: () => {
+        throw new Error("synchronous startup failure");
+      },
+      stop: () => {},
+      removeRuntimeSession: async () => {},
+      deleteThreadData: async () => {},
+      respondToPermission: () => {},
+      respondToQuestion: () => {},
+      shutdown: async () => {},
+      getStatus: async () => null,
+    };
+    const runAuthority = createChatRunAuthority({
+      start: sessionManager.start,
+      stop: sessionManager.stop,
+      respondToPermission: sessionManager.respondToPermission,
+      respondToQuestion: sessionManager.respondToQuestion,
+      publish: () => {},
+    });
+    registerProductionChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager,
+        runAuthority,
+        threadTitleCoordinator: {
+          enqueue: (job) => {
+            titleJobs.push(job);
+            return true;
+          },
+        },
+      },
+    );
+
+    const result = await handlers.get("chat:send")?.(
+      { sender: { id: 7 } },
+      makeRequest({
+        runId: "run-1",
+        requestKey: "request-1",
+        automaticTitleSource: "Visible first request",
+      }),
+    );
+
+    expect(result).toMatchObject({ accepted: false, runId: "run-1" });
+    expect(titleJobs).toEqual([]);
+  });
+
+  it("does not enqueue when Run startup synchronously emits a failure", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const titleJobs: unknown[] = [];
+    let runAuthority!: ReturnType<typeof createChatRunAuthority>;
+    const sessionManager = {
+      start: (runId: string, request: ChatTurnRequest) => {
+        runAuthority.handleEvent({
+          type: "failed",
+          runId,
+          requestKey: request.requestKey,
+          error: "Attachment file is unavailable.",
+        });
+      },
+      stop: () => {},
+      removeRuntimeSession: async () => {},
+      deleteThreadData: async () => {},
+      respondToPermission: () => {},
+      respondToQuestion: () => {},
+      shutdown: async () => {},
+      getStatus: async () => null,
+    };
+    runAuthority = createChatRunAuthority({
+      start: sessionManager.start,
+      stop: sessionManager.stop,
+      respondToPermission: sessionManager.respondToPermission,
+      respondToQuestion: sessionManager.respondToQuestion,
+      publish: () => {},
+    });
+    registerProductionChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager,
+        runAuthority,
+        threadTitleCoordinator: {
+          enqueue: (job) => {
+            titleJobs.push(job);
+            return true;
+          },
+        },
+      },
+    );
+
+    const result = await handlers.get("chat:send")?.(
+      { sender: { id: 7 } },
+      makeRequest({
+        runId: "run-1",
+        requestKey: "request-1",
+        automaticTitleSource: "Visible first request",
+      }),
+    );
+
+    expect(result).toMatchObject({ accepted: false, runId: "run-1" });
+    expect(titleJobs).toEqual([]);
+  });
+
+  it("does not enqueue automatic title work without a promoted Draft source", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const titleJobs: unknown[] = [];
+    const sessionManager = {
+      start: () => {},
+      stop: () => {},
+      removeRuntimeSession: async () => {},
+      deleteThreadData: async () => {},
+      respondToPermission: () => {},
+      respondToQuestion: () => {},
+      shutdown: async () => {},
+      getStatus: async () => null,
+    };
+    const runAuthority = createChatRunAuthority({
+      start: sessionManager.start,
+      stop: sessionManager.stop,
+      respondToPermission: sessionManager.respondToPermission,
+      respondToQuestion: sessionManager.respondToQuestion,
+      publish: () => {},
+    });
+    registerProductionChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager,
+        runAuthority,
+        threadTitleCoordinator: {
+          enqueue: (job) => {
+            titleJobs.push(job);
+            return true;
+          },
+        },
+      },
+    );
+
+    const result = await handlers.get("chat:send")?.(
+      { sender: { id: 7 } },
+      makeRequest({ runId: "run-1", requestKey: "request-1" }),
+    );
+
+    expect(result).toMatchObject({ accepted: true, runId: "run-1" });
+    expect(titleJobs).toEqual([]);
+  });
+
   it("routes shared Run subscriptions and commands through the Main authority", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const starts: string[] = [];

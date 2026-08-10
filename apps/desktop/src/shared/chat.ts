@@ -200,6 +200,10 @@ export interface ChatTurnRequest {
     content: string;
   }>;
   message: string;
+  // Visible composer text from a newly promoted Thread Draft. It is carried
+  // separately from the Runtime prompt so Skill enrichment and attachments
+  // never become automatic-title input.
+  automaticTitleSource?: string;
   attachments?: Attachment[];
   historyMode?: "continue" | "replace";
 }

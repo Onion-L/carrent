@@ -54,7 +54,7 @@ import {
   validateAttachmentSelection,
   type PendingAttachment,
 } from "../../lib/attachments";
-import { deriveThreadTitle } from "../../lib/threadTitle";
+import { boundThreadTitleSource, deriveThreadTitle } from "../../lib/threadTitle";
 import { ImageAttachmentLightbox, type LightboxItem } from "./ImageAttachmentLightbox";
 import { splitPatchIntoFileBlocks } from "./WorkspaceDiffViewer";
 
@@ -2657,6 +2657,8 @@ export function Composer(props: ComposerProps) {
             attachmentName: attachmentMetadata[0]?.name,
           })
         : null;
+    const automaticTitleSource =
+      props.mode === "association-draft" ? boundThreadTitleSource(currentInput) : "";
     const associationDraftSnapshot =
       props.mode === "association-draft"
         ? buildThreadDraftSnapshot({
@@ -2732,6 +2734,7 @@ export function Composer(props: ComposerProps) {
         planMode: effectivePlanMode,
         transcript,
         message: messageText,
+        ...(automaticTitleSource.trim() ? { automaticTitleSource } : {}),
         attachments: attachmentMetadata,
         historyMode: getChatHistoryMode(!!externalSubmit?.messageId),
       },

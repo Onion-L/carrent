@@ -24,6 +24,7 @@ import { runtimeIds, type RuntimeId } from "../../src/shared/runtimes";
 import type { ChatSessionManager } from "./chatSessionManager";
 import type { ThreadActionRequest } from "../../src/shared/threadActions";
 import type { ChatRunAuthority } from "./chatRunAuthority";
+import type { ThreadTitleCoordinator } from "./threadTitleCoordinator";
 
 interface IpcMainLike {
   handle: (
@@ -39,6 +40,7 @@ export interface ChatIpcServices {
   threadDeletionManager?: {
     deleteThread: (request: ThreadDeletionTransactionRequest) => Promise<void>;
   };
+  threadTitleCoordinator?: Pick<ThreadTitleCoordinator, "enqueue">;
 }
 
 function senderIdOf(event: unknown): number {
@@ -360,6 +362,9 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
   ipcMainLike.handle("chat:send", async (_event, request) => {
     const req = request as ChatTurnRequest;
     assertSupportedRuntime(req);
+    if (req.automaticTitleSource !== undefined && typeof req.automaticTitleSource !== "string") {
+      throw new Error("Invalid automatic title source.");
+    }
     if (
       services.isProjectDirectoryAvailable &&
       !(await services.isProjectDirectoryAvailable(req.context.workingDirectory))
@@ -383,7 +388,15 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
     const runId = req.runId ?? `run-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
     const acceptedRequest = { ...sanitizedRequest, runId };
-    return services.runAuthority.send(acceptedRequest);
+    const result = services.runAuthority.send(acceptedRequest);
+    if (result.accepted && acceptedRequest.automaticTitleSource?.trim()) {
+      services.threadTitleCoordinator?.enqueue({
+        threadId: acceptedRequest.threadId,
+        runId,
+        source: acceptedRequest.automaticTitleSource,
+      });
+    }
+    return result;
   });
 
   ipcMainLike.handle("chat:stop", async (_event, runId) => {

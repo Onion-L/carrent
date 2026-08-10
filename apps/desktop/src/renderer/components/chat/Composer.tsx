@@ -2645,11 +2645,17 @@ export function Composer(props: ComposerProps) {
       runtimeId: props.runtimeId,
       runtimeModelId: props.runtimeModelId,
     });
+    // The title source is the user-visible composer text, not the runtime
+    // prompt enriched with Skill references (currentInput is computed before
+    // the skill prefix is concatenated into messageText). The default fallback
+    // ("New thread") applies when neither the text nor an attachment basename
+    // yields a usable line, so the title is always a non-empty value the
+    // promoteThreadDraft reducer will accept.
     const associationDraftTitle =
       props.mode === "association-draft"
-        ? deriveThreadTitle(messageText, { fallback: "" }) ||
-          attachmentMetadata[0]?.name ||
-          "New thread"
+        ? deriveThreadTitle(currentInput, {
+            attachmentName: attachmentMetadata[0]?.name,
+          })
         : null;
     const associationDraftSnapshot =
       props.mode === "association-draft"
@@ -2953,12 +2959,19 @@ export function Composer(props: ComposerProps) {
     }
 
     if (props.mode === "thread") {
+      // Legacy non-draft backfill: a Thread still literally named "New thread"
+      // without a manual rename marker receives the deterministic local
+      // fallback after a successful submission. The title is derived from the
+      // visible composer text (never the skill-enriched runtime prompt) and
+      // never invokes model generation. A manual rename — even one renamed
+      // back to "New thread" — is protected by the customTitle guard.
       if (thread && thread.title === "New thread" && !thread.customTitle) {
-        const title =
-          deriveThreadTitle(messageText, { fallback: "" }) ||
-          attachmentMetadata[0]?.name ||
-          "New thread";
-        upsertThread(props.projectId, { ...thread, title });
+        const title = deriveThreadTitle(currentInput, {
+          attachmentName: attachmentMetadata[0]?.name,
+        });
+        if (title !== thread.title) {
+          upsertThread(props.projectId, { ...thread, title });
+        }
       }
     }
 

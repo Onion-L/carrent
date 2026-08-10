@@ -247,6 +247,10 @@ function projectNameFromWorkingDirectory(workingDirectory: string) {
 // Thread record fields the Thread content commands may patch.
 type ThreadContentPatch = {
   title?: string;
+  // The manual-title marker. A rename sets it to true; it flows through Main
+  // Process authority so the marker persists across Carrent Windows and
+  // protects a renamed title from later automatic-title updates.
+  customTitle?: boolean;
   lastActivityAt?: string;
   pinned?: boolean;
   runChecklist?: AppThreadRecord["runChecklist"] | null;
@@ -756,6 +760,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         if (previousThread === nextThread) continue;
         const patch: ThreadContentPatch = {};
         if (previousThread.title !== nextThread.title) patch.title = nextThread.title;
+        if ((previousThread.customTitle === true) !== (nextThread.customTitle === true)) {
+          patch.customTitle = nextThread.customTitle === true;
+        }
         if (previousThread.lastActivityAt !== nextThread.lastActivityAt) {
           patch.lastActivityAt = nextThread.lastActivityAt;
         }

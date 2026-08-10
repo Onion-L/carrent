@@ -1529,6 +1529,167 @@ describe("thread-content:update / thread-work:update", () => {
   });
 });
 
+describe("thread-content:update customTitle marker", () => {
+  it("sets the manual-title marker through the patch", () => {
+    const next = reduce("thread-content:update", makeSnapshot(), {
+      threadId: "t-1",
+      thread: { title: "Manual", customTitle: true },
+    }) as AppStateSnapshot;
+    const thread = next.threads?.find((item) => item.id === "t-1");
+    expect(thread?.title).toBe("Manual");
+    expect(thread?.customTitle).toBe(true);
+    expect(normalizeAppStateSnapshotForWrite(next)).not.toBe(null);
+  });
+
+  it("clears an existing manual-title marker when customTitle is false", () => {
+    const base = makeSnapshot({
+      threads: [makeThread("t-1", "ws-a", "proj-1", { customTitle: true })],
+    });
+    const next = reduce("thread-content:update", base, {
+      threadId: "t-1",
+      thread: { customTitle: false },
+    }) as AppStateSnapshot;
+    const thread = next.threads?.find((item) => item.id === "t-1");
+    expect(thread?.customTitle).toBe(undefined);
+  });
+
+  it("leaves the marker untouched when the patch omits customTitle", () => {
+    const base = makeSnapshot({
+      threads: [makeThread("t-1", "ws-a", "proj-1", { customTitle: true })],
+    });
+    const next = reduce("thread-content:update", base, {
+      threadId: "t-1",
+      thread: { title: "Edited" },
+    }) as AppStateSnapshot;
+    const thread = next.threads?.find((item) => item.id === "t-1");
+    expect(thread?.title).toBe("Edited");
+    expect(thread?.customTitle).toBe(true);
+  });
+
+  it("rejects a non-boolean customTitle", () => {
+    expect(
+      reduce("thread-content:update", makeSnapshot(), {
+        threadId: "t-1",
+        thread: { customTitle: "yes" as unknown as boolean },
+      }),
+    ).toBe(null);
+  });
+});
+
+describe("thread:set-automatic-title", () => {
+  function baseSnapshot(expectedTitle: string) {
+    return makeSnapshot({
+      // t-1 carries the expected fallback title and no manual marker.
+      threads: [
+        makeThread("t-1", "ws-a", "proj-1", { title: expectedTitle }),
+        // t-3 is Archived in the default snapshot; t-2 is a separate thread.
+      ],
+    });
+  }
+
+  it("replaces the fallback title when the Thread is eligible", () => {
+    const next = reduce("thread:set-automatic-title", baseSnapshot("New thread"), {
+      threadId: "t-1",
+      expectedTitle: "New thread",
+      title: "Generated summary",
+    }) as AppStateSnapshot;
+    const thread = next.threads?.find((item) => item.id === "t-1");
+    expect(thread?.title).toBe("Generated summary");
+    // An automatic update must never set the manual-title marker.
+    expect(thread?.customTitle).toBe(undefined);
+    expect(normalizeAppStateSnapshotForWrite(next)).not.toBe(null);
+  });
+
+  it("never sets the manual-title marker on an eligible update", () => {
+    const next = reduce("thread:set-automatic-title", baseSnapshot("New thread"), {
+      threadId: "t-1",
+      expectedTitle: "New thread",
+      title: "Cleaned up title",
+    }) as AppStateSnapshot;
+    expect(next.threads?.find((item) => item.id === "t-1")?.customTitle).toBe(undefined);
+  });
+
+  it("is a no-op when the new title equals the current title", () => {
+    const before = baseSnapshot("Same title");
+    const next = reduce("thread:set-automatic-title", before, {
+      threadId: "t-1",
+      expectedTitle: "Same title",
+      title: "Same title",
+    });
+    // The reducer returns the same snapshot reference for a no-op.
+    expect(next).toBe(before);
+  });
+
+  it("rejects a missing Thread", () => {
+    expect(
+      reduce("thread:set-automatic-title", baseSnapshot("New thread"), {
+        threadId: "t-404",
+        expectedTitle: "New thread",
+        title: "Whatever",
+      }),
+    ).toBe(null);
+  });
+
+  it("rejects an Archived Thread", () => {
+    // t-3 is Archived in the default snapshot.
+    const base = makeSnapshot({
+      threads: [makeThread("t-3", "ws-a", "proj-1", { archived: true, title: "New thread" })],
+    });
+    expect(
+      reduce("thread:set-automatic-title", base, {
+        threadId: "t-3",
+        expectedTitle: "New thread",
+        title: "Late result",
+      }),
+    ).toBe(null);
+  });
+
+  it("rejects a manually titled Thread", () => {
+    const base = makeSnapshot({
+      threads: [makeThread("t-1", "ws-a", "proj-1", { title: "My title", customTitle: true })],
+    });
+    expect(
+      reduce("thread:set-automatic-title", base, {
+        threadId: "t-1",
+        expectedTitle: "My title",
+        title: "Automatic override",
+      }),
+    ).toBe(null);
+  });
+
+  it("rejects when the current title no longer matches the expected fallback", () => {
+    const base = makeSnapshot({
+      threads: [makeThread("t-1", "ws-a", "proj-1", { title: "Concurrent rename" })],
+    });
+    expect(
+      reduce("thread:set-automatic-title", base, {
+        threadId: "t-1",
+        expectedTitle: "New thread",
+        title: "Too late",
+      }),
+    ).toBe(null);
+  });
+
+  it("rejects an invalid payload shape", () => {
+    const base = baseSnapshot("New thread");
+    expect(reduce("thread:set-automatic-title", base, { threadId: "t-1" })).toBe(null);
+    expect(
+      reduce("thread:set-automatic-title", base, {
+        threadId: "t-1",
+        expectedTitle: " ",
+        title: "Generated",
+      }),
+    ).toBe(null);
+    expect(
+      reduce("thread:set-automatic-title", base, {
+        threadId: "t-1",
+        expectedTitle: "New thread",
+        title: "  ",
+      }),
+    ).toBe(null);
+  });
+});
+
 describe("appStateCommandReducers through createAppStateAuthority", () => {
   function createHarness(initialSnapshot: AppStateSnapshot = makeSnapshot()) {
     const saved: AppStateSnapshot[] = [];

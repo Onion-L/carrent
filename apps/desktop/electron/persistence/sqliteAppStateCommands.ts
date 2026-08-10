@@ -695,6 +695,20 @@ export function persistIncrementalAppStateCommand(
       updateThreadMetadata(client, thread);
       return;
     }
+    case "thread:set-automatic-title": {
+      const threadId = payloadId(command, "threadId");
+      // The reducer accepts the command only when the Thread still exists, so
+      // the `after` snapshot carries the updated Thread. updateThreadMetadata
+      // writes the new title and leaves custom_title at 0 because an automatic
+      // title never sets the manual-title marker.
+      const thread = requireAfterEntity(
+        (after.threads ?? []).find((item) => item.id === threadId),
+        command,
+        "Thread",
+      );
+      updateThreadMetadata(client, thread);
+      return;
+    }
     case "thread-content:update": {
       const threadId = payloadId(command, "threadId");
       // Diff the owning Thread's before/after messages by id: insert new ids,

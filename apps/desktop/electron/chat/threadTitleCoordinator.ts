@@ -8,22 +8,60 @@ import type {
   AppStateCommandResult,
 } from "../../src/shared/appStateAuthority";
 import type { AppStateSnapshot } from "../../src/shared/workspacePersistence";
+import { boundGraphemes, boundThreadTitleSource } from "../../src/shared/threadTitle";
 import type { KimiAcpTransport, KimiAcpTransportFactory } from "./kimiAcpChat";
 
 type JsonRpcId = string | number;
 type JsonObject = Record<string, unknown>;
 
 const TITLE_TIMEOUT_MS = 30_000;
-const MAX_TITLE_SOURCE_GRAPHEMES = 8_000;
 const MAX_CONCURRENT_TITLE_JOBS = 2;
 const MAX_WAITING_TITLE_JOBS = 8;
-const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+// Ceiling on collected ACP agent-message text. A valid payload is one small
+// JSON object, so a verbose or malformed response is rejected rather than
+// accumulated for the whole 30-second window.
+const MAX_TITLE_OUTPUT_CHARS = 8_192;
+// Ceiling on remembered draft promotions awaiting their first Run. Promotion is
+// immediately followed by the `chat:send` that consumes the entry, so this only
+// bounds rolled-back or abandoned promotions until reconcile prunes them.
+const MAX_PENDING_PROMOTIONS = MAX_CONCURRENT_TITLE_JOBS + MAX_WAITING_TITLE_JOBS;
 
-export type ThreadTitleJobInput = {
+// A committed Thread Draft promotion, recorded by the Main Process when the
+// `thread-draft:promote` command is accepted. It is the only thing that makes a
+// later Run eligible for automatic title generation, so the Renderer cannot
+// request generation for a Thread that was never promoted from a Draft.
+export type ThreadTitlePromotion = {
   threadId: string;
   runId: string;
   source: string;
 };
+
+export function registerAcceptedThreadTitlePromotion(
+  registrar: { registerPromotion: (promotion: ThreadTitlePromotion) => void } | null | undefined,
+  command: AppStateCommand,
+  data: unknown,
+) {
+  if (!registrar || command.type !== "thread-draft:promote") return;
+  const created = (data as { created?: unknown } | undefined)?.created;
+  if (created !== true) return;
+  const payload = command.payload as
+    | { threadId?: unknown; titleSource?: unknown; run?: { id?: unknown } }
+    | undefined;
+  const threadId = payload?.threadId;
+  const runId = payload?.run?.id;
+  const source = payload?.titleSource;
+  if (typeof threadId !== "string" || typeof runId !== "string" || typeof source !== "string") {
+    return;
+  }
+  registrar.registerPromotion({ threadId, runId, source });
+}
+
+export type ThreadTitleJobInput = {
+  threadId: string;
+  runId: string;
+};
+
+type ThreadTitleJobCandidateSource = ThreadTitleJobInput & { source: string };
 
 export type ThreadTitleDiagnostic = {
   threadId: string;
@@ -52,12 +90,12 @@ type ThreadTitleCoordinatorOptions = {
   log?: (diagnostic: ThreadTitleDiagnostic) => void;
 };
 
-type ThreadTitleJobCandidate = ThreadTitleJobInput & {
+type ThreadTitleJobCandidate = ThreadTitleJobCandidateSource & {
   expectedTitle: string;
   configuredModelId: string | undefined;
 };
 
-type AcceptedThreadTitleJob = ThreadTitleJobInput & {
+type AcceptedThreadTitleJob = ThreadTitleJobCandidateSource & {
   expectedTitle: string;
   modelId: string;
 };
@@ -67,6 +105,7 @@ type PendingThreadTitleAdmission = {
   resolved: boolean;
   modelId: string | null;
   cancelled: boolean;
+  modelResolutionController?: AbortController;
 };
 
 function readObject(value: unknown): JsonObject | null {
@@ -81,17 +120,6 @@ function readString(value: unknown): string | null {
 
 function readArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
-}
-
-function graphemes(value: string): string[] {
-  return [...graphemeSegmenter.segment(value)].map((entry) => entry.segment);
-}
-
-function boundTitleSource(source: string): string {
-  const segments = graphemes(source);
-  return segments.length <= MAX_TITLE_SOURCE_GRAPHEMES
-    ? source
-    : segments.slice(0, MAX_TITLE_SOURCE_GRAPHEMES).join("");
 }
 
 function titlePrompt(source: string): string {
@@ -145,9 +173,9 @@ function parseGeneratedTitle(output: string): string | null {
   if (!title) return null;
 
   if (/\p{Script=Han}/u.test(title)) {
-    const segments = graphemes(title);
-    if (segments.length < 6) return null;
-    return segments.slice(0, 18).join("");
+    const bounded = boundGraphemes(title, 18);
+    if (bounded.count < 6) return null;
+    return bounded.text;
   }
 
   const words = title.split(/\s+/u);
@@ -176,6 +204,7 @@ class TitleAcpClient {
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
   private output = "";
+  private outputOverflowed = false;
   private closed = false;
 
   constructor(private readonly transport: KimiAcpTransport) {
@@ -226,7 +255,8 @@ class TitleAcpClient {
       sessionId,
       prompt: [{ type: "text", text: titlePrompt(source) }],
     });
-    return { modelId, output: this.output };
+    // Overflowed output is discarded, so validation rejects it as invalid.
+    return { modelId, output: this.outputOverflowed ? "" : this.output };
   }
 
   async close() {
@@ -274,7 +304,16 @@ class TitleAcpClient {
     const content = readObject(update?.content);
     if (readString(content?.type) !== "text") return;
     const text = readString(content?.text);
-    if (text) this.output += text;
+    if (!text || this.outputOverflowed) return;
+    // A valid payload is one small JSON object. Past the ceiling the response
+    // can no longer become valid, so stop accumulating instead of holding
+    // verbose or malformed output for the rest of the timeout window.
+    if (this.output.length + text.length > MAX_TITLE_OUTPUT_CHARS) {
+      this.output = "";
+      this.outputOverflowed = true;
+      return;
+    }
+    this.output += text;
   }
 
   private failPending(error: Error) {
@@ -285,7 +324,7 @@ class TitleAcpClient {
 
 function eligibleJob(
   snapshot: AppStateSnapshot,
-  input: ThreadTitleJobInput,
+  input: ThreadTitleJobCandidateSource,
 ): ThreadTitleJobCandidate | null {
   if (!input.source.trim()) return null;
   const thread = (snapshot.threads ?? []).find((candidate) => candidate.id === input.threadId);
@@ -294,7 +333,7 @@ function eligibleJob(
   if (threadRuns.length !== 1 || threadRuns[0]?.id !== input.runId) return null;
   return {
     ...input,
-    source: boundTitleSource(input.source),
+    source: boundThreadTitleSource(input.source),
     expectedTitle: thread.title,
     configuredModelId: snapshot.settings?.threadTitleModelId,
   };
@@ -330,12 +369,12 @@ export function createThreadTitleCoordinator(options: ThreadTitleCoordinatorOpti
   const activeJobKeys = new Set<string>();
   const pendingAdmissions: PendingThreadTitleAdmission[] = [];
   const waitingJobs: AcceptedThreadTitleJob[] = [];
+  // Committed draft promotions that have not yet had their first Run accepted,
+  // keyed by `threadId:runId`. Recorded by the Main Process from the accepted
+  // `thread-draft:promote` command, consumed by the matching `enqueue`.
+  const pendingPromotions = new Map<string, ThreadTitlePromotion>();
   const defaultModelResolutions = new Set<Promise<string | null>>();
   const idleWaiters = new Set<() => void>();
-  let currentDefaultModelResolution: {
-    controller: AbortController;
-    promise: Promise<string | null>;
-  } | null = null;
   let shuttingDown = false;
 
   function jobKey(job: ThreadTitleJobInput) {
@@ -448,9 +487,9 @@ export function createThreadTitleCoordinator(options: ThreadTitleCoordinatorOpti
     idleWaiters.clear();
   }
 
-  function resolveDefaultModel() {
-    if (currentDefaultModelResolution) return currentDefaultModelResolution.promise;
+  function resolveDefaultModel(admission: PendingThreadTitleAdmission) {
     const controller = new AbortController();
+    admission.modelResolutionController = controller;
     let resolution: Promise<string | null>;
     try {
       resolution = options.resolveDefaultModelId(controller.signal);
@@ -465,26 +504,10 @@ export function createThreadTitleCoordinator(options: ThreadTitleCoordinatorOpti
       .catch(() => null)
       .finally(() => {
         defaultModelResolutions.delete(promise);
-        if (currentDefaultModelResolution?.promise === promise) {
-          currentDefaultModelResolution = null;
-        }
         resolveIdleWaiters();
       });
     defaultModelResolutions.add(promise);
-    currentDefaultModelResolution = { controller, promise };
     return promise;
-  }
-
-  function abortDefaultModelResolutionIfUnused() {
-    if (!currentDefaultModelResolution) return;
-    const hasConsumer = pendingAdmissions.some(
-      (admission) =>
-        !admission.cancelled && !admission.resolved && !admission.candidate.configuredModelId,
-    );
-    if (hasConsumer) return;
-    const resolution = currentDefaultModelResolution;
-    currentDefaultModelResolution = null;
-    resolution.controller.abort();
   }
 
   function start(job: AcceptedThreadTitleJob) {
@@ -538,11 +561,36 @@ export function createThreadTitleCoordinator(options: ThreadTitleCoordinatorOpti
     resolveIdleWaiters();
   }
 
+  // Records a committed Thread Draft promotion. Until the matching Run is
+  // accepted this is the only record that can authorize title generation.
+  function registerPromotion(promotion: ThreadTitlePromotion) {
+    if (shuttingDown) return;
+    // Bound here, at the trust boundary, so an unbounded Renderer-supplied
+    // source is capped before it is remembered or sent to the model.
+    const source = boundThreadTitleSource(promotion.source);
+    if (!source.trim()) return;
+    const key = jobKey(promotion);
+    if (pendingPromotions.has(key)) return;
+    // Drop the oldest abandoned promotion rather than growing without bound.
+    if (pendingPromotions.size >= MAX_PENDING_PROMOTIONS) {
+      const oldest = pendingPromotions.keys().next().value;
+      if (oldest !== undefined) pendingPromotions.delete(oldest);
+    }
+    pendingPromotions.set(key, { ...promotion, source });
+  }
+
   function enqueue(input: ThreadTitleJobInput) {
     if (shuttingDown) return false;
-    const candidate = eligibleJob(options.getSnapshot(), input);
+    // The trigger boundary is authoritative: only a Run belonging to a
+    // promotion this process committed may start generation. A Run on any other
+    // Thread — including a non-draft Thread that happens to have exactly one
+    // Run — has no entry here and is skipped.
+    const key = jobKey(input);
+    const promotion = pendingPromotions.get(key);
+    if (!promotion) return false;
+    pendingPromotions.delete(key);
+    const candidate = eligibleJob(options.getSnapshot(), { ...input, source: promotion.source });
     if (!candidate) return false;
-    const key = jobKey(candidate);
     if (activeJobKeys.has(key)) return false;
     if (activeJobKeys.size >= MAX_CONCURRENT_TITLE_JOBS + MAX_WAITING_TITLE_JOBS) {
       return false;
@@ -557,7 +605,7 @@ export function createThreadTitleCoordinator(options: ThreadTitleCoordinatorOpti
     pendingAdmissions.push(admission);
     const modelResolution = candidate.configuredModelId
       ? Promise.resolve(candidate.configuredModelId)
-      : resolveDefaultModel();
+      : resolveDefaultModel(admission);
     void modelResolution.then((modelId) => {
       admission.modelId = modelId;
       admission.resolved = true;
@@ -567,14 +615,26 @@ export function createThreadTitleCoordinator(options: ThreadTitleCoordinatorOpti
   }
 
   function reconcile(snapshot: AppStateSnapshot) {
+    // Drop promotions whose Thread was rolled back, deleted, archived, or
+    // manually renamed before its first Run was accepted, so a rolled-back
+    // promotion can never authorize generation later.
+    // Deleting the current entry during Map iteration is well-defined and does
+    // not skip later entries.
+    for (const [key, promotion] of pendingPromotions) {
+      const thread = (snapshot.threads ?? []).find(
+        (candidate) => candidate.id === promotion.threadId,
+      );
+      if (!thread || thread.archived || thread.customTitle) pendingPromotions.delete(key);
+    }
+
     const retainedAdmissions = pendingAdmissions.filter((admission) => {
       if (waitingJobIsEligible(snapshot, admission.candidate)) return true;
       admission.cancelled = true;
+      admission.modelResolutionController?.abort();
       activeJobKeys.delete(jobKey(admission.candidate));
       return false;
     });
     pendingAdmissions.splice(0, pendingAdmissions.length, ...retainedAdmissions);
-    abortDefaultModelResolutionIfUnused();
 
     const retainedWaitingJobs = waitingJobs.filter((job) => {
       if (waitingJobIsEligible(snapshot, job)) return true;
@@ -590,6 +650,7 @@ export function createThreadTitleCoordinator(options: ThreadTitleCoordinatorOpti
   }
 
   return {
+    registerPromotion,
     enqueue,
     reconcile,
     waitForIdle: () => {
@@ -598,12 +659,13 @@ export function createThreadTitleCoordinator(options: ThreadTitleCoordinatorOpti
     },
     async shutdown() {
       shuttingDown = true;
+      pendingPromotions.clear();
       for (const admission of pendingAdmissions.splice(0)) {
         admission.cancelled = true;
+        admission.modelResolutionController?.abort();
         activeJobKeys.delete(jobKey(admission.candidate));
       }
       for (const job of waitingJobs.splice(0)) activeJobKeys.delete(jobKey(job));
-      currentDefaultModelResolution?.controller.abort();
       activeJobs.forEach(({ controller }) => controller.abort());
       await Promise.allSettled([...activeTasks, ...defaultModelResolutions]);
       resolveIdleWaiters();

@@ -962,11 +962,11 @@ describe("thread-draft commands", () => {
   const promotionPayload = () => ({
     draftId: "d-1",
     threadId: "draft-thread-1",
+    titleSource: "first turn",
     thread: {
       id: "draft-thread-1",
       workspaceId: "ws-a",
       projectId: "proj-1",
-      title: "First turn",
       createdAt: "2026-07-30T08:00:00.000Z",
       lastActivityAt: "2026-07-30T08:00:00.000Z",
       runtimeId: "kimi",
@@ -1013,6 +1013,73 @@ describe("thread-draft commands", () => {
     expect(snapshot.threadMessages?.map((message) => message.id)).toEqual(["m-1", "assistant-1"]);
     expect(snapshot.threadRuns?.map((run) => run.id)).toEqual(["run-1"]);
     expect(normalizeAppStateSnapshotForWrite(snapshot)).not.toBe(null);
+  });
+
+  it("derives the promoted Thread title from the supplied source, not a Renderer title", () => {
+    const payload = promotionPayload();
+    const result = reduce("thread-draft:promote", makeSnapshot(), {
+      ...payload,
+      titleSource: "  Rewrite the settings navigation  \nAnd update the tests.",
+      // A Renderer-supplied title is not part of the contract and is ignored.
+      thread: { ...payload.thread, title: "Forged title" },
+    });
+
+    expect((result as { data: { thread: { title: string } } }).data.thread.title).toBe(
+      "Rewrite the settings navigation",
+    );
+  });
+
+  it("applies the authoritative fallback policy to the promoted Thread title", () => {
+    const payload = promotionPayload();
+    const promote = (overrides: Record<string, unknown>) =>
+      (
+        reduce("thread-draft:promote", makeSnapshot(), { ...payload, ...overrides }) as {
+          data: { thread: { title: string } };
+        }
+      ).data.thread.title;
+
+    // 48-grapheme ceiling, with the 48th grapheme replaced by an ellipsis.
+    const long = promote({ titleSource: "a".repeat(200) });
+    expect(long).toBe(`${"a".repeat(47)}…`);
+    expect([...new Intl.Segmenter("en", { granularity: "grapheme" }).segment(long)]).toHaveLength(
+      48,
+    );
+
+    // Emoji stay intact across the truncation boundary.
+    expect(promote({ titleSource: "👨‍👩‍👧‍👦".repeat(60) })).toBe(`${"👨‍👩‍👧‍👦".repeat(47)}…`);
+
+    // Whitespace folding, blank-line skipping, and the default fallback.
+    expect(promote({ titleSource: "\n\n   Fix   the    sidebar   \nlater" })).toBe(
+      "Fix the sidebar",
+    );
+    expect(promote({ titleSource: "   \n\t " })).toBe("New thread");
+    expect(promote({ titleSource: undefined })).toBe("New thread");
+
+    // An attachment basename is used only when the visible text yields nothing.
+    expect(
+      promote({
+        titleSource: "",
+        message: {
+          ...payload.message,
+          attachments: [
+            {
+              id: "attachment-1",
+              kind: "file",
+              name: "private-notes.txt",
+              mimeType: "text/plain",
+              size: 12,
+              storageKey: "attachment-1.txt",
+            },
+          ],
+        },
+      }),
+    ).toBe("private-notes.txt");
+  });
+
+  it("rejects a promotion whose title source is not a string", () => {
+    expect(
+      reduce("thread-draft:promote", makeSnapshot(), { ...promotionPayload(), titleSource: 42 }),
+    ).toBe(null);
   });
 
   it("resolves a lost promotion race to the existing thread without duplicating", () => {

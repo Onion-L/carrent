@@ -59,7 +59,7 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
 describe("registerChatIpc", () => {
   it("enqueues automatic title work only after the first Run is accepted", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const titleJobs: Array<{ threadId: string; runId: string; source: string }> = [];
+    const titleJobs: Array<{ threadId: string; runId: string }> = [];
     const sessionManager = {
       start: () => {},
       stop: () => {},
@@ -93,11 +93,7 @@ describe("registerChatIpc", () => {
 
     const result = await handlers.get("chat:send")?.(
       { sender: { id: 7 } },
-      makeRequest({
-        runId: "run-1",
-        requestKey: "request-1",
-        automaticTitleSource: "Visible first request",
-      }),
+      makeRequest({ runId: "run-1", requestKey: "request-1" }),
     );
     runAuthority.handleEvent({
       type: "failed",
@@ -106,14 +102,11 @@ describe("registerChatIpc", () => {
       error: "Later asynchronous failure",
     });
 
+    // Only the Run identity is forwarded. The title source and the Draft
+    // promotion that authorizes generation are held by the coordinator, so the
+    // Renderer cannot supply either over this channel.
     expect(result).toMatchObject({ accepted: true, runId: "run-1" });
-    expect(titleJobs).toEqual([
-      {
-        threadId: "thread-1",
-        runId: "run-1",
-        source: "Visible first request",
-      },
-    ]);
+    expect(titleJobs).toEqual([{ threadId: "thread-1", runId: "run-1" }]);
   });
 
   it("does not enqueue automatic title work when synchronous Run startup fails", async () => {
@@ -154,11 +147,7 @@ describe("registerChatIpc", () => {
 
     const result = await handlers.get("chat:send")?.(
       { sender: { id: 7 } },
-      makeRequest({
-        runId: "run-1",
-        requestKey: "request-1",
-        automaticTitleSource: "Visible first request",
-      }),
+      makeRequest({ runId: "run-1", requestKey: "request-1" }),
     );
 
     expect(result).toMatchObject({ accepted: false, runId: "run-1" });
@@ -209,18 +198,14 @@ describe("registerChatIpc", () => {
 
     const result = await handlers.get("chat:send")?.(
       { sender: { id: 7 } },
-      makeRequest({
-        runId: "run-1",
-        requestKey: "request-1",
-        automaticTitleSource: "Visible first request",
-      }),
+      makeRequest({ runId: "run-1", requestKey: "request-1" }),
     );
 
     expect(result).toMatchObject({ accepted: false, runId: "run-1" });
     expect(titleJobs).toEqual([]);
   });
 
-  it("does not enqueue automatic title work without a promoted Draft source", async () => {
+  it("never forwards Renderer-supplied title data with an accepted Run", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const titleJobs: unknown[] = [];
     const sessionManager = {
@@ -256,11 +241,17 @@ describe("registerChatIpc", () => {
 
     const result = await handlers.get("chat:send")?.(
       { sender: { id: 7 } },
-      makeRequest({ runId: "run-1", requestKey: "request-1" }),
+      // A Renderer that adds a title source to the Run request cannot smuggle it
+      // through: the field is not part of the request contract and the
+      // coordinator ignores anything but the Run identity.
+      {
+        ...makeRequest({ runId: "run-1", requestKey: "request-1" }),
+        automaticTitleSource: "Forged",
+      },
     );
 
     expect(result).toMatchObject({ accepted: true, runId: "run-1" });
-    expect(titleJobs).toEqual([]);
+    expect(titleJobs).toEqual([{ threadId: "thread-1", runId: "run-1" }]);
   });
 
   it("routes shared Run subscriptions and commands through the Main authority", async () => {

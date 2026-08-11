@@ -362,9 +362,6 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
   ipcMainLike.handle("chat:send", async (_event, request) => {
     const req = request as ChatTurnRequest;
     assertSupportedRuntime(req);
-    if (req.automaticTitleSource !== undefined && typeof req.automaticTitleSource !== "string") {
-      throw new Error("Invalid automatic title source.");
-    }
     if (
       services.isProjectDirectoryAvailable &&
       !(await services.isProjectDirectoryAvailable(req.context.workingDirectory))
@@ -389,11 +386,14 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
 
     const acceptedRequest = { ...sanitizedRequest, runId };
     const result = services.runAuthority.send(acceptedRequest);
-    if (result.accepted && acceptedRequest.automaticTitleSource?.trim()) {
+    // Automatic titles need an accepted first Run *and* a draft promotion this
+    // process committed. The coordinator holds the title source it recorded at
+    // promotion time and ignores a Run it has no promotion for, so a Renderer
+    // cannot request generation for a Thread that was never promoted.
+    if (result.accepted) {
       services.threadTitleCoordinator?.enqueue({
         threadId: acceptedRequest.threadId,
         runId,
-        source: acceptedRequest.automaticTitleSource,
       });
     }
     return result;

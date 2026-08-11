@@ -24,6 +24,7 @@ import { createChatRunAuthority, type ChatRunAuthority } from "./chat/chatRunAut
 import { createKimiAcpProcessTransportFactory } from "./chat/kimiAcpChat";
 import {
   createThreadTitleCoordinator,
+  registerAcceptedThreadTitlePromotion,
   type ThreadTitleCoordinator,
 } from "./chat/threadTitleCoordinator";
 import {
@@ -657,6 +658,13 @@ if (!hasSingleInstanceLock) {
         if (contents && !contents.isDestroyed()) {
           contents.send("app-state:changed", state);
         }
+      },
+      // A committed Thread Draft promotion is the only thing that authorizes
+      // automatic title generation. Recording it here — from the accepted
+      // command rather than from a Renderer message — keeps the trigger
+      // boundary authoritative.
+      onCommandAccepted: (command, data) => {
+        registerAcceptedThreadTitlePromotion(threadTitleCoordinator, command, data);
       },
       onPersisted: (snapshot) => {
         threadTitleCoordinator?.reconcile(snapshot);

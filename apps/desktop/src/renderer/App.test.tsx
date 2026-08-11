@@ -2171,7 +2171,6 @@ describe("Association Thread Drafts", () => {
       runtimeModelId: "kimi-k2.5",
       runtimeMode: "approval-required",
       message: "Implement association drafts",
-      automaticTitleSource: "Implement association drafts",
     });
     expect("draftRef" in requests[0]).toBe(false);
     expect(saved.at(-1)?.threadDrafts).toEqual([]);
@@ -2183,6 +2182,8 @@ describe("Association Thread Drafts", () => {
       runtimeId: "kimi",
       runtimeModelId: "kimi-k2.5",
       runtimeMode: "approval-required",
+      // Derived by the Main Process from the visible composer text.
+      title: "Implement association drafts",
     });
     expect(saved.at(-1)?.threadMessages?.[0]).toMatchObject({
       threadId: requests[0].threadId,
@@ -2222,7 +2223,7 @@ describe("Association Thread Drafts", () => {
         },
       ],
     };
-    await renderApp(
+    const saved = await renderApp(
       restoredState,
       "/workspace/workspace-1/project/project-1",
       [],
@@ -2257,11 +2258,49 @@ describe("Association Thread Drafts", () => {
 
     expect(requests).toHaveLength(1);
     expect(requests[0].message).toContain("[$tdd](/skills/tdd/SKILL.md)");
-    expect(requests[0].automaticTitleSource).toBe("Fix the visible request");
-    expect(requests[0].automaticTitleSource).not.toContain("[$tdd]");
+    // The title the Main Process derived comes from the visible composer text,
+    // so Skill enrichment never reaches the title source.
+    const promotedThread = saved.at(-1)?.threads?.[0];
+    expect(promotedThread?.title).toBe("Fix the visible request");
+    expect(promotedThread?.title).not.toContain("[$tdd]");
   });
 
-  it("omits model title source for an attachment-only Draft promotion", async () => {
+  it("derives the fallback from visible input beyond the model source limit", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const content = `${"\n".repeat(8_001)}Real request`;
+    const restoredState: AppStateSnapshot = {
+      ...state,
+      threadDrafts: [
+        {
+          id: "long-title-source-draft",
+          threadId: "long-title-source-thread",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          content,
+          attachedSkillNames: [],
+          attachments: [],
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+    };
+    const saved = await renderApp(
+      restoredState,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      false,
+      requests,
+    );
+
+    await waitForProjectDraft();
+    await click(composerSendButton());
+
+    expect(requests[0]?.message).toBe("Real request");
+    expect(saved.at(-1)?.threads?.[0]?.title).toBe("Real request");
+  });
+
+  it("uses the attachment basename for an attachment-only Draft promotion", async () => {
     const requests: ChatTurnRequest[] = [];
     const restoredState: AppStateSnapshot = {
       ...state,
@@ -2289,14 +2328,22 @@ describe("Association Thread Drafts", () => {
         },
       ],
     };
-    await renderApp(restoredState, "/workspace/workspace-1/project/project-1", [], false, requests);
+    const saved = await renderApp(
+      restoredState,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      false,
+      requests,
+    );
 
     await waitForProjectDraft();
     await click(composerSendButton());
 
     expect(requests).toHaveLength(1);
     expect(requests[0].attachments?.[0]?.name).toBe("private-notes.txt");
-    expect(requests[0].automaticTitleSource).toBeUndefined();
+    // An empty visible source falls back to the attachment basename, and an
+    // empty title source cannot authorize model generation.
+    expect(saved.at(-1)?.threads?.[0]?.title).toBe("private-notes.txt");
   });
 
   it("keeps the first user message before Stopped after App State reload", async () => {

@@ -21,6 +21,7 @@ import {
 } from "../../src/shared/workspacePersistence";
 import type { AppStateCommandReducer } from "../../src/shared/appStateAuthority";
 import { reconcileInterruptedMessage } from "../../src/shared/threadContent";
+import { deriveThreadTitle } from "../../src/shared/threadTitle";
 
 // Command vocabulary for the shared App State data (workspaces, projects,
 // associations, thread metadata, selection, settings). Each reducer mirrors
@@ -811,11 +812,15 @@ const promoteThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
   if (existingThread) return { snapshot, data: { thread: existingThread, created: false } };
 
   const threadInput = payload.thread;
+  // The Renderer supplies the visible composer text as title *source* data, not
+  // a finished title: the fallback policy (48 graphemes, whitespace folding,
+  // attachment basename, "New thread") is derived here so the authoritative
+  // record cannot carry a title the Main Process did not compute.
+  if (payload.titleSource !== undefined && typeof payload.titleSource !== "string") return null;
   if (
     threadInput.id !== draft.threadId ||
     threadInput.workspaceId !== draft.workspaceId ||
     threadInput.projectId !== draft.projectId ||
-    !isNonEmptyTrimmedString(threadInput.title) ||
     typeof threadInput.createdAt !== "string" ||
     typeof threadInput.lastActivityAt !== "string" ||
     !isValidRuntimeSelection(
@@ -848,12 +853,16 @@ const promoteThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
 
   // A promoted Thread starts without the manual-title marker so an automatic
   // title (deterministic fallback now, model generation in issue #4) can replace
-  // the fallback title until the user renames it.
+  // the fallback title until the user renames it. The attachment basename comes
+  // from the validated message record, so attachment contents are never part of
+  // the title source.
   const thread: AppThreadRecord = {
     id: draft.threadId,
     workspaceId: draft.workspaceId,
     projectId: draft.projectId,
-    title: threadInput.title,
+    title: deriveThreadTitle(payload.titleSource ?? "", {
+      attachmentName: message.attachments[0]?.name,
+    }),
     createdAt: threadInput.createdAt,
     lastActivityAt: threadInput.lastActivityAt,
     runtimeId: threadInput.runtimeId as RuntimeId,

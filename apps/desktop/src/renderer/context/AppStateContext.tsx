@@ -73,7 +73,10 @@ type DeletionNavigationIntent = {
 type PromoteDraftInput = AppThreadRunStartInput & {
   assistantMessageId: string;
   draftId: string;
-  title: string;
+  // Visible composer text. The Main Process derives the promoted Thread's
+  // fallback title from this source; the Renderer never supplies a finished
+  // title.
+  titleSource: string;
   draft: ThreadWorkDraftSnapshot;
 };
 
@@ -1191,11 +1194,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         return null;
       }
 
-      const thread: AppThreadRecord = {
+      // No title field: the Main Process derives the promoted Thread's title
+      // from `titleSource` and returns the authoritative record.
+      const thread: Omit<AppThreadRecord, "title"> = {
         id: draft.threadId,
         workspaceId: draft.workspaceId,
         projectId: draft.projectId,
-        title: input.title,
         createdAt: input.startedAt,
         lastActivityAt: input.startedAt,
         runtimeId: input.runtimeId,
@@ -1236,6 +1240,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       const result = await sendCommand("thread-draft:promote", {
         draftId: draft.id,
         threadId: draft.threadId,
+        titleSource: input.titleSource,
         thread,
         message,
         assistantMessage,

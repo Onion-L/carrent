@@ -54,7 +54,7 @@ import {
   validateAttachmentSelection,
   type PendingAttachment,
 } from "../../lib/attachments";
-import { boundThreadTitleSource, deriveThreadTitle } from "../../lib/threadTitle";
+import { deriveThreadTitle } from "../../../shared/threadTitle";
 import { ImageAttachmentLightbox, type LightboxItem } from "./ImageAttachmentLightbox";
 import { splitPatchIntoFileBlocks } from "./WorkspaceDiffViewer";
 
@@ -352,7 +352,9 @@ export type ComposerDraftRequest = {
 
 export type AssociationDraftPromotionInput = AppThreadRunStartInput & {
   assistantMessageId: string;
-  title: string;
+  // Visible composer text. The Main Process derives the promoted Thread's
+  // fallback title from it; the Renderer never supplies a finished title.
+  titleSource: string;
   draft: ThreadWorkDraftSnapshot;
 };
 
@@ -2647,18 +2649,10 @@ export function Composer(props: ComposerProps) {
     });
     // The title source is the user-visible composer text, not the runtime
     // prompt enriched with Skill references (currentInput is computed before
-    // the skill prefix is concatenated into messageText). The default fallback
-    // ("New thread") applies when neither the text nor an attachment basename
-    // yields a usable line, so the title is always a non-empty value the
-    // promoteThreadDraft reducer will accept.
-    const associationDraftTitle =
-      props.mode === "association-draft"
-        ? deriveThreadTitle(currentInput, {
-            attachmentName: attachmentMetadata[0]?.name,
-          })
-        : null;
-    const automaticTitleSource =
-      props.mode === "association-draft" ? boundThreadTitleSource(currentInput) : "";
+    // the skill prefix is concatenated into messageText). It is sent as source
+    // data only: the Main Process derives the promoted Thread's fallback title
+    // and owns the automatic-title trigger.
+    const associationDraftTitleSource = props.mode === "association-draft" ? currentInput : "";
     const associationDraftSnapshot =
       props.mode === "association-draft"
         ? buildThreadDraftSnapshot({
@@ -2687,7 +2681,7 @@ export function Composer(props: ComposerProps) {
     if (props.mode === "association-draft") {
       const promoted = await props.onPromote({
         ...runInput,
-        title: associationDraftTitle!,
+        titleSource: associationDraftTitleSource,
         draft: associationDraftSnapshot!,
       });
       if (!promoted) {
@@ -2734,7 +2728,6 @@ export function Composer(props: ComposerProps) {
         planMode: effectivePlanMode,
         transcript,
         message: messageText,
-        ...(automaticTitleSource.trim() ? { automaticTitleSource } : {}),
         attachments: attachmentMetadata,
         historyMode: getChatHistoryMode(!!externalSubmit?.messageId),
       },

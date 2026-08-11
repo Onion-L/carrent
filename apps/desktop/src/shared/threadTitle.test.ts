@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  boundGraphemes,
   boundThreadTitleSource,
   deriveThreadTitle,
   MAX_THREAD_TITLE_GRAPHEMES,
@@ -46,6 +47,11 @@ describe("deriveThreadTitle", () => {
     expect(deriveThreadTitle("café")).toBe("café");
     // 'e' + combining acute accent is a single grapheme.
     expect(deriveThreadTitle("caf\u0065\u0301")).toBe("caf\u0065\u0301");
+  });
+
+  it("does not cut a single grapheme with many combining marks", () => {
+    const grapheme = `a${"\u0301".repeat(5_000)}`;
+    expect(deriveThreadTitle(grapheme)).toBe(grapheme);
   });
 
   it("keeps an emoji with a skin-tone modifier as one grapheme during truncation", () => {
@@ -115,6 +121,10 @@ describe("deriveThreadTitle", () => {
     expect(deriveThreadTitle("\n\n   \n\t\n")).toBe("New thread");
   });
 
+  it("finds content after a long run of leading whitespace on one line", () => {
+    expect(deriveThreadTitle(`${" ".repeat(5_000)}Fix sidebar`)).toBe("Fix sidebar");
+  });
+
   it("returns the default fallback when text and attachment basename are both empty", () => {
     expect(deriveThreadTitle("", { attachmentName: "" })).toBe("New thread");
     expect(deriveThreadTitle("   \n", { attachmentName: "   \n" })).toBe("New thread");
@@ -178,5 +188,45 @@ describe("boundThreadTitleSource", () => {
 
   it("returns an empty string for empty input", () => {
     expect(boundThreadTitleSource("")).toBe("");
+  });
+});
+
+describe("bounded work on long input", () => {
+  it("derives a title from a very long single-line source without full segmentation", () => {
+    // A pasted log or large code block must not be segmented grapheme by
+    // grapheme before truncation decides it is overlong.
+    const log = "E".repeat(1_000_000);
+    const before = process.memoryUsage().heapUsed;
+    const title = deriveThreadTitle(log);
+    const growthMb = (process.memoryUsage().heapUsed - before) / 1024 / 1024;
+
+    expect(title).toBe(`${"E".repeat(47)}…`);
+    // One segment object per character would cost well over 100 MB. The bounded
+    // walk stops after ~48 graphemes, so growth stays near zero.
+    expect(growthMb).toBeLessThan(20);
+  });
+
+  it("bounds a long source without segmenting past the ceiling", () => {
+    const log = `${"F".repeat(1_000_000)}`;
+    const before = process.memoryUsage().heapUsed;
+    const bounded = boundThreadTitleSource(log);
+    const growthMb = (process.memoryUsage().heapUsed - before) / 1024 / 1024;
+
+    expect(bounded).toBe("F".repeat(8_000));
+    expect(growthMb).toBeLessThan(20);
+  });
+
+  it("skips many blank lines without allocating a line array", () => {
+    const source = `${"\n".repeat(500_000)}Fix the sidebar`;
+    expect(deriveThreadTitle(source)).toBe("Fix the sidebar");
+  });
+
+  it("counts graphemes only up to the requested ceiling", () => {
+    expect(boundGraphemes("abc", 10)).toEqual({ text: "abc", count: 3, truncated: false });
+    expect(boundGraphemes("abcdef", 3)).toEqual({ text: "abc", count: 3, truncated: true });
+    expect(boundGraphemes("abc", 3)).toEqual({ text: "abc", count: 3, truncated: false });
+    expect(boundGraphemes("", 5)).toEqual({ text: "", count: 0, truncated: false });
+    expect(boundGraphemes("x", 0)).toEqual({ text: "", count: 0, truncated: true });
+    expect(boundGraphemes("👋👋👋", 2)).toEqual({ text: "👋👋", count: 2, truncated: true });
   });
 });

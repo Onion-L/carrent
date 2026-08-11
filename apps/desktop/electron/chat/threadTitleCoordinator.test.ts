@@ -11,7 +11,10 @@ import { createAppStateAuthority } from "../workspace/appStateAuthority";
 import { appStateCommandReducers } from "../workspace/appStateCommands";
 import { createAppStateStoreStub } from "../workspace/appStateStore.testUtils";
 import type { KimiAcpTransport } from "./kimiAcpChat";
-import { createThreadTitleCoordinator as createProductionThreadTitleCoordinator } from "./threadTitleCoordinator";
+import {
+  createThreadTitleCoordinator as createProductionThreadTitleCoordinator,
+  registerAcceptedThreadTitlePromotion,
+} from "./threadTitleCoordinator";
 
 type JsonObject = Record<string, unknown>;
 type ThreadTitleCoordinatorOptions = Parameters<typeof createProductionThreadTitleCoordinator>[0];
@@ -20,10 +23,21 @@ function createThreadTitleCoordinator(
   options: Omit<ThreadTitleCoordinatorOptions, "resolveDefaultModelId"> &
     Partial<Pick<ThreadTitleCoordinatorOptions, "resolveDefaultModelId">>,
 ) {
-  return createProductionThreadTitleCoordinator({
+  const coordinator = createProductionThreadTitleCoordinator({
     resolveDefaultModelId: async () => "kimi-default-concrete",
     ...options,
   });
+  return {
+    ...coordinator,
+    // Most cases exercise a Run that follows a committed Draft promotion, which
+    // the Main Process records before the Run is accepted. This helper performs
+    // both steps so each test states only the title source it cares about.
+    // Provenance itself is covered separately through the raw coordinator.
+    enqueue(input: { threadId: string; runId: string; source: string }) {
+      coordinator.registerPromotion(input);
+      return coordinator.enqueue({ threadId: input.threadId, runId: input.runId });
+    },
+  };
 }
 
 function makeSnapshot(): AppStateSnapshot {
@@ -262,6 +276,221 @@ async function waitForCondition(condition: () => boolean) {
   }
   expect(condition()).toBe(true);
 }
+
+describe("Draft promotion provenance", () => {
+  function createProvenanceCoordinator(getSnapshot: () => AppStateSnapshot) {
+    const spawnedSources: string[] = [];
+    const coordinator = createProductionThreadTitleCoordinator({
+      getSnapshot,
+      submitCommand: async () => ({ status: "accepted", revision: 1 }),
+      resolveDefaultModelId: async () => "kimi-default-concrete",
+      transportFactory: () => {
+        const transport = new FakeTitleTransport(['{"title":"Isolated title work"}']);
+        spawnedSources.push("spawned");
+        return transport;
+      },
+      createWorkingDirectory: async () => "/private/carrent-title-provenance",
+      removeWorkingDirectory: async () => {},
+    });
+    return { coordinator, spawnedSources };
+  }
+
+  it("skips a Run with no committed Draft promotion", async () => {
+    const { coordinator, spawnedSources } = createProvenanceCoordinator(makeSnapshot);
+
+    // The snapshot has exactly one Run on an eligible Thread, which is all the
+    // Renderer could ever observe. Without a promotion the Main Process
+    // recorded, generation must not start.
+    expect(coordinator.enqueue({ threadId: "thread-1", runId: "run-1" })).toBe(false);
+    await coordinator.waitForIdle();
+
+    expect(spawnedSources).toEqual([]);
+  });
+
+  it("accepts a Run whose Draft promotion this process committed", async () => {
+    const { coordinator, spawnedSources } = createProvenanceCoordinator(makeSnapshot);
+
+    coordinator.registerPromotion({
+      threadId: "thread-1",
+      runId: "run-1",
+      source: "Implement isolated titles",
+    });
+    expect(coordinator.enqueue({ threadId: "thread-1", runId: "run-1" })).toBe(true);
+    await coordinator.waitForIdle();
+
+    expect(spawnedSources).toEqual(["spawned"]);
+  });
+
+  it("records an accepted promotion through the App State authority before accepting its Run", async () => {
+    const initialSnapshot: AppStateSnapshot = {
+      ...makeSnapshot(),
+      threads: [],
+      threadMessages: [],
+      threadRuns: [],
+      threadDrafts: [
+        {
+          id: "draft-1",
+          threadId: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          content: "Implement isolated titles",
+          attachedSkillNames: [],
+          attachments: [],
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+    };
+    let coordinator: ReturnType<typeof createProductionThreadTitleCoordinator> | null = null;
+    const authority = createAppStateAuthority({
+      store: createAppStateStoreStub(),
+      initialResult: { status: "ready", snapshot: initialSnapshot },
+      reducers: appStateCommandReducers,
+      publish: () => {},
+      onCommandAccepted: (command, data) =>
+        registerAcceptedThreadTitlePromotion(coordinator, command, data),
+      onPersisted: (snapshot) => coordinator?.reconcile(snapshot),
+    });
+    const spawnedSources: string[] = [];
+    coordinator = createProductionThreadTitleCoordinator({
+      getSnapshot: () => authority.getState().snapshot,
+      submitCommand: (command) => authority.submit(0, command),
+      resolveDefaultModelId: async () => "kimi-default-concrete",
+      transportFactory: () => {
+        spawnedSources.push("spawned");
+        return new FakeTitleTransport(['{"title":"Generated title"}']);
+      },
+      createWorkingDirectory: async () => "/private/carrent-title-authority-provenance",
+      removeWorkingDirectory: async () => {},
+    });
+
+    const promotion = await authority.submit(1, {
+      commandId: "promote-draft-1",
+      type: "thread-draft:promote",
+      payload: {
+        draftId: "draft-1",
+        threadId: "thread-1",
+        titleSource: "Implement isolated titles",
+        thread: {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          createdAt: "2026-08-11T00:00:00.000Z",
+          lastActivityAt: "2026-08-11T00:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+        message: {
+          id: "message-1",
+          threadId: "thread-1",
+          role: "user",
+          content: "Implement isolated titles",
+          createdAt: "2026-08-11T00:00:00.000Z",
+          attachments: [],
+        },
+        assistantMessage: {
+          id: "assistant-1",
+          threadId: "thread-1",
+          role: "assistant",
+          content: "",
+          createdAt: "2026-08-11T00:00:00.000Z",
+          attachments: [],
+          runStatus: "running",
+          runEventCount: 0,
+        },
+        run: {
+          id: "run-1",
+          threadId: "thread-1",
+          messageId: "message-1",
+          assistantMessageId: "assistant-1",
+          startedAt: "2026-08-11T00:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      },
+    });
+
+    expect(promotion).toMatchObject({ status: "accepted", data: { created: true } });
+    expect(coordinator.enqueue({ threadId: "thread-1", runId: "run-1" })).toBe(true);
+    await coordinator.waitForIdle();
+    expect(spawnedSources).toEqual(["spawned"]);
+  });
+
+  it("consumes a promotion once, so a later Run on the Thread is skipped", async () => {
+    const { coordinator } = createProvenanceCoordinator(makeSnapshot);
+
+    coordinator.registerPromotion({
+      threadId: "thread-1",
+      runId: "run-1",
+      source: "Implement isolated titles",
+    });
+    expect(coordinator.enqueue({ threadId: "thread-1", runId: "run-1" })).toBe(true);
+    await coordinator.waitForIdle();
+    expect(coordinator.enqueue({ threadId: "thread-1", runId: "run-1" })).toBe(false);
+    await coordinator.waitForIdle();
+  });
+
+  it("rejects a promotion whose Run id does not match the accepted Run", async () => {
+    const { coordinator, spawnedSources } = createProvenanceCoordinator(makeSnapshot);
+
+    coordinator.registerPromotion({
+      threadId: "thread-1",
+      runId: "run-1",
+      source: "Implement isolated titles",
+    });
+    expect(coordinator.enqueue({ threadId: "thread-1", runId: "run-2" })).toBe(false);
+    await coordinator.waitForIdle();
+
+    expect(spawnedSources).toEqual([]);
+  });
+
+  it("drops a rolled-back promotion before its Run is accepted", async () => {
+    let snapshot = makeSnapshot();
+    const { coordinator, spawnedSources } = createProvenanceCoordinator(() => snapshot);
+
+    coordinator.registerPromotion({
+      threadId: "thread-1",
+      runId: "run-1",
+      source: "Implement isolated titles",
+    });
+    // A synchronous first-Run startup failure rolls the promotion back, so the
+    // Thread is gone from the next authoritative snapshot.
+    snapshot = { ...snapshot, threads: [], threadRuns: [] };
+    coordinator.reconcile(snapshot);
+
+    expect(coordinator.enqueue({ threadId: "thread-1", runId: "run-1" })).toBe(false);
+    await coordinator.waitForIdle();
+
+    expect(spawnedSources).toEqual([]);
+  });
+
+  it("ignores a promotion with a blank title source", async () => {
+    const { coordinator, spawnedSources } = createProvenanceCoordinator(makeSnapshot);
+
+    coordinator.registerPromotion({ threadId: "thread-1", runId: "run-1", source: "   \n\t " });
+    expect(coordinator.enqueue({ threadId: "thread-1", runId: "run-1" })).toBe(false);
+    await coordinator.waitForIdle();
+
+    expect(spawnedSources).toEqual([]);
+  });
+
+  it("discards pending promotions on shutdown", async () => {
+    const { coordinator, spawnedSources } = createProvenanceCoordinator(makeSnapshot);
+
+    coordinator.registerPromotion({
+      threadId: "thread-1",
+      runId: "run-1",
+      source: "Implement isolated titles",
+    });
+    await coordinator.shutdown();
+
+    expect(coordinator.enqueue({ threadId: "thread-1", runId: "run-1" })).toBe(false);
+    expect(spawnedSources).toEqual([]);
+  });
+});
 
 describe("createThreadTitleCoordinator", () => {
   it("runs at most two jobs and starts waiting jobs in FIFO order", async () => {
@@ -741,6 +970,21 @@ describe("createThreadTitleCoordinator", () => {
     }
   });
 
+  it("rejects verbose output instead of accumulating it", async () => {
+    // A valid payload is one small JSON object. Output past the collection
+    // ceiling is discarded, so a verbose or runaway response cannot hold memory
+    // for the rest of the timeout window and is rejected as invalid.
+    const runaway = `{"title":"${"very ".repeat(4_000)}long"}`;
+    expect(runaway.length).toBeGreaterThan(8_192);
+    expect(await commandsForOutput(runaway)).toHaveLength(0);
+
+    // A valid title arriving after the ceiling is exceeded is not rescued.
+    const commands = await commandsForOutput(
+      `${"noise ".repeat(2_000)}{"title":"Improve settings navigation"}`,
+    );
+    expect(commands).toHaveLength(0);
+  });
+
   it("rejects invalid title object shapes and values", async () => {
     for (const invalid of [
       "{}",
@@ -1206,19 +1450,17 @@ describe("createThreadTitleCoordinator", () => {
     expect(commands[0]?.type).toBe("thread:set-automatic-title");
   });
 
-  it("resolves Kimi default to one concrete model before queued jobs start", async () => {
-    let resolveDefaultModel!: (modelId: string | null) => void;
+  it("snapshots Kimi default independently for each accepted job", async () => {
     let resolutionCount = 0;
-    const defaultModel = new Promise<string | null>((resolve) => {
-      resolveDefaultModel = resolve;
-    });
+    const resolvedModels = ["kimi-default-a", "kimi-default-b", "kimi-default-c"];
     const transports: FakeTitleTransport[] = [];
     const coordinator = createThreadTitleCoordinator({
       getSnapshot: () => makeSnapshotWithJobs(3),
       submitCommand: async () => ({ status: "accepted", revision: 1 }),
       resolveDefaultModelId: () => {
+        const modelId = resolvedModels[resolutionCount];
         resolutionCount += 1;
-        return defaultModel;
+        return Promise.resolve(modelId ?? null);
       },
       transportFactory: () => {
         const transport = new FakeTitleTransport(undefined, {
@@ -1231,6 +1473,7 @@ describe("createThreadTitleCoordinator", () => {
               options: [
                 { value: "kimi-default-a", name: "Kimi Default A" },
                 { value: "kimi-default-b", name: "Kimi Default B" },
+                { value: "kimi-default-c", name: "Kimi Default C" },
               ],
             },
           ],
@@ -1249,8 +1492,7 @@ describe("createThreadTitleCoordinator", () => {
         source: `Visible request ${index}`,
       });
     }
-    expect(resolutionCount).toBe(1);
-    resolveDefaultModel("kimi-default-a");
+    expect(resolutionCount).toBe(3);
     await waitForCondition(
       () =>
         transports.length === 2 &&
@@ -1267,7 +1509,7 @@ describe("createThreadTitleCoordinator", () => {
               ?.params as { value?: string } | undefined
           )?.value,
       ),
-    ).toEqual(["kimi-default-a", "kimi-default-a"]);
+    ).toEqual(["kimi-default-a", "kimi-default-b"]);
 
     transports[0]!.fail();
     transports[1]!.fail();
@@ -1280,7 +1522,7 @@ describe("createThreadTitleCoordinator", () => {
               ?.params as { value?: string } | undefined
           )?.value,
       ),
-    ).toEqual(["kimi-default-a", "kimi-default-a", "kimi-default-a"]);
+    ).toEqual(["kimi-default-a", "kimi-default-b", "kimi-default-c"]);
   });
 
   it("skips title ACP startup when Kimi default cannot be resolved at acceptance", async () => {

@@ -19,7 +19,7 @@ import { useThreadContent } from "../context/ThreadContentContext";
 import { useAppState } from "../context/AppStateContext";
 import { useSettings } from "../context/SettingsContext";
 import { RTK_MD_CONTENT, upsertRtkAgentsBlock, type RtkGainStats } from "../../shared/rtk";
-import type { RuntimeRecord } from "../../shared/runtimes";
+import type { RuntimeModelRecord, RuntimeRecord } from "../../shared/runtimes";
 import { resolveSettingsTabId, SETTINGS_TABS } from "../lib/settingsTabs";
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, parseFontSizeInput, stepFontSize } from "../lib/fontSize";
 import { RuntimeIcon } from "../components/RuntimeIcon";
@@ -931,10 +931,21 @@ function Section({
 // constant never reaches persistence.
 const THREAD_TITLE_MODEL_DEFAULT = "__kimi_default__";
 
-function ThreadTitleModelPanel() {
-  const { threadTitleModelId, updateSetting } = useSettings();
-  const { models, loading } = useRuntimeModels("kimi");
-
+export function ThreadTitleModelControl({
+  threadTitleModelId,
+  models,
+  loading,
+  error,
+  onChange,
+  onRefresh,
+}: {
+  threadTitleModelId: string | undefined;
+  models: RuntimeModelRecord[];
+  loading: boolean;
+  error: string | undefined;
+  onChange: (modelId: string | undefined) => void;
+  onRefresh: () => void;
+}) {
   // A persisted concrete model that is no longer in the Kimi catalog stays
   // visible (marked unavailable) until the user picks another value, rather
   // than silently reverting to the default.
@@ -972,17 +983,46 @@ function ThreadTitleModelPanel() {
   const selected = threadTitleModelId ?? THREAD_TITLE_MODEL_DEFAULT;
 
   return (
-    <Select
-      label="Thread title model"
-      description="Kimi model used to generate automatic Thread titles"
-      value={selected}
-      options={options}
-      onChange={(value) => {
-        updateSetting(
-          "threadTitleModelId",
-          value === THREAD_TITLE_MODEL_DEFAULT ? undefined : value,
-        );
-      }}
+    <div>
+      <Select
+        label="Thread title model"
+        description="Kimi model used to generate automatic Thread titles"
+        value={selected}
+        options={options}
+        onChange={(value) => {
+          onChange(value === THREAD_TITLE_MODEL_DEFAULT ? undefined : value);
+        }}
+      />
+      {error ? (
+        <div className="-mt-2 flex items-center justify-end gap-2 pb-2 text-app-11 text-danger">
+          <span title={error}>Kimi model catalog unavailable</span>
+          <button
+            type="button"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-subtle transition-colors hover:bg-surface-hover hover:text-fg"
+            aria-label="Retry loading Kimi models"
+            title="Retry loading Kimi models"
+            onClick={onRefresh}
+          >
+            <RefreshCw className="h-3 w-3" />
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ThreadTitleModelPanel() {
+  const { threadTitleModelId, updateSetting } = useSettings();
+  const { models, loading, error, refresh } = useRuntimeModels("kimi");
+
+  return (
+    <ThreadTitleModelControl
+      threadTitleModelId={threadTitleModelId}
+      models={models}
+      loading={loading}
+      error={error}
+      onChange={(modelId) => updateSetting("threadTitleModelId", modelId)}
+      onRefresh={() => void refresh("kimi")}
     />
   );
 }

@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   KimiConnectionCheckError,
   KimiCliSetupNotice,
+  ThreadTitleModelControl,
   canCheckKimiConnection,
   formatGlobalAgentInstructionsSize,
   getGlobalAgentInstructionsByteLength,
@@ -14,6 +15,63 @@ import {
   writeGlobalAgentInstructions,
   writeGlobalRtkInstructions,
 } from "./SettingsPage";
+
+const kimiModel = {
+  id: "kimi-k2.5",
+  name: "Kimi K2.5",
+  source: "cli" as const,
+};
+
+function renderThreadTitleModelControl(
+  overrides: Partial<Parameters<typeof ThreadTitleModelControl>[0]> = {},
+) {
+  return renderToStaticMarkup(
+    createElement(ThreadTitleModelControl, {
+      threadTitleModelId: undefined,
+      models: [kimiModel],
+      loading: false,
+      error: undefined,
+      onChange: () => {},
+      onRefresh: () => {},
+      ...overrides,
+    }),
+  );
+}
+
+describe("Thread title model setting", () => {
+  it("shows Kimi default and concrete catalog models", () => {
+    const defaultMarkup = renderThreadTitleModelControl();
+    expect(defaultMarkup).toContain("Thread title model");
+    expect(defaultMarkup).toContain("Kimi default");
+
+    const concreteMarkup = renderThreadTitleModelControl({
+      threadTitleModelId: kimiModel.id,
+    });
+    expect(concreteMarkup).toContain("Kimi K2.5");
+  });
+
+  it("keeps an unavailable saved concrete model visible", () => {
+    const markup = renderThreadTitleModelControl({
+      threadTitleModelId: "kimi-removed",
+      models: [],
+    });
+    expect(markup).toContain("kimi-removed (unavailable)");
+  });
+
+  it("shows catalog loading and failure states", () => {
+    expect(renderThreadTitleModelControl({ models: [], loading: true })).toContain(
+      "Loading Kimi models…",
+    );
+
+    const failed = renderThreadTitleModelControl({
+      models: [],
+      error: "Authentication required",
+    });
+    expect(failed).toContain("Kimi model catalog unavailable");
+    expect(failed).toContain('aria-label="Retry loading Kimi models"');
+    expect(failed).toContain('title="Authentication required"');
+  });
+});
 
 describe("canCheckKimiConnection", () => {
   it("requires the detected Kimi command and configured runtime", () => {

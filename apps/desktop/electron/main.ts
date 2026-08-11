@@ -10,12 +10,14 @@ import {
   type WebContents,
 } from "electron";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureCliPaths } from "./runtime/processPath";
 import { createLogger, type Logger } from "./diagnostics/logger";
 import { registerRuntimeIpc } from "./runtime/runtimeIpc";
+import { listKimiRuntimeModels } from "./runtime/runtimeModelLister";
 import { registerChatIpc } from "./chat/chatIpc";
 import { createChatSessionManager, type ChatSessionManager } from "./chat/chatSessionManager";
 import { createChatRunAuthority, type ChatRunAuthority } from "./chat/chatRunAuthority";
@@ -657,6 +659,7 @@ if (!hasSingleInstanceLock) {
         }
       },
       onPersisted: (snapshot) => {
+        threadTitleCoordinator?.reconcile(snapshot);
         const messagesById = new Map(
           (snapshot.threadMessages ?? []).map((message) => [message.id, message]),
         );
@@ -669,16 +672,27 @@ if (!hasSingleInstanceLock) {
         }
       },
     });
-    threadTitleCoordinator = createThreadTitleCoordinator({
-      getSnapshot: () => appStateAuthority.getState().snapshot,
-      submitCommand: (command) => appStateAuthority.submit(0, command),
-      transportFactory: createKimiAcpProcessTransportFactory((command, args, options) =>
+    const threadTitleTransportFactory = createKimiAcpProcessTransportFactory(
+      (command, args, options) =>
         spawn(command, args, {
           cwd: options.cwd,
           stdio: options.stdio,
           windowsHide: options.windowsHide,
         }),
-      ),
+    );
+    threadTitleCoordinator = createThreadTitleCoordinator({
+      getSnapshot: () => appStateAuthority.getState().snapshot,
+      submitCommand: (command) => appStateAuthority.submit(0, command),
+      resolveDefaultModelId: async (signal) => {
+        const result = await listKimiRuntimeModels(homedir(), threadTitleTransportFactory, signal);
+        const modelId = result.defaultModelId;
+        return result.state === "listed" &&
+          modelId &&
+          result.models.some((model) => model.id === modelId)
+          ? modelId
+          : null;
+      },
+      transportFactory: threadTitleTransportFactory,
       log: (diagnostic) => {
         const level = diagnostic.category === "success" ? "info" : "warn";
         logger?.[level]("thread-title", "automatic title job finished", diagnostic);

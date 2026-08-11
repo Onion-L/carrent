@@ -11,9 +11,20 @@ import { createAppStateAuthority } from "../workspace/appStateAuthority";
 import { appStateCommandReducers } from "../workspace/appStateCommands";
 import { createAppStateStoreStub } from "../workspace/appStateStore.testUtils";
 import type { KimiAcpTransport } from "./kimiAcpChat";
-import { createThreadTitleCoordinator } from "./threadTitleCoordinator";
+import { createThreadTitleCoordinator as createProductionThreadTitleCoordinator } from "./threadTitleCoordinator";
 
 type JsonObject = Record<string, unknown>;
+type ThreadTitleCoordinatorOptions = Parameters<typeof createProductionThreadTitleCoordinator>[0];
+
+function createThreadTitleCoordinator(
+  options: Omit<ThreadTitleCoordinatorOptions, "resolveDefaultModelId"> &
+    Partial<Pick<ThreadTitleCoordinatorOptions, "resolveDefaultModelId">>,
+) {
+  return createProductionThreadTitleCoordinator({
+    resolveDefaultModelId: async () => "kimi-default-concrete",
+    ...options,
+  });
+}
 
 function makeSnapshot(): AppStateSnapshot {
   return {
@@ -81,6 +92,25 @@ function makeSnapshot(): AppStateSnapshot {
   };
 }
 
+function makeSnapshotWithJobs(count: number): AppStateSnapshot {
+  const snapshot = makeSnapshot();
+  const thread = snapshot.threads![0]!;
+  const run = snapshot.threadRuns![0]!;
+  return {
+    ...snapshot,
+    threads: Array.from({ length: count }, (_, index) => ({
+      ...thread,
+      id: `thread-${index + 1}`,
+      title: `Fallback title ${index + 1}`,
+    })),
+    threadRuns: Array.from({ length: count }, (_, index) => ({
+      ...run,
+      id: `run-${index + 1}`,
+      threadId: `thread-${index + 1}`,
+    })),
+  };
+}
+
 function makeSettings(overrides: Partial<AppStateSettings> = {}): AppStateSettings {
   return { ...DEFAULT_APP_STATE_SETTINGS, ...overrides };
 }
@@ -91,6 +121,7 @@ class FakeTitleTransport implements KimiAcpTransport {
   private messageListener: (message: JsonObject) => void = () => {};
   private errorListener: (error: Error) => void = () => {};
   private closeListener: Parameters<KimiAcpTransport["onClose"]>[0] = () => {};
+  private hangingRequest: JsonObject | null = null;
 
   constructor(
     private readonly outputChunks = ['{"title":"Isolated ', 'Thread title generation."}'],
@@ -105,7 +136,10 @@ class FakeTitleTransport implements KimiAcpTransport {
   send(message: JsonObject) {
     this.sent.push(message);
     const method = message.method;
-    if (method === this.behavior.hangOn) return;
+    if (method === this.behavior.hangOn) {
+      this.hangingRequest = message;
+      return;
+    }
     if (method === this.behavior.errorOn) {
       this.errorListener(new Error("ACP unavailable"));
       return;
@@ -133,34 +167,7 @@ class FakeTitleTransport implements KimiAcpTransport {
       return;
     }
     if (method === "session/prompt") {
-      for (const request of this.behavior.agentRequests ?? []) {
-        this.messageListener(request);
-      }
-      this.messageListener({
-        jsonrpc: "2.0",
-        method: "session/update",
-        params: {
-          sessionId: "title-session-1",
-          update: {
-            sessionUpdate: "agent_thought_chunk",
-            content: { type: "text", text: "ignore this thought" },
-          },
-        },
-      });
-      for (const text of this.outputChunks) {
-        this.messageListener({
-          jsonrpc: "2.0",
-          method: "session/update",
-          params: {
-            sessionId: "title-session-1",
-            update: {
-              sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text },
-            },
-          },
-        });
-      }
-      this.reply(message, { stopReason: "end_turn" });
+      this.completePrompt(message);
     }
   }
 
@@ -180,8 +187,50 @@ class FakeTitleTransport implements KimiAcpTransport {
     this.closeListener = listener;
   }
 
+  fail(error = new Error("ACP unavailable")) {
+    this.errorListener(error);
+  }
+
+  complete() {
+    if (!this.hangingRequest) throw new Error("No hanging ACP request.");
+    const request = this.hangingRequest;
+    this.hangingRequest = null;
+    this.completePrompt(request);
+  }
+
   private reply(request: JsonObject, result: unknown) {
     this.messageListener({ jsonrpc: "2.0", id: request.id, result });
+  }
+
+  private completePrompt(request: JsonObject) {
+    for (const agentRequest of this.behavior.agentRequests ?? []) {
+      this.messageListener(agentRequest);
+    }
+    this.messageListener({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "title-session-1",
+        update: {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "ignore this thought" },
+        },
+      },
+    });
+    for (const text of this.outputChunks) {
+      this.messageListener({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "title-session-1",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text },
+          },
+        },
+      });
+    }
+    this.reply(request, { stopReason: "end_turn" });
   }
 }
 
@@ -206,14 +255,384 @@ async function commandsForOutput(output: string) {
   return commands;
 }
 
+async function waitForCondition(condition: () => boolean) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (condition()) return;
+    await Promise.resolve();
+  }
+  expect(condition()).toBe(true);
+}
+
 describe("createThreadTitleCoordinator", () => {
+  it("runs at most two jobs and starts waiting jobs in FIFO order", async () => {
+    const transports: Array<{ cwd: string; transport: FakeTitleTransport }> = [];
+    let workingDirectoryCount = 0;
+    const coordinator = createThreadTitleCoordinator({
+      getSnapshot: () => makeSnapshotWithJobs(4),
+      submitCommand: async () => ({ status: "accepted", revision: 1 }),
+      transportFactory: ({ cwd }) => {
+        const transport = new FakeTitleTransport(undefined, { hangOn: "session/prompt" });
+        transports.push({ cwd, transport });
+        return transport;
+      },
+      createWorkingDirectory: async () => `/private/carrent-title-queue-${++workingDirectoryCount}`,
+      removeWorkingDirectory: async () => {},
+    });
+
+    for (let index = 1; index <= 4; index += 1) {
+      expect(
+        coordinator.enqueue({
+          threadId: `thread-${index}`,
+          runId: `run-${index}`,
+          source: `Visible request ${index}`,
+        }),
+      ).toBe(true);
+    }
+    await waitForCondition(
+      () =>
+        transports.length === 2 &&
+        transports.every(({ transport }) =>
+          transport.sent.some((message) => message.method === "session/prompt"),
+        ),
+    );
+
+    expect(transports.map(({ cwd }) => cwd)).toEqual([
+      "/private/carrent-title-queue-1",
+      "/private/carrent-title-queue-2",
+    ]);
+
+    transports[0]!.transport.fail();
+    await waitForCondition(() => transports.length === 3);
+    expect(transports.map(({ cwd }) => cwd)).toEqual([
+      "/private/carrent-title-queue-1",
+      "/private/carrent-title-queue-2",
+      "/private/carrent-title-queue-3",
+    ]);
+
+    transports[1]!.transport.fail();
+    await waitForCondition(() => transports.length === 4);
+    expect(transports.map(({ cwd }) => cwd)).toEqual([
+      "/private/carrent-title-queue-1",
+      "/private/carrent-title-queue-2",
+      "/private/carrent-title-queue-3",
+      "/private/carrent-title-queue-4",
+    ]);
+
+    await coordinator.shutdown();
+  });
+
+  it("keeps eight waiting jobs and skips new work when the queue is full", async () => {
+    const transports: FakeTitleTransport[] = [];
+    const commands: AppStateCommand[] = [];
+    const coordinator = createThreadTitleCoordinator({
+      getSnapshot: () => makeSnapshotWithJobs(11),
+      submitCommand: async (command) => {
+        commands.push(command);
+        return { status: "accepted", revision: 1 };
+      },
+      transportFactory: () => {
+        const transport = new FakeTitleTransport(undefined, { hangOn: "session/prompt" });
+        transports.push(transport);
+        return transport;
+      },
+      createWorkingDirectory: async () => "/private/carrent-title-overload",
+      removeWorkingDirectory: async () => {},
+    });
+
+    for (let index = 1; index <= 10; index += 1) {
+      expect(
+        coordinator.enqueue({
+          threadId: `thread-${index}`,
+          runId: `run-${index}`,
+          source: `Visible request ${index}`,
+        }),
+      ).toBe(true);
+    }
+    expect(
+      coordinator.enqueue({
+        threadId: "thread-11",
+        runId: "run-11",
+        source: "Visible request 11",
+      }),
+    ).toBe(false);
+
+    await waitForCondition(
+      () =>
+        transports.length === 2 &&
+        transports.every((transport) =>
+          transport.sent.some((message) => message.method === "session/prompt"),
+        ),
+    );
+    expect(commands).toEqual([]);
+
+    await coordinator.shutdown();
+    expect(transports).toHaveLength(2);
+    expect(transports.every((transport) => transport.closeCount === 1)).toBe(true);
+  });
+
+  it("starts the execution timeout only after a waiting job gets a slot", async () => {
+    let now = 1_000;
+    const timeoutStarts: number[] = [];
+    const transports: FakeTitleTransport[] = [];
+    const coordinator = createThreadTitleCoordinator({
+      getSnapshot: () => makeSnapshotWithJobs(3),
+      submitCommand: async () => ({ status: "accepted", revision: 1 }),
+      transportFactory: () => {
+        const transport = new FakeTitleTransport(
+          undefined,
+          transports.length < 2 ? { hangOn: "session/prompt" } : {},
+        );
+        transports.push(transport);
+        return transport;
+      },
+      createWorkingDirectory: async () => "/private/carrent-title-timeout-queue",
+      removeWorkingDirectory: async () => {},
+      now: () => now,
+      setTimeout: ((handler: TimerHandler) => {
+        void handler;
+        timeoutStarts.push(now);
+        return timeoutStarts.length as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof globalThis.setTimeout,
+      clearTimeout: (() => {}) as typeof globalThis.clearTimeout,
+    });
+
+    for (let index = 1; index <= 3; index += 1) {
+      coordinator.enqueue({
+        threadId: `thread-${index}`,
+        runId: `run-${index}`,
+        source: `Visible request ${index}`,
+      });
+    }
+    await waitForCondition(
+      () =>
+        transports.length === 2 &&
+        transports.every((transport) =>
+          transport.sent.some((message) => message.method === "session/prompt"),
+        ),
+    );
+    expect(timeoutStarts).toEqual([1_000, 1_000]);
+
+    now = 61_000;
+    transports[0]!.fail();
+    transports[1]!.fail();
+    await coordinator.waitForIdle();
+
+    expect(timeoutStarts).toEqual([1_000, 1_000, 61_000]);
+  });
+
+  for (const outcome of [
+    "success",
+    "validation-failure",
+    "acp-failure",
+    "timeout",
+    "cancellation",
+    "write-rejection",
+  ] as const) {
+    it(`releases one slot after ${outcome}`, async () => {
+      let snapshot = makeSnapshotWithJobs(3);
+      const transports: FakeTitleTransport[] = [];
+      const timeoutHandlers: TimerHandler[] = [];
+      const coordinator = createThreadTitleCoordinator({
+        getSnapshot: () => snapshot,
+        submitCommand: async (command) =>
+          outcome === "write-rejection" &&
+          (command.payload as { threadId?: string } | undefined)?.threadId === "thread-1"
+            ? { status: "rejected", reason: "invalid", revision: 1 }
+            : { status: "accepted", revision: 1 },
+        transportFactory: () => {
+          const transport = new FakeTitleTransport(
+            outcome === "validation-failure" && transports.length === 0 ? ["{}"] : undefined,
+            transports.length < 2 ? { hangOn: "session/prompt" } : {},
+          );
+          transports.push(transport);
+          return transport;
+        },
+        createWorkingDirectory: async () => "/private/carrent-title-slot-release",
+        removeWorkingDirectory: async () => {},
+        setTimeout: ((handler: TimerHandler) => {
+          timeoutHandlers.push(handler);
+          return timeoutHandlers.length as unknown as ReturnType<typeof setTimeout>;
+        }) as unknown as typeof globalThis.setTimeout,
+        clearTimeout: (() => {}) as typeof globalThis.clearTimeout,
+      });
+
+      for (let index = 1; index <= 3; index += 1) {
+        coordinator.enqueue({
+          threadId: `thread-${index}`,
+          runId: `run-${index}`,
+          source: `Visible request ${index}`,
+        });
+      }
+      await waitForCondition(
+        () =>
+          transports.length === 2 &&
+          transports.every((transport) =>
+            transport.sent.some((message) => message.method === "session/prompt"),
+          ),
+      );
+
+      if (
+        outcome === "success" ||
+        outcome === "validation-failure" ||
+        outcome === "write-rejection"
+      ) {
+        transports[0]!.complete();
+      } else if (outcome === "acp-failure") {
+        transports[0]!.fail();
+      } else if (outcome === "timeout") {
+        (timeoutHandlers[0] as () => void)();
+      } else {
+        snapshot = {
+          ...snapshot,
+          threads: snapshot.threads?.map((thread) =>
+            thread.id === "thread-1" ? { ...thread, archived: true } : thread,
+          ),
+        };
+        coordinator.reconcile(snapshot);
+      }
+
+      await waitForCondition(() => transports.length === 3);
+      await waitForCondition(() => transports[0]!.closeCount === 1);
+      expect(transports[0]!.closeCount).toBe(1);
+
+      await coordinator.shutdown();
+      expect(transports.every((transport) => transport.closeCount === 1)).toBe(true);
+    });
+  }
+
+  it("rechecks authoritative Thread eligibility before starting a waiting job", async () => {
+    const invalidateWaitingThread = [
+      (snapshot: AppStateSnapshot) => ({
+        ...snapshot,
+        threads: snapshot.threads?.filter((thread) => thread.id !== "thread-3"),
+      }),
+      (snapshot: AppStateSnapshot) => ({
+        ...snapshot,
+        threads: snapshot.threads?.map((thread) =>
+          thread.id === "thread-3" ? { ...thread, archived: true } : thread,
+        ),
+      }),
+      (snapshot: AppStateSnapshot) => ({
+        ...snapshot,
+        threads: snapshot.threads?.map((thread) =>
+          thread.id === "thread-3" ? { ...thread, customTitle: true } : thread,
+        ),
+      }),
+      (snapshot: AppStateSnapshot) => ({
+        ...snapshot,
+        threads: snapshot.threads?.map((thread) =>
+          thread.id === "thread-3" ? { ...thread, title: "Changed fallback" } : thread,
+        ),
+      }),
+    ];
+
+    for (const invalidate of invalidateWaitingThread) {
+      let snapshot = makeSnapshotWithJobs(3);
+      const transports: FakeTitleTransport[] = [];
+      const coordinator = createThreadTitleCoordinator({
+        getSnapshot: () => snapshot,
+        submitCommand: async () => ({ status: "accepted", revision: 1 }),
+        transportFactory: () => {
+          const transport = new FakeTitleTransport(
+            undefined,
+            transports.length < 2 ? { hangOn: "session/prompt" } : {},
+          );
+          transports.push(transport);
+          return transport;
+        },
+        createWorkingDirectory: async () => "/private/carrent-title-recheck",
+        removeWorkingDirectory: async () => {},
+      });
+
+      for (let index = 1; index <= 3; index += 1) {
+        coordinator.enqueue({
+          threadId: `thread-${index}`,
+          runId: `run-${index}`,
+          source: `Visible request ${index}`,
+        });
+      }
+      await waitForCondition(
+        () =>
+          transports.length === 2 &&
+          transports.every((transport) =>
+            transport.sent.some((message) => message.method === "session/prompt"),
+          ),
+      );
+
+      snapshot = invalidate(snapshot);
+      transports[0]!.fail();
+      transports[1]!.fail();
+      await coordinator.waitForIdle();
+
+      expect(transports).toHaveLength(2);
+    }
+  });
+
+  it("cancels running jobs and removes waiting jobs after authoritative lifecycle changes", async () => {
+    let snapshot = makeSnapshotWithJobs(4);
+    const transports: FakeTitleTransport[] = [];
+    const commands: AppStateCommand[] = [];
+    const coordinator = createThreadTitleCoordinator({
+      getSnapshot: () => snapshot,
+      submitCommand: async (command) => {
+        commands.push(command);
+        return { status: "accepted", revision: 1 };
+      },
+      transportFactory: () => {
+        const transport = new FakeTitleTransport(
+          undefined,
+          transports.length < 2 ? { hangOn: "session/prompt" } : {},
+        );
+        transports.push(transport);
+        return transport;
+      },
+      createWorkingDirectory: async () => "/private/carrent-title-lifecycle",
+      removeWorkingDirectory: async () => {},
+    });
+
+    for (let index = 1; index <= 4; index += 1) {
+      coordinator.enqueue({
+        threadId: `thread-${index}`,
+        runId: `run-${index}`,
+        source: `Visible request ${index}`,
+      });
+    }
+    await waitForCondition(
+      () =>
+        transports.length === 2 &&
+        transports.every((transport) =>
+          transport.sent.some((message) => message.method === "session/prompt"),
+        ),
+    );
+
+    snapshot = {
+      ...snapshot,
+      threads: snapshot.threads?.flatMap((thread) => {
+        if (thread.id === "thread-1") return [{ ...thread, archived: true }];
+        if (thread.id === "thread-2") {
+          return [{ ...thread, title: "Manual title", customTitle: true }];
+        }
+        return thread.id === "thread-3" ? [] : [thread];
+      }),
+    };
+    coordinator.reconcile(snapshot);
+    await coordinator.waitForIdle();
+
+    expect(transports).toHaveLength(3);
+    expect(transports.slice(0, 2).every((transport) => transport.closeCount === 1)).toBe(true);
+    expect(commands).toHaveLength(1);
+    expect(commands[0]?.payload).toMatchObject({ threadId: "thread-4" });
+  });
+
   it("runs one isolated Kimi ACP title request and commits the validated title", async () => {
     const published: Array<{ subscriberId: number; snapshot: AppStateSnapshot }> = [];
+    let coordinator: ReturnType<typeof createThreadTitleCoordinator> | null = null;
     const authority = createAppStateAuthority({
       store: createAppStateStoreStub(),
       initialResult: { status: "ready", snapshot: makeSnapshot() },
       reducers: appStateCommandReducers,
       publish: (subscriberId, state) => published.push({ subscriberId, snapshot: state.snapshot }),
+      onPersisted: (snapshot) => coordinator?.reconcile(snapshot),
     });
     authority.subscribe(11);
     authority.subscribe(22);
@@ -221,7 +640,7 @@ describe("createThreadTitleCoordinator", () => {
     const transports: Array<{ cwd: string; transport: FakeTitleTransport }> = [];
     const removedDirectories: string[] = [];
     const commands: AppStateCommand[] = [];
-    const coordinator = createThreadTitleCoordinator({
+    coordinator = createThreadTitleCoordinator({
       getSnapshot: () => authority.getState().snapshot,
       submitCommand: (command) => {
         commands.push(command);
@@ -634,6 +1053,7 @@ describe("createThreadTitleCoordinator", () => {
     const coordinator = createThreadTitleCoordinator({
       getSnapshot: makeSnapshot,
       submitCommand: async () => ({ status: "accepted", revision: 1 }),
+      resolveDefaultModelId: async () => modelId,
       transportFactory: () =>
         new FakeTitleTransport(["invalid"], {
           configOptions: [
@@ -784,6 +1204,242 @@ describe("createThreadTitleCoordinator", () => {
     ]);
     // The title commit carries the generated title, not the model id.
     expect(commands[0]?.type).toBe("thread:set-automatic-title");
+  });
+
+  it("resolves Kimi default to one concrete model before queued jobs start", async () => {
+    let resolveDefaultModel!: (modelId: string | null) => void;
+    let resolutionCount = 0;
+    const defaultModel = new Promise<string | null>((resolve) => {
+      resolveDefaultModel = resolve;
+    });
+    const transports: FakeTitleTransport[] = [];
+    const coordinator = createThreadTitleCoordinator({
+      getSnapshot: () => makeSnapshotWithJobs(3),
+      submitCommand: async () => ({ status: "accepted", revision: 1 }),
+      resolveDefaultModelId: () => {
+        resolutionCount += 1;
+        return defaultModel;
+      },
+      transportFactory: () => {
+        const transport = new FakeTitleTransport(undefined, {
+          ...(transports.length < 2 ? { hangOn: "session/prompt" } : {}),
+          configOptions: [
+            {
+              id: "model",
+              category: "model",
+              currentValue: "kimi-default-b",
+              options: [
+                { value: "kimi-default-a", name: "Kimi Default A" },
+                { value: "kimi-default-b", name: "Kimi Default B" },
+              ],
+            },
+          ],
+        });
+        transports.push(transport);
+        return transport;
+      },
+      createWorkingDirectory: async () => "/private/carrent-title-default-snapshot",
+      removeWorkingDirectory: async () => {},
+    });
+
+    for (let index = 1; index <= 3; index += 1) {
+      coordinator.enqueue({
+        threadId: `thread-${index}`,
+        runId: `run-${index}`,
+        source: `Visible request ${index}`,
+      });
+    }
+    expect(resolutionCount).toBe(1);
+    resolveDefaultModel("kimi-default-a");
+    await waitForCondition(
+      () =>
+        transports.length === 2 &&
+        transports.every((transport) =>
+          transport.sent.some((message) => message.method === "session/prompt"),
+        ),
+    );
+
+    expect(
+      transports.map(
+        (transport) =>
+          (
+            transport.sent.find((message) => message.method === "session/set_config_option")
+              ?.params as { value?: string } | undefined
+          )?.value,
+      ),
+    ).toEqual(["kimi-default-a", "kimi-default-a"]);
+
+    transports[0]!.fail();
+    transports[1]!.fail();
+    await coordinator.waitForIdle();
+    expect(
+      transports.map(
+        (transport) =>
+          (
+            transport.sent.find((message) => message.method === "session/set_config_option")
+              ?.params as { value?: string } | undefined
+          )?.value,
+      ),
+    ).toEqual(["kimi-default-a", "kimi-default-a", "kimi-default-a"]);
+  });
+
+  it("skips title ACP startup when Kimi default cannot be resolved at acceptance", async () => {
+    let spawnCount = 0;
+    const coordinator = createThreadTitleCoordinator({
+      getSnapshot: makeSnapshot,
+      submitCommand: async () => ({ status: "accepted", revision: 1 }),
+      resolveDefaultModelId: async () => null,
+      transportFactory: () => {
+        spawnCount += 1;
+        return new FakeTitleTransport();
+      },
+      createWorkingDirectory: async () => "/private/carrent-title-no-default",
+      removeWorkingDirectory: async () => {},
+    });
+
+    expect(
+      coordinator.enqueue({
+        threadId: "thread-1",
+        runId: "run-1",
+        source: "Visible first request",
+      }),
+    ).toBe(true);
+    await coordinator.waitForIdle();
+
+    expect(spawnCount).toBe(0);
+  });
+
+  it("cancels pending default-model resolution during shutdown", async () => {
+    let resolverSignal: AbortSignal | null = null;
+    let spawnCount = 0;
+    const coordinator = createThreadTitleCoordinator({
+      getSnapshot: makeSnapshot,
+      submitCommand: async () => ({ status: "accepted", revision: 1 }),
+      resolveDefaultModelId: (signal) => {
+        resolverSignal = signal;
+        return new Promise((resolve) => {
+          signal.addEventListener("abort", () => resolve(null), { once: true });
+        });
+      },
+      transportFactory: () => {
+        spawnCount += 1;
+        return new FakeTitleTransport();
+      },
+      createWorkingDirectory: async () => "/private/carrent-title-resolver-shutdown",
+      removeWorkingDirectory: async () => {},
+    });
+
+    coordinator.enqueue({
+      threadId: "thread-1",
+      runId: "run-1",
+      source: "Visible first request",
+    });
+    await coordinator.shutdown();
+
+    expect((resolverSignal as AbortSignal | null)?.aborted).toBe(true);
+    expect(spawnCount).toBe(0);
+  });
+
+  it("cancels default-model resolution when its Thread is removed", async () => {
+    let snapshot = makeSnapshot();
+    let resolverSignal: AbortSignal | null = null;
+    let spawnCount = 0;
+    const coordinator = createThreadTitleCoordinator({
+      getSnapshot: () => snapshot,
+      submitCommand: async () => ({ status: "accepted", revision: 1 }),
+      resolveDefaultModelId: (signal) =>
+        new Promise((resolve) => {
+          resolverSignal = signal;
+          signal.addEventListener("abort", () => resolve(null), { once: true });
+        }),
+      transportFactory: () => {
+        spawnCount += 1;
+        return new FakeTitleTransport();
+      },
+      createWorkingDirectory: async () => "/private/carrent-title-removed-admission",
+      removeWorkingDirectory: async () => {},
+    });
+
+    coordinator.enqueue({
+      threadId: "thread-1",
+      runId: "run-1",
+      source: "Visible first request",
+    });
+    snapshot = { ...snapshot, threads: [] };
+    coordinator.reconcile(snapshot);
+    await coordinator.waitForIdle();
+
+    expect((resolverSignal as AbortSignal | null)?.aborted).toBe(true);
+    expect(spawnCount).toBe(0);
+  });
+
+  it("starts a fresh default-model resolution while a cancelled lookup is closing", async () => {
+    let snapshot = makeSnapshotWithJobs(2);
+    const resolverSignals: AbortSignal[] = [];
+    const resolveModels: Array<(modelId: string | null) => void> = [];
+    const coordinator = createThreadTitleCoordinator({
+      getSnapshot: () => snapshot,
+      submitCommand: async () => ({ status: "accepted", revision: 1 }),
+      resolveDefaultModelId: (signal) => {
+        resolverSignals.push(signal);
+        return new Promise((resolve) => resolveModels.push(resolve));
+      },
+      transportFactory: () => new FakeTitleTransport(),
+      createWorkingDirectory: async () => "/private/carrent-title-resolver-restart",
+      removeWorkingDirectory: async () => {},
+    });
+
+    coordinator.enqueue({
+      threadId: "thread-1",
+      runId: "run-1",
+      source: "Visible first request",
+    });
+    snapshot = {
+      ...snapshot,
+      threads: snapshot.threads?.filter((thread) => thread.id !== "thread-1"),
+    };
+    coordinator.reconcile(snapshot);
+    coordinator.enqueue({
+      threadId: "thread-2",
+      runId: "run-2",
+      source: "Visible second request",
+    });
+
+    expect(resolverSignals).toHaveLength(2);
+    expect(resolverSignals[0]?.aborted).toBe(true);
+    expect(resolverSignals[1]?.aborted).toBe(false);
+    resolveModels[1]!("kimi-default-concrete");
+    resolveModels[0]!(null);
+    await coordinator.waitForIdle();
+  });
+
+  it("releases a job when default-model resolution throws synchronously", async () => {
+    let spawnCount = 0;
+    const coordinator = createThreadTitleCoordinator({
+      getSnapshot: makeSnapshot,
+      submitCommand: async () => ({ status: "accepted", revision: 1 }),
+      resolveDefaultModelId: () => {
+        throw new Error("model listing unavailable");
+      },
+      transportFactory: () => {
+        spawnCount += 1;
+        return new FakeTitleTransport();
+      },
+      createWorkingDirectory: async () => "/private/carrent-title-resolver-throw",
+      removeWorkingDirectory: async () => {},
+    });
+
+    const input = {
+      threadId: "thread-1",
+      runId: "run-1",
+      source: "Visible first request",
+    };
+    expect(coordinator.enqueue(input)).toBe(true);
+    await coordinator.waitForIdle();
+
+    expect(spawnCount).toBe(0);
+    expect(coordinator.enqueue(input)).toBe(true);
+    await coordinator.waitForIdle();
   });
 
   it("skips generation when a configured concrete model is no longer listed", async () => {

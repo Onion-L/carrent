@@ -15,6 +15,8 @@ type JsonObject = Record<string, unknown>;
 
 const TITLE_TIMEOUT_MS = 30_000;
 const MAX_TITLE_SOURCE_GRAPHEMES = 8_000;
+const MAX_CONCURRENT_TITLE_JOBS = 2;
+const MAX_WAITING_TITLE_JOBS = 8;
 const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
 
 export type ThreadTitleJobInput = {
@@ -40,6 +42,7 @@ export type ThreadTitleDiagnostic = {
 type ThreadTitleCoordinatorOptions = {
   getSnapshot: () => AppStateSnapshot;
   submitCommand: (command: AppStateCommand) => Promise<AppStateCommandResult>;
+  resolveDefaultModelId: (signal: AbortSignal) => Promise<string | null>;
   transportFactory: KimiAcpTransportFactory;
   createWorkingDirectory?: () => Promise<string>;
   removeWorkingDirectory?: (cwd: string) => Promise<void>;
@@ -49,19 +52,21 @@ type ThreadTitleCoordinatorOptions = {
   log?: (diagnostic: ThreadTitleDiagnostic) => void;
 };
 
+type ThreadTitleJobCandidate = ThreadTitleJobInput & {
+  expectedTitle: string;
+  configuredModelId: string | undefined;
+};
+
 type AcceptedThreadTitleJob = ThreadTitleJobInput & {
   expectedTitle: string;
-  // The user's configured title-model preference, snapshotted from settings at
-  // enqueue time so later Settings changes never alter an accepted job.
-  //
-  // - A concrete id (string) is validated against the ACP catalog at run time;
-  //   if it is no longer listed the job is abandoned without switching models.
-  // - Undefined means "Kimi default". The concrete default is resolvable only
-  //   from the ACP session's configOptions, so it is resolved at session/new
-  //   time (the earliest point the title process can report it) rather than at
-  //   enqueue. The preference itself is still snapshotted: a later switch to a
-  //   concrete id does not retroactively apply to a job accepted as "default".
-  modelId: string | undefined;
+  modelId: string;
+};
+
+type PendingThreadTitleAdmission = {
+  candidate: ThreadTitleJobCandidate;
+  resolved: boolean;
+  modelId: string | null;
+  cancelled: boolean;
 };
 
 function readObject(value: unknown): JsonObject | null {
@@ -184,7 +189,7 @@ class TitleAcpClient {
   async generate(
     cwd: string,
     source: string,
-    configuredModelId: string | undefined,
+    modelId: string,
   ): Promise<{ modelId: string; output: string }> {
     await this.request("initialize", {
       protocolVersion: 1,
@@ -208,26 +213,8 @@ class TitleAcpClient {
       return value ? [value] : [];
     });
 
-    // Resolve the concrete model id to configure before prompting. A configured
-    // (snapshotted) selection wins and must be in the catalog — otherwise the
-    // job is abandoned without switching models or retrying. "Kimi default"
-    // (undefined) resolves to the ACP default; if that is missing the job fails
-    // the same way and the fallback title stays.
-    if (!modelConfig) {
-      throw new Error("Kimi ACP model config is unavailable.");
-    }
-    let modelId: string;
-    if (configuredModelId) {
-      if (!supportedModels.includes(configuredModelId)) {
-        throw new Error("Configured Thread title model is unavailable.");
-      }
-      modelId = configuredModelId;
-    } else {
-      const defaultId = readString(modelConfig.currentValue);
-      if (!defaultId || !supportedModels.includes(defaultId)) {
-        throw new Error("Kimi ACP default title model is unavailable.");
-      }
-      modelId = defaultId;
+    if (!modelConfig || !supportedModels.includes(modelId)) {
+      throw new Error("Snapshotted Thread title model is unavailable.");
     }
 
     await this.request("session/set_config_option", {
@@ -299,7 +286,7 @@ class TitleAcpClient {
 function eligibleJob(
   snapshot: AppStateSnapshot,
   input: ThreadTitleJobInput,
-): AcceptedThreadTitleJob | null {
+): ThreadTitleJobCandidate | null {
   if (!input.source.trim()) return null;
   const thread = (snapshot.threads ?? []).find((candidate) => candidate.id === input.threadId);
   if (!thread || thread.archived || thread.customTitle) return null;
@@ -309,10 +296,21 @@ function eligibleJob(
     ...input,
     source: boundTitleSource(input.source),
     expectedTitle: thread.title,
-    // Snapshot the configured model once: later Settings or Kimi default
-    // changes must not alter an already-accepted job.
-    modelId: snapshot.settings?.threadTitleModelId,
+    configuredModelId: snapshot.settings?.threadTitleModelId,
   };
+}
+
+function waitingJobIsEligible(
+  snapshot: AppStateSnapshot,
+  job: Pick<AcceptedThreadTitleJob, "threadId" | "expectedTitle">,
+) {
+  const thread = (snapshot.threads ?? []).find((candidate) => candidate.id === job.threadId);
+  return !!thread && !thread.archived && !thread.customTitle && thread.title === job.expectedTitle;
+}
+
+function runningJobShouldContinue(snapshot: AppStateSnapshot, job: AcceptedThreadTitleJob) {
+  const thread = (snapshot.threads ?? []).find((candidate) => candidate.id === job.threadId);
+  return !!thread && !thread.archived && !thread.customTitle;
 }
 
 export function createThreadTitleCoordinator(options: ThreadTitleCoordinatorOptions) {
@@ -325,9 +323,24 @@ export function createThreadTitleCoordinator(options: ThreadTitleCoordinatorOpti
   const scheduleTimeout = options.setTimeout ?? globalThis.setTimeout;
   const cancelTimeout = options.clearTimeout ?? globalThis.clearTimeout;
   const activeTasks = new Set<Promise<void>>();
-  const activeControllers = new Set<AbortController>();
+  const activeJobs = new Map<
+    string,
+    { job: AcceptedThreadTitleJob; controller: AbortController }
+  >();
   const activeJobKeys = new Set<string>();
+  const pendingAdmissions: PendingThreadTitleAdmission[] = [];
+  const waitingJobs: AcceptedThreadTitleJob[] = [];
+  const defaultModelResolutions = new Set<Promise<string | null>>();
+  const idleWaiters = new Set<() => void>();
+  let currentDefaultModelResolution: {
+    controller: AbortController;
+    promise: Promise<string | null>;
+  } | null = null;
   let shuttingDown = false;
+
+  function jobKey(job: ThreadTitleJobInput) {
+    return `${job.threadId}:${job.runId}`;
+  }
 
   function log(job: AcceptedThreadTitleJob, input: Omit<ThreadTitleDiagnostic, "threadId">) {
     options.log?.({
@@ -420,31 +433,180 @@ export function createThreadTitleCoordinator(options: ThreadTitleCoordinatorOpti
     }
   }
 
-  function enqueue(input: ThreadTitleJobInput) {
-    if (shuttingDown) return false;
-    const job = eligibleJob(options.getSnapshot(), input);
-    if (!job) return false;
-    const key = `${job.threadId}:${job.runId}`;
-    if (activeJobKeys.has(key)) return false;
-    activeJobKeys.add(key);
+  function isIdle() {
+    return (
+      activeTasks.size === 0 &&
+      waitingJobs.length === 0 &&
+      pendingAdmissions.length === 0 &&
+      defaultModelResolutions.size === 0
+    );
+  }
+
+  function resolveIdleWaiters() {
+    if (!isIdle()) return;
+    for (const resolve of idleWaiters) resolve();
+    idleWaiters.clear();
+  }
+
+  function resolveDefaultModel() {
+    if (currentDefaultModelResolution) return currentDefaultModelResolution.promise;
+    const controller = new AbortController();
+    let resolution: Promise<string | null>;
+    try {
+      resolution = options.resolveDefaultModelId(controller.signal);
+    } catch {
+      resolution = Promise.resolve(null);
+    }
+    const promise = resolution
+      .then((modelId) => {
+        const normalized = modelId?.trim();
+        return normalized || null;
+      })
+      .catch(() => null)
+      .finally(() => {
+        defaultModelResolutions.delete(promise);
+        if (currentDefaultModelResolution?.promise === promise) {
+          currentDefaultModelResolution = null;
+        }
+        resolveIdleWaiters();
+      });
+    defaultModelResolutions.add(promise);
+    currentDefaultModelResolution = { controller, promise };
+    return promise;
+  }
+
+  function abortDefaultModelResolutionIfUnused() {
+    if (!currentDefaultModelResolution) return;
+    const hasConsumer = pendingAdmissions.some(
+      (admission) =>
+        !admission.cancelled && !admission.resolved && !admission.candidate.configuredModelId,
+    );
+    if (hasConsumer) return;
+    const resolution = currentDefaultModelResolution;
+    currentDefaultModelResolution = null;
+    resolution.controller.abort();
+  }
+
+  function start(job: AcceptedThreadTitleJob) {
+    const key = jobKey(job);
     const controller = new AbortController();
     const task = run(job, controller.signal).finally(() => {
       activeJobKeys.delete(key);
       activeTasks.delete(task);
-      activeControllers.delete(controller);
+      activeJobs.delete(key);
+      startWaitingJobs();
+      resolveIdleWaiters();
     });
-    activeControllers.add(controller);
+    activeJobs.set(key, { job, controller });
     activeTasks.add(task);
+  }
+
+  function startWaitingJobs() {
+    while (
+      !shuttingDown &&
+      activeTasks.size < MAX_CONCURRENT_TITLE_JOBS &&
+      waitingJobs.length > 0
+    ) {
+      const job = waitingJobs.shift()!;
+      if (!waitingJobIsEligible(options.getSnapshot(), job)) {
+        activeJobKeys.delete(jobKey(job));
+        continue;
+      }
+      start(job);
+    }
+  }
+
+  function drainAdmissions() {
+    while (pendingAdmissions[0]?.resolved) {
+      const admission = pendingAdmissions.shift()!;
+      const key = jobKey(admission.candidate);
+      if (
+        admission.cancelled ||
+        shuttingDown ||
+        !admission.modelId ||
+        !waitingJobIsEligible(options.getSnapshot(), admission.candidate)
+      ) {
+        activeJobKeys.delete(key);
+        continue;
+      }
+      const { configuredModelId: _configuredModelId, ...candidate } = admission.candidate;
+      const job: AcceptedThreadTitleJob = { ...candidate, modelId: admission.modelId };
+      if (activeTasks.size < MAX_CONCURRENT_TITLE_JOBS && waitingJobs.length === 0) start(job);
+      else waitingJobs.push(job);
+    }
+    startWaitingJobs();
+    resolveIdleWaiters();
+  }
+
+  function enqueue(input: ThreadTitleJobInput) {
+    if (shuttingDown) return false;
+    const candidate = eligibleJob(options.getSnapshot(), input);
+    if (!candidate) return false;
+    const key = jobKey(candidate);
+    if (activeJobKeys.has(key)) return false;
+    if (activeJobKeys.size >= MAX_CONCURRENT_TITLE_JOBS + MAX_WAITING_TITLE_JOBS) {
+      return false;
+    }
+    activeJobKeys.add(key);
+    const admission: PendingThreadTitleAdmission = {
+      candidate,
+      resolved: false,
+      modelId: null as string | null,
+      cancelled: false,
+    };
+    pendingAdmissions.push(admission);
+    const modelResolution = candidate.configuredModelId
+      ? Promise.resolve(candidate.configuredModelId)
+      : resolveDefaultModel();
+    void modelResolution.then((modelId) => {
+      admission.modelId = modelId;
+      admission.resolved = true;
+      drainAdmissions();
+    });
     return true;
+  }
+
+  function reconcile(snapshot: AppStateSnapshot) {
+    const retainedAdmissions = pendingAdmissions.filter((admission) => {
+      if (waitingJobIsEligible(snapshot, admission.candidate)) return true;
+      admission.cancelled = true;
+      activeJobKeys.delete(jobKey(admission.candidate));
+      return false;
+    });
+    pendingAdmissions.splice(0, pendingAdmissions.length, ...retainedAdmissions);
+    abortDefaultModelResolutionIfUnused();
+
+    const retainedWaitingJobs = waitingJobs.filter((job) => {
+      if (waitingJobIsEligible(snapshot, job)) return true;
+      activeJobKeys.delete(jobKey(job));
+      return false;
+    });
+    waitingJobs.splice(0, waitingJobs.length, ...retainedWaitingJobs);
+
+    for (const { job, controller } of activeJobs.values()) {
+      if (!runningJobShouldContinue(snapshot, job)) controller.abort();
+    }
+    drainAdmissions();
   }
 
   return {
     enqueue,
-    waitForIdle: () => Promise.allSettled(activeTasks).then(() => undefined),
+    reconcile,
+    waitForIdle: () => {
+      if (isIdle()) return Promise.resolve();
+      return new Promise<void>((resolve) => idleWaiters.add(resolve));
+    },
     async shutdown() {
       shuttingDown = true;
-      activeControllers.forEach((controller) => controller.abort());
-      await Promise.allSettled(activeTasks);
+      for (const admission of pendingAdmissions.splice(0)) {
+        admission.cancelled = true;
+        activeJobKeys.delete(jobKey(admission.candidate));
+      }
+      for (const job of waitingJobs.splice(0)) activeJobKeys.delete(jobKey(job));
+      currentDefaultModelResolution?.controller.abort();
+      activeJobs.forEach(({ controller }) => controller.abort());
+      await Promise.allSettled([...activeTasks, ...defaultModelResolutions]);
+      resolveIdleWaiters();
     },
   };
 }

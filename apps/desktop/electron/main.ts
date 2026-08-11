@@ -10,15 +10,23 @@ import {
   type WebContents,
 } from "electron";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureCliPaths } from "./runtime/processPath";
 import { createLogger, type Logger } from "./diagnostics/logger";
 import { registerRuntimeIpc } from "./runtime/runtimeIpc";
+import { listKimiRuntimeModels } from "./runtime/runtimeModelLister";
 import { registerChatIpc } from "./chat/chatIpc";
 import { createChatSessionManager, type ChatSessionManager } from "./chat/chatSessionManager";
 import { createChatRunAuthority, type ChatRunAuthority } from "./chat/chatRunAuthority";
+import { createKimiAcpProcessTransportFactory } from "./chat/kimiAcpChat";
+import {
+  createThreadTitleCoordinator,
+  registerAcceptedThreadTitlePromotion,
+  type ThreadTitleCoordinator,
+} from "./chat/threadTitleCoordinator";
 import {
   createRunNotificationCoordinator,
   type RunNotificationCoordinator,
@@ -131,6 +139,7 @@ function isExecutableFile(path: string) {
 let appStateStore: SqliteProductionAppStateStore | null = null;
 let chatSessionManager: ChatSessionManager | null = null;
 let chatRunAuthority: ChatRunAuthority | null = null;
+let threadTitleCoordinator: ThreadTitleCoordinator | null = null;
 let runNotificationCoordinator: RunNotificationCoordinator | null = null;
 let waitForThreadDeletion: (() => Promise<void>) | null = null;
 let appStateFlush: ReturnType<typeof createAppStateFlush> | null = null;
@@ -650,7 +659,15 @@ if (!hasSingleInstanceLock) {
           contents.send("app-state:changed", state);
         }
       },
+      // A committed Thread Draft promotion is the only thing that authorizes
+      // automatic title generation. Recording it here — from the accepted
+      // command rather than from a Renderer message — keeps the trigger
+      // boundary authoritative.
+      onCommandAccepted: (command, data) => {
+        registerAcceptedThreadTitlePromotion(threadTitleCoordinator, command, data);
+      },
       onPersisted: (snapshot) => {
+        threadTitleCoordinator?.reconcile(snapshot);
         const messagesById = new Map(
           (snapshot.threadMessages ?? []).map((message) => [message.id, message]),
         );
@@ -661,6 +678,32 @@ if (!hasSingleInstanceLock) {
             chatRunAuthority?.acknowledgePersistedEvents(run.id, eventCount);
           }
         }
+      },
+    });
+    const threadTitleTransportFactory = createKimiAcpProcessTransportFactory(
+      (command, args, options) =>
+        spawn(command, args, {
+          cwd: options.cwd,
+          stdio: options.stdio,
+          windowsHide: options.windowsHide,
+        }),
+    );
+    threadTitleCoordinator = createThreadTitleCoordinator({
+      getSnapshot: () => appStateAuthority.getState().snapshot,
+      submitCommand: (command) => appStateAuthority.submit(0, command),
+      resolveDefaultModelId: async (signal) => {
+        const result = await listKimiRuntimeModels(homedir(), threadTitleTransportFactory, signal);
+        const modelId = result.defaultModelId;
+        return result.state === "listed" &&
+          modelId &&
+          result.models.some((model) => model.id === modelId)
+          ? modelId
+          : null;
+      },
+      transportFactory: threadTitleTransportFactory,
+      log: (diagnostic) => {
+        const level = diagnostic.category === "success" ? "info" : "warn";
+        logger?.[level]("thread-title", "automatic title job finished", diagnostic);
       },
     });
     registerAppStateAuthorityIpc(guardedIpcMain, appStateAuthority);
@@ -817,6 +860,7 @@ if (!hasSingleInstanceLock) {
       runAuthority: chatRunAuthority,
       isProjectDirectoryAvailable,
       threadDeletionManager,
+      threadTitleCoordinator,
     });
 
     windowSessionStore = createCarrentWindowSessionStore(userDataPath);
@@ -885,6 +929,7 @@ const appShutdown = createAppShutdown({
   quit: () => app.quit(),
   reportShutdownError: (error) => console.error("[app] failed to quit safely", error),
   beforeSave: async () => {
+    await threadTitleCoordinator?.shutdown();
     await chatSessionManager?.shutdown();
     terminalSessionManager?.shutdown();
     await waitForThreadDeletion?.();
@@ -905,6 +950,7 @@ const appShutdown = createAppShutdown({
     hasLiveRuns: () => chatSessionManager?.hasLiveRuns?.() ?? false,
     confirmQuitWithLiveRuns: () => liveRunQuitWarning?.confirmQuit() ?? Promise.resolve(true),
     cancelLiveRuns: async () => {
+      await threadTitleCoordinator?.shutdown();
       await chatSessionManager?.shutdown();
     },
   },

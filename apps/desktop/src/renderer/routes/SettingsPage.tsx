@@ -19,7 +19,7 @@ import { useThreadContent } from "../context/ThreadContentContext";
 import { useAppState } from "../context/AppStateContext";
 import { useSettings } from "../context/SettingsContext";
 import { RTK_MD_CONTENT, upsertRtkAgentsBlock, type RtkGainStats } from "../../shared/rtk";
-import type { RuntimeRecord } from "../../shared/runtimes";
+import type { RuntimeModelRecord, RuntimeRecord } from "../../shared/runtimes";
 import { resolveSettingsTabId, SETTINGS_TABS } from "../lib/settingsTabs";
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, parseFontSizeInput, stepFontSize } from "../lib/fontSize";
 import { RuntimeIcon } from "../components/RuntimeIcon";
@@ -27,6 +27,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { McpServerControl } from "../components/mcp/McpServerControl";
 import { useRuntimeModels } from "../hooks/useRuntimeModels";
 import { useRuntimes } from "../hooks/useRuntimes";
+import { formatKimiModelLabel } from "../components/chat/Composer";
 import { formatAbsoluteTime } from "../lib/formatRelativeTime";
 import { useToast } from "../components/toast/ToastContext";
 import type { AppThreadRecord } from "../../shared/workspacePersistence";
@@ -922,6 +923,111 @@ function Section({
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Thread title model                                                        */
+/* -------------------------------------------------------------------------- */
+
+// Sentinel value representing "use the current Kimi default" in the Settings
+// Select. Stored as the absence of threadTitleModelId in App State, so this
+// constant never reaches persistence.
+const THREAD_TITLE_MODEL_DEFAULT = "__kimi_default__";
+
+export function ThreadTitleModelControl({
+  threadTitleModelId,
+  models,
+  loading,
+  error,
+  onChange,
+  onRefresh,
+}: {
+  threadTitleModelId: string | undefined;
+  models: RuntimeModelRecord[];
+  loading: boolean;
+  error: string | undefined;
+  onChange: (modelId: string | undefined) => void;
+  onRefresh: () => void;
+}) {
+  // A persisted concrete model that is no longer in the Kimi catalog stays
+  // visible (marked unavailable) until the user picks another value, rather
+  // than silently reverting to the default.
+  const availableIds = new Set(models.map((model) => model.id));
+  const configuredUnavailable = !!threadTitleModelId && !availableIds.has(threadTitleModelId);
+
+  // While the catalog is still loading and no models are known yet, show a
+  // placeholder instead of an empty dropdown. "Kimi default" stays selectable
+  // because it needs no catalog entry.
+  if (loading && models.length === 0) {
+    return (
+      <div className="flex items-center justify-between gap-6 py-3.5">
+        <div className="min-w-0">
+          <div className="text-app-13 text-fg">Thread title model</div>
+          <div className="mt-0.5 text-app-12 text-subtle">
+            Kimi model used to generate automatic Thread titles
+          </div>
+        </div>
+        <span className="shrink-0 text-app-13 text-subtle">Loading Kimi models…</span>
+      </div>
+    );
+  }
+
+  const options: { value: string; label: string }[] = [
+    { value: THREAD_TITLE_MODEL_DEFAULT, label: "Kimi default" },
+    ...models.map((model) => ({
+      value: model.id,
+      label: formatKimiModelLabel(model.name),
+    })),
+    ...(configuredUnavailable && threadTitleModelId
+      ? [{ value: threadTitleModelId, label: `${threadTitleModelId} (unavailable)` }]
+      : []),
+  ];
+
+  const selected = threadTitleModelId ?? THREAD_TITLE_MODEL_DEFAULT;
+
+  return (
+    <div>
+      <Select
+        label="Thread title model"
+        description="Kimi model used to generate automatic Thread titles"
+        value={selected}
+        options={options}
+        onChange={(value) => {
+          onChange(value === THREAD_TITLE_MODEL_DEFAULT ? undefined : value);
+        }}
+      />
+      {error ? (
+        <div className="-mt-2 flex items-center justify-end gap-2 pb-2 text-app-11 text-danger">
+          <span title={error}>Kimi model catalog unavailable</span>
+          <button
+            type="button"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-subtle transition-colors hover:bg-surface-hover hover:text-fg"
+            aria-label="Retry loading Kimi models"
+            title="Retry loading Kimi models"
+            onClick={onRefresh}
+          >
+            <RefreshCw className="h-3 w-3" />
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ThreadTitleModelPanel() {
+  const { threadTitleModelId, updateSetting } = useSettings();
+  const { models, loading, error, refresh } = useRuntimeModels("kimi");
+
+  return (
+    <ThreadTitleModelControl
+      threadTitleModelId={threadTitleModelId}
+      models={models}
+      loading={loading}
+      error={error}
+      onChange={(modelId) => updateSetting("threadTitleModelId", modelId)}
+      onRefresh={() => void refresh("kimi")}
+    />
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Settings Page                                                             */
 /* -------------------------------------------------------------------------- */
 
@@ -1291,6 +1397,7 @@ export function SettingsPage() {
                   enabled={autoDetectRuntimes}
                   onChange={(value) => updateSetting("autoDetectRuntimes", value)}
                 />
+                <ThreadTitleModelPanel />
                 <RtkCheckPanel />
               </Section>
             ) : null}

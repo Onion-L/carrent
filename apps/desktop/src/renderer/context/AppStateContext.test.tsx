@@ -277,7 +277,7 @@ describe("prepareThreadDraftPromotion", () => {
         runtimeId: "kimi",
         runtimeMode: "approval-required",
         planMode: false,
-        title: "First turn",
+        titleSource: "first turn",
         draft: { content: "first turn", attachedSkillNames: [], attachments: [] },
       });
     });
@@ -657,7 +657,7 @@ describe("multi-window synchronization", () => {
 
     const input = (messageId: string, runId: string) => ({
       draftId: draft!.id,
-      title: "Race",
+      titleSource: "Race",
       runId,
       messageId,
       assistantMessageId: `assistant-${runId}`,

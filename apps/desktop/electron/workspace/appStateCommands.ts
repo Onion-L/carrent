@@ -21,6 +21,7 @@ import {
 } from "../../src/shared/workspacePersistence";
 import type { AppStateCommandReducer } from "../../src/shared/appStateAuthority";
 import { reconcileInterruptedMessage } from "../../src/shared/threadContent";
+import { deriveThreadTitle } from "../../src/shared/threadTitle";
 
 // Command vocabulary for the shared App State data (workspaces, projects,
 // associations, thread metadata, selection, settings). Each reducer mirrors
@@ -811,11 +812,15 @@ const promoteThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
   if (existingThread) return { snapshot, data: { thread: existingThread, created: false } };
 
   const threadInput = payload.thread;
+  // The Renderer supplies the visible composer text as title *source* data, not
+  // a finished title: the fallback policy (48 graphemes, whitespace folding,
+  // attachment basename, "New thread") is derived here so the authoritative
+  // record cannot carry a title the Main Process did not compute.
+  if (payload.titleSource !== undefined && typeof payload.titleSource !== "string") return null;
   if (
     threadInput.id !== draft.threadId ||
     threadInput.workspaceId !== draft.workspaceId ||
     threadInput.projectId !== draft.projectId ||
-    !isNonEmptyTrimmedString(threadInput.title) ||
     typeof threadInput.createdAt !== "string" ||
     typeof threadInput.lastActivityAt !== "string" ||
     !isValidRuntimeSelection(
@@ -846,11 +851,18 @@ const promoteThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
   if (run?.assistantMessageId !== assistantMessage.id) return null;
   if (!run) return null;
 
+  // A promoted Thread starts without the manual-title marker so an automatic
+  // title (deterministic fallback now, model generation in issue #4) can replace
+  // the fallback title until the user renames it. The attachment basename comes
+  // from the validated message record, so attachment contents are never part of
+  // the title source.
   const thread: AppThreadRecord = {
     id: draft.threadId,
     workspaceId: draft.workspaceId,
     projectId: draft.projectId,
-    title: threadInput.title,
+    title: deriveThreadTitle(payload.titleSource ?? "", {
+      attachmentName: message.attachments[0]?.name,
+    }),
     createdAt: threadInput.createdAt,
     lastActivityAt: threadInput.lastActivityAt,
     runtimeId: threadInput.runtimeId as RuntimeId,
@@ -1038,6 +1050,44 @@ const removeThread: AppStateCommandReducer = (snapshot, payload) => {
   return applyThreadDeletionToAppState(snapshot, [payload.threadId]);
 };
 
+// Authoritative automatic Thread title update. The title generator (issue #4)
+// and any other automatic path call this gate with the fallback title captured
+// at enqueue time (`expectedTitle`). The gate rejects any Thread that no longer
+// matches that fallback, so a late automatic result never overwrites a manual
+// rename, an archive, a deletion, or a concurrent title change. An accepted
+// update changes only the title and never sets the manual-title marker.
+const setAutomaticThreadTitle: AppStateCommandReducer = (snapshot, payload) => {
+  if (
+    !isRecord(payload) ||
+    typeof payload.threadId !== "string" ||
+    typeof payload.expectedTitle !== "string" ||
+    !isNonEmptyTrimmedString(payload.expectedTitle) ||
+    typeof payload.title !== "string" ||
+    !isNonEmptyTrimmedString(payload.title)
+  ) {
+    return null;
+  }
+  const thread = (snapshot.threads ?? []).find((item) => item.id === payload.threadId);
+  if (!thread) return null;
+  // Reject an Archived Thread: suspended content stays stable.
+  if (thread.archived) return null;
+  // Reject a manually titled Thread: a rename always wins over automatic titles.
+  if (thread.customTitle) return null;
+  // Reject when the current title no longer matches the expected fallback. This
+  // protects against a concurrent rename, a manual title cleared back to the
+  // fallback, or another automatic update that already landed.
+  if (thread.title !== payload.expectedTitle) return null;
+  const nextTitle = payload.title;
+  if (thread.title === nextTitle) return snapshot;
+
+  return {
+    ...snapshot,
+    threads: (snapshot.threads ?? []).map((item) =>
+      item.id === thread.id ? { ...item, title: nextTitle } : item,
+    ),
+  };
+};
+
 // Bounded Thread content update: patches the mutable Thread record fields and
 // merges message upserts by id (never deletes by omission). Covers
 // rename/pin/activity/Run Checklist updates and message append/stream updates.
@@ -1054,6 +1104,14 @@ const updateThreadContent: AppStateCommandReducer = (snapshot, payload) => {
     if (patch.title !== undefined) {
       if (typeof patch.title !== "string" || !patch.title.trim()) return null;
       nextThread.title = patch.title.trim();
+    }
+    if (patch.customTitle !== undefined) {
+      if (typeof patch.customTitle !== "boolean") return null;
+      if (patch.customTitle) {
+        nextThread.customTitle = true;
+      } else {
+        delete nextThread.customTitle;
+      }
     }
     if (patch.lastActivityAt !== undefined) {
       if (typeof patch.lastActivityAt !== "string") return null;
@@ -1091,7 +1149,9 @@ const updateThreadContent: AppStateCommandReducer = (snapshot, payload) => {
   if (payload.messages !== undefined || deleteIds.size > 0) {
     if (payload.messages !== undefined) {
       if (!Array.isArray(payload.messages)) return null;
-      if (payload.messages.some((message) => !isRecord(message) || message.threadId !== thread.id)) {
+      if (
+        payload.messages.some((message) => !isRecord(message) || message.threadId !== thread.id)
+      ) {
         return null;
       }
     }
@@ -1214,6 +1274,7 @@ export const appStateCommandReducers: Record<string, AppStateCommandReducer> = {
   "thread:rollback-run": rollbackThreadRun,
   "thread:record-action": recordThreadAction,
   "thread:remove": removeThread,
+  "thread:set-automatic-title": setAutomaticThreadTitle,
   "thread-draft:open": openThreadDraft,
   "thread-draft:update": updateThreadDraft,
   "thread-draft:update-config": updateThreadDraftConfig,

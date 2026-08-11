@@ -355,7 +355,9 @@ export function createChatRunAuthority(options: ChatRunAuthorityOptions) {
           requestKey: request.requestKey,
           error: error instanceof Error ? error.message : String(error),
         });
+        return result(false, runId);
       }
+      if (getRun(runId)?.status === "failed") return result(false, runId);
       return result(true, runId);
     },
 

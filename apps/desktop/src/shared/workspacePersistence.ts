@@ -178,6 +178,13 @@ export type AppStateSettings = {
   terminalPanelHeight: number;
   runtimeEnabledById: Partial<Record<RuntimeId, boolean>>;
   runtimeDefaultModelById: Partial<Record<RuntimeId, string>>;
+  // Concrete Kimi model id used by automatic Thread title generation. Omitted
+  // means "use the current Kimi default" (resolved per job from the live ACP
+  // model config). A concrete id is validated against the ACP model catalog at
+  // enqueue time; a removed or unavailable id skips generation rather than
+  // switching to another model. Affects only title generation — never a Thread
+  // Draft's selected Run model or an Association default.
+  threadTitleModelId?: string;
 };
 
 // Font-size bounds mirror src/renderer/lib/fontSize (kept renderer-local).
@@ -242,6 +249,14 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     }
   }
 
+  // threadTitleModelId is a single concrete model id (mirrors the per-runtime
+  // model id policy): a non-empty trimmed string survives, anything else is
+  // dropped so the title generator falls back to the Kimi default.
+  const threadTitleModelId =
+    typeof value.threadTitleModelId === "string" && value.threadTitleModelId.trim()
+      ? value.threadTitleModelId.trim()
+      : undefined;
+
   return {
     autoDetectRuntimes,
     theme,
@@ -250,6 +265,7 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     terminalPanelHeight,
     runtimeEnabledById,
     runtimeDefaultModelById,
+    ...(threadTitleModelId ? { threadTitleModelId } : {}),
   };
 }
 

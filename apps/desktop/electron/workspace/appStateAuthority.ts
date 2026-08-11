@@ -38,6 +38,11 @@ export function createAppStateAuthority(options: {
   reducers?: Record<string, AppStateCommandReducer>;
   publish: (subscriberId: number, state: AppStateAuthorityState) => void;
   onPersisted?: (snapshot: AppStateSnapshot) => void;
+  // Called after an accepted command has been persisted and broadcast, with the
+  // command and any data its reducer produced. Lets Main Process services react
+  // to an authoritative transition (a committed Thread Draft promotion) without
+  // trusting a separate Renderer message for the same fact.
+  onCommandAccepted?: (command: AppStateCommand, data: unknown) => void;
   maxAppliedCommandIds?: number;
 }) {
   const reducers = options.reducers ?? {};
@@ -80,6 +85,14 @@ export function createAppStateAuthority(options: {
     }
   }
 
+  function notifyCommandAccepted(command: AppStateCommand, data: unknown) {
+    try {
+      options.onCommandAccepted?.(command, data);
+    } catch {
+      // The command is already committed; observers cannot roll it back.
+    }
+  }
+
   function publishSnapshot(next: AppStateSnapshot, beforePublish?: () => void) {
     snapshot = next;
     revision += 1;
@@ -115,6 +128,7 @@ export function createAppStateAuthority(options: {
     // produced data) without persisting or broadcasting.
     if (next === snapshot) {
       rememberCommand(command.commandId);
+      notifyCommandAccepted(command, data);
       return { status: "accepted", revision, ...(data !== undefined ? { data } : {}) };
     }
     const normalized = normalizeAppStateSnapshotForMemory(next);
@@ -125,6 +139,7 @@ export function createAppStateAuthority(options: {
       return rejected("persistence-failed", String(error));
     }
     publishSnapshot(normalized, () => rememberCommand(command.commandId));
+    notifyCommandAccepted(command, data);
     return { status: "accepted", revision, ...(data !== undefined ? { data } : {}) };
   }
 

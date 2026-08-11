@@ -54,7 +54,7 @@ import {
   validateAttachmentSelection,
   type PendingAttachment,
 } from "../../lib/attachments";
-import { deriveThreadTitle } from "../../lib/threadTitle";
+import { deriveThreadTitle } from "../../../shared/threadTitle";
 import { ImageAttachmentLightbox, type LightboxItem } from "./ImageAttachmentLightbox";
 import { splitPatchIntoFileBlocks } from "./WorkspaceDiffViewer";
 
@@ -352,7 +352,9 @@ export type ComposerDraftRequest = {
 
 export type AssociationDraftPromotionInput = AppThreadRunStartInput & {
   assistantMessageId: string;
-  title: string;
+  // Visible composer text. The Main Process derives the promoted Thread's
+  // fallback title from it; the Renderer never supplies a finished title.
+  titleSource: string;
   draft: ThreadWorkDraftSnapshot;
 };
 
@@ -2645,12 +2647,12 @@ export function Composer(props: ComposerProps) {
       runtimeId: props.runtimeId,
       runtimeModelId: props.runtimeModelId,
     });
-    const associationDraftTitle =
-      props.mode === "association-draft"
-        ? deriveThreadTitle(messageText, { fallback: "" }) ||
-          attachmentMetadata[0]?.name ||
-          "New thread"
-        : null;
+    // The title source is the user-visible composer text, not the runtime
+    // prompt enriched with Skill references (currentInput is computed before
+    // the skill prefix is concatenated into messageText). It is sent as source
+    // data only: the Main Process derives the promoted Thread's fallback title
+    // and owns the automatic-title trigger.
+    const associationDraftTitleSource = props.mode === "association-draft" ? currentInput : "";
     const associationDraftSnapshot =
       props.mode === "association-draft"
         ? buildThreadDraftSnapshot({
@@ -2679,7 +2681,7 @@ export function Composer(props: ComposerProps) {
     if (props.mode === "association-draft") {
       const promoted = await props.onPromote({
         ...runInput,
-        title: associationDraftTitle!,
+        titleSource: associationDraftTitleSource,
         draft: associationDraftSnapshot!,
       });
       if (!promoted) {
@@ -2953,12 +2955,19 @@ export function Composer(props: ComposerProps) {
     }
 
     if (props.mode === "thread") {
+      // Legacy non-draft backfill: a Thread still literally named "New thread"
+      // without a manual rename marker receives the deterministic local
+      // fallback after a successful submission. The title is derived from the
+      // visible composer text (never the skill-enriched runtime prompt) and
+      // never invokes model generation. A manual rename — even one renamed
+      // back to "New thread" — is protected by the customTitle guard.
       if (thread && thread.title === "New thread" && !thread.customTitle) {
-        const title =
-          deriveThreadTitle(messageText, { fallback: "" }) ||
-          attachmentMetadata[0]?.name ||
-          "New thread";
-        upsertThread(props.projectId, { ...thread, title });
+        const title = deriveThreadTitle(currentInput, {
+          attachmentName: attachmentMetadata[0]?.name,
+        });
+        if (title !== thread.title) {
+          upsertThread(props.projectId, { ...thread, title });
+        }
       }
     }
 

@@ -116,6 +116,7 @@ function installBridge(
       ) => KimiSessionStatus | null | Promise<KimiSessionStatus | null>) = null,
   chatStopRequests: string[] = [],
   skills: SkillRecord[] = [],
+  mcpServerEnabled = false,
 ) {
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
   const terminalListeners = new Set<(event: import("../shared/terminal").TerminalEvent) => void>();
@@ -365,7 +366,7 @@ function installBridge(
       listModels: async () => ({ state: "listed", models: [] }),
     },
     mcpServer: {
-      getStatus: async () => ({ enabled: false, running: false }),
+      getStatus: async () => ({ enabled: mcpServerEnabled, running: mcpServerEnabled }),
       start: async () => ({ enabled: true, running: true }),
       stop: async () => ({ enabled: false, running: false }),
     },
@@ -552,6 +553,7 @@ type RenderAppOptions = {
     | ((request: ChatTurnRequest) => KimiSessionStatus | null | Promise<KimiSessionStatus | null>);
   chatStopRequests?: string[];
   skills?: SkillRecord[];
+  mcpServerEnabled?: boolean;
 };
 
 async function renderApp(
@@ -592,6 +594,7 @@ async function renderApp(
     options.sessionStatus,
     options.chatStopRequests,
     options.skills,
+    options.mcpServerEnabled,
   );
   await mountInstalledBridge(initialEntry, options.strictMode);
 
@@ -2179,6 +2182,8 @@ describe("Association Thread Drafts", () => {
       runtimeId: "kimi",
       runtimeModelId: "kimi-k2.5",
       runtimeMode: "approval-required",
+      // Derived by the Main Process from the visible composer text.
+      title: "Implement association drafts",
     });
     expect(saved.at(-1)?.threadMessages?.[0]).toMatchObject({
       threadId: requests[0].threadId,
@@ -2197,6 +2202,148 @@ describe("Association Thread Drafts", () => {
       runtimeModelId: "kimi-k2.5",
       runtimeMode: "approval-required",
     });
+  });
+
+  it("keeps Skill enrichment out of the automatic title source", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const restoredState: AppStateSnapshot = {
+      ...state,
+      threadDrafts: [
+        {
+          id: "draft-with-skill",
+          threadId: "thread-with-skill",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          content: "Fix the visible request",
+          attachedSkillNames: ["tdd"],
+          attachments: [],
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+    };
+    const saved = await renderApp(
+      restoredState,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      false,
+      requests,
+      false,
+      {
+        skills: [
+          {
+            name: "tdd",
+            description: "Test-driven development",
+            path: "/skills/tdd/SKILL.md",
+            source: "agents",
+          },
+        ],
+        mcpServerEnabled: true,
+      },
+    );
+
+    await waitForProjectDraft();
+    for (
+      let index = 0;
+      index < 20 && !container!.querySelector("[data-skill-marker='true']");
+      index += 1
+    ) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    }
+    expect(container!.querySelector("[data-skill-marker='true']")).not.toBe(null);
+    await click(composerSendButton());
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].message).toContain("[$tdd](/skills/tdd/SKILL.md)");
+    // The title the Main Process derived comes from the visible composer text,
+    // so Skill enrichment never reaches the title source.
+    const promotedThread = saved.at(-1)?.threads?.[0];
+    expect(promotedThread?.title).toBe("Fix the visible request");
+    expect(promotedThread?.title).not.toContain("[$tdd]");
+  });
+
+  it("derives the fallback from visible input beyond the model source limit", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const content = `${"\n".repeat(8_001)}Real request`;
+    const restoredState: AppStateSnapshot = {
+      ...state,
+      threadDrafts: [
+        {
+          id: "long-title-source-draft",
+          threadId: "long-title-source-thread",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          content,
+          attachedSkillNames: [],
+          attachments: [],
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+    };
+    const saved = await renderApp(
+      restoredState,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      false,
+      requests,
+    );
+
+    await waitForProjectDraft();
+    await click(composerSendButton());
+
+    expect(requests[0]?.message).toBe("Real request");
+    expect(saved.at(-1)?.threads?.[0]?.title).toBe("Real request");
+  });
+
+  it("uses the attachment basename for an attachment-only Draft promotion", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const restoredState: AppStateSnapshot = {
+      ...state,
+      threadDrafts: [
+        {
+          id: "attachment-only-draft",
+          threadId: "attachment-only-thread",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          content: "",
+          attachedSkillNames: [],
+          attachments: [
+            {
+              id: "attachment-1",
+              kind: "file",
+              name: "private-notes.txt",
+              mimeType: "text/plain",
+              size: 12,
+              storageKey: "attachment-1.txt",
+            },
+          ],
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+    };
+    const saved = await renderApp(
+      restoredState,
+      "/workspace/workspace-1/project/project-1",
+      [],
+      false,
+      requests,
+    );
+
+    await waitForProjectDraft();
+    await click(composerSendButton());
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].attachments?.[0]?.name).toBe("private-notes.txt");
+    // An empty visible source falls back to the attachment basename, and an
+    // empty title source cannot authorize model generation.
+    expect(saved.at(-1)?.threads?.[0]?.title).toBe("private-notes.txt");
   });
 
   it("keeps the first user message before Stopped after App State reload", async () => {

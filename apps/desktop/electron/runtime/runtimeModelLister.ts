@@ -34,25 +34,52 @@ export async function listKimiRuntimeModels(
         windowsHide: options.windowsHide,
       }) as ChildProcess,
   ),
+  abortSignal?: AbortSignal,
 ): Promise<RuntimeModelListResult> {
+  if (abortSignal?.aborted) {
+    return { state: "failed", models: [], lastError: "Kimi model listing cancelled." };
+  }
   return new Promise((resolve) => {
     let nextId = 1;
+    let settled = false;
     const pending = new Map<
       JsonRpcId,
       { resolve: (value: unknown) => void; reject: (error: Error) => void }
     >();
     const transport = transportFactory({ cwd });
-    const timeoutTimer = setTimeout(() => {
-      transport.close();
-      resolve({ state: "failed", models: [], lastError: "Timed out waiting for Kimi models." });
-    }, KIMI_LIST_MODELS_TIMEOUT_MS);
-
-    const cleanup = () => {
+    const finish = (result: RuntimeModelListResult) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeoutTimer);
-      transport.close();
+      abortSignal?.removeEventListener("abort", handleAbort);
+      const error = new Error(result.lastError ?? "Kimi model listing finished.");
+      for (const request of pending.values()) request.reject(error);
+      pending.clear();
+      let closing: void | Promise<void>;
+      try {
+        closing = transport.close();
+      } catch {
+        closing = undefined;
+      }
+      void Promise.resolve(closing)
+        .catch(() => {})
+        .then(() => resolve(result));
     };
+    const handleAbort = () =>
+      finish({ state: "failed", models: [], lastError: "Kimi model listing cancelled." });
+    const timeoutTimer = setTimeout(
+      () =>
+        finish({
+          state: "failed",
+          models: [],
+          lastError: "Timed out waiting for Kimi models.",
+        }),
+      KIMI_LIST_MODELS_TIMEOUT_MS,
+    );
+    abortSignal?.addEventListener("abort", handleAbort, { once: true });
 
     transport.onMessage((message) => {
+      if (settled) return;
       if (message.id == null || !pending.has(message.id as JsonRpcId)) return;
       const handler = pending.get(message.id as JsonRpcId)!;
       pending.delete(message.id as JsonRpcId);
@@ -66,15 +93,13 @@ export async function listKimiRuntimeModels(
       }
     });
     transport.onError((error) => {
-      cleanup();
-      resolve({ state: "failed", models: [], lastError: error.message });
+      finish({ state: "failed", models: [], lastError: error.message });
     });
-    transport.onClose(({ stderr, signal, code }) => {
-      cleanup();
-      resolve({
+    transport.onClose(({ stderr, signal: exitSignal, code }) => {
+      finish({
         state: "failed",
         models: [],
-        lastError: `Kimi ACP exited: ${stderr || signal || code || "unknown"}`,
+        lastError: `Kimi ACP exited: ${stderr || exitSignal || code || "unknown"}`,
       });
     });
 
@@ -99,8 +124,7 @@ export async function listKimiRuntimeModels(
         const sessionResult = readObject(result) ?? {};
         const modelConfig = findModelConfigOption(sessionResult.configOptions);
         if (!modelConfig) {
-          cleanup();
-          resolve({ state: "unsupported", models: [] });
+          finish({ state: "unsupported", models: [] });
           return;
         }
 
@@ -110,15 +134,13 @@ export async function listKimiRuntimeModels(
           const name = readString(optionObject?.name);
           return id && name ? [{ id, name, source: "cli" as const }] : [];
         });
-        cleanup();
-        resolve({
+        finish({
           state: "listed",
           models,
           defaultModelId: readString(modelConfig.currentValue) ?? undefined,
         });
       } catch (error) {
-        cleanup();
-        resolve({
+        finish({
           state: "failed",
           models: [],
           lastError: error instanceof Error ? error.message : String(error),

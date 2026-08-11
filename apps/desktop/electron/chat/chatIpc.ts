@@ -24,6 +24,7 @@ import { runtimeIds, type RuntimeId } from "../../src/shared/runtimes";
 import type { ChatSessionManager } from "./chatSessionManager";
 import type { ThreadActionRequest } from "../../src/shared/threadActions";
 import type { ChatRunAuthority } from "./chatRunAuthority";
+import type { ThreadTitleCoordinator } from "./threadTitleCoordinator";
 
 interface IpcMainLike {
   handle: (
@@ -39,6 +40,7 @@ export interface ChatIpcServices {
   threadDeletionManager?: {
     deleteThread: (request: ThreadDeletionTransactionRequest) => Promise<void>;
   };
+  threadTitleCoordinator?: Pick<ThreadTitleCoordinator, "enqueue">;
 }
 
 function senderIdOf(event: unknown): number {
@@ -383,7 +385,18 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
     const runId = req.runId ?? `run-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
     const acceptedRequest = { ...sanitizedRequest, runId };
-    return services.runAuthority.send(acceptedRequest);
+    const result = services.runAuthority.send(acceptedRequest);
+    // Automatic titles need an accepted first Run *and* a draft promotion this
+    // process committed. The coordinator holds the title source it recorded at
+    // promotion time and ignores a Run it has no promotion for, so a Renderer
+    // cannot request generation for a Thread that was never promoted.
+    if (result.accepted) {
+      services.threadTitleCoordinator?.enqueue({
+        threadId: acceptedRequest.threadId,
+        runId,
+      });
+    }
+    return result;
   });
 
   ipcMainLike.handle("chat:stop", async (_event, runId) => {

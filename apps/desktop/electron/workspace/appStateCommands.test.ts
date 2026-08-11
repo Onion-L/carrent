@@ -763,6 +763,32 @@ describe("settings:update", () => {
     expect(reduce("settings:update", makeSnapshot(), {})).toBe(null);
     expect(reduce("settings:update", makeSnapshot(), null)).toBe(null);
   });
+
+  it("persists a concrete threadTitleModelId selection", () => {
+    const next = reduce("settings:update", makeSnapshot(), {
+      settings: { ...DEFAULT_APP_STATE_SETTINGS, threadTitleModelId: "kimi-k2.5" },
+    }) as AppStateSnapshot;
+    expect(next.settings?.threadTitleModelId).toBe("kimi-k2.5");
+    expect(normalizeAppStateSnapshotForWrite(next)).not.toBe(null);
+  });
+
+  it("omits threadTitleModelId when unset, leaving the Kimi default active", () => {
+    const next = reduce("settings:update", makeSnapshot(), {
+      settings: { ...DEFAULT_APP_STATE_SETTINGS },
+    }) as AppStateSnapshot;
+    expect(next.settings?.threadTitleModelId).toBe(undefined);
+  });
+
+  it("drops a blank or non-string threadTitleModelId back to the default", () => {
+    const next = reduce("settings:update", makeSnapshot(), {
+      settings: {
+        ...DEFAULT_APP_STATE_SETTINGS,
+        threadTitleModelId: "   ",
+      },
+    }) as AppStateSnapshot;
+    expect(next.settings?.threadTitleModelId).toBe(undefined);
+    expect(next.settings?.theme).toBe(DEFAULT_APP_STATE_SETTINGS.theme);
+  });
 });
 
 describe("settings snapshot persistence", () => {
@@ -789,6 +815,19 @@ describe("settings snapshot persistence", () => {
 
     expect(normalized).not.toBe(null);
     expect(normalized?.settings).toBe(undefined);
+  });
+
+  it("round-trips a concrete threadTitleModelId through the snapshot normalizer", () => {
+    const snapshot = makeSnapshot({
+      settings: { ...DEFAULT_APP_STATE_SETTINGS, threadTitleModelId: "kimi-k2.5" },
+    });
+
+    const normalized = normalizeAppStateSnapshotForWrite(snapshot);
+
+    expect(normalized?.settings).toEqual({
+      ...DEFAULT_APP_STATE_SETTINGS,
+      threadTitleModelId: "kimi-k2.5",
+    });
   });
 });
 
@@ -923,11 +962,11 @@ describe("thread-draft commands", () => {
   const promotionPayload = () => ({
     draftId: "d-1",
     threadId: "draft-thread-1",
+    titleSource: "first turn",
     thread: {
       id: "draft-thread-1",
       workspaceId: "ws-a",
       projectId: "proj-1",
-      title: "First turn",
       createdAt: "2026-07-30T08:00:00.000Z",
       lastActivityAt: "2026-07-30T08:00:00.000Z",
       runtimeId: "kimi",
@@ -974,6 +1013,73 @@ describe("thread-draft commands", () => {
     expect(snapshot.threadMessages?.map((message) => message.id)).toEqual(["m-1", "assistant-1"]);
     expect(snapshot.threadRuns?.map((run) => run.id)).toEqual(["run-1"]);
     expect(normalizeAppStateSnapshotForWrite(snapshot)).not.toBe(null);
+  });
+
+  it("derives the promoted Thread title from the supplied source, not a Renderer title", () => {
+    const payload = promotionPayload();
+    const result = reduce("thread-draft:promote", makeSnapshot(), {
+      ...payload,
+      titleSource: "  Rewrite the settings navigation  \nAnd update the tests.",
+      // A Renderer-supplied title is not part of the contract and is ignored.
+      thread: { ...payload.thread, title: "Forged title" },
+    });
+
+    expect((result as { data: { thread: { title: string } } }).data.thread.title).toBe(
+      "Rewrite the settings navigation",
+    );
+  });
+
+  it("applies the authoritative fallback policy to the promoted Thread title", () => {
+    const payload = promotionPayload();
+    const promote = (overrides: Record<string, unknown>) =>
+      (
+        reduce("thread-draft:promote", makeSnapshot(), { ...payload, ...overrides }) as {
+          data: { thread: { title: string } };
+        }
+      ).data.thread.title;
+
+    // 48-grapheme ceiling, with the 48th grapheme replaced by an ellipsis.
+    const long = promote({ titleSource: "a".repeat(200) });
+    expect(long).toBe(`${"a".repeat(47)}…`);
+    expect([...new Intl.Segmenter("en", { granularity: "grapheme" }).segment(long)]).toHaveLength(
+      48,
+    );
+
+    // Emoji stay intact across the truncation boundary.
+    expect(promote({ titleSource: "👨‍👩‍👧‍👦".repeat(60) })).toBe(`${"👨‍👩‍👧‍👦".repeat(47)}…`);
+
+    // Whitespace folding, blank-line skipping, and the default fallback.
+    expect(promote({ titleSource: "\n\n   Fix   the    sidebar   \nlater" })).toBe(
+      "Fix the sidebar",
+    );
+    expect(promote({ titleSource: "   \n\t " })).toBe("New thread");
+    expect(promote({ titleSource: undefined })).toBe("New thread");
+
+    // An attachment basename is used only when the visible text yields nothing.
+    expect(
+      promote({
+        titleSource: "",
+        message: {
+          ...payload.message,
+          attachments: [
+            {
+              id: "attachment-1",
+              kind: "file",
+              name: "private-notes.txt",
+              mimeType: "text/plain",
+              size: 12,
+              storageKey: "attachment-1.txt",
+            },
+          ],
+        },
+      }),
+    ).toBe("private-notes.txt");
+  });
+
+  it("rejects a promotion whose title source is not a string", () => {
+    expect(
+      reduce("thread-draft:promote", makeSnapshot(), { ...promotionPayload(), titleSource: 42 }),
+    ).toBe(null);
   });
 
   it("resolves a lost promotion race to the existing thread without duplicating", () => {
@@ -1526,6 +1632,167 @@ describe("thread-content:update / thread-work:update", () => {
       null,
     );
     expect(reduce("thread-work:update", makeSnapshot(), { threadId: "t-1", work: {} })).toBe(null);
+  });
+});
+
+describe("thread-content:update customTitle marker", () => {
+  it("sets the manual-title marker through the patch", () => {
+    const next = reduce("thread-content:update", makeSnapshot(), {
+      threadId: "t-1",
+      thread: { title: "Manual", customTitle: true },
+    }) as AppStateSnapshot;
+    const thread = next.threads?.find((item) => item.id === "t-1");
+    expect(thread?.title).toBe("Manual");
+    expect(thread?.customTitle).toBe(true);
+    expect(normalizeAppStateSnapshotForWrite(next)).not.toBe(null);
+  });
+
+  it("clears an existing manual-title marker when customTitle is false", () => {
+    const base = makeSnapshot({
+      threads: [makeThread("t-1", "ws-a", "proj-1", { customTitle: true })],
+    });
+    const next = reduce("thread-content:update", base, {
+      threadId: "t-1",
+      thread: { customTitle: false },
+    }) as AppStateSnapshot;
+    const thread = next.threads?.find((item) => item.id === "t-1");
+    expect(thread?.customTitle).toBe(undefined);
+  });
+
+  it("leaves the marker untouched when the patch omits customTitle", () => {
+    const base = makeSnapshot({
+      threads: [makeThread("t-1", "ws-a", "proj-1", { customTitle: true })],
+    });
+    const next = reduce("thread-content:update", base, {
+      threadId: "t-1",
+      thread: { title: "Edited" },
+    }) as AppStateSnapshot;
+    const thread = next.threads?.find((item) => item.id === "t-1");
+    expect(thread?.title).toBe("Edited");
+    expect(thread?.customTitle).toBe(true);
+  });
+
+  it("rejects a non-boolean customTitle", () => {
+    expect(
+      reduce("thread-content:update", makeSnapshot(), {
+        threadId: "t-1",
+        thread: { customTitle: "yes" as unknown as boolean },
+      }),
+    ).toBe(null);
+  });
+});
+
+describe("thread:set-automatic-title", () => {
+  function baseSnapshot(expectedTitle: string) {
+    return makeSnapshot({
+      // t-1 carries the expected fallback title and no manual marker.
+      threads: [
+        makeThread("t-1", "ws-a", "proj-1", { title: expectedTitle }),
+        // t-3 is Archived in the default snapshot; t-2 is a separate thread.
+      ],
+    });
+  }
+
+  it("replaces the fallback title when the Thread is eligible", () => {
+    const next = reduce("thread:set-automatic-title", baseSnapshot("New thread"), {
+      threadId: "t-1",
+      expectedTitle: "New thread",
+      title: "Generated summary",
+    }) as AppStateSnapshot;
+    const thread = next.threads?.find((item) => item.id === "t-1");
+    expect(thread?.title).toBe("Generated summary");
+    // An automatic update must never set the manual-title marker.
+    expect(thread?.customTitle).toBe(undefined);
+    expect(normalizeAppStateSnapshotForWrite(next)).not.toBe(null);
+  });
+
+  it("never sets the manual-title marker on an eligible update", () => {
+    const next = reduce("thread:set-automatic-title", baseSnapshot("New thread"), {
+      threadId: "t-1",
+      expectedTitle: "New thread",
+      title: "Cleaned up title",
+    }) as AppStateSnapshot;
+    expect(next.threads?.find((item) => item.id === "t-1")?.customTitle).toBe(undefined);
+  });
+
+  it("is a no-op when the new title equals the current title", () => {
+    const before = baseSnapshot("Same title");
+    const next = reduce("thread:set-automatic-title", before, {
+      threadId: "t-1",
+      expectedTitle: "Same title",
+      title: "Same title",
+    });
+    // The reducer returns the same snapshot reference for a no-op.
+    expect(next).toBe(before);
+  });
+
+  it("rejects a missing Thread", () => {
+    expect(
+      reduce("thread:set-automatic-title", baseSnapshot("New thread"), {
+        threadId: "t-404",
+        expectedTitle: "New thread",
+        title: "Whatever",
+      }),
+    ).toBe(null);
+  });
+
+  it("rejects an Archived Thread", () => {
+    // t-3 is Archived in the default snapshot.
+    const base = makeSnapshot({
+      threads: [makeThread("t-3", "ws-a", "proj-1", { archived: true, title: "New thread" })],
+    });
+    expect(
+      reduce("thread:set-automatic-title", base, {
+        threadId: "t-3",
+        expectedTitle: "New thread",
+        title: "Late result",
+      }),
+    ).toBe(null);
+  });
+
+  it("rejects a manually titled Thread", () => {
+    const base = makeSnapshot({
+      threads: [makeThread("t-1", "ws-a", "proj-1", { title: "My title", customTitle: true })],
+    });
+    expect(
+      reduce("thread:set-automatic-title", base, {
+        threadId: "t-1",
+        expectedTitle: "My title",
+        title: "Automatic override",
+      }),
+    ).toBe(null);
+  });
+
+  it("rejects when the current title no longer matches the expected fallback", () => {
+    const base = makeSnapshot({
+      threads: [makeThread("t-1", "ws-a", "proj-1", { title: "Concurrent rename" })],
+    });
+    expect(
+      reduce("thread:set-automatic-title", base, {
+        threadId: "t-1",
+        expectedTitle: "New thread",
+        title: "Too late",
+      }),
+    ).toBe(null);
+  });
+
+  it("rejects an invalid payload shape", () => {
+    const base = baseSnapshot("New thread");
+    expect(reduce("thread:set-automatic-title", base, { threadId: "t-1" })).toBe(null);
+    expect(
+      reduce("thread:set-automatic-title", base, {
+        threadId: "t-1",
+        expectedTitle: " ",
+        title: "Generated",
+      }),
+    ).toBe(null);
+    expect(
+      reduce("thread:set-automatic-title", base, {
+        threadId: "t-1",
+        expectedTitle: "New thread",
+        title: "  ",
+      }),
+    ).toBe(null);
   });
 });
 

@@ -51,6 +51,17 @@ type ThreadTitleCoordinatorOptions = {
 
 type AcceptedThreadTitleJob = ThreadTitleJobInput & {
   expectedTitle: string;
+  // The user's configured title-model preference, snapshotted from settings at
+  // enqueue time so later Settings changes never alter an accepted job.
+  //
+  // - A concrete id (string) is validated against the ACP catalog at run time;
+  //   if it is no longer listed the job is abandoned without switching models.
+  // - Undefined means "Kimi default". The concrete default is resolvable only
+  //   from the ACP session's configOptions, so it is resolved at session/new
+  //   time (the earliest point the title process can report it) rather than at
+  //   enqueue. The preference itself is still snapshotted: a later switch to a
+  //   concrete id does not retroactively apply to a job accepted as "default".
+  modelId: string | undefined;
 };
 
 function readObject(value: unknown): JsonObject | null {
@@ -170,7 +181,11 @@ class TitleAcpClient {
     );
   }
 
-  async generate(cwd: string, source: string): Promise<{ modelId: string; output: string }> {
+  async generate(
+    cwd: string,
+    source: string,
+    configuredModelId: string | undefined,
+  ): Promise<{ modelId: string; output: string }> {
     await this.request("initialize", {
       protocolVersion: 1,
       clientCapabilities: {
@@ -188,13 +203,31 @@ class TitleAcpClient {
     if (!sessionId) throw new Error("Kimi ACP did not return a title session id.");
 
     const modelConfig = findModelConfig(session?.configOptions);
-    const modelId = readString(modelConfig?.currentValue);
     const supportedModels = readArray(modelConfig?.options).flatMap((option) => {
       const value = readString(readObject(option)?.value);
       return value ? [value] : [];
     });
-    if (!modelConfig || !modelId || !supportedModels.includes(modelId)) {
-      throw new Error("Kimi ACP default title model is unavailable.");
+
+    // Resolve the concrete model id to configure before prompting. A configured
+    // (snapshotted) selection wins and must be in the catalog — otherwise the
+    // job is abandoned without switching models or retrying. "Kimi default"
+    // (undefined) resolves to the ACP default; if that is missing the job fails
+    // the same way and the fallback title stays.
+    if (!modelConfig) {
+      throw new Error("Kimi ACP model config is unavailable.");
+    }
+    let modelId: string;
+    if (configuredModelId) {
+      if (!supportedModels.includes(configuredModelId)) {
+        throw new Error("Configured Thread title model is unavailable.");
+      }
+      modelId = configuredModelId;
+    } else {
+      const defaultId = readString(modelConfig.currentValue);
+      if (!defaultId || !supportedModels.includes(defaultId)) {
+        throw new Error("Kimi ACP default title model is unavailable.");
+      }
+      modelId = defaultId;
     }
 
     await this.request("session/set_config_option", {
@@ -276,6 +309,9 @@ function eligibleJob(
     ...input,
     source: boundTitleSource(input.source),
     expectedTitle: thread.title,
+    // Snapshot the configured model once: later Settings or Kimi default
+    // changes must not alter an already-accepted job.
+    modelId: snapshot.settings?.threadTitleModelId,
   };
 }
 
@@ -324,7 +360,11 @@ export function createThreadTitleCoordinator(options: ThreadTitleCoordinatorOpti
       });
       const transport = options.transportFactory({ cwd });
       client = new TitleAcpClient(transport);
-      const generated = await Promise.race([client.generate(cwd, job.source), timedOut, cancelled]);
+      const generated = await Promise.race([
+        client.generate(cwd, job.source, job.modelId),
+        timedOut,
+        cancelled,
+      ]);
       modelId = generated.modelId;
       const title = parseGeneratedTitle(generated.output);
       if (!title) {

@@ -3,6 +3,8 @@ import { describe, expect, it } from "bun:test";
 import type { AppStateCommand } from "../../src/shared/appStateAuthority";
 import {
   APP_STATE_SNAPSHOT_VERSION,
+  DEFAULT_APP_STATE_SETTINGS,
+  type AppStateSettings,
   type AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
 import { createAppStateAuthority } from "../workspace/appStateAuthority";
@@ -77,6 +79,10 @@ function makeSnapshot(): AppStateSnapshot {
     lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
     activeWorkspaceId: "workspace-1",
   };
+}
+
+function makeSettings(overrides: Partial<AppStateSettings> = {}): AppStateSettings {
+  return { ...DEFAULT_APP_STATE_SETTINGS, ...overrides };
 }
 
 class FakeTitleTransport implements KimiAcpTransport {
@@ -721,5 +727,170 @@ describe("createThreadTitleCoordinator", () => {
       ).toBe(false);
       expect(spawnCount).toBe(0);
     }
+  });
+
+  it("configures a snapshotted concrete threadTitleModelId before prompting", async () => {
+    const transports: FakeTitleTransport[] = [];
+    const commands: AppStateCommand[] = [];
+    const snapshot: AppStateSnapshot = {
+      ...makeSnapshot(),
+      settings: makeSettings({ threadTitleModelId: "kimi-k2.5" }),
+    };
+    const coordinator = createThreadTitleCoordinator({
+      getSnapshot: () => snapshot,
+      submitCommand: async (command) => {
+        commands.push(command);
+        return { status: "accepted", revision: 1 };
+      },
+      transportFactory: () => {
+        const transport = new FakeTitleTransport(undefined, {
+          configOptions: [
+            {
+              id: "model",
+              category: "model",
+              currentValue: "kimi-default-concrete",
+              options: [
+                { value: "kimi-default-concrete", name: "Kimi Default" },
+                { value: "kimi-k2.5", name: "Kimi K2.5" },
+              ],
+            },
+          ],
+        });
+        transports.push(transport);
+        return transport;
+      },
+      createWorkingDirectory: async () => "/private/carrent-title-configured-model",
+      removeWorkingDirectory: async () => {},
+    });
+
+    expect(
+      coordinator.enqueue({
+        threadId: "thread-1",
+        runId: "run-1",
+        source: "Visible first request",
+      }),
+    ).toBe(true);
+    await coordinator.waitForIdle();
+
+    // The configured model — not the ACP default — is selected and configured.
+    expect(transports[0]!.sent).toMatchObject([
+      { method: "initialize" },
+      { method: "session/new" },
+      {
+        method: "session/set_config_option",
+        params: { configId: "model", value: "kimi-k2.5" },
+      },
+      { method: "session/prompt" },
+    ]);
+    // The title commit carries the generated title, not the model id.
+    expect(commands[0]?.type).toBe("thread:set-automatic-title");
+  });
+
+  it("skips generation when a configured concrete model is no longer listed", async () => {
+    const transports: FakeTitleTransport[] = [];
+    const commands: AppStateCommand[] = [];
+    const snapshot: AppStateSnapshot = {
+      ...makeSnapshot(),
+      settings: makeSettings({ threadTitleModelId: "kimi-removed-model" }),
+    };
+    const coordinator = createThreadTitleCoordinator({
+      getSnapshot: () => snapshot,
+      submitCommand: async (command) => {
+        commands.push(command);
+        return { status: "accepted", revision: 1 };
+      },
+      transportFactory: () => {
+        const transport = new FakeTitleTransport(undefined, {
+          configOptions: [
+            {
+              id: "model",
+              category: "model",
+              currentValue: "kimi-default-concrete",
+              options: [{ value: "kimi-default-concrete", name: "Kimi Default" }],
+            },
+          ],
+        });
+        transports.push(transport);
+        return transport;
+      },
+      createWorkingDirectory: async () => "/private/carrent-title-removed-model",
+      removeWorkingDirectory: async () => {},
+    });
+
+    coordinator.enqueue({
+      threadId: "thread-1",
+      runId: "run-1",
+      source: "Visible first request",
+    });
+    await coordinator.waitForIdle();
+
+    // No title write, no prompt, and never a fallback to the ACP default model.
+    expect(commands).toEqual([]);
+    expect(transports[0]!.sent.some((message) => message.method === "session/prompt")).toBe(false);
+    expect(
+      transports[0]!.sent.find((message) => message.method === "session/set_config_option"),
+    ).toBeUndefined();
+    expect(transports[0]!.closeCount).toBe(1);
+  });
+
+  it("does not alter an accepted job when the setting changes after enqueue", async () => {
+    const transports: FakeTitleTransport[] = [];
+    const commands: AppStateCommand[] = [];
+    // The snapshot mutates after enqueue: the job must keep the model captured
+    // at acceptance time rather than re-reading the live setting.
+    let threadTitleModelId: string | undefined = "kimi-k2.5";
+    const coordinator = createThreadTitleCoordinator({
+      getSnapshot: () => ({
+        ...makeSnapshot(),
+        settings: makeSettings({ threadTitleModelId }),
+      }),
+      submitCommand: async (command) => {
+        commands.push(command);
+        return { status: "accepted", revision: 1 };
+      },
+      transportFactory: ({ cwd }) => {
+        void cwd;
+        const transport = new FakeTitleTransport(undefined, {
+          configOptions: [
+            {
+              id: "model",
+              category: "model",
+              currentValue: "kimi-default-concrete",
+              options: [
+                { value: "kimi-default-concrete", name: "Kimi Default" },
+                { value: "kimi-k2.5", name: "Kimi K2.5" },
+                { value: "kimi-k3", name: "Kimi K3" },
+              ],
+            },
+          ],
+        });
+        transports.push(transport);
+        return transport;
+      },
+      createWorkingDirectory: async () => {
+        // Flip the setting after the job is accepted but before ACP resolves.
+        threadTitleModelId = "kimi-k3";
+        return "/private/carrent-title-snapshot-stability";
+      },
+      removeWorkingDirectory: async () => {},
+    });
+
+    coordinator.enqueue({
+      threadId: "thread-1",
+      runId: "run-1",
+      source: "Visible first request",
+    });
+    await coordinator.waitForIdle();
+
+    // The job configured the model captured at enqueue, not the mutated value.
+    expect(transports[0]!.sent).toMatchObject([
+      { method: "initialize" },
+      { method: "session/new" },
+      {
+        method: "session/set_config_option",
+        params: { configId: "model", value: "kimi-k2.5" },
+      },
+      { method: "session/prompt" },
+    ]);
   });
 });

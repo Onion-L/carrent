@@ -763,6 +763,32 @@ describe("settings:update", () => {
     expect(reduce("settings:update", makeSnapshot(), {})).toBe(null);
     expect(reduce("settings:update", makeSnapshot(), null)).toBe(null);
   });
+
+  it("persists a concrete threadTitleModelId selection", () => {
+    const next = reduce("settings:update", makeSnapshot(), {
+      settings: { ...DEFAULT_APP_STATE_SETTINGS, threadTitleModelId: "kimi-k2.5" },
+    }) as AppStateSnapshot;
+    expect(next.settings?.threadTitleModelId).toBe("kimi-k2.5");
+    expect(normalizeAppStateSnapshotForWrite(next)).not.toBe(null);
+  });
+
+  it("omits threadTitleModelId when unset, leaving the Kimi default active", () => {
+    const next = reduce("settings:update", makeSnapshot(), {
+      settings: { ...DEFAULT_APP_STATE_SETTINGS },
+    }) as AppStateSnapshot;
+    expect(next.settings?.threadTitleModelId).toBe(undefined);
+  });
+
+  it("drops a blank or non-string threadTitleModelId back to the default", () => {
+    const next = reduce("settings:update", makeSnapshot(), {
+      settings: {
+        ...DEFAULT_APP_STATE_SETTINGS,
+        threadTitleModelId: "   ",
+      },
+    }) as AppStateSnapshot;
+    expect(next.settings?.threadTitleModelId).toBe(undefined);
+    expect(next.settings?.theme).toBe(DEFAULT_APP_STATE_SETTINGS.theme);
+  });
 });
 
 describe("settings snapshot persistence", () => {
@@ -789,6 +815,19 @@ describe("settings snapshot persistence", () => {
 
     expect(normalized).not.toBe(null);
     expect(normalized?.settings).toBe(undefined);
+  });
+
+  it("round-trips a concrete threadTitleModelId through the snapshot normalizer", () => {
+    const snapshot = makeSnapshot({
+      settings: { ...DEFAULT_APP_STATE_SETTINGS, threadTitleModelId: "kimi-k2.5" },
+    });
+
+    const normalized = normalizeAppStateSnapshotForWrite(snapshot);
+
+    expect(normalized?.settings).toEqual({
+      ...DEFAULT_APP_STATE_SETTINGS,
+      threadTitleModelId: "kimi-k2.5",
+    });
   });
 });
 

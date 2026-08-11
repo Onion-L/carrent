@@ -273,7 +273,7 @@ function IntegerInput({
   );
 }
 
-function FontFamilyInput({
+export function FontFamilyInput({
   value,
   onChange,
   label,
@@ -285,12 +285,18 @@ function FontFamilyInput({
   // updateSetting flows through the async App State snapshot, so the input
   // keeps a local draft and commits only on blur/Enter (mirrors IntegerInput).
   const [draft, setDraft] = useState(value);
+  const discardOnBlurRef = useRef(false);
 
   useEffect(() => {
     setDraft(value);
   }, [value]);
 
   const commit = () => {
+    if (discardOnBlurRef.current) {
+      discardOnBlurRef.current = false;
+      return;
+    }
+
     const next = draft.trim();
     if (next !== value) {
       onChange(next);
@@ -317,6 +323,8 @@ function FontFamilyInput({
         onKeyDown={(event) => {
           if (event.key === "Enter") event.currentTarget.blur();
           if (event.key === "Escape") {
+            // blur fires synchronously, before React applies setDraft.
+            discardOnBlurRef.current = true;
             setDraft(value);
             event.currentTarget.blur();
           }

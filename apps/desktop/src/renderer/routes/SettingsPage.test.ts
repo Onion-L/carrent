@@ -1,7 +1,12 @@
-import { describe, expect, it } from "bun:test";
-import { createElement } from "react";
+import { afterEach, describe, expect, it } from "bun:test";
+
+import "../test/registerHappyDom";
+
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  FontFamilyInput,
   KimiConnectionCheckError,
   KimiCliSetupNotice,
   ThreadTitleModelControl,
@@ -15,6 +20,16 @@ import {
   writeGlobalAgentInstructions,
   writeGlobalRtkInstructions,
 } from "./SettingsPage";
+
+let root: Root | null = null;
+let container: HTMLDivElement | null = null;
+
+afterEach(async () => {
+  await act(async () => root?.unmount());
+  container?.remove();
+  root = null;
+  container = null;
+});
 
 const kimiModel = {
   id: "kimi-k2.5",
@@ -38,13 +53,40 @@ function renderThreadTitleModelControl(
   );
 }
 
+async function renderFontFamilyInput(onChange: (value: string) => void) {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+
+  await act(async () => {
+    root!.render(
+      createElement(FontFamilyInput, {
+        value: "Geist",
+        label: "Font family",
+        onChange,
+      }),
+    );
+  });
+
+  return container.querySelector<HTMLInputElement>("#font-family-input")!;
+}
+
+function typeIntoInput(input: HTMLInputElement, text: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+  input.focus();
+  setter.call(input, text);
+  input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  input.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: text.at(-1) }));
+}
+
 describe("Thread title model setting", () => {
   it("shows Kimi default and concrete catalog models", () => {
     const defaultMarkup = renderThreadTitleModelControl();
     expect(defaultMarkup).toContain("Thread title model");
     expect(defaultMarkup).toContain("Kimi default");
     expect(defaultMarkup).toContain("<title>Kimi</title>");
-    expect(defaultMarkup).toContain("w-[240px]");
+    expect(defaultMarkup).toContain("w-[200px]");
+    expect(defaultMarkup).toContain("h-4 w-4");
     expect(defaultMarkup).toContain("whitespace-nowrap");
 
     const concreteMarkup = renderThreadTitleModelControl({
@@ -73,6 +115,27 @@ describe("Thread title model setting", () => {
     expect(failed).toContain("Kimi model catalog unavailable");
     expect(failed).toContain('aria-label="Retry loading Kimi models"');
     expect(failed).toContain('title="Authentication required"');
+  });
+});
+
+describe("Font family setting", () => {
+  it("discards an uncommitted draft when Escape is pressed", async () => {
+    const changes: string[] = [];
+    const input = await renderFontFamilyInput((value) => changes.push(value));
+
+    await act(async () => {
+      typeIntoInput(input, "Inter");
+    });
+    expect(input.value).toBe("Inter");
+
+    await act(async () => {
+      input.dispatchEvent(
+        new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" }),
+      );
+    });
+
+    expect(changes).toEqual([]);
+    expect(input.value).toBe("Geist");
   });
 });
 

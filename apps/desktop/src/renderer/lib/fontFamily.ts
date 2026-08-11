@@ -1,8 +1,6 @@
-// Base UI font stack. Kept in sync with the --font-sans :root default in
-// src/styles/index.css. A custom user font (when set) is prepended to this so
-// it wins, with Geist, Inter, and the OS stack remaining as fallbacks.
-export const BASE_FONT_SANS_STACK =
-  '"Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+// CSS owns the default font stack. A custom user font is prepended to this
+// reference so Geist, Inter, and the OS stack remain as fallbacks.
+export const BASE_FONT_SANS_STACK = "var(--font-sans-base)";
 
 // Escape a single font-family name for safe inclusion inside a double-quoted
 // CSS string. Backslash is escaped first so the quote escape's own backslash

@@ -175,7 +175,7 @@ describe("SettingsContext", () => {
 
     const withOverride = root.style.getPropertyValue("--font-sans");
     expect(withOverride.startsWith('"Comic Sans MS"')).toBe(true);
-    expect(withOverride).toContain('"Geist"');
+    expect(withOverride).toContain("var(--font-sans-base)");
 
     // Clear it: the inline override must be removed so the :root base stack wins.
     await act(async () => {

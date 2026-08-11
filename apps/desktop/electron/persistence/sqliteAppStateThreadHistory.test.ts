@@ -777,6 +777,7 @@ describe("SQLite App State thread history", () => {
         terminalPanelHeight: 400,
         runtimeEnabledById: { kimi: true },
         runtimeDefaultModelById: { kimi: "kimi-k2.5" },
+        customFontFamily: "",
       };
       snapshot.lastThreadIdByWorkspace = { "workspace-a": "thread-a" };
 

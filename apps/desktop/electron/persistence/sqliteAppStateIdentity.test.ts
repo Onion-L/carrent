@@ -111,6 +111,7 @@ function completeIdentitySnapshot(): AppStateSnapshot {
       terminalPanelHeight: 420,
       runtimeEnabledById: { kimi: false },
       runtimeDefaultModelById: { kimi: "kimi-k2.5" },
+      customFontFamily: "",
     },
     lastThreadIdByWorkspace: {
       "workspace-a": "thread-current",
@@ -244,6 +245,7 @@ describe("SQLite App State identity graph", () => {
         terminalPanelHeight: 320,
         runtimeEnabledById: {},
         runtimeDefaultModelById: {},
+        customFontFamily: "",
       });
       await store.close();
     } finally {

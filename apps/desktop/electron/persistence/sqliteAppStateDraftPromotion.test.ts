@@ -45,6 +45,7 @@ function baseSnapshot(): AppStateSnapshot {
       terminalPanelHeight: 320,
       runtimeEnabledById: {},
       runtimeDefaultModelById: {},
+      customFontFamily: "",
     },
     lastThreadIdByWorkspace: {},
     activeWorkspaceId: "workspace-a",

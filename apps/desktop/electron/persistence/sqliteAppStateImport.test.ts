@@ -134,6 +134,7 @@ function completeSnapshot(messageBytes = 32): AppStateSnapshot {
       terminalPanelHeight: 420,
       runtimeEnabledById: { kimi: true },
       runtimeDefaultModelById: { kimi: "kimi-k2.5" },
+      customFontFamily: "",
     },
     lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
     activeWorkspaceId: "workspace-1",

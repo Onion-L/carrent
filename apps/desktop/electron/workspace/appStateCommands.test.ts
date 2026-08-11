@@ -729,6 +729,7 @@ describe("settings:update", () => {
       terminalPanelHeight: 400,
       runtimeEnabledById: { kimi: false },
       runtimeDefaultModelById: { kimi: "kimi-k2.5" },
+      customFontFamily: "",
     });
     expect(normalizeAppStateSnapshotForWrite(snapshot)).not.toBe(null);
   });
@@ -788,6 +789,44 @@ describe("settings:update", () => {
     }) as AppStateSnapshot;
     expect(next.settings?.threadTitleModelId).toBe(undefined);
     expect(next.settings?.theme).toBe(DEFAULT_APP_STATE_SETTINGS.theme);
+  });
+
+  it("defaults customFontFamily to an empty string when omitted", () => {
+    const next = reduce("settings:update", makeSnapshot(), {
+      settings: { ...DEFAULT_APP_STATE_SETTINGS },
+    }) as AppStateSnapshot;
+    expect(next.settings?.customFontFamily).toBe("");
+  });
+
+  it("trims outer whitespace from customFontFamily but keeps internal spaces", () => {
+    const next = reduce("settings:update", makeSnapshot(), {
+      settings: { ...DEFAULT_APP_STATE_SETTINGS, customFontFamily: "  Noto Sans CJK SC  " },
+    }) as AppStateSnapshot;
+    expect(next.settings?.customFontFamily).toBe("Noto Sans CJK SC");
+  });
+
+  it("strips control characters from customFontFamily", () => {
+    const next = reduce("settings:update", makeSnapshot(), {
+      settings: {
+        ...DEFAULT_APP_STATE_SETTINGS,
+        customFontFamily: "\u0000Geist\u0007Name\u001F",
+      },
+    }) as AppStateSnapshot;
+    expect(next.settings?.customFontFamily).toBe("GeistName");
+  });
+
+  it("truncates customFontFamily to 64 characters", () => {
+    const next = reduce("settings:update", makeSnapshot(), {
+      settings: { ...DEFAULT_APP_STATE_SETTINGS, customFontFamily: "A".repeat(100) },
+    }) as AppStateSnapshot;
+    expect(next.settings?.customFontFamily).toBe("A".repeat(64));
+  });
+
+  it("falls back to empty string for a non-string customFontFamily", () => {
+    const next = reduce("settings:update", makeSnapshot(), {
+      settings: { ...DEFAULT_APP_STATE_SETTINGS, customFontFamily: { brand: "x" } },
+    }) as AppStateSnapshot;
+    expect(next.settings?.customFontFamily).toBe("");
   });
 });
 

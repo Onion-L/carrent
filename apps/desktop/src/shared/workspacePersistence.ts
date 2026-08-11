@@ -178,6 +178,13 @@ export type AppStateSettings = {
   terminalPanelHeight: number;
   runtimeEnabledById: Partial<Record<RuntimeId, boolean>>;
   runtimeDefaultModelById: Partial<Record<RuntimeId, string>>;
+  // Optional UI font-family override. When empty, the renderer uses the base
+  // Geist/Inter stack; when set, it is prepended to that stack so the user's
+  // font wins and Geist/Inter/system remain as fallbacks. CSS escaping happens
+  // at the write site (src/renderer/lib/fontFamily); the normalizer only
+  // validates shape — type check, trim outer whitespace, strip control chars,
+  // truncate.
+  customFontFamily: string;
   // Concrete Kimi model id used by automatic Thread title generation. Omitted
   // means "use the current Kimi default" (resolved per job from the live ACP
   // model config). A concrete id is validated against the ACP model catalog at
@@ -190,6 +197,7 @@ export type AppStateSettings = {
 // Font-size bounds mirror src/renderer/lib/fontSize (kept renderer-local).
 const MIN_SETTINGS_FONT_SIZE = 8;
 const MAX_SETTINGS_FONT_SIZE = 32;
+const MAX_CUSTOM_FONT_FAMILY_LENGTH = 64;
 
 export const DEFAULT_APP_STATE_SETTINGS: AppStateSettings = {
   autoDetectRuntimes: true,
@@ -199,6 +207,7 @@ export const DEFAULT_APP_STATE_SETTINGS: AppStateSettings = {
   terminalPanelHeight: 320,
   runtimeEnabledById: {},
   runtimeDefaultModelById: {},
+  customFontFamily: "",
 };
 
 export function normalizeAppStateSettings(value: unknown): AppStateSettings | null {
@@ -257,6 +266,19 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
       ? value.threadTitleModelId.trim()
       : undefined;
 
+  // customFontFamily: non-string falls back to the default. The order is fixed
+  // — type check → trim outer whitespace → strip control chars → truncate — so
+  // internal spaces survive (e.g. "SF Pro Display", "Noto Sans CJK SC"). CSS
+  // escaping of the survivor happens at the renderer write site, not here.
+  // \p{Cc} covers C0 controls + DEL (and C1); all are invalid in a font name.
+  const customFontFamily =
+    typeof value.customFontFamily === "string"
+      ? value.customFontFamily
+          .trim()
+          .replace(/\p{Cc}/gu, "")
+          .slice(0, MAX_CUSTOM_FONT_FAMILY_LENGTH)
+      : DEFAULT_APP_STATE_SETTINGS.customFontFamily;
+
   return {
     autoDetectRuntimes,
     theme,
@@ -265,6 +287,7 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     terminalPanelHeight,
     runtimeEnabledById,
     runtimeDefaultModelById,
+    customFontFamily,
     ...(threadTitleModelId ? { threadTitleModelId } : {}),
   };
 }

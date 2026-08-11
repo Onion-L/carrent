@@ -160,4 +160,41 @@ describe("SettingsContext", () => {
     expect(authority!.getState().revision).toBe(0);
     expect(localStorage.getItem("carrent:settings")).toBe(null);
   });
+
+  it("applies then removes the custom font family override on --font-sans", async () => {
+    await renderProviders(baseSnapshot);
+    const root = document.documentElement;
+
+    // No custom font yet: no inline override, so the :root base stack wins.
+    expect(root.style.getPropertyValue("--font-sans")).toBe("");
+
+    // Apply a non-empty custom font — it is quoted and prepended to the stack.
+    await act(async () => {
+      settingsValue!.updateSetting("customFontFamily", "Comic Sans MS");
+    });
+
+    const withOverride = root.style.getPropertyValue("--font-sans");
+    expect(withOverride.startsWith('"Comic Sans MS"')).toBe(true);
+    expect(withOverride).toContain('"Geist"');
+
+    // Clear it: the inline override must be removed so the :root base stack wins.
+    await act(async () => {
+      settingsValue!.updateSetting("customFontFamily", "");
+    });
+    expect(root.style.getPropertyValue("--font-sans")).toBe("");
+  });
+
+  it("escapes backslashes and quotes when writing the custom font family", async () => {
+    await renderProviders(baseSnapshot);
+    const root = document.documentElement;
+
+    await act(async () => {
+      settingsValue!.updateSetting("customFontFamily", 'Te"st\\Fo');
+    });
+
+    // The raw unescaped forms must not appear; the escaped forms must.
+    const value = root.style.getPropertyValue("--font-sans");
+    expect(value.startsWith('"Te\\"st\\\\Fo"')).toBe(true);
+    expect(value).not.toContain('Te"st');
+  });
 });

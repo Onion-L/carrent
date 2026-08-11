@@ -5,6 +5,7 @@ import { HashRouter } from "react-router-dom";
 import "katex/dist/katex.min.css";
 import "@carrent/ui/tokens.css";
 import "@carrent/ui/globals.css";
+import "../styles/fonts.css";
 import "../styles/index.css";
 
 import App from "./App";

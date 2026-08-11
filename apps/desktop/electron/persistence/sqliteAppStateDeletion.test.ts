@@ -163,6 +163,7 @@ function baseSnapshot(): AppStateSnapshot {
       terminalPanelHeight: 320,
       runtimeEnabledById: {},
       runtimeDefaultModelById: {},
+      customFontFamily: "",
     },
     lastThreadIdByWorkspace: { "workspace-a": "thread-deleted" },
     activeWorkspaceId: "workspace-a",

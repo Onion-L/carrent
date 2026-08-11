@@ -1,0 +1,37 @@
+/* UI fonts, bundled locally so the app renders consistently offline. Only the
+   Latin subsets are declared; non-Latin scripts (CJK, etc.) fall through the
+   --font-sans stack to the operating-system fonts, which is the desired
+   behaviour. Variable faces cover the full weight range; both normal and italic
+   faces are declared so chat Markdown emphasis renders with real italics. */
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/geist/files/geist-latin-wght-normal.woff2") format("woff2-variations");
+}
+
+@font-face {
+  font-family: "Geist";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/geist/files/geist-latin-wght-italic.woff2") format("woff2-variations");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2-variations");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/inter/files/inter-latin-wght-italic.woff2") format("woff2-variations");
+}

@@ -12,6 +12,7 @@ import {
   type AppStateSettings,
 } from "../../shared/workspacePersistence";
 import { getFontSizeCssVariables } from "../lib/fontSize";
+import { buildFontSansStack } from "../lib/fontFamily";
 import { useAppState } from "./AppStateContext";
 
 export type Theme = AppStateSettings["theme"];
@@ -140,6 +141,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       root.style.setProperty(property, value);
     }
   }, [settings.fontSize]);
+
+  /* Apply the custom font family. When set, prepend it (escaped) to the base
+     Geist/Inter stack as an inline override; when empty, remove the override so
+     the :root --font-sans in index.css wins. Inline style beats :root, so no
+     extra selector work is needed. */
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (settings.customFontFamily) {
+      root.style.setProperty("--font-sans", buildFontSansStack(settings.customFontFamily));
+    } else {
+      root.style.removeProperty("--font-sans");
+    }
+  }, [settings.customFontFamily]);
 
   const updateSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => {
     void updateSettings({ ...settings, [key]: value });

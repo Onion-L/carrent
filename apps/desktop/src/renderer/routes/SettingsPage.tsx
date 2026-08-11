@@ -273,6 +273,59 @@ function IntegerInput({
   );
 }
 
+function FontFamilyInput({
+  value,
+  onChange,
+  label,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+}) {
+  // updateSetting flows through the async App State snapshot, so the input
+  // keeps a local draft and commits only on blur/Enter (mirrors IntegerInput).
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const commit = () => {
+    const next = draft.trim();
+    if (next !== value) {
+      onChange(next);
+    } else {
+      setDraft(value);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-6 py-3.5">
+      <label className="text-app-13 text-fg" htmlFor="font-family-input">
+        {label}
+      </label>
+      <input
+        id="font-family-input"
+        type="text"
+        spellCheck={false}
+        autoComplete="off"
+        placeholder="Default (Geist / Inter)"
+        className="min-h-8 w-[200px] shrink-0 rounded-md border border-border bg-surface px-2 text-app-13 text-fg outline-none transition-colors focus:border-border-strong"
+        value={draft}
+        onBlur={commit}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") {
+            setDraft(value);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Static row                                                                */
 /* -------------------------------------------------------------------------- */
@@ -1387,7 +1440,7 @@ export function SettingsPage() {
   const { setSelectedThreadId, deleteThread: deleteThreadContent } = useThreadContent();
   const { workspaces, projects, associations, threads, restoreThread, permanentlyDeleteThread } =
     useAppState();
-  const { autoDetectRuntimes, theme, fontSize, enhancedTerminalCompletion, updateSetting } =
+  const { autoDetectRuntimes, theme, fontSize, enhancedTerminalCompletion, customFontFamily, updateSetting } =
     useSettings();
   const [searchParams] = useSearchParams();
   const activeTabId = resolveSettingsTabId(searchParams.get("tab"));
@@ -1452,6 +1505,11 @@ export function SettingsPage() {
                   label="Font size"
                   value={fontSize}
                   onChange={(value) => updateSetting("fontSize", value)}
+                />
+                <FontFamilyInput
+                  label="Font family"
+                  value={customFontFamily}
+                  onChange={(value) => updateSetting("customFontFamily", value)}
                 />
                 <Toggle
                   label="Enhanced terminal completion"

@@ -58,6 +58,7 @@ function baseSnapshot(overrides: Partial<AppThreadRecord> = {}): AppStateSnapsho
       terminalPanelHeight: 320,
       runtimeEnabledById: {},
       runtimeDefaultModelById: {},
+      customFontFamily: "",
     },
     lastThreadIdByWorkspace: {},
     activeWorkspaceId: "workspace-a",

@@ -125,6 +125,7 @@ function readArray(value: unknown): unknown[] {
 function titlePrompt(source: string): string {
   return [
     "Create a concise title in the language of the supplied Thread title source.",
+    "For English titles, use 1-8 words.",
     'Return only one JSON object with exactly one string property named "title".',
     "Do not use Markdown or add any other fields.",
     "The source may have been truncated.",
@@ -178,9 +179,7 @@ function parseGeneratedTitle(output: string): string | null {
     return bounded.text;
   }
 
-  const words = title.split(/\s+/u);
-  if (words.length < 3) return null;
-  return words.slice(0, 8).join(" ");
+  return title;
 }
 
 function findModelConfig(value: unknown): JsonObject | null {

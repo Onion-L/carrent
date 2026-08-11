@@ -928,6 +928,7 @@ describe("createThreadTitleCoordinator", () => {
         }
       )?.prompt?.[0]?.text ?? "";
     expect(promptText).toContain("exactly one string property");
+    expect(promptText).toContain("For English titles, use 1-8 words");
     expect(promptText).toContain("source may have been truncated");
     expect(transports[0]!.transport.sent.some((message) => message.method === "session/load")).toBe(
       false,
@@ -1032,22 +1033,13 @@ describe("createThreadTitleCoordinator", () => {
     expect(truncated[0]?.payload).toMatchObject({ title: expected });
   });
 
-  it("applies non-Han whitespace-delimited word rules", async () => {
-    expect(await commandsForOutput('{"title":"Improve navigation"}')).toHaveLength(0);
+  it("does not enforce English word counts after generation", async () => {
+    const short = await commandsForOutput('{"title":"Hi"}');
+    expect(short[0]?.payload).toMatchObject({ title: "Hi" });
 
-    const accepted = await commandsForOutput(
-      '{"title":"Improve desktop thread title generation flow now please"}',
-    );
-    expect(accepted[0]?.payload).toMatchObject({
-      title: "Improve desktop thread title generation flow now please",
-    });
-
-    const truncated = await commandsForOutput(
-      '{"title":"Improve the desktop automatic thread title generation flow now please"}',
-    );
-    expect(truncated[0]?.payload).toMatchObject({
-      title: "Improve the desktop automatic thread title generation flow",
-    });
+    const longTitle = "Improve the desktop automatic thread title generation flow now please";
+    const long = await commandsForOutput(JSON.stringify({ title: longTitle }));
+    expect(long[0]?.payload).toMatchObject({ title: longTitle });
   });
 
   it("bounds the visible source to 8000 graphemes before prompting", async () => {

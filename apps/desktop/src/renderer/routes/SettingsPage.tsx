@@ -121,7 +121,7 @@ function Select({
           aria-expanded={open}
           aria-haspopup="listbox"
           className={`flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-left transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 ${
-            wide ? "w-[240px]" : "w-[140px]"
+            wide ? "w-[200px]" : "w-[140px]"
           }`}
         >
           {icon}
@@ -132,7 +132,7 @@ function Select({
             {selected?.label ?? value}
           </span>
           <ChevronDown
-            className={`h-3 w-3 shrink-0 text-subtle transition-transform ${
+            className={`${wide ? "h-4 w-4" : "h-3 w-3"} shrink-0 text-subtle transition-transform ${
               open ? "rotate-180" : ""
             }`}
           />
@@ -143,7 +143,7 @@ function Select({
             role="listbox"
             aria-label={label}
             className={`absolute right-0 top-full z-10 mt-1 overflow-hidden rounded-md border border-border bg-surface shadow-lg shadow-black/10 ${
-              wide ? "w-[240px]" : "w-[140px]"
+              wide ? "w-[200px]" : "w-[140px]"
             }`}
           >
             {options.map((opt) => {
@@ -1458,11 +1458,7 @@ export function SettingsPage() {
       />
 
       <div className="flex-1 overflow-auto">
-        <div
-          className={`mx-auto w-full px-8 py-8 ${
-            activeTabId === "archives" ? "max-w-4xl" : "max-w-2xl"
-          }`}
-        >
+        <div className="mx-auto w-full max-w-4xl px-8 py-8">
           <div className="mb-8 flex items-center gap-2">
             <Settings className="h-5 w-5 text-subtle" />
             <h1 className="text-app-18 font-medium text-fg">{activeTab.label}</h1>

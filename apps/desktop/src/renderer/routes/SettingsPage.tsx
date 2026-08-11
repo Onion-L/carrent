@@ -80,12 +80,16 @@ function Select({
   options,
   label,
   description,
+  icon,
+  wide = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   options: { value: string; label: string }[];
   label: string;
   description?: string;
+  icon?: React.ReactNode;
+  wide?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -113,9 +117,20 @@ function Select({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex w-[140px] items-center justify-between rounded-md border border-border bg-surface px-3 py-1.5 text-left transition-colors hover:border-border-strong"
+          aria-label={label}
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          className={`flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-left transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 ${
+            wide ? "w-[240px]" : "w-[140px]"
+          }`}
         >
-          <span className="text-app-13 text-fg">{selected?.label ?? value}</span>
+          {icon}
+          <span
+            className="min-w-0 flex-1 truncate whitespace-nowrap text-app-13 text-fg"
+            title={selected?.label ?? value}
+          >
+            {selected?.label ?? value}
+          </span>
           <ChevronDown
             className={`h-3 w-3 shrink-0 text-subtle transition-transform ${
               open ? "rotate-180" : ""
@@ -124,7 +139,13 @@ function Select({
         </button>
 
         {open && (
-          <div className="absolute right-0 top-full z-10 mt-1 w-[140px] overflow-hidden rounded-md border border-border bg-surface shadow-lg shadow-black/10">
+          <div
+            role="listbox"
+            aria-label={label}
+            className={`absolute right-0 top-full z-10 mt-1 overflow-hidden rounded-md border border-border bg-surface shadow-lg shadow-black/10 ${
+              wide ? "w-[240px]" : "w-[140px]"
+            }`}
+          >
             {options.map((opt) => {
               const isActive = opt.value === value;
               return (
@@ -135,13 +156,18 @@ function Select({
                     onChange(opt.value);
                     setOpen(false);
                   }}
-                  className={`flex w-full px-3 py-2 text-left text-app-13 transition-colors ${
+                  role="option"
+                  aria-selected={isActive}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-app-13 transition-colors ${
                     isActive
                       ? "bg-surface-hover text-fg"
                       : "text-muted hover:bg-surface-raised hover:text-fg"
                   }`}
                 >
-                  {opt.label}
+                  {icon}
+                  <span className="min-w-0 flex-1 truncate whitespace-nowrap" title={opt.label}>
+                    {opt.label}
+                  </span>
                 </button>
               );
             })}
@@ -989,6 +1015,8 @@ export function ThreadTitleModelControl({
         description="Kimi model used to generate automatic Thread titles"
         value={selected}
         options={options}
+        icon={<RuntimeIcon name="Kimi" size="xs" />}
+        wide
         onChange={(value) => {
           onChange(value === THREAD_TITLE_MODEL_DEFAULT ? undefined : value);
         }}

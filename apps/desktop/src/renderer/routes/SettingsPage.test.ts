@@ -43,6 +43,9 @@ describe("Thread title model setting", () => {
     const defaultMarkup = renderThreadTitleModelControl();
     expect(defaultMarkup).toContain("Thread title model");
     expect(defaultMarkup).toContain("Kimi default");
+    expect(defaultMarkup).toContain("<title>Kimi</title>");
+    expect(defaultMarkup).toContain("w-[240px]");
+    expect(defaultMarkup).toContain("whitespace-nowrap");
 
     const concreteMarkup = renderThreadTitleModelControl({
       threadTitleModelId: kimiModel.id,

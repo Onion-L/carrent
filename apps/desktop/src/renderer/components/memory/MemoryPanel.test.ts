@@ -269,7 +269,9 @@ describe("MemoryPanel UI", () => {
         },
       },
     );
-    const revealButton = c.querySelector('button[aria-label="Reveal MEMORY.md in Finder"]');
+    const revealButton = [...c.querySelectorAll("button")].find(
+      (candidate) => candidate.textContent === "Reveal in Finder",
+    );
     if (!revealButton) throw new Error("reveal button not found");
 
     await click(revealButton);

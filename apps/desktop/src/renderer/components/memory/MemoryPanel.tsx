@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, FolderOpen, RefreshCw, Trash2 } from "lucide-react";
+import { FolderOpen, RefreshCw, Trash2 } from "lucide-react";
 
 import type { KimiMemoryFile, KimiMemoryIndex } from "../../../shared/kimiMemory";
 import { formatAbsoluteTime, formatRelativeTime } from "../../lib/formatRelativeTime";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { MarkdownContent } from "../chat/MarkdownContent";
+import { KimiIcon } from "../icons/KimiIcon";
 
 const PRELOAD_RESTART_MESSAGE =
   "Kimi memory support is not loaded in the current window. Restart Carrent and try again.";
@@ -262,7 +263,7 @@ export function MemoryPanelView({
               <div className="shrink-0 border-b border-border px-5 py-2.5">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-2">
-                    <FileText className="h-3.5 w-3.5 shrink-0 text-subtle" />
+                    <KimiIcon className="h-3.5 w-3.5 shrink-0 text-subtle" />
                     <span className="truncate text-app-13 font-medium text-fg">
                       {selectedFile.fileName}
                     </span>

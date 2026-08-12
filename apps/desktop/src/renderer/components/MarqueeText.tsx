@@ -15,7 +15,6 @@ export function MarqueeText({ children, className }: { children: ReactNode; clas
     const container = containerRef.current;
     const content = contentRef.current;
     if (!container || !content) return;
-    // scrollWidth reports the full text width even while it is ellipsized.
     const distance = content.scrollWidth - container.clientWidth;
     if (distance <= 0) return;
     setScroll({
@@ -29,13 +28,11 @@ export function MarqueeText({ children, className }: { children: ReactNode; clas
       ref={containerRef}
       onMouseEnter={startScroll}
       onMouseLeave={() => setScroll(null)}
-      className={`overflow-hidden ${className ?? ""}`}
+      className={`min-w-0 overflow-hidden ${className ?? ""}`}
     >
       <span
         ref={contentRef}
-        className={`whitespace-nowrap transition-transform ease-linear ${
-          scroll ? "inline-block" : "block truncate"
-        }`}
+        className="inline-block whitespace-nowrap transition-transform ease-linear"
         style={{
           transform: scroll ? `translateX(-${scroll.distance}px)` : undefined,
           transitionDuration: scroll ? `${scroll.durationMs}ms` : "200ms",

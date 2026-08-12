@@ -8,7 +8,7 @@ import type {
   AppStateCommandResult,
 } from "../../src/shared/appStateAuthority";
 import type { AppStateSnapshot } from "../../src/shared/workspacePersistence";
-import { boundGraphemes, boundThreadTitleSource } from "../../src/shared/threadTitle";
+import { boundThreadTitleSource } from "../../src/shared/threadTitle";
 import type { KimiAcpTransport, KimiAcpTransportFactory } from "./kimiAcpChat";
 
 type JsonRpcId = string | number;
@@ -174,11 +174,9 @@ function parseGeneratedTitle(output: string): string | null {
   if (!title) return null;
 
   if (/\p{Script=Han}/u.test(title)) {
-    const bounded = boundGraphemes(title, 18);
-    if (bounded.count < 6) return null;
-    return bounded.text;
+    const graphemeCount = [...new Intl.Segmenter("en", { granularity: "grapheme" }).segment(title)].length;
+    if (graphemeCount < 6) return null;
   }
-
   return title;
 }
 

@@ -3,7 +3,6 @@ import {
   boundGraphemes,
   boundThreadTitleSource,
   deriveThreadTitle,
-  MAX_THREAD_TITLE_GRAPHEMES,
 } from "./threadTitle";
 
 describe("deriveThreadTitle", () => {
@@ -64,40 +63,22 @@ describe("deriveThreadTitle", () => {
     expect(deriveThreadTitle("🇨🇳 flag")).toBe("🇨🇳 flag");
   });
 
-  it("truncates an overlong value to 48 graphemes and appends …", () => {
-    // 60 ASCII graphemes → first 47 + …
+  it("preserves an overlong title", () => {
     const long = "a".repeat(60);
     const result = deriveThreadTitle(long);
-    expect(result).toHaveLength(48);
-    expect(result.endsWith("…")).toBe(true);
-    expect(result.slice(0, 47)).toBe("a".repeat(47));
+    expect(result).toBe(long);
   });
 
-  it("does not truncate a value that is exactly 48 graphemes", () => {
-    const exact = "b".repeat(MAX_THREAD_TITLE_GRAPHEMES);
-    expect(deriveThreadTitle(exact)).toBe(exact);
-    expect(deriveThreadTitle(exact).endsWith("…")).toBe(false);
-  });
-
-  it("truncates long log-like content safely without splitting an emoji", () => {
-    // 60 wave emojis → first 47 emoji graphemes + …, never half an emoji.
+  it("preserves long emoji content without splitting graphemes", () => {
     const long = "👋".repeat(60);
     const result = deriveThreadTitle(long);
-    const graphemes = [
-      ...new Intl.Segmenter("en", { granularity: "grapheme" }).segment(result),
-    ].map((entry) => entry.segment);
-    expect(graphemes).toHaveLength(MAX_THREAD_TITLE_GRAPHEMES);
-    expect(graphemes.at(-1)).toBe("…");
-    // The grapheme before the ellipsis must be a full emoji, not a surrogate half.
-    expect(graphemes.slice(0, 47)).toEqual(Array(47).fill("👋"));
+    expect(result).toBe(long);
   });
 
-  it("truncates a multi-line value after choosing the first usable line", () => {
+  it("preserves a long first usable line", () => {
     const first = "c".repeat(60);
     const result = deriveThreadTitle(`\n${first}\nsecond line`);
-    expect(result).toHaveLength(48);
-    expect(result.endsWith("…")).toBe(true);
-    expect(result.slice(0, 47)).toBe("c".repeat(47));
+    expect(result).toBe(first);
   });
 
   it("uses the first attachment basename when the visible text is empty", () => {
@@ -192,18 +173,11 @@ describe("boundThreadTitleSource", () => {
 });
 
 describe("bounded work on long input", () => {
-  it("derives a title from a very long single-line source without full segmentation", () => {
-    // A pasted log or large code block must not be segmented grapheme by
-    // grapheme before truncation decides it is overlong.
+  it("preserves a very long single-line title", () => {
     const log = "E".repeat(1_000_000);
-    const before = process.memoryUsage().heapUsed;
     const title = deriveThreadTitle(log);
-    const growthMb = (process.memoryUsage().heapUsed - before) / 1024 / 1024;
 
-    expect(title).toBe(`${"E".repeat(47)}…`);
-    // One segment object per character would cost well over 100 MB. The bounded
-    // walk stops after ~48 graphemes, so growth stays near zero.
-    expect(growthMb).toBeLessThan(20);
+    expect(title).toBe(log);
   });
 
   it("bounds a long source without segmenting past the ceiling", () => {

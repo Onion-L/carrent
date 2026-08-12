@@ -13,10 +13,6 @@
 // once and reused; Intl.Segmenter is locale-insensitive at grapheme granularity.
 const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
 
-// The automatic-title fallback length ceiling. An overlong value is represented
-// as the first `MAX_THREAD_TITLE_GRAPHEMES - 1` graphemes followed by `…`.
-export const MAX_THREAD_TITLE_GRAPHEMES = 48;
-
 // The ceiling on the title source handed to the model. The deterministic
 // fallback still scans the complete visible input so it can find the first
 // non-empty line beyond this boundary.
@@ -67,22 +63,11 @@ type DeriveThreadTitleOptions = {
 };
 
 // Picks the first non-empty trimmed line and collapses runs of intra-line
-// whitespace to a single space. The iterator keeps at most 48 graphemes and
-// stops as soon as truncation is certain, so long lines stay constant-memory
-// without cutting a valid grapheme cluster or hiding content after long
-// leading whitespace.
+// whitespace to a single space.
 function firstUsableLine(value: string): string {
   let lineHasContent = false;
   let pendingSpace = false;
   let graphemes: string[] = [];
-
-  const append = (segment: string): string | null => {
-    if (graphemes.length === MAX_THREAD_TITLE_GRAPHEMES) {
-      return `${graphemes.slice(0, MAX_THREAD_TITLE_GRAPHEMES - 1).join("")}…`;
-    }
-    graphemes.push(segment);
-    return null;
-  };
 
   for (const { segment } of graphemeSegmenter.segment(value)) {
     if (segment.includes("\n")) {
@@ -98,12 +83,10 @@ function firstUsableLine(value: string): string {
 
     lineHasContent = true;
     if (pendingSpace) {
-      const truncated = append(" ");
-      if (truncated) return truncated;
+      graphemes.push(" ");
       pendingSpace = false;
     }
-    const truncated = append(segment);
-    if (truncated) return truncated;
+    graphemes.push(segment);
   }
   return lineHasContent ? graphemes.join("") : "";
 }
@@ -128,8 +111,7 @@ export function boundThreadTitleSource(
 //   2. If no usable line exists, apply the same policy to the attachment
 //      basename. If neither yields a line, return the fallback (default
 //      "New thread").
-//   3. Truncate the result to 48 grapheme clusters. An overlong value is
-//      represented as the first 47 graphemes followed by `…`.
+//   3. Preserve the complete first usable line.
 //
 // The source is the user-visible composer text, never the runtime prompt
 // enriched with Skill references, and never attachment contents.

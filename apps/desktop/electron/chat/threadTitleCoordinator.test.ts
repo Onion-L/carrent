@@ -1018,19 +1018,15 @@ describe("createThreadTitleCoordinator", () => {
     });
   });
 
-  it("applies Han grapheme length rules", async () => {
+  it("applies Han grapheme minimum length rules without truncating", async () => {
     expect(await commandsForOutput('{"title":"修复标题"}')).toHaveLength(0);
 
     const accepted = await commandsForOutput('{"title":"修复桌面标题生成"}');
     expect(accepted[0]?.payload).toMatchObject({ title: "修复桌面标题生成" });
 
     const longTitle = "这是一个超过十八个字的自动生成会话标题用于测试截断";
-    const truncated = await commandsForOutput(JSON.stringify({ title: longTitle }));
-    const expected = [...new Intl.Segmenter("en", { granularity: "grapheme" }).segment(longTitle)]
-      .slice(0, 18)
-      .map((entry) => entry.segment)
-      .join("");
-    expect(truncated[0]?.payload).toMatchObject({ title: expected });
+    const generated = await commandsForOutput(JSON.stringify({ title: longTitle }));
+    expect(generated[0]?.payload).toMatchObject({ title: longTitle });
   });
 
   it("does not enforce English word counts after generation", async () => {

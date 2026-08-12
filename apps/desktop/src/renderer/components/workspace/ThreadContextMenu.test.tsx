@@ -65,10 +65,10 @@ describe("ThreadContextMenuContent", () => {
     expect(markup).not.toContain("Pin thread");
   });
 
-  it("disables archiving with the blocked reason while a run is live", () => {
-    const markup = renderMenu({ archiveBlockedReason: "Stop the live Run before archiving" });
+  it("disables archiving with the blocked reason while compacting", () => {
+    const markup = renderMenu({ archiveBlockedReason: "Wait for Compact to finish before archiving" });
 
-    expect(markup).toContain('title="Stop the live Run before archiving"');
+    expect(markup).toContain('title="Wait for Compact to finish before archiving"');
     expect(markup).toContain("disabled");
   });
 

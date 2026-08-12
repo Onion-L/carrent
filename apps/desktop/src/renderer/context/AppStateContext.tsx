@@ -34,7 +34,6 @@ import {
 import type { AppStateAuthorityState } from "../../shared/appStateAuthority";
 import { DEFAULT_RUNTIME_MODE, type RuntimeMode } from "../../shared/runtimeMode";
 import { DEFAULT_RUNTIME_ID, type RuntimeId } from "../../shared/runtimes";
-import { getQueuedMessages } from "../hooks/chatMessageQueue";
 import { hasLiveRunForThread } from "../hooks/useChatRun";
 import { hasActiveThreadActionForThread } from "../hooks/useThreadActions";
 import {
@@ -1361,13 +1360,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     async (threadId: string) => {
       const current = snapshotRef.current;
       const thread = (current.threads ?? []).find((item) => item.id === threadId && !item.archived);
+      // Live runs and queued messages are cleared by the caller before
+      // archiving (see WorkspaceNavigationPane.handleArchive), so this no
+      // longer guards on them — archiving is allowed mid-run.
       if (
         !thread ||
         mutatingThreadIdsRef.current.has(threadId) ||
         startingRunThreadIdsRef.current.has(threadId) ||
-        hasLiveRunForThread(threadId) ||
-        hasActiveThreadActionForThread(threadId) ||
-        getQueuedMessages(threadId).length > 0
+        hasActiveThreadActionForThread(threadId)
       ) {
         return false;
       }

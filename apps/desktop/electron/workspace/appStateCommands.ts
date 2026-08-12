@@ -397,7 +397,8 @@ const setAssociationDefaults: AppStateCommandReducer = (snapshot, payload) => {
 };
 
 // Mirrors archiveThread: archiving clears the remembered location when it
-// points at the thread. Live-run guards stay in the renderer.
+// points at the thread. Callers stop any live Run and clear queued messages
+// before archiving, so no live-run guard is needed here.
 const archiveThread: AppStateCommandReducer = (snapshot, payload) => {
   if (!isRecord(payload) || typeof payload.threadId !== "string") return null;
   const thread = (snapshot.threads ?? []).find(

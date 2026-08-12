@@ -18,7 +18,7 @@ import { getThreadRuntimeSessionId } from "../../../shared/providerSessions";
 import type { AppThreadRecord } from "../../../shared/workspacePersistence";
 import { useAppState } from "../../context/AppStateContext";
 import { useThreadContent } from "../../context/ThreadContentContext";
-import { getQueuedMessages } from "../../hooks/chatMessageQueue";
+import { removeThreadWork } from "../../hooks/chatMessageQueue";
 import { useChatRun } from "../../hooks/useChatRun";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { buildProjectPath, buildThreadPath, buildWorkspacePath } from "../../lib/navigation";
@@ -66,7 +66,7 @@ export function WorkspaceNavigationPane() {
     projectDirectoryStatusById,
   } = useAppState();
   const { messages, renameThread, toggleThreadPin, deleteThreads } = useThreadContent();
-  const { runningThreadIds, pendingPermissions, pendingQuestions } = useChatRun();
+  const { runningThreadIds, pendingPermissions, pendingQuestions, stop } = useChatRun();
   const { compactingThreadIds } = useThreadActions();
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingProjectName, setEditingProjectName] = useState("");
@@ -514,13 +514,9 @@ export function WorkspaceNavigationPane() {
                         });
                         const statusMeta = status ? STATUS_META[status] : null;
                         const active = location.pathname === threadPath;
-                        const archiveBlockedReason = runningThreadIds.includes(thread.id)
-                          ? "Stop the live Run before archiving"
-                          : compactingThreadIds.includes(thread.id)
-                            ? "Wait for Compact to finish before archiving"
-                            : getQueuedMessages(thread.id).length > 0
-                              ? "Remove queued messages before archiving"
-                              : null;
+                        const archiveBlockedReason = compactingThreadIds.includes(thread.id)
+                          ? "Wait for Compact to finish before archiving"
+                          : null;
 
                         const handleArchive = async () => {
                           if (archiveBlockedReason) return;
@@ -538,6 +534,12 @@ export function WorkspaceNavigationPane() {
                                 : projectPath,
                             });
                           }
+                          // Allow archiving mid-run: stop any live Run, then
+                          // clear queued messages (and the draft) for it first.
+                          if (runningThreadIds.includes(thread.id)) {
+                            await stop(thread.id);
+                          }
+                          removeThreadWork([thread.id]);
                           const archived = await archiveThread(thread.id);
                           if (!archived) {
                             if (active) setArchiveNavigation(null);

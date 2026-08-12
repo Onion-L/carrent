@@ -17,10 +17,8 @@ import {
 } from "../components/chat/MessageTimeline";
 import {
   ThreadInspectorPane,
-  ThreadInspectorToggle,
   collectSubagentTasks,
-  resolveRightPane,
-  shouldShowInspectorToggle,
+  selectLatestChangedFilesMessage,
 } from "../components/chat/ThreadInspectorPane";
 import { WorkspaceDiffViewer } from "../components/chat/WorkspaceDiffViewer";
 import { DesktopHeaderPortal } from "../components/DesktopHeaderActions";
@@ -35,6 +33,11 @@ import { useChatRun } from "../hooks/useChatRun";
 import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
 import { useToast } from "../components/toast/ToastContext";
 import { BrowserWorkspace, useBrowserThread } from "../components/browser/BrowserWorkspace";
+import {
+  RightSurfacePane,
+  shouldOpenDiffSurface,
+  useRightSurface,
+} from "../components/right-surface/RightSurfacePane";
 
 export function resolveThreadRouteData(
   getThreadRouteData: ReturnType<typeof useThreadContent>["getThreadRouteData"],
@@ -117,8 +120,7 @@ function ThreadPageContent() {
     appWorkspace && appProject && appAssociation && appThread
       ? `${appWorkspace.name} / ${appAssociation.alias ?? appProject.name} / ${appThread.title}`
       : undefined;
-  const { state: diffState, closeDiff } = useThreadContentDiff();
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const { state: diffState, openDiff, closeDiff } = useThreadContentDiff();
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const browserTarget =
     appProject && routeData ? { projectId: appProject.id, threadId: routeData.thread.id } : null;
@@ -127,16 +129,18 @@ function ThreadPageContent() {
     setState: setBrowserState,
     open: openBrowser,
   } = useBrowserThread(browserTarget);
-  const [browserVisible, setBrowserVisible] = useState(false);
   const [browserFullscreen, setBrowserFullscreen] = useState(false);
-  const [browserWidth, setBrowserWidth] = useState<number | null>(null);
+  const [rightSurfaceWidth, setRightSurfaceWidth] = useState<number | null>(null);
   const browserFocusSequences = useRef(new Map<string, number>());
   const inspectorInput = getThreadInspectorInput(routeData);
   const inspectorTasks = useMemo(
     () => collectSubagentTasks(inspectorInput?.messages ?? []),
     [inspectorInput?.messages],
   );
-
+  const latestChanges = useMemo(
+    () => selectLatestChangedFilesMessage(inspectorInput?.messages ?? []),
+    [inspectorInput?.messages],
+  );
   useEffect(() => {
     setSelectedThreadId(routeData?.thread.id ?? null);
   }, [routeData?.thread.id, setSelectedThreadId]);
@@ -145,12 +149,10 @@ function ThreadPageContent() {
     setSubmitRequest(undefined);
     setDraftRequest(undefined);
     setSelectedTaskId(null);
-    setInspectorOpen(false);
     closeDiff();
   }, [routeData?.thread.id]);
 
   useEffect(() => {
-    setBrowserVisible(false);
     setBrowserFullscreen(false);
   }, [routeData?.thread.id]);
 
@@ -160,12 +162,36 @@ function ThreadPageContent() {
     browserState.threadId === browserTarget.threadId
       ? browserState
       : null;
+  const openBrowserSurface = useCallback(() => {
+    if (!activeBrowserState?.open || !activeBrowserState.contentOwned) void openBrowser();
+  }, [activeBrowserState?.contentOwned, activeBrowserState?.open, openBrowser]);
+  const {
+    activeSurface,
+    selectSurface,
+    openRightSurface,
+    closeRightSurface: closeSurface,
+    setSideContainer,
+  } = useRightSurface({
+    scopeKey: routeData?.thread.id ?? null,
+    openBrowser: openBrowserSurface,
+  });
 
   useEffect(() => {
-    if (!browserVisible || activeBrowserState?.placement !== "side") {
+    if (activeSurface !== "browser" || activeBrowserState?.placement !== "side") {
       setBrowserFullscreen(false);
     }
-  }, [activeBrowserState?.placement, browserVisible]);
+  }, [activeBrowserState?.placement, activeSurface]);
+
+  useEffect(() => {
+    if (
+      shouldOpenDiffSurface(
+        diffState.open ? diffState.scopeKey : null,
+        routeData?.thread.id ?? null,
+      )
+    ) {
+      selectSurface("changes");
+    }
+  }, [diffState, routeData?.thread.id, selectSurface]);
 
   useEffect(() => {
     if (
@@ -175,16 +201,14 @@ function ThreadPageContent() {
       return;
     }
     if (activeBrowserState.placement === "side") {
-      closeDiff();
-      setInspectorOpen(false);
-      setBrowserVisible(true);
+      selectSurface("browser");
     }
   }, [
     activeBrowserState?.focusSequence,
     activeBrowserState?.placement,
     activeBrowserState?.projectId,
     activeBrowserState?.threadId,
-    closeDiff,
+    selectSurface,
   ]);
 
   const handleSubmitUserEdit = useCallback((draft: UserMessageEditDraft) => {
@@ -239,10 +263,13 @@ function ThreadPageContent() {
     [showToast],
   );
 
-  const handleSelectSubagent = useCallback((taskId: string) => {
-    setSelectedTaskId(taskId);
-    setInspectorOpen(true);
-  }, []);
+  const handleSelectSubagent = useCallback(
+    (taskId: string) => {
+      setSelectedTaskId(taskId);
+      selectSurface("inspector");
+    },
+    [selectSurface],
+  );
   const isEmptyThread = routeData?.messages.length === 0;
   const composer = routeData ? (
     <Composer
@@ -293,14 +320,26 @@ function ThreadPageContent() {
     />
   ) : null;
 
-  const rightPane = resolveRightPane({ diffOpen: diffState.open, inspectorOpen });
   const showBrowser =
-    browserVisible &&
+    activeSurface === "browser" &&
     activeBrowserState?.open === true &&
     activeBrowserState.placement === "side" &&
     activeBrowserState.contentOwned &&
-    (browserFullscreen || rightPane === null) &&
     browserTarget !== null;
+
+  const closeRightSurface = () => {
+    closeDiff();
+    setBrowserFullscreen(false);
+    closeSurface();
+  };
+
+  const handleSelectSurface = (surface: Parameters<typeof selectSurface>[0]) => {
+    if (surface !== "changes") closeDiff();
+    selectSurface(surface);
+    if (surface === "changes" && latestChanges?.snapshot && routeData) {
+      openDiff(routeData.thread.id, latestChanges.snapshot, latestChanges.changedFiles);
+    }
+  };
 
   if (workspaceId && !appThread) {
     return <Navigate replace to={`/workspace/${workspaceId}/project/${projectId}`} />;
@@ -328,39 +367,19 @@ function ThreadPageContent() {
           />
         </DesktopHeaderPortal>
       ) : null}
-      {shouldShowInspectorToggle({
-        hasProjectEnvironment: !!inspectorInput,
-        taskCount: inspectorTasks.length,
-      }) && (
-        <DesktopHeaderPortal>
-          <ThreadInspectorToggle
-            open={inspectorOpen}
-            onToggle={() => setInspectorOpen((open) => !open)}
-          />
-        </DesktopHeaderPortal>
-      )}
       {browserTarget ? (
         <DesktopHeaderPortal>
           <button
             type="button"
-            aria-label={showBrowser ? "Hide browser" : "Show browser"}
-            title={showBrowser ? "Hide browser" : "Show browser"}
-            aria-pressed={showBrowser}
+            aria-label={activeSurface ? "Close right panel" : "Open right panel"}
+            title={activeSurface ? "Close right panel" : "Open right panel"}
+            aria-pressed={activeSurface !== null}
             onClick={() => {
-              if (showBrowser) {
-                setBrowserVisible(false);
-                setBrowserFullscreen(false);
-                return;
-              }
-              closeDiff();
-              setInspectorOpen(false);
-              setBrowserVisible(true);
-              if (!activeBrowserState?.open || !activeBrowserState.contentOwned) {
-                void openBrowser();
-              }
+              if (activeSurface) closeRightSurface();
+              else openRightSurface();
             }}
             className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-surface-hover ${
-              showBrowser ? "text-fg" : "text-muted hover:text-fg"
+              activeSurface ? "text-fg" : "text-muted hover:text-fg"
             }`}
           >
             <PanelRight className="h-4 w-4" />
@@ -407,77 +426,60 @@ function ThreadPageContent() {
             onToggleFullscreen={() => setBrowserFullscreen(false)}
           />
         </div>
-      ) : rightPane === "diff" && diffState.open ? (
-        <WorkspaceDiffViewer
-          snapshot={diffState.snapshot}
-          files={diffState.files}
-          onClose={closeDiff}
-          onCreateFollowUp={
-            routeData
-              ? (content) => {
-                  draftRequestIdRef.current += 1;
-                  setDraftRequest({
-                    threadId: routeData.thread.id,
-                    request: { content, requestId: draftRequestIdRef.current },
-                  });
-                  closeDiff();
-                }
-              : undefined
-          }
-        />
-      ) : rightPane === "inspector" ? (
-        <div className="absolute bottom-3 right-3 top-3 z-10 w-[24rem]">
-          <ThreadInspectorPane
-            messages={inspectorInput?.messages ?? []}
-            projectPath={inspectorInput?.projectPath}
-            selectedTaskId={selectedTaskId}
-            onSelectTask={setSelectedTaskId}
-            onClose={() => setInspectorOpen(false)}
-          />
-        </div>
-      ) : showBrowser && browserTarget && activeBrowserState ? (
-        <div
-          className="relative flex h-full min-w-[22rem] max-w-[70%] shrink-0 border-l border-border"
-          style={{ width: browserWidth ?? "45%" }}
+      ) : activeSurface ? (
+        <RightSurfacePane
+          activeSurface={activeSurface}
+          availability={{
+            browser: browserTarget !== null,
+            terminal: appProject !== undefined,
+            changes: latestChanges?.snapshot !== undefined,
+            inspector: inspectorInput !== null || inspectorTasks.length > 0,
+          }}
+          width={rightSurfaceWidth}
+          onWidthChange={setRightSurfaceWidth}
+          onSelect={handleSelectSurface}
+          onClose={closeRightSurface}
         >
-          <div
-            className="absolute bottom-0 left-0 top-0 z-20 w-1 -translate-x-1/2 cursor-col-resize"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              const startX = event.clientX;
-              const startWidth =
-                event.currentTarget.parentElement?.getBoundingClientRect().width ?? 520;
-              const onMove = (moveEvent: MouseEvent) => {
-                setBrowserWidth(
-                  Math.max(
-                    352,
-                    Math.min(window.innerWidth * 0.7, startWidth + startX - moveEvent.clientX),
-                  ),
-                );
-              };
-              const onUp = () => {
-                document.body.style.userSelect = "";
-                document.removeEventListener("mousemove", onMove);
-                document.removeEventListener("mouseup", onUp);
-              };
-              document.body.style.userSelect = "none";
-              document.addEventListener("mousemove", onMove);
-              document.addEventListener("mouseup", onUp);
-            }}
-          />
-          <BrowserWorkspace
-            target={browserTarget}
-            state={activeBrowserState}
-            setState={setBrowserState}
-            visible
-            onToggleFullscreen={() => {
-              closeDiff();
-              setInspectorOpen(false);
-              setBrowserVisible(true);
-              setBrowserFullscreen(true);
-            }}
-          />
-        </div>
+          {activeSurface === "browser" && showBrowser && browserTarget && activeBrowserState ? (
+            <BrowserWorkspace
+              target={browserTarget}
+              state={activeBrowserState}
+              setState={setBrowserState}
+              visible
+              onToggleFullscreen={() => setBrowserFullscreen(true)}
+            />
+          ) : activeSurface === "terminal" ? (
+            <div ref={setSideContainer} className="h-full w-full" />
+          ) : activeSurface === "changes" && diffState.open ? (
+            <WorkspaceDiffViewer
+              embedded
+              snapshot={diffState.snapshot}
+              files={diffState.files}
+              onClose={closeRightSurface}
+              onCreateFollowUp={
+                routeData
+                  ? (content) => {
+                      draftRequestIdRef.current += 1;
+                      setDraftRequest({
+                        threadId: routeData.thread.id,
+                        request: { content, requestId: draftRequestIdRef.current },
+                      });
+                      closeRightSurface();
+                    }
+                  : undefined
+              }
+            />
+          ) : activeSurface === "inspector" ? (
+            <ThreadInspectorPane
+              embedded
+              messages={inspectorInput?.messages ?? []}
+              projectPath={inspectorInput?.projectPath}
+              selectedTaskId={selectedTaskId}
+              onSelectTask={setSelectedTaskId}
+              onClose={closeRightSurface}
+            />
+          ) : null}
+        </RightSurfacePane>
       ) : null}
     </div>
   );

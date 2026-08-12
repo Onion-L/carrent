@@ -1,6 +1,7 @@
 import "@xterm/xterm/css/xterm.css";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -275,11 +276,15 @@ export function IntegratedTerminal({
   threadId,
   isOpen,
   onOpenChange,
+  placement = "bottom",
+  sideContainer = null,
 }: {
   project: AppProjectRecord | null;
   threadId: string | null;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
+  placement?: "bottom" | "side";
+  sideContainer?: HTMLElement | null;
 }) {
   const { enhancedTerminalCompletion, terminalPanelHeight, updateSetting } = useSettings();
   const [panelHeight, setPanelHeight] = useState(terminalPanelHeight);
@@ -506,6 +511,10 @@ export function IntegratedTerminal({
   }, [isOpen]);
 
   useEffect(() => {
+    if (placement === "side") setIsMaximized(false);
+  }, [placement]);
+
+  useEffect(() => {
     if (!isOpen || !activeTab) return;
     const timer = window.setTimeout(() => {
       const controller = controllers.current.get(activeTab.id);
@@ -611,21 +620,21 @@ export function IntegratedTerminal({
     else activeController.search.findPrevious(searchQuery);
   };
 
-  return (
+  const terminal = (
     <section
       aria-label="Integrated Terminal"
       data-terminal-maximized={isMaximized ? "true" : undefined}
-      className={`${isMaximized ? "absolute inset-0 z-30" : "relative shrink-0 border-t"} overflow-hidden border-border bg-[#151514] ${
+      className={`${isMaximized ? "absolute inset-0 z-30" : placement === "side" ? "relative h-full w-full" : "relative shrink-0 border-t"} overflow-hidden border-border bg-[#151514] ${
         isOpen && project ? "" : "hidden"
       }`}
-      style={isMaximized ? undefined : { height: panelHeight }}
+      style={isMaximized || placement === "side" ? undefined : { height: panelHeight }}
       onContextMenu={(event) => {
         if (!activeTab) return;
         event.preventDefault();
         setContextMenu({ x: event.clientX, y: event.clientY, terminalId: activeTab.id });
       }}
     >
-      {!isMaximized ? (
+      {!isMaximized && placement === "bottom" ? (
         <div
           role="separator"
           aria-label="Resize Integrated Terminal"
@@ -680,20 +689,24 @@ export function IntegratedTerminal({
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
-        <button
-          type="button"
-          aria-label={isMaximized ? "Restore Integrated Terminal" : "Maximize Integrated Terminal"}
-          title={isMaximized ? "Restore Integrated Terminal" : "Maximize Integrated Terminal"}
-          aria-pressed={isMaximized}
-          onClick={() => setIsMaximized((maximized) => !maximized)}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg"
-        >
-          {isMaximized ? (
-            <Minimize2 className="h-3.5 w-3.5" />
-          ) : (
-            <Maximize2 className="h-3.5 w-3.5" />
-          )}
-        </button>
+        {placement === "bottom" ? (
+          <button
+            type="button"
+            aria-label={
+              isMaximized ? "Restore Integrated Terminal" : "Maximize Integrated Terminal"
+            }
+            title={isMaximized ? "Restore Integrated Terminal" : "Maximize Integrated Terminal"}
+            aria-pressed={isMaximized}
+            onClick={() => setIsMaximized((maximized) => !maximized)}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg"
+          >
+            {isMaximized ? (
+              <Minimize2 className="h-3.5 w-3.5" />
+            ) : (
+              <Maximize2 className="h-3.5 w-3.5" />
+            )}
+          </button>
+        ) : null}
         <button
           type="button"
           aria-label="Close Terminal Panel"
@@ -864,4 +877,9 @@ export function IntegratedTerminal({
       ) : null}
     </section>
   );
+
+  if (placement === "side") {
+    return sideContainer ? createPortal(terminal, sideContainer) : null;
+  }
+  return terminal;
 }

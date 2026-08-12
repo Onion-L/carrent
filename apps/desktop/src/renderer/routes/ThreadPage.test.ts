@@ -3,11 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { resolveWorkspaceThreadRouteData } from "../context/ThreadContentContext";
 import { type Message, type SubagentTaskPart } from "../../shared/threadContent";
 import type { AppProjectRecord, AppThreadRecord } from "../../shared/workspacePersistence";
-import {
-  collectSubagentTasks,
-  resolveRightPane,
-  shouldShowInspectorToggle,
-} from "../components/chat/ThreadInspectorPane";
+import { collectSubagentTasks } from "../components/chat/ThreadInspectorPane";
 import {
   getThreadInspectorInput,
   recordBrowserFocusSequence,
@@ -163,16 +159,5 @@ describe("thread inspector integration", () => {
 
   it("returns null inspector input for a missing thread", () => {
     expect(getThreadInspectorInput(null)).toBe(null);
-  });
-
-  it("gives the Diff view precedence and restores the inspector when it closes", () => {
-    expect(resolveRightPane({ diffOpen: true, inspectorOpen: true })).toBe("diff");
-    expect(resolveRightPane({ diffOpen: false, inspectorOpen: true })).toBe("inspector");
-    expect(resolveRightPane({ diffOpen: false, inspectorOpen: false })).toBe(null);
-  });
-
-  it("shows the toggle for project Threads even without tasks", () => {
-    expect(shouldShowInspectorToggle({ hasProjectEnvironment: true, taskCount: 0 })).toBe(true);
-    expect(shouldShowInspectorToggle({ hasProjectEnvironment: true, taskCount: 2 })).toBe(true);
   });
 });

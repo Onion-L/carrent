@@ -18,6 +18,7 @@ type WorkspaceDiffViewerProps = {
   files: ChangedFile[];
   onClose: () => void;
   onCreateFollowUp?: (content: string) => void;
+  embedded?: boolean;
 };
 
 export type DiffLineClass = "header" | "hunk" | "addition" | "deletion" | "context" | "empty";
@@ -650,6 +651,7 @@ export function WorkspaceDiffViewer({
   files,
   onClose,
   onCreateFollowUp,
+  embedded = false,
 }: WorkspaceDiffViewerProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -668,25 +670,26 @@ export function WorkspaceDiffViewer({
 
   return (
     <div
-      className="flex h-full w-[32rem] min-w-0 shrink-0 flex-col border-l border-border bg-bg"
+      className={`flex h-full min-w-0 flex-col bg-bg ${
+        embedded ? "w-full" : "w-[32rem] shrink-0 border-l border-border"
+      }`}
       role="dialog"
       aria-label="Workspace diff"
     >
-      <div
-        className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3"
-        style={{ paddingTop: "env(titlebar-area-height, 12px)" }}
-      >
+      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
         <h2 className="text-app-15 font-medium text-fg">Workspace diff</h2>
-        <button
-          ref={closeButtonRef}
-          type="button"
-          onClick={onClose}
-          aria-label="Close workspace diff"
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted transition hover:bg-surface-hover hover:text-fg"
-          title="Close"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        {!embedded ? (
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={onClose}
+            aria-label="Close workspace diff"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted transition hover:bg-surface-hover hover:text-fg"
+            title="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">

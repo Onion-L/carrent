@@ -4,7 +4,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { Message, SubagentTaskPart } from "../../../shared/threadContent";
 import {
   ThreadInspectorContent,
-  ThreadInspectorToggle,
   collectSubagentTasks,
   formatSubagentTaskDuration,
   getChangedFilesTotals,
@@ -191,20 +190,6 @@ describe("ThreadInspectorContent", () => {
     // Overlay positioning belongs to the route wrapper, not the card.
     expect(html).not.toContain("absolute");
     expect(html).not.toContain("border-l");
-  });
-
-  it("renders an accessible titlebar toggle without a count badge", () => {
-    const html = renderToStaticMarkup(<ThreadInspectorToggle open={false} onToggle={() => {}} />);
-
-    expect(html).toContain('aria-label="Toggle thread tools card"');
-    expect(html).toContain('aria-pressed="false"');
-    expect(html).toContain('title="Environment and subagents"');
-    expect(html).toContain("lucide-sliders-horizontal");
-    expect(html).toContain("focus-visible:ring-2");
-    expect(html).not.toContain("rounded-full");
-
-    const open = renderToStaticMarkup(<ThreadInspectorToggle open={true} onToggle={() => {}} />);
-    expect(open).toContain('aria-pressed="true"');
   });
 
   it("renders a close button in the card header", () => {

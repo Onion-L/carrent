@@ -5,6 +5,7 @@ import type { WorkspaceDiffSnapshot } from "../components/chat/WorkspaceDiffView
 type WorkspaceDiffState =
   | {
       open: true;
+      scopeKey: string;
       snapshot: WorkspaceDiffSnapshot;
       files: ChangedFile[];
     }
@@ -12,7 +13,7 @@ type WorkspaceDiffState =
 
 export type WorkspaceDiffContextValue = {
   state: WorkspaceDiffState;
-  openDiff: (snapshot: WorkspaceDiffSnapshot, files: ChangedFile[]) => void;
+  openDiff: (scopeKey: string, snapshot: WorkspaceDiffSnapshot, files: ChangedFile[]) => void;
   closeDiff: () => void;
 };
 
@@ -25,8 +26,8 @@ const WorkspaceDiffContext = createContext<WorkspaceDiffContextValue>({
 export function WorkspaceDiffProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<WorkspaceDiffState>({ open: false });
 
-  const openDiff = (snapshot: WorkspaceDiffSnapshot, files: ChangedFile[]) => {
-    setState({ open: true, snapshot, files });
+  const openDiff = (scopeKey: string, snapshot: WorkspaceDiffSnapshot, files: ChangedFile[]) => {
+    setState({ open: true, scopeKey, snapshot, files });
   };
 
   const closeDiff = () => {

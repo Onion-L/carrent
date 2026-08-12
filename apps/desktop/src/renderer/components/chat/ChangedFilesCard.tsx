@@ -62,7 +62,7 @@ export function ChangedFilesCard({ message }: { message: ChangedFilesMessage }) 
           {hasSnapshot ? (
             <button
               type="button"
-              onClick={() => openDiff(message.snapshot!, message.changedFiles)}
+              onClick={() => openDiff(message.threadId, message.snapshot!, message.changedFiles)}
               className="rounded-md px-2.5 py-1 text-app-12 text-muted transition hover:bg-surface-hover hover:text-fg"
             >
               View diff

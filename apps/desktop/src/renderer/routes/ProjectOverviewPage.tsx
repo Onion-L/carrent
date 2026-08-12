@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { PanelRight } from "lucide-react";
 
@@ -7,12 +7,13 @@ import { ChatHeader } from "../components/chat/ChatHeader";
 import { OpenInMenu } from "../components/chat/OpenInMenu";
 import { Composer } from "../components/chat/Composer";
 import { EmptyThreadPrompt } from "../components/chat/MessageTimeline";
-import { ThreadInspectorPane, ThreadInspectorToggle } from "../components/chat/ThreadInspectorPane";
+import { ThreadInspectorPane } from "../components/chat/ThreadInspectorPane";
 import { DesktopHeaderPortal } from "../components/DesktopHeaderActions";
 import { BrowserWorkspace, useBrowserThread } from "../components/browser/BrowserWorkspace";
 import type { AssociationThreadDraftRecord } from "../../shared/workspacePersistence";
 import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
 import { useChatRun } from "../hooks/useChatRun";
+import { RightSurfacePane, useRightSurface } from "../components/right-surface/RightSurfacePane";
 
 export function ProjectOverviewPage() {
   const { workspaceId, projectId } = useParams();
@@ -46,15 +47,10 @@ export function ProjectOverviewPage() {
     setState: setBrowserState,
     open: openBrowser,
   } = useBrowserThread(browserTarget);
-  const [browserVisible, setBrowserVisible] = useState(false);
   const [browserFullscreen, setBrowserFullscreen] = useState(false);
-  const [browserWidth, setBrowserWidth] = useState<number | null>(null);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
-
+  const [rightSurfaceWidth, setRightSurfaceWidth] = useState<number | null>(null);
   useEffect(() => {
-    setBrowserVisible(false);
     setBrowserFullscreen(false);
-    setInspectorOpen(false);
   }, [openDraft?.threadId]);
 
   const activeBrowserState =
@@ -63,12 +59,26 @@ export function ProjectOverviewPage() {
     browserState.threadId === browserTarget.threadId
       ? browserState
       : null;
+  const openBrowserSurface = useCallback(() => {
+    if (!activeBrowserState?.open || !activeBrowserState.contentOwned) void openBrowser();
+  }, [activeBrowserState?.contentOwned, activeBrowserState?.open, openBrowser]);
+  const {
+    activeSurface,
+    selectSurface,
+    openRightSurface,
+    closeRightSurface: closeSurface,
+    setSideContainer,
+  } = useRightSurface({
+    scopeKey: openDraft?.threadId ?? null,
+    openBrowser: openBrowserSurface,
+  });
 
   useEffect(() => {
-    if (!browserVisible || activeBrowserState?.placement !== "side") {
+    if (activeSurface !== "browser" || activeBrowserState?.placement !== "side") {
       setBrowserFullscreen(false);
     }
-  }, [activeBrowserState?.placement, browserVisible]);
+  }, [activeBrowserState?.placement, activeSurface]);
+
   useEffect(() => {
     if (
       !workspaceId ||
@@ -115,12 +125,16 @@ export function ProjectOverviewPage() {
 
   const displayName = association.alias ?? project.name;
   const showBrowser =
-    browserVisible &&
+    activeSurface === "browser" &&
     activeBrowserState?.open === true &&
     activeBrowserState.placement === "side" &&
     activeBrowserState.contentOwned &&
-    (browserFullscreen || !inspectorOpen) &&
     browserTarget !== null;
+
+  const closeRightSurface = () => {
+    setBrowserFullscreen(false);
+    closeSurface();
+  };
   if (projectDirectoryStatusById[project.id] === "unavailable") {
     return (
       <ProjectDirectoryUnavailable
@@ -142,31 +156,17 @@ export function ProjectOverviewPage() {
           />
         </DesktopHeaderPortal>
         <DesktopHeaderPortal>
-          <ThreadInspectorToggle
-            open={inspectorOpen}
-            onToggle={() => setInspectorOpen((open) => !open)}
-          />
-        </DesktopHeaderPortal>
-        <DesktopHeaderPortal>
           <button
             type="button"
-            aria-label={showBrowser ? "Hide browser" : "Show browser"}
-            title={showBrowser ? "Hide browser" : "Show browser"}
-            aria-pressed={showBrowser}
+            aria-label={activeSurface ? "Close right panel" : "Open right panel"}
+            title={activeSurface ? "Close right panel" : "Open right panel"}
+            aria-pressed={activeSurface !== null}
             onClick={() => {
-              if (showBrowser) {
-                setBrowserVisible(false);
-                setBrowserFullscreen(false);
-                return;
-              }
-              setInspectorOpen(false);
-              setBrowserVisible(true);
-              if (!activeBrowserState?.open || !activeBrowserState.contentOwned) {
-                void openBrowser();
-              }
+              if (activeSurface) closeRightSurface();
+              else openRightSurface();
             }}
             className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-surface-hover ${
-              showBrowser ? "text-fg" : "text-muted hover:text-fg"
+              activeSurface ? "text-fg" : "text-muted hover:text-fg"
             }`}
           >
             <PanelRight className="h-4 w-4" />
@@ -274,58 +274,36 @@ export function ProjectOverviewPage() {
               onToggleFullscreen={() => setBrowserFullscreen(false)}
             />
           </div>
-        ) : inspectorOpen ? (
-          <div className="absolute bottom-3 right-3 top-3 z-10 w-[24rem]">
-            <ThreadInspectorPane
-              messages={[]}
-              projectPath={project.workingDirectory}
-              selectedTaskId={null}
-              onSelectTask={() => {}}
-              onClose={() => setInspectorOpen(false)}
-            />
-          </div>
-        ) : showBrowser && browserTarget && activeBrowserState ? (
-          <div
-            className="relative flex h-full min-w-[22rem] max-w-[70%] shrink-0 border-l border-border"
-            style={{ width: browserWidth ?? "45%" }}
+        ) : activeSurface ? (
+          <RightSurfacePane
+            activeSurface={activeSurface}
+            availability={{ browser: true, terminal: true, changes: false, inspector: true }}
+            width={rightSurfaceWidth}
+            onWidthChange={setRightSurfaceWidth}
+            onSelect={selectSurface}
+            onClose={closeRightSurface}
           >
-            <div
-              className="absolute bottom-0 left-0 top-0 z-20 w-1 -translate-x-1/2 cursor-col-resize"
-              onMouseDown={(event) => {
-                event.preventDefault();
-                const startX = event.clientX;
-                const startWidth =
-                  event.currentTarget.parentElement?.getBoundingClientRect().width ?? 520;
-                const onMove = (moveEvent: MouseEvent) => {
-                  setBrowserWidth(
-                    Math.max(
-                      352,
-                      Math.min(window.innerWidth * 0.7, startWidth + startX - moveEvent.clientX),
-                    ),
-                  );
-                };
-                const onUp = () => {
-                  document.body.style.userSelect = "";
-                  document.removeEventListener("mousemove", onMove);
-                  document.removeEventListener("mouseup", onUp);
-                };
-                document.body.style.userSelect = "none";
-                document.addEventListener("mousemove", onMove);
-                document.addEventListener("mouseup", onUp);
-              }}
-            />
-            <BrowserWorkspace
-              target={browserTarget}
-              state={activeBrowserState}
-              setState={setBrowserState}
-              visible
-              onToggleFullscreen={() => {
-                setInspectorOpen(false);
-                setBrowserVisible(true);
-                setBrowserFullscreen(true);
-              }}
-            />
-          </div>
+            {activeSurface === "browser" && showBrowser && browserTarget && activeBrowserState ? (
+              <BrowserWorkspace
+                target={browserTarget}
+                state={activeBrowserState}
+                setState={setBrowserState}
+                visible
+                onToggleFullscreen={() => setBrowserFullscreen(true)}
+              />
+            ) : activeSurface === "terminal" ? (
+              <div ref={setSideContainer} className="h-full w-full" />
+            ) : activeSurface === "inspector" ? (
+              <ThreadInspectorPane
+                embedded
+                messages={[]}
+                projectPath={project.workingDirectory}
+                selectedTaskId={null}
+                onSelectTask={() => {}}
+                onClose={closeRightSurface}
+              />
+            ) : null}
+          </RightSurfacePane>
         ) : null}
       </div>
     );

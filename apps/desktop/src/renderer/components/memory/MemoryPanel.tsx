@@ -230,7 +230,10 @@ export function MemoryPanelView({
                     <span className="truncate text-app-13 font-medium text-fg">
                       {selectedFile.fileName}
                     </span>
-                    <span className="shrink-0 text-app-11 text-subtle">
+                    <span
+                      className="shrink-0 text-app-11 text-subtle"
+                      title={formatAbsoluteTime(selectedFile.modifiedAt)}
+                    >
                       {formatRelativeTime(selectedFile.modifiedAt)}
                     </span>
                   </div>
@@ -275,6 +278,14 @@ export function MemoryPanelView({
                     </button>
                   </div>
                 </div>
+                {selectedFile.description !== "" ? (
+                  <div
+                    className="mt-1 truncate text-app-11 text-subtle"
+                    title={selectedFile.description}
+                  >
+                    {selectedFile.description}
+                  </div>
+                ) : null}
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -283,15 +294,6 @@ export function MemoryPanelView({
                     <span className="text-app-12 text-subtle">(empty)</span>
                   ) : (
                     <div className="max-w-[70ch]">
-                      <div className="mb-3 flex flex-col gap-0.5 border-b border-border pb-3">
-                        {selectedFile.description !== "" ? (
-                          <span className="text-app-12 text-muted">{selectedFile.description}</span>
-                        ) : null}
-                        <span className="text-app-10 text-subtle">
-                          {selectedFile.type} · Modified{" "}
-                          {formatAbsoluteTime(selectedFile.modifiedAt)}
-                        </span>
-                      </div>
                       <div className="flex flex-col gap-2">
                         <MarkdownContent>{selectedFile.body}</MarkdownContent>
                       </div>

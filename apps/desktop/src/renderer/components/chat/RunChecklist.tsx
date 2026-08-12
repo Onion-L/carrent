@@ -59,7 +59,7 @@ export function RunChecklist({
         aria-controls={panelId}
         aria-expanded={checklist.expanded}
         onClick={() => onExpandedChange(!checklist.expanded)}
-        className="flex min-h-6 w-full items-center gap-2 px-3 text-left text-app-12 text-muted transition hover:bg-surface-hover hover:text-fg"
+        className="flex min-h-9 w-full items-center gap-2 px-3 text-left text-app-12 text-muted transition hover:bg-surface-hover hover:text-fg"
       >
         <span className="font-medium text-fg">
           Step {progress} of {checklist.entries.length}

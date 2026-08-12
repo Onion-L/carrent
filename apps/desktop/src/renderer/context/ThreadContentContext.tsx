@@ -68,7 +68,7 @@ export function applyRunChecklistUpdate(
         runtimeId: update.runtimeId,
         entries: update.entries,
         outcome: "running",
-        expanded: thread.runChecklist?.runId === update.runId ? thread.runChecklist.expanded : true,
+        expanded: thread.runChecklist?.runId === update.runId ? thread.runChecklist.expanded : false,
       },
     };
   }

@@ -40,15 +40,15 @@ describe("applyRunChecklistUpdate", () => {
     planMode: false,
   };
 
-  it("auto-expands the first snapshot and fully replaces later entries", () => {
+  it("keeps the first snapshot collapsed and fully replaces later entries", () => {
     const first = applyRunChecklistUpdate(thread, {
       kind: "snapshot",
       runId: "run-1",
       runtimeId: "kimi",
       entries: [{ content: "Inspect", status: "in_progress" }],
     });
-    const collapsed = applyRunChecklistUpdate(first, { kind: "expanded", expanded: false });
-    const replaced = applyRunChecklistUpdate(collapsed, {
+    const expanded = applyRunChecklistUpdate(first, { kind: "expanded", expanded: true });
+    const replaced = applyRunChecklistUpdate(expanded, {
       kind: "snapshot",
       runId: "run-1",
       runtimeId: "kimi",
@@ -58,11 +58,11 @@ describe("applyRunChecklistUpdate", () => {
       ],
     });
 
-    expect(first.runChecklist?.expanded).toBe(true);
+    expect(first.runChecklist?.expanded).toBe(false);
     expect(replaced.runChecklist).toMatchObject({
       runId: "run-1",
       outcome: "running",
-      expanded: false,
+      expanded: true,
       entries: [
         { content: "Implement", status: "completed" },
         { content: "Verify", status: "in_progress" },

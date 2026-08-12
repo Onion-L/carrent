@@ -4351,6 +4351,11 @@ describe("Archived Thread lifecycle", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
+    const checklistToggle = container!.querySelector<HTMLButtonElement>(
+      'section[aria-label="Run Checklist"] button[aria-expanded]',
+    )!;
+    expect(checklistToggle.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => checklistToggle.click());
     expect(container!.textContent).toContain("Arrived during deletion");
   });
 

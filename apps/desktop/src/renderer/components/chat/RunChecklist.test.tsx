@@ -349,12 +349,13 @@ describe("RunChecklist", () => {
         checklist: { entries: [{ content: "New Run step", status: "in_progress" }] },
       });
     });
-    expect(container!.textContent).toContain("New Run step");
+    expect(container!.textContent).not.toContain("New Run step");
     const checklistButton = container!.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
-    expect(checklistButton.getAttribute("aria-expanded")).toBe("true");
+    expect(checklistButton.getAttribute("aria-expanded")).toBe("false");
 
     await act(async () => checklistButton.click());
-    expect(checklistButton.getAttribute("aria-expanded")).toBe("false");
+    expect(checklistButton.getAttribute("aria-expanded")).toBe("true");
+    expect(container!.textContent).toContain("New Run step");
 
     await act(async () => {
       chatEventListener?.({
@@ -370,9 +371,7 @@ describe("RunChecklist", () => {
         },
       });
     });
-    expect(checklistButton.getAttribute("aria-expanded")).toBe("false");
-
-    await act(async () => checklistButton.click());
+    expect(checklistButton.getAttribute("aria-expanded")).toBe("true");
     expect(container!.textContent).not.toContain("New Run step");
     expect(container!.textContent).toContain("Replacement complete");
     expect(container!.textContent).toContain("Replacement pending");
@@ -398,6 +397,10 @@ describe("RunChecklist", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(container!.textContent).toContain("Run failed");
+    expect(container!.textContent).not.toContain("Failed Run step");
+    const failedChecklistButton =
+      container!.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    await act(async () => failedChecklistButton.click());
     expect(container!.textContent).toContain("Failed Run step");
 
     await submitComposerMessage("Complete the next Run", "run-completed");
@@ -419,6 +422,6 @@ describe("RunChecklist", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(container!.textContent).toContain("Run completed");
-    expect(container!.textContent).toContain("Completed Run step");
+    expect(container!.textContent).not.toContain("Completed Run step");
   });
 });

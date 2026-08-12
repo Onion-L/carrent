@@ -336,7 +336,7 @@ export function MemoryPanelView({
                       </div>
                     </div>
                   )
-                ) : (selectedFile.raw ?? "") === "" ? (
+                ) : (selectedFile.raw ?? selectedFile.body) === "" ? (
                   <span className="text-app-12 text-subtle">(empty)</span>
                 ) : (
                   <div className="font-mono text-app-12 leading-5">

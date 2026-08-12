@@ -249,7 +249,8 @@ describe("MemoryPanel UI", () => {
     expect(c.textContent).toContain("[user-role](user-role.md)");
 
     await click(findButton(c, "Preview"));
-    expect(c.querySelector("h1")?.textContent).toBe("Memory Index");
+    const headings = [...c.querySelectorAll("h1")].map((heading) => heading.textContent);
+    expect(headings).toContain("Memory Index");
   });
 
   it("shows the empty state when there is no memory", async () => {

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FolderOpen, RefreshCw, Trash2, WrapText } from "lucide-react";
+import { Brain, FolderOpen, RefreshCw, Trash2, WrapText } from "lucide-react";
 
 import type { KimiMemoryFile, KimiMemoryIndex } from "../../../shared/kimiMemory";
+import { SETTINGS_TABS } from "../../lib/settingsTabs";
 import { formatAbsoluteTime, formatRelativeTime } from "../../lib/formatRelativeTime";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { MarkdownContent } from "../chat/MarkdownContent";
+
+const MEMORY_TAB_LABEL = SETTINGS_TABS.find((tab) => tab.id === "memory")?.label ?? "Memory";
 
 const PRELOAD_RESTART_MESSAGE =
   "Kimi memory support is not loaded in the current window. Restart Carrent and try again.";
@@ -48,10 +51,7 @@ export async function deleteKimiMemoryEntry(
   }
 }
 
-async function revealMemoryFile(
-  shellApi: KimiMemoryShellApi,
-  filePath: string,
-): Promise<void> {
+async function revealMemoryFile(shellApi: KimiMemoryShellApi, filePath: string): Promise<void> {
   if (typeof shellApi.revealPath !== "function") {
     throw new Error("Reveal in Finder support is not loaded. Restart Carrent and try again.");
   }
@@ -151,25 +151,6 @@ export function MemoryPanelView({
     await refresh();
   }, [pendingDelete, refresh, selectedPath, api, allFiles]);
 
-  if (loading && index === null && error === null) return <MemorySkeleton />;
-
-  if (error !== null && index === null) {
-    return (
-      <div className="rounded-lg border border-border bg-surface px-4 py-6">
-        <div className="text-app-13 text-fg">Could not load Kimi Code memory</div>
-        <div className="mt-1 text-app-12 text-subtle">{error}</div>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          className="mt-4 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-app-12 text-muted transition-colors hover:bg-surface-hover hover:text-fg"
-        >
-          <RefreshCw className="h-3 w-3" />
-          Retry
-        </button>
-      </div>
-    );
-  }
-
   const totalFiles = index?.projects.reduce((sum, project) => sum + project.files.length, 0) ?? 0;
 
   const refreshButton = (
@@ -185,41 +166,88 @@ export function MemoryPanelView({
     </button>
   );
 
+  // One persistent toolbar row carries the title, the context line, and
+  // refresh; its h-14 matches the settings nav pane header so both cards'
+  // headers sit on the same baseline.
+  const header = (
+    <div className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border px-6">
+      <div className="flex min-w-0 items-baseline gap-3">
+        <h1 className="flex shrink-0 items-center gap-2 self-center text-app-13 font-semibold text-fg">
+          <Brain className="h-4 w-4 text-subtle" />
+          {MEMORY_TAB_LABEL}
+        </h1>
+        <p className="min-w-0 truncate text-app-12 text-subtle">
+          Cross-session memory written by Kimi Code, grouped by project
+          {index === null ? "" : ` · ${totalFiles} ${totalFiles === 1 ? "file" : "files"}`}
+        </p>
+      </div>
+      {refreshButton}
+    </div>
+  );
+
+  if (loading && index === null && error === null) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {header}
+        <MemorySkeleton />
+      </div>
+    );
+  }
+
+  if (error !== null && index === null) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {header}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-6">
+          <div className="w-full max-w-md rounded-lg border border-border bg-surface px-4 py-6">
+            <div className="text-app-13 text-fg">Could not load Kimi Code memory</div>
+            <div className="mt-1 text-app-12 text-subtle">{error}</div>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="mt-4 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-app-12 text-muted transition-colors hover:bg-surface-hover hover:text-fg"
+            >
+              <RefreshCw className="h-3 w-3" />
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (index === null || totalFiles === 0) {
     return (
-      <div className="rounded-lg border border-border bg-surface px-4 py-6">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-app-13 text-fg">No Kimi Code memory yet</div>
-          {refreshButton}
-        </div>
-        <div className="mt-1 text-app-12 text-subtle">
-          Kimi Code builds up cross-session memory per project as you work. Nothing has been
-          remembered yet.
+      <div className="flex min-h-0 flex-1 flex-col">
+        {header}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-6">
+          <div className="w-full max-w-md rounded-lg border border-border bg-surface px-4 py-6">
+            <div className="text-app-13 text-fg">No Kimi Code memory yet</div>
+            <div className="mt-1 text-app-12 text-subtle">
+              Kimi Code builds up cross-session memory per project as you work. Nothing has been
+              remembered yet.
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <p className="text-app-12 text-subtle">
-          Cross-session memory written by Kimi Code, grouped by project · {totalFiles}{" "}
-          {totalFiles === 1 ? "file" : "files"}
-        </p>
-        {refreshButton}
-      </div>
+    <div className="flex min-h-0 flex-1 flex-col">
+      {header}
 
       {actionError !== null ? (
-        <p className="rounded-lg border border-border bg-surface px-3 py-2 text-app-12 text-danger">
+        <p className="mx-6 mt-3 shrink-0 rounded-lg border border-border bg-surface px-3 py-2 text-app-12 text-danger">
           {actionError}
         </p>
       ) : null}
 
-      {/* Master-detail: tonal separation instead of nested bordered boxes —
-          the list is one rounded surface, the detail pane is bare canvas. */}
-      <div className="flex h-[calc(100dvh-250px)] min-h-[480px] min-w-0 gap-4">
-        <div className="flex w-72 shrink-0 flex-col overflow-hidden rounded-lg bg-surface">
+      {/* Full-bleed master-detail on the app canvas: the settings shell card
+          is the only frame; list and detail share the canvas tone and are
+          split by a hairline divider. */}
+      <div className="flex min-h-0 flex-1">
+        <div className="flex w-72 shrink-0 flex-col border-r border-border">
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1.5 py-1.5">
             {index.projects.map((project) => (
               <div key={project.key} className="flex flex-col gap-1.5">
@@ -265,7 +293,7 @@ export function MemoryPanelView({
           </div>
         </div>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {selectedFile === null ? (
             <div className="flex flex-1 items-center justify-center text-app-12 text-subtle">
               Select a memory file
@@ -413,34 +441,28 @@ export function MemoryPanelView({
 
 function MemorySkeleton() {
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <div className="h-4 w-48 rounded bg-surface" />
-        <div className="h-8 w-8 rounded-md bg-surface" />
+    <div className="flex min-h-0 flex-1">
+      <div className="flex w-72 shrink-0 flex-col gap-1.5 border-r border-border px-1.5 py-1.5">
+        <div className="mb-1.5 h-3 w-20 rounded bg-surface" />
+        {[0, 1, 2, 3].map((row) => (
+          <div key={row} className="flex flex-col gap-1 rounded-md px-2.5 py-2">
+            <div className="h-3.5 w-36 rounded bg-surface" />
+            <div className="h-3 w-24 rounded bg-surface" />
+          </div>
+        ))}
       </div>
-      <div className="flex h-[calc(100dvh-250px)] min-h-[480px] min-w-0 gap-4">
-        <div className="flex w-72 shrink-0 flex-col gap-1.5 rounded-lg bg-surface px-1.5 py-1.5">
-          <div className="mb-1.5 h-3 w-20 rounded bg-surface-hover" />
-          {[0, 1, 2, 3].map((row) => (
-            <div key={row} className="flex flex-col gap-1 rounded-md px-2.5 py-2">
-              <div className="h-3.5 w-36 rounded bg-surface-hover" />
-              <div className="h-3 w-24 rounded bg-surface-hover" />
-            </div>
-          ))}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="px-5 pb-2 pt-3">
+          <div className="h-4 w-40 rounded bg-surface" />
         </div>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="border-b border-border px-1 py-2.5">
-            <div className="h-4 w-40 rounded bg-surface" />
-          </div>
-          <div className="flex flex-col gap-2 px-5 py-4">
-            {[0, 1, 2, 3, 4].map((line) => (
-              <div
-                key={line}
-                className="h-3.5 rounded bg-surface"
-                style={{ width: `${92 - line * 11}%` }}
-              />
-            ))}
-          </div>
+        <div className="flex flex-col gap-2 px-5 py-4">
+          {[0, 1, 2, 3, 4].map((line) => (
+            <div
+              key={line}
+              className="h-3.5 rounded bg-surface"
+              style={{ width: `${92 - line * 11}%` }}
+            />
+          ))}
         </div>
       </div>
     </div>

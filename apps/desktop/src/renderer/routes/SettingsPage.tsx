@@ -1479,105 +1479,114 @@ export function SettingsPage() {
 
   return (
     <div className="flex h-full w-full flex-col bg-bg">
-      <header
-        className="drag-region shrink-0"
-        style={{ height: "env(titlebar-area-height, 38px)" }}
-      />
+      {activeTabId === "memory" ? (
+        // Full-bleed: the shell card is the only frame, so the memory browser
+        // fills it edge to edge. No inner titlebar spacer — MemoryPanel's own
+        // h-14 header aligns with the settings nav pane header.
+        <MemoryPanel />
+      ) : (
+        <>
+          <header
+            className="drag-region shrink-0"
+            style={{ height: "env(titlebar-area-height, 38px)" }}
+          />
 
-      <div className="flex-1 overflow-auto">
-        <div
-          className={`mx-auto w-full px-8 py-8 ${
-            activeTabId === "usage" ? "max-w-7xl" : activeTabId === "memory" ? "max-w-6xl" : "max-w-4xl"
-          }`}
-        >
-          <div className="mb-8 flex items-center gap-2">
-            <Settings className="h-5 w-5 text-subtle" />
-            <h1 className="text-app-18 font-medium text-fg">{activeTab.label}</h1>
+          <div className="flex-1 overflow-auto">
+            <div
+              className={`mx-auto w-full px-8 py-8 ${
+                activeTabId === "usage" ? "max-w-7xl" : "max-w-4xl"
+              }`}
+            >
+              <div className="mb-8 flex items-center gap-2">
+                <Settings className="h-5 w-5 text-subtle" />
+                <h1 className="text-app-18 font-medium text-fg">{activeTab.label}</h1>
+              </div>
+
+              <div>
+                {activeTabId === "runtime" ? (
+                  <Section title="Runtime">
+                    <RuntimeStatusPanel />
+                    <Toggle
+                      label="Auto-detect runtimes"
+                      description="Automatically detect installed runtimes on startup"
+                      enabled={autoDetectRuntimes}
+                      onChange={(value) => updateSetting("autoDetectRuntimes", value)}
+                    />
+                    <ThreadTitleModelPanel />
+                    <RtkCheckPanel />
+                  </Section>
+                ) : null}
+
+                {activeTabId === "usage" ? <UsagePanel /> : null}
+
+                {activeTabId === "personalization" ? (
+                  <Section title="Personalization">
+                    <GlobalAgentInstructionsPanel />
+                  </Section>
+                ) : null}
+
+                {activeTabId === "interface" ? (
+                  <Section title="Interface">
+                    <Select
+                      label="Theme"
+                      value={theme}
+                      onChange={(value) =>
+                        updateSetting("theme", value as "dark" | "light" | "system")
+                      }
+                      options={[
+                        { value: "dark", label: "Dark" },
+                        { value: "light", label: "Light" },
+                        { value: "system", label: "System" },
+                      ]}
+                    />
+                    <IntegerInput
+                      label="Font size"
+                      value={fontSize}
+                      onChange={(value) => updateSetting("fontSize", value)}
+                    />
+                    <FontFamilyInput
+                      label="Font family"
+                      value={customFontFamily}
+                      onChange={(value) => updateSetting("customFontFamily", value)}
+                    />
+                    <Toggle
+                      label="Enhanced terminal completion"
+                      description="Show local zsh history predictions and command candidates in new Terminal Tabs"
+                      enabled={enhancedTerminalCompletion}
+                      onChange={(value) => updateSetting("enhancedTerminalCompletion", value)}
+                    />
+                  </Section>
+                ) : null}
+
+                {activeTabId === "local-server" ? (
+                  <Section title="Local Server">
+                    <McpServerControl />
+                  </Section>
+                ) : null}
+
+                {activeTabId === "archives" ? (
+                  <ArchivedThreadsPanel
+                    threads={threads}
+                    workspaces={workspaces}
+                    projects={projects}
+                    associations={associations}
+                    restoreThread={restoreThread}
+                    permanentlyDeleteThread={permanentlyDeleteThread}
+                    deleteThreadContent={deleteThreadContent}
+                  />
+                ) : null}
+
+                {activeTabId === "about" ? (
+                  <Section title="About">
+                    <AppVersionField />
+                    <CheckForUpdatesRow />
+                  </Section>
+                ) : null}
+              </div>
+            </div>
           </div>
-
-          <div>
-            {activeTabId === "runtime" ? (
-              <Section title="Runtime">
-                <RuntimeStatusPanel />
-                <Toggle
-                  label="Auto-detect runtimes"
-                  description="Automatically detect installed runtimes on startup"
-                  enabled={autoDetectRuntimes}
-                  onChange={(value) => updateSetting("autoDetectRuntimes", value)}
-                />
-                <ThreadTitleModelPanel />
-                <RtkCheckPanel />
-              </Section>
-            ) : null}
-
-            {activeTabId === "usage" ? <UsagePanel /> : null}
-
-            {activeTabId === "memory" ? <MemoryPanel /> : null}
-
-            {activeTabId === "personalization" ? (
-              <Section title="Personalization">
-                <GlobalAgentInstructionsPanel />
-              </Section>
-            ) : null}
-
-            {activeTabId === "interface" ? (
-              <Section title="Interface">
-                <Select
-                  label="Theme"
-                  value={theme}
-                  onChange={(value) => updateSetting("theme", value as "dark" | "light" | "system")}
-                  options={[
-                    { value: "dark", label: "Dark" },
-                    { value: "light", label: "Light" },
-                    { value: "system", label: "System" },
-                  ]}
-                />
-                <IntegerInput
-                  label="Font size"
-                  value={fontSize}
-                  onChange={(value) => updateSetting("fontSize", value)}
-                />
-                <FontFamilyInput
-                  label="Font family"
-                  value={customFontFamily}
-                  onChange={(value) => updateSetting("customFontFamily", value)}
-                />
-                <Toggle
-                  label="Enhanced terminal completion"
-                  description="Show local zsh history predictions and command candidates in new Terminal Tabs"
-                  enabled={enhancedTerminalCompletion}
-                  onChange={(value) => updateSetting("enhancedTerminalCompletion", value)}
-                />
-              </Section>
-            ) : null}
-
-            {activeTabId === "local-server" ? (
-              <Section title="Local Server">
-                <McpServerControl />
-              </Section>
-            ) : null}
-
-            {activeTabId === "archives" ? (
-              <ArchivedThreadsPanel
-                threads={threads}
-                workspaces={workspaces}
-                projects={projects}
-                associations={associations}
-                restoreThread={restoreThread}
-                permanentlyDeleteThread={permanentlyDeleteThread}
-                deleteThreadContent={deleteThreadContent}
-              />
-            ) : null}
-
-            {activeTabId === "about" ? (
-              <Section title="About">
-                <AppVersionField />
-                <CheckForUpdatesRow />
-              </Section>
-            ) : null}
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

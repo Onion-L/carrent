@@ -159,10 +159,26 @@ export function MemoryPanelView({
 
   const totalFiles = index?.projects.reduce((sum, project) => sum + project.files.length, 0) ?? 0;
 
+  const refreshButton = (
+    <button
+      type="button"
+      onClick={() => void refresh()}
+      disabled={loading}
+      className="flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-40"
+      title="Refresh memory index"
+      aria-label="Refresh memory index"
+    >
+      <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+    </button>
+  );
+
   if (index === null || totalFiles === 0) {
     return (
       <div className="rounded-lg border border-border bg-surface px-4 py-6">
-        <div className="text-app-13 text-fg">No Kimi Code memory yet</div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-app-13 text-fg">No Kimi Code memory yet</div>
+          {refreshButton}
+        </div>
         <div className="mt-1 text-app-12 text-subtle">
           Kimi Code builds up cross-session memory per project as you work. Nothing has been
           remembered yet.
@@ -178,16 +194,7 @@ export function MemoryPanelView({
           Cross-session memory written by Kimi Code, grouped by project · {totalFiles}{" "}
           {totalFiles === 1 ? "file" : "files"}
         </p>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          disabled={loading}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-40"
-          title="Refresh memory index"
-          aria-label="Refresh memory index"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-        </button>
+        {refreshButton}
       </div>
 
       {actionError !== null ? (

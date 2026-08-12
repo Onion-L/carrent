@@ -11,7 +11,6 @@ import {
   Maximize2,
   Minimize2,
   Plus,
-  Search,
   SquareTerminal,
   X,
 } from "lucide-react";
@@ -683,15 +682,6 @@ export function IntegratedTerminal({
         </button>
         <button
           type="button"
-          aria-label="Search Terminal"
-          title="Search Terminal"
-          onClick={() => setSearchOpen(true)}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg"
-        >
-          <Search className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
           aria-label={isMaximized ? "Restore Integrated Terminal" : "Maximize Integrated Terminal"}
           title={isMaximized ? "Restore Integrated Terminal" : "Maximize Integrated Terminal"}
           aria-pressed={isMaximized}
@@ -703,6 +693,15 @@ export function IntegratedTerminal({
           ) : (
             <Maximize2 className="h-3.5 w-3.5" />
           )}
+        </button>
+        <button
+          type="button"
+          aria-label="Close Terminal Panel"
+          title="Close Terminal Panel"
+          onClick={() => onOpenChange(false)}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg"
+        >
+          <X className="h-3.5 w-3.5" />
         </button>
       </div>
 

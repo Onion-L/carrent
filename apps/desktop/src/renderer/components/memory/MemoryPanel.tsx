@@ -272,7 +272,7 @@ export function MemoryPanelView({
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className="shrink-0 border-b border-border px-5 py-2.5">
+              <div className="shrink-0 px-5 pb-2 pt-3" data-detail-header>
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-baseline gap-2">
                     <span className="truncate text-app-13 font-medium text-fg">

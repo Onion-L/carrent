@@ -152,7 +152,7 @@ export function MemoryPanel() {
         </button>
       </div>
 
-      <p className="rounded-lg border border-border bg-surface px-3 py-2 text-app-11 text-subtle">
+      <p className="text-app-11 text-subtle">
         Beta: the Kimi Code memory file format is not stable yet. This tab only manages content
         (view, reveal, delete); it does not change how memory is collected.
       </p>
@@ -163,10 +163,10 @@ export function MemoryPanel() {
         </p>
       ) : null}
 
-      {/* Master-detail: file list on the left, content on the right. Height
-          tracks the window; both panes scroll internally. */}
-      <div className="flex h-[calc(100dvh-280px)] min-h-[480px] min-w-0 overflow-hidden rounded-lg border border-border">
-        <div className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border bg-surface px-1.5 py-1.5">
+      {/* Master-detail: tonal separation instead of nested bordered boxes —
+          the list is one rounded surface, the detail pane is bare canvas. */}
+      <div className="flex h-[calc(100dvh-280px)] min-h-[480px] min-w-0 gap-4">
+        <div className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto rounded-lg bg-surface px-1.5 py-1.5">
           {index.projects.map((project) => (
             <div key={project.key} className="flex flex-col gap-1.5">
               <div
@@ -183,10 +183,8 @@ export function MemoryPanel() {
                     type="button"
                     onClick={() => setSelectedPath(file.path)}
                     title={file.description}
-                    className={`flex w-full flex-col gap-0.5 rounded-md border px-2.5 py-2 text-left transition-colors duration-150 ease-out ${
-                      selected
-                        ? "border-border-strong bg-surface-hover"
-                        : "border-border bg-bg hover:border-border-strong"
+                    className={`flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors duration-150 ease-out ${
+                      selected ? "bg-surface-hover" : "hover:bg-surface-hover/60"
                     }`}
                   >
                     <span
@@ -213,7 +211,7 @@ export function MemoryPanel() {
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className="shrink-0 border-b border-border px-4 py-2.5">
+              <div className="shrink-0 border-b border-border px-5 py-2.5">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-2">
                     <FileText className="h-3.5 w-3.5 shrink-0 text-subtle" />
@@ -335,23 +333,19 @@ function MemorySkeleton() {
         <div className="h-4 w-48 rounded bg-surface" />
         <div className="h-8 w-8 rounded-md bg-surface" />
       </div>
-      <div className="flex h-[calc(100dvh-280px)] min-h-[480px] min-w-0 overflow-hidden rounded-lg border border-border">
-        <div className="flex w-72 shrink-0 flex-col gap-1.5 border-r border-border bg-surface px-1.5 py-1.5">
+      <div className="flex h-[calc(100dvh-280px)] min-h-[480px] min-w-0 gap-4">
+        <div className="flex w-72 shrink-0 flex-col gap-1.5 rounded-lg bg-surface px-1.5 py-1.5">
           <div className="mb-1.5 h-3 w-20 rounded bg-surface-hover" />
           {[0, 1, 2, 3].map((row) => (
-            <div
-              key={row}
-              className="flex flex-col gap-1 rounded-md border border-border px-2.5 py-2"
-            >
+            <div key={row} className="flex flex-col gap-1 rounded-md px-2.5 py-2">
               <div className="h-3.5 w-36 rounded bg-surface-hover" />
               <div className="h-3 w-24 rounded bg-surface-hover" />
             </div>
           ))}
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="border-b border-border px-4 py-2.5">
+          <div className="border-b border-border px-1 py-2.5">
             <div className="h-4 w-40 rounded bg-surface" />
-            <div className="mt-1.5 h-3 w-64 rounded bg-surface" />
           </div>
           <div className="flex flex-col gap-2 px-5 py-4">
             {[0, 1, 2, 3, 4].map((line) => (

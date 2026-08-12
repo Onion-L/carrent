@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import type { KimiUsageStats } from "../../../shared/kimiUsage";
-import { buildRangeDays, collectModels, readKimiUsageStats } from "./UsagePanel";
+import { buildHeatmap, buildRangeDays, collectModels, heatmapLevel, readKimiUsageStats } from "./UsagePanel";
 
 function makeStats(days: KimiUsageStats["days"]): KimiUsageStats {
   return {
@@ -65,6 +65,65 @@ describe("buildRangeDays", () => {
       const current = new Date(`${days[index]!.date}T00:00:00`).getTime();
       expect(current - previous).toBe(24 * 60 * 60 * 1000);
     }
+  });
+});
+
+describe("buildHeatmap", () => {
+  // Wednesday, so the current week has 3 null padding cells after it.
+  const today = new Date(2026, 7, 12, 15, 0, 0);
+
+  it("builds 53 week columns ending at today's week, padding future days with null", () => {
+    const heatmap = buildHeatmap(makeStats([]), today);
+
+    expect(heatmap.cells).toHaveLength(53 * 7);
+    // Today is row 3 (Wed) of the last column; the next three rows are future.
+    const todayIndex = 52 * 7 + 3;
+    expect(heatmap.cells[todayIndex]?.date).toBe("2026-08-12");
+    expect(heatmap.cells[todayIndex + 1]).toBe(null);
+    expect(heatmap.cells[53 * 7 - 1]).toBe(null);
+    // First cell is the Sunday 52 weeks before today's week.
+    expect(heatmap.cells[0]?.date).toBe("2025-08-10");
+    expect(heatmap.maxTotal).toBe(0);
+  });
+
+  it("maps per-day token totals onto matching cells and tracks the maximum", () => {
+    const stats = makeStats([
+      {
+        date: "2026-08-12",
+        byModel: {
+          a: { input: 1, output: 0, cacheRead: 0, cacheCreation: 0, total: 4 },
+          b: { input: 1, output: 0, cacheRead: 0, cacheCreation: 0, total: 6 },
+        },
+      },
+    ]);
+
+    const heatmap = buildHeatmap(stats, today);
+    const cell = heatmap.cells.find((entry) => entry?.date === "2026-08-12");
+
+    expect(cell?.total).toBe(10);
+    expect(heatmap.maxTotal).toBe(10);
+  });
+
+  it("labels the week column where each month starts", () => {
+    const heatmap = buildHeatmap(makeStats([]), today);
+
+    expect(heatmap.monthLabels[0]).toEqual({ week: 0, label: "Aug" });
+    const weeks = heatmap.monthLabels.map(({ week }) => week);
+    for (let index = 1; index < weeks.length; index += 1) {
+      expect(weeks[index]!).toBeGreaterThan(weeks[index - 1]!);
+    }
+    expect(heatmap.monthLabels.length).toBeGreaterThan(11);
+  });
+});
+
+describe("heatmapLevel", () => {
+  it("buckets totals into empty + quartiles of the maximum", () => {
+    expect(heatmapLevel(0, 100)).toBe(0);
+    expect(heatmapLevel(10, 100)).toBe(1);
+    expect(heatmapLevel(40, 100)).toBe(2);
+    expect(heatmapLevel(60, 100)).toBe(3);
+    expect(heatmapLevel(90, 100)).toBe(4);
+    expect(heatmapLevel(5, 0)).toBe(0);
   });
 });
 

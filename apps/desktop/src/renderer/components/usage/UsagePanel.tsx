@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 
-import type { KimiUsageStats, KimiUsageTokenTotals } from "../../../shared/kimiUsage";
+import type { KimiUsageDay, KimiUsageStats, KimiUsageTokenTotals } from "../../../shared/kimiUsage";
 import { useSettings } from "../../context/SettingsContext";
 import { curvePath, niceScale, smoothCurve } from "./chartMath";
 import { formatDayShort, formatExact, formatTokens } from "./formatUsage";
@@ -13,6 +13,19 @@ const PLOT_TOP = 8;
 
 const RANGE_OPTIONS = [7, 30, 90] as const;
 const DEFAULT_RANGE = 30;
+
+/** Activity heatmap: one year of week columns ending at the current week. */
+const HEATMAP_WEEKS = 53;
+/** Empty cell + four intensity steps over the blue accent token (theme-aware:
+ * sky blue on night, navy on paper). */
+const HEATMAP_LEVELS = [
+  "bg-surface-hover",
+  "bg-skill-reference/25",
+  "bg-skill-reference/45",
+  "bg-skill-reference/70",
+  "bg-skill-reference",
+] as const;
+const HEATMAP_DAY_LABELS = ["", "Mon", "", "Wed", "", "Fri", ""] as const;
 
 /** Per-model series hues (data encoding, not decoration), calibrated against
  * both themes. The first series uses the neutral action token per DESIGN.md. */
@@ -75,6 +88,73 @@ export function buildRangeDays(stats: KimiUsageStats, rangeDays: number): RangeD
     days.push({ date: isoDay, byModel: byDate.get(isoDay)?.byModel ?? {} });
   }
   return days;
+}
+
+export interface HeatmapCell {
+  date: string;
+  total: number;
+}
+
+export interface HeatmapData {
+  /** Column-major cells (weeks × 7 rows, Sunday first); null = day after today. */
+  cells: (HeatmapCell | null)[];
+  /** Month label for the week column where the month changes. */
+  monthLabels: { week: number; label: string }[];
+  maxTotal: number;
+}
+
+const heatmapMonthFormatter = new Intl.DateTimeFormat("en-US", { month: "short" });
+
+function dayTotal(day: KimiUsageDay): number {
+  return Object.values(day.byModel).reduce((sum, totals) => sum + totals.total, 0);
+}
+
+/** One year of daily totals in week columns, aligned to local Sundays. */
+export function buildHeatmap(stats: KimiUsageStats, today = new Date()): HeatmapData {
+  const byDate = new Map(stats.days.map((day) => [day.date, dayTotal(day)]));
+  const firstSunday = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() - today.getDay() - (HEATMAP_WEEKS - 1) * 7,
+  );
+  const cells: (HeatmapCell | null)[] = [];
+  const monthLabels: { week: number; label: string }[] = [];
+  let maxTotal = 0;
+  let previousMonth = -1;
+  for (let week = 0; week < HEATMAP_WEEKS; week += 1) {
+    let weekFirstDate: Date | null = null;
+    for (let row = 0; row < 7; row += 1) {
+      const date = new Date(
+        firstSunday.getFullYear(),
+        firstSunday.getMonth(),
+        firstSunday.getDate() + week * 7 + row,
+      );
+      if (date.getTime() > today.getTime()) {
+        cells.push(null);
+        continue;
+      }
+      weekFirstDate ??= date;
+      const isoDay = toLocalDay(date);
+      const total = byDate.get(isoDay) ?? 0;
+      if (total > maxTotal) maxTotal = total;
+      cells.push({ date: isoDay, total });
+    }
+    if (weekFirstDate !== null && weekFirstDate.getMonth() !== previousMonth) {
+      monthLabels.push({ week, label: heatmapMonthFormatter.format(weekFirstDate) });
+      previousMonth = weekFirstDate.getMonth();
+    }
+  }
+  return { cells, monthLabels, maxTotal };
+}
+
+/** Intensity bucket 0-4: empty, then quartiles of the busiest day. */
+export function heatmapLevel(total: number, maxTotal: number): number {
+  if (total <= 0 || maxTotal <= 0) return 0;
+  const ratio = total / maxTotal;
+  if (ratio <= 0.25) return 1;
+  if (ratio <= 0.5) return 2;
+  if (ratio <= 0.75) return 3;
+  return 4;
 }
 
 export function collectModels(days: readonly RangeDay[], palette: readonly string[]): ModelSeries[] {
@@ -152,6 +232,7 @@ export function UsagePanel() {
   }, [refresh]);
 
   const rangeDays = useMemo(() => (stats ? buildRangeDays(stats, range) : []), [stats, range]);
+  const heatmap = useMemo(() => (stats ? buildHeatmap(stats) : null), [stats]);
   const { theme } = useSettings();
   const palette = useMemo(() => paletteForTheme(theme), [theme]);
   // Dark neutral fills read as a dirty smudge on the paper theme; keep them faint.
@@ -489,6 +570,75 @@ export function UsagePanel() {
         )}
         {renderMetricCell("Active days", String(activeDays))}
       </div>
+
+      {/* Activity heatmap: one year of daily totals, GitHub-style week columns */}
+      {heatmap === null ? null : (
+        <div>
+          <h3 className="mb-3 text-app-13 font-medium text-fg">Activity</h3>
+          <div className="flex items-stretch gap-2">
+            <div className="mt-4 grid grid-rows-7 gap-[3px]">
+              {HEATMAP_DAY_LABELS.map((label, row) => (
+                <div key={row} className="flex items-center">
+                  <span className="text-app-10 leading-none text-subtle">{label}</span>
+                </div>
+              ))}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="relative h-4">
+                {heatmap.monthLabels.map(({ week, label }) => (
+                  <span
+                    key={week}
+                    className="absolute text-app-10 leading-none text-subtle"
+                    style={{ left: `${(week / HEATMAP_WEEKS) * 100}%` }}
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+              <div
+                className="grid w-full auto-cols-fr grid-flow-col grid-rows-7 gap-[3px]"
+                role="img"
+                aria-label="Daily token usage activity over the past year"
+              >
+                {heatmap.cells.map((cell, index) => {
+                  if (cell === null) return <div key={`pad-${index}`} className="aspect-square" />;
+                  // Edge columns: align the popover inward so it is not clipped
+                  // by the container. Tooltip is ~10 columns wide.
+                  const week = Math.floor(index / 7);
+                  const tooltipPosition =
+                    week < 5
+                      ? "left-0 translate-x-0"
+                      : week >= HEATMAP_WEEKS - 5
+                        ? "right-0 translate-x-0"
+                        : "left-1/2 -translate-x-1/2";
+                  return (
+                    <div
+                      key={cell.date}
+                      className={`group relative aspect-square rounded-[2px] ${HEATMAP_LEVELS[heatmapLevel(cell.total, heatmap.maxTotal)]}`}
+                    >
+                      <div
+                        className={`pointer-events-none absolute bottom-full z-10 mb-1.5 hidden rounded-md border border-border-strong bg-surface-raised px-2 py-1 whitespace-nowrap text-app-11 shadow-xl group-hover:block ${tooltipPosition}`}
+                      >
+                        <span className="tabular-nums text-fg">
+                          {formatExact(cell.total)} tokens
+                        </span>{" "}
+                        <span className="text-subtle">on {formatDayShort(cell.date)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex items-center justify-end gap-1 text-app-10 text-subtle">
+                <span>Less</span>
+                {HEATMAP_LEVELS.map((levelClass) => (
+                  <div key={levelClass} className={`h-2.5 w-2.5 rounded-[2px] ${levelClass}`} />
+                ))}
+                <span>More</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Breakdown table */}
       <div>

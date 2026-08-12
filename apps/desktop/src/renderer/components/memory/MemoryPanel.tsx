@@ -14,6 +14,8 @@ export type KimiMemorySettingsApi = {
   kimiMemoryDelete?: (filePath: string) => Promise<void>;
 };
 
+export type KimiMemoryShellApi = { revealPath?: (filePath: string) => Promise<unknown> };
+
 export async function readKimiMemoryIndex(settingsApi: KimiMemorySettingsApi): Promise<{
   index: KimiMemoryIndex | null;
   error: string | null;
@@ -47,7 +49,7 @@ export async function deleteKimiMemoryEntry(
 }
 
 async function revealMemoryFile(
-  shellApi: { revealPath?: (filePath: string) => Promise<unknown> },
+  shellApi: KimiMemoryShellApi,
   filePath: string,
 ): Promise<void> {
   if (typeof shellApi.revealPath !== "function") {
@@ -59,6 +61,16 @@ async function revealMemoryFile(
 type ViewMode = "preview" | "raw";
 
 export function MemoryPanel() {
+  return <MemoryPanelView api={window.carrent.settings} shellApi={window.carrent.shell} />;
+}
+
+export function MemoryPanelView({
+  api,
+  shellApi,
+}: {
+  api: KimiMemorySettingsApi;
+  shellApi: KimiMemoryShellApi;
+}) {
   const [index, setIndex] = useState<KimiMemoryIndex | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,11 +81,11 @@ export function MemoryPanel() {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const result = await readKimiMemoryIndex(window.carrent.settings);
+    const result = await readKimiMemoryIndex(api);
     setIndex(result.index);
     setError(result.error);
     setLoading(false);
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     void refresh();
@@ -90,7 +102,7 @@ export function MemoryPanel() {
     if (pendingDelete === null) return;
     const target = pendingDelete;
     setPendingDelete(null);
-    const deleteError = await deleteKimiMemoryEntry(window.carrent.settings, target.path);
+    const deleteError = await deleteKimiMemoryEntry(api, target.path);
     if (deleteError !== null) {
       setActionError(deleteError);
       return;
@@ -98,7 +110,7 @@ export function MemoryPanel() {
     setActionError(null);
     if (selectedPath === target.path) setSelectedPath(null);
     await refresh();
-  }, [pendingDelete, refresh, selectedPath]);
+  }, [pendingDelete, refresh, selectedPath, api]);
 
   if (loading && index === null && error === null) return <MemorySkeleton />;
 
@@ -244,8 +256,8 @@ export function MemoryPanel() {
                       aria-label={`Reveal ${selectedFile.fileName} in Finder`}
                       title="Reveal in Finder"
                       onClick={() => {
-                        void revealMemoryFile(window.carrent.shell, selectedFile.path).catch(
-                          (err) => setActionError(err instanceof Error ? err.message : String(err)),
+                        void revealMemoryFile(shellApi, selectedFile.path).catch((err) =>
+                          setActionError(err instanceof Error ? err.message : String(err)),
                         );
                       }}
                       className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-fg"

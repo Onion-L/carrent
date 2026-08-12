@@ -1090,15 +1090,12 @@ describe("thread-draft commands", () => {
         }
       ).data.thread.title;
 
-    // 48-grapheme ceiling, with the 48th grapheme replaced by an ellipsis.
+    // The full first usable line is preserved — no truncation, no ellipsis.
     const long = promote({ titleSource: "a".repeat(200) });
-    expect(long).toBe(`${"a".repeat(47)}…`);
-    expect([...new Intl.Segmenter("en", { granularity: "grapheme" }).segment(long)]).toHaveLength(
-      48,
-    );
+    expect(long).toBe("a".repeat(200));
 
-    // Emoji stay intact across the truncation boundary.
-    expect(promote({ titleSource: "👨‍👩‍👧‍👦".repeat(60) })).toBe(`${"👨‍👩‍👧‍👦".repeat(47)}…`);
+    // Emoji sequences are preserved in full.
+    expect(promote({ titleSource: "👨‍👩‍👧‍👦".repeat(60) })).toBe("👨‍👩‍👧‍👦".repeat(60));
 
     // Whitespace folding, blank-line skipping, and the default fallback.
     expect(promote({ titleSource: "\n\n   Fix   the    sidebar   \nlater" })).toBe(

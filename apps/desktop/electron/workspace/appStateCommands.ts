@@ -818,9 +818,9 @@ const promoteThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
 
   const threadInput = payload.thread;
   // The Renderer supplies the visible composer text as title *source* data, not
-  // a finished title: the fallback policy (48 graphemes, whitespace folding,
-  // attachment basename, "New thread") is derived here so the authoritative
-  // record cannot carry a title the Main Process did not compute.
+  // a finished title: the fallback policy (whitespace folding, attachment
+  // basename, "New thread") is derived here so the authoritative record cannot
+  // carry a title the Main Process did not compute.
   if (payload.titleSource !== undefined && typeof payload.titleSource !== "string") return null;
   if (
     threadInput.id !== draft.threadId ||

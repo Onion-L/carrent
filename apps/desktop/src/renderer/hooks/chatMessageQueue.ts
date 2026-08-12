@@ -131,6 +131,15 @@ export function removeThreadWork(threadIds: string[]): void {
   }
 }
 
+// Clears a Thread's queued messages without touching its Composer draft.
+// Used when archiving a Thread mid-run so a stale queue does not outlive it.
+export function clearQueuedMessages(threadId: string): void {
+  if (!queueByThreadId.delete(threadId)) {
+    return;
+  }
+  emit();
+}
+
 // Replaces all in-memory queues/drafts with loaded App State. An
 // absent or empty snapshot clears stale state (fresh start or failed load).
 export function hydrateThreadWork(

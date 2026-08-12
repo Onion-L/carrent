@@ -4024,8 +4024,8 @@ describe("Archived Thread lifecycle", () => {
     expect(archiveToasts).toHaveLength(1);
   });
 
-  it("blocks archive while a Thread has queued messages", async () => {
-    await renderApp(
+  it("archives a Thread that has queued messages and clears its queue", async () => {
+    const saved = await renderApp(
       lifecycleState([], true),
       "/workspace/workspace-1/project/project-1/thread/thread-1",
       [],
@@ -4034,19 +4034,23 @@ describe("Archived Thread lifecycle", () => {
       false,
     );
 
-    expect(buttonNamed("Archive Primary Thread").disabled).toBe(true);
-    expect(buttonNamed("Archive Primary Thread").title).toContain("queued messages");
+    await click(buttonNamed("Archive Primary Thread"));
+
+    expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.archived).toBe(true);
+    expect(saved.at(-1)?.threadWork?.["thread-1"]?.queuedMessages ?? []).toEqual([]);
   });
 
-  it("blocks archive while the Thread has a live Run", async () => {
+  it("archives a Thread that has a live Run and stops the Run", async () => {
     const requests: ChatTurnRequest[] = [];
-    await renderApp(
+    const stopRequests: string[] = [];
+    const saved = await renderApp(
       lifecycleState(),
       "/workspace/workspace-1/project/project-1/thread/thread-1",
       [],
       false,
       requests,
       false,
+      { chatStopRequests: stopRequests },
     );
 
     await fillComposerEditor(
@@ -4055,19 +4059,10 @@ describe("Archived Thread lifecycle", () => {
     );
     await click(composerSendButton());
 
-    expect(buttonNamed("Archive Primary Thread").disabled).toBe(true);
-    expect(buttonNamed("Archive Primary Thread").title).toContain("live Run");
+    await click(buttonNamed("Archive Primary Thread"));
 
-    await act(async () => {
-      emitChatEvent?.({
-        type: "completed",
-        runId: requests[0].runId!,
-        requestKey: requests[0].requestKey,
-        text: "Done",
-        finishedAt: "2026-07-27T10:01:00.000Z",
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    expect(stopRequests).toContain(requests[0].runId!);
+    expect(saved.at(-1)?.threads?.find((thread) => thread.id === "thread-1")?.archived).toBe(true);
   });
 
   it("does not start a Run while archiving the Thread", async () => {

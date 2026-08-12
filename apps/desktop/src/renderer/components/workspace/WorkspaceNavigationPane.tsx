@@ -18,7 +18,7 @@ import { getThreadRuntimeSessionId } from "../../../shared/providerSessions";
 import type { AppThreadRecord } from "../../../shared/workspacePersistence";
 import { useAppState } from "../../context/AppStateContext";
 import { useThreadContent } from "../../context/ThreadContentContext";
-import { removeThreadWork } from "../../hooks/chatMessageQueue";
+import { clearQueuedMessages } from "../../hooks/chatMessageQueue";
 import { useChatRun } from "../../hooks/useChatRun";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { buildProjectPath, buildThreadPath, buildWorkspacePath } from "../../lib/navigation";
@@ -535,11 +535,11 @@ export function WorkspaceNavigationPane() {
                             });
                           }
                           // Allow archiving mid-run: stop any live Run, then
-                          // clear queued messages (and the draft) for it first.
+                          // clear its queued messages. The draft is untouched.
                           if (runningThreadIds.includes(thread.id)) {
                             await stop(thread.id);
                           }
-                          removeThreadWork([thread.id]);
+                          clearQueuedMessages(thread.id);
                           const archived = await archiveThread(thread.id);
                           if (!archived) {
                             if (active) setArchiveNavigation(null);

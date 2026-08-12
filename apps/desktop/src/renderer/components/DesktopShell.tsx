@@ -18,6 +18,12 @@ const MIN_SECONDARY_PANE_WIDTH = 200;
 const MAX_SECONDARY_PANE_WIDTH = 480;
 const DEFAULT_SECONDARY_PANE_WIDTH = 280;
 
+export function getSecondaryPaneKind(pathname: string) {
+  if (pathname === "/settings") return "settings";
+  if (pathname === "/" || pathname.startsWith("/workspace/")) return "workspace";
+  return "thread-history";
+}
+
 export function DesktopShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const [isSecondaryPaneCollapsed, setIsSecondaryPaneCollapsed] = useState(false);
@@ -46,10 +52,11 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     : null;
   const canOpenTerminal =
     currentProject != null && projectDirectoryStatusById[currentProject.id] === "available";
+  const secondaryPaneKind = getSecondaryPaneKind(location.pathname);
   const secondaryPane =
-    location.pathname === "/settings" ? (
+    secondaryPaneKind === "settings" ? (
       <SettingsTabsPane />
-    ) : location.pathname.startsWith("/workspace/") ? (
+    ) : secondaryPaneKind === "workspace" ? (
       <WorkspaceNavigationPane />
     ) : (
       <ThreadHistoryPane />

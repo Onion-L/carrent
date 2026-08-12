@@ -44,6 +44,7 @@ for (const icon of [
   mock.module(`./assets/editors/${icon}.png`, () => ({ default: `${icon}.png` }));
 }
 const { default: App } = await import("./App");
+const { getSecondaryPaneKind } = await import("./components/DesktopShell");
 
 const emptyAppState: AppStateSnapshot = {
   version: 1,
@@ -967,6 +968,10 @@ describe("Workspace App State foundation", () => {
 });
 
 describe("three-level navigation", () => {
+  it("uses Workspace navigation while the root route is being restored", () => {
+    expect(getSecondaryPaneKind("/")).toBe("workspace");
+  });
+
   function navigationState(): AppStateSnapshot {
     return {
       version: 1,
@@ -1182,6 +1187,26 @@ describe("three-level navigation", () => {
     });
     expect(saved.at(-1)?.associations[0].alias).toBe("Renamed Carrent");
     expect(navigationPane.textContent).toContain("Renamed Carrent");
+  });
+
+  it("restores Project collapse state after the renderer is remounted", async () => {
+    await renderApp(navigationState(), "/workspace/workspace-1/project/project-1/thread/thread-1");
+
+    await click(buttonNamed("Collapse Personal Carrent"));
+    expect(container!.querySelector("aside.border-r")!.textContent).not.toContain(
+      "Personal Thread",
+    );
+
+    await act(async () => root!.unmount());
+    container!.remove();
+    root = null;
+    container = null;
+
+    await renderApp(navigationState(), "/workspace/workspace-1/project/project-1/thread/thread-1");
+    expect(container!.querySelector("aside.border-r")!.textContent).not.toContain(
+      "Personal Thread",
+    );
+    expect(buttonNamed("Expand Personal Carrent").getAttribute("aria-expanded")).toBe("false");
   });
 
   it("deletes a Project from its actions menu", async () => {

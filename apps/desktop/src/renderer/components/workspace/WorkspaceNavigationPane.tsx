@@ -46,6 +46,34 @@ const STATUS_META: Record<ThreadDisplayStatus, { label: string; className: strin
 // threshold; a "Show more" button expands the rest in place.
 const THREAD_LIST_COLLAPSE_THRESHOLD = 10;
 const THREAD_LIST_PREVIEW_COUNT = 5;
+const NAVIGATION_PREFERENCES_STORAGE_KEY = "carrent:workspace-navigation";
+
+type NavigationPreferences = {
+  collapsedProjectIds: string[];
+  expandedThreadListProjectIds: string[];
+};
+
+function loadNavigationPreferences(): NavigationPreferences {
+  try {
+    const raw = localStorage.getItem(NAVIGATION_PREFERENCES_STORAGE_KEY);
+    if (!raw) return { collapsedProjectIds: [], expandedThreadListProjectIds: [] };
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return { collapsedProjectIds: [], expandedThreadListProjectIds: [] };
+    }
+    const record = value as Record<string, unknown>;
+    const strings = (input: unknown) =>
+      Array.isArray(input)
+        ? input.filter((item): item is string => typeof item === "string" && item.length > 0)
+        : [];
+    return {
+      collapsedProjectIds: strings(record.collapsedProjectIds),
+      expandedThreadListProjectIds: strings(record.expandedThreadListProjectIds),
+    };
+  } catch {
+    return { collapsedProjectIds: [], expandedThreadListProjectIds: [] };
+  }
+}
 
 export function WorkspaceNavigationPane() {
   const navigate = useNavigate();
@@ -72,9 +100,11 @@ export function WorkspaceNavigationPane() {
   const [editingProjectName, setEditingProjectName] = useState("");
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
-  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
+  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(
+    () => new Set(loadNavigationPreferences().collapsedProjectIds),
+  );
   const [expandedThreadListProjectIds, setExpandedThreadListProjectIds] = useState<Set<string>>(
-    () => new Set(),
+    () => new Set(loadNavigationPreferences().expandedThreadListProjectIds),
   );
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
   const [threadMenu, setThreadMenu] = useState<{
@@ -98,6 +128,20 @@ export function WorkspaceNavigationPane() {
           thread.projectId === pendingProjectRemoval.projectId,
       ).length
     : 0;
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        NAVIGATION_PREFERENCES_STORAGE_KEY,
+        JSON.stringify({
+          collapsedProjectIds: [...collapsedProjectIds],
+          expandedThreadListProjectIds: [...expandedThreadListProjectIds],
+        } satisfies NavigationPreferences),
+      );
+    } catch {
+      // Ignore unavailable or quota-limited storage; navigation still works in memory.
+    }
+  }, [collapsedProjectIds, expandedThreadListProjectIds]);
 
   const toggleThreadListExpanded = (projectId: string) => {
     setExpandedThreadListProjectIds((prev) => {
@@ -313,7 +357,7 @@ export function WorkspaceNavigationPane() {
           );
 
           return (
-            <section key={project.id} className="py-0.5">
+            <section key={project.id} className="py-1">
               <div className="group/project flex min-h-9 items-center gap-1 rounded-md px-1.5 text-fg transition hover:bg-surface-hover">
                 {editingProjectId === project.id ? (
                   <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -491,7 +535,7 @@ export function WorkspaceNavigationPane() {
               </div>
 
               {expanded && (
-                <div className="space-y-0.5">
+                <div className="mt-2 space-y-0.5">
                   {projectThreads.length === 0 ? (
                     <p className="flex min-h-9 items-center pl-12 pr-3 text-app-12 text-subtle">
                       No threads yet

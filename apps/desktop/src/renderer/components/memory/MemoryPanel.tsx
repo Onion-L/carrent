@@ -339,19 +339,16 @@ export function MemoryPanelView({
                 ) : (selectedFile.raw ?? selectedFile.body) === "" ? (
                   <span className="text-app-12 text-subtle">(empty)</span>
                 ) : (
-                  <div className="font-mono text-app-12 leading-5">
-                    <div className="sticky -top-4 z-10 -mx-5 mb-3 border-b border-border bg-bg px-5 pb-2 pt-4 font-mono text-app-12 text-subtle">
-                      {selectedFile.fileName}
-                    </div>
+                  <div className="rounded-lg bg-code-bg px-3 py-2 font-mono text-app-12 leading-5">
                     {(selectedFile.raw ?? selectedFile.body)
                       .replace(/\n+$/u, "")
                       .split("\n")
                       .map((line, lineIndex) => (
                         <div key={lineIndex} className="flex">
-                          <span className="w-8 shrink-0 select-none pr-4 text-right tabular-nums text-subtle">
-                            {lineIndex + 1}
+                          <span className="w-8 shrink-0 select-none pr-3 text-right tabular-nums text-subtle">
+                            {line === "" ? "" : lineIndex + 1}
                           </span>
-                          <span className="whitespace-pre-wrap break-all text-muted">
+                          <span className="whitespace-pre-wrap break-words text-fg">
                             {line === "" ? " " : line}
                           </span>
                         </div>

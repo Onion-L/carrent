@@ -353,12 +353,10 @@ export function MemoryPanelView({
                   selectedFile.body === "" ? (
                     <span className="text-app-12 text-subtle">(empty)</span>
                   ) : (
-                    <div
-                      className={
-                        previewLineWrap ? "max-w-[70ch]" : "w-max min-w-full whitespace-nowrap"
-                      }
-                    >
-                      <div className="flex flex-col gap-2">
+                    <div className={previewLineWrap ? "max-w-[70ch]" : "w-max min-w-full"}>
+                      <div
+                        className={`flex flex-col gap-2 ${previewLineWrap ? "" : "[&>*]:whitespace-nowrap"}`}
+                      >
                         <MarkdownContent>{selectedFile.body}</MarkdownContent>
                       </div>
                     </div>

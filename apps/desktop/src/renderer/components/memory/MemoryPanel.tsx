@@ -76,7 +76,8 @@ export function MemoryPanelView({
   const [loading, setLoading] = useState(true);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [viewModeByPath, setViewModeByPath] = useState<Record<string, ViewMode>>({});
-  const viewMode: ViewMode = selectedPath === null ? "preview" : (viewModeByPath[selectedPath] ?? "preview");
+  const viewMode: ViewMode =
+    selectedPath === null ? "preview" : (viewModeByPath[selectedPath] ?? "preview");
   const setViewMode = useCallback(
     (mode: ViewMode) => {
       setViewModeByPath((previous) =>

@@ -42,8 +42,12 @@ export function resetKimiUsageCache(): void {
 }
 
 export async function getKimiUsageStats(deps: KimiUsageDeps = {}): Promise<KimiUsageStats> {
-  const homeDir = deps.homeDir ?? os.homedir();
-  const kimiDir = path.join(homeDir, KIMI_CODE_DIR);
+  // Injected homeDir wins (tests); otherwise honor KIMI_CODE_HOME like the CLI,
+  // falling back to the default ~/.kimi-code location.
+  const kimiDir =
+    deps.homeDir !== undefined
+      ? path.join(deps.homeDir, KIMI_CODE_DIR)
+      : (process.env.KIMI_CODE_HOME ?? path.join(os.homedir(), KIMI_CODE_DIR));
   const sessionsDir = path.join(kimiDir, "sessions");
 
   const workDirBySessionId = await readSessionIndex(path.join(kimiDir, "session_index.jsonl"));

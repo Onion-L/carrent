@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FolderOpen, RefreshCw, Trash2 } from "lucide-react";
+import { FolderOpen, RefreshCw, Trash2, WrapText } from "lucide-react";
 
 import type { KimiMemoryFile, KimiMemoryIndex } from "../../../shared/kimiMemory";
 import { formatAbsoluteTime, formatRelativeTime } from "../../lib/formatRelativeTime";
@@ -59,7 +59,13 @@ async function revealMemoryFile(
   await shellApi.revealPath(filePath);
 }
 
-type ViewMode = "preview" | "raw";
+type ViewMode = "preview" | "raw" | "plain";
+
+const VIEW_MODES = [
+  { id: "preview", label: "Preview" },
+  { id: "raw", label: "Raw" },
+  { id: "plain", label: "Plain" },
+] as const;
 
 export function MemoryPanel() {
   return <MemoryPanelView api={window.carrent.settings} shellApi={window.carrent.shell} />;
@@ -89,6 +95,7 @@ export function MemoryPanelView({
   );
   const [pendingDelete, setPendingDelete] = useState<KimiMemoryFile | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [previewLineWrap, setPreviewLineWrap] = useState(true);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -275,19 +282,35 @@ export function MemoryPanelView({
                     </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
+                    {viewMode === "preview" ? (
+                      <button
+                        type="button"
+                        aria-label="Toggle line wrap"
+                        aria-pressed={previewLineWrap}
+                        title={previewLineWrap ? "Disable line wrap" : "Enable line wrap"}
+                        onClick={() => setPreviewLineWrap((previous) => !previous)}
+                        className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                          previewLineWrap
+                            ? "bg-surface-hover text-fg"
+                            : "text-muted hover:bg-surface-hover hover:text-fg"
+                        }`}
+                      >
+                        <WrapText className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
                     <div className="flex rounded-md border border-border bg-surface p-0.5">
-                      {(["preview", "raw"] as const).map((mode) => (
+                      {VIEW_MODES.map((mode) => (
                         <button
-                          key={mode}
+                          key={mode.id}
                           type="button"
-                          onClick={() => setViewMode(mode)}
+                          onClick={() => setViewMode(mode.id)}
                           className={`rounded px-2.5 py-1 text-app-12 ${
-                            viewMode === mode
+                            viewMode === mode.id
                               ? "bg-surface-hover text-fg"
                               : "text-subtle hover:text-muted"
                           }`}
                         >
-                          {mode === "preview" ? "Preview" : "Raw"}
+                          {mode.label}
                         </button>
                       ))}
                     </div>
@@ -325,16 +348,28 @@ export function MemoryPanelView({
                 ) : null}
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
                 {viewMode === "preview" ? (
                   selectedFile.body === "" ? (
                     <span className="text-app-12 text-subtle">(empty)</span>
                   ) : (
-                    <div className="max-w-[70ch]">
+                    <div
+                      className={
+                        previewLineWrap ? "max-w-[70ch]" : "w-max min-w-full whitespace-nowrap"
+                      }
+                    >
                       <div className="flex flex-col gap-2">
                         <MarkdownContent>{selectedFile.body}</MarkdownContent>
                       </div>
                     </div>
+                  )
+                ) : viewMode === "plain" ? (
+                  (selectedFile.raw ?? selectedFile.body) === "" ? (
+                    <span className="text-app-12 text-subtle">(empty)</span>
+                  ) : (
+                    <pre className="whitespace-pre-wrap break-words rounded-lg bg-code-bg px-3 py-2 font-mono text-app-12 leading-5 text-fg">
+                      {selectedFile.raw ?? selectedFile.body}
+                    </pre>
                   )
                 ) : (selectedFile.raw ?? selectedFile.body) === "" ? (
                   <span className="text-app-12 text-subtle">(empty)</span>

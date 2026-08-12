@@ -415,12 +415,20 @@ function createRecoveredWindow(icon: string | undefined, targetRoute: string | n
   return createWindow(icon, buildRecoveredWindowOptions(recentRestoredWindow, targetRoute));
 }
 
+if (!app.isPackaged) {
+  const developmentUserDataPath = `${app.getPath("userData")}-dev`;
+  app.setPath("userData", developmentUserDataPath);
+  app.setPath("sessionData", developmentUserDataPath);
+}
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  app.setAsDefaultProtocolClient("carrent");
+  if (app.isPackaged) {
+    app.setAsDefaultProtocolClient("carrent");
+  }
   app.on("second-instance", (_event, argv) => {
     const browserUrl = argv.find((value) => value.startsWith("carrent://browser/open"));
     if (browserUrl && browserManager?.handleOpenProtocol(browserUrl)) return;

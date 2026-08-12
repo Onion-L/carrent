@@ -5,6 +5,17 @@ export const SETTINGS_TABS = [
     description: "Runtime status and RTK",
   },
   {
+    id: "usage",
+    label: "Usage",
+    description: "Kimi Code token usage",
+  },
+  {
+    id: "memory",
+    label: "Memory",
+    description: "Kimi Code agent memory",
+    badge: "Beta",
+  },
+  {
     id: "personalization",
     label: "Personalization",
     description: "Global agent instructions",

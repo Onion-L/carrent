@@ -1,5 +1,7 @@
 import {
   Archive,
+  Brain,
+  ChartColumn,
   Monitor,
   Palette,
   Server,
@@ -17,6 +19,8 @@ import {
 
 const iconByTabId: Record<SettingsTabId, typeof Monitor> = {
   runtime: Monitor,
+  usage: ChartColumn,
+  memory: Brain,
   personalization: UserRound,
   interface: Palette,
   "local-server": Server,
@@ -60,7 +64,14 @@ export function SettingsTabsPane() {
               >
                 <Icon className="h-3.5 w-3.5 shrink-0 text-subtle" />
                 <span className="min-w-0">
-                  <span className="block truncate text-app-13 font-medium">{tab.label}</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="block truncate text-app-13 font-medium">{tab.label}</span>
+                    {"badge" in tab ? (
+                      <span className="shrink-0 rounded-full bg-surface px-1.5 py-px text-app-10 text-subtle">
+                        {tab.badge}
+                      </span>
+                    ) : null}
+                  </span>
                   <span className="mt-0.5 block truncate text-app-11 text-subtle">
                     {tab.description}
                   </span>

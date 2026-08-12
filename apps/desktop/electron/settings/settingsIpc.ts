@@ -1,3 +1,5 @@
+import { getKimiUsageStats } from "./kimiUsage";
+import { deleteKimiMemoryFile, listKimiMemory } from "./kimiMemory";
 import { getRtkGainStats } from "./rtkGain";
 import {
   readGlobalAgentInstructions,
@@ -20,6 +22,18 @@ export function registerSettingsIpc(ipcMainLike: IpcMainLike, getAppVersion: () 
   });
 
   ipcMainLike.handle("settings:rtk-gain", async () => getRtkGainStats());
+
+  ipcMainLike.handle("settings:kimi-usage", async () => getKimiUsageStats());
+
+  ipcMainLike.handle("settings:kimi-memory", async () => listKimiMemory());
+
+  ipcMainLike.handle("settings:kimi-memory:delete", async (_event, filePath) => {
+    if (typeof filePath !== "string") {
+      throw new Error("Kimi memory file path must be a string.");
+    }
+
+    return deleteKimiMemoryFile(filePath);
+  });
 
   ipcMainLike.handle("settings:global-agent-instructions:read", async () =>
     readGlobalAgentInstructions(),

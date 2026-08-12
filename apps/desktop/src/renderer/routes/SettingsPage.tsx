@@ -26,6 +26,8 @@ import { RuntimeIcon } from "../components/RuntimeIcon";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MarqueeText } from "../components/MarqueeText";
 import { McpServerControl } from "../components/mcp/McpServerControl";
+import { UsagePanel } from "../components/usage/UsagePanel";
+import { MemoryPanel } from "../components/memory/MemoryPanel";
 import { useRuntimeModels } from "../hooks/useRuntimeModels";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { formatKimiModelLabel } from "../components/chat/Composer";
@@ -1397,7 +1399,9 @@ function ArchivedThreadsPanel({
                   {groupThreads.map((thread) => (
                     <div key={thread.id} className="flex items-center gap-3 py-3.5">
                       <div className="min-w-0 flex-1">
-                        <MarqueeText className="block text-app-13 text-fg">{thread.title}</MarqueeText>
+                        <MarqueeText className="block text-app-13 text-fg">
+                          {thread.title}
+                        </MarqueeText>
                         <p className="mt-0.5 truncate text-app-12 text-subtle">
                           {getProjectName(thread)} ·{" "}
                           {formatAbsoluteTime(Date.parse(thread.lastActivityAt))}
@@ -1457,8 +1461,14 @@ export function SettingsPage() {
   const { setSelectedThreadId, deleteThread: deleteThreadContent } = useThreadContent();
   const { workspaces, projects, associations, threads, restoreThread, permanentlyDeleteThread } =
     useAppState();
-  const { autoDetectRuntimes, theme, fontSize, enhancedTerminalCompletion, customFontFamily, updateSetting } =
-    useSettings();
+  const {
+    autoDetectRuntimes,
+    theme,
+    fontSize,
+    enhancedTerminalCompletion,
+    customFontFamily,
+    updateSetting,
+  } = useSettings();
   const [searchParams] = useSearchParams();
   const activeTabId = resolveSettingsTabId(searchParams.get("tab"));
   const activeTab = SETTINGS_TABS.find((tab) => tab.id === activeTabId) ?? SETTINGS_TABS[0];
@@ -1475,7 +1485,11 @@ export function SettingsPage() {
       />
 
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto w-full max-w-4xl px-8 py-8">
+        <div
+          className={`mx-auto w-full px-8 py-8 ${
+            activeTabId === "usage" ? "max-w-7xl" : activeTabId === "memory" ? "max-w-6xl" : "max-w-4xl"
+          }`}
+        >
           <div className="mb-8 flex items-center gap-2">
             <Settings className="h-5 w-5 text-subtle" />
             <h1 className="text-app-18 font-medium text-fg">{activeTab.label}</h1>
@@ -1495,6 +1509,10 @@ export function SettingsPage() {
                 <RtkCheckPanel />
               </Section>
             ) : null}
+
+            {activeTabId === "usage" ? <UsagePanel /> : null}
+
+            {activeTabId === "memory" ? <MemoryPanel /> : null}
 
             {activeTabId === "personalization" ? (
               <Section title="Personalization">

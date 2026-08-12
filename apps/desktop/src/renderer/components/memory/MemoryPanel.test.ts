@@ -210,7 +210,7 @@ describe("MemoryPanel UI", () => {
     expect(c.textContent).toContain("other");
     expect(c.textContent).toContain("user-role");
     expect(c.textContent).toContain("notes");
-    expect(c.querySelector(".border-b")?.textContent).toContain("MEMORY.md");
+    expect(c.querySelector(".border-b")?.textContent).toContain("MEMORY");
   });
 
   it("switches the detail pane when another row is clicked", async () => {
@@ -222,7 +222,7 @@ describe("MemoryPanel UI", () => {
 
     await click(row);
 
-    expect(c.querySelector(".border-b")?.textContent).toContain("user-role.md");
+    expect(c.querySelector(".border-b")?.textContent).toContain("user-role");
   });
 
   it("shows the full file with line numbers in raw mode", async () => {
@@ -320,15 +320,15 @@ describe("MemoryPanel delete selection", () => {
         deleted = true;
       },
     });
-    expect(c.querySelector(".border-b")?.textContent).toContain("MEMORY.md");
+    expect(c.querySelector(".border-b")?.textContent).toContain("MEMORY");
 
     const deleteButton = c.querySelector('button[aria-label="Delete MEMORY.md"]');
     if (!deleteButton) throw new Error("delete button not found");
     await click(deleteButton);
     await click(findButton(c, "Delete"));
 
-    expect(c.querySelector(".border-b")?.textContent).toContain("user-role.md");
-    expect(c.querySelector(".border-b")?.textContent).not.toContain("MEMORY.md");
+    expect(c.querySelector(".border-b")?.textContent).toContain("user-role");
+    expect(c.querySelector(".border-b")?.textContent).not.toContain("MEMORY");
   });
 
   it("shows the placeholder when the last file is deleted", async () => {

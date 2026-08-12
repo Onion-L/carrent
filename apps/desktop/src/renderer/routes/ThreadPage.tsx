@@ -35,11 +35,8 @@ import { useChatRun } from "../hooks/useChatRun";
 import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
 import { useToast } from "../components/toast/ToastContext";
 import { BrowserWorkspace, useBrowserThread } from "../components/browser/BrowserWorkspace";
-import {
-  RightSurfacePane,
-  shouldOpenDiffSurface,
-  useRightSurface,
-} from "../components/right-surface/RightSurfacePane";
+import { RightSurfacePane, shouldOpenDiffSurface } from "../components/right-surface/RightSurfacePane";
+import { useRightSurface } from "../components/right-surface/useRightSurface";
 
 export function resolveThreadRouteData(
   getThreadRouteData: ReturnType<typeof useThreadContent>["getThreadRouteData"],

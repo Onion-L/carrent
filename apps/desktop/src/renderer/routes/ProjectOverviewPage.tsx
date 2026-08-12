@@ -13,7 +13,8 @@ import { BrowserWorkspace, useBrowserThread } from "../components/browser/Browse
 import type { AssociationThreadDraftRecord } from "../../shared/workspacePersistence";
 import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
 import { useChatRun } from "../hooks/useChatRun";
-import { RightSurfacePane, useRightSurface } from "../components/right-surface/RightSurfacePane";
+import { RightSurfacePane } from "../components/right-surface/RightSurfacePane";
+import { useRightSurface } from "../components/right-surface/useRightSurface";
 
 export function ProjectOverviewPage() {
   const { workspaceId, projectId } = useParams();

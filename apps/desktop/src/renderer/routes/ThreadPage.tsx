@@ -472,12 +472,11 @@ function ThreadPageContent() {
             browser: browserTarget !== null,
             terminal: appProject !== undefined,
             changes: latestChanges?.snapshot !== undefined,
-            inspector: inspectorInput !== null || inspectorTasks.length > 0,
+            inspector: inspectorTasks.length > 0,
           }}
           width={rightSurfaceWidth}
           onWidthChange={setRightSurfaceWidth}
           onSelect={handleSelectSurface}
-          onClose={closeRightSurface}
         >
           {activeSurface === "browser" && showBrowser && browserTarget && activeBrowserState ? (
             <BrowserWorkspace

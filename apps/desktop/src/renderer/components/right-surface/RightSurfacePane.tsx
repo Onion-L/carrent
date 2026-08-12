@@ -1,5 +1,5 @@
-import { Bot, FileDiff, Globe2, LayoutGrid, SquareTerminal, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Bot, FileDiff, Globe2, SquareTerminal } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useTerminalPanel } from "../../context/TerminalPanelContext";
 
 export type RightSurface = "chooser" | "browser" | "terminal" | "changes" | "inspector";
@@ -12,7 +12,6 @@ export function useRightSurface({
   openBrowser: () => void;
 }) {
   const [activeSurface, setActiveSurfaceState] = useState<RightSurface | null>(null);
-  const lastSurfaceByScope = useRef(new Map<string, RightSurface>());
   const {
     isOpen: terminalOpen,
     placement: terminalPlacement,
@@ -35,18 +34,15 @@ export function useRightSurface({
   const selectSurface = useCallback(
     (surface: RightSurface) => {
       setActiveSurfaceState(surface);
-      if (scopeKey && surface !== null && surface !== "chooser") {
-        lastSurfaceByScope.current.set(scopeKey, surface);
-      }
       if (surface !== "terminal" && terminalOpen && terminalPlacement === "side") closeTerminal();
       if (surface === "browser") openBrowser();
       if (surface === "terminal") openTerminal("side");
     },
-    [closeTerminal, openBrowser, openTerminal, scopeKey, terminalOpen, terminalPlacement],
+    [closeTerminal, openBrowser, openTerminal, terminalOpen, terminalPlacement],
   );
 
   const openRightSurface = () => {
-    selectSurface(scopeKey ? (lastSurfaceByScope.current.get(scopeKey) ?? "chooser") : "chooser");
+    selectSurface("chooser");
   };
 
   const closeRightSurface = () => {
@@ -95,8 +91,8 @@ const SURFACES = [
   },
   {
     id: "inspector",
-    label: "Environment & agents",
-    description: "Inspect the project and agent activity",
+    label: "Subagents",
+    description: "Review subagent activity in this thread",
     icon: Bot,
   },
 ] as const;
@@ -107,7 +103,6 @@ export function RightSurfacePane({
   width,
   onWidthChange,
   onSelect,
-  onClose,
   children,
 }: {
   activeSurface: RightSurface;
@@ -115,7 +110,6 @@ export function RightSurfacePane({
   width: number | null;
   onWidthChange: (width: number) => void;
   onSelect: (surface: RightSurface) => void;
-  onClose: () => void;
   children?: ReactNode;
 }) {
   const viewportWidth = typeof window === "undefined" ? 1200 : window.innerWidth;
@@ -129,7 +123,7 @@ export function RightSurfacePane({
 
   return (
     <aside
-      className="relative flex h-full min-w-[22rem] max-w-[70%] shrink-0 flex-col border-l border-border bg-bg"
+      className="right-pane-enter relative flex h-full min-w-[22rem] max-w-[70%] shrink-0 flex-col border-l border-border bg-bg"
       style={{ width: width ?? "45%" }}
       aria-label="Right panel"
     >
@@ -169,88 +163,41 @@ export function RightSurfacePane({
         }}
       />
 
-      <div className="flex h-10 shrink-0 items-center gap-0.5 border-b border-border bg-sidebar px-2">
-        <button
-          type="button"
-          aria-label="Choose panel"
-          title="Choose panel"
-          aria-pressed={activeSurface === "chooser"}
-          onClick={() => onSelect("chooser")}
-          className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25 ${
-            activeSurface === "chooser" ? "bg-surface-raised text-fg" : "text-subtle hover:text-fg"
-          }`}
-        >
-          <LayoutGrid className="h-3.5 w-3.5" />
-        </button>
-        {SURFACES.map((surface) => {
-          const Icon = surface.icon;
-          const available = availability[surface.id];
-          return (
-            <button
-              key={surface.id}
-              type="button"
-              aria-label={surface.label}
-              title={available ? surface.label : `${surface.label} unavailable`}
-              aria-pressed={activeSurface === surface.id}
-              disabled={!available}
-              onClick={() => onSelect(surface.id)}
-              className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25 disabled:cursor-not-allowed disabled:opacity-30 ${
-                activeSurface === surface.id
-                  ? "bg-surface-raised text-fg"
-                  : "text-subtle hover:text-fg"
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-            </button>
-          );
-        })}
-        <div className="flex-1" />
-        <button
-          type="button"
-          aria-label="Close right panel"
-          title="Close right panel"
-          onClick={onClose}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeSurface === "chooser" ? (
-          <div className="flex h-full items-center justify-center px-6 py-8">
-            <div className="w-full max-w-[25rem]">
-              <div className="mb-4 px-2">
-                <h2 className="text-app-15 font-medium text-fg">Open a panel</h2>
-                <p className="mt-1 text-app-12 text-subtle">Choose what to work with here.</p>
-              </div>
-              <div className="space-y-1">
-                {SURFACES.map((surface) => {
-                  const Icon = surface.icon;
-                  const available = availability[surface.id];
-                  return (
-                    <button
-                      key={surface.id}
-                      type="button"
-                      disabled={!available}
-                      onClick={() => onSelect(surface.id)}
-                      className="group flex min-h-14 w-full items-center gap-3 rounded-md px-2 text-left transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25 disabled:cursor-not-allowed disabled:opacity-35"
-                    >
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-muted group-hover:text-fg">
-                        <Icon className="h-4 w-4" />
+          <div className="flex h-full flex-col justify-center gap-4 px-3 py-6">
+            <div className="px-2">
+              <h2 className="text-app-15 font-semibold text-fg">Open a panel</h2>
+              <p className="mt-1 text-app-12 text-subtle">Choose what to work with here.</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              {SURFACES.map((surface) => {
+                const Icon = surface.icon;
+                const available = availability[surface.id];
+                return (
+                  <button
+                    key={surface.id}
+                    type="button"
+                    aria-label={surface.label}
+                    title={available ? surface.label : `${surface.label} unavailable`}
+                    disabled={!available}
+                    onClick={() => onSelect(surface.id)}
+                    className="group flex w-full items-center gap-3 rounded-md px-3 py-3 text-left transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-muted transition group-hover:text-fg">
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-app-14 font-medium text-fg">
+                        {surface.label}
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-app-13 font-medium text-fg">
-                          {surface.label}
-                        </span>
-                        <span className="block truncate text-app-12 text-subtle">
-                          {surface.description}
-                        </span>
+                      <span className="mt-0.5 block truncate text-app-12 text-subtle">
+                        {surface.description}
                       </span>
-                    </button>
-                  );
-                })}
-              </div>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         ) : (

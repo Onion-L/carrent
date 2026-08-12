@@ -277,11 +277,10 @@ export function ProjectOverviewPage() {
         ) : activeSurface ? (
           <RightSurfacePane
             activeSurface={activeSurface}
-            availability={{ browser: true, terminal: true, changes: false, inspector: true }}
+            availability={{ browser: true, terminal: true, changes: false, inspector: false }}
             width={rightSurfaceWidth}
             onWidthChange={setRightSurfaceWidth}
             onSelect={selectSurface}
-            onClose={closeRightSurface}
           >
             {activeSurface === "browser" && showBrowser && browserTarget && activeBrowserState ? (
               <BrowserWorkspace

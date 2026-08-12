@@ -301,6 +301,7 @@ export function IntegratedTerminal({
   const controllers = useRef(new Map<string, TerminalController>());
   const retainedOutput = useRef(new Map<string, string>());
   const resizingRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
   const focusVersionRef = useRef(0);
   const syncByProject = useRef(
     new Map<string, { ready: boolean; revision: number; buffered: TerminalEvent[] }>(),
@@ -584,6 +585,7 @@ export function IntegratedTerminal({
 
   const beginResize = (event: React.MouseEvent) => {
     event.preventDefault();
+    setIsResizing(true);
     resizingRef.current = { startY: event.clientY, startHeight: panelHeight };
     document.body.style.userSelect = "none";
     const move = (moveEvent: MouseEvent) => {
@@ -602,6 +604,7 @@ export function IntegratedTerminal({
     };
     const end = () => {
       document.body.style.userSelect = "";
+      setIsResizing(false);
       resizingRef.current = null;
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", end);
@@ -624,10 +627,22 @@ export function IntegratedTerminal({
     <section
       aria-label="Integrated Terminal"
       data-terminal-maximized={isMaximized ? "true" : undefined}
-      className={`${isMaximized ? "absolute inset-0 z-30" : placement === "side" ? "relative h-full w-full" : "relative shrink-0 border-t"} overflow-hidden border-border bg-[#151514] ${
-        isOpen && project ? "" : "hidden"
-      }`}
-      style={isMaximized || placement === "side" ? undefined : { height: panelHeight }}
+      className={
+        isMaximized
+          ? "absolute inset-0 z-30 overflow-hidden border-border bg-[#151514]"
+          : placement === "side"
+            ? `relative h-full w-full overflow-hidden border-border bg-[#151514] ${
+                isOpen && project ? "" : "hidden"
+              }`
+            : `relative shrink-0 overflow-hidden border-border bg-[#151514] terminal-panel ${
+                isResizing ? "is-resizing" : ""
+              } ${isOpen && project ? "border-t" : ""}`
+      }
+      style={
+        isMaximized || placement === "side"
+          ? undefined
+          : { height: isOpen && project ? panelHeight : 0 }
+      }
       onContextMenu={(event) => {
         if (!activeTab) return;
         event.preventDefault();

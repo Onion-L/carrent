@@ -297,6 +297,7 @@ export function ThreadInspectorContent({
   const latestChanges = projectPath ? selectLatestChangedFilesMessage(messages) : null;
   const totals = getChangedFilesTotals(latestChanges);
   const canOpenDiff = !!latestChanges?.snapshot && !!onOpenDiff;
+  const showEnvironment = !!projectPath && !embedded;
 
   return (
     <div
@@ -306,7 +307,7 @@ export function ThreadInspectorContent({
       role="complementary"
       aria-label="Thread inspector"
     >
-      {projectPath && (
+      {showEnvironment && (
         <section className="shrink-0 px-3 pb-1 pt-3">
           <div className="mb-2 flex h-7 items-center justify-between px-1">
             <h2 className="text-app-13 font-medium text-muted">Environment</h2>
@@ -358,7 +359,7 @@ export function ThreadInspectorContent({
       )}
 
       <div
-        className={`flex min-h-0 flex-1 flex-col ${projectPath ? "border-t border-border" : ""}`}
+        className={`flex min-h-0 flex-1 flex-col ${showEnvironment ? "border-t border-border" : ""}`}
       >
         <div className="flex shrink-0 items-center justify-between px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">

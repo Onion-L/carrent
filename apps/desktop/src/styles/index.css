@@ -191,3 +191,36 @@
     animation: none;
   }
 }
+
+@keyframes right-pane-enter {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.right-pane-enter {
+  animation: right-pane-enter 200ms ease-out;
+}
+
+.terminal-panel {
+  transition: height 200ms ease-out;
+}
+
+.terminal-panel.is-resizing {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .right-pane-enter {
+    animation: none;
+  }
+
+  .terminal-panel {
+    transition: none;
+  }
+}

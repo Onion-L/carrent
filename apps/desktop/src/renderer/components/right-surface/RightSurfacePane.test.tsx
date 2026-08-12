@@ -18,7 +18,6 @@ function renderPane(
       width={null}
       onWidthChange={() => {}}
       onSelect={() => {}}
-      onClose={() => {}}
     />,
   );
 }
@@ -31,7 +30,7 @@ describe("RightSurfacePane", () => {
     expect(html).toContain("Browser");
     expect(html).toContain("Terminal");
     expect(html).toContain("Changes");
-    expect(html).toContain("Environment &amp; agents");
+    expect(html).toContain("Subagents");
   });
 
   it("keeps unavailable surfaces visible and disabled", () => {

@@ -266,45 +266,46 @@ export function MemoryPanelView({
                       {formatRelativeTime(selectedFile.modifiedAt)}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    aria-label={`Delete ${selectedFile.fileName}`}
-                    title="Delete"
-                    onClick={() => setPendingDelete(selectedFile)}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-fg"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <div className="flex rounded-md border border-border bg-surface p-0.5">
-                    {(["preview", "raw"] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => setViewMode(mode)}
-                        className={`rounded px-2.5 py-1 text-app-12 capitalize ${
-                          viewMode === mode
-                            ? "bg-surface-hover text-fg"
-                            : "text-subtle hover:text-muted"
-                        }`}
-                      >
-                        {mode}
-                      </button>
-                    ))}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <div className="flex rounded-md border border-border bg-surface p-0.5">
+                      {(["preview", "raw"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setViewMode(mode)}
+                          className={`rounded px-2.5 py-1 text-app-12 capitalize ${
+                            viewMode === mode
+                              ? "bg-surface-hover text-fg"
+                              : "text-subtle hover:text-muted"
+                          }`}
+                        >
+                          {mode}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={`Reveal ${selectedFile.fileName} in Finder`}
+                      title="Reveal in Finder"
+                      onClick={() => {
+                        void revealMemoryFile(shellApi, selectedFile.path).catch((err) =>
+                          setActionError(err instanceof Error ? err.message : String(err)),
+                        );
+                      }}
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-fg"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${selectedFile.fileName}`}
+                      title="Delete"
+                      onClick={() => setPendingDelete(selectedFile)}
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-hover hover:text-fg"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void revealMemoryFile(shellApi, selectedFile.path).catch((err) =>
-                        setActionError(err instanceof Error ? err.message : String(err)),
-                      );
-                    }}
-                    className="flex items-center gap-1.5 rounded-md px-2 py-1 text-app-12 text-muted transition-colors hover:bg-surface-hover hover:text-fg"
-                  >
-                    <FolderOpen className="h-3.5 w-3.5" />
-                    Reveal in Finder
-                  </button>
                 </div>
                 {selectedFile.description !== "" ? (
                   <div

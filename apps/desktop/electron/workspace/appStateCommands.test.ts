@@ -734,7 +734,7 @@ describe("settings:update", () => {
     expect(normalizeAppStateSnapshotForWrite(snapshot)).not.toBe(null);
   });
 
-  it("shallow-merges over existing settings", () => {
+  it("replaces existing settings with the submitted values", () => {
     const snapshot = makeSnapshot({
       settings: { ...DEFAULT_APP_STATE_SETTINGS, theme: "light", fontSize: 20 },
     });
@@ -789,6 +789,19 @@ describe("settings:update", () => {
     }) as AppStateSnapshot;
     expect(next.settings?.threadTitleModelId).toBe(undefined);
     expect(next.settings?.theme).toBe(DEFAULT_APP_STATE_SETTINGS.theme);
+  });
+
+  it("clears a previously chosen threadTitleModelId when the next update omits it", () => {
+    // Selecting "Kimi default" in the UI submits a full settings object with
+    // no threadTitleModelId. The reducer must drop the previously stored
+    // concrete id so title generation falls back to the live Kimi default.
+    const previous = reduce("settings:update", makeSnapshot(), {
+      settings: { ...DEFAULT_APP_STATE_SETTINGS, threadTitleModelId: "kimi-k2.5" },
+    }) as AppStateSnapshot;
+    const next = reduce("settings:update", previous, {
+      settings: { ...DEFAULT_APP_STATE_SETTINGS },
+    }) as AppStateSnapshot;
+    expect(next.settings?.threadTitleModelId).toBe(undefined);
   });
 
   it("defaults customFontFamily to an empty string when omitted", () => {

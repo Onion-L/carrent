@@ -1013,14 +1013,10 @@ function Section({
 /*  Thread title model                                                        */
 /* -------------------------------------------------------------------------- */
 
-// Sentinel value representing "use the current Kimi default" in the Settings
-// Select. Stored as the absence of threadTitleModelId in App State, so this
-// constant never reaches persistence.
-const THREAD_TITLE_MODEL_DEFAULT = "__kimi_default__";
-
 export function ThreadTitleModelControl({
   threadTitleModelId,
   models,
+  defaultModelId,
   loading,
   error,
   onChange,
@@ -1028,6 +1024,7 @@ export function ThreadTitleModelControl({
 }: {
   threadTitleModelId: string | undefined;
   models: RuntimeModelRecord[];
+  defaultModelId: string | undefined;
   loading: boolean;
   error: string | undefined;
   onChange: (modelId: string | undefined) => void;
@@ -1038,10 +1035,14 @@ export function ThreadTitleModelControl({
   // than silently reverting to the default.
   const availableIds = new Set(models.map((model) => model.id));
   const configuredUnavailable = !!threadTitleModelId && !availableIds.has(threadTitleModelId);
+  // The live Kimi default (the ACP `model` currentValue). When no concrete
+  // model is pinned, the dropdown selects this one and the setting stays unset
+  // so title generation follows Kimi's default.
+  const resolvedDefaultId =
+    defaultModelId && availableIds.has(defaultModelId) ? defaultModelId : undefined;
 
   // While the catalog is still loading and no models are known yet, show a
-  // placeholder instead of an empty dropdown. "Kimi default" stays selectable
-  // because it needs no catalog entry.
+  // placeholder instead of an empty dropdown.
   if (loading && models.length === 0) {
     return (
       <div className="flex items-center justify-between gap-6 py-3.5">
@@ -1057,17 +1058,21 @@ export function ThreadTitleModelControl({
   }
 
   const options: { value: string; label: string }[] = [
-    { value: THREAD_TITLE_MODEL_DEFAULT, label: "Kimi default" },
-    ...models.map((model) => ({
-      value: model.id,
-      label: formatKimiModelLabel(model.name),
-    })),
+    ...models.map((model) => {
+      const label = formatKimiModelLabel(model.name);
+      return {
+        value: model.id,
+        label: model.id === resolvedDefaultId ? `${label} (default)` : label,
+      };
+    }),
     ...(configuredUnavailable && threadTitleModelId
       ? [{ value: threadTitleModelId, label: `${threadTitleModelId} (unavailable)` }]
       : []),
   ];
 
-  const selected = threadTitleModelId ?? THREAD_TITLE_MODEL_DEFAULT;
+  // Unset preference ⇒ follow Kimi's current default; fall back to the first
+  // catalog model purely for display when no default is reported.
+  const selected = threadTitleModelId ?? resolvedDefaultId ?? models[0]?.id;
 
   return (
     <div>
@@ -1079,7 +1084,9 @@ export function ThreadTitleModelControl({
         icon={<RuntimeIcon name="Kimi" size="xs" />}
         wide
         onChange={(value) => {
-          onChange(value === THREAD_TITLE_MODEL_DEFAULT ? undefined : value);
+          // Picking the current default model restores follow mode (unset);
+          // any other choice pins a concrete model id.
+          onChange(value === resolvedDefaultId ? undefined : value);
         }}
       />
       {error ? (
@@ -1102,12 +1109,13 @@ export function ThreadTitleModelControl({
 
 function ThreadTitleModelPanel() {
   const { threadTitleModelId, updateSetting } = useSettings();
-  const { models, loading, error, refresh } = useRuntimeModels("kimi");
+  const { models, defaultModelId, loading, error, refresh } = useRuntimeModels("kimi");
 
   return (
     <ThreadTitleModelControl
       threadTitleModelId={threadTitleModelId}
       models={models}
+      defaultModelId={defaultModelId}
       loading={loading}
       error={error}
       onChange={(modelId) => updateSetting("threadTitleModelId", modelId)}

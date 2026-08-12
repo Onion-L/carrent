@@ -36,6 +36,11 @@ const kimiModel = {
   name: "Kimi K2.5",
   source: "cli" as const,
 };
+const kimiK3Model = {
+  id: "kimi-k3",
+  name: "Kimi K3",
+  source: "cli" as const,
+};
 
 function renderThreadTitleModelControl(
   overrides: Partial<Parameters<typeof ThreadTitleModelControl>[0]> = {},
@@ -44,6 +49,7 @@ function renderThreadTitleModelControl(
     createElement(ThreadTitleModelControl, {
       threadTitleModelId: undefined,
       models: [kimiModel],
+      defaultModelId: undefined,
       loading: false,
       error: undefined,
       onChange: () => {},
@@ -80,19 +86,27 @@ function typeIntoInput(input: HTMLInputElement, text: string) {
 }
 
 describe("Thread title model setting", () => {
-  it("shows Kimi default and concrete catalog models", () => {
-    const defaultMarkup = renderThreadTitleModelControl();
-    expect(defaultMarkup).toContain("Thread title model");
-    expect(defaultMarkup).toContain("Kimi default");
-    expect(defaultMarkup).toContain("<title>Kimi</title>");
-    expect(defaultMarkup).toContain("w-[200px]");
-    expect(defaultMarkup).toContain("h-4 w-4");
-    expect(defaultMarkup).toContain("whitespace-nowrap");
-
-    const concreteMarkup = renderThreadTitleModelControl({
-      threadTitleModelId: kimiModel.id,
+  it("follows the live Kimi default model when unset, tagged (default)", () => {
+    const markup = renderThreadTitleModelControl({
+      models: [kimiModel, kimiK3Model],
+      defaultModelId: kimiK3Model.id,
     });
-    expect(concreteMarkup).toContain("Kimi K2.5");
+    expect(markup).toContain("Thread title model");
+    expect(markup).toContain("Kimi K3 (default)");
+    expect(markup).toContain("<title>Kimi</title>");
+    expect(markup).toContain("w-[200px]");
+    expect(markup).toContain("h-4 w-4");
+    expect(markup).toContain("whitespace-nowrap");
+  });
+
+  it("shows a pinned concrete model without the default tag", () => {
+    const markup = renderThreadTitleModelControl({
+      threadTitleModelId: kimiModel.id,
+      models: [kimiModel, kimiK3Model],
+      defaultModelId: kimiK3Model.id,
+    });
+    expect(markup).toContain("Kimi K2.5");
+    expect(markup).not.toContain("Kimi K2.5 (default)");
   });
 
   it("keeps an unavailable saved concrete model visible", () => {

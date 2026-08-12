@@ -516,14 +516,18 @@ const rememberThreadLocation: AppStateCommandReducer = (snapshot, payload) => {
   };
 };
 
-// Settings are validated leniently (see AppStateSettings) and shallow-merged
-// over the snapshot's current settings.
+// Settings are validated leniently (see AppStateSettings) and replace the
+// snapshot's current settings wholesale. The renderer always submits a full
+// AppStateSettings, and normalizeAppStateSettings fills every required field,
+// so replacing (rather than shallow-merging) is what lets an optional field
+// such as threadTitleModelId be cleared: a value omitted from the next update
+// must not stale-merge the previously chosen concrete model id.
 const updateSettings: AppStateCommandReducer = (snapshot, payload) => {
   if (!isRecord(payload)) return null;
   const settings = normalizeAppStateSettings(payload.settings);
   if (!settings) return null;
 
-  return { ...snapshot, settings: { ...snapshot.settings, ...settings } };
+  return { ...snapshot, settings };
 };
 
 function isNonEmptyTrimmedString(value: unknown): value is string {

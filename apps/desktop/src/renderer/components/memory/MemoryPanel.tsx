@@ -174,11 +174,6 @@ export function MemoryPanelView({
         </button>
       </div>
 
-      <p className="text-app-11 text-subtle">
-        Beta: the Kimi Code memory file format is not stable yet. This tab only manages content
-        (view, reveal, delete); it does not change how memory is collected.
-      </p>
-
       {actionError !== null ? (
         <p className="rounded-lg border border-border bg-surface px-3 py-2 text-app-12 text-danger">
           {actionError}
@@ -187,43 +182,51 @@ export function MemoryPanelView({
 
       {/* Master-detail: tonal separation instead of nested bordered boxes —
           the list is one rounded surface, the detail pane is bare canvas. */}
-      <div className="flex h-[calc(100dvh-280px)] min-h-[480px] min-w-0 gap-4">
-        <div className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto rounded-lg bg-surface px-1.5 py-1.5">
-          {index.projects.map((project) => (
-            <div key={project.key} className="flex flex-col gap-1.5">
-              <div
-                className="truncate px-2 pb-0.5 pt-1.5 text-app-11 font-medium text-subtle"
-                title={project.key}
-              >
-                {project.name}
-              </div>
-              {project.files.map((file) => {
-                const selected = selectedFile?.path === file.path;
-                return (
-                  <button
-                    key={file.path}
-                    type="button"
-                    onClick={() => setSelectedPath(file.path)}
-                    title={file.description}
-                    className={`flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors duration-150 ease-out ${
-                      selected ? "bg-surface-hover" : "hover:bg-surface-hover/60"
-                    }`}
-                  >
-                    <span
-                      className={`truncate text-app-12 ${
-                        selected ? "font-medium text-fg" : "text-fg"
+      <div className="flex h-[calc(100dvh-250px)] min-h-[480px] min-w-0 gap-4">
+        <div className="flex w-72 shrink-0 flex-col overflow-hidden rounded-lg bg-surface">
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1.5 py-1.5">
+            {index.projects.map((project) => (
+              <div key={project.key} className="flex flex-col gap-1.5">
+                <div
+                  className="truncate px-2 pb-0.5 pt-1.5 text-app-11 font-medium text-subtle"
+                  title={project.key}
+                >
+                  {project.name}
+                </div>
+                {project.files.map((file) => {
+                  const selected = selectedFile?.path === file.path;
+                  return (
+                    <button
+                      key={file.path}
+                      type="button"
+                      onClick={() => setSelectedPath(file.path)}
+                      title={file.description}
+                      className={`flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors duration-150 ease-out ${
+                        selected ? "bg-surface-hover" : "hover:bg-surface-hover/60"
                       }`}
                     >
-                      {file.name}
-                    </span>
-                    <span className="truncate text-app-11 text-subtle">
-                      {file.type} · {formatRelativeTime(file.modifiedAt)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+                      <span
+                        className={`truncate text-app-12 ${
+                          selected ? "font-medium text-fg" : "text-fg"
+                        }`}
+                      >
+                        {file.name}
+                      </span>
+                      <span className="truncate text-app-11 text-subtle">
+                        {file.type} · {formatRelativeTime(file.modifiedAt)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          <div
+            className="shrink-0 px-2.5 py-1.5 text-app-10 text-subtle"
+            title="The Kimi Code memory file format is not stable yet. This tab only manages content (view, reveal, delete); it does not change how memory is collected."
+          >
+            Beta · file format may change
+          </div>
         </div>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg">
@@ -357,7 +360,7 @@ function MemorySkeleton() {
         <div className="h-4 w-48 rounded bg-surface" />
         <div className="h-8 w-8 rounded-md bg-surface" />
       </div>
-      <div className="flex h-[calc(100dvh-280px)] min-h-[480px] min-w-0 gap-4">
+      <div className="flex h-[calc(100dvh-250px)] min-h-[480px] min-w-0 gap-4">
         <div className="flex w-72 shrink-0 flex-col gap-1.5 rounded-lg bg-surface px-1.5 py-1.5">
           <div className="mb-1.5 h-3 w-20 rounded bg-surface-hover" />
           {[0, 1, 2, 3].map((row) => (

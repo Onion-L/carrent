@@ -10,6 +10,7 @@ import type {
 } from "../../../shared/workspacePersistence";
 import type { ThreadSearchEntry } from "../../../shared/threadSearch";
 import { searchThreads } from "../../lib/threadSearch";
+import { MarqueeText } from "../MarqueeText";
 
 type ThreadSearchDialogProps = {
   threads: AppThreadRecord[];
@@ -125,9 +126,9 @@ export function ThreadSearchDialog({
                     : "text-muted hover:bg-surface-hover hover:text-fg"
                 }`}
               >
-                <span className="block truncate text-app-12 font-medium">
+                <MarqueeText className="block text-app-12 font-medium">
                   {entry.workspaceName} / {entry.projectName} / {entry.thread.title}
-                </span>
+                </MarqueeText>
               </button>
             ))
           )}

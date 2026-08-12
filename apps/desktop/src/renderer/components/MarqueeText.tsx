@@ -4,8 +4,8 @@ const MARQUEE_SPEED_PX_PER_SECOND = 60;
 const MARQUEE_HOVER_DELAY_MS = 250;
 
 // Reveals overflowing text on hover by scrolling it left until the tail end
-// is visible, then slides back when the pointer leaves. The idle state keeps
-// the usual ellipsis truncation.
+// is visible, then slides back when the pointer leaves. The idle state crops
+// overflowing text cleanly, without an ellipsis.
 export function MarqueeText({ children, className }: { children: ReactNode; className?: string }) {
   const containerRef = useRef<HTMLSpanElement>(null);
   const contentRef = useRef<HTMLSpanElement>(null);

@@ -24,6 +24,7 @@ import { resolveSettingsTabId, SETTINGS_TABS } from "../lib/settingsTabs";
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, parseFontSizeInput, stepFontSize } from "../lib/fontSize";
 import { RuntimeIcon } from "../components/RuntimeIcon";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { MarqueeText } from "../components/MarqueeText";
 import { McpServerControl } from "../components/mcp/McpServerControl";
 import { useRuntimeModels } from "../hooks/useRuntimeModels";
 import { useRuntimes } from "../hooks/useRuntimes";
@@ -1396,7 +1397,7 @@ function ArchivedThreadsPanel({
                   {groupThreads.map((thread) => (
                     <div key={thread.id} className="flex items-center gap-3 py-3.5">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-app-13 text-fg">{thread.title}</p>
+                        <MarqueeText className="block text-app-13 text-fg">{thread.title}</MarqueeText>
                         <p className="mt-0.5 truncate text-app-12 text-subtle">
                           {getProjectName(thread)} ·{" "}
                           {formatAbsoluteTime(Date.parse(thread.lastActivityAt))}

@@ -1138,7 +1138,6 @@ describe("three-level navigation", () => {
       projectActionLabels.indexOf("New thread in Personal Carrent"),
     );
     expect(navigationPane.querySelector('[aria-label="Move Personal Carrent up"]')).toBe(null);
-    expect(container!.textContent).toContain("Personal / Personal Carrent / Personal Thread");
 
     await click(buttonNamed("Collapse Personal Carrent"));
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-1");

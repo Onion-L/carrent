@@ -95,6 +95,12 @@ export function MemoryPanelView({
   );
   const [pendingDelete, setPendingDelete] = useState<KimiMemoryFile | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
   const [previewLineWrap, setPreviewLineWrap] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -244,7 +250,7 @@ export function MemoryPanelView({
                         {file.name}
                       </span>
                       <span className="truncate text-app-11 text-subtle">
-                        {file.type} · {formatRelativeTime(file.modifiedAt)}
+                        {file.type} · {formatRelativeTime(file.modifiedAt, now)}
                       </span>
                     </button>
                   );
@@ -278,7 +284,7 @@ export function MemoryPanelView({
                       className="shrink-0 text-app-11 text-subtle"
                       title={formatAbsoluteTime(selectedFile.modifiedAt)}
                     >
-                      {formatRelativeTime(selectedFile.modifiedAt)}
+                      {formatRelativeTime(selectedFile.modifiedAt, now)}
                     </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">

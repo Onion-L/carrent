@@ -11,6 +11,7 @@ import {
   removeThreadWork,
   setThreadDraft,
   shiftQueuedChatMessage,
+  syncThreadWorkFromSnapshot,
   unshiftQueuedChatMessage,
   updateQueuedChatMessage,
   type QueuedChatMessage,
@@ -258,6 +259,69 @@ describe("chatMessageQueue threadWork persistence", () => {
     removeQueuedChatMessage("t18", "recovered");
     expect(shiftQueuedChatMessage("t18")?.id).toBe("live");
     expect(getQueuedMessages("t18")).toEqual([]);
+  });
+
+  it("keeps a live-queued item auto-sendable when a stale broadcast drops and re-adds it", () => {
+    enqueueChatMessage("t23", makeItem("live"));
+
+    // A stale broadcast that predates the enqueue removes the item locally.
+    syncThreadWorkFromSnapshot({ t23: { queuedMessages: [] } });
+    expect(getQueuedMessages("t23")).toEqual([]);
+
+    // A later broadcast sourced from the persisted form re-adds it with the
+    // crash-recovery flag; the item is still live and must stay auto-sendable.
+    syncThreadWorkFromSnapshot({
+      t23: { queuedMessages: [{ id: "live", content: "msg live", requiresConfirmation: true }] },
+    });
+
+    expect(getQueuedMessages("t23")).toEqual([{ id: "live", content: "msg live" }]);
+    expect(shiftQueuedChatMessage("t23")?.id).toBe("live");
+
+    removeThreadWork(["t23"]);
+  });
+
+  it("keeps the confirmation flag on queue items arriving from another window", () => {
+    syncThreadWorkFromSnapshot({
+      t24: {
+        queuedMessages: [
+          { id: "elsewhere", content: "from another window", requiresConfirmation: true },
+        ],
+      },
+    });
+
+    expect(getQueuedMessages("t24")).toEqual([
+      { id: "elsewhere", content: "from another window", requiresConfirmation: true },
+    ]);
+    expect(shiftQueuedChatMessage("t24")).toBe(null);
+
+    removeThreadWork(["t24"]);
+  });
+
+  it("does not mark a re-queued recovered item as live", () => {
+    hydrateThreadWork({
+      t25: { queuedMessages: [{ id: "recovered", content: "from disk" }] },
+    });
+
+    // A failed Steer re-queues the recovered item; it must stay confirmed.
+    removeQueuedChatMessage("t25", "recovered");
+    unshiftQueuedChatMessage("t25", {
+      id: "recovered",
+      content: "from disk",
+      requiresConfirmation: true,
+    });
+
+    // The drop/re-add race must not strip the flag either.
+    syncThreadWorkFromSnapshot({ t25: { queuedMessages: [] } });
+    syncThreadWorkFromSnapshot({
+      t25: { queuedMessages: [{ id: "recovered", content: "from disk", requiresConfirmation: true }] },
+    });
+
+    expect(getQueuedMessages("t25")).toEqual([
+      { id: "recovered", content: "from disk", requiresConfirmation: true },
+    ]);
+    expect(shiftQueuedChatMessage("t25")).toBe(null);
+
+    removeThreadWork(["t25"]);
   });
 
   it("supports edit and unshift on recovered items", () => {

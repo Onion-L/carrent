@@ -22,6 +22,12 @@ const queueByThreadId = new Map<string, QueuedChatMessage[]>();
 const draftByThreadId = new Map<string, ThreadWorkDraftSnapshot>();
 const listeners = new Set<() => void>();
 const EMPTY_QUEUE: QueuedChatMessage[] = [];
+// Ids of items this renderer enqueued itself. A mid-session broadcast can
+// briefly drop and re-add such an item (stale snapshot racing a local push),
+// and the re-added copy comes from the persisted form, which force-stamps
+// requiresConfirmation for crash recovery. Membership here proves the item
+// is live, not recovered, so the sync keeps it auto-sendable.
+const liveQueuedItemIds = new Set<string>();
 
 let version = 0;
 let cachedSnapshotKey: string | null = null;
@@ -37,11 +43,13 @@ export function getQueuedMessages(threadId: string): QueuedChatMessage[] {
 }
 
 export function enqueueChatMessage(threadId: string, item: QueuedChatMessage): void {
+  liveQueuedItemIds.add(item.id);
   queueByThreadId.set(threadId, [...getQueuedMessages(threadId), item]);
   emit();
 }
 
 export function removeQueuedChatMessage(threadId: string, id: string): void {
+  liveQueuedItemIds.delete(id);
   const next = getQueuedMessages(threadId).filter((item) => item.id !== id);
   if (next.length === 0) {
     queueByThreadId.delete(threadId);
@@ -69,11 +77,17 @@ export function shiftQueuedChatMessage(
   } else {
     queueByThreadId.set(threadId, rest);
   }
+  liveQueuedItemIds.delete(first.id);
   emit();
   return first;
 }
 
 export function unshiftQueuedChatMessage(threadId: string, item: QueuedChatMessage): void {
+  // Only live items belong in the set; re-queuing a recovered item (e.g. a
+  // failed Steer) must not make it auto-sendable.
+  if (item.requiresConfirmation !== true) {
+    liveQueuedItemIds.add(item.id);
+  }
   queueByThreadId.set(threadId, [item, ...getQueuedMessages(threadId)]);
   emit();
 }
@@ -123,6 +137,9 @@ export function clearThreadDraft(threadId: string): void {
 export function removeThreadWork(threadIds: string[]): void {
   let changed = false;
   for (const threadId of threadIds) {
+    for (const item of getQueuedMessages(threadId)) {
+      liveQueuedItemIds.delete(item.id);
+    }
     changed = draftByThreadId.delete(threadId) || changed;
     changed = queueByThreadId.delete(threadId) || changed;
   }
@@ -134,6 +151,9 @@ export function removeThreadWork(threadIds: string[]): void {
 // Clears a Thread's queued messages without touching its Composer draft.
 // Used when archiving a Thread mid-run so a stale queue does not outlive it.
 export function clearQueuedMessages(threadId: string): void {
+  for (const item of getQueuedMessages(threadId)) {
+    liveQueuedItemIds.delete(item.id);
+  }
   if (!queueByThreadId.delete(threadId)) {
     return;
   }
@@ -147,6 +167,7 @@ export function hydrateThreadWork(
 ): void {
   queueByThreadId.clear();
   draftByThreadId.clear();
+  liveQueuedItemIds.clear();
 
   if (threadWork) {
     for (const [threadId, work] of Object.entries(threadWork)) {
@@ -208,8 +229,9 @@ function workEntriesEqual(
 // without a pending local edit converge on the broadcast; Threads the user is
 // editing already match (the broadcast merge keeps their local entry), so a
 // dumb full sync never clobbers an in-progress composer. Queue items known
-// locally keep their requiresConfirmation flag — the persisted form forces it
-// for crash recovery, but a live queue must stay steerable.
+// locally keep their requiresConfirmation flag, and items this renderer
+// enqueued live have the broadcast copy's flag stripped — the persisted form
+// forces it for crash recovery, but a live queue must stay steerable.
 export function syncThreadWorkFromSnapshot(threadWork: Record<string, ThreadWorkSnapshot>): void {
   let changed = false;
   const threadIds = new Set([...draftByThreadId.keys(), ...queueByThreadId.keys()]);
@@ -235,7 +257,14 @@ export function syncThreadWorkFromSnapshot(threadWork: Record<string, ThreadWork
           queued.content === item.content &&
           JSON.stringify(queued.attachments ?? []) === JSON.stringify(item.attachments ?? []),
       );
-      return local ?? { ...item };
+      if (local) return local;
+      const copy = { ...item };
+      // A live item this renderer enqueued stays auto-sendable even when the
+      // broadcast copy carries the persisted crash-recovery flag.
+      if (liveQueuedItemIds.has(copy.id)) {
+        delete copy.requiresConfirmation;
+      }
+      return copy;
     });
     if (queue.length > 0) {
       queueByThreadId.set(threadId, queue);

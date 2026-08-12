@@ -1388,6 +1388,18 @@ export function Composer(props: ComposerProps) {
   const wasSendingForQueueRef = useRef(false);
   const queueDrainRequestedRef = useRef(false);
   const workspaceDiffCapturePendingRef = useRef(false);
+  const pendingWorkspaceDiffCaptureRef = useRef<Promise<void> | null>(null);
+  // Tracks the in-flight diff capture so a new send can wait for it; the
+  // capture appends its own message, and without this ordering its block
+  // lands after the next turn's messages.
+  const trackWorkspaceDiffCapture = (capture: Promise<void>) => {
+    pendingWorkspaceDiffCaptureRef.current = capture;
+    void capture.finally(() => {
+      if (pendingWorkspaceDiffCaptureRef.current === capture) {
+        pendingWorkspaceDiffCaptureRef.current = null;
+      }
+    });
+  };
   const [queueDrainVersion, setQueueDrainVersion] = useState(0);
   const [stopGuarded, setStopGuarded] = useState(() => getStopGuardRemainingMs(props.threadId) > 0);
   const lastSubmitRequestIdRef = useRef<number | null>(null);
@@ -2497,6 +2509,10 @@ export function Composer(props: ComposerProps) {
       return true;
     }
 
+    // A previous Run's diff capture may still be in flight; wait for it so
+    // its Workspace Changes block lands ahead of this turn's messages.
+    await pendingWorkspaceDiffCaptureRef.current;
+
     setAttachmentError(null);
 
     const appendLocalMessage = (
@@ -2864,7 +2880,9 @@ export function Composer(props: ComposerProps) {
           // completion itself never waits on the reveal.
           textRevealer.finish(text);
           workspaceDiffCapturePendingRef.current = true;
-          void captureWorkspaceDiff().finally(() => {
+          const completionCapture = captureWorkspaceDiff();
+          trackWorkspaceDiffCapture(completionCapture);
+          void completionCapture.finally(() => {
             workspaceDiffCapturePendingRef.current = false;
             // The capture appends its message before this rerender asks the
             // queue to send the next Run, preserving the conversation order.
@@ -2891,7 +2909,7 @@ export function Composer(props: ComposerProps) {
           });
           updateMessageRunStatus(assistantMsg.id, "failed");
           markThreadActivity(threadId);
-          captureWorkspaceDiff();
+          trackWorkspaceDiffCapture(captureWorkspaceDiff());
           queueDrainRequestedRef.current = false;
           // A failed run must not swallow a steer request; put it back.
           if (steerItemRef.current) {
@@ -2908,12 +2926,14 @@ export function Composer(props: ComposerProps) {
           markThreadActivity(threadId);
           if (steerItemRef.current) {
             workspaceDiffCapturePendingRef.current = true;
-            void captureWorkspaceDiff().finally(() => {
+            const stopCapture = captureWorkspaceDiff();
+            trackWorkspaceDiffCapture(stopCapture);
+            void stopCapture.finally(() => {
               workspaceDiffCapturePendingRef.current = false;
               requestQueueDrain();
             });
           } else {
-            captureWorkspaceDiff();
+            trackWorkspaceDiffCapture(captureWorkspaceDiff());
           }
         },
       },

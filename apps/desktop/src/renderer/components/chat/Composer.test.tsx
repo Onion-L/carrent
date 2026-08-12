@@ -701,6 +701,80 @@ describe("Composer inline Skills", () => {
     }
   });
 
+  it("waits for a pending workspace diff capture before sending a new message", async () => {
+    const threadId = "thread-2";
+    let resolveWorkspaceDiff!: (result: unknown) => void;
+    await renderComposer({
+      threadId,
+      workspaceDiff: () =>
+        new Promise((resolve) => {
+          resolveWorkspaceDiff = resolve;
+        }),
+    });
+
+    try {
+      await setComposerText("first message");
+      await submitComposer();
+
+      await act(async () => {
+        emitChatEvent?.({
+          type: "completed",
+          runId: sentChatRunIds[0]!,
+          text: "done",
+          writtenFiles: ["src/changed.ts"],
+          finishedAt: "2026-08-07T00:00:00.000Z",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(sentChatMessages).toEqual(["first message"]);
+
+      // Send the next message manually while the previous Run's capture is
+      // still in flight; it must wait so the Workspace Changes block lands
+      // ahead of this turn's messages.
+      await setComposerText("next message");
+      await submitComposer();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+      expect(sentChatMessages).toEqual(["first message"]);
+
+      resolveWorkspaceDiff({
+        state: "ready",
+        baseRevision: "base",
+        capturedAt: "2026-08-07T00:00:00.000Z",
+        projectRelativeRoot: ".",
+        files: [
+          {
+            path: "src/changed.ts",
+            additions: 1,
+            deletions: 0,
+            binary: false,
+            untracked: false,
+          },
+        ],
+        patch: "diff --git a/src/changed.ts b/src/changed.ts\n",
+        truncated: false,
+      });
+      await waitForQueueFlush(threadId, 2);
+
+      expect(sentChatMessages).toEqual(["first message", "next message"]);
+    } finally {
+      const latestRunId = sentChatRunIds.at(-1);
+      if (latestRunId) {
+        await act(async () => {
+          emitChatEvent?.({
+            type: "completed",
+            runId: latestRunId,
+            text: "done",
+            finishedAt: "2026-08-07T00:00:01.000Z",
+          });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+      getQueuedMessages(threadId).forEach((item) => removeQueuedChatMessage(threadId, item.id));
+    }
+  });
+
   it("automatically sends a queued message when a shared Run completes", async () => {
     const threadId = "thread-2";
     const sharedRun = {

@@ -281,13 +281,13 @@ export function MemoryPanelView({
                           key={mode}
                           type="button"
                           onClick={() => setViewMode(mode)}
-                          className={`rounded px-2.5 py-1 text-app-12 capitalize ${
+                          className={`rounded px-2.5 py-1 text-app-12 ${
                             viewMode === mode
                               ? "bg-surface-hover text-fg"
                               : "text-subtle hover:text-muted"
                           }`}
                         >
-                          {mode}
+                          {mode === "preview" ? "Preview" : "Raw"}
                         </button>
                       ))}
                     </div>

@@ -232,7 +232,7 @@ describe("MemoryPanel UI", () => {
     );
     if (!row) throw new Error("row not found");
     await click(row);
-    await click(findButton(c, "raw"));
+    await click(findButton(c, "Raw"));
 
     const body = c.textContent ?? "";
     expect(body).toContain("name: user-role");
@@ -245,10 +245,10 @@ describe("MemoryPanel UI", () => {
   it("toggles between preview and raw", async () => {
     const c = await renderPanel();
 
-    await click(findButton(c, "raw"));
+    await click(findButton(c, "Raw"));
     expect(c.textContent).toContain("[user-role](user-role.md)");
 
-    await click(findButton(c, "preview"));
+    await click(findButton(c, "Preview"));
     expect(c.querySelector("h1")?.textContent).toBe("Memory Index");
   });
 

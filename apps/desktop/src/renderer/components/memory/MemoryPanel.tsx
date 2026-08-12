@@ -101,12 +101,23 @@ export function MemoryPanelView({
     void refresh();
   }, [refresh]);
 
+  const allFiles = useMemo(
+    () => (index === null ? [] : index.projects.flatMap((project) => project.files)),
+    [index],
+  );
+
   const selectedFile = useMemo(() => {
-    if (index === null) return null;
-    const files = index.projects.flatMap((project) => project.files);
-    if (files.length === 0) return null;
-    return files.find((file) => file.path === selectedPath) ?? files[0] ?? null;
-  }, [index, selectedPath]);
+    if (allFiles.length === 0) return null;
+    return allFiles.find((file) => file.path === selectedPath) ?? null;
+  }, [allFiles, selectedPath]);
+
+  // Default to the first file once data arrives (kept out of selectedFile so
+  // the fallback does not resurrect a selection right after a delete).
+  useEffect(() => {
+    if (selectedPath === null && allFiles.length > 0) {
+      setSelectedPath(allFiles[0]!.path);
+    }
+  }, [allFiles, selectedPath]);
 
   const confirmDelete = useCallback(async () => {
     if (pendingDelete === null) return;
@@ -118,9 +129,14 @@ export function MemoryPanelView({
       return;
     }
     setActionError(null);
-    if (selectedPath === target.path) setSelectedPath(null);
+    // Move selection to a surviving file up front; the async refresh must not
+    // be able to resurrect the just-deleted file in the detail pane.
+    if (selectedPath === target.path) {
+      const remaining = allFiles.filter((file) => file.path !== target.path);
+      setSelectedPath(remaining[0]?.path ?? null);
+    }
     await refresh();
-  }, [pendingDelete, refresh, selectedPath, api]);
+  }, [pendingDelete, refresh, selectedPath, api, allFiles]);
 
   if (loading && index === null && error === null) return <MemorySkeleton />;
 

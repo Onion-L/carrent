@@ -304,3 +304,60 @@ describe("MemoryPanel UI", () => {
     expect(c.textContent).not.toContain("Delete memory file");
   });
 });
+
+describe("MemoryPanel delete selection", () => {
+  it("selects the next surviving file instead of resurrecting the deleted one", async () => {
+    let deleted = false;
+    const c = await renderPanel({
+      kimiMemory: async () => {
+        const index = makeUiIndex();
+        if (deleted) {
+          index.projects[0]!.files = index.projects[0]!.files.filter(
+            (file) => file.fileName !== "MEMORY.md",
+          );
+        }
+        return index;
+      },
+      kimiMemoryDelete: async () => {
+        deleted = true;
+      },
+    });
+    expect(c.querySelector(".border-b")?.textContent).toContain("MEMORY.md");
+
+    const deleteButton = c.querySelector('button[aria-label="Delete MEMORY.md"]');
+    if (!deleteButton) throw new Error("delete button not found");
+    await click(deleteButton);
+    await click(findButton(c, "Delete"));
+
+    expect(c.querySelector(".border-b")?.textContent).toContain("user-role.md");
+    expect(c.querySelector(".border-b")?.textContent).not.toContain("MEMORY.md");
+  });
+
+  it("shows the placeholder when the last file is deleted", async () => {
+    let deleted = false;
+    const c = await renderPanel({
+      kimiMemory: async () => {
+        if (deleted) return { projects: [], scannedAt: "2026-08-12T00:00:00.000Z" };
+        return {
+          projects: [
+            {
+              key: "-tmp-solo",
+              name: "solo",
+              files: [makeFile({ path: "/tmp/solo.md", fileName: "solo.md", name: "solo" })],
+            },
+          ],
+          scannedAt: "2026-08-12T00:00:00.000Z",
+        };
+      },
+      kimiMemoryDelete: async () => {
+        deleted = true;
+      },
+    });
+    const deleteButton = c.querySelector('button[aria-label="Delete solo.md"]');
+    if (!deleteButton) throw new Error("delete button not found");
+    await click(deleteButton);
+    await click(findButton(c, "Delete"));
+
+    expect(c.textContent).toContain("No Kimi Code memory yet");
+  });
+});

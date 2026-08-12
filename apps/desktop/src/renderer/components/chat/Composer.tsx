@@ -3668,7 +3668,7 @@ export function Composer(props: ComposerProps) {
                         </button>
                       </div>
                     ) : (
-                      <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                      <div className="ml-auto flex shrink-0 items-center gap-0.5">
                         <button
                           type="button"
                           onClick={() => handleSteerQueuedMessage(item)}

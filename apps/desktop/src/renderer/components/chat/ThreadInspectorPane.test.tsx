@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { Message, SubagentTaskPart } from "../../../shared/threadContent";
 import {
   ThreadInspectorContent,
+  ThreadInspectorToggle,
   collectSubagentTasks,
   formatSubagentTaskDuration,
   getChangedFilesTotals,
@@ -142,6 +143,18 @@ describe("ThreadInspectorContent", () => {
       truncated: false,
     },
   };
+
+  it("renders the floating card titlebar toggle", () => {
+    const html = renderToStaticMarkup(<ThreadInspectorToggle open={false} onToggle={() => {}} />);
+
+    expect(html).toContain('aria-label="Toggle thread tools card"');
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).toContain('title="Environment and subagents"');
+    expect(html).toContain("lucide-sliders-horizontal");
+
+    const open = renderToStaticMarkup(<ThreadInspectorToggle open={true} onToggle={() => {}} />);
+    expect(open).toContain('aria-pressed="true"');
+  });
 
   it("renders the project Environment with branch and change totals", () => {
     const html = renderContent({

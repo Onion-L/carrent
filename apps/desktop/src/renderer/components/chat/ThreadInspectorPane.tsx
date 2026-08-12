@@ -10,6 +10,7 @@ import {
   GitBranch,
   Laptop,
   Loader2,
+  SlidersHorizontal,
   X,
   XCircle,
 } from "lucide-react";
@@ -83,6 +84,13 @@ export function formatSubagentTaskDuration(task: SubagentTaskPart, now = Date.no
   return restMinutes > 0 ? `${hours}h ${restMinutes}m` : `${hours}h`;
 }
 
+export function shouldShowInspectorToggle(input: {
+  hasProjectEnvironment: boolean;
+  taskCount: number;
+}): boolean {
+  return input.hasProjectEnvironment || input.taskCount > 0;
+}
+
 const SUBAGENT_STATUS_LABEL: Record<SubagentTaskPart["status"], string> = {
   running: "Running",
   completed: "Completed",
@@ -97,6 +105,23 @@ export const THREAD_INSPECTOR_TITLE = "Subagents";
 // the timeline instead of taking layout space.
 const INSPECTOR_CARD_CLASS =
   "flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-[0_12px_40px_rgb(0_0_0/0.18)]";
+
+export function ThreadInspectorToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label="Toggle thread tools card"
+      aria-pressed={open}
+      title="Environment and subagents"
+      className={`relative flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25 ${
+        open ? "text-fg" : "text-muted hover:text-fg"
+      }`}
+    >
+      <SlidersHorizontal className="h-4 w-4" />
+    </button>
+  );
+}
 
 function SubagentStatusIcon({ status }: { status: SubagentTaskPart["status"] }) {
   const className =

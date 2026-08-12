@@ -17,8 +17,10 @@ import {
 } from "../components/chat/MessageTimeline";
 import {
   ThreadInspectorPane,
+  ThreadInspectorToggle,
   collectSubagentTasks,
   selectLatestChangedFilesMessage,
+  shouldShowInspectorToggle,
 } from "../components/chat/ThreadInspectorPane";
 import { WorkspaceDiffViewer } from "../components/chat/WorkspaceDiffViewer";
 import { DesktopHeaderPortal } from "../components/DesktopHeaderActions";
@@ -121,6 +123,7 @@ function ThreadPageContent() {
       ? `${appWorkspace.name} / ${appAssociation.alias ?? appProject.name} / ${appThread.title}`
       : undefined;
   const { state: diffState, openDiff, closeDiff } = useThreadContentDiff();
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const browserTarget =
     appProject && routeData ? { projectId: appProject.id, threadId: routeData.thread.id } : null;
@@ -149,6 +152,7 @@ function ThreadPageContent() {
     setSubmitRequest(undefined);
     setDraftRequest(undefined);
     setSelectedTaskId(null);
+    setInspectorOpen(false);
     closeDiff();
   }, [routeData?.thread.id]);
 
@@ -189,6 +193,7 @@ function ThreadPageContent() {
         routeData?.thread.id ?? null,
       )
     ) {
+      setInspectorOpen(false);
       selectSurface("changes");
     }
   }, [diffState, routeData?.thread.id, selectSurface]);
@@ -201,6 +206,7 @@ function ThreadPageContent() {
       return;
     }
     if (activeBrowserState.placement === "side") {
+      setInspectorOpen(false);
       selectSurface("browser");
     }
   }, [
@@ -266,9 +272,10 @@ function ThreadPageContent() {
   const handleSelectSubagent = useCallback(
     (taskId: string) => {
       setSelectedTaskId(taskId);
-      selectSurface("inspector");
+      closeSurface();
+      setInspectorOpen(true);
     },
-    [selectSurface],
+    [closeSurface],
   );
   const isEmptyThread = routeData?.messages.length === 0;
   const composer = routeData ? (
@@ -335,6 +342,7 @@ function ThreadPageContent() {
 
   const handleSelectSurface = (surface: Parameters<typeof selectSurface>[0]) => {
     if (surface !== "changes") closeDiff();
+    setInspectorOpen(false);
     selectSurface(surface);
     if (surface === "changes" && latestChanges?.snapshot && routeData) {
       openDiff(routeData.thread.id, latestChanges.snapshot, latestChanges.changedFiles);
@@ -367,6 +375,24 @@ function ThreadPageContent() {
           />
         </DesktopHeaderPortal>
       ) : null}
+      {shouldShowInspectorToggle({
+        hasProjectEnvironment: !!inspectorInput,
+        taskCount: inspectorTasks.length,
+      }) ? (
+        <DesktopHeaderPortal>
+          <ThreadInspectorToggle
+            open={inspectorOpen}
+            onToggle={() => {
+              if (inspectorOpen) {
+                setInspectorOpen(false);
+                return;
+              }
+              closeRightSurface();
+              setInspectorOpen(true);
+            }}
+          />
+        </DesktopHeaderPortal>
+      ) : null}
       {browserTarget ? (
         <DesktopHeaderPortal>
           <button
@@ -376,7 +402,10 @@ function ThreadPageContent() {
             aria-pressed={activeSurface !== null}
             onClick={() => {
               if (activeSurface) closeRightSurface();
-              else openRightSurface();
+              else {
+                setInspectorOpen(false);
+                openRightSurface();
+              }
             }}
             className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-surface-hover ${
               activeSurface ? "text-fg" : "text-muted hover:text-fg"
@@ -424,6 +453,16 @@ function ThreadPageContent() {
             visible
             fullscreen
             onToggleFullscreen={() => setBrowserFullscreen(false)}
+          />
+        </div>
+      ) : inspectorOpen ? (
+        <div className="absolute bottom-3 right-3 top-3 z-10 w-[24rem]">
+          <ThreadInspectorPane
+            messages={inspectorInput?.messages ?? []}
+            projectPath={inspectorInput?.projectPath}
+            selectedTaskId={selectedTaskId}
+            onSelectTask={setSelectedTaskId}
+            onClose={() => setInspectorOpen(false)}
           />
         </div>
       ) : activeSurface ? (

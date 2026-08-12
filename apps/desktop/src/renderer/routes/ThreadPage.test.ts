@@ -3,7 +3,10 @@ import { describe, expect, it } from "bun:test";
 import { resolveWorkspaceThreadRouteData } from "../context/ThreadContentContext";
 import { type Message, type SubagentTaskPart } from "../../shared/threadContent";
 import type { AppProjectRecord, AppThreadRecord } from "../../shared/workspacePersistence";
-import { collectSubagentTasks } from "../components/chat/ThreadInspectorPane";
+import {
+  collectSubagentTasks,
+  shouldShowInspectorToggle,
+} from "../components/chat/ThreadInspectorPane";
 import {
   getThreadInspectorInput,
   recordBrowserFocusSequence,
@@ -159,5 +162,10 @@ describe("thread inspector integration", () => {
 
   it("returns null inspector input for a missing thread", () => {
     expect(getThreadInspectorInput(null)).toBe(null);
+  });
+
+  it("shows the floating inspector for project threads without subagents", () => {
+    expect(shouldShowInspectorToggle({ hasProjectEnvironment: true, taskCount: 0 })).toBe(true);
+    expect(shouldShowInspectorToggle({ hasProjectEnvironment: false, taskCount: 0 })).toBe(false);
   });
 });

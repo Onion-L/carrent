@@ -11,7 +11,7 @@ export const SETTINGS_TABS = [
   },
   {
     id: "memory",
-    label: "Memory",
+    label: "Agent Memory",
     description: "Kimi Code agent memory",
     badge: "Beta",
   },

@@ -276,6 +276,7 @@ function installBridge(
     },
     settings: {
       worktrees: async () => ({ entries: [], scannedAt: "2099-01-01T00:00:00.000Z" }),
+      getAppVersion: async () => "0.0.0-test",
     },
     clipboard: {
       writeText: async () => {},
@@ -1441,7 +1442,7 @@ describe("three-level navigation", () => {
     expect(container!.querySelector('header button[title="Local MCP Server"]')).toBe(null);
 
     await click(buttonNamed("Settings"));
-    await click(buttonNamed("Local Server"));
+    await click(buttonNamed("General"));
 
     expect(container!.textContent).toContain("Carrent Local Server");
     expect(buttonNamed("Local MCP Server").getAttribute("aria-checked")).toBe("false");

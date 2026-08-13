@@ -3816,7 +3816,7 @@ export function Composer(props: ComposerProps) {
                 <div className="flex shrink-0 items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={() => navigate("/settings?tab=runtime")}
+                    onClick={() => navigate("/settings?tab=general")}
                     className="flex min-h-7 items-center rounded-md px-2 text-app-12 text-muted transition hover:bg-surface-hover hover:text-fg"
                   >
                     Setup

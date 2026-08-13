@@ -1,34 +1,11 @@
-import {
-  Archive,
-  Brain,
-  ChartColumn,
-  GitBranch,
-  Monitor,
-  Palette,
-  Server,
-  Settings,
-  SlidersHorizontal,
-  UserRound,
-} from "lucide-react";
+import { Settings } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   buildSettingsPath,
   resolveSettingsTabId,
+  SETTINGS_TAB_ICONS,
   SETTINGS_TABS,
-  type SettingsTabId,
 } from "../../lib/settingsTabs";
-
-const iconByTabId: Record<SettingsTabId, typeof Monitor> = {
-  runtime: Monitor,
-  usage: ChartColumn,
-  memory: Brain,
-  worktrees: GitBranch,
-  personalization: UserRound,
-  interface: Palette,
-  "local-server": Server,
-  archives: Archive,
-  about: SlidersHorizontal,
-};
 
 export function SettingsTabsPane() {
   const navigate = useNavigate();
@@ -48,7 +25,7 @@ export function SettingsTabsPane() {
       <nav className="min-h-0 flex-1 overflow-auto p-2" aria-label="Settings tabs">
         <div className="space-y-0.5">
           {SETTINGS_TABS.map((tab) => {
-            const Icon = iconByTabId[tab.id];
+            const Icon = SETTINGS_TAB_ICONS[tab.id];
             const isActive = tab.id === activeTabId;
 
             return (
@@ -58,25 +35,20 @@ export function SettingsTabsPane() {
                 aria-label={tab.label}
                 aria-current={isActive ? "page" : undefined}
                 onClick={() => navigate(buildSettingsPath(tab.id), { state: location.state })}
-                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition ${
+                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition ${
                   isActive
                     ? "bg-surface-hover text-fg shadow-[inset_0_0_0_1px_rgb(var(--color-border-strong)/0.28)]"
                     : "text-muted hover:bg-surface-raised hover:text-fg"
                 }`}
               >
                 <Icon className="h-3.5 w-3.5 shrink-0 text-subtle" />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5">
-                    <span className="truncate text-app-13 font-medium">{tab.label}</span>
-                    {"badge" in tab ? (
-                      <span className="shrink-0 rounded-full bg-surface px-1.5 py-px text-app-10 text-subtle">
-                        {tab.badge}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="mt-0.5 block truncate text-app-11 text-subtle">
-                    {tab.description}
-                  </span>
+                <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                  <span className="truncate text-app-13 font-medium">{tab.label}</span>
+                  {"badge" in tab ? (
+                    <span className="shrink-0 rounded-full bg-surface px-1.5 py-px text-app-10 text-subtle">
+                      {tab.badge}
+                    </span>
+                  ) : null}
                 </span>
               </button>
             );

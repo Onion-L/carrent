@@ -2,6 +2,60 @@
 import BaseLayout from "../layouts/BaseLayout.astro";
 ---
 
-<BaseLayout title="Carrent">
-  <main class="min-h-screen"></main>
+<BaseLayout title="Carrent — coming soon">
+  <main class="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-6">
+    <div
+      aria-hidden="true"
+      class="pointer-events-none absolute inset-0"
+      style="background-image: linear-gradient(rgb(var(--color-border) / 0.35) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--color-border) / 0.35) 1px, transparent 1px); background-size: 72px 72px; mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, black 20%, transparent 75%);"
+    >
+    </div>
+
+    <div class="relative flex flex-col items-center text-center">
+      <img src="/logo.png" alt="Carrent" class="h-14 w-14" />
+
+      <p
+        class="mt-10 font-mono text-[11px] uppercase tracking-[0.35em] text-brand"
+      >
+        A quiet desktop for coding agents
+      </p>
+
+      <h1
+        class="mt-4 text-[clamp(3.5rem,10vw,7.5rem)] font-semibold leading-none tracking-[-0.04em]"
+      >
+        Carrent
+      </h1>
+
+      <p class="mt-6 flex items-center gap-2 font-mono text-sm text-muted sm:text-base">
+        <span>is coming</span>
+        <span class="caret inline-block h-[1.1em] w-[0.55em] translate-y-[0.15em] bg-brand"></span>
+      </p>
+
+      <div class="mt-16 flex items-center gap-3 font-mono text-[11px] text-muted/80">
+        <span>macOS</span>
+        <span aria-hidden="true" class="h-px w-8 bg-border"></span>
+        <span>your runtimes</span>
+        <span aria-hidden="true" class="h-px w-8 bg-border"></span>
+        <span>your projects</span>
+      </div>
+    </div>
+  </main>
 </BaseLayout>
+
+<style>
+  .caret {
+    animation: blink 1.1s steps(2, start) infinite;
+  }
+
+  @keyframes blink {
+    to {
+      visibility: hidden;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .caret {
+      animation: none;
+    }
+  }
+</style>

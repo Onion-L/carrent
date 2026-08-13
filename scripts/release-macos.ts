@@ -1,4 +1,4 @@
-import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -41,15 +41,24 @@ await run("bun", ["run", "dist", "--", "--mac", "--arm64", "--x64", "--publish",
 const artifacts = [
   {
     app: join("release", "mac", "Carrent.app"),
-    dmg: join("release", `Carrent-${version}.dmg`),
+    sourceDmg: join("release", `Carrent-${version}.dmg`),
+    sourceZip: join("release", `Carrent-${version}-mac.zip`),
+    dmg: join("release", `Carrent-${version}-intel.dmg`),
+    zip: join("release", `Carrent-${version}-intel.zip`),
   },
   {
     app: join("release", "mac-arm64", "Carrent.app"),
-    dmg: join("release", `Carrent-${version}-arm64.dmg`),
+    sourceDmg: join("release", `Carrent-${version}-arm64.dmg`),
+    sourceZip: join("release", `Carrent-${version}-arm64-mac.zip`),
+    dmg: join("release", `Carrent-${version}-apple-silicon.dmg`),
+    zip: join("release", `Carrent-${version}-apple-silicon.zip`),
   },
 ];
 
 for (const artifact of artifacts) {
+  await rename(join(desktop, artifact.sourceDmg), join(desktop, artifact.dmg));
+  await rename(join(desktop, artifact.sourceZip), join(desktop, artifact.zip));
+
   await run("codesign", ["--verify", "--deep", "--strict", artifact.app]);
   await run("xcrun", ["stapler", "validate", artifact.app]);
   await run("spctl", ["--assess", "--type", "execute", "--verbose=4", artifact.app]);

@@ -65,8 +65,8 @@ jobs:
         shell: bash
         run: |
           version="${{ steps.version.outputs.version }}"
-          unzip -t "apps/desktop/release/Carrent-${version}-mac.zip"
-          unzip -t "apps/desktop/release/Carrent-${version}-arm64-mac.zip"
+          unzip -t "apps/desktop/release/Carrent-${version}-intel.zip"
+          unzip -t "apps/desktop/release/Carrent-${version}-apple-silicon.zip"
 
       - name: Publish GitHub Release
         shell: bash
@@ -75,10 +75,10 @@ jobs:
         run: |
           version="${{ steps.version.outputs.version }}"
           assets=(
-            "apps/desktop/release/Carrent-${version}.dmg"
-            "apps/desktop/release/Carrent-${version}-arm64.dmg"
-            "apps/desktop/release/Carrent-${version}-mac.zip"
-            "apps/desktop/release/Carrent-${version}-arm64-mac.zip"
+            "apps/desktop/release/Carrent-${version}-intel.dmg"
+            "apps/desktop/release/Carrent-${version}-apple-silicon.dmg"
+            "apps/desktop/release/Carrent-${version}-intel.zip"
+            "apps/desktop/release/Carrent-${version}-apple-silicon.zip"
           )
 
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then

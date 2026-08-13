@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 
 export function ConfirmDialog({
   title,
@@ -6,12 +6,14 @@ export function ConfirmDialog({
   confirmLabel,
   onCancel,
   onConfirm,
+  children,
 }: {
   title: string;
   message: string;
   confirmLabel: string;
   onCancel: () => void;
   onConfirm: () => void;
+  children?: ReactNode;
 }) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -54,7 +56,8 @@ export function ConfirmDialog({
         <h2 className="pr-7 text-app-16 font-semibold" id="confirm-dialog-title">
           {title}
         </h2>
-        <p className="mt-2 text-app-13 leading-6 text-muted">{message}</p>
+        <p className="mt-2 whitespace-pre-line text-app-13 leading-6 text-muted">{message}</p>
+        {children}
         <div className="mt-6 flex justify-end gap-2">
           <button
             className="h-8 rounded-md px-3 text-app-13 font-medium text-muted hover:bg-surface-hover hover:text-fg"

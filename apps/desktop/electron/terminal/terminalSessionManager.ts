@@ -38,6 +38,8 @@ export type PtyAdapter = {
 type Session = {
   tab: TerminalTab;
   process: PtyProcess;
+  /** Project Working Directory the shell was started in. */
+  workingDirectory: string;
   disposed: boolean;
   disposables: Array<{ dispose: () => void }>;
   integration?: ZshShellIntegration;
@@ -292,6 +294,19 @@ export function createTerminalSessionManager({
       detachFromProject(ownerId, projectId);
     },
     list,
+    /**
+     * Running Terminal Tabs with the Project Working Directory each one was
+     * started in. Exited and closed Tabs are absent; the Worktrees scan uses
+     * this to block cleanup of a directory a live shell occupies.
+     */
+    listRunningTerminalTabs(): Array<{ projectId: string; workingDirectory: string }> {
+      return [...sessions.values()]
+        .filter((session) => !session.disposed && session.tab.status === "running")
+        .map((session) => ({
+          projectId: session.tab.projectId,
+          workingDirectory: session.workingDirectory,
+        }));
+    },
     create(input: CreateInput) {
       const projectId = requireProjectId(input.projectId);
       subscribers(projectId).add(input.ownerId);
@@ -346,6 +361,7 @@ export function createTerminalSessionManager({
           enhancedCompletion: input.enhancedCompletion,
         },
         process,
+        workingDirectory: input.workingDirectory,
         disposed: false,
         disposables: [],
         integration,

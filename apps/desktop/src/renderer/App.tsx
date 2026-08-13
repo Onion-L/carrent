@@ -240,7 +240,7 @@ function AppRoutes() {
             path="/workspace/:workspaceId/project/:projectId/thread/:threadId"
           />
           <Route element={null} path="/workspace/*" />
-          <Route element={<Navigate replace to="/settings?tab=runtime" />} path="/runtimes" />
+          <Route element={<Navigate replace to="/settings?tab=general" />} path="/runtimes" />
           <Route element={<SettingsPage />} path="/settings" />
           <Route element={<Navigate replace to="/" />} path="*" />
         </Routes>

@@ -1,7 +1,14 @@
 import { describe, expect, it } from "bun:test";
 
 import type { KimiUsageStats } from "../../../shared/kimiUsage";
-import { buildHeatmap, buildRangeDays, collectModels, heatmapLevel, readKimiUsageStats } from "./UsagePanel";
+import {
+  buildHeatmap,
+  buildRangeDays,
+  collectModels,
+  groupProjects,
+  heatmapLevel,
+  readKimiUsageStats,
+} from "./UsagePanel";
 
 function makeStats(days: KimiUsageStats["days"]): KimiUsageStats {
   return {
@@ -127,12 +134,51 @@ describe("heatmapLevel", () => {
   });
 });
 
+describe("groupProjects", () => {
+  function makeProject(name: string, total: number): KimiUsageStats["projects"][number] {
+    return {
+      workDir: `/tmp/${name}`,
+      name,
+      totals: { input: total, output: 0, cacheRead: 0, cacheCreation: 0, total },
+    };
+  }
+
+  it("collapses thread-title temp dirs into one group, sorted by total", () => {
+    const groups = groupProjects([
+      makeProject("carrent-thread-title-akcTsv", 20),
+      makeProject("carrent", 100),
+      makeProject("carrent-thread-title-ishILd", 30),
+      makeProject("martia", 60),
+    ]);
+
+    expect(groups.map((group) => group.name)).toEqual(["carrent", "martia", "Thread titles"]);
+    const titles = groups[2]!;
+    expect(titles.totals.total).toBe(50);
+    expect(titles.totals.input).toBe(50);
+    expect(titles.projects?.map((project) => project.name)).toEqual([
+      "carrent-thread-title-akcTsv",
+      "carrent-thread-title-ishILd",
+    ]);
+    expect(groups[0]?.projects).toBe(null);
+  });
+
+  it("returns plain standalone groups when there are no thread-title dirs", () => {
+    const groups = groupProjects([makeProject("carrent", 100)]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.name).toBe("carrent");
+    expect(groups[0]?.projects).toBe(null);
+  });
+});
+
 describe("collectModels", () => {
   it("sorts models by descending total and assigns palette colors in that order", () => {
+    const today = new Date();
+    const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
     const days = buildRangeDays(
       makeStats([
         {
-          date: "2026-08-12",
+          date: todayIso,
           byModel: {
             small: { input: 1, output: 0, cacheRead: 0, cacheCreation: 0, total: 1 },
             big: { input: 5, output: 5, cacheRead: 90, cacheCreation: 0, total: 100 },

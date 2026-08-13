@@ -225,7 +225,7 @@ function ContextUsageIndicator({
       {showPopover && (
         <div className="absolute bottom-full right-0 mb-2 w-52 rounded-lg border border-border-strong bg-surface px-3 py-2 shadow-xl">
           {loadState === "error" ? (
-            <div className="text-app-12 text-muted">暂时无法获取</div>
+            <div className="text-app-12 text-muted">Context usage unavailable</div>
           ) : status ? (
             <>
               <div className="text-app-11 text-muted">Context usage</div>
@@ -238,7 +238,7 @@ function ContextUsageIndicator({
               ) : null}
             </>
           ) : (
-            <div className="text-app-12 text-muted">暂无 Context 数据</div>
+            <div className="text-app-12 text-muted">No context data yet</div>
           )}
         </div>
       )}
@@ -3816,7 +3816,7 @@ export function Composer(props: ComposerProps) {
                 <div className="flex shrink-0 items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={() => navigate("/settings?tab=runtime")}
+                    onClick={() => navigate("/settings?tab=general")}
                     className="flex min-h-7 items-center rounded-md px-2 text-app-12 text-muted transition hover:bg-surface-hover hover:text-fg"
                   >
                     Setup

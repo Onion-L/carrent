@@ -34,6 +34,17 @@ import type {
 import type { RtkGainStats } from "../src/shared/rtk";
 import type { KimiUsageStats } from "../src/shared/kimiUsage";
 import type { KimiMemoryIndex } from "../src/shared/kimiMemory";
+import type {
+  WorktreePruneRequest,
+  WorktreePruneResult,
+  WorktreeRemoveRequest,
+  WorktreeRemoveResult,
+  WorktreeScanResult,
+  WorktreeSizeEvent,
+  WorktreeSizeStartOptions,
+  WorktreeSizeStartResult,
+  WorktreeSizeTarget,
+} from "../src/shared/worktrees";
 import type { DetectedEditor, EditorsApi } from "../src/shared/editors";
 import type { MainWindowApi, MainWindowZoomAction } from "../src/shared/mainWindow";
 import type { ThreadActionRequest, ThreadActionResult } from "../src/shared/threadActions";
@@ -344,6 +355,25 @@ const carrent = {
     rtkGain: () => ipcRenderer.invoke("settings:rtk-gain") as Promise<RtkGainStats>,
     kimiUsage: () => ipcRenderer.invoke("settings:kimi-usage") as Promise<KimiUsageStats>,
     kimiMemory: () => ipcRenderer.invoke("settings:kimi-memory") as Promise<KimiMemoryIndex>,
+    worktrees: () => ipcRenderer.invoke("settings:worktrees") as Promise<WorktreeScanResult>,
+    worktreesPrune: (request: WorktreePruneRequest) =>
+      ipcRenderer.invoke("settings:worktrees:prune", request) as Promise<WorktreePruneResult>,
+    worktreesRemove: (request: WorktreeRemoveRequest) =>
+      ipcRenderer.invoke("settings:worktrees:remove", request) as Promise<WorktreeRemoveResult>,
+    worktreeSizesStart: (targets: WorktreeSizeTarget[], options?: WorktreeSizeStartOptions) =>
+      ipcRenderer.invoke(
+        "settings:worktrees:sizes:start",
+        targets,
+        options,
+      ) as Promise<WorktreeSizeStartResult>,
+    worktreeSizesCancel: (generation: number) =>
+      ipcRenderer.invoke("settings:worktrees:sizes:cancel", generation) as Promise<void>,
+    onWorktreeSizeEvent: (listener: (event: WorktreeSizeEvent) => void) => {
+      const wrapped = (_event: IpcRendererEvent, sizeEvent: WorktreeSizeEvent) =>
+        listener(sizeEvent);
+      ipcRenderer.on("settings:worktrees:sizes:event", wrapped);
+      return () => ipcRenderer.removeListener("settings:worktrees:sizes:event", wrapped);
+    },
     kimiMemoryDelete: (filePath: string) =>
       ipcRenderer.invoke("settings:kimi-memory:delete", filePath) as Promise<void>,
     readGlobalAgentInstructions: () =>

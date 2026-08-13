@@ -34,8 +34,20 @@ import type {
   ProjectRelocationRequest,
 } from "../shared/workspacePersistence";
 import type { RtkGainStats } from "../shared/rtk";
-import type { KimiUsageStats } from "../shared/kimiUsage";
 import type { KimiMemoryIndex } from "../shared/kimiMemory";
+import type {
+  WorktreePruneRequest,
+  WorktreePruneResult,
+  WorktreeRemoveRequest,
+  WorktreeRemoveResult,
+  WorktreeScanResult,
+  WorktreeSizeEvent,
+  WorktreeSizeStartOptions,
+  WorktreeSizeStartResult,
+  WorktreeSizeTarget,
+} from "../shared/worktrees";
+import type { KimiUsageStats } from "../shared/kimiUsage";
+
 import type { MainWindowApi } from "../shared/mainWindow";
 import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
 import type { TerminalApi } from "../shared/terminal";
@@ -141,6 +153,15 @@ declare global {
         rtkGain: () => Promise<RtkGainStats>;
         kimiUsage: () => Promise<KimiUsageStats>;
         kimiMemory: () => Promise<KimiMemoryIndex>;
+        worktrees: () => Promise<WorktreeScanResult>;
+        worktreesPrune: (request: WorktreePruneRequest) => Promise<WorktreePruneResult>;
+        worktreesRemove: (request: WorktreeRemoveRequest) => Promise<WorktreeRemoveResult>;
+        worktreeSizesStart: (
+          targets: WorktreeSizeTarget[],
+          options?: WorktreeSizeStartOptions,
+        ) => Promise<WorktreeSizeStartResult>;
+        worktreeSizesCancel: (generation: number) => Promise<void>;
+        onWorktreeSizeEvent: (listener: (event: WorktreeSizeEvent) => void) => VoidFunction;
         kimiMemoryDelete: (filePath: string) => Promise<void>;
         readGlobalAgentInstructions: () => Promise<{
           path: string;

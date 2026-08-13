@@ -274,6 +274,10 @@ function installBridge(
       revealPath: async () => {},
       openExternal: async () => {},
     },
+    settings: {
+      worktrees: async () => ({ entries: [], scannedAt: "2099-01-01T00:00:00.000Z" }),
+      getAppVersion: async () => "0.0.0-test",
+    },
     clipboard: {
       writeText: async () => {},
       readText: async () => "",
@@ -1414,7 +1418,21 @@ describe("three-level navigation", () => {
     await click(buttonNamed("Settings"));
     expect(currentPathname).toBe(entryPath);
     expect(buttonNamed("Personal").getAttribute("aria-current")).toBe("page");
+
     expect(buttonNamed("Settings").getAttribute("aria-current")).toBe(null);
+  });
+
+  it("opens the Worktrees Settings Tab from the settings navigation", async () => {
+    const entryPath = "/workspace/workspace-1/project/project-1/thread/thread-1";
+    await renderApp(navigationState(), entryPath, [], false, [], false);
+
+    await click(buttonNamed("Settings"));
+    await click(buttonNamed("Worktrees"));
+
+    expect(currentPathname).toBe("/settings");
+    expect(buttonNamed("Worktrees").getAttribute("aria-current")).toBe("page");
+    expect(container!.textContent).toContain("Git worktrees reachable from your Projects");
+    expect(container!.textContent).toContain("No Projects to scan");
   });
 
   it("keeps the Local MCP Server control in Settings instead of the header", async () => {
@@ -1424,7 +1442,7 @@ describe("three-level navigation", () => {
     expect(container!.querySelector('header button[title="Local MCP Server"]')).toBe(null);
 
     await click(buttonNamed("Settings"));
-    await click(buttonNamed("Local Server"));
+    await click(buttonNamed("General"));
 
     expect(container!.textContent).toContain("Carrent Local Server");
     expect(buttonNamed("Local MCP Server").getAttribute("aria-checked")).toBe("false");
@@ -3299,34 +3317,34 @@ describe("Runtime Session Status", () => {
       indicator.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
-    expect(container!.textContent).toContain("暂无 Context 数据");
+    expect(container!.textContent).toContain("No context data yet");
 
     await act(async () => {
       indicator.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true }));
     });
-    expect(container!.textContent).not.toContain("暂无 Context 数据");
+    expect(container!.textContent).not.toContain("No context data yet");
 
     await act(async () => {
       indicator.click();
       indicator.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
-    expect(container!.textContent).toContain("暂无 Context 数据");
+    expect(container!.textContent).toContain("No context data yet");
 
     await act(async () => {
       indicator.click();
     });
-    expect(container!.textContent).not.toContain("暂无 Context 数据");
+    expect(container!.textContent).not.toContain("No context data yet");
 
     await act(async () => {
       indicator.click();
     });
-    expect(container!.textContent).toContain("暂无 Context 数据");
+    expect(container!.textContent).toContain("No context data yet");
 
     await act(async () => {
       document.body.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
     });
-    expect(container!.textContent).not.toContain("暂无 Context 数据");
+    expect(container!.textContent).not.toContain("No context data yet");
   });
 
   it("shows an unavailable Context state when status refresh fails", async () => {
@@ -3356,7 +3374,7 @@ describe("Runtime Session Status", () => {
       indicator.click();
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
-    expect(container!.textContent).toContain("暂时无法获取");
+    expect(container!.textContent).toContain("Context usage unavailable");
   });
 
   it("keeps the previous Context usage visible while refreshing", async () => {
@@ -3396,7 +3414,7 @@ describe("Runtime Session Status", () => {
       refreshStatus(null);
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
-    expect(container!.textContent).toContain("暂无 Context 数据");
+    expect(container!.textContent).toContain("No context data yet");
   });
 
   it("executes Status from the slash menu and renders normalized values without a Run", async () => {
@@ -4773,7 +4791,8 @@ describe("Integrated Browser", () => {
       "/workspace/workspace-1/project/project-1/thread/thread-1",
     );
 
-    await click(buttonNamed("Show browser"));
+    await click(buttonNamed("Open right panel"));
+    await click(buttonNamed("Browser"));
 
     expect(container!.querySelector<HTMLInputElement>('input[aria-label="Address"]')).not.toBe(
       null,
@@ -4902,10 +4921,9 @@ describe("Integrated Terminal", () => {
     expect(terminalCreateRequests).toHaveLength(0);
     const toggle = buttonNamed("Show Integrated Terminal");
     expect(
-      container!
-        .querySelector('section[aria-label="Integrated Terminal"]')
-        ?.classList.contains("hidden"),
-    ).toBe(true);
+      container!.querySelector<HTMLElement>('section[aria-label="Integrated Terminal"]')?.style
+        .height,
+    ).toBe("0px");
 
     await click(toggle);
 
@@ -4919,10 +4937,9 @@ describe("Integrated Terminal", () => {
       },
     ]);
     expect(
-      container!
-        .querySelector('section[aria-label="Integrated Terminal"]')
-        ?.classList.contains("hidden"),
-    ).toBe(false);
+      container!.querySelector<HTMLElement>('section[aria-label="Integrated Terminal"]')?.style
+        .height,
+    ).toBe("320px");
 
     await act(async () => {
       emitTerminalEvent?.({
@@ -4942,10 +4959,9 @@ describe("Integrated Terminal", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(
-      container!
-        .querySelector('section[aria-label="Integrated Terminal"]')
-        ?.classList.contains("hidden"),
-    ).toBe(true);
+      container!.querySelector<HTMLElement>('section[aria-label="Integrated Terminal"]')?.style
+        .height,
+    ).toBe("0px");
     await act(async () => {
       window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "j", metaKey: true }));
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -5071,10 +5087,9 @@ describe("Integrated Terminal", () => {
     await click(container!.querySelector<HTMLButtonElement>('button[title="Close Terminal Tab"]')!);
 
     expect(
-      container!
-        .querySelector('section[aria-label="Integrated Terminal"]')
-        ?.classList.contains("hidden"),
-    ).toBe(true);
+      container!.querySelector<HTMLElement>('section[aria-label="Integrated Terminal"]')?.style
+        .height,
+    ).toBe("0px");
     await click(buttonNamed("Show Integrated Terminal"));
     expect(terminalCreateRequests).toHaveLength(3);
   });

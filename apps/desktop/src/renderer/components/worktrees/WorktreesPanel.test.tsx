@@ -1060,7 +1060,6 @@ describe("WorktreesPanelView removal", () => {
     expect(text).toContain("~2 MB");
     expect(text).toContain("permanently deleted");
     expect(text).toContain("Also delete branch");
-    expect(text).toContain("only if fully merged");
 
     const checkbox = dialog!.querySelector('input[type="checkbox"]');
     expect(checkbox).not.toBe(null);

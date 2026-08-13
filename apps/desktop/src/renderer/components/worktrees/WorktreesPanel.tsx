@@ -558,10 +558,7 @@ function RemoveWorktreeDialog({
             disabled={removing}
             className="mt-0.5"
           />
-          <span>
-            Also delete branch <span className="font-mono">{worktree.branch}</span> (only if fully
-            merged).
-          </span>
+          <span>Also delete branch</span>
         </label>
       ) : null}
     </ConfirmDialog>

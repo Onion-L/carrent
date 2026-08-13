@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { ChevronRight, RefreshCw } from "lucide-react";
 
 import type { KimiUsageDay, KimiUsageStats, KimiUsageTokenTotals } from "../../../shared/kimiUsage";
 import { useSettings } from "../../context/SettingsContext";
@@ -178,6 +178,40 @@ export function collectModels(days: readonly RangeDay[], palette: readonly strin
     }));
 }
 
+/** Automatic thread-title jobs run in throwaway temp dirs; collapse them into
+ * one "Thread titles" group so they don't flood the project breakdown. */
+const THREAD_TITLE_PREFIX = "carrent-thread-title-";
+
+export interface ProjectGroup {
+  key: string;
+  name: string;
+  totals: KimiUsageTokenTotals;
+  /** Null for standalone projects; set for collapsible groups. */
+  projects: KimiUsageStats["projects"] | null;
+}
+
+export function groupProjects(projects: KimiUsageStats["projects"]): ProjectGroup[] {
+  const threadTitles = projects.filter((project) => project.name.startsWith(THREAD_TITLE_PREFIX));
+  const rest = projects.filter((project) => !project.name.startsWith(THREAD_TITLE_PREFIX));
+  const groups: ProjectGroup[] = rest.map((project) => ({
+    key: project.workDir,
+    name: project.name,
+    totals: project.totals,
+    projects: null,
+  }));
+  if (threadTitles.length > 0) {
+    const totals = emptyTotals();
+    for (const project of threadTitles) addTotals(totals, project.totals);
+    groups.push({
+      key: "thread-titles",
+      name: "Thread titles",
+      totals,
+      projects: threadTitles,
+    });
+  }
+  return groups.sort((a, b) => b.totals.total - a.totals.total);
+}
+
 export type KimiUsageSettingsApi = { kimiUsage?: () => Promise<KimiUsageStats> };
 
 export async function readKimiUsageStats(settingsApi: KimiUsageSettingsApi): Promise<{
@@ -203,6 +237,7 @@ export function UsagePanel() {
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<number>(DEFAULT_RANGE);
   const [breakdownTab, setBreakdownTab] = useState<"model" | "project">("model");
+  const [threadTitlesExpanded, setThreadTitlesExpanded] = useState(false);
   const [hiddenModels, setHiddenModels] = useState<ReadonlySet<string>>(new Set());
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const plotRef = useRef<HTMLDivElement | null>(null);
@@ -239,6 +274,7 @@ export function UsagePanel() {
   const isLightTheme = palette === MODEL_COLORS.paper;
   const seriesFillOpacity = isLightTheme ? 0.07 : 0.12;
   const models = useMemo(() => collectModels(rangeDays, palette), [rangeDays, palette]);
+  const projectGroups = useMemo(() => (stats ? groupProjects(stats.projects) : []), [stats]);
   // Chart legend semantics: clicking a model row hides its series; hiding every
   // model falls back to showing all, so the plot is never silently empty.
   const visibleModels = useMemo(() => {
@@ -700,30 +736,85 @@ export function UsagePanel() {
                       </td>
                     </tr>
                   ))
-                : stats.projects.map((project) => (
-                    <tr key={project.workDir} className="border-b border-border last:border-b-0">
-                      <td className="px-4 py-2 text-fg" title={project.workDir}>
-                        {project.name}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums text-fg">
-                        {formatTokens(project.totals.input)}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums text-fg">
-                        {formatTokens(project.totals.output)}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums text-fg">
-                        {formatTokens(project.totals.cacheRead)}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums text-fg">
-                        {formatTokens(project.totals.total)}
-                      </td>
-                    </tr>
+                : projectGroups.map((group) => (
+                    <ProjectGroupRows
+                      key={group.key}
+                      group={group}
+                      expanded={threadTitlesExpanded}
+                      onToggle={() => setThreadTitlesExpanded((value) => !value)}
+                    />
                   ))}
             </tbody>
           </table>
         </div>
       </div>
     </div>
+  );
+}
+
+function ProjectGroupRows({
+  group,
+  expanded,
+  onToggle,
+}: {
+  group: ProjectGroup;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  function renderCells(totals: KimiUsageTokenTotals, muted = false) {
+    const className = `px-4 py-2 text-right tabular-nums ${muted ? "text-subtle" : "text-fg"}`;
+    return (
+      <>
+        <td className={className}>{formatTokens(totals.input)}</td>
+        <td className={className}>{formatTokens(totals.output)}</td>
+        <td className={className}>{formatTokens(totals.cacheRead)}</td>
+        <td className={className}>{formatTokens(totals.total)}</td>
+      </>
+    );
+  }
+
+  if (group.projects === null) {
+    return (
+      <tr className="border-b border-border last:border-b-0">
+        <td className="px-4 py-2 text-fg" title={group.key}>
+          {group.name}
+        </td>
+        {renderCells(group.totals)}
+      </tr>
+    );
+  }
+
+  const children = group.projects;
+  return (
+    <>
+      <tr className="border-b border-border last:border-b-0">
+        <td className="px-4 py-2 text-fg">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={expanded}
+            className="-mx-1 flex items-center gap-1.5 rounded px-1 hover:bg-surface-hover"
+          >
+            {group.name}
+            <span className="text-subtle">{children.length}</span>
+            <ChevronRight
+              className={`h-3 w-3 text-subtle transition-transform ${expanded ? "rotate-90" : ""}`}
+            />
+          </button>
+        </td>
+        {renderCells(group.totals)}
+      </tr>
+      {expanded
+        ? children.map((project) => (
+            <tr key={project.workDir} className="border-b border-border last:border-b-0">
+              <td className="py-2 pr-4 pl-9 text-muted" title={project.workDir}>
+                {project.name}
+              </td>
+              {renderCells(project.totals, true)}
+            </tr>
+          ))
+        : null}
+    </>
   );
 }
 

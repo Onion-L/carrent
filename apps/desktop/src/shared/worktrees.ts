@@ -129,3 +129,39 @@ export type WorktreePruneResult = {
   /** ISO timestamp of when the post-prune rescan completed. */
   scannedAt: string;
 };
+
+/**
+ * Storage measurement for one worktree directory. Bytes are logical
+ * directory size (an estimate, not guaranteed filesystem blocks) and stay
+ * valid as a lower bound when the traversal was incomplete.
+ */
+export type WorktreeSizeState = {
+  bytes: number;
+  /** Some entries were unreadable; the total is a lower bound. */
+  incomplete: boolean;
+  /** The worktree root could not be traversed at all. */
+  failed: boolean;
+};
+
+export type WorktreeSizeTarget = {
+  /** Repository identity the worktree belongs to. */
+  commonDirectory: string;
+  /** Normalized full path of the worktree directory to measure. */
+  worktreePath: string;
+};
+
+export type WorktreeSizeStartResult = {
+  /** Monotonic generation; events carry it so stale results are dropped. */
+  generation: number;
+};
+
+export type WorktreeSizeEvent = {
+  generation: number;
+  commonDirectory: string;
+  worktreePath: string;
+  result: WorktreeSizeState;
+  /** Worktrees measured so far in this generation. */
+  completed: number;
+  /** Worktrees scheduled in this generation. */
+  total: number;
+};

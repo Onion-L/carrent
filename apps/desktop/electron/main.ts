@@ -69,6 +69,10 @@ import {
 import { registerMcpServerIpc } from "./bridge/mcpServerIpc";
 import { registerSettingsIpc } from "./settings/settingsIpc";
 import { buildWorktreeActivitySnapshot } from "./settings/worktreeActivity";
+import {
+  createWorktreeSizeScanner,
+  measureWorktreeDirectorySize,
+} from "./settings/worktreeSizes";
 import { registerDialogIpc } from "./dialog/dialogIpc";
 import { registerEditorsIpc } from "./editors/editorIpc";
 import { spawn } from "node:child_process";
@@ -873,6 +877,15 @@ if (!hasSingleInstanceLock) {
 
     // Registered here so the Worktrees scan can read live Run and Terminal Tab
     // authority state directly; every window's scan evaluates the same state.
+    const worktreeSizeScanner = createWorktreeSizeScanner({
+      measure: measureWorktreeDirectorySize,
+      publish: (ownerId, event) => {
+        const contents = webContents.fromId(ownerId);
+        if (contents && !contents.isDestroyed()) {
+          contents.send("settings:worktrees:sizes:event", event);
+        }
+      },
+    });
     registerSettingsIpc(
       guardedIpcMain,
       () => app.getVersion(),
@@ -883,6 +896,7 @@ if (!hasSingleInstanceLock) {
           runs: chatRunAuthority?.getState().runs ?? [],
           runningTerminalTabs: terminalSessionManager?.listRunningTerminalTabs() ?? [],
         }),
+      worktreeSizeScanner,
     );
 
     windowSessionStore = createCarrentWindowSessionStore(userDataPath);

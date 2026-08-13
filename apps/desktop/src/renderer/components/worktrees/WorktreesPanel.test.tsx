@@ -5,8 +5,19 @@ import "../../test/registerHappyDom";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import type { WorktreeRecord, WorktreeScanResult } from "../../../shared/worktrees";
-import { readWorktreeScan, WorktreesPanelView, type WorktreeSettingsApi } from "./WorktreesPanel";
+import type {
+  WorktreeRecord,
+  WorktreeScanResult,
+  WorktreeSizeEvent,
+  WorktreeSizeState,
+} from "../../../shared/worktrees";
+import {
+  compareWorktreeRecords,
+  formatWorktreeBytes,
+  readWorktreeScan,
+  WorktreesPanelView,
+  type WorktreeSettingsApi,
+} from "./WorktreesPanel";
 
 function deferredScan() {
   let resolveScan!: (scan: WorktreeScanResult) => void;
@@ -593,3 +604,270 @@ describe("WorktreesPanelView pruning", () => {
     expect(c.querySelector('[role="dialog"]')).toBe(null);
   });
 });
+describe("worktree size presentation", () => {
+  it("formats bytes into readable units", () => {
+    expect(formatWorktreeBytes(0)).toBe("0 B");
+    expect(formatWorktreeBytes(1023)).toBe("1023 B");
+    expect(formatWorktreeBytes(1024)).toBe("1 KB");
+    expect(formatWorktreeBytes(2048)).toBe("2 KB");
+    expect(formatWorktreeBytes(3 * 1024 * 1024)).toBe("3 MB");
+    expect(formatWorktreeBytes(1.5 * 1024 * 1024 * 1024)).toBe("1.5 GB");
+  });
+
+  it("sorts removable worktrees first, then by size, with a path fallback", () => {
+    const sizes = new Map<string, WorktreeSizeState>();
+    const removableSmall = makeWorktree({ path: "/r/small", cleanupCandidate: true });
+    const removableLarge = makeWorktree({ path: "/r/large", cleanupCandidate: true });
+    const blocked = makeWorktree({
+      path: "/r/blocked",
+      cleanupCandidate: false,
+      blockingReasons: ["dirty"],
+    });
+    const main = makeWorktree({
+      path: "/r",
+      kind: "main",
+      cleanupCandidate: false,
+      blockingReasons: ["main"],
+    });
+
+    sizes.set("/r/small", { bytes: 100, incomplete: false, failed: false });
+    sizes.set("/r/large", { bytes: 900, incomplete: false, failed: false });
+
+    expect([removableLarge, removableSmall].sort((a, b) => compareWorktreeRecords(a, b, sizes))).toEqual([
+      removableLarge,
+      removableSmall,
+    ]);
+    // Missing sizes fall back to the path order.
+    expect([blocked, main].sort((a, b) => compareWorktreeRecords(a, b, sizes))).toEqual([
+      main,
+      blocked,
+    ]);
+    // A failed measurement sorts like a missing one.
+    sizes.set("/r/small", { bytes: 0, incomplete: false, failed: true });
+    expect([removableSmall, removableLarge].sort((a, b) => compareWorktreeRecords(a, b, sizes))).toEqual([
+      removableLarge,
+      removableSmall,
+    ]);
+  });
+
+  function sizeApi(scan: WorktreeScanResult) {
+    const listeners = new Set<(event: WorktreeSizeEvent) => void>();
+    const starts: unknown[] = [];
+    const cancels: number[] = [];
+    let nextGeneration = 0;
+    const api: WorktreeSettingsApi = {
+      worktrees: async () => scan,
+      worktreeSizesStart: async (targets) => {
+        starts.push(targets);
+        nextGeneration += 1;
+        return { generation: nextGeneration };
+      },
+      worktreeSizesCancel: async (generation) => {
+        cancels.push(generation);
+      },
+      onWorktreeSizeEvent: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    return {
+      api,
+      starts,
+      cancels,
+      emit: (event: WorktreeSizeEvent) => {
+        for (const listener of listeners) listener(event);
+      },
+    };
+  }
+
+  it("renders the Git inventory before sizes arrive", async () => {
+    const c = await renderPanel({ worktrees: async () => makeScan() });
+
+    expect(c.textContent).toContain("carrent, carrent-feature");
+    expect(c.textContent).toContain("Calculating size…");
+    expect(c.textContent).toContain("~0 B estimated releasable");
+  });
+
+  it("shows per-worktree sizes and the summary as measurements complete", async () => {
+    const fake = sizeApi(makeScan());
+    const c = await renderPanel(fake.api);
+    expect(fake.starts).toHaveLength(1);
+
+    await act(async () => {
+      fake.emit({
+        generation: 1,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent",
+        result: { bytes: 1024 * 1024, incomplete: false, failed: false },
+        completed: 1,
+        total: 2,
+      });
+      fake.emit({
+        generation: 1,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent/feat-wt",
+        result: { bytes: 3 * 1024 * 1024, incomplete: false, failed: false },
+        completed: 2,
+        total: 2,
+      });
+    });
+
+    expect(c.textContent).toContain("3 MB");
+    expect(c.textContent).not.toContain("Calculating size…");
+    expect(c.textContent).toContain(
+      "1 repository · 1 linked · 1 removable · ~3 MB estimated releasable",
+    );
+  });
+
+  it("shows overall measurement progress while scans are in flight", async () => {
+    const fake = sizeApi(makeScan());
+    const c = await renderPanel(fake.api);
+
+    expect(c.textContent).toContain("measuring sizes 0/2");
+
+    await act(async () => {
+      fake.emit({
+        generation: 1,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent",
+        result: { bytes: 1, incomplete: false, failed: false },
+        completed: 1,
+        total: 2,
+      });
+    });
+    expect(c.textContent).toContain("measuring sizes 1/2");
+
+    await act(async () => {
+      fake.emit({
+        generation: 1,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent/feat-wt",
+        result: { bytes: 2, incomplete: false, failed: false },
+        completed: 2,
+        total: 2,
+      });
+    });
+    expect(c.textContent).not.toContain("measuring sizes");
+  });
+
+
+  it("excludes main, blocked, incomplete, failed, and calculating worktrees from releasable space", async () => {
+    const scan = makeScan({
+      entries: [
+        {
+          kind: "repository",
+          commonDirectory: "/code/carrent/.git",
+          projects: ["carrent"],
+          worktrees: [
+            makeWorktree({
+              path: "/code/carrent",
+              kind: "main",
+              branch: "main",
+              blockingReasons: ["main"],
+              cleanupCandidate: false,
+            }),
+            makeWorktree({
+              path: "/code/carrent/blocked-wt",
+              branch: "blocked",
+              dirty: true,
+              blockingReasons: ["dirty"],
+              cleanupCandidate: false,
+            }),
+            makeWorktree({
+              path: "/code/carrent/complete-wt",
+              branch: "complete",
+            }),
+            makeWorktree({
+              path: "/code/carrent/incomplete-wt",
+              branch: "incomplete",
+            }),
+            makeWorktree({ path: "/code/carrent/failed-wt", branch: "failed" }),
+            makeWorktree({ path: "/code/carrent/calculating-wt", branch: "calculating" }),
+          ],
+        },
+      ],
+    });
+    const fake = sizeApi(scan);
+    const c = await renderPanel(fake.api);
+
+    await act(async () => {
+      fake.emit({
+        generation: 1,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent/complete-wt",
+        result: { bytes: 2048, incomplete: false, failed: false },
+        completed: 1,
+        total: 5,
+      });
+      fake.emit({
+        generation: 1,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent/incomplete-wt",
+        result: { bytes: 4096, incomplete: true, failed: false },
+        completed: 2,
+        total: 5,
+      });
+      fake.emit({
+        generation: 1,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent/failed-wt",
+        result: { bytes: 0, incomplete: false, failed: true },
+        completed: 3,
+        total: 5,
+      });
+    });
+
+    // Only the complete, removable worktree contributes.
+    expect(c.textContent).toContain("4 removable · ~2 KB estimated releasable");
+    expect(c.textContent).toContain("Size unavailable");
+    expect(c.textContent).toContain("incomplete");
+  });
+
+  it("drops events from a stale generation", async () => {
+    let scanVersion = 0;
+    const fake = sizeApi(makeScan());
+    const c = await renderPanel({
+      ...fake.api,
+      worktrees: async () => {
+        scanVersion += 1;
+        return makeScan();
+      },
+    });
+
+    // Refresh supersedes generation 1 with generation 2.
+    const refresh = c.querySelector('button[aria-label="Refresh worktree scan"]');
+    if (!refresh) throw new Error("refresh button not found");
+    await click(refresh);
+    expect(scanVersion).toBe(2);
+    expect(fake.cancels).toEqual([1]);
+
+    await act(async () => {
+      fake.emit({
+        generation: 1,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent/feat-wt",
+        result: { bytes: 2048, incomplete: false, failed: false },
+        completed: 1,
+        total: 1,
+      });
+    });
+    expect(c.textContent).toContain("Calculating size…");
+    expect(c.textContent).not.toContain("2 KB");
+  });
+
+  it("cancels outstanding measurement when the tab unmounts", async () => {
+    const fake = sizeApi(makeScan());
+    const c = await renderPanel(fake.api);
+    expect(fake.starts).toHaveLength(1);
+
+    await act(async () => {
+      root?.unmount();
+    });
+    c.remove();
+    root = null;
+    container = null;
+
+    expect(fake.cancels).toEqual([1]);
+  });
+});
+

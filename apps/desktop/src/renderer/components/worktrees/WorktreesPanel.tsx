@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, FolderGit2, FolderX, GitBranch, Lock, RefreshCw, Trash2 } from "lucide-react";
 
 import type {
@@ -9,6 +9,10 @@ import type {
   WorktreeRecord,
   WorktreeRepositoryEntry,
   WorktreeScanResult,
+  WorktreeSizeEvent,
+  WorktreeSizeStartResult,
+  WorktreeSizeState,
+  WorktreeSizeTarget,
   WorktreeUnavailableEntry,
 } from "../../../shared/worktrees";
 import { ConfirmDialog } from "../ConfirmDialog";
@@ -32,10 +36,48 @@ const BLOCKING_REASON_LABELS: Record<WorktreeBlockingReason, string> = {
   "live-run": "Live Run in repository",
   "terminal-tab": "Running Terminal Tab",
 };
+
 export type WorktreeSettingsApi = {
   worktrees?: () => Promise<WorktreeScanResult>;
   worktreesPrune?: (request: WorktreePruneRequest) => Promise<WorktreePruneResult>;
+  worktreeSizesStart?: (targets: WorktreeSizeTarget[]) => Promise<WorktreeSizeStartResult>;
+
+  worktreeSizesCancel?: (generation: number) => Promise<void>;
+  onWorktreeSizeEvent?: (listener: (event: WorktreeSizeEvent) => void) => VoidFunction;
 };
+
+export function formatWorktreeBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = -1;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const valueText = value >= 100 ? String(Math.round(value)) : value.toFixed(1);
+  const trimmed = valueText.endsWith(".0") ? valueText.slice(0, -2) : valueText;
+  return `${trimmed} ${units[unitIndex]}`;
+}
+
+function measuredBytesOf(record: WorktreeRecord, sizes: Map<string, WorktreeSizeState>): number {
+  const size = sizes.get(record.path);
+  if (size === undefined || size.failed) return -1;
+  return size.bytes;
+}
+
+export function compareWorktreeRecords(
+  a: WorktreeRecord,
+  b: WorktreeRecord,
+  sizes: Map<string, WorktreeSizeState>,
+): number {
+  if (a.cleanupCandidate !== b.cleanupCandidate) return a.cleanupCandidate ? -1 : 1;
+  const bytesA = measuredBytesOf(a, sizes);
+  const bytesB = measuredBytesOf(b, sizes);
+  if (bytesA !== bytesB) return bytesB - bytesA;
+  return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+}
+
 
 export async function readWorktreeScan(api: WorktreeSettingsApi): Promise<{
   scan: WorktreeScanResult | null;
@@ -76,7 +118,13 @@ function StateBadge({
   );
 }
 
-function WorktreeRow({ worktree }: { worktree: WorktreeRecord }) {
+function WorktreeRow({
+  worktree,
+  size,
+}: {
+  worktree: WorktreeRecord;
+  size?: WorktreeSizeState;
+}) {
   const reasonText = worktree.blockingReasons
     .map((reason) => BLOCKING_REASON_LABELS[reason])
     .join(" · ");
@@ -147,6 +195,16 @@ function WorktreeRow({ worktree }: { worktree: WorktreeRecord }) {
             Terminal: {worktree.runningTerminalProjectNames.join(", ")}
           </StateBadge>
         ) : null}
+        {worktree.bare || worktree.missing || worktree.prunable ? null : size === undefined ? (
+          <StateBadge>Calculating size…</StateBadge>
+        ) : size.failed ? (
+          <StateBadge tone="warning">Size unavailable</StateBadge>
+        ) : (
+          <StateBadge tone={size.incomplete ? "warning" : "subtle"}>
+            {formatWorktreeBytes(size.bytes)}
+            {size.incomplete ? " · incomplete" : ""}
+          </StateBadge>
+        )}
       </div>
     </li>
   );
@@ -161,13 +219,18 @@ function RepositoryGroupView({
   pruning,
   pruneError,
   onPruneRequest,
+  sizes,
 }: {
   entry: WorktreeRepositoryEntry;
   pruning: boolean;
   pruneError: string | null;
   onPruneRequest: (entry: WorktreeRepositoryEntry) => void;
+  sizes: Map<string, WorktreeSizeState>;
 }) {
   const prunable = prunableWorktrees(entry);
+  const sortedWorktrees = [...entry.worktrees].sort((a, b) =>
+    compareWorktreeRecords(a, b, sizes),
+  );
 
   return (
     <section
@@ -192,8 +255,8 @@ function RepositoryGroupView({
         </div>
       </header>
       <ul>
-        {entry.worktrees.map((worktree) => (
-          <WorktreeRow key={worktree.path} worktree={worktree} />
+        {sortedWorktrees.map((worktree) => (
+          <WorktreeRow key={worktree.path} worktree={worktree} size={sizes.get(worktree.path)} />
         ))}
       </ul>
       {prunable.length > 0 ? (
@@ -309,6 +372,50 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
     commonDirectory: string;
     message: string;
   } | null>(null);
+  const [worktreeSizes, setWorktreeSizes] = useState<Map<string, WorktreeSizeState>>(
+    () => new Map(),
+  );
+  const sizeGenerationRef = useRef<number | null>(null);
+  const [sizeProgress, setSizeProgress] = useState<{ completed: number; total: number } | null>(
+    null,
+  );
+
+  const startSizeScan = useCallback(
+    (result: WorktreeScanResult) => {
+      const start = api.worktreeSizesStart;
+      const cancel = api.worktreeSizesCancel;
+      if (sizeGenerationRef.current !== null && cancel !== undefined) {
+        void cancel(sizeGenerationRef.current);
+      }
+      if (start === undefined) return;
+      const targets: WorktreeSizeTarget[] = [];
+      for (const entry of result.entries) {
+        if (entry.kind !== "repository") continue;
+        for (const worktree of entry.worktrees) {
+          if (worktree.bare || worktree.missing || worktree.prunable) continue;
+          targets.push({ commonDirectory: entry.commonDirectory, worktreePath: worktree.path });
+        }
+      }
+      if (targets.length === 0) {
+        sizeGenerationRef.current = null;
+        setWorktreeSizes(new Map());
+        setSizeProgress(null);
+        return;
+      }
+      void start(targets)
+        .then((started) => {
+          sizeGenerationRef.current = started.generation;
+          setWorktreeSizes(new Map());
+          setSizeProgress({ completed: 0, total: targets.length });
+        })
+        .catch(() => {
+          sizeGenerationRef.current = null;
+          setWorktreeSizes(new Map());
+          setSizeProgress(null);
+        });
+    },
+    [api],
+  );
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -316,7 +423,8 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
     setScan(result.scan);
     setError(result.error);
     setLoading(false);
-  }, [api]);
+    if (result.scan !== null) startSizeScan(result.scan);
+  }, [api, startSizeScan]);
 
   const confirmPrune = useCallback(async () => {
     if (pruneTarget === null || pruning) return;
@@ -345,24 +453,54 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
     } catch (pruneFailure) {
       setPruneError({
         commonDirectory: pruneTarget.commonDirectory,
-        message:
-          pruneFailure instanceof Error ? pruneFailure.message : String(pruneFailure),
+        message: pruneFailure instanceof Error ? pruneFailure.message : String(pruneFailure),
       });
       setPruneTarget(null);
     } finally {
       setPruning(false);
     }
   }, [api, pruneTarget, pruning]);
+
+  useEffect(() => {
+    if (api.onWorktreeSizeEvent === undefined) return;
+    const unsubscribe = api.onWorktreeSizeEvent((event) => {
+      if (event.generation !== sizeGenerationRef.current) return;
+      setWorktreeSizes((current) => {
+        const next = new Map(current);
+        next.set(event.worktreePath, event.result);
+        return next;
+      });
+      setSizeProgress({ completed: event.completed, total: event.total });
+    });
+    return () => {
+      unsubscribe();
+      if (sizeGenerationRef.current !== null && api.worktreeSizesCancel !== undefined) {
+        void api.worktreeSizesCancel(sizeGenerationRef.current);
+      }
+    };
+  }, [api]);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   let repositoryCount = 0;
   let linkedWorktreeCount = 0;
+  let removableCount = 0;
+  let releasableBytes = 0;
   for (const entry of scan?.entries ?? []) {
     if (entry.kind !== "repository") continue;
     repositoryCount += 1;
-    linkedWorktreeCount += entry.worktrees.filter((worktree) => worktree.kind === "linked").length;
+    for (const worktree of entry.worktrees) {
+      if (worktree.kind !== "linked") continue;
+      linkedWorktreeCount += 1;
+      if (!worktree.cleanupCandidate) continue;
+      removableCount += 1;
+      const size = worktreeSizes.get(worktree.path);
+      if (size !== undefined && !size.failed && !size.incomplete) {
+        releasableBytes += size.bytes;
+      }
+    }
   }
 
   const refreshButton = (
@@ -389,7 +527,10 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
           Git worktrees reachable from your Projects
           {scan === null
             ? ""
-            : ` · ${repositoryCount} ${repositoryCount === 1 ? "repository" : "repositories"} · ${linkedWorktreeCount} linked`}
+            : ` · ${repositoryCount} ${repositoryCount === 1 ? "repository" : "repositories"} · ${linkedWorktreeCount} linked · ${removableCount} removable · ~${formatWorktreeBytes(releasableBytes)} estimated releasable`}
+          {sizeProgress !== null && sizeProgress.completed < sizeProgress.total
+            ? ` · measuring sizes ${sizeProgress.completed}/${sizeProgress.total}`
+            : ""}
         </p>
       </div>
       {refreshButton}
@@ -463,6 +604,7 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
                     : null
                 }
                 onPruneRequest={setPruneTarget}
+                sizes={worktreeSizes}
               />
             ) : (
               <ProjectEntryView key={entry.projectId} entry={entry} />

@@ -27,6 +27,8 @@ describe("registerSettingsIpc", () => {
       "settings:rtk-gain",
       "settings:worktrees",
       "settings:worktrees:prune",
+      "settings:worktrees:sizes:cancel",
+      "settings:worktrees:sizes:start",
     ]);
   });
 
@@ -106,6 +108,52 @@ describe("registerSettingsIpc", () => {
         );
       }
     }
+  });
+
+  it("rejects invalid worktree size requests and forwards starts to the scanner", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const starts: unknown[] = [];
+
+    registerSettingsIpc(
+      {
+        handle(channel, listener) {
+          handlers.set(channel, listener);
+        },
+      },
+      () => "0.0.0-test",
+      () => [],
+      undefined,
+      {
+        start: (_ownerId: number, targets: unknown) => {
+          starts.push(targets);
+          return { generation: 1 };
+        },
+        cancel: () => {},
+      },
+    );
+
+    const start = handlers.get("settings:worktrees:sizes:start");
+    const cancel = handlers.get("settings:worktrees:sizes:cancel");
+    if (!start || !cancel) throw new Error("size handlers not registered");
+
+    for (const invalid of [{}, [], [{ worktreePath: "/x" }], [{ commonDirectory: "/r" }]]) {
+      let thrown: unknown = null;
+      try {
+        await start({ sender: { id: 7 } }, invalid);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown instanceof Error).toBe(true);
+    }
+
+    const result = await start({ sender: { id: 7 } }, [
+      { commonDirectory: "/repo/.git", worktreePath: "/repo/wt" },
+    ]);
+    expect(result).toEqual({ generation: 1 });
+    expect(starts).toEqual([[{ commonDirectory: "/repo/.git", worktreePath: "/repo/wt" }]]);
+
+    await cancel({}, 1);
+    await cancel({}, 2);
   });
 
   it("rejects non-string kimi memory delete paths", async () => {

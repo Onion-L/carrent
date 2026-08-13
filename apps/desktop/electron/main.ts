@@ -68,6 +68,7 @@ import {
 } from "./bridge/carrentBridgeManager";
 import { registerMcpServerIpc } from "./bridge/mcpServerIpc";
 import { registerSettingsIpc } from "./settings/settingsIpc";
+import { buildWorktreeActivitySnapshot } from "./settings/worktreeActivity";
 import { registerDialogIpc } from "./dialog/dialogIpc";
 import { registerEditorsIpc } from "./editors/editorIpc";
 import { spawn } from "node:child_process";
@@ -601,11 +602,6 @@ if (!hasSingleInstanceLock) {
     registerAttachmentIpc(guardedIpcMain, { attachmentStore });
     registerSkillIpc(guardedIpcMain);
     registerGitIpc(guardedIpcMain);
-    registerSettingsIpc(
-      guardedIpcMain,
-      () => app.getVersion(),
-      () => appStateAuthority.getState().snapshot.projects,
-    );
     const terminalCompletionService = createTerminalCompletionService();
     const terminalHistory = createTerminalHistory(
       parseZshHistory(readHistoryTail(join(app.getPath("home"), ".zsh_history"))),
@@ -874,6 +870,20 @@ if (!hasSingleInstanceLock) {
       threadDeletionManager,
       threadTitleCoordinator,
     });
+
+    // Registered here so the Worktrees scan can read live Run and Terminal Tab
+    // authority state directly; every window's scan evaluates the same state.
+    registerSettingsIpc(
+      guardedIpcMain,
+      () => app.getVersion(),
+      () => appStateAuthority.getState().snapshot.projects,
+      () =>
+        buildWorktreeActivitySnapshot({
+          threads: appStateAuthority.getState().snapshot.threads ?? [],
+          runs: chatRunAuthority?.getState().runs ?? [],
+          runningTerminalTabs: terminalSessionManager?.listRunningTerminalTabs() ?? [],
+        }),
+    );
 
     windowSessionStore = createCarrentWindowSessionStore(userDataPath);
     const savedSession = await windowSessionStore.load();

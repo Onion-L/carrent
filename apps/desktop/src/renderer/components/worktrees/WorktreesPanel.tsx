@@ -26,6 +26,8 @@ const BLOCKING_REASON_LABELS: Record<WorktreeBlockingReason, string> = {
   "carrent-project": "Referenced by a Carrent Project",
   missing: "Directory missing",
   prunable: "Prunable Git record",
+  "live-run": "Live Run in repository",
+  "terminal-tab": "Running Terminal Tab",
 };
 
 export type WorktreeSettingsApi = {
@@ -133,6 +135,14 @@ function WorktreeRow({ worktree }: { worktree: WorktreeRecord }) {
         {worktree.hasSubmodules ? <StateBadge>Submodules</StateBadge> : null}
         {worktree.projectNames.length > 0 ? (
           <StateBadge>Project: {worktree.projectNames.join(", ")}</StateBadge>
+        ) : null}
+        {worktree.liveRunProjectNames.length > 0 ? (
+          <StateBadge tone="warning">Live Run: {worktree.liveRunProjectNames.join(", ")}</StateBadge>
+        ) : null}
+        {worktree.runningTerminalProjectNames.length > 0 ? (
+          <StateBadge tone="warning">
+            Terminal: {worktree.runningTerminalProjectNames.join(", ")}
+          </StateBadge>
         ) : null}
       </div>
     </li>
@@ -343,6 +353,11 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
               <ProjectEntryView key={entry.projectId} entry={entry} />
             ),
           )}
+          <p className="px-1 pb-2 text-app-11 text-subtle">
+            Carrent only accounts for the Runs and Terminal Tabs it manages. It cannot reliably
+            detect external terminals, editors, coding agents, or other processes that may be
+            using a worktree.
+          </p>
         </div>
       </div>
     </div>

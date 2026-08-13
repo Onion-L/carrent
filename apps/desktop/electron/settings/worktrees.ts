@@ -4,12 +4,14 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import type { AppProjectRecord } from "../../src/shared/workspacePersistence";
 import { normalizeProjectWorkingDirectory } from "../../src/shared/workspacePersistence";
-import type {
-  WorktreeBlockingReason,
-  WorktreeRecord,
-  WorktreeRepositoryEntry,
-  WorktreeScanEntry,
-  WorktreeScanResult,
+import {
+  EMPTY_WORKTREE_ACTIVITY,
+  type WorktreeActivitySnapshot,
+  type WorktreeBlockingReason,
+  type WorktreeRecord,
+  type WorktreeRepositoryEntry,
+  type WorktreeScanEntry,
+  type WorktreeScanResult,
 } from "../../src/shared/worktrees";
 
 export type ParsedWorktreeEntry = {
@@ -156,6 +158,9 @@ async function buildWorktreeRecord(
   entry: ParsedWorktreeEntry,
   isMain: boolean,
   projects: AppProjectRecord[],
+  liveRunProjectNames: string[],
+  runningTerminalTabs: WorktreeActivitySnapshot["runningTerminalTabs"],
+  projectNameById: Map<string, string>,
 ): Promise<WorktreeRecord> {
   const worktreePath = normalizeProjectWorkingDirectory(entry.path);
   const pathIdentity = resolveIdentity(worktreePath);
@@ -186,6 +191,23 @@ async function buildWorktreeRecord(
   const hasSubmodules =
     !entry.bare && !missing && !entry.prunable ? await detectSubmodules(worktreePath) : false;
 
+  // A running Terminal Tab blocks the linked worktree whose directory contains
+  // the tab's Working Directory. Main worktrees are already non-removable and
+  // do not collect these reasons.
+  const runningTerminalProjectNames =
+    kind === "linked"
+      ? dedupe(
+          runningTerminalTabs
+            .filter((tab) =>
+              isSameOrAncestor(
+                pathIdentity,
+                resolveIdentity(normalizeProjectWorkingDirectory(tab.workingDirectory)),
+              ),
+            )
+            .map((tab) => projectNameById.get(tab.projectId) ?? tab.projectId),
+        )
+      : [];
+
   const blockingReasons: WorktreeBlockingReason[] = [];
   if (isMain) {
     // The main worktree is never removable; its states are still reported.
@@ -198,6 +220,8 @@ async function buildWorktreeRecord(
     if (projectNames.length > 0) blockingReasons.push("carrent-project");
     if (missing) blockingReasons.push("missing");
     if (entry.prunable) blockingReasons.push("prunable");
+    if (liveRunProjectNames.length > 0) blockingReasons.push("live-run");
+    if (runningTerminalProjectNames.length > 0) blockingReasons.push("terminal-tab");
   }
 
   const cleanupCandidate = kind === "linked" && blockingReasons.length === 0;
@@ -217,12 +241,19 @@ async function buildWorktreeRecord(
     hasUntracked,
     hasSubmodules,
     projectNames,
+    liveRunProjectNames: kind === "linked" ? liveRunProjectNames : [],
+    runningTerminalProjectNames,
     blockingReasons,
     cleanupCandidate,
   };
 }
 
-async function scanRepositoryWorktrees(projects: AppProjectRecord[]): Promise<WorktreeRecord[]> {
+async function scanRepositoryWorktrees(
+  projects: AppProjectRecord[],
+  liveRunProjectNames: string[],
+  runningTerminalTabs: WorktreeActivitySnapshot["runningTerminalTabs"],
+  projectNameById: Map<string, string>,
+): Promise<WorktreeRecord[]> {
   const firstWorkingDirectory = normalizeProjectWorkingDirectory(
     projects[0]?.workingDirectory ?? "",
   );
@@ -230,7 +261,16 @@ async function scanRepositoryWorktrees(projects: AppProjectRecord[]): Promise<Wo
   const parsed = parseWorktreePorcelain(porcelain);
   const records: WorktreeRecord[] = [];
   for (const [index, entry] of parsed.entries()) {
-    records.push(await buildWorktreeRecord(entry, index === 0, projects));
+    records.push(
+      await buildWorktreeRecord(
+        entry,
+        index === 0,
+        projects,
+        liveRunProjectNames,
+        runningTerminalTabs,
+        projectNameById,
+      ),
+    );
   }
   return records;
 }
@@ -241,7 +281,10 @@ async function scanRepositoryWorktrees(projects: AppProjectRecord[]): Promise<Wo
  * happens. Unexpected Git failures throw so the Settings Tab can present a
  * single retryable error state instead of fabricating per-project labels.
  */
-export async function scanWorktrees(projects: AppProjectRecord[]): Promise<WorktreeScanResult> {
+export async function scanWorktrees(
+  projects: AppProjectRecord[],
+  activity: WorktreeActivitySnapshot = EMPTY_WORKTREE_ACTIVITY,
+): Promise<WorktreeScanResult> {
   const entries: WorktreeScanEntry[] = [];
   const groups = new Map<
     string,
@@ -292,9 +335,22 @@ export async function scanWorktrees(projects: AppProjectRecord[]): Promise<Workt
     group.projects.push(project);
   }
 
+  const liveRunProjectIds = new Set(activity.liveRunProjectIds);
+  const projectNameById = new Map(projects.map((project) => [project.id, project.name]));
+
   for (const group of groups.values()) {
     group.entry.projects = dedupe(group.projects.map((project) => project.name));
-    group.entry.worktrees = await scanRepositoryWorktrees(group.projects);
+    const liveRunProjectNames = dedupe(
+      group.projects
+        .filter((project) => liveRunProjectIds.has(project.id))
+        .map((project) => project.name),
+    );
+    group.entry.worktrees = await scanRepositoryWorktrees(
+      group.projects,
+      liveRunProjectNames,
+      activity.runningTerminalTabs,
+      projectNameById,
+    );
   }
 
   return { entries, scannedAt: new Date().toISOString() };

@@ -18,7 +18,26 @@ export type WorktreeBlockingReason =
   | "submodules"
   | "carrent-project"
   | "missing"
-  | "prunable";
+  | "prunable"
+  | "live-run"
+  | "terminal-tab";
+
+/**
+ * Carrent-owned activity considered by the worktree scan. Both sources are
+ * snapshots of Main Process authority state at scan time; nothing here is
+ * persisted.
+ */
+export type WorktreeActivitySnapshot = {
+  /** Project IDs with a live Run (starting, running, or waiting). */
+  liveRunProjectIds: string[];
+  /** Running Terminal Tabs and the Working Directory each one was started in. */
+  runningTerminalTabs: Array<{ projectId: string; workingDirectory: string }>;
+};
+
+export const EMPTY_WORKTREE_ACTIVITY: WorktreeActivitySnapshot = {
+  liveRunProjectIds: [],
+  runningTerminalTabs: [],
+};
 
 export type WorktreeRecord = {
   /** Normalized full path to the worktree directory. */
@@ -45,6 +64,16 @@ export type WorktreeRecord = {
   hasSubmodules: boolean;
   /** Carrent Project names whose Working Directories live inside this worktree. */
   projectNames: string[];
+  /**
+   * Carrent Project names with a live Run in this repository. Blocks every
+   * linked worktree of the repository; empty for the main worktree.
+   */
+  liveRunProjectNames: string[];
+  /**
+   * Carrent Project names with a running Terminal Tab in this worktree
+   * directory. Empty for the main worktree.
+   */
+  runningTerminalProjectNames: string[];
   blockingReasons: WorktreeBlockingReason[];
   /** Advisory only in this slice; removal rechecks everything in Main. */
   cleanupCandidate: boolean;

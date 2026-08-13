@@ -432,3 +432,72 @@ describe("TerminalSessionManager", () => {
     });
   });
 });
+
+describe("TerminalSessionManager worktree activity", () => {
+  it("lists running Tabs with the Project Working Directory they were started in", () => {
+    const { manager } = setup();
+    const first = manager.create({
+      ownerId: 7,
+      projectId: "project-1",
+      projectName: "Carrent",
+      workingDirectory: "/work/carrent",
+      enhancedCompletion: false,
+    });
+    const second = manager.create({
+      ownerId: 7,
+      projectId: "project-2",
+      projectName: "Carrent Feature",
+      workingDirectory: "/work/carrent/feat-wt",
+      enhancedCompletion: false,
+    });
+
+    expect(manager.listRunningTerminalTabs()).toEqual([
+      { projectId: "project-1", workingDirectory: "/work/carrent" },
+      { projectId: "project-2", workingDirectory: "/work/carrent/feat-wt" },
+    ]);
+    expect(manager.listRunningTerminalTabs()[0]).toMatchObject({ projectId: first.projectId });
+    expect(manager.listRunningTerminalTabs()[1]).toMatchObject({ projectId: second.projectId });
+  });
+
+  it("excludes Tabs whose shell exited", () => {
+    const { manager, processes } = setup();
+    manager.create({
+      ownerId: 7,
+      projectId: "project-1",
+      projectName: "Carrent",
+      workingDirectory: "/work/carrent",
+      enhancedCompletion: false,
+    });
+    processes[0].emitExit(0);
+
+    expect(manager.listRunningTerminalTabs()).toEqual([]);
+  });
+
+  it("excludes closed Tabs", () => {
+    const { manager } = setup();
+    const tab = manager.create({
+      ownerId: 7,
+      projectId: "project-1",
+      projectName: "Carrent",
+      workingDirectory: "/work/carrent",
+      enhancedCompletion: false,
+    });
+    manager.close(7, "project-1", tab.id);
+
+    expect(manager.listRunningTerminalTabs()).toEqual([]);
+  });
+
+  it("excludes all Tabs after shutdown", () => {
+    const { manager } = setup();
+    manager.create({
+      ownerId: 7,
+      projectId: "project-1",
+      projectName: "Carrent",
+      workingDirectory: "/work/carrent",
+      enhancedCompletion: false,
+    });
+    manager.shutdown();
+
+    expect(manager.listRunningTerminalTabs()).toEqual([]);
+  });
+});

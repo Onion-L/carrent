@@ -51,6 +51,33 @@ describe("registerSettingsIpc", () => {
     expect(typeof result.scannedAt).toBe("string");
   });
 
+  it("evaluates the authoritative activity snapshot on every scan", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const activityCalls: number[] = [];
+
+    registerSettingsIpc(
+      {
+        handle(channel, listener) {
+          handlers.set(channel, listener);
+        },
+      },
+      () => "0.0.0-test",
+      () => [],
+      () => {
+        activityCalls.push(1);
+        return { liveRunProjectIds: ["project-1"], runningTerminalTabs: [] };
+      },
+    );
+
+    const scan = handlers.get("settings:worktrees");
+    await scan?.({});
+    await scan?.({});
+
+    // The scan re-reads Main Process authority per request instead of caching,
+    // so peer windows always observe the same current state.
+    expect(activityCalls).toHaveLength(2);
+  });
+
   it("rejects non-string kimi memory delete paths", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
 

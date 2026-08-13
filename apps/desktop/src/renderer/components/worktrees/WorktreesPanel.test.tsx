@@ -32,6 +32,8 @@ function makeWorktree(overrides: Partial<WorktreeRecord>): WorktreeRecord {
     hasUntracked: false,
     hasSubmodules: false,
     projectNames: [],
+    liveRunProjectNames: [],
+    runningTerminalProjectNames: [],
     blockingReasons: [],
     cleanupCandidate: true,
     ...overrides,
@@ -362,5 +364,47 @@ describe("WorktreesPanelView", () => {
     await click(refresh);
 
     expect(calls).toBe(2);
+  });
+  it("shows live Run and Terminal Tab blockers together with Git and Project blockers", async () => {
+    const c = await renderPanel({
+      worktrees: async () =>
+        makeScan({
+          entries: [
+            {
+              kind: "repository",
+              commonDirectory: "/code/carrent/.git",
+              projects: ["carrent"],
+              worktrees: [
+                makeWorktree({
+                  path: "/code/carrent/feat-wt",
+                  dirty: true,
+                  projectNames: ["carrent-feature"],
+                  liveRunProjectNames: ["carrent"],
+                  runningTerminalProjectNames: ["carrent-feature"],
+                  blockingReasons: ["dirty", "carrent-project", "live-run", "terminal-tab"],
+                  cleanupCandidate: false,
+                }),
+              ],
+            },
+          ],
+        }),
+    });
+
+    expect(c.textContent).toContain("Uncommitted changes");
+    expect(c.textContent).toContain("Referenced by a Carrent Project");
+    expect(c.textContent).toContain("Live Run in repository");
+    expect(c.textContent).toContain("Running Terminal Tab");
+    expect(c.textContent).toContain("Live Run: carrent");
+    expect(c.textContent).toContain("Terminal: carrent-feature");
+    expect(c.textContent).toContain("Not removable");
+    expect(c.textContent).not.toContain("Cleanup candidate");
+  });
+
+  it("explains that external processes cannot be reliably detected", async () => {
+    const c = await renderPanel({ worktrees: async () => makeScan() });
+
+    expect(c.textContent).toContain(
+      "cannot reliably detect external terminals, editors, coding agents",
+    );
   });
 });

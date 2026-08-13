@@ -397,3 +397,149 @@ describe("scanWorktrees", () => {
     expect(linked.projectNames).toEqual(["carrent-feature"]);
   });
 });
+
+describe("scanWorktrees with Carrent activity", () => {
+  it("blocks every linked worktree when any Project in the repository has a live Run", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+    git(repo, "worktree", "add", "-b", "docs", join(repo, "docs-wt"));
+
+    const result = await scanWorktrees(
+      [
+        project("p1", "carrent", repo),
+        project("p2", "carrent-feature", join(repo, "feat-wt")),
+      ],
+      { liveRunProjectIds: ["p2"], runningTerminalTabs: [] },
+    );
+
+    const [entry] = repositoryEntries(result);
+    expect(entry?.worktrees).toHaveLength(3);
+    for (const worktree of entry?.worktrees ?? []) {
+      if (worktree.kind !== "linked") continue;
+      expect(worktree.liveRunProjectNames).toEqual(["carrent-feature"]);
+      expect(worktree.blockingReasons).toContain("live-run");
+      expect(worktree.cleanupCandidate).toBe(false);
+    }
+  });
+
+  it("does not add activity reasons to the main worktree", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+
+    const result = await scanWorktrees(
+      [project("p1", "carrent", repo)],
+      {
+        liveRunProjectIds: ["p1"],
+        runningTerminalTabs: [{ projectId: "p1", workingDirectory: repo }],
+      },
+    );
+
+    const main = worktreeOf(result, (worktree) => worktree.kind === "main");
+    expect(main.blockingReasons).toEqual(["main"]);
+    expect(main.liveRunProjectNames).toEqual([]);
+    expect(main.runningTerminalProjectNames).toEqual([]);
+  });
+
+  it("a live Run blocks only worktrees of its own repository", async () => {
+    const repoA = join(root, "repo-a");
+    const repoB = join(root, "repo-b");
+    initRepo(repoA);
+    initRepo(repoB);
+    git(repoA, "worktree", "add", "-b", "feat", join(repoA, "feat-wt"));
+    git(repoB, "worktree", "add", "-b", "docs", join(repoB, "docs-wt"));
+
+    const result = await scanWorktrees(
+      [project("p1", "carrent", repoA), project("p2", "carrent-docs", repoB)],
+      { liveRunProjectIds: ["p1"], runningTerminalTabs: [] },
+    );
+
+    const docsLinked = worktreeOf(result, (worktree) => worktree.path.endsWith("docs-wt"));
+    expect(docsLinked.cleanupCandidate).toBe(true);
+  });
+
+  it("a running Terminal Tab blocks the linked worktree containing its Working Directory", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+    git(repo, "worktree", "add", "-b", "docs", join(repo, "docs-wt"));
+
+    const result = await scanWorktrees(
+      [project("p1", "carrent", repo)],
+      {
+        liveRunProjectIds: [],
+        runningTerminalTabs: [{ projectId: "p1", workingDirectory: join(repo, "feat-wt") }],
+      },
+    );
+
+    const feat = worktreeOf(result, (worktree) => worktree.path.endsWith("feat-wt"));
+    const docs = worktreeOf(result, (worktree) => worktree.path.endsWith("docs-wt"));
+    expect(feat.runningTerminalProjectNames).toEqual(["carrent"]);
+    expect(feat.blockingReasons).toContain("terminal-tab");
+    expect(feat.cleanupCandidate).toBe(false);
+    expect(docs.runningTerminalProjectNames).toEqual([]);
+    expect(docs.blockingReasons).toEqual([]);
+    expect(docs.cleanupCandidate).toBe(true);
+  });
+
+  it("a Terminal Tab in a subdirectory of a linked worktree still blocks that worktree", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+    mkdirSync(join(repo, "feat-wt", "sub"), { recursive: true });
+
+    const result = await scanWorktrees(
+      [project("p1", "carrent", repo)],
+      {
+        liveRunProjectIds: [],
+        runningTerminalTabs: [{ projectId: "p1", workingDirectory: join(repo, "feat-wt", "sub") }],
+      },
+    );
+
+    const feat = worktreeOf(result, (worktree) => worktree.kind === "linked");
+    expect(feat.blockingReasons).toContain("terminal-tab");
+  });
+
+  it("a Terminal Tab in the main worktree blocks no linked worktree", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+
+    const result = await scanWorktrees(
+      [project("p1", "carrent", repo)],
+      {
+        liveRunProjectIds: [],
+        runningTerminalTabs: [{ projectId: "p1", workingDirectory: repo }],
+      },
+    );
+
+    const linked = worktreeOf(result, (worktree) => worktree.kind === "linked");
+    expect(linked.blockingReasons).toEqual([]);
+    expect(linked.cleanupCandidate).toBe(true);
+  });
+
+  it("combines Git, Project, live Run, and Terminal Tab blockers together", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+    writeFileSync(join(repo, "feat-wt", "README.md"), "changed\n");
+
+    const result = await scanWorktrees(
+      [
+        project("p1", "carrent", repo),
+        project("p2", "carrent-feature", join(repo, "feat-wt")),
+      ],
+      {
+        liveRunProjectIds: ["p1"],
+        runningTerminalTabs: [{ projectId: "p2", workingDirectory: join(repo, "feat-wt") }],
+      },
+    );
+
+    const linked = worktreeOf(result, (worktree) => worktree.kind === "linked");
+    expect(linked.blockingReasons).toEqual(["dirty", "carrent-project", "live-run", "terminal-tab"]);
+    expect(linked.liveRunProjectNames).toEqual(["carrent"]);
+    expect(linked.runningTerminalProjectNames).toEqual(["carrent-feature"]);
+    expect(linked.cleanupCandidate).toBe(false);
+  });
+});

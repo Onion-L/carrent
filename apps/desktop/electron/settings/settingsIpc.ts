@@ -1,4 +1,8 @@
 import type { AppProjectRecord } from "../../src/shared/workspacePersistence";
+import {
+  EMPTY_WORKTREE_ACTIVITY,
+  type WorktreeActivitySnapshot,
+} from "../../src/shared/worktrees";
 import { getKimiUsageStats } from "./kimiUsage";
 import { deleteKimiMemoryFile, listKimiMemory } from "./kimiMemory";
 import { getRtkGainStats } from "./rtkGain";
@@ -8,7 +12,6 @@ import {
   writeGlobalAgentInstructions,
   writeGlobalRtkInstructions,
 } from "./globalAgentInstructions";
-
 interface IpcMainLike {
   handle: (
     channel: string,
@@ -20,6 +23,7 @@ export function registerSettingsIpc(
   ipcMainLike: IpcMainLike,
   getAppVersion: () => string,
   getProjects: () => AppProjectRecord[],
+  getWorktreeActivity?: () => WorktreeActivitySnapshot,
 ): void {
   ipcMainLike.handle("settings:app-version", async () => getAppVersion());
 
@@ -28,11 +32,11 @@ export function registerSettingsIpc(
   });
 
   ipcMainLike.handle("settings:rtk-gain", async () => getRtkGainStats());
-
+  ipcMainLike.handle("settings:worktrees", async () =>
+    scanWorktrees(getProjects(), getWorktreeActivity?.() ?? EMPTY_WORKTREE_ACTIVITY),
+  );
   ipcMainLike.handle("settings:kimi-usage", async () => getKimiUsageStats());
   ipcMainLike.handle("settings:kimi-memory", async () => listKimiMemory());
-
-  ipcMainLike.handle("settings:worktrees", async () => scanWorktrees(getProjects()));
 
   ipcMainLike.handle("settings:kimi-memory:delete", async (_event, filePath) => {
     if (typeof filePath !== "string") {

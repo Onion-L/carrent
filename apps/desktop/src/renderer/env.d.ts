@@ -38,6 +38,8 @@ import type { KimiMemoryIndex } from "../shared/kimiMemory";
 import type {
   WorktreePruneRequest,
   WorktreePruneResult,
+  WorktreeRemoveRequest,
+  WorktreeRemoveResult,
   WorktreeScanResult,
   WorktreeSizeEvent,
   WorktreeSizeStartResult,
@@ -152,6 +154,7 @@ declare global {
         kimiMemory: () => Promise<KimiMemoryIndex>;
         worktrees: () => Promise<WorktreeScanResult>;
         worktreesPrune: (request: WorktreePruneRequest) => Promise<WorktreePruneResult>;
+        worktreesRemove: (request: WorktreeRemoveRequest) => Promise<WorktreeRemoveResult>;
         worktreeSizesStart: (targets: WorktreeSizeTarget[]) => Promise<WorktreeSizeStartResult>;
         worktreeSizesCancel: (generation: number) => Promise<void>;
         onWorktreeSizeEvent: (listener: (event: WorktreeSizeEvent) => void) => VoidFunction;

@@ -6,10 +6,13 @@ import type { AppProjectRecord } from "../../src/shared/workspacePersistence";
 import { normalizeProjectWorkingDirectory } from "../../src/shared/workspacePersistence";
 import {
   EMPTY_WORKTREE_ACTIVITY,
+  WORKTREE_BLOCKING_REASON_LABELS,
   type WorktreeActivitySnapshot,
   type WorktreeBlockingReason,
   type WorktreePruneResult,
   type WorktreeRecord,
+  type WorktreeRemoveRequest,
+  type WorktreeRemoveResult,
   type WorktreeRepositoryEntry,
   type WorktreeScanEntry,
   type WorktreeScanResult,
@@ -19,6 +22,11 @@ export type ParsedWorktreeEntry = {
   path: string;
   /** Branch short name; null when detached or the entry has no HEAD. */
   branch: string | null;
+  /**
+   * The `branch` attribute held a `refs/heads/*` refname. Decided by the
+   * porcelain parser, never inferred from the branch name itself.
+   */
+  branchLocal: boolean;
   detached: boolean;
   bare: boolean;
   locked: boolean;
@@ -51,6 +59,7 @@ export function parseWorktreePorcelain(output: string): ParsedWorktreeEntry[] {
       current = {
         path: line.slice("worktree ".length),
         branch: null,
+        branchLocal: false,
         detached: false,
         bare: false,
         locked: false,
@@ -75,9 +84,8 @@ export function parseWorktreePorcelain(output: string): ParsedWorktreeEntry[] {
       current.prunableReason = line.slice("prunable ".length);
     } else if (line.startsWith("branch ")) {
       const refname = line.slice("branch ".length);
-      current.branch = refname.startsWith("refs/heads/")
-        ? refname.slice("refs/heads/".length)
-        : refname;
+      current.branchLocal = refname.startsWith("refs/heads/");
+      current.branch = current.branchLocal ? refname.slice("refs/heads/".length) : refname;
     }
   }
   flush();
@@ -99,6 +107,16 @@ function runGit(cwd: string, args: string[]): Promise<string> {
       },
     );
   });
+}
+/** Extracts Git's own stderr message from an execFile failure. */
+function gitFailureMessage(error: unknown): string {
+  if (typeof error === "object" && error !== null) {
+    const stderr = (error as { stderr?: unknown }).stderr;
+    if (typeof stderr === "string" && stderr.trim() !== "") {
+      return stderr.trim();
+    }
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isGitNotFound(error: unknown): boolean {
@@ -232,6 +250,7 @@ async function buildWorktreeRecord(
     kind,
     bare: entry.bare,
     branch: entry.branch,
+    branchLocal: entry.branchLocal,
     detached: entry.detached,
     locked: entry.locked,
     lockReason: entry.lockReason,
@@ -275,7 +294,6 @@ async function scanRepositoryWorktrees(
   }
   return records;
 }
-
 
 /**
  * Resolves every Project Working Directory into repository groups keyed by
@@ -413,4 +431,74 @@ export async function pruneWorktreeRecords(
     projectNameById,
   );
   return { repository, scannedAt: new Date().toISOString() };
+}
+/**
+ * Removes one linked worktree using normal `git worktree remove` without
+ * `--force`. Every safety condition — Git state, Project references, live
+ * Runs, and running Terminal Tabs — is re-evaluated against the current
+ * repository immediately before mutation, so a stale renderer snapshot can
+ * never authorize a removal. Carrent never deletes the directory itself or
+ * edits worktree administration entries.
+ *
+ * When the caller opted into branch deletion, a non-forcing `git branch -d`
+ * runs after the worktree is gone. The two steps are deliberately not
+ * atomic: a branch Git refuses to delete is reported as partial success and
+ * the removed worktree is never restored.
+ */
+export async function removeWorktree(
+  projects: AppProjectRecord[],
+  request: WorktreeRemoveRequest,
+  activity: WorktreeActivitySnapshot = EMPTY_WORKTREE_ACTIVITY,
+): Promise<WorktreeRemoveResult> {
+  const targetIdentity = resolveIdentity(normalizeProjectWorkingDirectory(request.commonDirectory));
+  const { groups, projectNameById } = await collectRepositoryGroups(projects);
+  const group = groups.get(targetIdentity);
+  if (group === undefined) {
+    throw new Error("This repository is not part of the current Worktrees scan.");
+  }
+
+  // Authoritative re-evaluation immediately before mutation.
+  await buildRepositoryEntry(group.entry, group.projects, activity, projectNameById);
+  const worktreeIdentity = resolveIdentity(normalizeProjectWorkingDirectory(request.worktreePath));
+  const worktree = group.entry.worktrees.find(
+    (candidate) => resolveIdentity(candidate.path) === worktreeIdentity,
+  );
+  if (worktree === undefined) {
+    throw new Error("This worktree is no longer registered with Git.");
+  }
+  if (!worktree.cleanupCandidate) {
+    const reasons = worktree.blockingReasons
+      .map((reason) => WORKTREE_BLOCKING_REASON_LABELS[reason])
+      .join(", ");
+    throw new Error(`This worktree can no longer be removed safely: ${reasons}.`);
+  }
+
+  const workingDirectory = normalizeProjectWorkingDirectory(
+    group.projects[0]?.workingDirectory ?? "",
+  );
+
+  try {
+    await runGit(workingDirectory, ["worktree", "remove", worktree.path]);
+  } catch (error) {
+    throw new Error(gitFailureMessage(error));
+  }
+
+  let status: WorktreeRemoveResult["status"] = "removed";
+  let branchRetainedReason: string | undefined;
+  if (request.deleteBranch === true && worktree.branchLocal && worktree.branch !== null) {
+    try {
+      await runGit(workingDirectory, ["branch", "-d", worktree.branch]);
+    } catch (error) {
+      status = "removed-branch-retained";
+      branchRetainedReason = gitFailureMessage(error);
+    }
+  }
+
+  const repository = await buildRepositoryEntry(
+    group.entry,
+    group.projects,
+    activity,
+    projectNameById,
+  );
+  return { status, repository, scannedAt: new Date().toISOString(), branchRetainedReason };
 }

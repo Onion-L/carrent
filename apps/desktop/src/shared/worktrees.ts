@@ -1,7 +1,8 @@
 /**
  * Worktrees Settings Tab: shared contract between the Main-process scan and
- * the Renderer list. The scan is read-only; nothing here is persisted as a
- * setting and no removal operation exists yet.
+ * the Renderer list. Scan output is never persisted as a setting. Mutating
+ * operations (remove, prune) revalidate everything in Main before touching
+ * the filesystem.
  */
 
 export type WorktreeKind = "main" | "linked";
@@ -21,6 +22,23 @@ export type WorktreeBlockingReason =
   | "prunable"
   | "live-run"
   | "terminal-tab";
+/**
+ * User-presentable labels for every blocking reason. Shared between the
+ * Renderer list and Main-process refusal messages so both sides use the
+ * same copy.
+ */
+export const WORKTREE_BLOCKING_REASON_LABELS: Record<WorktreeBlockingReason, string> = {
+  main: "Main worktree",
+  dirty: "Uncommitted changes",
+  detached: "Detached HEAD",
+  locked: "Locked by Git",
+  submodules: "Contains submodules",
+  "carrent-project": "Referenced by a Carrent Project",
+  missing: "Directory missing",
+  prunable: "Prunable Git record",
+  "live-run": "Live Run in repository",
+  "terminal-tab": "Running Terminal Tab",
+};
 
 /**
  * Carrent-owned activity considered by the worktree scan. Both sources are
@@ -47,6 +65,12 @@ export type WorktreeRecord = {
   bare: boolean;
   /** Branch short name; null when detached or the entry has no HEAD. */
   branch: string | null;
+  /**
+   * The branch is a local branch (`refs/heads/*`) that `git branch -d` may
+   * consider. False for detached worktrees and non-local branch identities;
+   * decided by the porcelain parser, never by the branch name itself.
+   */
+  branchLocal: boolean;
   detached: boolean;
   locked: boolean;
   /** Lock reason from Git; null when locked without a reason or unlocked. */
@@ -128,6 +152,39 @@ export type WorktreePruneResult = {
   repository: WorktreeRepositoryEntry;
   /** ISO timestamp of when the post-prune rescan completed. */
   scannedAt: string;
+};
+/**
+ * Removes one eligible linked worktree. The renderer names the target by the
+ * normalized identities it received from the scan; Main re-resolves and
+ * re-evaluates every safety condition immediately before mutating so a stale
+ * renderer snapshot can never authorize a removal.
+ */
+export type WorktreeRemoveRequest = {
+  /** Repository identity the worktree belongs to. */
+  commonDirectory: string;
+  /** Normalized full path of the linked worktree to remove. */
+  worktreePath: string;
+  /**
+   * Opt-in local branch deletion after the worktree is removed. Defaults to
+   * false (branch preserved); only non-forcing `git branch -d` is used.
+   */
+  deleteBranch?: boolean;
+};
+
+export type WorktreeRemoveResult = {
+  /**
+   * `removed` — the worktree is gone and the branch state is final.
+   * `removed-branch-retained` — the worktree is gone but Git refused to
+   * delete the branch; {@link branchRetainedReason} explains why. Carrent
+   * never attempts to restore a removed worktree in this case.
+   */
+  status: "removed" | "removed-branch-retained";
+  /** Rescanned repository; the removed worktree no longer appears. */
+  repository: WorktreeRepositoryEntry;
+  /** ISO timestamp of when the post-removal rescan completed. */
+  scannedAt: string;
+  /** User-presentable reason Git refused the branch deletion. */
+  branchRetainedReason?: string;
 };
 
 /**

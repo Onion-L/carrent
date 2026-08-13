@@ -1,11 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { AppProjectRecord } from "../../src/shared/workspacePersistence";
 import type { WorktreeRecord, WorktreeScanResult } from "../../src/shared/worktrees";
-import { parseWorktreePorcelain, pruneWorktreeRecords, scanWorktrees } from "./worktrees";
+import {
+  parseWorktreePorcelain,
+  pruneWorktreeRecords,
+  removeWorktree,
+  scanWorktrees,
+} from "./worktrees";
 
 let root: string;
 
@@ -67,6 +80,7 @@ branch refs/heads/codex/feature one
       {
         path: "/repo",
         branch: "main",
+        branchLocal: true,
         detached: false,
         bare: false,
         locked: false,
@@ -77,6 +91,7 @@ branch refs/heads/codex/feature one
       {
         path: "/repo/linked dir",
         branch: "codex/feature one",
+        branchLocal: true,
         detached: false,
         bare: false,
         locked: false,
@@ -85,6 +100,22 @@ branch refs/heads/codex/feature one
         prunableReason: null,
       },
     ]);
+  });
+
+  it("keeps branch locality independent of the branch name", () => {
+    const parsed = parseWorktreePorcelain(`worktree /repo
+HEAD aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+branch refs/heads/refs/foo
+
+worktree /repo/remote
+HEAD bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+branch refs/remotes/origin/topic
+`);
+    expect(parsed[0]).toMatchObject({ branch: "refs/foo", branchLocal: true });
+    expect(parsed[1]).toMatchObject({
+      branch: "refs/remotes/origin/topic",
+      branchLocal: false,
+    });
   });
 
   it("parses a detached worktree", () => {
@@ -97,6 +128,7 @@ detached
       {
         path: "/repo/detached",
         branch: null,
+        branchLocal: false,
         detached: true,
         bare: false,
         locked: false,
@@ -146,6 +178,7 @@ bare
       {
         path: "/repo/bare.git",
         branch: null,
+        branchLocal: false,
         detached: false,
         bare: true,
         locked: false,
@@ -406,10 +439,7 @@ describe("scanWorktrees with Carrent activity", () => {
     git(repo, "worktree", "add", "-b", "docs", join(repo, "docs-wt"));
 
     const result = await scanWorktrees(
-      [
-        project("p1", "carrent", repo),
-        project("p2", "carrent-feature", join(repo, "feat-wt")),
-      ],
+      [project("p1", "carrent", repo), project("p2", "carrent-feature", join(repo, "feat-wt"))],
       { liveRunProjectIds: ["p2"], runningTerminalTabs: [] },
     );
 
@@ -428,13 +458,10 @@ describe("scanWorktrees with Carrent activity", () => {
     initRepo(repo);
     git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
 
-    const result = await scanWorktrees(
-      [project("p1", "carrent", repo)],
-      {
-        liveRunProjectIds: ["p1"],
-        runningTerminalTabs: [{ projectId: "p1", workingDirectory: repo }],
-      },
-    );
+    const result = await scanWorktrees([project("p1", "carrent", repo)], {
+      liveRunProjectIds: ["p1"],
+      runningTerminalTabs: [{ projectId: "p1", workingDirectory: repo }],
+    });
 
     const main = worktreeOf(result, (worktree) => worktree.kind === "main");
     expect(main.blockingReasons).toEqual(["main"]);
@@ -465,13 +492,10 @@ describe("scanWorktrees with Carrent activity", () => {
     git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
     git(repo, "worktree", "add", "-b", "docs", join(repo, "docs-wt"));
 
-    const result = await scanWorktrees(
-      [project("p1", "carrent", repo)],
-      {
-        liveRunProjectIds: [],
-        runningTerminalTabs: [{ projectId: "p1", workingDirectory: join(repo, "feat-wt") }],
-      },
-    );
+    const result = await scanWorktrees([project("p1", "carrent", repo)], {
+      liveRunProjectIds: [],
+      runningTerminalTabs: [{ projectId: "p1", workingDirectory: join(repo, "feat-wt") }],
+    });
 
     const feat = worktreeOf(result, (worktree) => worktree.path.endsWith("feat-wt"));
     const docs = worktreeOf(result, (worktree) => worktree.path.endsWith("docs-wt"));
@@ -489,13 +513,10 @@ describe("scanWorktrees with Carrent activity", () => {
     git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
     mkdirSync(join(repo, "feat-wt", "sub"), { recursive: true });
 
-    const result = await scanWorktrees(
-      [project("p1", "carrent", repo)],
-      {
-        liveRunProjectIds: [],
-        runningTerminalTabs: [{ projectId: "p1", workingDirectory: join(repo, "feat-wt", "sub") }],
-      },
-    );
+    const result = await scanWorktrees([project("p1", "carrent", repo)], {
+      liveRunProjectIds: [],
+      runningTerminalTabs: [{ projectId: "p1", workingDirectory: join(repo, "feat-wt", "sub") }],
+    });
 
     const feat = worktreeOf(result, (worktree) => worktree.kind === "linked");
     expect(feat.blockingReasons).toContain("terminal-tab");
@@ -506,13 +527,10 @@ describe("scanWorktrees with Carrent activity", () => {
     initRepo(repo);
     git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
 
-    const result = await scanWorktrees(
-      [project("p1", "carrent", repo)],
-      {
-        liveRunProjectIds: [],
-        runningTerminalTabs: [{ projectId: "p1", workingDirectory: repo }],
-      },
-    );
+    const result = await scanWorktrees([project("p1", "carrent", repo)], {
+      liveRunProjectIds: [],
+      runningTerminalTabs: [{ projectId: "p1", workingDirectory: repo }],
+    });
 
     const linked = worktreeOf(result, (worktree) => worktree.kind === "linked");
     expect(linked.blockingReasons).toEqual([]);
@@ -526,10 +544,7 @@ describe("scanWorktrees with Carrent activity", () => {
     writeFileSync(join(repo, "feat-wt", "README.md"), "changed\n");
 
     const result = await scanWorktrees(
-      [
-        project("p1", "carrent", repo),
-        project("p2", "carrent-feature", join(repo, "feat-wt")),
-      ],
+      [project("p1", "carrent", repo), project("p2", "carrent-feature", join(repo, "feat-wt"))],
       {
         liveRunProjectIds: ["p1"],
         runningTerminalTabs: [{ projectId: "p2", workingDirectory: join(repo, "feat-wt") }],
@@ -537,7 +552,12 @@ describe("scanWorktrees with Carrent activity", () => {
     );
 
     const linked = worktreeOf(result, (worktree) => worktree.kind === "linked");
-    expect(linked.blockingReasons).toEqual(["dirty", "carrent-project", "live-run", "terminal-tab"]);
+    expect(linked.blockingReasons).toEqual([
+      "dirty",
+      "carrent-project",
+      "live-run",
+      "terminal-tab",
+    ]);
     expect(linked.liveRunProjectNames).toEqual(["carrent"]);
     expect(linked.runningTerminalProjectNames).toEqual(["carrent-feature"]);
     expect(linked.cleanupCandidate).toBe(false);
@@ -545,9 +565,12 @@ describe("scanWorktrees with Carrent activity", () => {
 });
 
 describe("pruneWorktreeRecords", () => {
-  function commonDirectoryOf(result: WorktreeScanResult, predicate: (entry: { projects: string[] }) => boolean): string {
-    const entry = repositoryEntries(result).find(
-      (candidate) => predicate({ projects: candidate.projects }),
+  function commonDirectoryOf(
+    result: WorktreeScanResult,
+    predicate: (entry: { projects: string[] }) => boolean,
+  ): string {
+    const entry = repositoryEntries(result).find((candidate) =>
+      predicate({ projects: candidate.projects }),
     );
     if (!entry) throw new Error("Repository not found");
     return entry.commonDirectory;
@@ -617,8 +640,8 @@ describe("pruneWorktreeRecords", () => {
       commonDirectoryOf(before, () => true),
     );
 
-    const lockedAfter = result.repository.worktrees.find(
-      (worktree) => worktree.path.endsWith("locked-wt"),
+    const lockedAfter = result.repository.worktrees.find((worktree) =>
+      worktree.path.endsWith("locked-wt"),
     );
     expect(lockedAfter).toMatchObject({ locked: true, lockReason: "keep record", missing: true });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain("locked-wt");
@@ -672,3 +695,370 @@ describe("pruneWorktreeRecords", () => {
   });
 });
 
+describe("removeWorktree", () => {
+  function targetOf(
+    result: WorktreeScanResult,
+    predicate: (worktree: WorktreeRecord) => boolean,
+  ): { commonDirectory: string; worktree: WorktreeRecord } {
+    const entry = repositoryEntries(result).find((candidate) =>
+      candidate.worktrees.some(predicate),
+    );
+    const worktree = entry?.worktrees.find(predicate);
+    if (!entry || !worktree) throw new Error("Removal target not found");
+    return { commonDirectory: entry.commonDirectory, worktree };
+  }
+
+  it("removes a clean linked worktree without force, deleting ignored files and keeping the branch by default", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    writeFileSync(join(repo, ".gitignore"), "node_modules\n");
+    git(repo, "add", ".gitignore");
+    git(repo, "commit", "-m", "ignore node_modules");
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+    mkdirSync(join(repo, "feat-wt", "node_modules"), { recursive: true });
+    writeFileSync(join(repo, "feat-wt", "node_modules", "dep.txt"), "ignored\n");
+    const projects = [project("p1", "carrent", repo)];
+    const before = await scanWorktrees(projects);
+    const { commonDirectory, worktree } = targetOf(
+      before,
+      (candidate) => candidate.kind === "linked",
+    );
+    expect(worktree.cleanupCandidate).toBe(true);
+
+    const result = await removeWorktree(projects, {
+      commonDirectory,
+      worktreePath: worktree.path,
+    });
+
+    expect(result.status).toBe("removed");
+    expect(statSync(join(repo, "feat-wt"), { throwIfNoEntry: false })).toBeUndefined();
+    expect(git(repo, "worktree", "list", "--porcelain")).not.toContain("feat-wt");
+    expect(git(repo, "branch", "--list", "feat")).toContain("feat");
+    expect(
+      result.repository.worktrees.some((candidate) => candidate.path.endsWith("feat-wt")),
+    ).toBe(false);
+  });
+
+  it("refuses a worktree that became dirty after the initial scan without touching files", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+
+    const projects = [project("p1", "carrent", repo)];
+    const before = await scanWorktrees(projects);
+    const { commonDirectory, worktree } = targetOf(
+      before,
+      (candidate) => candidate.kind === "linked",
+    );
+    expect(worktree.cleanupCandidate).toBe(true);
+
+    // Become dirty after scanning: a tracked change plus an untracked file.
+    writeFileSync(join(repo, "feat-wt", "README.md"), "changed\n");
+    writeFileSync(join(repo, "feat-wt", "extra.txt"), "untracked\n");
+
+    let thrown: unknown = null;
+    try {
+      await removeWorktree(projects, { commonDirectory, worktreePath: worktree.path });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown instanceof Error).toBe(true);
+    if (thrown instanceof Error) {
+      expect(thrown.message).toContain("Uncommitted changes");
+    }
+
+    expect(readFileSync(join(repo, "feat-wt", "README.md"), "utf8")).toBe("changed\n");
+    expect(readFileSync(join(repo, "feat-wt", "extra.txt"), "utf8")).toBe("untracked\n");
+    expect(git(repo, "worktree", "list", "--porcelain")).toContain("feat-wt");
+  });
+
+  it("refuses a worktree that became locked after the initial scan", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+
+    const projects = [project("p1", "carrent", repo)];
+    const before = await scanWorktrees(projects);
+    const { commonDirectory, worktree } = targetOf(
+      before,
+      (candidate) => candidate.kind === "linked",
+    );
+
+    git(repo, "worktree", "lock", "--reason", "release day", join(repo, "feat-wt"));
+
+    let thrown: unknown = null;
+    try {
+      await removeWorktree(projects, { commonDirectory, worktreePath: worktree.path });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown instanceof Error).toBe(true);
+    if (thrown instanceof Error) {
+      expect(thrown.message).toContain("Locked by Git");
+    }
+    expect(statSync(join(repo, "feat-wt"), { throwIfNoEntry: false })).toBeDefined();
+    expect(git(repo, "worktree", "list", "--porcelain")).toContain("feat-wt");
+  });
+
+  it("refuses a worktree containing submodules", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    writeFileSync(
+      join(repo, ".gitmodules"),
+      '[submodule "vendor"]\n\tpath = vendor\n\turl = ./vendor-repo\n',
+    );
+    // Register the gitlink in the index without network access.
+    git(
+      repo,
+      "update-index",
+      "--add",
+      "--cacheinfo",
+      "160000,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,vendor",
+    );
+    git(repo, "add", ".gitmodules");
+    git(repo, "commit", "-m", "add submodule");
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+
+    const projects = [project("p1", "carrent", repo)];
+    const before = await scanWorktrees(projects);
+    const { commonDirectory, worktree } = targetOf(
+      before,
+      (candidate) => candidate.kind === "linked",
+    );
+    expect(worktree.hasSubmodules).toBe(true);
+
+    let thrown: unknown = null;
+    try {
+      await removeWorktree(projects, { commonDirectory, worktreePath: worktree.path });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown instanceof Error).toBe(true);
+    if (thrown instanceof Error) {
+      expect(thrown.message).toContain("Contains submodules");
+    }
+    expect(statSync(join(repo, "feat-wt"), { throwIfNoEntry: false })).toBeDefined();
+  });
+
+  it("refuses a linked worktree that is a Carrent Project Working Directory", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+
+    const projects = [
+      project("p1", "carrent", repo),
+      project("p2", "feat-project", join(repo, "feat-wt")),
+    ];
+    const before = await scanWorktrees(projects);
+    const { commonDirectory, worktree } = targetOf(before, (candidate) =>
+      candidate.path.endsWith("feat-wt"),
+    );
+
+    let thrown: unknown = null;
+    try {
+      await removeWorktree(projects, { commonDirectory, worktreePath: worktree.path });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown instanceof Error).toBe(true);
+    if (thrown instanceof Error) {
+      expect(thrown.message).toContain("Referenced by a Carrent Project");
+    }
+    expect(statSync(join(repo, "feat-wt"), { throwIfNoEntry: false })).toBeDefined();
+  });
+
+  it("refuses every linked worktree when a live Run appeared in the repository after scanning", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+
+    const projects = [project("p1", "carrent", repo)];
+    const before = await scanWorktrees(projects);
+    const { commonDirectory, worktree } = targetOf(
+      before,
+      (candidate) => candidate.kind === "linked",
+    );
+    expect(worktree.cleanupCandidate).toBe(true);
+
+    let thrown: unknown = null;
+    try {
+      await removeWorktree(
+        projects,
+        { commonDirectory, worktreePath: worktree.path },
+        { liveRunProjectIds: ["p1"], runningTerminalTabs: [] },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown instanceof Error).toBe(true);
+    if (thrown instanceof Error) {
+      expect(thrown.message).toContain("Live Run in repository");
+    }
+    expect(statSync(join(repo, "feat-wt"), { throwIfNoEntry: false })).toBeDefined();
+    expect(git(repo, "worktree", "list", "--porcelain")).toContain("feat-wt");
+  });
+  it("refuses a worktree when a running Terminal Tab appeared in its directory after scanning", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+
+    const projects = [project("p1", "carrent", repo)];
+    const before = await scanWorktrees(projects);
+    const { commonDirectory, worktree } = targetOf(
+      before,
+      (candidate) => candidate.kind === "linked",
+    );
+    expect(worktree.cleanupCandidate).toBe(true);
+
+    let thrown: unknown = null;
+    try {
+      await removeWorktree(
+        projects,
+        { commonDirectory, worktreePath: worktree.path },
+        {
+          liveRunProjectIds: [],
+          runningTerminalTabs: [{ projectId: "p1", workingDirectory: join(repo, "feat-wt") }],
+        },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown instanceof Error).toBe(true);
+    if (thrown instanceof Error) {
+      expect(thrown.message).toContain("Running Terminal Tab");
+    }
+    expect(statSync(join(repo, "feat-wt"), { throwIfNoEntry: false })).toBeDefined();
+    expect(git(repo, "worktree", "list", "--porcelain")).toContain("feat-wt");
+  });
+
+  it("deletes a safely deletable local branch when the user opts in", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+
+    const projects = [project("p1", "carrent", repo)];
+    const before = await scanWorktrees(projects);
+    const { commonDirectory, worktree } = targetOf(
+      before,
+      (candidate) => candidate.kind === "linked",
+    );
+
+    const result = await removeWorktree(projects, {
+      commonDirectory,
+      worktreePath: worktree.path,
+      deleteBranch: true,
+    });
+
+    expect(result.status).toBe("removed");
+    expect(git(repo, "branch", "--list", "feat")).toBe("");
+    expect(statSync(join(repo, "feat-wt"), { throwIfNoEntry: false })).toBeUndefined();
+  });
+  it("deletes a local branch whose name starts with refs/ when the user opts in", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "refs/foo", join(repo, "refs-wt"));
+
+    const projects = [project("p1", "carrent", repo)];
+    const before = await scanWorktrees(projects);
+    const { commonDirectory, worktree } = targetOf(
+      before,
+      (candidate) => candidate.kind === "linked",
+    );
+    expect(worktree.branch).toBe("refs/foo");
+    expect(worktree.branchLocal).toBe(true);
+
+    const result = await removeWorktree(projects, {
+      commonDirectory,
+      worktreePath: worktree.path,
+      deleteBranch: true,
+    });
+
+    expect(result.status).toBe("removed");
+    expect(git(repo, "branch", "--list", "refs/foo")).toBe("");
+    expect(statSync(join(repo, "refs-wt"), { throwIfNoEntry: false })).toBeUndefined();
+  });
+
+  it("keeps an unmerged branch and reports partial success without restoring the worktree", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+    writeFileSync(join(repo, "feat-wt", "feat.txt"), "feat work\n");
+    git(join(repo, "feat-wt"), "add", "feat.txt");
+    git(join(repo, "feat-wt"), "commit", "-m", "feat work");
+
+    const projects = [project("p1", "carrent", repo)];
+    const before = await scanWorktrees(projects);
+    const { commonDirectory, worktree } = targetOf(before, (candidate) =>
+      candidate.path.endsWith("feat-wt"),
+    );
+
+    const result = await removeWorktree(projects, {
+      commonDirectory,
+      worktreePath: worktree.path,
+      deleteBranch: true,
+    });
+
+    expect(result.status).toBe("removed-branch-retained");
+    expect(result.branchRetainedReason).toContain("not fully merged");
+    expect(git(repo, "branch", "--list", "feat")).toContain("feat");
+    expect(git(repo, "worktree", "list", "--porcelain")).not.toContain("feat-wt");
+    expect(statSync(join(repo, "feat-wt"), { throwIfNoEntry: false })).toBeUndefined();
+  });
+
+  it("refuses a detached worktree, so no branch deletion can ever be offered or attempted", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "--detach", join(repo, "detached-wt"));
+
+    const projects = [project("p1", "carrent", repo)];
+    const before = await scanWorktrees(projects);
+    const { commonDirectory, worktree } = targetOf(before, (candidate) =>
+      candidate.path.endsWith("detached-wt"),
+    );
+    expect(worktree.detached).toBe(true);
+    expect(worktree.branch).toBe(null);
+
+    let thrown: unknown = null;
+    try {
+      await removeWorktree(projects, {
+        commonDirectory,
+        worktreePath: worktree.path,
+        deleteBranch: true,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown instanceof Error).toBe(true);
+    if (thrown instanceof Error) {
+      expect(thrown.message).toContain("Detached HEAD");
+    }
+    expect(statSync(join(repo, "detached-wt"), { throwIfNoEntry: false })).toBeDefined();
+    expect(git(repo, "worktree", "list", "--porcelain")).toContain("detached-wt");
+  });
+
+  it("rejects a repository outside the current scan without touching worktrees", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "feat", join(repo, "feat-wt"));
+
+    const projects = [project("p1", "carrent", repo)];
+    const before = await scanWorktrees(projects);
+    const { worktree } = targetOf(before, (candidate) => candidate.kind === "linked");
+
+    let thrown: unknown = null;
+    try {
+      await removeWorktree(projects, {
+        commonDirectory: join(root, "no-such-repo"),
+        worktreePath: worktree.path,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown instanceof Error).toBe(true);
+    if (thrown instanceof Error) {
+      expect(thrown.message).toContain("not part of the current Worktrees scan");
+    }
+    expect(statSync(join(repo, "feat-wt"), { throwIfNoEntry: false })).toBeDefined();
+    expect(git(repo, "worktree", "list", "--porcelain")).toContain("feat-wt");
+  });
+});

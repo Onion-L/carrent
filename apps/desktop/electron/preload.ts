@@ -37,6 +37,8 @@ import type { KimiMemoryIndex } from "../src/shared/kimiMemory";
 import type {
   WorktreePruneRequest,
   WorktreePruneResult,
+  WorktreeRemoveRequest,
+  WorktreeRemoveResult,
   WorktreeScanResult,
   WorktreeSizeEvent,
   WorktreeSizeStartResult,
@@ -355,10 +357,13 @@ const carrent = {
     worktrees: () => ipcRenderer.invoke("settings:worktrees") as Promise<WorktreeScanResult>,
     worktreesPrune: (request: WorktreePruneRequest) =>
       ipcRenderer.invoke("settings:worktrees:prune", request) as Promise<WorktreePruneResult>,
+    worktreesRemove: (request: WorktreeRemoveRequest) =>
+      ipcRenderer.invoke("settings:worktrees:remove", request) as Promise<WorktreeRemoveResult>,
     worktreeSizesStart: (targets: WorktreeSizeTarget[]) =>
-      ipcRenderer.invoke("settings:worktrees:sizes:start", targets) as Promise<
-        WorktreeSizeStartResult
-      >,
+      ipcRenderer.invoke(
+        "settings:worktrees:sizes:start",
+        targets,
+      ) as Promise<WorktreeSizeStartResult>,
     worktreeSizesCancel: (generation: number) =>
       ipcRenderer.invoke("settings:worktrees:sizes:cancel", generation) as Promise<void>,
     onWorktreeSizeEvent: (listener: (event: WorktreeSizeEvent) => void) => {

@@ -27,6 +27,7 @@ describe("registerSettingsIpc", () => {
       "settings:rtk-gain",
       "settings:worktrees",
       "settings:worktrees:prune",
+      "settings:worktrees:remove",
       "settings:worktrees:sizes:cancel",
       "settings:worktrees:sizes:start",
     ]);
@@ -105,6 +106,34 @@ describe("registerSettingsIpc", () => {
       if (thrown instanceof Error) {
         expect(thrown.message).toContain(
           "Worktree pruning requires the repository common directory",
+        );
+      }
+    }
+  });
+  it("rejects removal requests without a common directory or worktree path", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+
+    registerSettingsIpc(
+      {
+        handle(channel, listener) {
+          handlers.set(channel, listener);
+        },
+      },
+      () => "0.0.0-test",
+      () => [],
+    );
+    const remove = handlers.get("settings:worktrees:remove");
+    for (const invalid of [{}, "", { commonDirectory: "/repo" }, { worktreePath: "/wt" }]) {
+      let thrown: unknown = null;
+      try {
+        await remove?.({}, invalid);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown instanceof Error).toBe(true);
+      if (thrown instanceof Error) {
+        expect(thrown.message).toContain(
+          "Worktree removal requires the repository common directory",
         );
       }
     }

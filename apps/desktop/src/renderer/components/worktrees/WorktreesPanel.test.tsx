@@ -33,6 +33,7 @@ function makeWorktree(overrides: Partial<WorktreeRecord>): WorktreeRecord {
     kind: "linked",
     bare: false,
     branch: "feat",
+    branchLocal: true,
     detached: false,
     locked: false,
     lockReason: null,
@@ -566,7 +567,7 @@ describe("WorktreesPanelView pruning", () => {
     );
     if (!pruneButton) throw new Error("prune button not found");
     await click(pruneButton);
-    const confirm = [...c.querySelectorAll('button')].find(
+    const confirm = [...c.querySelectorAll("button")].find(
       (button) => button.textContent === "Prune",
     );
     if (!confirm) throw new Error("confirm button not found");
@@ -633,10 +634,9 @@ describe("worktree size presentation", () => {
     sizes.set("/r/small", { bytes: 100, incomplete: false, failed: false });
     sizes.set("/r/large", { bytes: 900, incomplete: false, failed: false });
 
-    expect([removableLarge, removableSmall].sort((a, b) => compareWorktreeRecords(a, b, sizes))).toEqual([
-      removableLarge,
-      removableSmall,
-    ]);
+    expect(
+      [removableLarge, removableSmall].sort((a, b) => compareWorktreeRecords(a, b, sizes)),
+    ).toEqual([removableLarge, removableSmall]);
     // Missing sizes fall back to the path order.
     expect([blocked, main].sort((a, b) => compareWorktreeRecords(a, b, sizes))).toEqual([
       main,
@@ -644,10 +644,9 @@ describe("worktree size presentation", () => {
     ]);
     // A failed measurement sorts like a missing one.
     sizes.set("/r/small", { bytes: 0, incomplete: false, failed: true });
-    expect([removableSmall, removableLarge].sort((a, b) => compareWorktreeRecords(a, b, sizes))).toEqual([
-      removableLarge,
-      removableSmall,
-    ]);
+    expect(
+      [removableSmall, removableLarge].sort((a, b) => compareWorktreeRecords(a, b, sizes)),
+    ).toEqual([removableLarge, removableSmall]);
   });
 
   function sizeApi(scan: WorktreeScanResult) {
@@ -749,7 +748,6 @@ describe("worktree size presentation", () => {
     });
     expect(c.textContent).not.toContain("measuring sizes");
   });
-
 
   it("excludes main, blocked, incomplete, failed, and calculating worktrees from releasable space", async () => {
     const scan = makeScan({
@@ -871,3 +869,348 @@ describe("worktree size presentation", () => {
   });
 });
 
+describe("WorktreesPanelView removal", () => {
+  function removalScan(): WorktreeScanResult {
+    return {
+      entries: [
+        {
+          kind: "repository",
+          commonDirectory: "/code/carrent/.git",
+          projects: ["carrent"],
+          worktrees: [
+            makeWorktree({
+              path: "/code/carrent",
+              kind: "main",
+              branch: "main",
+              blockingReasons: ["main"],
+              cleanupCandidate: false,
+            }),
+            makeWorktree({ path: "/code/carrent/feat-wt", branch: "feat" }),
+            makeWorktree({
+              path: "/code/carrent/dirty-wt",
+              branch: "dirty",
+              dirty: true,
+              blockingReasons: ["dirty"],
+              cleanupCandidate: false,
+            }),
+          ],
+        },
+        {
+          kind: "repository",
+          commonDirectory: "/code/other/.git",
+          projects: ["other"],
+          worktrees: [
+            makeWorktree({
+              path: "/code/other",
+              kind: "main",
+              branch: "main",
+              blockingReasons: ["main"],
+              cleanupCandidate: false,
+            }),
+          ],
+        },
+      ],
+      scannedAt: "2026-08-13T00:00:00.000Z",
+    };
+  }
+
+  function removalSizeApi(scan: WorktreeScanResult) {
+    const listeners = new Set<(event: WorktreeSizeEvent) => void>();
+    const api: WorktreeSettingsApi = {
+      worktrees: async () => scan,
+      worktreeSizesStart: async () => ({ generation: 1 }),
+      worktreeSizesCancel: async () => {},
+      onWorktreeSizeEvent: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    return {
+      api,
+      emit: (event: WorktreeSizeEvent) => {
+        for (const listener of listeners) listener(event);
+      },
+    };
+  }
+
+  function removeButtonOf(c: HTMLDivElement): HTMLButtonElement {
+    const button = [...c.querySelectorAll("button")].find(
+      (candidate) => candidate.textContent === "Remove",
+    );
+    if (!(button instanceof HTMLButtonElement)) throw new Error("Remove button not found");
+    return button;
+  }
+
+  function confirmButtonOf(c: HTMLDivElement): HTMLButtonElement {
+    const button = [...c.querySelectorAll("button")].find(
+      (candidate) => candidate.textContent === "Remove worktree",
+    );
+    if (!(button instanceof HTMLButtonElement)) throw new Error("confirm button not found");
+    return button;
+  }
+
+  async function check(input: HTMLInputElement) {
+    // happy-dom's click default action toggles the native checked state
+    // before React processes the event, like a real browser.
+    await act(async () => {
+      input.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  }
+
+  it("exposes removal only for cleanup candidates", async () => {
+    const c = await renderPanel({ worktrees: async () => removalScan() });
+
+    const removeButtons = [...c.querySelectorAll("button")].filter(
+      (button) => button.textContent === "Remove",
+    );
+    expect(removeButtons).toHaveLength(1);
+  });
+
+  it("asks for confirmation with repository, branch, path, size, and deletion warnings", async () => {
+    const fake = removalSizeApi(removalScan());
+    const c = await renderPanel(fake.api);
+    await act(async () => {
+      fake.emit({
+        generation: 1,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent/feat-wt",
+        result: { bytes: 2 * 1024 * 1024, incomplete: false, failed: false },
+        completed: 1,
+        total: 1,
+      });
+    });
+
+    await click(removeButtonOf(c));
+
+    const dialog = c.querySelector('[role="dialog"]');
+    expect(dialog).not.toBe(null);
+    const text = dialog!.textContent ?? "";
+    expect(text).toContain("Remove linked worktree?");
+    expect(text).toContain("Repository: carrent");
+    expect(text).toContain("Branch: feat");
+    expect(text).toContain("/code/carrent/feat-wt");
+    expect(text).toContain("~2 MB");
+    expect(text).toContain("ignored and hidden files");
+    expect(text).toContain("cannot reliably detect external terminals");
+    expect(text).toContain("Also delete local branch");
+    expect(text).toContain("keeps the branch if it is not fully merged");
+
+    const checkbox = dialog!.querySelector('input[type="checkbox"]');
+    expect(checkbox).not.toBe(null);
+    expect((checkbox as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("cancels the confirmation without calling the removal api", async () => {
+    let removeCalls = 0;
+    const c = await renderPanel({
+      worktrees: async () => removalScan(),
+      worktreesRemove: async () => {
+        removeCalls += 1;
+        throw new Error("should not be called");
+      },
+    });
+
+    await click(removeButtonOf(c));
+    const dialog = c.querySelector('[role="dialog"]');
+    expect(dialog).not.toBe(null);
+    const cancel = [...dialog!.querySelectorAll("button")].find(
+      (button) => button.textContent === "Cancel",
+    );
+    if (!cancel) throw new Error("cancel button not found");
+    await click(cancel);
+
+    expect(removeCalls).toBe(0);
+    expect(c.querySelector('[role="dialog"]')).toBe(null);
+  });
+
+  it("omits the branch-deletion option for non-local branch identities", async () => {
+    const scan = removalScan();
+    const entry = scan.entries[0];
+    if (entry.kind !== "repository") throw new Error("expected repository");
+    entry.worktrees = [
+      makeWorktree({
+        path: "/code/carrent",
+        kind: "main",
+        branch: "main",
+        blockingReasons: ["main"],
+        cleanupCandidate: false,
+      }),
+      makeWorktree({
+        path: "/code/carrent/feat-wt",
+        branch: "refs/remotes/origin/feat",
+        branchLocal: false,
+      }),
+    ];
+    const c = await renderPanel({ worktrees: async () => scan });
+
+    await click(removeButtonOf(c));
+
+    const dialog = c.querySelector('[role="dialog"]');
+    expect(dialog).not.toBe(null);
+    expect(dialog!.querySelector('input[type="checkbox"]')).toBe(null);
+    expect(dialog!.textContent).not.toContain("Also delete local branch");
+  });
+
+  it("defaults branch deletion to off and sends the opt-in when checked", async () => {
+    const requests: Array<{
+      commonDirectory: string;
+      worktreePath: string;
+      deleteBranch?: boolean;
+    }> = [];
+    const removedEntry = {
+      kind: "repository" as const,
+      commonDirectory: "/code/carrent/.git",
+      projects: ["carrent"],
+      worktrees: [
+        makeWorktree({
+          path: "/code/carrent",
+          kind: "main",
+          branch: "main",
+          blockingReasons: ["main"],
+          cleanupCandidate: false,
+        }),
+      ],
+    };
+    const c = await renderPanel({
+      worktrees: async () => removalScan(),
+      worktreesRemove: async (request) => {
+        requests.push(request);
+        return {
+          status: "removed",
+          repository: removedEntry,
+          scannedAt: "2026-08-13T00:01:00.000Z",
+        };
+      },
+    });
+
+    await click(removeButtonOf(c));
+    const dialog = c.querySelector('[role="dialog"]');
+    const checkbox = dialog!.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+    await check(checkbox);
+    await click(confirmButtonOf(c));
+
+    expect(requests).toEqual([
+      {
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent/feat-wt",
+        deleteBranch: true,
+      },
+    ]);
+    expect(c.textContent).not.toContain("/code/carrent/feat-wt");
+    expect(c.querySelector('[role="dialog"]')).toBe(null);
+  });
+
+  it("sends the unchecked default and refreshes only the affected repository", async () => {
+    const requests: Array<{
+      commonDirectory: string;
+      worktreePath: string;
+      deleteBranch?: boolean;
+    }> = [];
+    const removedEntry = {
+      kind: "repository" as const,
+      commonDirectory: "/code/carrent/.git",
+      projects: ["carrent"],
+      worktrees: [
+        makeWorktree({
+          path: "/code/carrent",
+          kind: "main",
+          branch: "main",
+          blockingReasons: ["main"],
+          cleanupCandidate: false,
+        }),
+      ],
+    };
+    const fake = removalSizeApi(removalScan());
+    const c = await renderPanel({
+      ...fake.api,
+      worktreesRemove: async (request) => {
+        requests.push(request);
+        return {
+          status: "removed",
+          repository: removedEntry,
+          scannedAt: "2026-08-13T00:01:00.000Z",
+        };
+      },
+    });
+    await act(async () => {
+      fake.emit({
+        generation: 1,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent/feat-wt",
+        result: { bytes: 2 * 1024 * 1024, incomplete: false, failed: false },
+        completed: 1,
+        total: 1,
+      });
+    });
+    expect(c.textContent).toContain("~2 MB estimated releasable");
+
+    await click(removeButtonOf(c));
+    await click(confirmButtonOf(c));
+
+    expect(requests).toEqual([
+      {
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent/feat-wt",
+        deleteBranch: false,
+      },
+    ]);
+    expect(c.textContent).not.toContain("/code/carrent/feat-wt");
+    expect(c.textContent).toContain("/code/other/.git");
+    expect(c.textContent).not.toContain("2 MB");
+    expect(c.textContent).toContain("0 removable");
+    expect(c.querySelector('[role="dialog"]')).toBe(null);
+  });
+
+  it("reports partial success when Git keeps the branch", async () => {
+    const removedEntry = {
+      kind: "repository" as const,
+      commonDirectory: "/code/carrent/.git",
+      projects: ["carrent"],
+      worktrees: [
+        makeWorktree({
+          path: "/code/carrent",
+          kind: "main",
+          branch: "main",
+          blockingReasons: ["main"],
+          cleanupCandidate: false,
+        }),
+      ],
+    };
+    const c = await renderPanel({
+      worktrees: async () => removalScan(),
+      worktreesRemove: async () => ({
+        status: "removed-branch-retained",
+        repository: removedEntry,
+        scannedAt: "2026-08-13T00:01:00.000Z",
+        branchRetainedReason: "error: The branch 'feat' is not fully merged.",
+      }),
+    });
+
+    await click(removeButtonOf(c));
+    const dialog = c.querySelector('[role="dialog"]');
+    const checkbox = dialog!.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    await check(checkbox);
+    await click(confirmButtonOf(c));
+
+    expect(c.textContent).toContain('Worktree removed, but Git kept branch "feat"');
+    expect(c.textContent).toContain("not fully merged");
+    expect(c.textContent).not.toContain("/code/carrent/feat-wt");
+  });
+
+  it("keeps the worktree listed and shows the failure when removal is refused", async () => {
+    const c = await renderPanel({
+      worktrees: async () => removalScan(),
+      worktreesRemove: async () => {
+        throw new Error("This worktree can no longer be removed safely: Uncommitted changes.");
+      },
+    });
+
+    await click(removeButtonOf(c));
+    await click(confirmButtonOf(c));
+
+    expect(c.textContent).toContain("This worktree can no longer be removed safely");
+    expect(c.textContent).toContain("/code/carrent/feat-wt");
+    expect(c.querySelector('[role="dialog"]')).toBe(null);
+  });
+});

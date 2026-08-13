@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, FolderGit2, FolderX, GitBranch, Lock, RefreshCw, Trash2 } from "lucide-react";
 
-import type {
-  WorktreeBlockingReason,
-  WorktreeNotGitEntry,
-  WorktreePruneRequest,
-  WorktreePruneResult,
-  WorktreeRecord,
-  WorktreeRepositoryEntry,
-  WorktreeScanResult,
-  WorktreeSizeEvent,
-  WorktreeSizeStartResult,
-  WorktreeSizeState,
-  WorktreeSizeTarget,
-  WorktreeUnavailableEntry,
+import {
+  WORKTREE_BLOCKING_REASON_LABELS,
+  type WorktreeNotGitEntry,
+  type WorktreePruneRequest,
+  type WorktreePruneResult,
+  type WorktreeRecord,
+  type WorktreeRemoveRequest,
+  type WorktreeRemoveResult,
+  type WorktreeRepositoryEntry,
+  type WorktreeScanResult,
+  type WorktreeSizeEvent,
+  type WorktreeSizeStartResult,
+  type WorktreeSizeState,
+  type WorktreeSizeTarget,
+  type WorktreeUnavailableEntry,
 } from "../../../shared/worktrees";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { SETTINGS_TABS } from "../../lib/settingsTabs";
@@ -24,22 +26,10 @@ const WORKTREES_TAB_LABEL =
 const PRELOAD_RESTART_MESSAGE =
   "Worktree support is not loaded in the current window. Restart Carrent and try again.";
 
-const BLOCKING_REASON_LABELS: Record<WorktreeBlockingReason, string> = {
-  main: "Main worktree",
-  dirty: "Uncommitted changes",
-  detached: "Detached HEAD",
-  locked: "Locked by Git",
-  submodules: "Contains submodules",
-  "carrent-project": "Referenced by a Carrent Project",
-  missing: "Directory missing",
-  prunable: "Prunable Git record",
-  "live-run": "Live Run in repository",
-  "terminal-tab": "Running Terminal Tab",
-};
-
 export type WorktreeSettingsApi = {
   worktrees?: () => Promise<WorktreeScanResult>;
   worktreesPrune?: (request: WorktreePruneRequest) => Promise<WorktreePruneResult>;
+  worktreesRemove?: (request: WorktreeRemoveRequest) => Promise<WorktreeRemoveResult>;
   worktreeSizesStart?: (targets: WorktreeSizeTarget[]) => Promise<WorktreeSizeStartResult>;
 
   worktreeSizesCancel?: (generation: number) => Promise<void>;
@@ -77,7 +67,6 @@ export function compareWorktreeRecords(
   if (bytesA !== bytesB) return bytesB - bytesA;
   return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 }
-
 
 export async function readWorktreeScan(api: WorktreeSettingsApi): Promise<{
   scan: WorktreeScanResult | null;
@@ -121,12 +110,14 @@ function StateBadge({
 function WorktreeRow({
   worktree,
   size,
+  onRemoveRequest,
 }: {
   worktree: WorktreeRecord;
   size?: WorktreeSizeState;
+  onRemoveRequest?: () => void;
 }) {
   const reasonText = worktree.blockingReasons
-    .map((reason) => BLOCKING_REASON_LABELS[reason])
+    .map((reason) => WORKTREE_BLOCKING_REASON_LABELS[reason])
     .join(" · ");
 
   return (
@@ -188,7 +179,9 @@ function WorktreeRow({
           <StateBadge>Project: {worktree.projectNames.join(", ")}</StateBadge>
         ) : null}
         {worktree.liveRunProjectNames.length > 0 ? (
-          <StateBadge tone="warning">Live Run: {worktree.liveRunProjectNames.join(", ")}</StateBadge>
+          <StateBadge tone="warning">
+            Live Run: {worktree.liveRunProjectNames.join(", ")}
+          </StateBadge>
         ) : null}
         {worktree.runningTerminalProjectNames.length > 0 ? (
           <StateBadge tone="warning">
@@ -205,6 +198,16 @@ function WorktreeRow({
             {size.incomplete ? " · incomplete" : ""}
           </StateBadge>
         )}
+        {worktree.cleanupCandidate && onRemoveRequest !== undefined ? (
+          <button
+            type="button"
+            onClick={onRemoveRequest}
+            className="ml-auto flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-app-12 text-danger transition-colors hover:bg-danger/10 disabled:opacity-40"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Remove
+          </button>
+        ) : null}
       </div>
     </li>
   );
@@ -213,24 +216,25 @@ function prunableWorktrees(entry: WorktreeRepositoryEntry): WorktreeRecord[] {
   return entry.worktrees.filter((worktree) => worktree.prunable);
 }
 
-
 function RepositoryGroupView({
   entry,
   pruning,
   pruneError,
   onPruneRequest,
   sizes,
+  removeMessage,
+  onRemoveRequest,
 }: {
   entry: WorktreeRepositoryEntry;
   pruning: boolean;
   pruneError: string | null;
   onPruneRequest: (entry: WorktreeRepositoryEntry) => void;
   sizes: Map<string, WorktreeSizeState>;
+  removeMessage: { message: string; tone: "danger" | "success" } | null;
+  onRemoveRequest: (worktree: WorktreeRecord) => void;
 }) {
   const prunable = prunableWorktrees(entry);
-  const sortedWorktrees = [...entry.worktrees].sort((a, b) =>
-    compareWorktreeRecords(a, b, sizes),
-  );
+  const sortedWorktrees = [...entry.worktrees].sort((a, b) => compareWorktreeRecords(a, b, sizes));
 
   return (
     <section
@@ -256,9 +260,27 @@ function RepositoryGroupView({
       </header>
       <ul>
         {sortedWorktrees.map((worktree) => (
-          <WorktreeRow key={worktree.path} worktree={worktree} size={sizes.get(worktree.path)} />
+          <WorktreeRow
+            key={worktree.path}
+            worktree={worktree}
+            size={sizes.get(worktree.path)}
+            onRemoveRequest={
+              worktree.cleanupCandidate ? () => onRemoveRequest(worktree) : undefined
+            }
+          />
         ))}
       </ul>
+      {removeMessage !== null ? (
+        <div className="border-t border-border px-4 py-2.5">
+          <p
+            className={`text-app-11 ${
+              removeMessage.tone === "success" ? "text-success" : "text-danger"
+            }`}
+          >
+            {removeMessage.message}
+          </p>
+        </div>
+      ) : null}
       {prunable.length > 0 ? (
         <div className="border-t border-border px-4 py-2.5">
           <div className="flex items-center justify-between gap-3">
@@ -294,8 +316,8 @@ function RepositoryGroupView({
             ))}
           </ul>
           <p className="mt-1.5 text-app-11 text-subtle">
-            Pruning removes Git administration records only. Existing worktree directories are
-            never deleted, and this normally releases negligible disk space.
+            Pruning removes Git administration records only. Existing worktree directories are never
+            deleted, and this normally releases negligible disk space.
           </p>
           {pruneError !== null ? (
             <p className="mt-1 text-app-11 text-danger">{pruneError}</p>
@@ -362,6 +384,72 @@ function WorktreesSkeleton() {
   );
 }
 
+function RemoveWorktreeDialog({
+  repository,
+  worktree,
+  size,
+  deleteBranch,
+  removing,
+  onDeleteBranchChange,
+  onCancel,
+  onConfirm,
+}: {
+  repository: WorktreeRepositoryEntry;
+  worktree: WorktreeRecord;
+  size?: WorktreeSizeState;
+  deleteBranch: boolean;
+  removing: boolean;
+  onDeleteBranchChange: (checked: boolean) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const sizeLine =
+    size === undefined || size.failed
+      ? ""
+      : `\nEstimated size: ~${formatWorktreeBytes(size.bytes)}${
+          size.incomplete ? " (incomplete, at least this much)" : ""
+        } (logical directory size)`;
+  const offerBranchDeletion = worktree.branchLocal && worktree.branch !== null;
+  const branch = offerBranchDeletion
+    ? worktree.branch
+    : worktree.detached
+      ? "Detached HEAD"
+      : "None";
+
+  return (
+    <ConfirmDialog
+      title="Remove linked worktree?"
+      message={`Repository: ${repository.projects.join(", ")}
+Branch: ${branch}
+Path: ${worktree.path}${sizeLine}
+
+The entire worktree directory — including ignored and hidden files such as node_modules, build
+output, and local caches — will be permanently deleted.
+Carrent cannot reliably detect external terminals, editors, coding agents, or other processes.
+Check that nothing else is using this worktree before removing it.`}
+      confirmLabel="Remove worktree"
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    >
+      {offerBranchDeletion ? (
+        <label className="mt-3 flex items-start gap-2 text-app-12 text-muted">
+          <input
+            type="checkbox"
+            checked={deleteBranch}
+            onChange={(event) => onDeleteBranchChange(event.target.checked)}
+            disabled={removing}
+            className="mt-0.5"
+          />
+          <span>
+            Also delete local branch <span className="font-mono">{worktree.branch}</span>. Git keeps
+            the branch if it is not fully merged.
+          </span>
+        </label>
+      ) : null}
+    </ConfirmDialog>
+  );
+}
+
 export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
   const [scan, setScan] = useState<WorktreeScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -371,6 +459,17 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
   const [pruneError, setPruneError] = useState<{
     commonDirectory: string;
     message: string;
+  } | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<{
+    repository: WorktreeRepositoryEntry;
+    worktree: WorktreeRecord;
+  } | null>(null);
+  const [removeBranch, setRemoveBranch] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [removeMessage, setRemoveMessage] = useState<{
+    commonDirectory: string;
+    message: string;
+    tone: "danger" | "success";
   } | null>(null);
   const [worktreeSizes, setWorktreeSizes] = useState<Map<string, WorktreeSizeState>>(
     () => new Map(),
@@ -460,6 +559,65 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
       setPruning(false);
     }
   }, [api, pruneTarget, pruning]);
+
+  const confirmRemove = useCallback(async () => {
+    if (removeTarget === null || removing) return;
+    setRemoving(true);
+    const target = removeTarget;
+    try {
+      if (api.worktreesRemove === undefined) {
+        throw new Error(PRELOAD_RESTART_MESSAGE);
+      }
+      const result = await api.worktreesRemove({
+        commonDirectory: target.repository.commonDirectory,
+        worktreePath: target.worktree.path,
+        deleteBranch: removeBranch,
+      });
+      setScan((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              scannedAt: result.scannedAt,
+              entries: current.entries.map((entry) =>
+                entry.kind === "repository" &&
+                entry.commonDirectory === result.repository.commonDirectory
+                  ? result.repository
+                  : entry,
+              ),
+            },
+      );
+      setWorktreeSizes((current) => {
+        const next = new Map(current);
+        next.delete(target.worktree.path);
+        return next;
+      });
+      if (result.status === "removed-branch-retained") {
+        const branch = target.worktree.branch;
+        setRemoveMessage({
+          commonDirectory: target.repository.commonDirectory,
+          tone: "success",
+          message: `Worktree removed, but Git kept branch "${branch ?? "unknown"}". ${
+            result.branchRetainedReason ?? ""
+          }`.trim(),
+        });
+      } else {
+        setRemoveMessage(null);
+      }
+      setRemoveTarget(null);
+      setRemoveBranch(false);
+    } catch (removeFailure) {
+      setRemoveMessage({
+        commonDirectory: target.repository.commonDirectory,
+        tone: "danger",
+        message: removeFailure instanceof Error ? removeFailure.message : String(removeFailure),
+      });
+      setRemoveTarget(null);
+      setRemoveBranch(false);
+    } finally {
+      setRemoving(false);
+    }
+  }, [api, removeTarget, removeBranch, removing]);
 
   useEffect(() => {
     if (api.onWorktreeSizeEvent === undefined) return;
@@ -580,7 +738,7 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
               Project to see its Git worktrees here.
             </div>
           </div>
-      </div>
+        </div>
       </div>
     );
   }
@@ -599,12 +757,20 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
                 entry={entry}
                 pruning={pruning}
                 pruneError={
-                  pruneError?.commonDirectory === entry.commonDirectory
-                    ? pruneError.message
-                    : null
+                  pruneError?.commonDirectory === entry.commonDirectory ? pruneError.message : null
                 }
                 onPruneRequest={setPruneTarget}
                 sizes={worktreeSizes}
+                removeMessage={
+                  removeMessage?.commonDirectory === entry.commonDirectory
+                    ? { message: removeMessage.message, tone: removeMessage.tone }
+                    : null
+                }
+                onRemoveRequest={(worktree) => {
+                  setRemoveMessage(null);
+                  setRemoveBranch(false);
+                  setRemoveTarget({ repository: entry, worktree });
+                }}
               />
             ) : (
               <ProjectEntryView key={entry.projectId} entry={entry} />
@@ -612,8 +778,8 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
           )}
           <p className="px-1 pb-2 text-app-11 text-subtle">
             Carrent only accounts for the Runs and Terminal Tabs it manages. It cannot reliably
-            detect external terminals, editors, coding agents, or other processes that may be
-            using a worktree.
+            detect external terminals, editors, coding agents, or other processes that may be using
+            a worktree.
           </p>
         </div>
       </div>
@@ -629,6 +795,21 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
           confirmLabel="Prune"
           onCancel={() => setPruneTarget(null)}
           onConfirm={() => void confirmPrune()}
+        />
+      ) : null}
+      {removeTarget !== null ? (
+        <RemoveWorktreeDialog
+          repository={removeTarget.repository}
+          worktree={removeTarget.worktree}
+          size={worktreeSizes.get(removeTarget.worktree.path)}
+          deleteBranch={removeBranch}
+          removing={removing}
+          onDeleteBranchChange={setRemoveBranch}
+          onCancel={() => {
+            setRemoveTarget(null);
+            setRemoveBranch(false);
+          }}
+          onConfirm={() => void confirmRemove()}
         />
       ) : null}
     </div>

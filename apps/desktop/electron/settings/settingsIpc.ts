@@ -3,14 +3,14 @@ import {
   EMPTY_WORKTREE_ACTIVITY,
   type WorktreeActivitySnapshot,
   type WorktreePruneRequest,
+  type WorktreeRemoveRequest,
   type WorktreeSizeTarget,
 } from "../../src/shared/worktrees";
 import { getKimiUsageStats } from "./kimiUsage";
 import { deleteKimiMemoryFile, listKimiMemory } from "./kimiMemory";
 import { getRtkGainStats } from "./rtkGain";
-import { scanWorktrees, pruneWorktreeRecords } from "./worktrees";
+import { pruneWorktreeRecords, removeWorktree, scanWorktrees } from "./worktrees";
 import type { WorktreeSizeScanner } from "./worktreeSizes";
-
 
 import {
   readGlobalAgentInstructions,
@@ -35,6 +35,22 @@ function senderIdOf(event: unknown): number {
   const id = sender.id;
   if (typeof id !== "number") throw new Error("Unknown settings sender.");
   return id;
+}
+/**
+ * Worktree mutations (remove, prune) run one at a time across every Carrent
+ * Window so a stale snapshot from one Renderer can never interleave with a
+ * mutation another Renderer started. Each operation still revalidates the
+ * authoritative state when its turn arrives.
+ */
+let worktreeMutationQueue: Promise<unknown> = Promise.resolve();
+
+function runSerializedMutation<T>(work: () => Promise<T>): Promise<T> {
+  const run = worktreeMutationQueue.then(work);
+  worktreeMutationQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 }
 
 export function registerSettingsIpc(
@@ -64,10 +80,38 @@ export function registerSettingsIpc(
     ) {
       throw new Error("Worktree pruning requires the repository common directory.");
     }
-    return pruneWorktreeRecords(
-      getProjects(),
-      candidate.commonDirectory,
-      getWorktreeActivity?.() ?? EMPTY_WORKTREE_ACTIVITY,
+    const commonDirectory = candidate.commonDirectory;
+    return runSerializedMutation(() =>
+      pruneWorktreeRecords(
+        getProjects(),
+        commonDirectory,
+        getWorktreeActivity?.() ?? EMPTY_WORKTREE_ACTIVITY,
+      ),
+    );
+  });
+  ipcMainLike.handle("settings:worktrees:remove", async (_event, request) => {
+    const candidate = request as Partial<WorktreeRemoveRequest> | null;
+    if (
+      typeof candidate !== "object" ||
+      candidate === null ||
+      typeof candidate.commonDirectory !== "string" ||
+      candidate.commonDirectory === "" ||
+      typeof candidate.worktreePath !== "string" ||
+      candidate.worktreePath === ""
+    ) {
+      throw new Error(
+        "Worktree removal requires the repository common directory and the worktree path.",
+      );
+    }
+    const commonDirectory = candidate.commonDirectory;
+    const worktreePath = candidate.worktreePath;
+    const deleteBranch = candidate.deleteBranch === true;
+    return runSerializedMutation(() =>
+      removeWorktree(
+        getProjects(),
+        { commonDirectory, worktreePath, deleteBranch },
+        getWorktreeActivity?.() ?? EMPTY_WORKTREE_ACTIVITY,
+      ),
     );
   });
   ipcMainLike.handle("settings:worktrees:sizes:start", (event, targets) => {

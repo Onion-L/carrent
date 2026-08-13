@@ -1,5 +1,7 @@
 .turbo
 node_modules
+.env
+.agents/skills/carrent-release/
 .DS_Store
 .astro
 dist

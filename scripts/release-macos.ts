@@ -1,13 +1,14 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const version = process.argv[2];
 if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
-  console.error("Usage: bun .agents/skills/carrent-release/scripts/release-macos.ts <version>");
+  console.error("Usage: bun scripts/release-macos.ts <version>");
   process.exit(2);
 }
 
-const root = resolve(import.meta.dir, "../../../..");
+const root = resolve(import.meta.dir, "..");
 const desktop = join(root, "apps", "desktop");
 const packagePath = join(desktop, "package.json");
 const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as {
@@ -53,6 +54,33 @@ for (const artifact of artifacts) {
   await run("xcrun", ["stapler", "validate", artifact.app]);
   await run("spctl", ["--assess", "--type", "execute", "--verbose=4", artifact.app]);
   await run("hdiutil", ["verify", artifact.dmg]);
+
+  const mountPoint = await mkdtemp(join(tmpdir(), "carrent-dmg-"));
+  let mounted = false;
+  try {
+    await run("hdiutil", [
+      "attach",
+      "-nobrowse",
+      "-readonly",
+      "-mountpoint",
+      mountPoint,
+      artifact.dmg,
+    ]);
+    mounted = true;
+
+    for (const name of [
+      ".DS_Store",
+      ".VolumeIcon.icns",
+      ".background.tiff",
+      "Carrent.app",
+      "Applications",
+    ]) {
+      await lstat(join(mountPoint, name));
+    }
+  } finally {
+    if (mounted) await run("hdiutil", ["detach", mountPoint]);
+    await rm(mountPoint, { recursive: true, force: true });
+  }
 }
 
 for (const artifact of artifacts) {

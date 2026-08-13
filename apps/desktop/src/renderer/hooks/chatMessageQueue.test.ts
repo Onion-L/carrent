@@ -347,6 +347,39 @@ describe("chatMessageQueue threadWork persistence", () => {
     removeThreadWork(["t19"]);
   });
 
+  it("does not re-add a sent item from a stale broadcast echo", () => {
+    enqueueChatMessage("t26", makeItem("m"));
+    // The drain path shifts the head item and sends it.
+    expect(shiftQueuedChatMessage("t26")?.id).toBe("m");
+    expect(getQueuedMessages("t26")).toEqual([]);
+
+    // A stale App State broadcast sourced from the persisted form still
+    // carries the item (with the crash-recovery flag stamped). It must not
+    // resurrect a message this renderer already sent.
+    syncThreadWorkFromSnapshot({
+      t26: { queuedMessages: [{ id: "m", content: "msg m", requiresConfirmation: true }] },
+    });
+
+    expect(getQueuedMessages("t26")).toEqual([]);
+
+    removeThreadWork(["t26"]);
+  });
+
+  it("keeps a send-failed item in the queue over a stale broadcast echo", () => {
+    enqueueChatMessage("t27", makeItem("m"));
+    shiftQueuedChatMessage("t27");
+    // The send failed, so the item goes back to the head of the queue.
+    unshiftQueuedChatMessage("t27", makeItem("m"));
+
+    syncThreadWorkFromSnapshot({
+      t27: { queuedMessages: [{ id: "m", content: "msg m", requiresConfirmation: true }] },
+    });
+
+    expect(getQueuedMessages("t27")).toEqual([{ id: "m", content: "msg m" }]);
+
+    removeThreadWork(["t27"]);
+  });
+
   it("removeThreadWork clears both the queue and the draft", () => {
     enqueueChatMessage("t20", makeItem("a"));
     setThreadDraft("t20", draft("draft"));

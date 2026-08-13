@@ -28,6 +28,12 @@ const EMPTY_QUEUE: QueuedChatMessage[] = [];
 // requiresConfirmation for crash recovery. Membership here proves the item
 // is live, not recovered, so the sync keeps it auto-sendable.
 const liveQueuedItemIds = new Set<string>();
+// Ids this renderer has already dispatched (shifted for send) or deliberately
+// removed. A stale App State broadcast can still carry the persisted copy of
+// such an item; membership here proves the id is spent, so a sync must not
+// resurrect it. `unshiftQueuedChatMessage` clears the tombstone when a failed
+// send legitimately returns the item to the queue.
+const spentQueuedItemIds = new Set<string>();
 
 let version = 0;
 let cachedSnapshotKey: string | null = null;
@@ -44,12 +50,14 @@ export function getQueuedMessages(threadId: string): QueuedChatMessage[] {
 
 export function enqueueChatMessage(threadId: string, item: QueuedChatMessage): void {
   liveQueuedItemIds.add(item.id);
+  spentQueuedItemIds.delete(item.id);
   queueByThreadId.set(threadId, [...getQueuedMessages(threadId), item]);
   emit();
 }
 
 export function removeQueuedChatMessage(threadId: string, id: string): void {
   liveQueuedItemIds.delete(id);
+  spentQueuedItemIds.add(id);
   const next = getQueuedMessages(threadId).filter((item) => item.id !== id);
   if (next.length === 0) {
     queueByThreadId.delete(threadId);
@@ -78,6 +86,7 @@ export function shiftQueuedChatMessage(
     queueByThreadId.set(threadId, rest);
   }
   liveQueuedItemIds.delete(first.id);
+  spentQueuedItemIds.add(first.id);
   emit();
   return first;
 }
@@ -88,6 +97,8 @@ export function unshiftQueuedChatMessage(threadId: string, item: QueuedChatMessa
   if (item.requiresConfirmation !== true) {
     liveQueuedItemIds.add(item.id);
   }
+  // A failed send returns the item to the queue, so it is no longer spent.
+  spentQueuedItemIds.delete(item.id);
   queueByThreadId.set(threadId, [item, ...getQueuedMessages(threadId)]);
   emit();
 }
@@ -139,6 +150,7 @@ export function removeThreadWork(threadIds: string[]): void {
   for (const threadId of threadIds) {
     for (const item of getQueuedMessages(threadId)) {
       liveQueuedItemIds.delete(item.id);
+      spentQueuedItemIds.delete(item.id);
     }
     changed = draftByThreadId.delete(threadId) || changed;
     changed = queueByThreadId.delete(threadId) || changed;
@@ -168,6 +180,7 @@ export function hydrateThreadWork(
   queueByThreadId.clear();
   draftByThreadId.clear();
   liveQueuedItemIds.clear();
+  spentQueuedItemIds.clear();
 
   if (threadWork) {
     for (const [threadId, work] of Object.entries(threadWork)) {
@@ -234,6 +247,20 @@ function workEntriesEqual(
 // forces it for crash recovery, but a live queue must stay steerable.
 export function syncThreadWorkFromSnapshot(threadWork: Record<string, ThreadWorkSnapshot>): void {
   let changed = false;
+  // Tombstones for ids no longer present anywhere in the authoritative
+  // snapshot have served their purpose; drop them so the set cannot grow.
+  if (spentQueuedItemIds.size > 0) {
+    const incomingIds = new Set(
+      Object.values(threadWork).flatMap((work) =>
+        (work.queuedMessages ?? []).map((item) => item.id),
+      ),
+    );
+    for (const id of spentQueuedItemIds) {
+      if (!incomingIds.has(id)) {
+        spentQueuedItemIds.delete(id);
+      }
+    }
+  }
   const threadIds = new Set([...draftByThreadId.keys(), ...queueByThreadId.keys()]);
   for (const threadId of threadIds) {
     if (threadId in threadWork) continue;
@@ -250,21 +277,26 @@ export function syncThreadWorkFromSnapshot(threadWork: Record<string, ThreadWork
     } else {
       draftByThreadId.delete(threadId);
     }
-    const queue = (work.queuedMessages ?? []).map((item) => {
+    const queue = (work.queuedMessages ?? []).flatMap((item) => {
+      // A spent id was already sent or deliberately removed by this renderer;
+      // a broadcast still carrying it is stale and must not resurrect it.
+      if (spentQueuedItemIds.has(item.id)) {
+        return [];
+      }
       const local = localQueue?.find(
         (queued) =>
           queued.id === item.id &&
           queued.content === item.content &&
           JSON.stringify(queued.attachments ?? []) === JSON.stringify(item.attachments ?? []),
       );
-      if (local) return local;
+      if (local) return [local];
       const copy = { ...item };
       // A live item this renderer enqueued stays auto-sendable even when the
       // broadcast copy carries the persisted crash-recovery flag.
       if (liveQueuedItemIds.has(copy.id)) {
         delete copy.requiresConfirmation;
       }
-      return copy;
+      return [copy];
     });
     if (queue.length > 0) {
       queueByThreadId.set(threadId, queue);

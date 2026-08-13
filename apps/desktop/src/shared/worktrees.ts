@@ -231,6 +231,11 @@ export type WorktreeSizeTarget = {
   worktreePath: string;
 };
 
+export type WorktreeSizeStartOptions = {
+  /** Bypass the scanner's result cache and re-measure every target. */
+  force?: boolean;
+};
+
 export type WorktreeSizeStartResult = {
   /** Monotonic generation; events carry it so stale results are dropped. */
   generation: number;

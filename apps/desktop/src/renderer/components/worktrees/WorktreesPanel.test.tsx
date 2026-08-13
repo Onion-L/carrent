@@ -177,18 +177,18 @@ describe("WorktreesPanelView", () => {
     const c = await renderPanel({ worktrees: async () => makeScan() });
 
     expect(c.textContent).toContain("carrent, carrent-feature");
-    expect(c.textContent).toContain("/code/carrent/.git");
+    expect(c.querySelector('[data-common-directory="/code/carrent/.git"]')).not.toBe(null);
     expect(c.textContent).toContain("Main");
-    expect(c.textContent).toContain("Linked");
-    expect(c.textContent).toContain("/code/carrent/feat-wt");
+    expect(c.textContent).toContain("feat-wt");
     expect(c.textContent).toContain("feat");
     expect(c.textContent).toContain("main");
   });
 
-  it("marks the main worktree non-removable with its reason", async () => {
+  it("tags the main worktree as Main without a removal state", async () => {
     const c = await renderPanel({ worktrees: async () => makeScan() });
 
-    expect(c.textContent).toContain("Main worktree");
+    expect(c.textContent).toContain("Main");
+    expect(c.textContent).not.toContain("Not removable");
   });
 
   it("marks a clean linked worktree as a cleanup candidate", async () => {
@@ -576,7 +576,7 @@ describe("WorktreesPanelView pruning", () => {
     expect(requests).toEqual([{ commonDirectory: "/code/carrent/.git" }]);
     expect(c.textContent).not.toContain("/code/carrent/gone-wt");
     expect(c.textContent).not.toContain("Prune records");
-    expect(c.textContent).toContain("/code/other/.git");
+    expect(c.querySelector('[data-common-directory="/code/other/.git"]')).not.toBe(null);
     expect(c.querySelector('[role="dialog"]')).toBe(null);
   });
 
@@ -684,7 +684,7 @@ describe("worktree size presentation", () => {
 
     expect(c.textContent).toContain("carrent, carrent-feature");
     expect(c.textContent).toContain("Calculating size…");
-    expect(c.textContent).toContain("~0 B estimated releasable");
+    expect(c.textContent).toContain("Calculating sizes…");
   });
 
   it("shows per-worktree sizes and the summary as measurements complete", async () => {
@@ -713,40 +713,110 @@ describe("worktree size presentation", () => {
 
     expect(c.textContent).toContain("3 MB");
     expect(c.textContent).not.toContain("Calculating size…");
-    expect(c.textContent).toContain(
-      "1 repository · 1 linked · 1 removable · ~3 MB estimated releasable",
-    );
+    expect(c.textContent).toContain("1 repository");
+    expect(c.textContent).toContain("1 linked");
+    expect(c.textContent).toContain("1 removable");
+    expect(c.textContent).toContain("releasable — 1 cleanup candidate");
   });
 
   it("shows overall measurement progress while scans are in flight", async () => {
-    const fake = sizeApi(makeScan());
+    const fake = sizeApi(
+      makeScan({
+        entries: [
+          {
+            kind: "repository",
+            commonDirectory: "/code/carrent/.git",
+            projects: ["carrent"],
+            worktrees: [
+              makeWorktree({
+                path: "/code/carrent",
+                kind: "main",
+                branch: "main",
+                blockingReasons: ["main"],
+                cleanupCandidate: false,
+              }),
+              makeWorktree({ path: "/code/carrent/feat-wt", branch: "feat" }),
+              makeWorktree({ path: "/code/carrent/feat2-wt", branch: "feat-2" }),
+            ],
+          },
+        ],
+      }),
+    );
     const c = await renderPanel(fake.api);
 
-    expect(c.textContent).toContain("measuring sizes 0/2");
-
-    await act(async () => {
-      fake.emit({
-        generation: 1,
-        commonDirectory: "/code/carrent/.git",
-        worktreePath: "/code/carrent",
-        result: { bytes: 1, incomplete: false, failed: false, root: null },
-        completed: 1,
-        total: 2,
-      });
-    });
-    expect(c.textContent).toContain("measuring sizes 1/2");
+    // Only the two linked worktrees are measured automatically; main is on demand.
+    expect(c.textContent).toContain("measuring 0/2");
 
     await act(async () => {
       fake.emit({
         generation: 1,
         commonDirectory: "/code/carrent/.git",
         worktreePath: "/code/carrent/feat-wt",
+        result: { bytes: 1, incomplete: false, failed: false, root: null },
+        completed: 1,
+        total: 2,
+      });
+    });
+    expect(c.textContent).toContain("measuring 1/2");
+
+    await act(async () => {
+      fake.emit({
+        generation: 1,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent/feat2-wt",
         result: { bytes: 2, incomplete: false, failed: false, root: null },
         completed: 2,
         total: 2,
       });
     });
-    expect(c.textContent).not.toContain("measuring sizes");
+    expect(c.textContent).not.toContain("measuring");
+  });
+
+  it("never measures main worktrees automatically", async () => {
+    const fake = sizeApi(makeScan());
+    await renderPanel(fake.api);
+
+    expect(fake.starts).toHaveLength(1);
+    expect(fake.starts[0]).toEqual([
+      { commonDirectory: "/code/carrent/.git", worktreePath: "/code/carrent/feat-wt" },
+    ]);
+  });
+
+  it("measures a main worktree on demand via Calculate", async () => {
+    const fake = sizeApi(makeScan());
+    const c = await renderPanel(fake.api);
+
+    // The hero is honest about the incomplete total while main is unmeasured.
+    expect(c.textContent).toContain("Linked worktree storage, estimated");
+
+    const calculate = [...c.querySelectorAll("button")].find(
+      (button) => button.textContent === "Calculate",
+    );
+    if (!calculate) throw new Error("Calculate button not found");
+    await click(calculate);
+
+    expect(fake.starts[1]).toEqual([
+      { commonDirectory: "/code/carrent/.git", worktreePath: "/code/carrent" },
+    ]);
+
+    await act(async () => {
+      fake.emit({
+        generation: 2,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent",
+        result: { bytes: 90 * 1024 * 1024 * 1024, incomplete: false, failed: false, root: null },
+        completed: 1,
+        total: 1,
+      });
+    });
+
+    expect(c.textContent).toContain("90 GB");
+    expect(c.textContent).toContain("Worktree storage, estimated");
+    expect(c.textContent).not.toContain("Linked worktree storage");
+    // Once measured, the row offers a forced re-measurement instead.
+    expect(
+      [...c.querySelectorAll("button")].some((button) => button.textContent === "Recalculate"),
+    ).toBe(true);
   });
 
   it("excludes main, blocked, incomplete, failed, and calculating worktrees from releasable space", async () => {
@@ -816,7 +886,8 @@ describe("worktree size presentation", () => {
     });
 
     // Only the complete, removable worktree contributes.
-    expect(c.textContent).toContain("4 removable · ~2 KB estimated releasable");
+    expect(c.textContent).toContain("4 removable");
+    expect(c.textContent).toContain("~2 KB");
     expect(c.textContent).toContain("Size unavailable");
     expect(c.textContent).toContain("incomplete");
   });
@@ -985,15 +1056,11 @@ describe("WorktreesPanelView removal", () => {
     const dialog = c.querySelector('[role="dialog"]');
     expect(dialog).not.toBe(null);
     const text = dialog!.textContent ?? "";
-    expect(text).toContain("Remove linked worktree?");
-    expect(text).toContain("Repository: carrent");
-    expect(text).toContain("Branch: feat");
-    expect(text).toContain("/code/carrent/feat-wt");
+    expect(text).toContain("Remove feat-wt?");
     expect(text).toContain("~2 MB");
-    expect(text).toContain("ignored and hidden files");
-    expect(text).toContain("cannot reliably detect external terminals");
-    expect(text).toContain("Also delete local branch");
-    expect(text).toContain("keeps the branch if it is not fully merged");
+    expect(text).toContain("permanently deleted");
+    expect(text).toContain("Also delete branch");
+    expect(text).toContain("only if fully merged");
 
     const checkbox = dialog!.querySelector('input[type="checkbox"]');
     expect(checkbox).not.toBe(null);
@@ -1143,7 +1210,7 @@ describe("WorktreesPanelView removal", () => {
         total: 1,
       });
     });
-    expect(c.textContent).toContain("~2 MB estimated releasable");
+    expect(c.textContent).toContain("~2 MB");
 
     await click(removeButtonOf(c));
     await click(confirmButtonOf(c));
@@ -1156,7 +1223,7 @@ describe("WorktreesPanelView removal", () => {
       },
     ]);
     expect(c.textContent).not.toContain("/code/carrent/feat-wt");
-    expect(c.textContent).toContain("/code/other/.git");
+    expect(c.querySelector('[data-common-directory="/code/other/.git"]')).not.toBe(null);
     expect(c.textContent).not.toContain("2 MB");
     expect(c.textContent).toContain("0 removable");
     expect(c.querySelector('[role="dialog"]')).toBe(null);
@@ -1210,12 +1277,12 @@ describe("WorktreesPanelView removal", () => {
     await click(confirmButtonOf(c));
 
     expect(c.textContent).toContain("This worktree can no longer be removed safely");
-    expect(c.textContent).toContain("/code/carrent/feat-wt");
+    expect(c.textContent).toContain("feat-wt");
     expect(c.querySelector('[role="dialog"]')).toBe(null);
   });
 });
 
-describe("WorktreesPanelView list and chart sync", () => {
+describe("WorktreesPanelView hero and selection", () => {
   function sizeTree(path: string, bytes: number): WorktreeSizeState {
     return {
       bytes,
@@ -1285,80 +1352,58 @@ describe("WorktreesPanelView list and chart sync", () => {
     return pane;
   }
 
-  function chartPane(c: HTMLDivElement): Element {
-    const pane = c.querySelector('[data-testid="worktrees-chart-pane"]');
-    if (!pane) throw new Error("chart pane not found");
+  function heroPane(c: HTMLDivElement): Element {
+    const pane = c.querySelector('[data-testid="worktrees-hero-pane"]');
+    if (!pane) throw new Error("hero pane not found");
     return pane;
   }
 
-  function centerLabel(c: HTMLDivElement): string {
-    const button = chartPane(c).querySelector('[data-testid="sunburst-center"]');
-    if (!button) throw new Error("center button not found");
-    return button.textContent ?? "";
-  }
-
-  function chartSector(c: HTMLDivElement, labelPart: string): Element {
-    const found = [...chartPane(c).querySelectorAll('path[role="button"]')].find((path) =>
-      path.getAttribute("aria-label")?.includes(labelPart),
-    );
-    if (!found) throw new Error(`sector not found: ${labelPart}`);
-    return found;
-  }
-
-  it("renders the list and chart panes side by side", async () => {
+  it("renders the hero and list panes", async () => {
     const c = await renderPanel({ worktrees: async () => makeScan() });
 
     expect(c.querySelector('[data-testid="worktrees-list-pane"]')).not.toBe(null);
-    expect(c.querySelector('[data-testid="worktrees-chart-pane"]')).not.toBe(null);
+    expect(c.querySelector('[data-testid="worktrees-hero-pane"]')).not.toBe(null);
     // The list renders the Git inventory even before any measurement exists.
-    expect(listPane(c).textContent).toContain("/code/carrent/feat-wt");
+    expect(listPane(c).textContent).toContain("feat-wt");
     expect(listPane(c).textContent).toContain(
       "cannot reliably detect external terminals, editors, coding agents",
     );
-    // The chart shows its own empty state instead of fabricated sectors.
-    expect(chartPane(c).textContent).toContain("No storage measurements yet.");
-    expect(chartPane(c).querySelectorAll('path[role="button"]')).toHaveLength(0);
+    // The hero waits for measurements instead of fabricating a total.
+    expect(heroPane(c).textContent).toContain("Calculating sizes…");
   });
 
-  it("selecting a worktree row highlights it and drills the chart", async () => {
+  it("shows the measured total and releasable space in the hero", async () => {
     const fake = syncSizeApi(makeScan());
     const c = await renderPanel(fake.api);
     await emitSizes(fake);
-    expect(centerLabel(c)).toContain("All storage");
+
+    const hero = heroPane(c).textContent ?? "";
+    // 2048 + 1024 bytes measured across the repository.
+    expect(hero).toContain("3");
+    expect(hero).toContain("KB");
+    // Only the cleanup candidate counts as releasable.
+    expect(hero).toContain("~1 KB");
+    expect(hero).toContain("1 cleanup candidate");
+  });
+
+  it("selecting a worktree row highlights it", async () => {
+    const c = await renderPanel({ worktrees: async () => makeScan() });
 
     const row = listPane(c).querySelector('[data-worktree-path="/code/carrent/feat-wt"]');
     if (!row) throw new Error("worktree row not found");
     await click(row);
 
     expect(row.getAttribute("aria-current")).toBe("true");
-    expect(centerLabel(c)).toContain("feat");
-    expect(centerLabel(c)).toContain("~1 KB");
   });
 
-  it("selecting a repository group header highlights it and drills the chart", async () => {
-    const fake = syncSizeApi(makeScan());
-    const c = await renderPanel(fake.api);
-    await emitSizes(fake);
+  it("selecting a repository group header highlights it", async () => {
+    const c = await renderPanel({ worktrees: async () => makeScan() });
 
     const header = listPane(c).querySelector('[data-common-directory="/code/carrent/.git"]');
     if (!header) throw new Error("repository header not found");
     await click(header);
 
     expect(header.getAttribute("aria-current")).toBe("true");
-    expect(centerLabel(c)).toContain("carrent, carrent-feature");
-    expect(centerLabel(c)).toContain("~3 KB");
-  });
-
-  it("activating a chart sector selects the matching list row", async () => {
-    const fake = syncSizeApi(makeScan());
-    const c = await renderPanel(fake.api);
-    await emitSizes(fake);
-
-    await click(chartSector(c, "feat,"));
-
-    const row = listPane(c).querySelector('[data-worktree-path="/code/carrent/feat-wt"]');
-    expect(row?.getAttribute("aria-current")).toBe("true");
-    expect(centerLabel(c)).toContain("feat");
   });
 
   it("does not change the selection when the Remove button is clicked", async () => {
@@ -1378,25 +1423,6 @@ describe("WorktreesPanelView list and chart sync", () => {
     );
     if (!cancel) throw new Error("cancel button not found");
     await click(cancel);
-  });
-
-  it("hides main worktrees from the chart via the legend without touching the list", async () => {
-    const fake = syncSizeApi(makeScan());
-    const c = await renderPanel(fake.api);
-    await emitSizes(fake);
-
-    const svgLabel = () =>
-      chartPane(c).querySelector('svg[role="img"]')?.getAttribute("aria-label") ?? "";
-    expect(svgLabel()).toContain("~3 KB");
-
-    const checkbox = chartPane(c).querySelector('input[type="checkbox"]');
-    if (!(checkbox instanceof HTMLInputElement)) throw new Error("legend checkbox not found");
-    await click(checkbox);
-
-    expect(svgLabel()).toContain("~1 KB");
-    // The list is untouched: the main worktree row is still there.
-    expect(listPane(c).textContent).toContain("/code/carrent");
-    expect(listPane(c).textContent).toContain("Main");
   });
 
   it("clears the selection when the selected worktree is removed", async () => {

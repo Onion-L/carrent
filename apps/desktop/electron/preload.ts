@@ -41,6 +41,7 @@ import type {
   WorktreeRemoveResult,
   WorktreeScanResult,
   WorktreeSizeEvent,
+  WorktreeSizeStartOptions,
   WorktreeSizeStartResult,
   WorktreeSizeTarget,
 } from "../src/shared/worktrees";
@@ -359,10 +360,11 @@ const carrent = {
       ipcRenderer.invoke("settings:worktrees:prune", request) as Promise<WorktreePruneResult>,
     worktreesRemove: (request: WorktreeRemoveRequest) =>
       ipcRenderer.invoke("settings:worktrees:remove", request) as Promise<WorktreeRemoveResult>,
-    worktreeSizesStart: (targets: WorktreeSizeTarget[]) =>
+    worktreeSizesStart: (targets: WorktreeSizeTarget[], options?: WorktreeSizeStartOptions) =>
       ipcRenderer.invoke(
         "settings:worktrees:sizes:start",
         targets,
+        options,
       ) as Promise<WorktreeSizeStartResult>,
     worktreeSizesCancel: (generation: number) =>
       ipcRenderer.invoke("settings:worktrees:sizes:cancel", generation) as Promise<void>,

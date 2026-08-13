@@ -114,7 +114,7 @@ export function registerSettingsIpc(
       ),
     );
   });
-  ipcMainLike.handle("settings:worktrees:sizes:start", (event, targets) => {
+  ipcMainLike.handle("settings:worktrees:sizes:start", (event, targets, options) => {
     if (sizeScanner === undefined) {
       throw new Error("Worktree size measurement is not available in this window.");
     }
@@ -141,7 +141,11 @@ export function registerSettingsIpc(
         worktreePath: value.worktreePath,
       });
     }
-    return sizeScanner.start(senderIdOf(event), sanitized);
+    const force =
+      typeof options === "object" && options !== null && "force" in options
+        ? options.force === true
+        : false;
+    return sizeScanner.start(senderIdOf(event), sanitized, { force });
   });
 
   ipcMainLike.handle("settings:worktrees:sizes:cancel", async (_event, generation) => {

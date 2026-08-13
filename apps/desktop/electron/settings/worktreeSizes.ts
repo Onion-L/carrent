@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import type {
   WorktreeSizeEvent,
   WorktreeSizeNode,
+  WorktreeSizeStartOptions,
   WorktreeSizeStartResult,
   WorktreeSizeState,
   WorktreeSizeTarget,
@@ -27,10 +28,10 @@ const FILE_NODE_MIN_FRACTION = 0.005;
  * - Unreadable subtrees mark the measurement incomplete; an unreadable root
  *   marks it failed.
  *
- * The walk also builds a bounded size tree for the sunburst chart. Because
- * the file-node threshold depends on the final total, the walk first records
- * every file as a candidate node; a post-pass then prunes file nodes below
- * `max(64 KiB, 0.5% of total)`. Pruning never changes byte counts, so a
+ * The walk also builds a bounded size tree for potential drill-down views.
+ * Because the file-node threshold depends on the final total, the walk first
+ * records every file as a candidate node; a post-pass then prunes file nodes
+ * below `max(64 KiB, 0.5% of total)`. Pruning never changes byte counts, so a
  * directory's `bytes` may exceed the sum of its children's.
  */
 export async function measureWorktreeDirectorySize(input: {
@@ -118,31 +119,77 @@ export async function measureWorktreeDirectorySize(input: {
  * directories. Every start supersedes the previous run; events carry the
  * generation so a renderer can drop stale results. Worktrees are measured
  * sequentially and each completion is published with overall progress.
+ *
+ * Results are cached in memory keyed by `commonDirectory + worktreePath` for
+ * {@link SIZE_CACHE_TTL_MS}; cached results republish instantly on the next
+ * start, so reopening the Settings page costs nothing. Failed results are
+ * never cached, and `force` bypasses the cache for explicit re-measurement.
  */
+export const SIZE_CACHE_TTL_MS = 10 * 60 * 1000;
+
 export function createWorktreeSizeScanner(options: {
   measure: (input: { path: string; signal: AbortSignal }) => Promise<WorktreeSizeState>;
   publish: (ownerId: number, event: WorktreeSizeEvent) => void;
+  /** Clock injection for tests. */
+  now?: () => number;
 }) {
+  const now = options.now ?? Date.now;
+  const cache = new Map<string, { result: WorktreeSizeState; measuredAt: number }>();
   let generation = 0;
   let current: { abort: AbortController } | null = null;
 
+  const cacheKey = (target: WorktreeSizeTarget) =>
+    `${target.commonDirectory}\n${target.worktreePath}`;
+
   return {
-    start(ownerId: number, targets: WorktreeSizeTarget[]): WorktreeSizeStartResult {
+    start(
+      ownerId: number,
+      targets: WorktreeSizeTarget[],
+      startOptions?: WorktreeSizeStartOptions,
+    ): WorktreeSizeStartResult {
       current?.abort.abort();
       generation += 1;
       const runGeneration = generation;
       const abort = new AbortController();
       current = { abort };
 
+      const force = startOptions?.force === true;
+      const cached: Array<{ target: WorktreeSizeTarget; result: WorktreeSizeState }> = [];
+      const pending: WorktreeSizeTarget[] = [];
+      for (const target of targets) {
+        const entry = cache.get(cacheKey(target));
+        if (!force && entry !== undefined && now() - entry.measuredAt < SIZE_CACHE_TTL_MS) {
+          cached.push({ target, result: entry.result });
+        } else {
+          pending.push(target);
+        }
+      }
+
       void (async () => {
         let completed = 0;
-        for (const target of targets) {
+        const total = targets.length;
+        for (const hit of cached) {
+          if (abort.signal.aborted) return;
+          completed += 1;
+          options.publish(ownerId, {
+            generation: runGeneration,
+            commonDirectory: hit.target.commonDirectory,
+            worktreePath: hit.target.worktreePath,
+            result: hit.result,
+            completed,
+            total,
+          });
+        }
+        for (const target of pending) {
           if (abort.signal.aborted) return;
           const result = await options.measure({
             path: target.worktreePath,
             signal: abort.signal,
           });
           if (abort.signal.aborted) return;
+          if (!result.failed) {
+            cache.set(cacheKey(target), { result, measuredAt: now() });
+          }
           completed += 1;
           options.publish(ownerId, {
             generation: runGeneration,
@@ -150,7 +197,7 @@ export function createWorktreeSizeScanner(options: {
             worktreePath: target.worktreePath,
             result,
             completed,
-            total: targets.length,
+            total,
           });
         }
       })();

@@ -42,6 +42,7 @@ import type {
   WorktreeRemoveResult,
   WorktreeScanResult,
   WorktreeSizeEvent,
+  WorktreeSizeStartOptions,
   WorktreeSizeStartResult,
   WorktreeSizeTarget,
 } from "../shared/worktrees";
@@ -155,7 +156,10 @@ declare global {
         worktrees: () => Promise<WorktreeScanResult>;
         worktreesPrune: (request: WorktreePruneRequest) => Promise<WorktreePruneResult>;
         worktreesRemove: (request: WorktreeRemoveRequest) => Promise<WorktreeRemoveResult>;
-        worktreeSizesStart: (targets: WorktreeSizeTarget[]) => Promise<WorktreeSizeStartResult>;
+        worktreeSizesStart: (
+          targets: WorktreeSizeTarget[],
+          options?: WorktreeSizeStartOptions,
+        ) => Promise<WorktreeSizeStartResult>;
         worktreeSizesCancel: (generation: number) => Promise<void>;
         onWorktreeSizeEvent: (listener: (event: WorktreeSizeEvent) => void) => VoidFunction;
         kimiMemoryDelete: (filePath: string) => Promise<void>;

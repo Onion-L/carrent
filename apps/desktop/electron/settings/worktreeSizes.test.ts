@@ -3,7 +3,11 @@ import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, syml
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { WorktreeSizeEvent, WorktreeSizeNode, WorktreeSizeState } from "../../src/shared/worktrees";
-import { createWorktreeSizeScanner, measureWorktreeDirectorySize } from "./worktreeSizes";
+import {
+  createWorktreeSizeScanner,
+  measureWorktreeDirectorySize,
+  SIZE_CACHE_TTL_MS,
+} from "./worktreeSizes";
 
 let root: string;
 
@@ -372,5 +376,110 @@ describe("createWorktreeSizeScanner", () => {
 
     expect(events).toHaveLength(2);
     expect(events.every((event) => event.generation === second.generation)).toBe(true);
+  });
+
+  const ok = (bytes: number): WorktreeSizeState => ({
+    bytes,
+    incomplete: false,
+    failed: false,
+    root: null,
+  });
+
+  function countingMeasure() {
+    let calls = 0;
+    const measure = async (): Promise<WorktreeSizeState> => {
+      calls += 1;
+      return ok(calls * 100);
+    };
+    return {
+      measure,
+      calls: () => calls,
+    };
+  }
+
+  async function flush() {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  it("republishes fresh cached results without re-measuring", async () => {
+    const events: WorktreeSizeEvent[] = [];
+    const counter = countingMeasure();
+    const scanner = createWorktreeSizeScanner({
+      measure: counter.measure,
+      publish: (_owner, event) => events.push(event),
+    });
+
+    scanner.start(7, targets(2));
+    await flush();
+    expect(counter.calls()).toBe(2);
+    expect(events).toHaveLength(2);
+
+    const second = scanner.start(7, targets(2));
+    await flush();
+
+    // No new measurements; cached results republish under the new generation.
+    expect(counter.calls()).toBe(2);
+    expect(events).toHaveLength(4);
+    const republished = events.slice(2);
+    expect(republished.every((event) => event.generation === second.generation)).toBe(true);
+    expect(republished.map((event) => [event.worktreePath, event.completed, event.total])).toEqual([
+      ["/repo/wt-0", 1, 2],
+      ["/repo/wt-1", 2, 2],
+    ]);
+  });
+
+  it("re-measures targets whose cache entry is stale", async () => {
+    const events: WorktreeSizeEvent[] = [];
+    const counter = countingMeasure();
+    let clock = 1_000;
+    const scanner = createWorktreeSizeScanner({
+      measure: counter.measure,
+      publish: (_owner, event) => events.push(event),
+      now: () => clock,
+    });
+
+    scanner.start(7, targets(2));
+    await flush();
+    expect(counter.calls()).toBe(2);
+
+    clock += SIZE_CACHE_TTL_MS + 1;
+    scanner.start(7, targets(2));
+    await flush();
+    expect(counter.calls()).toBe(4);
+  });
+
+  it("never caches failed results", async () => {
+    const events: WorktreeSizeEvent[] = [];
+    let calls = 0;
+    const scanner = createWorktreeSizeScanner({
+      measure: async () => {
+        calls += 1;
+        return { bytes: 0, incomplete: false, failed: true, root: null };
+      },
+      publish: (_owner, event) => events.push(event),
+    });
+
+    scanner.start(7, targets(1));
+    await flush();
+    scanner.start(7, targets(1));
+    await flush();
+
+    expect(calls).toBe(2);
+  });
+
+  it("bypasses the cache when force is set", async () => {
+    const events: WorktreeSizeEvent[] = [];
+    const counter = countingMeasure();
+    const scanner = createWorktreeSizeScanner({
+      measure: counter.measure,
+      publish: (_owner, event) => events.push(event),
+    });
+
+    scanner.start(7, targets(2));
+    await flush();
+    scanner.start(7, targets(2), { force: true });
+    await flush();
+
+    expect(counter.calls()).toBe(4);
   });
 });

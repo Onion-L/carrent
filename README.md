@@ -4,7 +4,9 @@ Carrent is a desktop GUI for project-scoped coding agents. It brings agent
 threads, runtime controls, approvals, terminal sessions, and project context
 together in one workspace.
 
-> Carrent is currently under active development. Features and APIs may change.
+> Carrent is a hobby project under active development. Major changes may happen
+> at any time, and features and APIs may change without notice. Thank you to
+> everyone who has taken an interest in and supported the project.
 
 ## Development
 

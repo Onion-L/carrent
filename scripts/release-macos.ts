@@ -36,7 +36,7 @@ async function run(command: string, args: string[]) {
   }
 }
 
-await run("bun", ["run", "dist", "--", "--mac", "--arm64", "--x64"]);
+await run("bun", ["run", "dist", "--", "--mac", "--arm64", "--x64", "--publish", "never"]);
 
 const artifacts = [
   {

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { AppProjectRecord } from "../../src/shared/workspacePersistence";
 import type { WorktreeRecord, WorktreeScanResult } from "../../src/shared/worktrees";
-import { parseWorktreePorcelain, scanWorktrees } from "./worktrees";
+import { parseWorktreePorcelain, pruneWorktreeRecords, scanWorktrees } from "./worktrees";
 
 let root: string;
 
@@ -543,3 +543,132 @@ describe("scanWorktrees with Carrent activity", () => {
     expect(linked.cleanupCandidate).toBe(false);
   });
 });
+
+describe("pruneWorktreeRecords", () => {
+  function commonDirectoryOf(result: WorktreeScanResult, predicate: (entry: { projects: string[] }) => boolean): string {
+    const entry = repositoryEntries(result).find(
+      (candidate) => predicate({ projects: candidate.projects }),
+    );
+    if (!entry) throw new Error("Repository not found");
+    return entry.commonDirectory;
+  }
+
+  it("removes only stale records of the named repository and rescans it", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "live", join(repo, "live-wt"));
+    git(repo, "worktree", "add", "-b", "old", join(repo, "gone-wt"));
+    rmSync(join(repo, "gone-wt"), { recursive: true, force: true });
+
+    const before = await scanWorktrees([project("p1", "carrent", repo)]);
+    const stale = worktreeOf(before, (worktree) => worktree.prunable);
+    expect(stale.prunableReason).toBe("gitdir file points to non-existent location");
+
+    const result = await pruneWorktreeRecords(
+      [project("p1", "carrent", repo)],
+      commonDirectoryOf(before, (entry) => entry.projects.includes("carrent")),
+    );
+
+    const remaining = result.repository.worktrees;
+    expect(remaining.some((worktree) => worktree.prunable)).toBe(false);
+    expect(remaining.map((worktree) => worktree.path)).toEqual([
+      realpathSync(repo),
+      realpathSync(join(repo, "live-wt")),
+    ]);
+    expect(git(repo, "worktree", "list", "--porcelain")).not.toContain("gone-wt");
+    expect(typeof result.scannedAt).toBe("string");
+  });
+
+  it("never removes an existing worktree directory or its registration", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "live", join(repo, "live-wt"));
+    writeFileSync(join(repo, "live-wt", "keep.txt"), "keep\n");
+    git(repo, "worktree", "add", "-b", "old", join(repo, "gone-wt"));
+    rmSync(join(repo, "gone-wt"), { recursive: true, force: true });
+
+    const before = await scanWorktrees([project("p1", "carrent", repo)]);
+    await pruneWorktreeRecords(
+      [project("p1", "carrent", repo)],
+      commonDirectoryOf(before, () => true),
+    );
+
+    expect(execFileSync("test", ["-f", join(repo, "live-wt", "keep.txt")], { encoding: "utf8" }));
+    expect(git(repo, "worktree", "list", "--porcelain")).toContain("live-wt");
+  });
+
+  it("keeps locked stale records according to Git behavior", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "kept", join(repo, "locked-wt"));
+    git(repo, "worktree", "lock", "--reason", "keep record", join(repo, "locked-wt"));
+    rmSync(join(repo, "locked-wt"), { recursive: true, force: true });
+    git(repo, "worktree", "add", "-b", "old", join(repo, "gone-wt"));
+    rmSync(join(repo, "gone-wt"), { recursive: true, force: true });
+
+    const before = await scanWorktrees([project("p1", "carrent", repo)]);
+    // Git does not flag a locked record as prunable even when its directory
+    // is gone, so the preview already excludes it.
+    const locked = worktreeOf(before, (worktree) => worktree.locked);
+    expect(locked.prunable).toBe(false);
+
+    const result = await pruneWorktreeRecords(
+      [project("p1", "carrent", repo)],
+      commonDirectoryOf(before, () => true),
+    );
+
+    const lockedAfter = result.repository.worktrees.find(
+      (worktree) => worktree.path.endsWith("locked-wt"),
+    );
+    expect(lockedAfter).toMatchObject({ locked: true, lockReason: "keep record", missing: true });
+    expect(git(repo, "worktree", "list", "--porcelain")).toContain("locked-wt");
+    expect(git(repo, "worktree", "list", "--porcelain")).not.toContain("gone-wt");
+  });
+
+  it("prunes one repository without touching another repository's stale records", async () => {
+    const repoA = join(root, "repo-a");
+    const repoB = join(root, "repo-b");
+    initRepo(repoA);
+    initRepo(repoB);
+    git(repoA, "worktree", "add", "-b", "old-a", join(repoA, "gone-a"));
+    git(repoB, "worktree", "add", "-b", "old-b", join(repoB, "gone-b"));
+    rmSync(join(repoA, "gone-a"), { recursive: true, force: true });
+    rmSync(join(repoB, "gone-b"), { recursive: true, force: true });
+
+    const before = await scanWorktrees([
+      project("p1", "carrent-a", repoA),
+      project("p2", "carrent-b", repoB),
+    ]);
+    await pruneWorktreeRecords(
+      [project("p1", "carrent-a", repoA), project("p2", "carrent-b", repoB)],
+      commonDirectoryOf(before, (entry) => entry.projects.includes("carrent-a")),
+    );
+
+    expect(git(repoA, "worktree", "list", "--porcelain")).not.toContain("gone-a");
+    expect(git(repoB, "worktree", "list", "--porcelain")).toContain("gone-b");
+  });
+
+  it("rejects a common directory outside the current scan without touching repositories", async () => {
+    const repo = join(root, "repo");
+    initRepo(repo);
+    git(repo, "worktree", "add", "-b", "old", join(repo, "gone-wt"));
+    rmSync(join(repo, "gone-wt"), { recursive: true, force: true });
+
+    const projects = [project("p1", "carrent", repo)];
+    let thrown: unknown = null;
+    try {
+      await pruneWorktreeRecords(projects, join(root, "no-such-repo"));
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown instanceof Error).toBe(true);
+    if (thrown instanceof Error) {
+      expect(thrown.message).toContain("not part of the current Worktrees scan");
+    }
+
+    expect(git(repo, "worktree", "list", "--porcelain")).toContain("gone-wt");
+    const after = await scanWorktrees(projects);
+    expect(worktreeOf(after, (worktree) => worktree.prunable)).toBeDefined();
+  });
+});
+

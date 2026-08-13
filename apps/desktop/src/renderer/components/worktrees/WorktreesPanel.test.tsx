@@ -408,3 +408,188 @@ describe("WorktreesPanelView", () => {
     );
   });
 });
+
+describe("WorktreesPanelView pruning", () => {
+  function prunableScan() {
+    return {
+      entries: [
+        {
+          kind: "repository" as const,
+          commonDirectory: "/code/carrent/.git",
+          projects: ["carrent"],
+          worktrees: [
+            makeWorktree({
+              path: "/code/carrent",
+              kind: "main",
+              branch: "main",
+              blockingReasons: ["main"],
+              cleanupCandidate: false,
+            }),
+            makeWorktree({
+              path: "/code/carrent/gone-wt",
+              branch: "old",
+              prunable: true,
+              prunableReason: "gitdir file points to non-existent location",
+              missing: true,
+              blockingReasons: ["missing", "prunable"],
+              cleanupCandidate: false,
+            }),
+          ],
+        },
+        {
+          kind: "repository" as const,
+          commonDirectory: "/code/other/.git",
+          projects: ["other"],
+          worktrees: [
+            makeWorktree({
+              path: "/code/other",
+              kind: "main",
+              branch: "main",
+              blockingReasons: ["main"],
+              cleanupCandidate: false,
+            }),
+          ],
+        },
+      ],
+      scannedAt: "2026-08-13T00:00:00.000Z",
+    };
+  }
+
+  it("previews stale records with paths and Git reasons per repository", async () => {
+    const c = await renderPanel({ worktrees: async () => prunableScan() });
+
+    expect(c.textContent).toContain("1 stale Git record");
+    expect(c.textContent).toContain("/code/carrent/gone-wt");
+    expect(c.textContent).toContain("gitdir file points to non-existent location");
+    expect(c.textContent).toContain("Prune records");
+    expect(c.textContent).toContain("Existing worktree directories are never deleted");
+  });
+
+  it("hides the prune section when a repository has no stale records", async () => {
+    const c = await renderPanel({
+      worktrees: async () => ({
+        entries: [
+          {
+            kind: "repository",
+            commonDirectory: "/code/solo/.git",
+            projects: ["solo"],
+            worktrees: [
+              makeWorktree({
+                path: "/code/solo",
+                kind: "main",
+                branch: "main",
+                blockingReasons: ["main"],
+                cleanupCandidate: false,
+              }),
+            ],
+          },
+        ],
+        scannedAt: "2026-08-13T00:00:00.000Z",
+      }),
+    });
+
+    expect(c.textContent).not.toContain("stale Git record");
+    expect(c.textContent).not.toContain("Prune records");
+  });
+
+  it("asks for confirmation before pruning and cancels without an api call", async () => {
+    let pruneCalls = 0;
+    const c = await renderPanel({
+      worktrees: async () => prunableScan(),
+      worktreesPrune: async () => {
+        pruneCalls += 1;
+        throw new Error("should not be called");
+      },
+    });
+
+    const pruneButton = [...c.querySelectorAll("button")].find(
+      (button) => button.textContent === "Prune records",
+    );
+    if (!pruneButton) throw new Error("prune button not found");
+    await click(pruneButton);
+
+    const dialog = c.querySelector('[role="dialog"]');
+    expect(dialog).not.toBe(null);
+    expect(dialog!.textContent).toContain("Prune stale worktree records?");
+    expect(dialog!.textContent).toContain("Remove 1 stale Git administration record");
+    expect(dialog!.textContent).toContain("does not delete");
+    expect(dialog!.textContent).toContain("negligible disk space");
+
+    const cancel = [...dialog!.querySelectorAll("button")].find(
+      (button) => button.textContent === "Cancel",
+    );
+    if (!cancel) throw new Error("cancel button not found");
+    await click(cancel);
+
+    expect(pruneCalls).toBe(0);
+    expect(c.querySelector('[role="dialog"]')).toBe(null);
+  });
+
+  it("prunes the named repository and rescans only that repository on success", async () => {
+    const prunedEntries = prunableScan().entries;
+    prunedEntries[0] = {
+      kind: "repository",
+      commonDirectory: "/code/carrent/.git",
+      projects: ["carrent"],
+      worktrees: [
+        makeWorktree({
+          path: "/code/carrent",
+          kind: "main",
+          branch: "main",
+          blockingReasons: ["main"],
+          cleanupCandidate: false,
+        }),
+      ],
+    };
+    const requests: Array<{ commonDirectory: string }> = [];
+    const c = await renderPanel({
+      worktrees: async () => prunableScan(),
+      worktreesPrune: async (request) => {
+        requests.push(request);
+        return { repository: prunedEntries[0], scannedAt: "2026-08-13T00:01:00.000Z" };
+      },
+    });
+
+    const pruneButton = [...c.querySelectorAll("button")].find(
+      (button) => button.textContent === "Prune records",
+    );
+    if (!pruneButton) throw new Error("prune button not found");
+    await click(pruneButton);
+    const confirm = [...c.querySelectorAll('button')].find(
+      (button) => button.textContent === "Prune",
+    );
+    if (!confirm) throw new Error("confirm button not found");
+    await click(confirm);
+
+    expect(requests).toEqual([{ commonDirectory: "/code/carrent/.git" }]);
+    expect(c.textContent).not.toContain("/code/carrent/gone-wt");
+    expect(c.textContent).not.toContain("Prune records");
+    expect(c.textContent).toContain("/code/other/.git");
+    expect(c.querySelector('[role="dialog"]')).toBe(null);
+  });
+
+  it("keeps records visible and shows the failure when pruning fails", async () => {
+    const c = await renderPanel({
+      worktrees: async () => prunableScan(),
+      worktreesPrune: async () => {
+        throw new Error("git exploded");
+      },
+    });
+
+    const pruneButton = [...c.querySelectorAll("button")].find(
+      (button) => button.textContent === "Prune records",
+    );
+    if (!pruneButton) throw new Error("prune button not found");
+    await click(pruneButton);
+    const confirm = [...c.querySelectorAll("button")].find(
+      (button) => button.textContent === "Prune",
+    );
+    if (!confirm) throw new Error("confirm button not found");
+    await click(confirm);
+
+    expect(c.textContent).toContain("git exploded");
+    expect(c.textContent).toContain("/code/carrent/gone-wt");
+    expect(c.textContent).toContain("1 stale Git record");
+    expect(c.querySelector('[role="dialog"]')).toBe(null);
+  });
+});

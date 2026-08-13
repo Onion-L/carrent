@@ -112,3 +112,20 @@ export type WorktreeScanResult = {
   /** ISO timestamp of when the scan completed. */
   scannedAt: string;
 };
+
+/**
+ * Removes stale Git worktree administration records for one repository.
+ * The renderer names the repository by the normalized common-directory
+ * identity it received from the scan; Main re-resolves and re-scans so a
+ * stale or foreign path can never authorize a prune.
+ */
+export type WorktreePruneRequest = {
+  commonDirectory: string;
+};
+
+export type WorktreePruneResult = {
+  /** Rescanned repository; stale records no longer appear. */
+  repository: WorktreeRepositoryEntry;
+  /** ISO timestamp of when the post-prune rescan completed. */
+  scannedAt: string;
+};

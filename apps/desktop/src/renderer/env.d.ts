@@ -35,7 +35,7 @@ import type {
 } from "../shared/workspacePersistence";
 import type { RtkGainStats } from "../shared/rtk";
 import type { KimiMemoryIndex } from "../shared/kimiMemory";
-import type { WorktreeScanResult } from "../shared/worktrees";
+import type { WorktreePruneRequest, WorktreePruneResult, WorktreeScanResult } from "../shared/worktrees";
 import type { KimiUsageStats } from "../shared/kimiUsage";
 
 import type { MainWindowApi } from "../shared/mainWindow";
@@ -144,6 +144,7 @@ declare global {
         kimiUsage: () => Promise<KimiUsageStats>;
         kimiMemory: () => Promise<KimiMemoryIndex>;
         worktrees: () => Promise<WorktreeScanResult>;
+        worktreesPrune: (request: WorktreePruneRequest) => Promise<WorktreePruneResult>;
         kimiMemoryDelete: (filePath: string) => Promise<void>;
         readGlobalAgentInstructions: () => Promise<{
           path: string;

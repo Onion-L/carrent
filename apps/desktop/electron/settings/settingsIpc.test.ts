@@ -26,6 +26,7 @@ describe("registerSettingsIpc", () => {
       "settings:kimi-usage",
       "settings:rtk-gain",
       "settings:worktrees",
+      "settings:worktrees:prune",
     ]);
   });
 
@@ -76,6 +77,35 @@ describe("registerSettingsIpc", () => {
     // The scan re-reads Main Process authority per request instead of caching,
     // so peer windows always observe the same current state.
     expect(activityCalls).toHaveLength(2);
+  });
+
+  it("rejects prune requests without a repository common directory", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+
+    registerSettingsIpc(
+      {
+        handle(channel, listener) {
+          handlers.set(channel, listener);
+        },
+      },
+      () => "0.0.0-test",
+      () => [],
+    );
+    const prune = handlers.get("settings:worktrees:prune");
+    for (const invalid of [{}, ""]) {
+      let thrown: unknown = null;
+      try {
+        await prune?.({}, invalid);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown instanceof Error).toBe(true);
+      if (thrown instanceof Error) {
+        expect(thrown.message).toContain(
+          "Worktree pruning requires the repository common directory",
+        );
+      }
+    }
   });
 
   it("rejects non-string kimi memory delete paths", async () => {

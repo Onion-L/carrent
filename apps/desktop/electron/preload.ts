@@ -34,7 +34,7 @@ import type {
 import type { RtkGainStats } from "../src/shared/rtk";
 import type { KimiUsageStats } from "../src/shared/kimiUsage";
 import type { KimiMemoryIndex } from "../src/shared/kimiMemory";
-import type { WorktreeScanResult } from "../src/shared/worktrees";
+import type { WorktreePruneRequest, WorktreePruneResult, WorktreeScanResult } from "../src/shared/worktrees";
 import type { DetectedEditor, EditorsApi } from "../src/shared/editors";
 import type { MainWindowApi, MainWindowZoomAction } from "../src/shared/mainWindow";
 import type { ThreadActionRequest, ThreadActionResult } from "../src/shared/threadActions";
@@ -346,6 +346,8 @@ const carrent = {
     kimiUsage: () => ipcRenderer.invoke("settings:kimi-usage") as Promise<KimiUsageStats>,
     kimiMemory: () => ipcRenderer.invoke("settings:kimi-memory") as Promise<KimiMemoryIndex>,
     worktrees: () => ipcRenderer.invoke("settings:worktrees") as Promise<WorktreeScanResult>,
+    worktreesPrune: (request: WorktreePruneRequest) =>
+      ipcRenderer.invoke("settings:worktrees:prune", request) as Promise<WorktreePruneResult>,
     kimiMemoryDelete: (filePath: string) =>
       ipcRenderer.invoke("settings:kimi-memory:delete", filePath) as Promise<void>,
     readGlobalAgentInstructions: () =>

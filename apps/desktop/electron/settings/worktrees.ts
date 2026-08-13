@@ -8,6 +8,7 @@ import {
   EMPTY_WORKTREE_ACTIVITY,
   type WorktreeActivitySnapshot,
   type WorktreeBlockingReason,
+  type WorktreePruneResult,
   type WorktreeRecord,
   type WorktreeRepositoryEntry,
   type WorktreeScanEntry,
@@ -275,16 +276,19 @@ async function scanRepositoryWorktrees(
   return records;
 }
 
+
 /**
- * Scans every Project Working Directory for Git worktree state. Discovery is
- * limited to the given Project records; no parent-directory or disk crawling
- * happens. Unexpected Git failures throw so the Settings Tab can present a
- * single retryable error state instead of fabricating per-project labels.
+ * Resolves every Project Working Directory into repository groups keyed by
+ * normalized common-directory identity. Discovery is limited to the given
+ * Project records; no parent-directory or disk crawling happens. Unexpected
+ * Git failures throw so the Settings Tab can present a single retryable
+ * error state instead of fabricating per-project labels.
  */
-export async function scanWorktrees(
-  projects: AppProjectRecord[],
-  activity: WorktreeActivitySnapshot = EMPTY_WORKTREE_ACTIVITY,
-): Promise<WorktreeScanResult> {
+async function collectRepositoryGroups(projects: AppProjectRecord[]): Promise<{
+  entries: WorktreeScanEntry[];
+  groups: Map<string, { projects: AppProjectRecord[]; entry: WorktreeRepositoryEntry }>;
+  projectNameById: Map<string, string>;
+}> {
   const entries: WorktreeScanEntry[] = [];
   const groups = new Map<
     string,
@@ -335,23 +339,78 @@ export async function scanWorktrees(
     group.projects.push(project);
   }
 
-  const liveRunProjectIds = new Set(activity.liveRunProjectIds);
   const projectNameById = new Map(projects.map((project) => [project.id, project.name]));
+  return { entries, groups, projectNameById };
+}
+
+/** Fills a repository entry with Git state and the current activity blockers. */
+async function buildRepositoryEntry(
+  entry: WorktreeRepositoryEntry,
+  groupProjects: AppProjectRecord[],
+  activity: WorktreeActivitySnapshot,
+  projectNameById: Map<string, string>,
+): Promise<WorktreeRepositoryEntry> {
+  const liveRunProjectIds = new Set(activity.liveRunProjectIds);
+  entry.projects = dedupe(groupProjects.map((project) => project.name));
+  const liveRunProjectNames = dedupe(
+    groupProjects
+      .filter((project) => liveRunProjectIds.has(project.id))
+      .map((project) => project.name),
+  );
+  entry.worktrees = await scanRepositoryWorktrees(
+    groupProjects,
+    liveRunProjectNames,
+    activity.runningTerminalTabs,
+    projectNameById,
+  );
+  return entry;
+}
+
+/**
+ * Scans every Project Working Directory for Git worktree state.
+ */
+export async function scanWorktrees(
+  projects: AppProjectRecord[],
+  activity: WorktreeActivitySnapshot = EMPTY_WORKTREE_ACTIVITY,
+): Promise<WorktreeScanResult> {
+  const { entries, groups, projectNameById } = await collectRepositoryGroups(projects);
 
   for (const group of groups.values()) {
-    group.entry.projects = dedupe(group.projects.map((project) => project.name));
-    const liveRunProjectNames = dedupe(
-      group.projects
-        .filter((project) => liveRunProjectIds.has(project.id))
-        .map((project) => project.name),
-    );
-    group.entry.worktrees = await scanRepositoryWorktrees(
-      group.projects,
-      liveRunProjectNames,
-      activity.runningTerminalTabs,
-      projectNameById,
-    );
+    await buildRepositoryEntry(group.entry, group.projects, activity, projectNameById);
   }
 
   return { entries, scannedAt: new Date().toISOString() };
+}
+
+/**
+ * Prunes stale Git worktree administration records for a single repository
+ * using Git's own `worktree prune`. Only records Git considers prunable
+ * (directory gone, not locked) are removed; existing worktree directories
+ * are never touched. The repository is rescanned afterwards so the result
+ * reflects Git's authoritative state.
+ */
+export async function pruneWorktreeRecords(
+  projects: AppProjectRecord[],
+  commonDirectory: string,
+  activity: WorktreeActivitySnapshot = EMPTY_WORKTREE_ACTIVITY,
+): Promise<WorktreePruneResult> {
+  const targetIdentity = resolveIdentity(normalizeProjectWorkingDirectory(commonDirectory));
+  const { groups, projectNameById } = await collectRepositoryGroups(projects);
+  const group = groups.get(targetIdentity);
+  if (group === undefined) {
+    throw new Error("This repository is not part of the current Worktrees scan.");
+  }
+
+  const workingDirectory = normalizeProjectWorkingDirectory(
+    group.projects[0]?.workingDirectory ?? "",
+  );
+  await runGit(workingDirectory, ["worktree", "prune"]);
+
+  const repository = await buildRepositoryEntry(
+    group.entry,
+    group.projects,
+    activity,
+    projectNameById,
+  );
+  return { repository, scannedAt: new Date().toISOString() };
 }

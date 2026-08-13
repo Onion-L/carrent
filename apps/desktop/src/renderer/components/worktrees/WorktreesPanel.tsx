@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, FolderGit2, FolderX, GitBranch, Lock, RefreshCw } from "lucide-react";
+import { Check, FolderGit2, FolderX, GitBranch, Lock, RefreshCw, Trash2 } from "lucide-react";
 
 import type {
   WorktreeBlockingReason,
   WorktreeNotGitEntry,
+  WorktreePruneRequest,
+  WorktreePruneResult,
   WorktreeRecord,
   WorktreeRepositoryEntry,
   WorktreeScanResult,
   WorktreeUnavailableEntry,
 } from "../../../shared/worktrees";
+import { ConfirmDialog } from "../ConfirmDialog";
 import { SETTINGS_TABS } from "../../lib/settingsTabs";
 
 const WORKTREES_TAB_LABEL =
@@ -29,9 +32,9 @@ const BLOCKING_REASON_LABELS: Record<WorktreeBlockingReason, string> = {
   "live-run": "Live Run in repository",
   "terminal-tab": "Running Terminal Tab",
 };
-
 export type WorktreeSettingsApi = {
   worktrees?: () => Promise<WorktreeScanResult>;
+  worktreesPrune?: (request: WorktreePruneRequest) => Promise<WorktreePruneResult>;
 };
 
 export async function readWorktreeScan(api: WorktreeSettingsApi): Promise<{
@@ -148,8 +151,24 @@ function WorktreeRow({ worktree }: { worktree: WorktreeRecord }) {
     </li>
   );
 }
+function prunableWorktrees(entry: WorktreeRepositoryEntry): WorktreeRecord[] {
+  return entry.worktrees.filter((worktree) => worktree.prunable);
+}
 
-function RepositoryGroupView({ entry }: { entry: WorktreeRepositoryEntry }) {
+
+function RepositoryGroupView({
+  entry,
+  pruning,
+  pruneError,
+  onPruneRequest,
+}: {
+  entry: WorktreeRepositoryEntry;
+  pruning: boolean;
+  pruneError: string | null;
+  onPruneRequest: (entry: WorktreeRepositoryEntry) => void;
+}) {
+  const prunable = prunableWorktrees(entry);
+
   return (
     <section
       aria-label={`Repository ${entry.projects.join(", ")}`}
@@ -177,6 +196,49 @@ function RepositoryGroupView({ entry }: { entry: WorktreeRepositoryEntry }) {
           <WorktreeRow key={worktree.path} worktree={worktree} />
         ))}
       </ul>
+      {prunable.length > 0 ? (
+        <div className="border-t border-border px-4 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-app-11 font-medium text-subtle">
+              {prunable.length === 1
+                ? "1 stale Git record"
+                : `${prunable.length} stale Git records`}
+            </span>
+            <button
+              type="button"
+              onClick={() => onPruneRequest(entry)}
+              disabled={pruning}
+              className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-app-12 text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-40"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Prune records
+            </button>
+          </div>
+          <ul className="mt-1.5 flex flex-col gap-1">
+            {prunable.map((worktree) => (
+              <li
+                key={worktree.path}
+                className="flex min-w-0 items-baseline gap-2"
+                title={worktree.prunableReason ?? undefined}
+              >
+                <span className="min-w-0 flex-1 truncate font-mono text-app-11 text-subtle">
+                  {worktree.path}
+                </span>
+                <span className="shrink-0 text-app-11 text-subtle">
+                  {worktree.prunableReason ?? "stale record"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-app-11 text-subtle">
+            Pruning removes Git administration records only. Existing worktree directories are
+            never deleted, and this normally releases negligible disk space.
+          </p>
+          {pruneError !== null ? (
+            <p className="mt-1 text-app-11 text-danger">{pruneError}</p>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -241,6 +303,12 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
   const [scan, setScan] = useState<WorktreeScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pruneTarget, setPruneTarget] = useState<WorktreeRepositoryEntry | null>(null);
+  const [pruning, setPruning] = useState(false);
+  const [pruneError, setPruneError] = useState<{
+    commonDirectory: string;
+    message: string;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -250,6 +318,41 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
     setLoading(false);
   }, [api]);
 
+  const confirmPrune = useCallback(async () => {
+    if (pruneTarget === null || pruning) return;
+    setPruning(true);
+    try {
+      if (api.worktreesPrune === undefined) {
+        throw new Error(PRELOAD_RESTART_MESSAGE);
+      }
+      const result = await api.worktreesPrune({ commonDirectory: pruneTarget.commonDirectory });
+      setScan((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              scannedAt: result.scannedAt,
+              entries: current.entries.map((entry) =>
+                entry.kind === "repository" &&
+                entry.commonDirectory === result.repository.commonDirectory
+                  ? result.repository
+                  : entry,
+              ),
+            },
+      );
+      setPruneError(null);
+      setPruneTarget(null);
+    } catch (pruneFailure) {
+      setPruneError({
+        commonDirectory: pruneTarget.commonDirectory,
+        message:
+          pruneFailure instanceof Error ? pruneFailure.message : String(pruneFailure),
+      });
+      setPruneTarget(null);
+    } finally {
+      setPruning(false);
+    }
+  }, [api, pruneTarget, pruning]);
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -336,10 +439,12 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
               Project to see its Git worktrees here.
             </div>
           </div>
-        </div>
+      </div>
       </div>
     );
   }
+
+  const prunableCount = pruneTarget === null ? 0 : prunableWorktrees(pruneTarget).length;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -348,7 +453,17 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
           {scan.entries.map((entry) =>
             entry.kind === "repository" ? (
-              <RepositoryGroupView key={entry.commonDirectory} entry={entry} />
+              <RepositoryGroupView
+                key={entry.commonDirectory}
+                entry={entry}
+                pruning={pruning}
+                pruneError={
+                  pruneError?.commonDirectory === entry.commonDirectory
+                    ? pruneError.message
+                    : null
+                }
+                onPruneRequest={setPruneTarget}
+              />
             ) : (
               <ProjectEntryView key={entry.projectId} entry={entry} />
             ),
@@ -360,6 +475,20 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
           </p>
         </div>
       </div>
+      {pruneTarget !== null ? (
+        <ConfirmDialog
+          title="Prune stale worktree records?"
+          message={`Remove ${prunableCount} stale Git administration ${
+            prunableCount === 1 ? "record" : "records"
+          } for ${pruneTarget.projects.join(", ")}?\n${prunableWorktrees(pruneTarget)
+            .map((worktree) => worktree.path)
+            .join("\n")}\nPruning removes Git administration records only, does not delete
+          an existing worktree directory, and normally releases negligible disk space.`}
+          confirmLabel="Prune"
+          onCancel={() => setPruneTarget(null)}
+          onConfirm={() => void confirmPrune()}
+        />
+      ) : null}
     </div>
   );
 }

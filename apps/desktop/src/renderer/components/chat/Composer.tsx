@@ -225,7 +225,7 @@ function ContextUsageIndicator({
       {showPopover && (
         <div className="absolute bottom-full right-0 mb-2 w-52 rounded-lg border border-border-strong bg-surface px-3 py-2 shadow-xl">
           {loadState === "error" ? (
-            <div className="text-app-12 text-muted">暂时无法获取</div>
+            <div className="text-app-12 text-muted">Context usage unavailable</div>
           ) : status ? (
             <>
               <div className="text-app-11 text-muted">Context usage</div>
@@ -238,7 +238,7 @@ function ContextUsageIndicator({
               ) : null}
             </>
           ) : (
-            <div className="text-app-12 text-muted">暂无 Context 数据</div>
+            <div className="text-app-12 text-muted">No context data yet</div>
           )}
         </div>
       )}

@@ -3316,34 +3316,34 @@ describe("Runtime Session Status", () => {
       indicator.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
-    expect(container!.textContent).toContain("暂无 Context 数据");
+    expect(container!.textContent).toContain("No context data yet");
 
     await act(async () => {
       indicator.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true }));
     });
-    expect(container!.textContent).not.toContain("暂无 Context 数据");
+    expect(container!.textContent).not.toContain("No context data yet");
 
     await act(async () => {
       indicator.click();
       indicator.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
-    expect(container!.textContent).toContain("暂无 Context 数据");
+    expect(container!.textContent).toContain("No context data yet");
 
     await act(async () => {
       indicator.click();
     });
-    expect(container!.textContent).not.toContain("暂无 Context 数据");
+    expect(container!.textContent).not.toContain("No context data yet");
 
     await act(async () => {
       indicator.click();
     });
-    expect(container!.textContent).toContain("暂无 Context 数据");
+    expect(container!.textContent).toContain("No context data yet");
 
     await act(async () => {
       document.body.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
     });
-    expect(container!.textContent).not.toContain("暂无 Context 数据");
+    expect(container!.textContent).not.toContain("No context data yet");
   });
 
   it("shows an unavailable Context state when status refresh fails", async () => {
@@ -3373,7 +3373,7 @@ describe("Runtime Session Status", () => {
       indicator.click();
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
-    expect(container!.textContent).toContain("暂时无法获取");
+    expect(container!.textContent).toContain("Context usage unavailable");
   });
 
   it("keeps the previous Context usage visible while refreshing", async () => {
@@ -3413,7 +3413,7 @@ describe("Runtime Session Status", () => {
       refreshStatus(null);
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
-    expect(container!.textContent).toContain("暂无 Context 数据");
+    expect(container!.textContent).toContain("No context data yet");
   });
 
   it("executes Status from the slash menu and renders normalized values without a Run", async () => {

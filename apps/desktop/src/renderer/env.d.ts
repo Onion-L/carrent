@@ -34,8 +34,10 @@ import type {
   ProjectRelocationRequest,
 } from "../shared/workspacePersistence";
 import type { RtkGainStats } from "../shared/rtk";
-import type { KimiUsageStats } from "../shared/kimiUsage";
 import type { KimiMemoryIndex } from "../shared/kimiMemory";
+import type { WorktreeScanResult } from "../shared/worktrees";
+import type { KimiUsageStats } from "../shared/kimiUsage";
+
 import type { MainWindowApi } from "../shared/mainWindow";
 import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
 import type { TerminalApi } from "../shared/terminal";
@@ -141,6 +143,7 @@ declare global {
         rtkGain: () => Promise<RtkGainStats>;
         kimiUsage: () => Promise<KimiUsageStats>;
         kimiMemory: () => Promise<KimiMemoryIndex>;
+        worktrees: () => Promise<WorktreeScanResult>;
         kimiMemoryDelete: (filePath: string) => Promise<void>;
         readGlobalAgentInstructions: () => Promise<{
           path: string;

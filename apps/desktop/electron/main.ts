@@ -601,7 +601,11 @@ if (!hasSingleInstanceLock) {
     registerAttachmentIpc(guardedIpcMain, { attachmentStore });
     registerSkillIpc(guardedIpcMain);
     registerGitIpc(guardedIpcMain);
-    registerSettingsIpc(guardedIpcMain, () => app.getVersion());
+    registerSettingsIpc(
+      guardedIpcMain,
+      () => app.getVersion(),
+      () => appStateAuthority.getState().snapshot.projects,
+    );
     const terminalCompletionService = createTerminalCompletionService();
     const terminalHistory = createTerminalHistory(
       parseZshHistory(readHistoryTail(join(app.getPath("home"), ".zsh_history"))),

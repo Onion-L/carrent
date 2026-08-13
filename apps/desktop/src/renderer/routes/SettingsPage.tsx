@@ -25,6 +25,7 @@ import { MAX_FONT_SIZE, MIN_FONT_SIZE, parseFontSizeInput, stepFontSize } from "
 import { RuntimeIcon } from "../components/RuntimeIcon";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MarqueeText } from "../components/MarqueeText";
+import { WorktreesPanel } from "../components/worktrees/WorktreesPanel";
 import { McpServerControl } from "../components/mcp/McpServerControl";
 import { UsagePanel } from "../components/usage/UsagePanel";
 import { MemoryPanel } from "../components/memory/MemoryPanel";
@@ -1484,6 +1485,11 @@ export function SettingsPage() {
         // fills it edge to edge. No inner titlebar spacer — MemoryPanel's own
         // h-14 header aligns with the settings nav pane header.
         <MemoryPanel />
+      ) : activeTabId === "worktrees" ? (
+        // Same full-bleed treatment: WorktreesPanel owns its h-14 header and
+        // scrolls its own list, so the scan list stays stable at the minimum
+        // window size instead of being squeezed into the centered layout.
+        <WorktreesPanel />
       ) : (
         <>
           <header

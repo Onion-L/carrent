@@ -16,6 +16,11 @@ export const SETTINGS_TABS = [
     badge: "Beta",
   },
   {
+    id: "worktrees",
+    label: "Worktrees",
+    description: "Git worktrees across Projects",
+  },
+  {
     id: "personalization",
     label: "Personalization",
     description: "Global agent instructions",

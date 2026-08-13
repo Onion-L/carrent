@@ -12,6 +12,7 @@ describe("registerSettingsIpc", () => {
         },
       },
       () => "0.0.0-test",
+      () => [],
     );
 
     expect([...handlers.keys()].sort()).toEqual([
@@ -24,7 +25,30 @@ describe("registerSettingsIpc", () => {
       "settings:kimi-memory:delete",
       "settings:kimi-usage",
       "settings:rtk-gain",
+      "settings:worktrees",
     ]);
+  });
+
+  it("scans worktrees from the provided projects", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+
+    registerSettingsIpc(
+      {
+        handle(channel, listener) {
+          handlers.set(channel, listener);
+        },
+      },
+      () => "0.0.0-test",
+      () => [],
+    );
+
+    const result = (await handlers.get("settings:worktrees")?.({})) as {
+      entries: unknown[];
+      scannedAt: string;
+    };
+
+    expect(result.entries).toEqual([]);
+    expect(typeof result.scannedAt).toBe("string");
   });
 
   it("rejects non-string kimi memory delete paths", async () => {
@@ -37,6 +61,7 @@ describe("registerSettingsIpc", () => {
         },
       },
       () => "0.0.0-test",
+      () => [],
     );
 
     try {
@@ -57,6 +82,7 @@ describe("registerSettingsIpc", () => {
         },
       },
       () => "0.0.0-test",
+      () => [],
     );
 
     try {
@@ -77,6 +103,7 @@ describe("registerSettingsIpc", () => {
         },
       },
       () => "0.0.0-test",
+      () => [],
     );
 
     try {

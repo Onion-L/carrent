@@ -274,6 +274,9 @@ function installBridge(
       revealPath: async () => {},
       openExternal: async () => {},
     },
+    settings: {
+      worktrees: async () => ({ entries: [], scannedAt: "2099-01-01T00:00:00.000Z" }),
+    },
     clipboard: {
       writeText: async () => {},
       readText: async () => "",
@@ -1414,7 +1417,21 @@ describe("three-level navigation", () => {
     await click(buttonNamed("Settings"));
     expect(currentPathname).toBe(entryPath);
     expect(buttonNamed("Personal").getAttribute("aria-current")).toBe("page");
+
     expect(buttonNamed("Settings").getAttribute("aria-current")).toBe(null);
+  });
+
+  it("opens the Worktrees Settings Tab from the settings navigation", async () => {
+    const entryPath = "/workspace/workspace-1/project/project-1/thread/thread-1";
+    await renderApp(navigationState(), entryPath, [], false, [], false);
+
+    await click(buttonNamed("Settings"));
+    await click(buttonNamed("Worktrees"));
+
+    expect(currentPathname).toBe("/settings");
+    expect(buttonNamed("Worktrees").getAttribute("aria-current")).toBe("page");
+    expect(container!.textContent).toContain("Git worktrees reachable from your Projects");
+    expect(container!.textContent).toContain("No Projects to scan");
   });
 
   it("keeps the Local MCP Server control in Settings instead of the header", async () => {

@@ -11,9 +11,9 @@ import type {
   WorktreeSizeEvent,
   WorktreeSizeState,
 } from "../../../shared/worktrees";
+import { formatWorktreeBytes } from "./formatWorktreeBytes";
 import {
   compareWorktreeRecords,
-  formatWorktreeBytes,
   readWorktreeScan,
   WorktreesPanelView,
   type WorktreeSettingsApi,
@@ -631,8 +631,8 @@ describe("worktree size presentation", () => {
       blockingReasons: ["main"],
     });
 
-    sizes.set("/r/small", { bytes: 100, incomplete: false, failed: false });
-    sizes.set("/r/large", { bytes: 900, incomplete: false, failed: false });
+    sizes.set("/r/small", { bytes: 100, incomplete: false, failed: false, root: null });
+    sizes.set("/r/large", { bytes: 900, incomplete: false, failed: false, root: null });
 
     expect(
       [removableLarge, removableSmall].sort((a, b) => compareWorktreeRecords(a, b, sizes)),
@@ -643,7 +643,7 @@ describe("worktree size presentation", () => {
       blocked,
     ]);
     // A failed measurement sorts like a missing one.
-    sizes.set("/r/small", { bytes: 0, incomplete: false, failed: true });
+    sizes.set("/r/small", { bytes: 0, incomplete: false, failed: true, root: null });
     expect(
       [removableSmall, removableLarge].sort((a, b) => compareWorktreeRecords(a, b, sizes)),
     ).toEqual([removableLarge, removableSmall]);
@@ -697,7 +697,7 @@ describe("worktree size presentation", () => {
         generation: 1,
         commonDirectory: "/code/carrent/.git",
         worktreePath: "/code/carrent",
-        result: { bytes: 1024 * 1024, incomplete: false, failed: false },
+        result: { bytes: 1024 * 1024, incomplete: false, failed: false, root: null },
         completed: 1,
         total: 2,
       });
@@ -705,7 +705,7 @@ describe("worktree size presentation", () => {
         generation: 1,
         commonDirectory: "/code/carrent/.git",
         worktreePath: "/code/carrent/feat-wt",
-        result: { bytes: 3 * 1024 * 1024, incomplete: false, failed: false },
+        result: { bytes: 3 * 1024 * 1024, incomplete: false, failed: false, root: null },
         completed: 2,
         total: 2,
       });
@@ -729,7 +729,7 @@ describe("worktree size presentation", () => {
         generation: 1,
         commonDirectory: "/code/carrent/.git",
         worktreePath: "/code/carrent",
-        result: { bytes: 1, incomplete: false, failed: false },
+        result: { bytes: 1, incomplete: false, failed: false, root: null },
         completed: 1,
         total: 2,
       });
@@ -741,7 +741,7 @@ describe("worktree size presentation", () => {
         generation: 1,
         commonDirectory: "/code/carrent/.git",
         worktreePath: "/code/carrent/feat-wt",
-        result: { bytes: 2, incomplete: false, failed: false },
+        result: { bytes: 2, incomplete: false, failed: false, root: null },
         completed: 2,
         total: 2,
       });
@@ -793,7 +793,7 @@ describe("worktree size presentation", () => {
         generation: 1,
         commonDirectory: "/code/carrent/.git",
         worktreePath: "/code/carrent/complete-wt",
-        result: { bytes: 2048, incomplete: false, failed: false },
+        result: { bytes: 2048, incomplete: false, failed: false, root: null },
         completed: 1,
         total: 5,
       });
@@ -801,7 +801,7 @@ describe("worktree size presentation", () => {
         generation: 1,
         commonDirectory: "/code/carrent/.git",
         worktreePath: "/code/carrent/incomplete-wt",
-        result: { bytes: 4096, incomplete: true, failed: false },
+        result: { bytes: 4096, incomplete: true, failed: false, root: null },
         completed: 2,
         total: 5,
       });
@@ -809,7 +809,7 @@ describe("worktree size presentation", () => {
         generation: 1,
         commonDirectory: "/code/carrent/.git",
         worktreePath: "/code/carrent/failed-wt",
-        result: { bytes: 0, incomplete: false, failed: true },
+        result: { bytes: 0, incomplete: false, failed: true, root: null },
         completed: 3,
         total: 5,
       });
@@ -844,7 +844,7 @@ describe("worktree size presentation", () => {
         generation: 1,
         commonDirectory: "/code/carrent/.git",
         worktreePath: "/code/carrent/feat-wt",
-        result: { bytes: 2048, incomplete: false, failed: false },
+        result: { bytes: 2048, incomplete: false, failed: false, root: null },
         completed: 1,
         total: 1,
       });
@@ -974,7 +974,7 @@ describe("WorktreesPanelView removal", () => {
         generation: 1,
         commonDirectory: "/code/carrent/.git",
         worktreePath: "/code/carrent/feat-wt",
-        result: { bytes: 2 * 1024 * 1024, incomplete: false, failed: false },
+        result: { bytes: 2 * 1024 * 1024, incomplete: false, failed: false, root: null },
         completed: 1,
         total: 1,
       });
@@ -1138,7 +1138,7 @@ describe("WorktreesPanelView removal", () => {
         generation: 1,
         commonDirectory: "/code/carrent/.git",
         worktreePath: "/code/carrent/feat-wt",
-        result: { bytes: 2 * 1024 * 1024, incomplete: false, failed: false },
+        result: { bytes: 2 * 1024 * 1024, incomplete: false, failed: false, root: null },
         completed: 1,
         total: 1,
       });
@@ -1212,5 +1212,236 @@ describe("WorktreesPanelView removal", () => {
     expect(c.textContent).toContain("This worktree can no longer be removed safely");
     expect(c.textContent).toContain("/code/carrent/feat-wt");
     expect(c.querySelector('[role="dialog"]')).toBe(null);
+  });
+});
+
+describe("WorktreesPanelView list and chart sync", () => {
+  function sizeTree(path: string, bytes: number): WorktreeSizeState {
+    return {
+      bytes,
+      incomplete: false,
+      failed: false,
+      root: {
+        name: path.split("/").at(-1) ?? path,
+        path,
+        bytes,
+        kind: "directory",
+        children: [
+          {
+            name: "src",
+            path: `${path}/src`,
+            bytes: Math.floor(bytes / 2),
+            kind: "directory",
+            children: [],
+          },
+        ],
+      },
+    };
+  }
+
+  function syncSizeApi(scan: WorktreeScanResult) {
+    const listeners = new Set<(event: WorktreeSizeEvent) => void>();
+    const api: WorktreeSettingsApi = {
+      worktrees: async () => scan,
+      worktreeSizesStart: async () => ({ generation: 1 }),
+      worktreeSizesCancel: async () => {},
+      onWorktreeSizeEvent: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    return {
+      api,
+      emit: (event: WorktreeSizeEvent) => {
+        for (const listener of listeners) listener(event);
+      },
+    };
+  }
+
+  async function emitSizes(fake: ReturnType<typeof syncSizeApi>) {
+    await act(async () => {
+      fake.emit({
+        generation: 1,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent",
+        result: sizeTree("/code/carrent", 2048),
+        completed: 1,
+        total: 2,
+      });
+      fake.emit({
+        generation: 1,
+        commonDirectory: "/code/carrent/.git",
+        worktreePath: "/code/carrent/feat-wt",
+        result: sizeTree("/code/carrent/feat-wt", 1024),
+        completed: 2,
+        total: 2,
+      });
+    });
+  }
+
+  function listPane(c: HTMLDivElement): Element {
+    const pane = c.querySelector('[data-testid="worktrees-list-pane"]');
+    if (!pane) throw new Error("list pane not found");
+    return pane;
+  }
+
+  function chartPane(c: HTMLDivElement): Element {
+    const pane = c.querySelector('[data-testid="worktrees-chart-pane"]');
+    if (!pane) throw new Error("chart pane not found");
+    return pane;
+  }
+
+  function centerLabel(c: HTMLDivElement): string {
+    const button = chartPane(c).querySelector('[data-testid="sunburst-center"]');
+    if (!button) throw new Error("center button not found");
+    return button.textContent ?? "";
+  }
+
+  function chartSector(c: HTMLDivElement, labelPart: string): Element {
+    const found = [...chartPane(c).querySelectorAll('path[role="button"]')].find((path) =>
+      path.getAttribute("aria-label")?.includes(labelPart),
+    );
+    if (!found) throw new Error(`sector not found: ${labelPart}`);
+    return found;
+  }
+
+  it("renders the list and chart panes side by side", async () => {
+    const c = await renderPanel({ worktrees: async () => makeScan() });
+
+    expect(c.querySelector('[data-testid="worktrees-list-pane"]')).not.toBe(null);
+    expect(c.querySelector('[data-testid="worktrees-chart-pane"]')).not.toBe(null);
+    // The list renders the Git inventory even before any measurement exists.
+    expect(listPane(c).textContent).toContain("/code/carrent/feat-wt");
+    expect(listPane(c).textContent).toContain(
+      "cannot reliably detect external terminals, editors, coding agents",
+    );
+    // The chart shows its own empty state instead of fabricated sectors.
+    expect(chartPane(c).textContent).toContain("No storage measurements yet.");
+    expect(chartPane(c).querySelectorAll('path[role="button"]')).toHaveLength(0);
+  });
+
+  it("selecting a worktree row highlights it and drills the chart", async () => {
+    const fake = syncSizeApi(makeScan());
+    const c = await renderPanel(fake.api);
+    await emitSizes(fake);
+    expect(centerLabel(c)).toContain("All storage");
+
+    const row = listPane(c).querySelector('[data-worktree-path="/code/carrent/feat-wt"]');
+    if (!row) throw new Error("worktree row not found");
+    await click(row);
+
+    expect(row.getAttribute("aria-current")).toBe("true");
+    expect(centerLabel(c)).toContain("feat");
+    expect(centerLabel(c)).toContain("~1 KB");
+  });
+
+  it("selecting a repository group header highlights it and drills the chart", async () => {
+    const fake = syncSizeApi(makeScan());
+    const c = await renderPanel(fake.api);
+    await emitSizes(fake);
+
+    const header = listPane(c).querySelector('[data-common-directory="/code/carrent/.git"]');
+    if (!header) throw new Error("repository header not found");
+    await click(header);
+
+    expect(header.getAttribute("aria-current")).toBe("true");
+    expect(centerLabel(c)).toContain("carrent, carrent-feature");
+    expect(centerLabel(c)).toContain("~3 KB");
+  });
+
+  it("activating a chart sector selects the matching list row", async () => {
+    const fake = syncSizeApi(makeScan());
+    const c = await renderPanel(fake.api);
+    await emitSizes(fake);
+
+    await click(chartSector(c, "feat,"));
+
+    const row = listPane(c).querySelector('[data-worktree-path="/code/carrent/feat-wt"]');
+    expect(row?.getAttribute("aria-current")).toBe("true");
+    expect(centerLabel(c)).toContain("feat");
+  });
+
+  it("does not change the selection when the Remove button is clicked", async () => {
+    const c = await renderPanel({ worktrees: async () => makeScan() });
+
+    const remove = [...c.querySelectorAll("button")].find(
+      (button) => button.textContent === "Remove",
+    );
+    if (!remove) throw new Error("Remove button not found");
+    await click(remove);
+
+    expect(c.querySelector('[role="dialog"]')).not.toBe(null);
+    expect(listPane(c).querySelector('[aria-current="true"]')).toBe(null);
+
+    const cancel = [...c.querySelectorAll("button")].find(
+      (button) => button.textContent === "Cancel",
+    );
+    if (!cancel) throw new Error("cancel button not found");
+    await click(cancel);
+  });
+
+  it("hides main worktrees from the chart via the legend without touching the list", async () => {
+    const fake = syncSizeApi(makeScan());
+    const c = await renderPanel(fake.api);
+    await emitSizes(fake);
+
+    const svgLabel = () =>
+      chartPane(c).querySelector('svg[role="img"]')?.getAttribute("aria-label") ?? "";
+    expect(svgLabel()).toContain("~3 KB");
+
+    const checkbox = chartPane(c).querySelector('input[type="checkbox"]');
+    if (!(checkbox instanceof HTMLInputElement)) throw new Error("legend checkbox not found");
+    await click(checkbox);
+
+    expect(svgLabel()).toContain("~1 KB");
+    // The list is untouched: the main worktree row is still there.
+    expect(listPane(c).textContent).toContain("/code/carrent");
+    expect(listPane(c).textContent).toContain("Main");
+  });
+
+  it("clears the selection when the selected worktree is removed", async () => {
+    const removedEntry = {
+      kind: "repository" as const,
+      commonDirectory: "/code/carrent/.git",
+      projects: ["carrent", "carrent-feature"],
+      worktrees: [
+        makeWorktree({
+          path: "/code/carrent",
+          kind: "main",
+          branch: "main",
+          blockingReasons: ["main"],
+          cleanupCandidate: false,
+        }),
+      ],
+    };
+    const fake = syncSizeApi(makeScan());
+    const c = await renderPanel({
+      ...fake.api,
+      worktreesRemove: async () => ({
+        status: "removed",
+        repository: removedEntry,
+        scannedAt: "2026-08-13T00:01:00.000Z",
+      }),
+    });
+    await emitSizes(fake);
+
+    const row = listPane(c).querySelector('[data-worktree-path="/code/carrent/feat-wt"]');
+    if (!row) throw new Error("worktree row not found");
+    await click(row);
+    expect(row.getAttribute("aria-current")).toBe("true");
+
+    const remove = [...c.querySelectorAll("button")].find(
+      (button) => button.textContent === "Remove",
+    );
+    if (!remove) throw new Error("Remove button not found");
+    await click(remove);
+    const confirm = [...c.querySelectorAll("button")].find(
+      (button) => button.textContent === "Remove worktree",
+    );
+    if (!confirm) throw new Error("confirm button not found");
+    await click(confirm);
+
+    expect(listPane(c).querySelector('[data-worktree-path="/code/carrent/feat-wt"]')).toBe(null);
+    expect(listPane(c).querySelector('[aria-current="true"]')).toBe(null);
   });
 });

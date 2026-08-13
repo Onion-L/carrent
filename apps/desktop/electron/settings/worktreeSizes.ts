@@ -1,12 +1,18 @@
 import { lstat, readdir } from "node:fs/promises";
 import type { Dirent, Stats } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type {
   WorktreeSizeEvent,
+  WorktreeSizeNode,
   WorktreeSizeStartResult,
   WorktreeSizeState,
   WorktreeSizeTarget,
 } from "../../src/shared/worktrees";
+
+/** A file becomes a tree node only at or above this floor… */
+const FILE_NODE_MIN_BYTES = 64 * 1024;
+/** …or this fraction of the worktree total, whichever is greater. */
+const FILE_NODE_MIN_FRACTION = 0.005;
 
 /**
  * Measures the logical directory size of one worktree directory.
@@ -16,30 +22,42 @@ import type {
  * - The worktree's own Git control entry (the main worktree's `.git`
  *   directory or a linked worktree's `.git` file) is excluded at the root
  *   only. Nested `.git` entries are ordinary content.
- * - Symbolic links are never followed: only the link entry itself counts.
+ * - Symbolic links are never followed: only the link entry itself counts
+ *   toward the byte total. Links never become tree nodes.
  * - Unreadable subtrees mark the measurement incomplete; an unreadable root
  *   marks it failed.
+ *
+ * The walk also builds a bounded size tree for the sunburst chart. Because
+ * the file-node threshold depends on the final total, the walk first records
+ * every file as a candidate node; a post-pass then prunes file nodes below
+ * `max(64 KiB, 0.5% of total)`. Pruning never changes byte counts, so a
+ * directory's `bytes` may exceed the sum of its children's.
  */
 export async function measureWorktreeDirectorySize(input: {
   path: string;
   signal: AbortSignal;
 }): Promise<WorktreeSizeState> {
-  let bytes = 0;
   let incomplete = false;
 
-  async function walk(directory: string, isRoot: boolean): Promise<void> {
-    if (input.signal.aborted) return;
+  async function walk(
+    directory: string,
+    name: string,
+    isRoot: boolean,
+  ): Promise<WorktreeSizeNode> {
+    const node: WorktreeSizeNode = { name, path: directory, bytes: 0, kind: "directory" };
+    if (input.signal.aborted) return node;
     let entries: Dirent[];
     try {
       entries = await readdir(directory, { withFileTypes: true });
     } catch {
       if (isRoot) throw new Error("Worktree root is not readable.");
       incomplete = true;
-      return;
+      return node;
     }
 
+    const children: WorktreeSizeNode[] = [];
     for (const entry of entries) {
-      if (input.signal.aborted) return;
+      if (input.signal.aborted) break;
       if (isRoot && entry.name === ".git") continue;
 
       const fullPath = join(directory, entry.name);
@@ -52,22 +70,47 @@ export async function measureWorktreeDirectorySize(input: {
       }
 
       if (info.isSymbolicLink()) {
-        // Count the link entry itself; never follow it.
-        bytes += info.size;
+        // Count the link entry itself; never follow it, never emit a node.
+        node.bytes += info.size;
       } else if (info.isDirectory()) {
-        await walk(fullPath, false);
+        const child = await walk(fullPath, entry.name, false);
+        node.bytes += child.bytes;
+        children.push(child);
       } else if (info.isFile()) {
-        bytes += info.size;
+        node.bytes += info.size;
+        // Candidate only; pruned below the threshold once the total is known.
+        children.push({ name: entry.name, path: fullPath, bytes: info.size, kind: "file" });
       }
     }
+    if (children.length > 0) node.children = children;
+    return node;
   }
 
+  let root: WorktreeSizeNode;
   try {
-    await walk(input.path, true);
+    root = await walk(input.path, basename(input.path), true);
   } catch {
-    return { bytes: 0, incomplete: false, failed: true };
+    return { bytes: 0, incomplete: false, failed: true, root: null };
   }
-  return { bytes, incomplete, failed: false };
+  const bytes = root.bytes;
+
+  const threshold = Math.max(FILE_NODE_MIN_BYTES, FILE_NODE_MIN_FRACTION * bytes);
+  function pruneFileNodes(node: WorktreeSizeNode): void {
+    if (node.children === undefined) return;
+    const kept = node.children.filter((child) => {
+      if (child.kind === "file") return child.bytes >= threshold;
+      pruneFileNodes(child);
+      return true;
+    });
+    if (kept.length > 0) {
+      node.children = kept;
+    } else {
+      delete node.children;
+    }
+  }
+  pruneFileNodes(root);
+
+  return { bytes, incomplete, failed: false, root };
 }
 
 /**

@@ -188,6 +188,24 @@ export type WorktreeRemoveResult = {
 };
 
 /**
+ * One node of the per-worktree size tree used by the sunburst chart.
+ * Directories recurse fully; a file only becomes a node when its size is at
+ * least the greater of 64 KiB and 0.5% of the worktree total, so the tree
+ * stays bounded for dependency-heavy worktrees. Bytes of pruned small files
+ * still count toward every ancestor's `bytes`, so a parent's `bytes` may
+ * exceed the sum of its children's.
+ */
+export type WorktreeSizeNode = {
+  /** Entry name within its parent directory. */
+  name: string;
+  /** Normalized full path. */
+  path: string;
+  bytes: number;
+  kind: "directory" | "file";
+  children?: WorktreeSizeNode[];
+};
+
+/**
  * Storage measurement for one worktree directory. Bytes are logical
  * directory size (an estimate, not guaranteed filesystem blocks) and stay
  * valid as a lower bound when the traversal was incomplete.
@@ -198,6 +216,12 @@ export type WorktreeSizeState = {
   incomplete: boolean;
   /** The worktree root could not be traversed at all. */
   failed: boolean;
+  /**
+   * Directory/file size tree for the sunburst chart; null when the
+   * measurement failed or was cancelled before the root was read. Root bytes
+   * equal {@link bytes}.
+   */
+  root: WorktreeSizeNode | null;
 };
 
 export type WorktreeSizeTarget = {

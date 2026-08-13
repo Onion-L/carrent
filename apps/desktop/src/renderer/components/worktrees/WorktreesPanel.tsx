@@ -19,6 +19,8 @@ import {
 } from "../../../shared/worktrees";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { SETTINGS_TABS } from "../../lib/settingsTabs";
+import { formatWorktreeBytes } from "./formatWorktreeBytes";
+import { WorktreeSunburst, type WorktreeSelection } from "./WorktreeSunburst";
 
 const WORKTREES_TAB_LABEL =
   SETTINGS_TABS.find((tab) => tab.id === "worktrees")?.label ?? "Worktrees";
@@ -35,20 +37,6 @@ export type WorktreeSettingsApi = {
   worktreeSizesCancel?: (generation: number) => Promise<void>;
   onWorktreeSizeEvent?: (listener: (event: WorktreeSizeEvent) => void) => VoidFunction;
 };
-
-export function formatWorktreeBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unitIndex = -1;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  const valueText = value >= 100 ? String(Math.round(value)) : value.toFixed(1);
-  const trimmed = valueText.endsWith(".0") ? valueText.slice(0, -2) : valueText;
-  return `${trimmed} ${units[unitIndex]}`;
-}
 
 function measuredBytesOf(record: WorktreeRecord, sizes: Map<string, WorktreeSizeState>): number {
   const size = sizes.get(record.path);
@@ -110,10 +98,14 @@ function StateBadge({
 function WorktreeRow({
   worktree,
   size,
+  selected,
+  onSelect,
   onRemoveRequest,
 }: {
   worktree: WorktreeRecord;
   size?: WorktreeSizeState;
+  selected: boolean;
+  onSelect: () => void;
   onRemoveRequest?: () => void;
 }) {
   const reasonText = worktree.blockingReasons
@@ -121,7 +113,14 @@ function WorktreeRow({
     .join(" · ");
 
   return (
-    <li className="border-b border-border px-4 py-3 last:border-b-0">
+    <li
+      data-worktree-path={worktree.path}
+      aria-current={selected ? "true" : undefined}
+      onClick={onSelect}
+      className={`cursor-pointer border-b border-border px-4 py-3 transition-colors last:border-b-0 hover:bg-surface-hover ${
+        selected ? "bg-surface-hover" : ""
+      }`}
+    >
       <div className="flex min-w-0 items-center gap-2">
         <span className="shrink-0 rounded-full bg-surface px-1.5 py-px text-app-10 text-subtle">
           {worktree.kind === "main" ? "Main" : "Linked"}
@@ -201,7 +200,11 @@ function WorktreeRow({
         {worktree.cleanupCandidate && onRemoveRequest !== undefined ? (
           <button
             type="button"
-            onClick={onRemoveRequest}
+            onClick={(event) => {
+              // Removing must not change the chart selection.
+              event.stopPropagation();
+              onRemoveRequest();
+            }}
             className="ml-auto flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-app-12 text-danger transition-colors hover:bg-danger/10 disabled:opacity-40"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -224,6 +227,9 @@ function RepositoryGroupView({
   sizes,
   removeMessage,
   onRemoveRequest,
+  selection,
+  onSelectRepository,
+  onSelectWorktree,
 }: {
   entry: WorktreeRepositoryEntry;
   pruning: boolean;
@@ -232,16 +238,29 @@ function RepositoryGroupView({
   sizes: Map<string, WorktreeSizeState>;
   removeMessage: { message: string; tone: "danger" | "success" } | null;
   onRemoveRequest: (worktree: WorktreeRecord) => void;
+  selection: WorktreeSelection | null;
+  onSelectRepository: () => void;
+  onSelectWorktree: (worktree: WorktreeRecord) => void;
 }) {
   const prunable = prunableWorktrees(entry);
   const sortedWorktrees = [...entry.worktrees].sort((a, b) => compareWorktreeRecords(a, b, sizes));
+  const repositorySelected =
+    selection?.commonDirectory === entry.commonDirectory && selection.worktreePath === null;
 
   return (
     <section
       aria-label={`Repository ${entry.projects.join(", ")}`}
       className="overflow-hidden rounded-lg border border-border bg-surface"
     >
-      <header className="border-b border-border px-4 py-2.5">
+      <button
+        type="button"
+        data-common-directory={entry.commonDirectory}
+        aria-current={repositorySelected ? "true" : undefined}
+        onClick={onSelectRepository}
+        className={`block w-full border-b border-border px-4 py-2.5 text-left transition-colors hover:bg-surface-hover ${
+          repositorySelected ? "bg-surface-hover" : ""
+        }`}
+      >
         <div className="flex min-w-0 items-baseline gap-2">
           <FolderGit2 className="h-3.5 w-3.5 shrink-0 self-center text-subtle" />
           <span className="min-w-0 truncate text-app-13 font-medium text-fg">
@@ -257,13 +276,15 @@ function RepositoryGroupView({
         >
           {entry.commonDirectory}
         </div>
-      </header>
+      </button>
       <ul>
         {sortedWorktrees.map((worktree) => (
           <WorktreeRow
             key={worktree.path}
             worktree={worktree}
             size={sizes.get(worktree.path)}
+            selected={selection?.worktreePath === worktree.path}
+            onSelect={() => onSelectWorktree(worktree)}
             onRemoveRequest={
               worktree.cleanupCandidate ? () => onRemoveRequest(worktree) : undefined
             }
@@ -478,6 +499,13 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
   const [sizeProgress, setSizeProgress] = useState<{ completed: number; total: number } | null>(
     null,
   );
+  // Selection sync between the worktree list and the sunburst chart: the list
+  // owns the selection, the chart drills to the selected node, and chart
+  // sector activation feeds the selection back. drillPath may point deeper
+  // than the selection (sub-worktree directories) without changing it.
+  const [selection, setSelection] = useState<WorktreeSelection | null>(null);
+  const [drillPath, setDrillPath] = useState<string | null>(null);
+  const listPaneRef = useRef<HTMLDivElement | null>(null);
 
   const startSizeScan = useCallback(
     (result: WorktreeScanResult) => {
@@ -642,6 +670,38 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
     void refresh();
   }, [refresh]);
 
+  // Clear the selection when a rescan or removal makes its target disappear.
+  const selectionExists =
+    selection !== null &&
+    scan !== null &&
+    scan.entries.some(
+      (entry) =>
+        entry.kind === "repository" &&
+        entry.commonDirectory === selection.commonDirectory &&
+        (selection.worktreePath === null ||
+          entry.worktrees.some((worktree) => worktree.path === selection.worktreePath)),
+    );
+  useEffect(() => {
+    if (selection !== null && !selectionExists) setSelection(null);
+  }, [selection, selectionExists]);
+
+  // Chart-driven selection scrolls the matching list row into view.
+  // (happy-dom in tests may not implement scrollIntoView, hence the `?.()`.)
+  useEffect(() => {
+    if (selection === null) return;
+    const pane = listPaneRef.current;
+    if (pane === null) return;
+    const attribute =
+      selection.worktreePath === null ? "data-common-directory" : "data-worktree-path";
+    const value = selection.worktreePath ?? selection.commonDirectory;
+    for (const element of pane.querySelectorAll(`[${attribute}]`)) {
+      if (element.getAttribute(attribute) === value) {
+        element.scrollIntoView?.({ block: "nearest" });
+        break;
+      }
+    }
+  }, [selection]);
+
   let repositoryCount = 0;
   let linkedWorktreeCount = 0;
   let removableCount = 0;
@@ -748,39 +808,72 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {header}
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
-          {scan.entries.map((entry) =>
-            entry.kind === "repository" ? (
-              <RepositoryGroupView
-                key={entry.commonDirectory}
-                entry={entry}
-                pruning={pruning}
-                pruneError={
-                  pruneError?.commonDirectory === entry.commonDirectory ? pruneError.message : null
-                }
-                onPruneRequest={setPruneTarget}
-                sizes={worktreeSizes}
-                removeMessage={
-                  removeMessage?.commonDirectory === entry.commonDirectory
-                    ? { message: removeMessage.message, tone: removeMessage.tone }
-                    : null
-                }
-                onRemoveRequest={(worktree) => {
-                  setRemoveMessage(null);
-                  setRemoveBranch(false);
-                  setRemoveTarget({ repository: entry, worktree });
-                }}
-              />
-            ) : (
-              <ProjectEntryView key={entry.projectId} entry={entry} />
-            ),
-          )}
-          <p className="px-1 pb-2 text-app-11 text-subtle">
-            Carrent only accounts for the Runs and Terminal Tabs it manages. It cannot reliably
-            detect external terminals, editors, coding agents, or other processes that may be using
-            a worktree.
-          </p>
+      <div className="flex min-h-0 flex-1">
+        <div
+          data-testid="worktrees-list-pane"
+          ref={listPaneRef}
+          className="w-[42%] min-w-0 overflow-y-auto border-r border-border px-6 py-4"
+        >
+          <div className="flex flex-col gap-3">
+            {scan.entries.map((entry) =>
+              entry.kind === "repository" ? (
+                <RepositoryGroupView
+                  key={entry.commonDirectory}
+                  entry={entry}
+                  pruning={pruning}
+                  pruneError={
+                    pruneError?.commonDirectory === entry.commonDirectory
+                      ? pruneError.message
+                      : null
+                  }
+                  onPruneRequest={setPruneTarget}
+                  sizes={worktreeSizes}
+                  removeMessage={
+                    removeMessage?.commonDirectory === entry.commonDirectory
+                      ? { message: removeMessage.message, tone: removeMessage.tone }
+                      : null
+                  }
+                  onRemoveRequest={(worktree) => {
+                    setRemoveMessage(null);
+                    setRemoveBranch(false);
+                    setRemoveTarget({ repository: entry, worktree });
+                  }}
+                  selection={selection}
+                  onSelectRepository={() => {
+                    setSelection({ commonDirectory: entry.commonDirectory, worktreePath: null });
+                    setDrillPath(entry.commonDirectory);
+                  }}
+                  onSelectWorktree={(worktree) => {
+                    setSelection({
+                      commonDirectory: entry.commonDirectory,
+                      worktreePath: worktree.path,
+                    });
+                    setDrillPath(worktree.path);
+                  }}
+                />
+              ) : (
+                <ProjectEntryView key={entry.projectId} entry={entry} />
+              ),
+            )}
+            <p className="px-1 pb-2 text-app-11 text-subtle">
+              Carrent only accounts for the Runs and Terminal Tabs it manages. It cannot reliably
+              detect external terminals, editors, coding agents, or other processes that may be
+              using a worktree.
+            </p>
+          </div>
+        </div>
+        <div
+          data-testid="worktrees-chart-pane"
+          className="min-w-0 flex-1 overflow-y-auto px-6 py-4"
+        >
+          <WorktreeSunburst
+            scan={scan}
+            sizes={worktreeSizes}
+            sizeProgress={sizeProgress}
+            drillPath={drillPath}
+            onDrillChange={setDrillPath}
+            onSelectionChange={setSelection}
+          />
         </div>
       </div>
       {pruneTarget !== null ? (

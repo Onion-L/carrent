@@ -4791,7 +4791,8 @@ describe("Integrated Browser", () => {
       "/workspace/workspace-1/project/project-1/thread/thread-1",
     );
 
-    await click(buttonNamed("Show browser"));
+    await click(buttonNamed("Open right panel"));
+    await click(buttonNamed("Browser"));
 
     expect(container!.querySelector<HTMLInputElement>('input[aria-label="Address"]')).not.toBe(
       null,
@@ -4920,10 +4921,9 @@ describe("Integrated Terminal", () => {
     expect(terminalCreateRequests).toHaveLength(0);
     const toggle = buttonNamed("Show Integrated Terminal");
     expect(
-      container!
-        .querySelector('section[aria-label="Integrated Terminal"]')
-        ?.classList.contains("hidden"),
-    ).toBe(true);
+      container!.querySelector<HTMLElement>('section[aria-label="Integrated Terminal"]')?.style
+        .height,
+    ).toBe("0px");
 
     await click(toggle);
 
@@ -4937,10 +4937,9 @@ describe("Integrated Terminal", () => {
       },
     ]);
     expect(
-      container!
-        .querySelector('section[aria-label="Integrated Terminal"]')
-        ?.classList.contains("hidden"),
-    ).toBe(false);
+      container!.querySelector<HTMLElement>('section[aria-label="Integrated Terminal"]')?.style
+        .height,
+    ).toBe("320px");
 
     await act(async () => {
       emitTerminalEvent?.({
@@ -4960,10 +4959,9 @@ describe("Integrated Terminal", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(
-      container!
-        .querySelector('section[aria-label="Integrated Terminal"]')
-        ?.classList.contains("hidden"),
-    ).toBe(true);
+      container!.querySelector<HTMLElement>('section[aria-label="Integrated Terminal"]')?.style
+        .height,
+    ).toBe("0px");
     await act(async () => {
       window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "j", metaKey: true }));
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -5089,10 +5087,9 @@ describe("Integrated Terminal", () => {
     await click(container!.querySelector<HTMLButtonElement>('button[title="Close Terminal Tab"]')!);
 
     expect(
-      container!
-        .querySelector('section[aria-label="Integrated Terminal"]')
-        ?.classList.contains("hidden"),
-    ).toBe(true);
+      container!.querySelector<HTMLElement>('section[aria-label="Integrated Terminal"]')?.style
+        .height,
+    ).toBe("0px");
     await click(buttonNamed("Show Integrated Terminal"));
     expect(terminalCreateRequests).toHaveLength(3);
   });

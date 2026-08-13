@@ -14,6 +14,16 @@ import { ContextMenuShell, MenuItem } from "../workspace/ContextMenu";
 import { useToast } from "../toast/ToastContext";
 
 const MENU_ITEM_ICON_CLASS = "h-3.5 w-3.5 shrink-0 object-contain text-muted";
+const LAST_EDITOR_STORAGE_KEY = "carrent:last-open-in-editor";
+
+function loadLastEditorId(): string | null {
+  try {
+    const raw = localStorage.getItem(LAST_EDITOR_STORAGE_KEY);
+    return raw && raw.trim() ? raw : null;
+  } catch {
+    return null;
+  }
+}
 
 const EDITOR_ICONS: Record<string, { light: string; dark?: string }> = {
   cursor: { light: cursorLightIcon, dark: cursorDarkIcon },
@@ -49,6 +59,7 @@ export function OpenInMenu({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const [editors, setEditors] = useState<DetectedEditor[]>([]);
+  const [lastEditorId, setLastEditorId] = useState<string | null>(loadLastEditorId);
   const [systemIsDark, setSystemIsDark] = useState(
     () => window.matchMedia("(prefers-color-scheme: dark)").matches,
   );
@@ -106,6 +117,13 @@ export function OpenInMenu({
       return;
     }
 
+    setLastEditorId(editor.id);
+    try {
+      localStorage.setItem(LAST_EDITOR_STORAGE_KEY, editor.id);
+    } catch {
+      // Ignore unavailable or quota-limited storage; the default still works in memory.
+    }
+
     try {
       const error = await editorsApi.open(editor.id, workingDirectory);
       if (error) showToast(error, "error");
@@ -126,15 +144,16 @@ export function OpenInMenu({
 
   const handleOpenDefault = async () => {
     closeMenu();
-    const editor = editors[0];
-    if (!editor) {
+    if (!defaultEditor) {
       showToast("No installed editors were detected.", "error");
       return;
     }
-    await handleOpenInEditor(editor);
+    await handleOpenInEditor(defaultEditor);
   };
 
-  const defaultEditor = editors[0];
+  // The trigger opens the editor picked last time; fall back to the first
+  // detected editor when none was picked yet or it is no longer installed.
+  const defaultEditor = editors.find((editor) => editor.id === lastEditorId) ?? editors[0];
 
   return (
     <>

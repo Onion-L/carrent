@@ -9,7 +9,6 @@ import type {
 } from "../../src/shared/chat";
 import { normalizeAppStateSnapshot } from "../../src/shared/workspacePersistence";
 import {
-  MAX_LOCAL_PATH_CONTEXTS,
   normalizeLocalPathContexts,
   type LocalPathContextItem,
 } from "../../src/shared/localPathContext";
@@ -279,16 +278,14 @@ export function parseChatTurnAttachments(value: unknown): AttachmentMetadata[] |
 // Sanitizes the optional Local Path Context on a chat turn request. Lenient by
 // design at this boundary: absent resolves to undefined (the field is omitted),
 // and malformed entries are dropped rather than rejecting the whole request, so
-// the Runtime never receives authorization for an untrusted path. The staging
-// cap is enforced here (mirroring attachment validation) so a request cannot
-// stage more references than the composer allows. This is the trust boundary
-// where Runtime authorization begins — downstream code trusts that every item
-// here is a normalized, classified descriptor.
+// the Runtime never receives authorization for an untrusted path. This is the
+// trust boundary where Runtime authorization begins — downstream code trusts
+// that every item here is a normalized, classified descriptor.
 export function parseChatTurnLocalPathContexts(
   value: unknown,
 ): LocalPathContextItem[] | undefined {
   if (value === undefined || value === null) return undefined;
-  if (!Array.isArray(value) || value.length > MAX_LOCAL_PATH_CONTEXTS) {
+  if (!Array.isArray(value)) {
     throw new Error("Invalid Local Path Context.");
   }
   const items = normalizeLocalPathContexts(value);

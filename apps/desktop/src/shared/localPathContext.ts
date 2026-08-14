@@ -36,11 +36,6 @@ export type LocalPathResolutionResult = {
 // failures surface through the toast system rather than throwing.
 export type RevealPathResult = { revealed: true } | { revealed: false; reason: "missing" };
 
-// Mirrors the File Attachment count guard (MAX_ATTACHMENT_COUNT). Local Path
-// Context copies no bytes, but a composition still caps how many references a
-// user can stage so the composer stays scannable.
-export const MAX_LOCAL_PATH_CONTEXTS = 30;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -125,8 +120,8 @@ export function dedupeLocalPathContexts(items: LocalPathContextItem[]): LocalPat
 // items are dropped rather than failing the load. This is the backward-
 // compatibility boundary — old persisted state without Local Path Context loads
 // unchanged because an absent field produces no items here. It preserves every
-// valid item (no count cap) so a persisted snapshot round-trips faithfully; the
-// staging cap (`MAX_LOCAL_PATH_CONTEXTS`) is enforced at the chat:send boundary.
+// valid item without a count cap so persisted snapshots and accumulated Thread
+// history round-trip faithfully.
 export function normalizeLocalPathContexts(value: unknown): LocalPathContextItem[] {
   if (!Array.isArray(value)) return [];
   const items: LocalPathContextItem[] = [];

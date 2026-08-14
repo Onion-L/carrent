@@ -122,7 +122,7 @@ describe("normalizeLocalPathContexts (leniency)", () => {
     ]);
   });
 
-  it("preserves every valid item on load (the staging cap is enforced elsewhere)", () => {
+  it("preserves every valid item without a count cap", () => {
     const items = Array.from({ length: 60 }, (_, index) => ({
       path: `/a/f${index}.ts`,
       kind: "file" as const,

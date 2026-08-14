@@ -983,20 +983,12 @@ describe("registerChatIpc", () => {
       );
     });
 
-    it("parseChatTurnLocalPathContexts rejects more than the staging cap", () => {
-      const tooMany = Array.from({ length: 31 }, (_, index) => ({
+    it("parseChatTurnLocalPathContexts preserves more than 30 historical paths", () => {
+      const historicalPaths = Array.from({ length: 31 }, (_, index) => ({
         path: `/a/f${index}.ts`,
         kind: "file" as const,
       }));
-      let error: unknown;
-      try {
-        parseChatTurnLocalPathContexts(tooMany);
-      } catch (caught) {
-        error = caught;
-      }
-      expect(error instanceof Error ? error.message : String(error)).toContain(
-        "Invalid Local Path Context",
-      );
+      expect(parseChatTurnLocalPathContexts(historicalPaths)).toHaveLength(31);
     });
 
     it("forwards sanitized Local Path Context with chat:send and omits it when absent", async () => {

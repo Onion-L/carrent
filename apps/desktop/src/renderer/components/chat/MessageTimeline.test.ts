@@ -190,6 +190,26 @@ describe("getUserMessageEditDraft", () => {
       messageId: "msg-1",
       content: "please fix this",
       attachments: undefined,
+      localPathContexts: undefined,
+    });
+  });
+
+  it("keeps structured Local Path Context editable without message prose", () => {
+    const message: Message = {
+      id: "msg-1",
+      threadId: "thread-1",
+      role: "user",
+      content: "",
+      timestamp: "09:00",
+      type: "text",
+      localPathContexts: [{ path: "/Users/test/context.ts", basename: "context.ts", kind: "file" }],
+    };
+
+    expect(getUserMessageEditDraft(message)).toEqual({
+      messageId: "msg-1",
+      content: "",
+      attachments: undefined,
+      localPathContexts: [{ path: "/Users/test/context.ts", basename: "context.ts", kind: "file" }],
     });
   });
 

@@ -351,6 +351,7 @@ export type ComposerSubmitRequest = {
   messageId: string;
   content: string;
   attachments?: AttachmentMetadata[];
+  localPathContexts?: LocalPathContextItem[];
   requestId: number;
 };
 
@@ -487,6 +488,23 @@ export function getMessageTranscriptContent(message: Message) {
     .flatMap((part) => (part.type === "text" || part.type === "plan_review" ? [part.content] : []))
     .filter((content) => content.trim().length > 0)
     .join("\n\n");
+}
+
+export function collectRunLocalPathContexts(
+  messages: Message[],
+  current: LocalPathContextItem[],
+  replacedMessageId?: string,
+): LocalPathContextItem[] {
+  const replacedIndex = replacedMessageId
+    ? messages.findIndex((message) => message.id === replacedMessageId)
+    : -1;
+  const retainedMessages = replacedIndex >= 0 ? messages.slice(0, replacedIndex) : messages;
+  return dedupeLocalPathContexts([
+    ...retainedMessages.flatMap((message) =>
+      message.role === "user" ? (message.localPathContexts ?? []) : [],
+    ),
+    ...current,
+  ]);
 }
 
 export function getMissingRunCompletionText(receivedText: string, completedText: string) {
@@ -680,11 +698,15 @@ export function buildThreadDraftSnapshot(input: {
   pendingAttachments: PendingAttachment[];
   localPathContexts?: LocalPathContextItem[];
   composerState?: string;
+  metadataFallback?: Partial<Pick<ThreadWorkDraftSnapshot, "attachedSkillNames" | "attachments">>;
 }): ThreadWorkDraftSnapshot | null {
-  const attachments = metadataOnly(
-    input.pendingAttachments.flatMap((pending) => (pending.metadata ? [pending.metadata] : [])),
-  );
-  const attachedSkillNames = input.attachedSkills.map((skill) => skill.name);
+  const attachments =
+    input.metadataFallback?.attachments ??
+    metadataOnly(
+      input.pendingAttachments.flatMap((pending) => (pending.metadata ? [pending.metadata] : [])),
+    );
+  const attachedSkillNames =
+    input.metadataFallback?.attachedSkillNames ?? input.attachedSkills.map((skill) => skill.name);
   const localPathContexts = input.localPathContexts ?? [];
   if (
     !input.content.trim() &&
@@ -1292,10 +1314,13 @@ export function Composer(props: ComposerProps) {
     const names = initialDraft?.attachedSkillNames ?? [];
     return names.length > 0 ? names : null;
   });
+  const pendingDraftSkillNamesRef = useRef(pendingDraftSkillNames);
+  pendingDraftSkillNamesRef.current = pendingDraftSkillNames;
   const draftAttachmentsRef = useRef<AttachmentMetadata[] | null>(null);
   if (draftAttachmentsRef.current === null) {
     draftAttachmentsRef.current = initialDraft?.attachments ?? [];
   }
+  const draftAttachmentsReadyRef = useRef((draftAttachmentsRef.current ?? []).length === 0);
   // Local Path Context restores straight from the draft (plain path data, no
   // byte reload like attachments). The ref seeds the once-per-mount restore so a
   // peer-window echo does not double-add on re-mount.
@@ -1342,8 +1367,6 @@ export function Composer(props: ComposerProps) {
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [branchSearchQuery, setBranchSearchQuery] = useState("");
   const composerSourceKey = `${props.mode}:${props.threadId}`;
-  const composerSourceKeyRef = useRef(composerSourceKey);
-  composerSourceKeyRef.current = composerSourceKey;
   const threadDraftSourceKey = `${props.mode}:${props.threadId}:${threadDraftSnapshotKey}`;
   const lastAppliedThreadDraftSourceKeyRef = useRef(threadDraftSourceKey);
 
@@ -1366,6 +1389,7 @@ export function Composer(props: ComposerProps) {
       setLocalPathContexts(draft?.localPathContexts ?? []);
 
       draftRestoreCompleteRef.current = false;
+      draftAttachmentsReadyRef.current = (draft?.attachments.length ?? 0) === 0;
       let cancelled = false;
       const cancel = () => {
         cancelled = true;
@@ -1395,6 +1419,7 @@ export function Composer(props: ComposerProps) {
             ? `文件不可用，请移除或重新添加：${unavailableNames.join(", ")}`
             : null,
         );
+        draftAttachmentsReadyRef.current = unavailableNames.length === 0;
         draftRestoreCompleteRef.current = true;
         if (sharedDraftRestoreCleanupRef.current === cancel) {
           sharedDraftRestoreCleanupRef.current = null;
@@ -2603,6 +2628,11 @@ export function Composer(props: ComposerProps) {
     const currentInput = externalSubmit
       ? externalSubmit.content.trim()
       : planSubmission.task.trim();
+    const runLocalPathContexts = collectRunLocalPathContexts(
+      props.messages,
+      currentLocalPathContexts,
+      externalSubmit?.messageId,
+    );
     const hasCurrentSendableContent = canSubmitComposerContent({
       content: currentInput,
       attachedSkillCount: currentAttachedSkills.length,
@@ -2803,7 +2833,7 @@ export function Composer(props: ComposerProps) {
     let userMessageId = externalSubmit?.messageId ?? "";
     let userMessageCreatedAt: string | undefined;
     if (externalSubmit?.messageId) {
-      updateMessageAndPruneAfter(externalSubmit.messageId, messageText);
+      updateMessageAndPruneAfter(externalSubmit.messageId, messageText, currentLocalPathContexts);
     } else {
       const userMessage = appendLocalMessage(
         "user",
@@ -2940,7 +2970,7 @@ export function Composer(props: ComposerProps) {
         transcript,
         message: messageText,
         attachments: attachmentMetadata,
-        localPathContexts: currentLocalPathContexts,
+        localPathContexts: runLocalPathContexts,
         historyMode: getChatHistoryMode(!!externalSubmit?.messageId),
       },
       {
@@ -3297,6 +3327,7 @@ export function Composer(props: ComposerProps) {
     const persisted = draftAttachmentsRef.current ?? [];
     let cancelled = false;
     if (persisted.length === 0) {
+      draftAttachmentsReadyRef.current = true;
       draftRestoreCompleteRef.current = true;
     } else {
       void (async () => {
@@ -3316,6 +3347,7 @@ export function Composer(props: ComposerProps) {
         if (unavailableNames.length > 0) {
           setAttachmentError(`文件不可用，请移除或重新添加：${unavailableNames.join(", ")}`);
         }
+        draftAttachmentsReadyRef.current = unavailableNames.length === 0;
         draftRestoreCompleteRef.current = true;
       })();
     }
@@ -3346,26 +3378,39 @@ export function Composer(props: ComposerProps) {
   }, [initialDraft?.composerState, pendingDraftSkillNames, skills, skillsLoading]);
 
   useEffect(() => {
-    const sourceKey = composerSourceKey;
     const sourceMode = props.mode;
     const sourceThreadId = threadId;
+    const sourceAssociationDraftChange = associationDraftChangeRef.current;
+    const sourceAssociationDraft = props.mode === "association-draft" ? props.initialDraft : null;
     return () => {
-      if (
-        sourceMode !== "thread" ||
-        composerSourceKeyRef.current === sourceKey ||
-        compositionActiveRef.current
-      ) {
+      if (sourceMode === "thread" && compositionActiveRef.current) {
         return;
       }
       const { content, attachedSkills, pendingAttachments, localPathContexts, composerState } =
         compositionBaselineInputRef.current;
+      const existingDraft =
+        sourceMode === "association-draft"
+          ? sourceAssociationDraft
+          : getThreadDraft(sourceThreadId);
       const draft = buildThreadDraftSnapshot({
         content,
         attachedSkills,
         pendingAttachments,
         localPathContexts,
         composerState,
+        metadataFallback: {
+          ...(pendingDraftSkillNamesRef.current !== null
+            ? { attachedSkillNames: existingDraft?.attachedSkillNames ?? [] }
+            : {}),
+          ...(!draftAttachmentsReadyRef.current
+            ? { attachments: existingDraft?.attachments ?? [] }
+            : {}),
+        },
       });
+      if (sourceMode === "association-draft") {
+        sourceAssociationDraftChange?.(draft);
+        return;
+      }
       const existing = getThreadDraft(sourceThreadId);
       if (draftsContentEqual(existing, draft)) return;
       if (draft) {
@@ -3449,6 +3494,7 @@ export function Composer(props: ComposerProps) {
       messageId: props.submitRequest.messageId,
       content: props.submitRequest.content,
       attachments: props.submitRequest.attachments,
+      localPathContexts: props.submitRequest.localPathContexts,
     });
   }, [props.submitRequest?.requestId, props.submitRequest?.content]);
 

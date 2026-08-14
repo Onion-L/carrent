@@ -55,6 +55,7 @@ export type UserMessageEditDraft = {
   messageId: string;
   content: string;
   attachments?: AttachmentMetadata[];
+  localPathContexts?: LocalPathContextItem[];
 };
 
 export type RuntimeSessionRetryRequest = NonNullable<
@@ -104,7 +105,10 @@ export function parseSkillReferenceSegments(content: string): UserMessageSegment
 }
 
 export function getUserMessageEditDraft(message: Message): UserMessageEditDraft | null {
-  if (message.role !== "user" || !message.content.trim()) {
+  if (
+    message.role !== "user" ||
+    (!message.content.trim() && !message.attachments?.length && !message.localPathContexts?.length)
+  ) {
     return null;
   }
 
@@ -112,6 +116,7 @@ export function getUserMessageEditDraft(message: Message): UserMessageEditDraft 
     messageId: message.id,
     content: message.content,
     attachments: message.attachments,
+    localPathContexts: message.localPathContexts,
   };
 }
 
@@ -395,19 +400,21 @@ function UserMessage({
   isEditing?: boolean;
   onEdit?: () => void;
   onCancelEdit?: () => void;
-  onSubmitEdit?: (content: string) => void;
+  onSubmitEdit?: (content: string, localPathContexts: LocalPathContextItem[]) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const editState = useMemo(() => splitLeadingSkillReferences(content), [content]);
   const [draftBody, setDraftBody] = useState(editState.body);
+  const [draftLocalPathContexts, setDraftLocalPathContexts] = useState(localPathContexts ?? []);
 
   useEffect(() => {
     if (isEditing) {
       setDraftBody(editState.body);
+      setDraftLocalPathContexts(localPathContexts ?? []);
     }
-  }, [editState.body, isEditing]);
+  }, [editState.body, isEditing, localPathContexts]);
 
   const handleCopy = async () => {
     try {
@@ -429,11 +436,12 @@ function UserMessage({
       ...(attachment.sha256 ? { sha256: attachment.sha256 } : {}),
     })) ?? [];
   const editedContent = buildUserMessageEditContent(editState.prefix, draftBody);
-  const canSubmitEdit = !!editedContent.trim();
+  const canSubmitEdit =
+    !!editedContent.trim() || !!attachments?.length || draftLocalPathContexts.length > 0;
 
   const handleSubmitEdit = () => {
     if (!canSubmitEdit) return;
-    onSubmitEdit?.(editedContent);
+    onSubmitEdit?.(editedContent, draftLocalPathContexts);
   };
 
   if (isEditing) {
@@ -474,9 +482,41 @@ function UserMessage({
               />
             </div>
           )}
-          {localPathContexts && localPathContexts.length > 0 ? (
-            <div className="mt-2">
-              <UserMessageLocalPathContextList items={localPathContexts} />
+          {draftLocalPathContexts.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {draftLocalPathContexts.map((item) => (
+                <div
+                  key={`${item.kind}:${item.path}`}
+                  data-local-path-context-card
+                  title={item.path}
+                  className="flex h-10 min-w-0 max-w-full basis-52 items-center rounded-lg border border-user-bubble-fg/15 bg-user-bubble-fg/[0.04]"
+                >
+                  <span className="flex min-w-0 flex-1 items-center gap-2 px-2.5">
+                    {item.kind === "directory" ? (
+                      <Folder className="h-4 w-4 shrink-0" />
+                    ) : (
+                      <FileText className="h-4 w-4 shrink-0" />
+                    )}
+                    <span className="truncate text-app-12">{item.basename}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDraftLocalPathContexts((current) =>
+                        current.filter(
+                          (candidate) =>
+                            candidate.path !== item.path || candidate.kind !== item.kind,
+                        ),
+                      )
+                    }
+                    aria-label={`Remove ${item.basename}`}
+                    title={`Remove ${item.basename}`}
+                    className="mr-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-user-bubble-fg/70 transition hover:bg-user-bubble-fg/10 hover:text-user-bubble-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-user-bubble-fg/25"
+                  >
+                    <XCircle className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
             </div>
           ) : null}
           <div className="mt-3 flex justify-end gap-2 border-t border-user-bubble-fg/10 pt-3">
@@ -1282,11 +1322,12 @@ export function MessageTimeline({
                           : undefined
                       }
                       onCancelEdit={() => setEditingMessageId(null)}
-                      onSubmitEdit={(content) => {
+                      onSubmitEdit={(content, localPathContexts) => {
                         onSubmitUserEdit?.({
                           messageId: msg.id,
                           content,
                           attachments: msg.attachments,
+                          localPathContexts,
                         });
                         setEditingMessageId(null);
                       }}

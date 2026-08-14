@@ -285,6 +285,57 @@ describe("prepareThreadDraftPromotion", () => {
     expect(savedSnapshot?.threadMessages?.[0]?.createdAt).toBe("2026-07-29T12:31:39.700Z");
     expect(savedSnapshot?.threadRuns?.[0]?.startedAt).toBe("2026-07-29T12:31:39.718Z");
   });
+
+  it("persists Local Path Context on the promoted user message", async () => {
+    const localPathContexts = [
+      { path: "/tmp/notes.md", basename: "notes.md", kind: "file" as const },
+      { path: "/tmp/reference", basename: "reference", kind: "directory" as const },
+    ];
+    await renderProvider({
+      ...baseSnapshot,
+      threads: [],
+      threadDrafts: [
+        {
+          id: "draft-1",
+          threadId: "thread-promoted",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          content: "first turn",
+          attachedSkillNames: [],
+          attachments: [],
+          localPathContexts,
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+    });
+
+    await act(async () => {
+      await contextValue!.prepareThreadDraftPromotion({
+        draftId: "draft-1",
+        runId: "run-1",
+        messageId: "message-1",
+        assistantMessageId: "assistant-1",
+        message: "first turn",
+        attachments: [],
+        localPathContexts,
+        startedAt: "2026-07-29T12:31:39.718Z",
+        runtimeId: "kimi",
+        runtimeMode: "approval-required",
+        planMode: false,
+        titleSource: "first turn",
+        draft: {
+          content: "first turn",
+          attachedSkillNames: [],
+          attachments: [],
+          localPathContexts,
+        },
+      });
+    });
+
+    expect(savedSnapshot?.threadMessages?.[0]?.localPathContexts).toEqual(localPathContexts);
+  });
 });
 
 /* Two independent renderer clients (two mounted providers) sharing one fake
@@ -559,7 +610,7 @@ describe("multi-window synchronization", () => {
     expect(contextValue!.settings.theme).toBe("light");
   });
 
-  it("converges association draft edits, attachments, and config across clients", async () => {
+  it("converges association draft edits, attachments, Local Path Context, and config across clients", async () => {
     await renderClients();
 
     let draft: AssociationThreadDraftRecord | null = null;
@@ -585,6 +636,9 @@ describe("multi-window synchronization", () => {
       size: 5,
       storageKey: "notes.txt",
     };
+    const localPathContexts = [
+      { path: "/tmp/reference", basename: "reference", kind: "directory" as const },
+    ];
     await act(async () => {
       expect(
         await contextValue!.updateThreadDraft(draft!.id, {
@@ -602,13 +656,16 @@ describe("multi-window synchronization", () => {
           content: "from B",
           attachedSkillNames: [],
           attachments: [attachment],
+          localPathContexts,
         }),
       ).toBe(true);
     });
-    // Last writer wins; both clients converge on it, attachments included.
+    // Last writer wins; both clients converge on it, attachments and contexts included.
     expect(contextValue!.threadDrafts[0]?.content).toBe("from B");
     expect(contextValue!.threadDrafts[0]?.attachments).toHaveLength(1);
     expect(contextB!.threadDrafts[0]?.attachments).toHaveLength(1);
+    expect(contextValue!.threadDrafts[0]?.localPathContexts).toEqual(localPathContexts);
+    expect(contextB!.threadDrafts[0]?.localPathContexts).toEqual(localPathContexts);
 
     await act(async () => {
       expect(
@@ -779,6 +836,9 @@ describe("multi-window synchronization", () => {
 
   it("persists draft state across a simulated restart", async () => {
     await renderClients();
+    const localPathContexts = [
+      { path: "/tmp/restart.md", basename: "restart.md", kind: "file" as const },
+    ];
 
     let draft: AssociationThreadDraftRecord | null = null;
     await act(async () => {
@@ -790,6 +850,7 @@ describe("multi-window synchronization", () => {
           content: "restart me",
           attachedSkillNames: ["tdd"],
           attachments: [],
+          localPathContexts,
         }),
       ).toBe(true);
     });
@@ -824,6 +885,7 @@ describe("multi-window synchronization", () => {
     expect(contextValue!.threadDrafts[0]).toMatchObject({
       content: "restart me",
       attachedSkillNames: ["tdd"],
+      localPathContexts,
       runtimeId: "kimi",
       runtimeMode: "full-access",
       planMode: true,

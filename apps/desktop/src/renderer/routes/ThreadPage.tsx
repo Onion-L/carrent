@@ -74,6 +74,22 @@ export function recordBrowserFocusSequence(
   return previous !== undefined && state.focusSequence > previous;
 }
 
+export function buildRuntimeSessionRetrySubmitRequest(
+  userMessage: Message | undefined,
+  requestId: number,
+): ComposerSubmitRequest | null {
+  if (!userMessage || userMessage.role !== "user") {
+    return null;
+  }
+  return {
+    messageId: userMessage.id,
+    content: userMessage.content,
+    attachments: userMessage.attachments,
+    localPathContexts: userMessage.localPathContexts,
+    requestId,
+  };
+}
+
 function ThreadPageContent() {
   const { workspaceId, projectId, threadId } = useParams();
   const { showToast } = useToast();
@@ -232,6 +248,7 @@ function ThreadPageContent() {
         messageId: draft.messageId,
         content: draft.content,
         attachments: draft.attachments,
+        localPathContexts: draft.localPathContexts,
         requestId: Date.now(),
       },
     });
@@ -244,7 +261,8 @@ function ThreadPageContent() {
       const userMessage = data.messages.find(
         (message) => message.id === request.userMessageId && message.role === "user",
       );
-      if (!userMessage || userMessage.role !== "user") {
+      const retrySubmitRequest = buildRuntimeSessionRetrySubmitRequest(userMessage, Date.now());
+      if (!retrySubmitRequest) {
         showToast("The original request is unavailable.", "error");
         return;
       }
@@ -261,12 +279,7 @@ function ThreadPageContent() {
 
       setSubmitRequest({
         threadId: request.threadId,
-        request: {
-          messageId: userMessage.id,
-          content: userMessage.content,
-          attachments: userMessage.attachments,
-          requestId: Date.now(),
-        },
+        request: retrySubmitRequest,
       });
     },
     [showToast],

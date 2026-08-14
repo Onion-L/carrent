@@ -8,10 +8,50 @@ import {
   shouldShowInspectorToggle,
 } from "../components/chat/ThreadInspectorPane";
 import {
+  buildRuntimeSessionRetrySubmitRequest,
   getThreadInspectorInput,
   recordBrowserFocusSequence,
   resolveThreadRouteData,
 } from "./ThreadPage";
+
+describe("buildRuntimeSessionRetrySubmitRequest", () => {
+  it("retries with the original structured Local Path Context", () => {
+    const message = {
+      id: "message-1",
+      role: "user",
+      timestamp: "09:00",
+      threadId: "thread-1",
+      content: "review this",
+      localPathContexts: [
+        { path: "/tmp/context.ts", basename: "context.ts", kind: "file" as const },
+      ],
+    } as Message;
+
+    expect(buildRuntimeSessionRetrySubmitRequest(message, 42)).toEqual({
+      messageId: "message-1",
+      content: "review this",
+      attachments: undefined,
+      localPathContexts: [{ path: "/tmp/context.ts", basename: "context.ts", kind: "file" }],
+      requestId: 42,
+    });
+  });
+
+  it("refuses a missing or non-user original request", () => {
+    expect(buildRuntimeSessionRetrySubmitRequest(undefined, 42)).toBe(null);
+    expect(
+      buildRuntimeSessionRetrySubmitRequest(
+        {
+          id: "assistant-1",
+          role: "assistant",
+          timestamp: "09:00",
+          threadId: "thread-1",
+          content: "answer",
+        } as Message,
+        42,
+      ),
+    ).toBe(null);
+  });
+});
 
 type TextMessage = {
   id: string;

@@ -178,10 +178,13 @@ function associationDraftTree(
   );
 }
 
-async function renderAssociationDraft(initialDraft: ThreadWorkDraftSnapshot) {
+async function renderAssociationDraft(
+  initialDraft: ThreadWorkDraftSnapshot,
+  options: { readAttachment?: () => Promise<Uint8Array> } = {},
+) {
   const snapshot = baseSnapshot({});
   const authority = createFakeAppStateAuthority(snapshot);
-  installCarrentBridge(authority, snapshot);
+  installCarrentBridge(authority, snapshot, options);
   const drafts: Array<ThreadWorkDraftSnapshot | null> = [];
   await mount(associationDraftTree(initialDraft, (draft) => drafts.push(draft)));
   return { authority, drafts };
@@ -242,6 +245,7 @@ function installCarrentBridge(
     authorityState?: ChatRunAuthorityState;
     disableAutoComplete?: boolean;
     getKimiStatus?: (request: Record<string, unknown>) => Promise<unknown>;
+    readAttachment?: () => Promise<Uint8Array>;
     workspaceDiff?: () => Promise<unknown>;
   } = {},
 ) {
@@ -267,7 +271,7 @@ function installCarrentBridge(
       flushDone: async () => {},
     },
     projectDirectories: { check: async () => ({ available: true }) },
-    attachments: { read: async () => new Uint8Array([1]) },
+    attachments: { read: options.readAttachment ?? (async () => new Uint8Array([1])) },
     runtimes: {
       list: async () => [
         {
@@ -436,6 +440,7 @@ async function renderComposer(
     authorityState?: ChatRunAuthorityState;
     disableAutoComplete?: boolean;
     getKimiStatus?: (request: Record<string, unknown>) => Promise<unknown>;
+    readAttachment?: () => Promise<Uint8Array>;
     workspaceDiff?: () => Promise<unknown>;
     withTimeline?: boolean;
   } = {},
@@ -446,6 +451,7 @@ async function renderComposer(
     authorityState: options.authorityState,
     disableAutoComplete: options.disableAutoComplete,
     getKimiStatus: options.getKimiStatus,
+    readAttachment: options.readAttachment,
     workspaceDiff: options.workspaceDiff,
   });
   await mount(composerTree(undefined, options.threadId, options.withTimeline));
@@ -767,6 +773,87 @@ describe("Composer Local Path Context", () => {
     ]);
   });
 
+  it("persists a newly dropped path when the Thread Draft Composer unmounts before debounce", async () => {
+    const attachment = {
+      id: "existing-attachment",
+      kind: "file" as const,
+      name: "existing.txt",
+      mimeType: "text/plain",
+      size: 5,
+      storageKey: "existing.txt",
+    };
+    const { drafts } = await renderAssociationDraft(
+      {
+        content: "",
+        attachedSkillNames: ["tdd"],
+        attachments: [attachment],
+      },
+      { readAttachment: () => new Promise<Uint8Array>(() => {}) },
+    );
+
+    await dispatchFileDrag("drop", [new File(["hello"], "draft-notes.md")]);
+    await act(async () => {
+      root!.unmount();
+    });
+    root = null;
+
+    expect(drafts.at(-1)).toMatchObject({
+      attachedSkillNames: ["tdd"],
+      attachments: [attachment],
+      localPathContexts: [
+        {
+          path: "/Users/test/draft-notes.md",
+          basename: "draft-notes.md",
+          kind: "file",
+        },
+      ],
+    });
+  });
+
+  it("persists a newly dropped path when the Thread Composer unmounts before debounce", async () => {
+    const attachment = {
+      id: "existing-attachment",
+      kind: "file" as const,
+      name: "existing.txt",
+      mimeType: "text/plain",
+      size: 5,
+      storageKey: "existing.txt",
+    };
+    await renderComposer({
+      threadWork: {
+        "thread-1": {
+          draft: {
+            content: "",
+            attachedSkillNames: ["tdd"],
+            attachments: [attachment],
+          },
+          queuedMessages: [],
+        },
+      },
+      readAttachment: async () => {
+        throw new Error("missing");
+      },
+    });
+
+    await dispatchFileDrag("drop", [new File(["hello"], "thread-notes.md")]);
+    await act(async () => {
+      root!.unmount();
+    });
+    root = null;
+
+    expect(getThreadDraft("thread-1")).toMatchObject({
+      attachedSkillNames: ["tdd"],
+      attachments: [attachment],
+      localPathContexts: [
+        {
+          path: "/Users/test/thread-notes.md",
+          basename: "thread-notes.md",
+          kind: "file",
+        },
+      ],
+    });
+  });
+
   it("leaves text and URL drags untouched", async () => {
     await renderComposer();
     const browserImage = new File(["image"], "remote.png", { type: "image/png" });
@@ -859,6 +946,45 @@ describe("Composer Local Path Context", () => {
         kind: "file",
       },
     ]);
+  });
+
+  it("authorizes Local Path Context retained in Thread history for a later Run", async () => {
+    const threadId = "thread-1";
+    await renderComposer({ threadId });
+    const file = new File(["hello"], "historical-context.md", { type: "text/markdown" });
+
+    await dispatchFileDrag("drop", [file]);
+    await setComposerText("first request");
+    await submitComposer();
+    await act(async () => {
+      emitChatEvent?.({
+        type: "completed",
+        runId: sentChatRunIds[0]!,
+        text: "done",
+        finishedAt: "2026-08-07T00:00:00.000Z",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    await setComposerText("follow up using the same context");
+    await submitComposer();
+
+    expect(sentChatRequests[1]?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/historical-context.md",
+        basename: "historical-context.md",
+        kind: "file",
+      },
+    ]);
+
+    await act(async () => {
+      emitChatEvent?.({
+        type: "completed",
+        runId: sentChatRunIds[1]!,
+        text: "done",
+        finishedAt: "2026-08-07T00:00:01.000Z",
+      });
+    });
   });
 });
 

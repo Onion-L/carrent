@@ -138,7 +138,11 @@ export type ThreadContentContextValue = {
     result: Extract<GitWorkspaceDiffResult, { state: "ready" }>,
   ) => ChangedFilesMessage;
   updateMessage: (id: string, content: string) => void;
-  updateMessageAndPruneAfter: (id: string, content: string) => void;
+  updateMessageAndPruneAfter: (
+    id: string,
+    content: string,
+    localPathContexts?: LocalPathContextItem[],
+  ) => void;
   updateMessageRunStatus: (id: string, status: MessageRunStatus) => void;
   updateMessageRunEventCount: (id: string, count: number) => void;
   updateMessageParts: (id: string, update: MessagePartUpdate) => void;
@@ -389,6 +393,7 @@ export function updateMessageAndPruneThreadAfter(
   messages: Message[],
   messageId: string,
   content: string,
+  localPathContexts?: LocalPathContextItem[],
 ) {
   const targetIndex = messages.findIndex((message) => message.id === messageId);
   const target = messages[targetIndex];
@@ -400,7 +405,18 @@ export function updateMessageAndPruneThreadAfter(
   return messages
     .slice(0, targetIndex + 1)
     .map((message) =>
-      message.id === messageId ? { ...message, content, parts: undefined } : message,
+      message.id === messageId
+        ? {
+            ...message,
+            content,
+            parts: undefined,
+            ...(localPathContexts === undefined
+              ? {}
+              : localPathContexts.length > 0
+                ? { localPathContexts }
+                : { localPathContexts: undefined }),
+          }
+        : message,
     )
     .concat(
       messages.slice(targetIndex + 1).filter((message) => message.threadId !== target.threadId),
@@ -929,13 +945,18 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
     }));
   };
 
-  const updateMessageAndPruneAfter = (id: string, content: string) => {
+  const updateMessageAndPruneAfter = (
+    id: string,
+    content: string,
+    localPathContexts?: LocalPathContextItem[],
+  ) => {
     updateThreadContent((state) => ({
       ...state,
       threadMessages: updateMessageAndPruneThreadAfter(
         state.threadMessages as Message[],
         id,
         content,
+        localPathContexts,
       ) as AppThreadMessageRecord[],
     }));
   };

@@ -41,6 +41,7 @@ import type {
   RuntimeQuotaWindow,
 } from "../../../shared/chat";
 import { isTerminalSharedChatRunStatus } from "../../../shared/chat";
+import { isSupportedImageMimeType } from "../../../shared/attachment";
 import type {
   AppThreadActionRecord,
   AppThreadRunStartInput,
@@ -380,12 +381,21 @@ export type LocalPathContextAddRef = {
   current: ((items: LocalPathContextItem[]) => void) | null;
 };
 
+// Imperative handle the drop surface uses to hand dropped image files to the
+// Composer's attachment pipeline, so a dropped image renders as a thumbnail
+// with click-to-preview instead of a Local Path Context card.
+export type ImageFileDropRef = {
+  current: ((files: File[]) => void) | null;
+};
+
 export function ConversationDropSurface({
   children,
   localPathContextAddRef,
+  imageFileDropRef,
 }: {
   children: ReactNode;
   localPathContextAddRef: LocalPathContextAddRef;
+  imageFileDropRef?: ImageFileDropRef;
 }) {
   const { showToast } = useToast();
   const dragDepthRef = useRef(0);
@@ -431,10 +441,18 @@ export function ConversationDropSurface({
     event.stopPropagation();
     resetDropState();
 
+    // Images go through the attachment pipeline (thumbnail + preview); every
+    // other local file or folder becomes Local Path Context.
+    const files = Array.from(event.dataTransfer.files);
+    const imageFiles = files.filter((file) => isSupportedImageMimeType(file.type));
+    const contextFiles = files.filter((file) => !isSupportedImageMimeType(file.type));
+    if (imageFiles.length > 0) {
+      imageFileDropRef?.current?.(imageFiles);
+    }
+    if (contextFiles.length === 0) return;
+
     try {
-      const result = await window.carrent.localPaths.resolveFiles(
-        Array.from(event.dataTransfer.files),
-      );
+      const result = await window.carrent.localPaths.resolveFiles(contextFiles);
       localPathContextAddRef.current?.(result.items);
       if (result.rejections.length > 0) {
         showToast(
@@ -535,6 +553,7 @@ type ComposerProps =
       submitRequest?: ComposerSubmitRequest;
       draftRequest?: ComposerDraftRequest;
       localPathContextAddRef?: LocalPathContextAddRef;
+      imageFileDropRef?: ImageFileDropRef;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
@@ -559,6 +578,7 @@ type ComposerProps =
       submitRequest?: ComposerSubmitRequest;
       draftRequest?: ComposerDraftRequest;
       localPathContextAddRef?: LocalPathContextAddRef;
+      imageFileDropRef?: ImageFileDropRef;
       onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void;
       onPromote: (input: AssociationDraftPromotionInput) => Promise<boolean>;
       onPromotionRejected: (draft: ThreadWorkDraftSnapshot) => Promise<void>;
@@ -2404,7 +2424,7 @@ export function Composer(props: ComposerProps) {
   }, [cascadingAnchorRect, cascadingRuntimeId, showRuntimePicker, updateCascadingPanelPosition]);
 
   const handleAddFiles = useCallback(
-    async (files: FileList | null) => {
+    async (files: FileList | File[] | null) => {
       if (!files || files.length === 0 || isPreparingAttachmentsRef.current) {
         return;
       }
@@ -2488,6 +2508,17 @@ export function Composer(props: ComposerProps) {
       ref.current = null;
     };
   }, [addLocalPathContexts, props.localPathContextAddRef]);
+
+  // Dropped image files route through the same attachment pipeline as the
+  // Attach picker and clipboard paste.
+  useEffect(() => {
+    const ref = props.imageFileDropRef;
+    if (!ref) return;
+    ref.current = (files) => void handleAddFiles(files);
+    return () => {
+      ref.current = null;
+    };
+  }, [handleAddFiles, props.imageFileDropRef]);
 
   const resolvePastedComposerContent = useCallback(
     (text: string) => {

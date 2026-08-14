@@ -42,6 +42,7 @@ import {
   ConversationDropSurface,
   type AssociationDraftPromotionInput,
   type ComposerDraftRequest,
+  type ImageFileDropRef,
   type LocalPathContextAddRef,
 } from "./Composer";
 import { MessageTimeline } from "./MessageTimeline";
@@ -71,6 +72,7 @@ function ComposerHarness({
 }) {
   const { hasHydrated, getThreadRouteData } = useThreadContent();
   const localPathContextAddRef = React.useRef(null) as LocalPathContextAddRef;
+  const imageFileDropRef = React.useRef(null) as ImageFileDropRef;
   const routeData = getThreadRouteData("project-1", threadId);
   if (!hasHydrated || !routeData) {
     return null;
@@ -84,7 +86,10 @@ function ComposerHarness({
     : null;
 
   return (
-    <ConversationDropSurface localPathContextAddRef={localPathContextAddRef}>
+    <ConversationDropSurface
+      localPathContextAddRef={localPathContextAddRef}
+      imageFileDropRef={imageFileDropRef}
+    >
       {withTimeline ? <MessageTimeline messages={routeData.messages} threadId={threadId} /> : null}
       <Composer
         mode="thread"
@@ -97,6 +102,7 @@ function ComposerHarness({
         planMode={false}
         draftRequest={draftRequest}
         localPathContextAddRef={localPathContextAddRef}
+        imageFileDropRef={imageFileDropRef}
       />
     </ConversationDropSurface>
   );
@@ -271,7 +277,17 @@ function installCarrentBridge(
       flushDone: async () => {},
     },
     projectDirectories: { check: async () => ({ available: true }) },
-    attachments: { read: options.readAttachment ?? (async () => new Uint8Array([1])) },
+    attachments: {
+      read: options.readAttachment ?? (async () => new Uint8Array([1])),
+      store: async (input: { name: string; mimeType: string; data: Uint8Array }) => ({
+        id: `stored-${input.name}`,
+        kind: input.mimeType.startsWith("image/") ? ("image" as const) : ("file" as const),
+        name: input.name,
+        mimeType: input.mimeType,
+        size: input.data.length,
+        storageKey: input.name,
+      }),
+    },
     runtimes: {
       list: async () => [
         {
@@ -1141,6 +1157,27 @@ describe("Composer Local Path Context", () => {
     expect(badge.tagName).toBe("BUTTON");
     expect(badge.getAttribute("aria-label")).toBe("Reveal handbook.md in Finder");
     expect(badge.getAttribute("title")).toBe("/Users/test/docs/handbook.md");
+  });
+
+  it("routes dropped images to thumbnail attachments instead of Local Path Context", async () => {
+    URL.createObjectURL = () => "blob:mock-preview";
+    URL.revokeObjectURL = () => {};
+    await renderComposer();
+    const image = new File(["fake-png"], "carrent-usage.png", { type: "image/png" });
+    const notes = new File(["hello"], "notes.md", { type: "text/markdown" });
+
+    await dispatchFileDrag("drop", [image, notes]);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    });
+
+    // The image becomes a thumbnail attachment with click-to-preview wiring.
+    const thumbnail = container!.querySelector<HTMLElement>('img[alt="carrent-usage.png"]');
+    expect(thumbnail).not.toBeNull();
+    expect(thumbnail?.getAttribute("src")).toBe("blob:mock-preview");
+    // The non-image file still becomes a Local Path Context card.
+    const cards = [...container!.querySelectorAll<HTMLElement>("[data-local-path-context-card]")];
+    expect(cards.map((card) => card.getAttribute("title"))).toEqual(["/Users/test/notes.md"]);
   });
 });
 

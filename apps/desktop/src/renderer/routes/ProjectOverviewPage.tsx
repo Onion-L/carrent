@@ -8,6 +8,7 @@ import { OpenInMenu } from "../components/chat/OpenInMenu";
 import {
   Composer,
   ConversationDropSurface,
+  type ImageFileDropRef,
   type LocalPathContextAddRef,
 } from "../components/chat/Composer";
 import { EmptyThreadPrompt } from "../components/chat/MessageTimeline";
@@ -46,6 +47,7 @@ export function ProjectOverviewPage() {
   );
   const [openDraft, setOpenDraft] = useState<AssociationThreadDraftRecord | null>(null);
   const localPathContextAddRef = useRef<LocalPathContextAddRef["current"]>(null);
+  const imageFileDropRef = useRef<ImageFileDropRef["current"]>(null);
   const browserTarget =
     openDraft && project ? { projectId: project.id, threadId: openDraft.threadId } : null;
   const {
@@ -179,7 +181,10 @@ export function ProjectOverviewPage() {
           </button>
         </DesktopHeaderPortal>
         <div className="flex h-full min-w-0 flex-1 flex-col">
-          <ConversationDropSurface localPathContextAddRef={localPathContextAddRef}>
+          <ConversationDropSurface
+            localPathContextAddRef={localPathContextAddRef}
+            imageFileDropRef={imageFileDropRef}
+          >
             <ChatHeader title="New thread" />
             <div
               data-empty-thread-layout
@@ -209,6 +214,7 @@ export function ProjectOverviewPage() {
                   runtimeMode={openDraft.runtimeMode}
                   planMode={openDraft.planMode}
                   localPathContextAddRef={localPathContextAddRef}
+                  imageFileDropRef={imageFileDropRef}
                   onDraftChange={(draft) => {
                     setOpenDraft({
                       ...openDraft,

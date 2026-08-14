@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { resolveDroppedLocalPaths, revealLocalPath } from "./localPathContext";
 
 describe("Local Path Context privileged boundary", () => {
-  it("resolves files and directories and rejects missing, non-local, and other entries", async () => {
+  it("resolves files and directories and rejects missing, non-local, and device entries", async () => {
     const root = await mkdtemp(join(tmpdir(), "carrent-local-path-"));
     const filePath = join(root, "My Notes (draft) [v2].md");
     await writeFile(filePath, "hello");

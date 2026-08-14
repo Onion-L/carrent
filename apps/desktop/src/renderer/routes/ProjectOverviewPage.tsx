@@ -179,8 +179,8 @@ export function ProjectOverviewPage() {
           </button>
         </DesktopHeaderPortal>
         <div className="flex h-full min-w-0 flex-1 flex-col">
-          <ChatHeader title="New thread" />
           <ConversationDropSurface localPathContextAddRef={localPathContextAddRef}>
+            <ChatHeader title="New thread" />
             <div
               data-empty-thread-layout
               className="flex min-h-0 flex-1 items-center justify-center px-6 py-8"

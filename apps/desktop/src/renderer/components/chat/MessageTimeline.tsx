@@ -42,7 +42,7 @@ import { PlanReviewBlock } from "./PlanReviewBlock";
 import { QuestionBlock } from "./QuestionBlock";
 import { parseFileReferenceSegments } from "./fileReferences";
 import { formatSkillLabel } from "./skillLabel";
-import { useToast } from "../toast/ToastContext";
+import { useRevealLocalPathContext } from "../../hooks/useRevealLocalPathContext";
 
 export { parseFileReferenceSegments } from "./fileReferences";
 
@@ -340,7 +340,7 @@ export function UserMessageAttachmentList({
 }
 
 export function UserMessageLocalPathContextList({ items }: { items: LocalPathContextItem[] }) {
-  const { showToast } = useToast();
+  const revealLocalPath = useRevealLocalPathContext();
 
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -351,21 +351,7 @@ export function UserMessageLocalPathContextList({ items }: { items: LocalPathCon
           data-local-path-context-badge
           title={item.path}
           aria-label={`Reveal ${item.basename} in Finder`}
-          onClick={() => {
-            void window.carrent.shell
-              .revealPath(item.path)
-              .then((result) => {
-                if (!result.revealed) {
-                  showToast(
-                    `Could not reveal “${item.basename}”: the path no longer exists.`,
-                    "error",
-                  );
-                }
-              })
-              .catch(() => {
-                showToast(`Could not reveal “${item.basename}” in the file manager.`, "error");
-              });
-          }}
+          onClick={() => void revealLocalPath(item)}
           className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-md border border-border-strong bg-bg/45 px-2.5 text-app-12 text-fg outline-none transition hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-fg/25"
         >
           {item.kind === "directory" ? (

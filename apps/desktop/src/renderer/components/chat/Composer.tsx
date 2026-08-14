@@ -73,6 +73,7 @@ import { StreamingTextRevealer } from "./typewriter";
 import { useThreadContent } from "../../context/ThreadContentContext";
 import { useAppState } from "../../context/AppStateContext";
 import { useChatRun } from "../../hooks/useChatRun";
+import { useRevealLocalPathContext } from "../../hooks/useRevealLocalPathContext";
 import { useSessionStatus } from "../../hooks/useSessionStatus";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import {
@@ -2486,19 +2487,7 @@ export function Composer(props: ComposerProps) {
     setLocalPathContexts((prev) => prev.filter((item) => item.path !== path || item.kind !== kind));
   }, []);
 
-  const handleRevealLocalPathContext = useCallback(
-    async (path: string, basename: string) => {
-      try {
-        const result = await window.carrent.shell.revealPath(path);
-        if (!result.revealed) {
-          showToast(`Could not reveal “${basename}”: the path no longer exists.`, "error");
-        }
-      } catch {
-        showToast(`Could not reveal “${basename}” in the file manager.`, "error");
-      }
-    },
-    [showToast],
-  );
+  const revealLocalPath = useRevealLocalPathContext();
 
   useEffect(() => {
     const ref = props.localPathContextAddRef;
@@ -4027,7 +4016,7 @@ export function Composer(props: ComposerProps) {
                 >
                   <button
                     type="button"
-                    onClick={() => void handleRevealLocalPathContext(item.path, item.basename)}
+                    onClick={() => void revealLocalPath(item)}
                     aria-label={`Reveal ${item.basename} in Finder`}
                     className="flex h-full min-w-0 flex-1 items-center gap-2 px-2.5 text-left outline-none transition hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
                   >

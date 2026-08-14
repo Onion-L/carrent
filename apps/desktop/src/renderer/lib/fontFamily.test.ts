@@ -1,10 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import {
-  BASE_FONT_SANS_STACK,
-  buildFontSansStack,
-  escapeFontFamilyName,
-} from "./fontFamily";
+import { BASE_FONT_SANS_STACK, buildFontSansStack, escapeFontFamilyName } from "./fontFamily";
 
 describe("escapeFontFamilyName", () => {
   it("leaves a plain name untouched", () => {
@@ -36,9 +32,7 @@ describe("buildFontSansStack", () => {
   });
 
   it("prepends the quoted custom font before the base stack", () => {
-    expect(buildFontSansStack("Comic Sans MS")).toBe(
-      `"Comic Sans MS", ${BASE_FONT_SANS_STACK}`,
-    );
+    expect(buildFontSansStack("Comic Sans MS")).toBe(`"Comic Sans MS", ${BASE_FONT_SANS_STACK}`);
   });
 
   it("escapes special characters in the custom font name", () => {

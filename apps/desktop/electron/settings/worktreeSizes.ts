@@ -40,11 +40,7 @@ export async function measureWorktreeDirectorySize(input: {
 }): Promise<WorktreeSizeState> {
   let incomplete = false;
 
-  async function walk(
-    directory: string,
-    name: string,
-    isRoot: boolean,
-  ): Promise<WorktreeSizeNode> {
+  async function walk(directory: string, name: string, isRoot: boolean): Promise<WorktreeSizeNode> {
     const node: WorktreeSizeNode = { name, path: directory, bytes: 0, kind: "directory" };
     if (input.signal.aborted) return node;
     let entries: Dirent[];

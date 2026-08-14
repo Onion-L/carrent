@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { ChatTurnRequest } from "../../src/shared/chat";
-import { parseChatTurnLocalPathContexts, registerChatIpc as registerProductionChatIpc } from "./chatIpc";
+import {
+  parseChatTurnLocalPathContexts,
+  registerChatIpc as registerProductionChatIpc,
+} from "./chatIpc";
 import { createChatRunAuthority } from "./chatRunAuthority";
 
 function registerChatIpc(

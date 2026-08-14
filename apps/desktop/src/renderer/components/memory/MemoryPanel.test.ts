@@ -130,7 +130,7 @@ function makeUiIndex(): KimiMemoryIndex {
             name: "MEMORY",
             isIndex: true,
             body: "# Memory Index\n",
-            raw: '# Memory Index\n\n- [user-role](user-role.md) — Who the user is\n',
+            raw: "# Memory Index\n\n- [user-role](user-role.md) — Who the user is\n",
           }),
           makeFile({
             path: "/tmp/memory/user-role.md",

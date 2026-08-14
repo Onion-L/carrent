@@ -174,7 +174,8 @@ function parseGeneratedTitle(output: string): string | null {
   if (!title) return null;
 
   if (/\p{Script=Han}/u.test(title)) {
-    const graphemeCount = [...new Intl.Segmenter("en", { granularity: "grapheme" }).segment(title)].length;
+    const graphemeCount = [...new Intl.Segmenter("en", { granularity: "grapheme" }).segment(title)]
+      .length;
     if (graphemeCount < 6) return null;
   }
   return title;

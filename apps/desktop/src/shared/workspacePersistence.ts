@@ -5,10 +5,7 @@ import {
   isValidAttachmentSha256,
   MAX_ATTACHMENT_COUNT,
 } from "./attachment";
-import {
-  normalizeLocalPathContexts,
-  type LocalPathContextItem,
-} from "./localPathContext";
+import { normalizeLocalPathContexts, type LocalPathContextItem } from "./localPathContext";
 import type { ChatPermissionOption } from "./chatPermissions";
 import { isRuntimeMode, type RuntimeMode } from "./runtimeMode";
 import { normalizePersistedRuntimeId, runtimeIds, type RuntimeId } from "./runtimes";
@@ -1470,8 +1467,12 @@ function normalizeMessageRecord(message: PersistedMessage): PersistedMessage | n
         .filter((attachment): attachment is AttachmentMetadata => attachment !== null)
     : undefined;
 
-  const { parts: _parts, attachments: _attachments, localPathContexts: _localPathContexts, ...rest } =
-    record;
+  const {
+    parts: _parts,
+    attachments: _attachments,
+    localPathContexts: _localPathContexts,
+    ...rest
+  } = record;
   const normalizedLocalPathContexts = normalizeLocalPathContexts(record.localPathContexts);
 
   return {

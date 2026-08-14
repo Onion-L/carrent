@@ -1,9 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  boundGraphemes,
-  boundThreadTitleSource,
-  deriveThreadTitle,
-} from "./threadTitle";
+import { boundGraphemes, boundThreadTitleSource, deriveThreadTitle } from "./threadTitle";
 
 describe("deriveThreadTitle", () => {
   it("returns the first non-empty line trimmed", () => {

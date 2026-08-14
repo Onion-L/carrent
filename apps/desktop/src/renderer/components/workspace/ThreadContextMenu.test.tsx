@@ -66,7 +66,9 @@ describe("ThreadContextMenuContent", () => {
   });
 
   it("disables archiving with the blocked reason while compacting", () => {
-    const markup = renderMenu({ archiveBlockedReason: "Wait for Compact to finish before archiving" });
+    const markup = renderMenu({
+      archiveBlockedReason: "Wait for Compact to finish before archiving",
+    });
 
     expect(markup).toContain('title="Wait for Compact to finish before archiving"');
     expect(markup).toContain("disabled");

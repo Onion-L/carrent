@@ -106,7 +106,12 @@ function StateBadge({
 }
 
 function worktreeName(path: string): string {
-  return path.split("/").filter((segment) => segment.length > 0).at(-1) ?? path;
+  return (
+    path
+      .split("/")
+      .filter((segment) => segment.length > 0)
+      .at(-1) ?? path
+  );
 }
 
 /** Splits a formatted size into value and unit for display typography. */
@@ -235,7 +240,9 @@ function WorktreeRow({
                 </span>
                 <span className="ml-1 text-app-12 font-medium text-subtle">{sizeUnit}</span>
               </span>
-              {size.incomplete ? <span className="text-app-10 text-warning">incomplete</span> : null}
+              {size.incomplete ? (
+                <span className="text-app-10 text-warning">incomplete</span>
+              ) : null}
             </>
           )}
           {share !== null ? (
@@ -896,7 +903,9 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
           <GitBranch className="h-4 w-4 text-subtle" />
           {WORKTREES_TAB_LABEL}
         </h1>
-        <p className="shrink-0 text-app-12 text-subtle">Git worktrees reachable from your Projects</p>
+        <p className="shrink-0 text-app-12 text-subtle">
+          Git worktrees reachable from your Projects
+        </p>
         {scan !== null ? (
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <StatChip>
@@ -970,10 +979,7 @@ export function WorktreesPanelView({ api }: { api: WorktreeSettingsApi }) {
     <div className="flex min-h-0 flex-1 flex-col">
       {header}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div
-          data-testid="worktrees-hero-pane"
-          className="px-6 pt-10 pb-4"
-        >
+        <div data-testid="worktrees-hero-pane" className="px-6 pt-10 pb-4">
           <div className="mx-auto w-full max-w-5xl">
             <div className="text-app-11 uppercase tracking-[0.14em] text-subtle">
               {unmeasuredMainCount > 0

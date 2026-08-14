@@ -33,6 +33,7 @@ Read `docs/agents/issue-tracker.md` and `docs/agents/triage-labels.md`; use the 
 For every issue in the snapshot, extract: goal, acceptance criteria, affected modules (`apps/desktop`, `apps/landing`, `packages/ui`), explicit dependencies (`Blocked by: #N`), triage label state, and open questions from comments.
 
 Classify into one of:
+
 - **executable** — fully specified (`ready-for-agent`, or clearly specified with no label) → gets a plan file + dispatch prompt.
 - **deferred** — `needs-info` / `needs-triage`, or under-specified → deferred list with the exact questions to ask. No plan file.
 - **excluded** — `ready-for-human`, `wontfix` → listed with the reason. No plan file.

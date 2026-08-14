@@ -313,7 +313,9 @@ describe("chatMessageQueue threadWork persistence", () => {
     // The drop/re-add race must not strip the flag either.
     syncThreadWorkFromSnapshot({ t25: { queuedMessages: [] } });
     syncThreadWorkFromSnapshot({
-      t25: { queuedMessages: [{ id: "recovered", content: "from disk", requiresConfirmation: true }] },
+      t25: {
+        queuedMessages: [{ id: "recovered", content: "from disk", requiresConfirmation: true }],
+      },
     });
 
     expect(getQueuedMessages("t25")).toEqual([
@@ -472,9 +474,7 @@ describe("chatMessageQueue Local Path Context", () => {
           attachments: [],
           localPathContexts: [folderContext],
         },
-        queuedMessages: [
-          { id: "q1", content: "queued", localPathContexts: [fileContext] },
-        ],
+        queuedMessages: [{ id: "q1", content: "queued", localPathContexts: [fileContext] }],
       },
     });
 
@@ -492,7 +492,12 @@ describe("chatMessageQueue Local Path Context", () => {
           localPathContexts: [folderContext],
         },
         queuedMessages: [
-          { id: "q1", content: "queued", localPathContexts: [fileContext], requiresConfirmation: true },
+          {
+            id: "q1",
+            content: "queued",
+            localPathContexts: [fileContext],
+            requiresConfirmation: true,
+          },
         ],
       },
     });

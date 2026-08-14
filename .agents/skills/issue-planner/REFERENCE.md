@@ -6,13 +6,13 @@ Analysis rubric, plan-file template, and edge cases for the issue-planner skill.
 
 Use the label strings from `docs/agents/triage-labels.md` (right-hand column).
 
-| Label / observed state | Action |
-| --- | --- |
-| `ready-for-agent` | executable → plan file + dispatch prompt |
+| Label / observed state                           | Action                                                      |
+| ------------------------------------------------ | ----------------------------------------------------------- |
+| `ready-for-agent`                                | executable → plan file + dispatch prompt                    |
 | `needs-triage` (or no label and under-specified) | deferred; list the missing spec points to resolve in triage |
-| `needs-info` | deferred; list the exact questions for the reporter |
-| `ready-for-human` | excluded from the agent order; list with reason |
-| `wontfix` | excluded; list with reason |
+| `needs-info`                                     | deferred; list the exact questions for the reporter         |
+| `ready-for-human`                                | excluded from the agent order; list with reason             |
+| `wontfix`                                        | excluded; list with reason                                  |
 
 Never invent acceptance criteria to make an issue "executable". If in doubt, defer.
 
@@ -97,7 +97,7 @@ Planning output only — nothing here has been executed.
 ## Execution order
 
 | Wave | Issue | Title | Priority | Effort | Risk | Depends on | Status |
-|------|-------|-------|----------|--------|------|------------|--------|
+| ---- | ----- | ----- | -------- | ------ | ---- | ---------- | ------ |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) |
 DEFERRED (one-line reason) | EXCLUDED (one-line reason)

@@ -132,9 +132,7 @@ export function RightSurfacePane({
                       <Icon className="h-4 w-4" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-app-14 font-medium text-fg">
-                        {surface.label}
-                      </span>
+                      <span className="block text-app-14 font-medium text-fg">{surface.label}</span>
                       <span className="mt-0.5 block truncate text-app-12 text-subtle">
                         {surface.description}
                       </span>

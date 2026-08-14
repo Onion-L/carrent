@@ -157,7 +157,10 @@ export function heatmapLevel(total: number, maxTotal: number): number {
   return 4;
 }
 
-export function collectModels(days: readonly RangeDay[], palette: readonly string[]): ModelSeries[] {
+export function collectModels(
+  days: readonly RangeDay[],
+  palette: readonly string[],
+): ModelSeries[] {
   const totalsByModel = new Map<string, KimiUsageTokenTotals>();
   for (const day of days) {
     for (const [model, totals] of Object.entries(day.byModel)) {
@@ -359,10 +362,7 @@ export function UsagePanel() {
   const totalInput = models.reduce((sum, series) => sum + series.totals.input, 0);
   const totalOutput = models.reduce((sum, series) => sum + series.totals.output, 0);
   const totalCacheRead = models.reduce((sum, series) => sum + series.totals.cacheRead, 0);
-  const totalCacheCreation = models.reduce(
-    (sum, series) => sum + series.totals.cacheCreation,
-    0,
-  );
+  const totalCacheCreation = models.reduce((sum, series) => sum + series.totals.cacheCreation, 0);
   // Hit rate = cache read / (cache read + uncached input). Cache *write* is
   // excluded: it is a store, not a miss.
   const cacheHitRate =

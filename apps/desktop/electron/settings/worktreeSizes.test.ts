@@ -1,8 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { WorktreeSizeEvent, WorktreeSizeNode, WorktreeSizeState } from "../../src/shared/worktrees";
+import type {
+  WorktreeSizeEvent,
+  WorktreeSizeNode,
+  WorktreeSizeState,
+} from "../../src/shared/worktrees";
 import {
   createWorktreeSizeScanner,
   measureWorktreeDirectorySize,
@@ -274,7 +287,6 @@ describe("createWorktreeSizeScanner", () => {
     };
     return { measure, pending };
   }
-
 
   function targets(count: number) {
     return Array.from({ length: count }, (_value, index) => ({

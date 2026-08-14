@@ -464,7 +464,7 @@ export function ConversationDropSurface({
       {dropActive ? (
         <div
           data-local-path-drop-overlay
-          className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-lg border-2 border-dashed border-fg/35 bg-surface-raised/90 text-fg"
+          className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center border-2 border-dashed border-fg/35 bg-surface-raised/90 text-fg"
           role="status"
         >
           <div className="flex items-center gap-2 text-app-13 font-medium">

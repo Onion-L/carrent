@@ -641,11 +641,9 @@ export async function buildKimiPromptParts(
   }
 
   if (!includesTranscriptPrompt) {
-    const folderContextSection = buildLocalPathContextSection(
-      request.localPathContexts?.filter((item) => item.kind === "directory"),
-    );
-    if (folderContextSection) {
-      text = text ? `${text}\n\n${folderContextSection}` : folderContextSection;
+    const localPathContextSection = buildLocalPathContextSection(request.localPathContexts);
+    if (localPathContextSection) {
+      text = text ? `${text}\n\n${localPathContextSection}` : localPathContextSection;
     }
   }
 

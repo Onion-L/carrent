@@ -141,7 +141,15 @@ describe("buildKimiPromptParts", () => {
       }),
     );
 
-    expect(parts[0]).toEqual({ type: "text", text: DEFAULT_FILE_ONLY_PROMPT });
+    expect(parts[0]).toEqual({
+      type: "text",
+      text: [
+        DEFAULT_FILE_ONLY_PROMPT,
+        "",
+        "Local path context (user-provided references):",
+        "- file notes.md — /Users/test/notes.md",
+      ].join("\n"),
+    });
     expect(parts[1]).toEqual({
       type: "resource_link",
       uri: "file:///Users/test/notes.md",

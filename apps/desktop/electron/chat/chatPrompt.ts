@@ -6,6 +6,8 @@ const MAX_TRANSCRIPT_CHARS = 6000;
 export const DEFAULT_IMAGE_ONLY_PROMPT = "Inspect the attached images and describe what you see.";
 export const DEFAULT_FILE_ONLY_PROMPT =
   "Inspect the attached files and summarize the relevant contents.";
+export const DEFAULT_FOLDER_ONLY_PROMPT =
+  "Inspect the referenced folder and summarize the relevant contents.";
 
 export function buildChatPrompt(
   request: ChatTurnRequest,
@@ -52,6 +54,9 @@ function getDefaultMessage(
   if (localPathContexts?.some((item) => item.kind === "file")) {
     return DEFAULT_FILE_ONLY_PROMPT;
   }
+  if (localPathContexts?.some((item) => item.kind === "directory")) {
+    return DEFAULT_FOLDER_ONLY_PROMPT;
+  }
   if (!attachments || attachments.length === 0) {
     return "";
   }
@@ -89,7 +94,9 @@ function buildTextOnlyAttachmentSection(
 // is used so exact paths containing spaces, brackets, parentheses, and Unicode
 // survive verbatim without fragile escaping. This text is informational; the
 // Runtime read allowlist (built at Run start) is the authorization boundary.
-function buildLocalPathContextSection(contexts: LocalPathContextItem[] | undefined): string | null {
+export function buildLocalPathContextSection(
+  contexts: LocalPathContextItem[] | undefined,
+): string | null {
   if (!contexts || contexts.length === 0) {
     return null;
   }

@@ -16,19 +16,20 @@ export async function resolveDroppedLocalPaths(paths: unknown): Promise<LocalPat
   const rejections: LocalPathResolutionRejection[] = [];
 
   for (const [index, rawPath] of paths.entries()) {
-    const item = normalizeLocalPathContextItem({ path: rawPath, kind: "file" });
-    if (!item) {
+    const normalizedPath = normalizeLocalPathContextItem({ path: rawPath, kind: "file" });
+    if (!normalizedPath) {
       rejections.push({ index, reason: "non-local" });
       continue;
     }
 
     try {
-      const stats = await stat(item.path);
-      if (!stats.isFile()) {
+      const stats = await stat(normalizedPath.path);
+      const kind = stats.isFile() ? "file" : stats.isDirectory() ? "directory" : null;
+      if (!kind) {
         rejections.push({ index, reason: "not-file" });
         continue;
       }
-      items.push(item);
+      items.push({ ...normalizedPath, kind });
     } catch {
       rejections.push({ index, reason: "unavailable" });
     }

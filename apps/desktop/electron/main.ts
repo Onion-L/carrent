@@ -759,11 +759,11 @@ if (!hasSingleInstanceLock) {
       return revealLocalPath(filePath, (path) => shell.showItemInFolder(path));
     });
 
-    // Resolves dropped file paths to validated Local Path Context descriptors.
+    // Resolves dropped filesystem paths to validated Local Path Context descriptors.
     // The preload already converted each DOM File to an absolute path via
     // webUtils.getPathForFile; here we stat each path to confirm it exists and
     // classify it, returning only normalized absolute path, basename, and kind.
-    // Missing or non-file entries are rejected without throwing so a mixed drop
+    // Missing or unsupported entries are rejected without throwing so a mixed drop
     // can still accept its valid items.
     guardedIpcMain.handle("local-paths:resolve", (_event, paths) =>
       resolveDroppedLocalPaths(paths),

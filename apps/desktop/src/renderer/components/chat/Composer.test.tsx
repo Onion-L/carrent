@@ -636,6 +636,59 @@ describe("Composer Local Path Context", () => {
     ]);
   });
 
+  it("renders, sends, and reveals a dropped folder as folder context", async () => {
+    await renderComposer({ withTimeline: true });
+    window.carrent.localPaths.resolveFiles = async () => ({
+      items: [
+        {
+          path: "/Users/test/reference docs",
+          basename: "reference docs",
+          kind: "directory",
+        },
+      ],
+      rejections: [],
+    });
+
+    await dispatchFileDrag("drop", [new File([], "reference docs")]);
+
+    const card = container!.querySelector<HTMLElement>("[data-local-path-context-card]");
+    expect(card?.textContent).toContain("reference docs");
+    expect(card?.textContent).toContain("Folder");
+    expect(card?.getAttribute("title")).toBe("/Users/test/reference docs");
+    expect(card?.querySelector(".lucide-folder")).not.toBeNull();
+    expect(card?.querySelector('[aria-label="Reveal reference docs in Finder"]')).not.toBeNull();
+    expect(card?.querySelector('[aria-label="Remove reference docs"]')).not.toBeNull();
+
+    await act(async () => {
+      card?.querySelector<HTMLButtonElement>('[aria-label^="Reveal "]')?.click();
+      await Promise.resolve();
+    });
+    expect(revealedPaths).toEqual(["/Users/test/reference docs"]);
+
+    await setComposerText("Review these references");
+    await submitComposer();
+
+    expect(sentChatRequests[0]?.message).toBe("Review these references");
+    expect(sentChatRequests[0]?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/reference docs",
+        basename: "reference docs",
+        kind: "directory",
+      },
+    ]);
+    const badge = container!.querySelector<HTMLElement>("[data-local-path-context-badge]");
+    expect(badge?.textContent).toContain("reference docs");
+    expect(badge?.textContent).toContain("Folder");
+    expect(badge?.querySelector(".lucide-folder")).not.toBeNull();
+    expect(container!.textContent).not.toContain("/Users/test/reference docs");
+
+    await act(async () => {
+      badge?.click();
+      await Promise.resolve();
+    });
+    expect(revealedPaths).toEqual(["/Users/test/reference docs", "/Users/test/reference docs"]);
+  });
+
   it("deduplicates within the current composition and removes a card independently", async () => {
     await renderComposer();
     const file = new File(["hello"], "notes.md", { type: "text/markdown" });
@@ -727,7 +780,7 @@ describe("Composer Local Path Context", () => {
     expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
   });
 
-  it("shows one error toast and ignores a rejected local file", async () => {
+  it("shows one error toast and ignores a rejected local path", async () => {
     await renderComposer();
     window.carrent.localPaths.resolveFiles = async () => ({
       items: [],
@@ -740,7 +793,7 @@ describe("Composer Local Path Context", () => {
     });
 
     const errorToasts = [...container!.querySelectorAll('[role="alert"]')].filter((alert) =>
-      alert.textContent?.includes("One dropped item is not an available local file."),
+      alert.textContent?.includes("One dropped item is not an available local file or folder."),
     );
     expect(errorToasts).toHaveLength(1);
     expect(container!.querySelector("[data-local-path-context-card]")).toBeNull();

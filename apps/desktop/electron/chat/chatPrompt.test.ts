@@ -268,4 +268,27 @@ describe("buildChatPrompt", () => {
 
     expect(prompt).toContain(`user: ${DEFAULT_FILE_ONLY_PROMPT}`);
   });
+
+  it("identifies a user-provided folder and preserves its exact path", () => {
+    const prompt = buildChatPrompt(
+      makeRequest({
+        message: "",
+        localPathContexts: [
+          {
+            path: "/Users/test/Reference Docs (2026)",
+            basename: "Reference Docs (2026)",
+            kind: "directory",
+          },
+        ],
+      }),
+    );
+
+    expect(prompt).toContain(
+      "user: Inspect the referenced folder and summarize the relevant contents.",
+    );
+    expect(prompt).toContain("Local path context (user-provided references):");
+    expect(prompt).toContain(
+      "- directory Reference Docs (2026) — /Users/test/Reference Docs (2026)",
+    );
+  });
 });

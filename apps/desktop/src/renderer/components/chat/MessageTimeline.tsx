@@ -9,6 +9,7 @@ import {
   CircleDot,
   Copy,
   FileText,
+  Folder,
   Loader2,
   Pencil,
   XCircle,
@@ -362,9 +363,15 @@ export function UserMessageLocalPathContextList({ items }: { items: LocalPathCon
           }}
           className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border border-user-bubble-fg/15 bg-user-bubble-fg/[0.04] px-2 text-app-11 text-user-bubble-fg outline-none transition hover:bg-user-bubble-fg/10 focus-visible:ring-2 focus-visible:ring-user-bubble-fg/30"
         >
-          <FileText className="h-3.5 w-3.5 shrink-0" />
+          {item.kind === "directory" ? (
+            <Folder className="h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <FileText className="h-3.5 w-3.5 shrink-0" />
+          )}
           <span className="truncate font-medium">{item.basename}</span>
-          <span className="shrink-0 text-user-bubble-fg/60">File</span>
+          <span className="shrink-0 text-user-bubble-fg/60">
+            {item.kind === "directory" ? "Folder" : "File"}
+          </span>
         </button>
       ))}
     </div>

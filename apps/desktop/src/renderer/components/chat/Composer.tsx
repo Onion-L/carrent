@@ -7,6 +7,7 @@ import {
   CircleAlert,
   CornerDownRight,
   FileText,
+  Folder,
   GitBranch,
   Lock,
   ListChecks,
@@ -428,13 +429,13 @@ export function ConversationDropSurface({
       if (result.rejections.length > 0) {
         showToast(
           result.rejections.length === 1
-            ? "One dropped item is not an available local file."
-            : `${result.rejections.length} dropped items are not available local files.`,
+            ? "One dropped item is not an available local file or folder."
+            : `${result.rejections.length} dropped items are not available local files or folders.`,
           "error",
         );
       }
     } catch {
-      showToast("The dropped local file could not be resolved.", "error");
+      showToast("The dropped local file or folder could not be resolved.", "error");
     }
   };
 
@@ -457,8 +458,8 @@ export function ConversationDropSurface({
           role="status"
         >
           <div className="flex items-center gap-2 text-app-13 font-medium">
-            <FileText className="h-4 w-4" />
-            <span>File context</span>
+            <Folder className="h-4 w-4" />
+            <span>File or folder context</span>
           </div>
         </div>
       ) : null}
@@ -3944,12 +3945,18 @@ export function Composer(props: ComposerProps) {
                     aria-label={`Reveal ${item.basename} in Finder`}
                     className="flex h-full min-w-0 flex-1 items-center gap-2 px-2.5 text-left outline-none transition hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
                   >
-                    <FileText className="h-4 w-4 shrink-0 text-muted" />
+                    {item.kind === "directory" ? (
+                      <Folder className="h-4 w-4 shrink-0 text-muted" />
+                    ) : (
+                      <FileText className="h-4 w-4 shrink-0 text-muted" />
+                    )}
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-app-12 leading-5 text-fg">
                         {item.basename}
                       </span>
-                      <span className="block text-app-11 leading-4 text-subtle">File</span>
+                      <span className="block text-app-11 leading-4 text-subtle">
+                        {item.kind === "directory" ? "Folder" : "File"}
+                      </span>
                     </span>
                   </button>
                   <button

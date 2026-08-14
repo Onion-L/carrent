@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import type { ChatRunEvent, ChatTurnRequest, KimiTimelineItem } from "../../src/shared/chat";
 import { MAX_SUBAGENT_TASK_TEXT_LENGTH } from "../../src/shared/workspacePersistence";
 import type { CarrentBridgeFactory, CarrentBridgeHandle } from "../bridge/carrentBridge";
-import { DEFAULT_FILE_ONLY_PROMPT } from "./chatPrompt";
+import { DEFAULT_FILE_ONLY_PROMPT, DEFAULT_FOLDER_ONLY_PROMPT } from "./chatPrompt";
 import {
   buildKimiPromptParts,
   getKimiSessionStatus,
@@ -147,6 +147,38 @@ describe("buildKimiPromptParts", () => {
       uri: "file:///Users/test/notes.md",
       name: "notes.md",
     });
+  });
+
+  it("sends a Local Path Context folder as an ACP resource link", async () => {
+    const parts = await buildKimiPromptParts(
+      makeRequest({
+        message: "",
+        localPathContexts: [
+          {
+            path: "/Users/test/Reference Docs (2026)",
+            basename: "Reference Docs (2026)",
+            kind: "directory",
+          },
+        ],
+      }),
+    );
+
+    expect(parts).toEqual([
+      {
+        type: "text",
+        text: [
+          DEFAULT_FOLDER_ONLY_PROMPT,
+          "",
+          "Local path context (user-provided references):",
+          "- directory Reference Docs (2026) — /Users/test/Reference Docs (2026)",
+        ].join("\n"),
+      },
+      {
+        type: "resource_link",
+        uri: "file:///Users/test/Reference%20Docs%20(2026)",
+        name: "Reference Docs (2026)",
+      },
+    ]);
   });
 
   it("does not inject RTK instructions into Kimi prompts", async () => {
@@ -3357,6 +3389,128 @@ describe("startKimiAcpChatRun", () => {
       uri: pathToFileURL(targetPath).toString(),
       name: "notes.md",
     });
+  });
+
+  it("reads only existing descendants of a Local Path Context folder", async () => {
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-lpc-dir-project-"));
+    const externalRoot = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-lpc-dir-external-"));
+    const directoryPath = path.join(externalRoot, "Reference Docs");
+    const nestedPath = path.join(directoryPath, "guides", "setup.md");
+    const missingPath = path.join(directoryPath, "guides", "moved.md");
+    const siblingPath = path.join(externalRoot, "sibling.txt");
+    const escapingSymlinkPath = path.join(directoryPath, "outside.txt");
+    await mkdir(path.dirname(nestedPath), { recursive: true });
+    await writeFile(nestedPath, "setup guide");
+    await writeFile(siblingPath, "outside secret");
+    await symlink(siblingPath, escapingSymlinkPath);
+
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-descendant",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: nestedPath },
+        });
+        return;
+      }
+      if (message.id === "read-descendant") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-missing",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: missingPath },
+        });
+        return;
+      }
+      if (message.id === "read-missing") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "write-descendant",
+          method: "fs/write_text_file",
+          params: { sessionId: "session-1", path: nestedPath, content: "hacked" },
+        });
+        return;
+      }
+      if (message.id === "write-descendant") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-parent-sibling",
+          method: "fs/read_text_file",
+          params: {
+            sessionId: "session-1",
+            path: path.join(directoryPath, "..", "sibling.txt"),
+          },
+        });
+        return;
+      }
+      if (message.id === "read-parent-sibling") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-escaping-symlink",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: escapingSymlinkPath },
+        });
+        return;
+      }
+      if (message.id === "read-escaping-symlink") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Done" },
+            },
+          },
+        });
+        respondAcp(fakeTransport, promptRequest!, { stopReason: "end_turn" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-local-path-context-directory",
+      request: makeRequest({
+        context: {
+          kind: "project",
+          workspaceId: "workspace-1",
+          projectId: "p1",
+          workingDirectory: projectDir,
+        },
+        localPathContexts: [{ path: directoryPath, basename: "Reference Docs", kind: "directory" }],
+      }),
+      cwd: projectDir,
+      emit: () => {},
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(transport.sent.find((message) => message.id === "read-descendant")?.result).toEqual({
+      content: "setup guide",
+    });
+    for (const id of [
+      "read-missing",
+      "write-descendant",
+      "read-parent-sibling",
+      "read-escaping-symlink",
+    ]) {
+      expect(transport.sent.find((message) => message.id === id)?.error).toMatchObject({
+        code: -32000,
+      });
+    }
+    expect(await readFile(nestedPath, "utf8")).toBe("setup guide");
   });
 
   it("fails the Run when a referenced Local Path Context file is unavailable", async () => {

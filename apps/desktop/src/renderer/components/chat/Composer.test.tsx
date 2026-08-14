@@ -631,6 +631,8 @@ describe("Composer Local Path Context", () => {
     const badge = container!.querySelector<HTMLElement>("[data-local-path-context-badge]");
     expect(badge?.textContent).toContain("My Notes (draft) [v2].md");
     expect(badge?.getAttribute("title")).toBe("/Users/test/My Notes (draft) [v2].md");
+    // The badge sits below the message bubble, not inside it.
+    expect(badge?.closest(".bg-user-bubble")).toBeNull();
     expect(container!.textContent).not.toContain("/Users/test/My Notes (draft) [v2].md");
     await act(async () => {
       badge?.click();

@@ -366,15 +366,15 @@ export function UserMessageLocalPathContextList({ items }: { items: LocalPathCon
                 showToast(`Could not reveal “${item.basename}” in the file manager.`, "error");
               });
           }}
-          className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border border-user-bubble-fg/15 bg-user-bubble-fg/[0.04] px-2 text-app-11 text-user-bubble-fg outline-none transition hover:bg-user-bubble-fg/10 focus-visible:ring-2 focus-visible:ring-user-bubble-fg/30"
+          className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border border-border-strong bg-bg/45 px-2 text-app-11 text-fg outline-none transition hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-fg/25"
         >
           {item.kind === "directory" ? (
-            <Folder className="h-3.5 w-3.5 shrink-0" />
+            <Folder className="h-3.5 w-3.5 shrink-0 text-muted" />
           ) : (
-            <FileText className="h-3.5 w-3.5 shrink-0" />
+            <FileText className="h-3.5 w-3.5 shrink-0 text-muted" />
           )}
           <span className="truncate font-medium">{item.basename}</span>
-          <span className="shrink-0 text-user-bubble-fg/60">
+          <span className="shrink-0 text-subtle">
             {item.kind === "directory" ? "Folder" : "File"}
           </span>
         </button>
@@ -555,22 +555,24 @@ function UserMessage({
       onMouseLeave={() => setHovered(false)}
     >
       <div className="max-w-[80%]">
-        <div className="rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
-          {content && <UserMessageContent content={content} />}
-          {localPathContexts && localPathContexts.length > 0 ? (
-            <div className={content ? "mt-2" : ""}>
-              <UserMessageLocalPathContextList items={localPathContexts} />
-            </div>
-          ) : null}
-          {attachments && attachments.length > 0 && (
-            <div className={content || localPathContexts?.length ? "mt-2" : ""}>
-              <UserMessageAttachmentList
-                attachments={attachments}
-                onImageClick={setLightboxIndex}
-              />
-            </div>
-          )}
-        </div>
+        {content || (attachments && attachments.length > 0) ? (
+          <div className="rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
+            {content && <UserMessageContent content={content} />}
+            {attachments && attachments.length > 0 && (
+              <div className={content ? "mt-2" : ""}>
+                <UserMessageAttachmentList
+                  attachments={attachments}
+                  onImageClick={setLightboxIndex}
+                />
+              </div>
+            )}
+          </div>
+        ) : null}
+        {localPathContexts && localPathContexts.length > 0 ? (
+          <div className="mt-1.5 flex justify-end">
+            <UserMessageLocalPathContextList items={localPathContexts} />
+          </div>
+        ) : null}
         {lightboxIndex !== null && (
           <ImageAttachmentLightbox
             items={lightboxItems}

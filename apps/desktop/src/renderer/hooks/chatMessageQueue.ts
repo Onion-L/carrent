@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { AttachmentMetadata } from "../../shared/chat";
+import type { LocalPathContextItem } from "../../shared/localPathContext";
 import type {
   ThreadWorkDraftSnapshot,
   ThreadWorkSnapshot,
@@ -9,6 +10,7 @@ export type QueuedChatMessage = {
   id: string;
   content: string;
   attachments?: AttachmentMetadata[];
+  localPathContexts?: LocalPathContextItem[];
   requiresConfirmation?: boolean;
 };
 
@@ -121,6 +123,9 @@ function copyDraft(draft: ThreadWorkDraftSnapshot): ThreadWorkDraftSnapshot {
     ...(draft.composerState ? { composerState: draft.composerState } : {}),
     attachedSkillNames: [...draft.attachedSkillNames],
     attachments: draft.attachments.map((attachment) => ({ ...attachment })),
+    ...(draft.localPathContexts
+      ? { localPathContexts: draft.localPathContexts.map((item) => ({ ...item })) }
+      : {}),
   };
 }
 
@@ -204,14 +209,15 @@ function queueContentOf(queue: QueuedChatMessage[] | undefined) {
     id: item.id,
     content: item.content,
     attachments: item.attachments ?? [],
+    localPathContexts: item.localPathContexts ?? [],
   }));
 }
 
-// Compares drafts by semantic content only (text, skills, attachments),
-// ignoring `composerState`. The serialized editor state changes on every
-// keystroke (Lexical node keys, selection offsets), so a full-JSON compare
-// treats an authority echo of our own draft as "changed", emitting a store
-// bump that needlessly re-runs the Composer's readback effect while typing.
+// Compares drafts by semantic content only (text, skills, attachments, Local
+// Path Context), ignoring `composerState`. The serialized editor state changes
+// on every keystroke (Lexical node keys, selection offsets), so a full-JSON
+// compare treats an authority echo of our own draft as "changed", emitting a
+// store bump that needlessly re-runs the Composer's readback effect while typing.
 function draftsEqualSemantic(
   a: ThreadWorkDraftSnapshot | null | undefined,
   b: ThreadWorkDraftSnapshot | null | undefined,
@@ -223,7 +229,8 @@ function draftsEqualSemantic(
   return (
     left.content === right.content &&
     JSON.stringify(left.attachedSkillNames) === JSON.stringify(right.attachedSkillNames) &&
-    JSON.stringify(left.attachments) === JSON.stringify(right.attachments)
+    JSON.stringify(left.attachments) === JSON.stringify(right.attachments) &&
+    JSON.stringify(left.localPathContexts ?? []) === JSON.stringify(right.localPathContexts ?? [])
   );
 }
 
@@ -287,7 +294,9 @@ export function syncThreadWorkFromSnapshot(threadWork: Record<string, ThreadWork
         (queued) =>
           queued.id === item.id &&
           queued.content === item.content &&
-          JSON.stringify(queued.attachments ?? []) === JSON.stringify(item.attachments ?? []),
+          JSON.stringify(queued.attachments ?? []) === JSON.stringify(item.attachments ?? []) &&
+          JSON.stringify(queued.localPathContexts ?? []) ===
+            JSON.stringify(item.localPathContexts ?? []),
       );
       if (local) return [local];
       const copy = { ...item };

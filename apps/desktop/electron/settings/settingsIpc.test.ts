@@ -1,5 +1,18 @@
 import { describe, expect, it } from "bun:test";
-import { registerSettingsIpc } from "./settingsIpc";
+import { isAbsoluteWorktreePath, registerSettingsIpc } from "./settingsIpc";
+
+describe("isAbsoluteWorktreePath", () => {
+  it("accepts Unix absolute paths on POSIX platforms", () => {
+    expect(isAbsoluteWorktreePath("/repo/worktree", "darwin")).toBe(true);
+    expect(isAbsoluteWorktreePath("repo/worktree", "darwin")).toBe(false);
+  });
+
+  it("accepts drive-letter and UNC worktree paths on Windows", () => {
+    expect(isAbsoluteWorktreePath("D:\\repo\\worktree", "win32")).toBe(true);
+    expect(isAbsoluteWorktreePath("\\\\server\\share\\worktree", "win32")).toBe(true);
+    expect(isAbsoluteWorktreePath("repo\\worktree", "win32")).toBe(false);
+  });
+});
 
 describe("registerSettingsIpc", () => {
   it("registers settings handlers", () => {

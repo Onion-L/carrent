@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isAbsolute } from "node:path";
 
 import {
   MAX_TERMINAL_INPUT_BYTES,
@@ -60,7 +61,10 @@ type Dependencies = {
   emit: (ownerId: number, event: TerminalEvent) => void;
   env?: NodeJS.ProcessEnv;
   fallbackShell?: string;
+  /** Login/interactive flags per shell; shells like cmd.exe, dash, and fish accept none. */
+  shellArguments?: (shell: string) => string[];
   isExecutable?: (path: string) => boolean;
+  isAbsolutePath?: (value: string) => boolean;
   createId?: () => string;
   browserEnvironment?: (input: { projectId: string }) => Record<string, string>;
   createShellIntegration?: (input: {
@@ -90,6 +94,13 @@ const OSC_STRING_TERMINATOR = "\u001b\\";
 function requireProjectId(projectId: string) {
   if (!PROJECT_ID_PATTERN.test(projectId)) throw new Error("Invalid Project identity.");
   return projectId;
+}
+
+// Only zsh and bash take -l; dash (the usual /bin/sh), fish, and Windows
+// shells reject it, so unrecognized shells start without login flags rather
+// than failing to spawn at all.
+function loginInteractiveArguments(shell: string): string[] {
+  return shell.endsWith("/zsh") || shell.endsWith("/bash") ? ["-l", "-i"] : [];
 }
 
 function sanitizeTitle(title: string) {
@@ -163,7 +174,9 @@ export function createTerminalSessionManager({
   emit,
   env = process.env,
   fallbackShell = "/bin/zsh",
+  shellArguments = loginInteractiveArguments,
   isExecutable = () => true,
+  isAbsolutePath = isAbsolute,
   createId = randomUUID,
   browserEnvironment,
   createShellIntegration,
@@ -310,7 +323,7 @@ export function createTerminalSessionManager({
     create(input: CreateInput) {
       const projectId = requireProjectId(input.projectId);
       subscribers(projectId).add(input.ownerId);
-      if (!input.workingDirectory.startsWith("/")) {
+      if (!isAbsolutePath(input.workingDirectory)) {
         throw new Error("Project Working Directory must be absolute.");
       }
       if (input.ensureFirst) {
@@ -344,7 +357,7 @@ export function createTerminalSessionManager({
           integration = undefined;
         }
       }
-      const process = pty.spawn(shell, ["-l", "-i"], {
+      const process = pty.spawn(shell, shellArguments(shell), {
         cwd: input.workingDirectory,
         cols: 80,
         rows: 24,

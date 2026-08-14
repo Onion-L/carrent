@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type { AppProjectRecord } from "../../src/shared/workspacePersistence";
 import {
   EMPTY_WORKTREE_ACTIVITY,
@@ -35,6 +37,14 @@ function senderIdOf(event: unknown): number {
   const id = sender.id;
   if (typeof id !== "number") throw new Error("Unknown settings sender.");
   return id;
+}
+
+/** Absolute in the host platform's grammar: "/work/x" and "D:\work\x" both pass on Windows. */
+export function isAbsoluteWorktreePath(
+  value: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return platform === "win32" ? path.win32.isAbsolute(value) : path.isAbsolute(value);
 }
 /**
  * Worktree mutations (remove, prune) run one at a time across every Carrent
@@ -132,7 +142,7 @@ export function registerSettingsIpc(
         value.commonDirectory === "" ||
         !("worktreePath" in value) ||
         typeof value.worktreePath !== "string" ||
-        !value.worktreePath.startsWith("/")
+        !isAbsoluteWorktreePath(value.worktreePath)
       ) {
         throw new Error("Worktree size targets must name an absolute worktree path.");
       }

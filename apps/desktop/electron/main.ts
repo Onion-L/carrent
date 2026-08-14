@@ -614,8 +614,15 @@ if (!hasSingleInstanceLock) {
     const terminalHistory = createTerminalHistory(
       parseZshHistory(readHistoryTail(join(app.getPath("home"), ".zsh_history"))),
     );
+    // The fallback shell must exist on the host: Windows has no zsh, and
+    // minimal Linux images may not ship it, so resolve down the POSIX chain.
+    const fallbackShell =
+      process.platform === "win32"
+        ? process.env.COMSPEC || "cmd.exe"
+        : (["/bin/zsh", "/bin/bash", "/bin/sh"].find(isExecutableFile) ?? "/bin/sh");
     terminalSessionManager = createTerminalSessionManager({
       pty: nodePtyAdapter,
+      fallbackShell,
       emit: (ownerId, event) => {
         const contents = webContents.fromId(ownerId);
         if (contents && !contents.isDestroyed()) {

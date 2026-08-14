@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { win32 } from "node:path";
 
 import {
   createTerminalSessionManager,
@@ -197,6 +198,76 @@ describe("TerminalSessionManager", () => {
       rows: 24,
       env: { SHELL: "/missing/shell", PATH: "/opt/bin", TERM_PROGRAM: "Carrent" },
     });
+  });
+
+  it("rejects a relative Project Working Directory", () => {
+    const { manager } = setup();
+
+    expect(() =>
+      manager.create({
+        ownerId: 7,
+        projectId: "project-1",
+        projectName: "Carrent",
+        workingDirectory: "work/carrent",
+        enhancedCompletion: false,
+      }),
+    ).toThrow("Project Working Directory must be absolute.");
+  });
+
+  it("starts a Windows fallback shell without login flags in a drive-letter directory", () => {
+    const starts: Parameters<PtyAdapter["spawn"]>[] = [];
+    const manager = createTerminalSessionManager({
+      pty: {
+        spawn(...args) {
+          starts.push(args);
+          return new FakePty();
+        },
+      },
+      emit: () => {},
+      env: { PATH: "C:\\Windows" },
+      fallbackShell: "C:\\Windows\\system32\\cmd.exe",
+      isAbsolutePath: win32.isAbsolute,
+    });
+
+    manager.create({
+      ownerId: 7,
+      projectId: "project-1",
+      projectName: "Carrent",
+      workingDirectory: "D:\\work\\carrent",
+      enhancedCompletion: true,
+    });
+
+    expect(starts).toHaveLength(1);
+    expect(starts[0][0]).toBe("C:\\Windows\\system32\\cmd.exe");
+    expect(starts[0][1]).toEqual([]);
+    expect(starts[0][2]).toMatchObject({ cwd: "D:\\work\\carrent" });
+  });
+
+  it("starts a bare /bin/sh fallback without the login flag dash rejects", () => {
+    const starts: Parameters<PtyAdapter["spawn"]>[] = [];
+    const manager = createTerminalSessionManager({
+      pty: {
+        spawn(...args) {
+          starts.push(args);
+          return new FakePty();
+        },
+      },
+      emit: () => {},
+      env: { PATH: "/usr/bin" },
+      fallbackShell: "/bin/sh",
+      isExecutable: (path) => path === "/bin/sh",
+    });
+
+    manager.create({
+      ownerId: 7,
+      projectId: "project-1",
+      projectName: "Carrent",
+      workingDirectory: "/work/carrent",
+      enhancedCompletion: false,
+    });
+
+    expect(starts[0][0]).toBe("/bin/sh");
+    expect(starts[0][1]).toEqual([]);
   });
 
   it("injects a Project-scoped browser opener into every Project Terminal Tab", () => {

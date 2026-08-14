@@ -203,28 +203,26 @@ function deleteWorkspaceScope(
  * Reindex one workspace's association orders to be contiguous starting at 0, in
  * the rows' current `(workspace_id, "order", project_id)` order. SQLite has no
  * deferred unique-constraint window, so the reindex moves each row to a
- * temporary non-conflicting order first, then to its final contigous order.
+ * temporary non-conflicting order first, then to its final contiguous order.
  */
 function reindexAssociationOrders(
   client: Pick<SqliteClient, "all" | "run">,
   workspaceId: string,
 ): void {
-  const rows = client.all<{ project_id: string }>(
-    `SELECT project_id FROM workspace_project_associations
-     WHERE workspace_id = ?
-     ORDER BY "order", project_id`,
+  const rows = client.all<{ project_id: string; association_order: number }>(
+    xz
     workspaceId,
   );
   if (rows.length === 0) return;
-  // Move every row to a distinct high order so the final assignment cannot
-  // transiently collide with an existing UNIQUE(workspace_id, "order") row.
-  client.run(
-    `UPDATE workspace_project_associations
-     SET "order" = "order" + (SELECT COUNT(*) FROM workspace_project_associations WHERE workspace_id = ?)
-     WHERE workspace_id = ?`,
-    workspaceId,
-    workspaceId,
-  );
+  const temporaryStart = Math.max(...rows.map((row) => row.association_order)) + 1;
+  for (const [index, { project_id: projectId }] of rows.entries()) {
+    client.run(
+      `UPDATE workspace_project_associations SET "order" = ? WHERE workspace_id = ? AND project_id = ?`,
+      temporaryStart + index,
+      workspaceId,
+      projectId,
+    );
+  }
   let nextOrder = 0;
   for (const { project_id: projectId } of rows) {
     client.run(
@@ -239,12 +237,17 @@ function reindexAssociationOrders(
 
 /**
  * Reindex workspace orders to be contiguous starting at 0, in current order.
- * Same temporary-shift technique as association reindex.
+ * Same temporary-order technique as association reindex.
  */
 function reindexWorkspaceOrders(client: Pick<SqliteClient, "all" | "run">): void {
-  const rows = client.all<{ id: string }>('SELECT id FROM workspaces ORDER BY "order", id');
+  const rows = client.all<{ id: string; workspace_order: number }>(
+    'SELECT id, "order" AS workspace_order FROM workspaces ORDER BY "order", id',
+  );
   if (rows.length === 0) return;
-  client.run('UPDATE workspaces SET "order" = "order" + (SELECT COUNT(*) FROM workspaces)');
+  const temporaryStart = Math.max(...rows.map((row) => row.workspace_order)) + 1;
+  for (const [index, { id }] of rows.entries()) {
+    client.run('UPDATE workspaces SET "order" = ? WHERE id = ?', temporaryStart + index, id);
+  }
   let nextOrder = 0;
   for (const { id } of rows) {
     client.run('UPDATE workspaces SET "order" = ? WHERE id = ?', nextOrder, id);

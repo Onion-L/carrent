@@ -289,6 +289,40 @@ describe("SQLite App State Thread deletion", () => {
     });
   });
 
+  it("deletes a middle Association without colliding with remaining orders", async () => {
+    const snapshot = baseSnapshot();
+    snapshot.projects.push({
+      id: "project-c",
+      name: "Later",
+      workingDirectory: "/work/later",
+    });
+    snapshot.associations.push({
+      workspaceId: "workspace-a",
+      projectId: "project-c",
+      order: 2,
+      defaultRuntimeId: "kimi",
+      defaultRuntimeMode: "approval-required",
+    });
+
+    await withStore(snapshot, async (store) => {
+      await store.deleteAppStateForThreads("delete-middle-association", [], {
+        kind: "association",
+        workspaceId: "workspace-a",
+        projectId: "project-b",
+      });
+
+      const loaded = await store.loadAppStateSnapshot();
+      expect(
+        loaded?.associations
+          .filter((association) => association.workspaceId === "workspace-a")
+          .map((association) => [association.projectId, association.order]),
+      ).toEqual([
+        ["project-a", 0],
+        ["project-c", 1],
+      ]);
+    });
+  });
+
   it("removes the orphan Project when its final Association is removed", async () => {
     await withStore(baseSnapshot(), async (store) => {
       await store.deleteAppStateForThreads("delete-final-association", [], {
@@ -329,6 +363,25 @@ describe("SQLite App State Thread deletion", () => {
       expect(loaded?.threads?.map((thread) => thread.id)).toEqual(["thread-keeper"]);
       expect(await providerSessions(store)).toEqual({ "kimi:thread-keeper": "session-keeper" });
       expect(loaded?.lastThreadIdByWorkspace ?? {}).toEqual({});
+    });
+  });
+
+  it("deletes a middle Workspace without colliding with remaining orders", async () => {
+    const snapshot = baseSnapshot();
+    snapshot.workspaces.push({ id: "workspace-c", name: "Later", order: 2 });
+
+    await withStore(snapshot, async (store) => {
+      await store.deleteAppStateForThreads("delete-middle-workspace", [], {
+        kind: "workspace",
+        workspaceId: "workspace-b",
+      });
+
+      const loaded = await store.loadAppStateSnapshot();
+      expect(loaded?.workspaces.map((workspace) => [workspace.id, workspace.order])).toEqual([
+        ["workspace-a", 0],
+        ["workspace-c", 1],
+      ]);
+      expect(loaded?.activeWorkspaceId).toBe("workspace-a");
     });
   });
 

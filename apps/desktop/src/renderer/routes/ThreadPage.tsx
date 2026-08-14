@@ -6,12 +6,10 @@ import { ChatHeader } from "../components/chat/ChatHeader";
 import { OpenInMenu } from "../components/chat/OpenInMenu";
 import {
   Composer,
-  ConversationDropSurface,
   type ComposerDraftRequest,
   type ComposerSubmitRequest,
-  type ImageFileDropRef,
-  type LocalPathContextAddRef,
 } from "../components/chat/Composer";
+import { ConversationDropSurface } from "../components/chat/ConversationDropSurface";
 import {
   EmptyThreadPrompt,
   MessageTimeline,
@@ -100,8 +98,6 @@ function ThreadPageContent() {
   const [draftRequest, setDraftRequest] = useState<
     { threadId: string; request: ComposerDraftRequest } | undefined
   >();
-  const localPathContextAddRef = useRef<LocalPathContextAddRef["current"]>(null);
-  const imageFileDropRef = useRef<ImageFileDropRef["current"]>(null);
   const draftRequestIdRef = useRef(0);
   const { getThreadRouteData, setSelectedThreadId } = useThreadContent();
   const {
@@ -315,8 +311,6 @@ function ThreadPageContent() {
       draftRequest={
         draftRequest?.threadId === routeData.thread.id ? draftRequest.request : undefined
       }
-      localPathContextAddRef={localPathContextAddRef}
-      imageFileDropRef={imageFileDropRef}
       onRuntimeIdChange={(runtimeId) => {
         if (appThread) void updateThreadConfig(appThread.id, { runtimeId });
       }}
@@ -436,10 +430,7 @@ function ThreadPageContent() {
         </DesktopHeaderPortal>
       ) : null}
       <div className="flex h-full min-w-0 flex-1 flex-col">
-        <ConversationDropSurface
-          localPathContextAddRef={localPathContextAddRef}
-          imageFileDropRef={imageFileDropRef}
-        >
+        <ConversationDropSurface>
           <ChatHeader title={routeData?.thread.title ?? "Thread not found"} />
           {routeData && isEmptyThread ? (
             <div

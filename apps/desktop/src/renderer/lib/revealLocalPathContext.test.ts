@@ -45,9 +45,7 @@ describe("revealLocalPathContext", () => {
     await revealLocalPathContext(item, deps);
 
     expect(revealedPaths).toEqual([item.path]);
-    expect(errors).toEqual([
-      `Could not reveal “${item.basename}”: the path no longer exists.`,
-    ]);
+    expect(errors).toEqual([`Could not reveal “${item.basename}”: the path no longer exists.`]);
   });
 
   it("reports a bridge failure without throwing", async () => {

@@ -28,9 +28,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type DragEvent as ReactDragEvent,
   type FormEvent,
-  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
@@ -41,7 +39,6 @@ import type {
   RuntimeQuotaWindow,
 } from "../../../shared/chat";
 import { isTerminalSharedChatRunStatus } from "../../../shared/chat";
-import { isSupportedImageMimeType } from "../../../shared/attachment";
 import type {
   AppThreadActionRecord,
   AppThreadRunStartInput,
@@ -59,7 +56,6 @@ import {
   validateAttachmentSelection,
   type PendingAttachment,
 } from "../../lib/attachments";
-import { isFilesystemFileDrag } from "../../lib/fileDrag";
 import {
   dedupeLocalPathContexts,
   type LocalPathContextItem,
@@ -68,6 +64,7 @@ import {
 import { deriveThreadTitle } from "../../../shared/threadTitle";
 import { ImageAttachmentLightbox, type LightboxItem } from "./ImageAttachmentLightbox";
 import { splitPatchIntoFileBlocks } from "./WorkspaceDiffViewer";
+import { useConversationDropTarget } from "./ConversationDropSurface";
 
 import { StreamingTextRevealer } from "./typewriter";
 import { useThreadContent } from "../../context/ThreadContentContext";
@@ -373,129 +370,6 @@ export type AssociationDraftPromotionInput = AppThreadRunStartInput & {
 
 export type ComposerAcceptedRunInput = AppThreadRunStartInput & { assistantMessageId: string };
 
-// Imperative handle a parent surface (the whole conversation area) uses to push
-// resolved Local Path Context items into the Composer, which owns the card
-// state. The parent resolves dropped DOM File objects through the privileged
-// preload capability and shows the rejection toast; this adder only merges the
-// accepted items into the composition.
-export type LocalPathContextAddRef = {
-  current: ((items: LocalPathContextItem[]) => void) | null;
-};
-
-// Imperative handle the drop surface uses to hand dropped image files to the
-// Composer's attachment pipeline, so a dropped image renders as a thumbnail
-// with click-to-preview instead of a Local Path Context card.
-export type ImageFileDropRef = {
-  current: ((files: File[]) => void) | null;
-};
-
-export function ConversationDropSurface({
-  children,
-  localPathContextAddRef,
-  imageFileDropRef,
-}: {
-  children: ReactNode;
-  localPathContextAddRef: LocalPathContextAddRef;
-  imageFileDropRef?: ImageFileDropRef;
-}) {
-  const { showToast } = useToast();
-  const dragDepthRef = useRef(0);
-  const [dropActive, setDropActive] = useState(false);
-
-  const resetDropState = useCallback(() => {
-    dragDepthRef.current = 0;
-    setDropActive(false);
-  }, []);
-
-  const handleDragEnter = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!isFilesystemFileDrag(event.dataTransfer)) return;
-    event.preventDefault();
-    dragDepthRef.current += 1;
-    setDropActive(true);
-  };
-
-  const handleDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!isFilesystemFileDrag(event.dataTransfer)) return;
-    if (dragDepthRef.current === 0) return;
-    event.preventDefault();
-    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-    if (dragDepthRef.current === 0) setDropActive(false);
-  };
-
-  // Safety net: a drag that ends anywhere in the window (or loses window focus
-  // mid-drag) without a matching dragleave must not leave the overlay stuck.
-  useEffect(() => {
-    const reset = () => resetDropState();
-    window.addEventListener("dragend", reset);
-    window.addEventListener("drop", reset);
-    window.addEventListener("blur", reset);
-    return () => {
-      window.removeEventListener("dragend", reset);
-      window.removeEventListener("drop", reset);
-      window.removeEventListener("blur", reset);
-    };
-  }, [resetDropState]);
-
-  const handleDrop = async (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!isFilesystemFileDrag(event.dataTransfer)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    resetDropState();
-
-    // Images go through the attachment pipeline (thumbnail + preview); every
-    // other local file or folder becomes Local Path Context.
-    const files = Array.from(event.dataTransfer.files);
-    const imageFiles = files.filter((file) => isSupportedImageMimeType(file.type));
-    const contextFiles = files.filter((file) => !isSupportedImageMimeType(file.type));
-    if (imageFiles.length > 0) {
-      imageFileDropRef?.current?.(imageFiles);
-    }
-    if (contextFiles.length === 0) return;
-
-    try {
-      const result = await window.carrent.localPaths.resolveDroppedItems(contextFiles);
-      localPathContextAddRef.current?.(result.items);
-      if (result.rejections.length > 0) {
-        showToast(
-          result.rejections.length === 1
-            ? "One dropped item is not an available local file or folder."
-            : `${result.rejections.length} dropped items are not available local files or folders.`,
-          "error",
-        );
-      }
-    } catch {
-      showToast("The dropped local file or folder could not be resolved.", "error");
-    }
-  };
-
-  return (
-    <div
-      data-local-path-drop-surface
-      className="relative flex min-h-0 flex-1 flex-col"
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDragOver={(event) => {
-        if (isFilesystemFileDrag(event.dataTransfer)) event.preventDefault();
-      }}
-      onDrop={(event) => void handleDrop(event)}
-    >
-      {children}
-      {dropActive ? (
-        <div
-          data-local-path-drop-overlay
-          className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center border-2 border-dashed border-fg/35 bg-surface-raised/90 text-fg"
-          role="status"
-        >
-          <div className="flex items-center gap-2 text-app-13 font-medium">
-            <Folder className="h-4 w-4" />
-            <span>File or folder context</span>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 export function mergeComposerDraftContent(current: string, incoming: string): string {
   if (!current.trim()) {
     return incoming;
@@ -553,8 +427,6 @@ type ComposerProps =
       planMode: boolean;
       submitRequest?: ComposerSubmitRequest;
       draftRequest?: ComposerDraftRequest;
-      localPathContextAddRef?: LocalPathContextAddRef;
-      imageFileDropRef?: ImageFileDropRef;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
@@ -578,8 +450,6 @@ type ComposerProps =
       planMode: boolean;
       submitRequest?: ComposerSubmitRequest;
       draftRequest?: ComposerDraftRequest;
-      localPathContextAddRef?: LocalPathContextAddRef;
-      imageFileDropRef?: ImageFileDropRef;
       onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void;
       onPromote: (input: AssociationDraftPromotionInput) => Promise<boolean>;
       onPromotionRejected: (draft: ThreadWorkDraftSnapshot) => Promise<void>;
@@ -2476,8 +2346,8 @@ export function Composer(props: ComposerProps) {
 
   // Merges resolved Local Path Context items into the composition, deduplicating
   // by normalized identity so a repeated drop of the same path does not stack.
-  // The parent surface has already resolved the DOM File objects and shown a
-  // toast for any rejected entries; this only accepts the valid items.
+  // The ConversationDropSurface has already resolved the DOM File objects and
+  // shown a toast for any rejected entries; this only accepts the valid items.
   const addLocalPathContexts = useCallback((items: LocalPathContextItem[]) => {
     if (items.length === 0) return;
     setLocalPathContexts((prev) => dedupeLocalPathContexts([...prev, ...items]));
@@ -2489,25 +2359,13 @@ export function Composer(props: ComposerProps) {
 
   const revealLocalPath = useRevealLocalPathContext();
 
-  useEffect(() => {
-    const ref = props.localPathContextAddRef;
-    if (!ref) return;
-    ref.current = addLocalPathContexts;
-    return () => {
-      ref.current = null;
-    };
-  }, [addLocalPathContexts, props.localPathContextAddRef]);
-
-  // Dropped image files route through the same attachment pipeline as the
-  // Attach picker and clipboard paste.
-  useEffect(() => {
-    const ref = props.imageFileDropRef;
-    if (!ref) return;
-    ref.current = (files) => void handleAddFiles(files);
-    return () => {
-      ref.current = null;
-    };
-  }, [handleAddFiles, props.imageFileDropRef]);
+  // Registers this composition as the drop target of the page-level
+  // ConversationDropSurface: resolved Local Path Context items merge into the
+  // cards above, dropped image files enter the attachment pipeline.
+  useConversationDropTarget({
+    onLocalPathItems: addLocalPathContexts,
+    onImageFiles: (files) => void handleAddFiles(files),
+  });
 
   const resolvePastedComposerContent = useCallback(
     (text: string) => {

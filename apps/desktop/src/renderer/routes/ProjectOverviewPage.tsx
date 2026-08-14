@@ -1,16 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { PanelRight } from "lucide-react";
 
 import { useAppState } from "../context/AppStateContext";
 import { ChatHeader } from "../components/chat/ChatHeader";
 import { OpenInMenu } from "../components/chat/OpenInMenu";
-import {
-  Composer,
-  ConversationDropSurface,
-  type ImageFileDropRef,
-  type LocalPathContextAddRef,
-} from "../components/chat/Composer";
+import { Composer } from "../components/chat/Composer";
+import { ConversationDropSurface } from "../components/chat/ConversationDropSurface";
 import { EmptyThreadPrompt } from "../components/chat/MessageTimeline";
 import { ThreadInspectorPane } from "../components/chat/ThreadInspectorPane";
 import { DesktopHeaderPortal } from "../components/DesktopHeaderActions";
@@ -46,8 +42,6 @@ export function ProjectOverviewPage() {
     (item) => item.workspaceId === workspaceId && item.projectId === projectId,
   );
   const [openDraft, setOpenDraft] = useState<AssociationThreadDraftRecord | null>(null);
-  const localPathContextAddRef = useRef<LocalPathContextAddRef["current"]>(null);
-  const imageFileDropRef = useRef<ImageFileDropRef["current"]>(null);
   const browserTarget =
     openDraft && project ? { projectId: project.id, threadId: openDraft.threadId } : null;
   const {
@@ -181,10 +175,7 @@ export function ProjectOverviewPage() {
           </button>
         </DesktopHeaderPortal>
         <div className="flex h-full min-w-0 flex-1 flex-col">
-          <ConversationDropSurface
-            localPathContextAddRef={localPathContextAddRef}
-            imageFileDropRef={imageFileDropRef}
-          >
+          <ConversationDropSurface>
             <ChatHeader title="New thread" />
             <div
               data-empty-thread-layout
@@ -213,8 +204,6 @@ export function ProjectOverviewPage() {
                   runtimeModelId={openDraft.runtimeModelId}
                   runtimeMode={openDraft.runtimeMode}
                   planMode={openDraft.planMode}
-                  localPathContextAddRef={localPathContextAddRef}
-                  imageFileDropRef={imageFileDropRef}
                   onDraftChange={(draft) => {
                     setOpenDraft({
                       ...openDraft,

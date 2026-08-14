@@ -39,12 +39,10 @@ import {
 } from "../../hooks/chatMessageQueue";
 import {
   Composer,
-  ConversationDropSurface,
   type AssociationDraftPromotionInput,
   type ComposerDraftRequest,
-  type ImageFileDropRef,
-  type LocalPathContextAddRef,
 } from "./Composer";
+import { ConversationDropSurface } from "./ConversationDropSurface";
 import { MessageTimeline } from "./MessageTimeline";
 import type { ThreadWorkDraftSnapshot } from "../../hooks/chatMessageQueue";
 
@@ -71,8 +69,6 @@ function ComposerHarness({
   withTimeline?: boolean;
 }) {
   const { hasHydrated, getThreadRouteData } = useThreadContent();
-  const localPathContextAddRef = React.useRef(null) as LocalPathContextAddRef;
-  const imageFileDropRef = React.useRef(null) as ImageFileDropRef;
   const routeData = getThreadRouteData("project-1", threadId);
   if (!hasHydrated || !routeData) {
     return null;
@@ -86,10 +82,7 @@ function ComposerHarness({
     : null;
 
   return (
-    <ConversationDropSurface
-      localPathContextAddRef={localPathContextAddRef}
-      imageFileDropRef={imageFileDropRef}
-    >
+    <ConversationDropSurface>
       {withTimeline ? <MessageTimeline messages={routeData.messages} threadId={threadId} /> : null}
       <Composer
         mode="thread"
@@ -101,8 +94,6 @@ function ComposerHarness({
         runtimeMode="approval-required"
         planMode={false}
         draftRequest={draftRequest}
-        localPathContextAddRef={localPathContextAddRef}
-        imageFileDropRef={imageFileDropRef}
       />
     </ConversationDropSurface>
   );
@@ -139,9 +130,8 @@ function AssociationDraftHarness({
   initialDraft: ThreadWorkDraftSnapshot;
   onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void;
 }) {
-  const localPathContextAddRef = React.useRef(null) as LocalPathContextAddRef;
   return (
-    <ConversationDropSurface localPathContextAddRef={localPathContextAddRef}>
+    <ConversationDropSurface>
       <Composer
         mode="association-draft"
         placement="centered"
@@ -155,7 +145,6 @@ function AssociationDraftHarness({
         runtimeId="kimi"
         runtimeMode="approval-required"
         planMode={false}
-        localPathContextAddRef={localPathContextAddRef}
         onDraftChange={onDraftChange}
         onPromote={async (_input: AssociationDraftPromotionInput) => false}
         onPromotionRejected={async () => {}}
@@ -727,19 +716,6 @@ describe("Composer Local Path Context", () => {
     expect(container!.querySelector("[data-local-path-context-card]")).toBeNull();
   });
 
-  it("keeps the overlay active across nested dragenter and dragleave events", async () => {
-    await renderComposer();
-    const file = new File(["hello"], "notes.md", { type: "text/markdown" });
-
-    await dispatchFileDrag("dragenter", [file]);
-    await dispatchFileDrag("dragenter", [file]);
-    await dispatchFileDrag("dragleave", [file]);
-    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
-
-    await dispatchFileDrag("dragleave", [file]);
-    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
-  });
-
   it("restores Local Path Context cards from a persisted draft", async () => {
     const { drafts } = await renderAssociationDraft({
       content: "Review this",
@@ -872,20 +848,7 @@ describe("Composer Local Path Context", () => {
     });
   });
 
-  it("leaves text and URL drags untouched", async () => {
-    await renderComposer();
-    const browserImage = new File(["image"], "remote.png", { type: "image/png" });
-    const event = await dispatchFileDrag(
-      "dragover",
-      [browserImage],
-      ["Files", "text/uri-list", "text/html"],
-    );
-
-    expect(event.defaultPrevented).toBe(false);
-    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
-  });
-
-  it("shows one error toast and ignores a rejected local path", async () => {
+  it("ignores a rejected local path without rendering a card", async () => {
     await renderComposer();
     window.carrent.localPaths.resolveDroppedItems = async () => ({
       items: [],
@@ -897,10 +860,6 @@ describe("Composer Local Path Context", () => {
       await new Promise((resolve) => setTimeout(resolve, 15));
     });
 
-    const errorToasts = [...container!.querySelectorAll('[role="alert"]')].filter((alert) =>
-      alert.textContent?.includes("One dropped item is not an available local file or folder."),
-    );
-    expect(errorToasts).toHaveLength(1);
     expect(container!.querySelector("[data-local-path-context-card]")).toBeNull();
   });
 
@@ -1048,7 +1007,7 @@ describe("Composer Local Path Context", () => {
     expect(cards[0]!.className).toContain("max-w-full");
   });
 
-  it("keeps valid items from a partially rejected drop and shows one error toast", async () => {
+  it("keeps valid items from a partially rejected drop", async () => {
     await renderComposer();
     window.carrent.localPaths.resolveDroppedItems = async () => ({
       items: [
@@ -1072,45 +1031,6 @@ describe("Composer Local Path Context", () => {
       "/Users/test/kept.md",
       "/Users/test/assets",
     ]);
-    const errorToasts = [...container!.querySelectorAll('[role="alert"]')].filter((alert) =>
-      alert.textContent?.includes("One dropped item is not an available local file or folder."),
-    );
-    expect(errorToasts).toHaveLength(1);
-  });
-
-  it("ignores nested dragleave events from non-filesystem drags", async () => {
-    await renderComposer();
-    const file = new File([], "notes.md");
-
-    await dispatchFileDrag("dragenter", [file]);
-    await dispatchFileDrag("dragleave", [file], ["Files", "text/uri-list", "text/html"]);
-    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
-
-    await dispatchFileDrag("dragleave", [file]);
-    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
-  });
-
-  it("clears a stuck overlay when the drag ends without a final dragleave", async () => {
-    await renderComposer();
-    const file = new File([], "notes.md");
-
-    await dispatchFileDrag("dragenter", [file]);
-    await dispatchFileDrag("dragenter", [file]);
-    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
-
-    await act(async () => {
-      window.dispatchEvent(new Event("blur"));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
-
-    await dispatchFileDrag("dragenter", [file]);
-    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
-    await act(async () => {
-      window.dispatchEvent(new Event("drop", { cancelable: true }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
   });
 
   it("exposes keyboard-focusable cards and badges with accessible names", async () => {

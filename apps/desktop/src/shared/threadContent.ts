@@ -4,9 +4,11 @@ import type {
   KimiTimelineItem,
   RuntimeSessionRecovery,
 } from "./chat";
+import type { LocalPathContextItem } from "./localPathContext";
 import type { ChatPermissionOption } from "./chatPermissions";
 
 export type { AttachmentMetadata };
+export type { LocalPathContextItem };
 
 export type ChangedFile = {
   path: string;
@@ -84,6 +86,10 @@ type TextMessage<T extends MessageTimestampFields = UiMessageTimestampFields> = 
   content: string;
   parts?: MessagePart[];
   attachments?: AttachmentMetadata[];
+  // Structured Local Path Context (dragged files/folders). Distinct from
+  // attachments: no bytes are copied, so this is a live path reference that is
+  // rendered as compact badges and never parsed from message prose.
+  localPathContexts?: LocalPathContextItem[];
 };
 
 export type ChangedFilesMessage<T extends MessageTimestampFields = UiMessageTimestampFields> = Omit<

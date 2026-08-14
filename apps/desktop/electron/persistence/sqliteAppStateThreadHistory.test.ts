@@ -395,6 +395,7 @@ describe("SQLite App State thread history", () => {
                 storageKey: "attachments/notes.txt",
               },
             ],
+            localPathContexts: [{ path: "/tmp/draft.ts", basename: "draft.ts", kind: "file" }],
           },
           queuedMessages: [
             {
@@ -409,6 +410,9 @@ describe("SQLite App State thread history", () => {
                   size: 128,
                   storageKey: "attachments/shot.png",
                 },
+              ],
+              localPathContexts: [
+                { path: "/tmp/reference", basename: "reference", kind: "directory" },
               ],
             },
             { id: "queued-2", content: "Already confirmed", requiresConfirmation: true },
@@ -437,6 +441,7 @@ describe("SQLite App State thread history", () => {
               storageKey: "attachments/shot.png",
             },
           ],
+          localPathContexts: [{ path: "/tmp/reference", basename: "reference", kind: "directory" }],
           requiresConfirmation: true,
         },
         { id: "queued-2", content: "Already confirmed", requiresConfirmation: true },
@@ -609,6 +614,10 @@ describe("SQLite App State thread history", () => {
               width: 640,
               height: 480,
             },
+          ],
+          localPathContexts: [
+            { path: "/tmp/context.ts", basename: "context.ts", kind: "file" },
+            { path: "/tmp/reference", basename: "reference", kind: "directory" },
           ],
         },
         {

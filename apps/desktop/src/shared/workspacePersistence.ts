@@ -5,6 +5,10 @@ import {
   isValidAttachmentSha256,
   MAX_ATTACHMENT_COUNT,
 } from "./attachment";
+import {
+  normalizeLocalPathContexts,
+  type LocalPathContextItem,
+} from "./localPathContext";
 import type { ChatPermissionOption } from "./chatPermissions";
 import { isRuntimeMode, type RuntimeMode } from "./runtimeMode";
 import { normalizePersistedRuntimeId, runtimeIds, type RuntimeId } from "./runtimes";
@@ -99,6 +103,7 @@ export type AssociationThreadDraftRecord = {
   composerState?: string;
   attachedSkillNames: string[];
   attachments: AttachmentMetadata[];
+  localPathContexts?: LocalPathContextItem[];
   runtimeId: RuntimeId;
   runtimeModelId?: string;
   runtimeMode: RuntimeMode;
@@ -111,6 +116,7 @@ export type AppThreadMessageRecord = PersistedMessage & {
   content: string;
   createdAt: string;
   attachments: AttachmentMetadata[];
+  localPathContexts?: LocalPathContextItem[];
 };
 
 export type AppThreadRunRecord = {
@@ -139,6 +145,7 @@ export type AppThreadRunStartInput = {
   assistantMessageId?: string;
   message: string;
   attachments: AttachmentMetadata[];
+  localPathContexts?: LocalPathContextItem[];
   startedAt: string;
   // Original createdAt of the optimistic user message, when one exists. Run
   // recording and draft promotion persist it so the user message cannot sort
@@ -343,12 +350,14 @@ export type ThreadWorkDraftSnapshot = {
   composerState?: string;
   attachedSkillNames: string[];
   attachments: AttachmentMetadata[];
+  localPathContexts?: LocalPathContextItem[];
 };
 
 export type ThreadWorkQueuedMessage = {
   id: string;
   content: string;
   attachments?: AttachmentMetadata[];
+  localPathContexts?: LocalPathContextItem[];
   requiresConfirmation?: boolean;
 };
 
@@ -702,6 +711,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
     draftIds.add(draft.id);
     draftAssociationKeys.add(associationKey);
     reservedThreadIds.add(draft.threadId);
+    const draftLocalPathContexts = normalizeLocalPathContexts(draft.localPathContexts);
     threadDrafts.push({
       id: draft.id,
       threadId: draft.threadId,
@@ -711,6 +721,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       ...(draft.composerState ? { composerState: draft.composerState } : {}),
       attachedSkillNames: [...draft.attachedSkillNames],
       attachments: attachments as AttachmentMetadata[],
+      ...(draftLocalPathContexts.length > 0 ? { localPathContexts: draftLocalPathContexts } : {}),
       runtimeId: normalizePersistedRuntimeId(draft.runtimeId)!,
       ...(runtimeModelId ? { runtimeModelId } : {}),
       runtimeMode: draft.runtimeMode,
@@ -890,6 +901,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
     intentDraftIds.add(intent.draftId);
     intentRunIds.add(intent.runId);
     intentMessageIds.add(intent.messageId);
+    const intentLocalPathContexts = normalizeLocalPathContexts(intent.localPathContexts);
     threadPromotionIntents.push({
       draftId: intent.draftId,
       threadId: intent.threadId,
@@ -900,6 +912,7 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       messageId: intent.messageId,
       message: intent.message,
       attachments: attachments as AttachmentMetadata[],
+      ...(intentLocalPathContexts.length > 0 ? { localPathContexts: intentLocalPathContexts } : {}),
       startedAt: intent.startedAt,
       runtimeId: normalizePersistedRuntimeId(intent.runtimeId)!,
       ...(runtimeModelId ? { runtimeModelId } : {}),
@@ -1420,7 +1433,11 @@ function normalizeMessageParts(value: unknown): MessagePart[] | undefined | null
 }
 
 function normalizeMessageRecord(message: PersistedMessage): PersistedMessage | null {
-  const record = message as PersistedMessage & { attachments?: unknown; parts?: unknown };
+  const record = message as PersistedMessage & {
+    attachments?: unknown;
+    parts?: unknown;
+    localPathContexts?: unknown;
+  };
 
   if (record.type === "changed_files") {
     const changedFilesRecord = record as ChangedFilesMessage<{ timestamp?: string }> & {
@@ -1453,12 +1470,17 @@ function normalizeMessageRecord(message: PersistedMessage): PersistedMessage | n
         .filter((attachment): attachment is AttachmentMetadata => attachment !== null)
     : undefined;
 
-  const { parts: _parts, attachments: _attachments, ...rest } = record;
+  const { parts: _parts, attachments: _attachments, localPathContexts: _localPathContexts, ...rest } =
+    record;
+  const normalizedLocalPathContexts = normalizeLocalPathContexts(record.localPathContexts);
 
   return {
     ...rest,
     ...(normalizedParts ? { parts: normalizedParts } : {}),
     ...(normalizedAttachments ? { attachments: normalizedAttachments } : {}),
+    ...(normalizedLocalPathContexts.length > 0
+      ? { localPathContexts: normalizedLocalPathContexts }
+      : {}),
   } as PersistedMessage;
 }
 
@@ -1490,6 +1512,8 @@ function normalizeThreadWorkDraft(value: unknown): ThreadWorkDraftSnapshot | nul
   const attachments = normalizeThreadWorkAttachments(value.attachments ?? []);
   if (!attachments) return null;
 
+  const localPathContexts = normalizeLocalPathContexts(value.localPathContexts);
+
   return {
     content: value.content,
     ...(typeof value.composerState === "string" && value.composerState
@@ -1497,6 +1521,7 @@ function normalizeThreadWorkDraft(value: unknown): ThreadWorkDraftSnapshot | nul
       : {}),
     attachedSkillNames: [...value.attachedSkillNames],
     attachments,
+    ...(localPathContexts.length > 0 ? { localPathContexts } : {}),
   };
 }
 
@@ -1520,10 +1545,12 @@ function normalizeThreadWorkQueuedMessage(
   // distinguish auto-continuing work.
   const requiresConfirmation =
     forceConfirm || value.requiresConfirmation === true ? true : undefined;
+  const localPathContexts = normalizeLocalPathContexts(value.localPathContexts);
   return {
     id: value.id,
     content: value.content,
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    ...(localPathContexts.length > 0 ? { localPathContexts } : {}),
     ...(requiresConfirmation === undefined ? {} : { requiresConfirmation }),
   };
 }

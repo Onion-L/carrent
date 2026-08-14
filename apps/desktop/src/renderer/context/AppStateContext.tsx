@@ -1213,6 +1213,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         content: input.message,
         createdAt: input.messageCreatedAt ?? input.startedAt,
         attachments: input.attachments,
+        localPathContexts: input.localPathContexts,
       };
       const assistantMessage: AppThreadMessageRecord = {
         id: input.assistantMessageId,

@@ -188,6 +188,10 @@ _Avoid_: Upload, project file, workspace file
 A local file added to a thread as a thread attachment, whether it is inside or outside the active project. Carrent stores a snapshot of single-file attachments so the thread can keep using them if the original file changes, moves, or disappears; folders are represented as additional local directories instead.
 _Avoid_: File reference, project-only file
 
+**Local Path Context**:
+A structured reference to a local non-image file or folder the user dragged into the composer, stored as the original absolute path plus a `file` or `directory` kind. It is not a File Attachment or Thread Attachment: Carrent copies no bytes, owns no snapshot, and never enumerates descendants, so it stays a live reference that can become unavailable if the source moves or is deleted. Supported image drops remain snapshot-backed Image Attachments so they retain composer thumbnails and image input behavior. The selected Runtime receives a narrow, Run-scoped read allowlist for the exact referenced file or the referenced directory tree, built at Run start from the canonical path; removing a context through message editing removes that authorization from later Runs. It is rendered as removable composer cards before send and as compact badges in sent messages, never parsed from message prose.
+_Avoid_: File Attachment, Thread Attachment, Project Working Directory, uploaded file
+
 **Global Agent Instructions**:
 A user-owned `AGENTS.md` file outside the project tree that a runtime can read as standing instructions for every run. Carrent may let users view and edit these files, but the runtime decides how they are applied.
 _Avoid_: Settings value, prompt injection, project instructions

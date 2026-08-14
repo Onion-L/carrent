@@ -18,6 +18,7 @@ import {
 } from "lexical";
 
 import type {
+  ChatTurnRequest,
   ChatRunAuthorityChange,
   ChatRunAuthorityState,
   ChatRunEvent,
@@ -28,6 +29,7 @@ import { chunkStreamingAnswer, LONG_STREAMING_ANSWER } from "../../test/streamin
 import { AppStateProvider } from "../../context/AppStateContext";
 import { RuntimeModelsProvider } from "../../context/RuntimeModelsContext";
 import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
+import { ToastProvider } from "../toast/ToastContext";
 import {
   clearThreadDraft,
   enqueueChatMessage,
@@ -37,9 +39,13 @@ import {
 } from "../../hooks/chatMessageQueue";
 import {
   Composer,
+  ConversationDropSurface,
   type AssociationDraftPromotionInput,
   type ComposerDraftRequest,
+  type ImageFileDropRef,
+  type LocalPathContextAddRef,
 } from "./Composer";
+import { MessageTimeline } from "./MessageTimeline";
 import type { ThreadWorkDraftSnapshot } from "../../hooks/chatMessageQueue";
 
 let container: HTMLDivElement | null = null;
@@ -50,17 +56,23 @@ let activeChatAuthorityState: ChatRunAuthorityState | null = null;
 let sentChatMessages: string[] = [];
 let sentChatRunIds: string[] = [];
 let sentChatRequestKeys: Array<string | undefined> = [];
+let sentChatRequests: ChatTurnRequest[] = [];
 let listedSkillProjectDirs: Array<string | undefined> = [];
+let revealedPaths: string[] = [];
 let latestAssistantMessage: { content: string; runStatus?: string } | null = null;
 
 function ComposerHarness({
   draftRequest,
   threadId = "thread-1",
+  withTimeline = false,
 }: {
   draftRequest?: ComposerDraftRequest;
   threadId?: string;
+  withTimeline?: boolean;
 }) {
   const { hasHydrated, getThreadRouteData } = useThreadContent();
+  const localPathContextAddRef = React.useRef(null) as LocalPathContextAddRef;
+  const imageFileDropRef = React.useRef(null) as ImageFileDropRef;
   const routeData = getThreadRouteData("project-1", threadId);
   if (!hasHydrated || !routeData) {
     return null;
@@ -74,31 +86,49 @@ function ComposerHarness({
     : null;
 
   return (
-    <Composer
-      mode="thread"
-      workspaceId="workspace-1"
-      projectId="project-1"
-      threadId={threadId}
-      messages={routeData.messages}
-      runtimeId="kimi"
-      runtimeMode="approval-required"
-      planMode={false}
-      draftRequest={draftRequest}
-    />
+    <ConversationDropSurface
+      localPathContextAddRef={localPathContextAddRef}
+      imageFileDropRef={imageFileDropRef}
+    >
+      {withTimeline ? <MessageTimeline messages={routeData.messages} threadId={threadId} /> : null}
+      <Composer
+        mode="thread"
+        workspaceId="workspace-1"
+        projectId="project-1"
+        threadId={threadId}
+        messages={routeData.messages}
+        runtimeId="kimi"
+        runtimeMode="approval-required"
+        planMode={false}
+        draftRequest={draftRequest}
+        localPathContextAddRef={localPathContextAddRef}
+        imageFileDropRef={imageFileDropRef}
+      />
+    </ConversationDropSurface>
   );
 }
 
-function composerTree(draftRequest?: ComposerDraftRequest, threadId = "thread-1") {
+function composerTree(
+  draftRequest?: ComposerDraftRequest,
+  threadId = "thread-1",
+  withTimeline = false,
+) {
   return (
-    <AppStateProvider>
-      <ThreadContentProvider>
-        <RuntimeModelsProvider>
-          <MemoryRouter>
-            <ComposerHarness draftRequest={draftRequest} threadId={threadId} />
-          </MemoryRouter>
-        </RuntimeModelsProvider>
-      </ThreadContentProvider>
-    </AppStateProvider>
+    <ToastProvider>
+      <AppStateProvider>
+        <ThreadContentProvider>
+          <RuntimeModelsProvider>
+            <MemoryRouter>
+              <ComposerHarness
+                draftRequest={draftRequest}
+                threadId={threadId}
+                withTimeline={withTimeline}
+              />
+            </MemoryRouter>
+          </RuntimeModelsProvider>
+        </ThreadContentProvider>
+      </AppStateProvider>
+    </ToastProvider>
   );
 }
 
@@ -109,25 +139,29 @@ function AssociationDraftHarness({
   initialDraft: ThreadWorkDraftSnapshot;
   onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void;
 }) {
+  const localPathContextAddRef = React.useRef(null) as LocalPathContextAddRef;
   return (
-    <Composer
-      mode="association-draft"
-      placement="centered"
-      workspaceId="workspace-1"
-      projectId="project-1"
-      projectName="Carrent"
-      projectPath="/code/carrent"
-      threadId="draft-thread-1"
-      initialDraft={initialDraft}
-      messages={[]}
-      runtimeId="kimi"
-      runtimeMode="approval-required"
-      planMode={false}
-      onDraftChange={onDraftChange}
-      onPromote={async (_input: AssociationDraftPromotionInput) => false}
-      onPromotionRejected={async () => {}}
-      onPromoted={() => {}}
-    />
+    <ConversationDropSurface localPathContextAddRef={localPathContextAddRef}>
+      <Composer
+        mode="association-draft"
+        placement="centered"
+        workspaceId="workspace-1"
+        projectId="project-1"
+        projectName="Carrent"
+        projectPath="/code/carrent"
+        threadId="draft-thread-1"
+        initialDraft={initialDraft}
+        messages={[]}
+        runtimeId="kimi"
+        runtimeMode="approval-required"
+        planMode={false}
+        localPathContextAddRef={localPathContextAddRef}
+        onDraftChange={onDraftChange}
+        onPromote={async (_input: AssociationDraftPromotionInput) => false}
+        onPromotionRejected={async () => {}}
+        onPromoted={() => {}}
+      />
+    </ConversationDropSurface>
   );
 }
 
@@ -136,22 +170,27 @@ function associationDraftTree(
   onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void,
 ) {
   return (
-    <AppStateProvider>
-      <ThreadContentProvider>
-        <RuntimeModelsProvider>
-          <MemoryRouter>
-            <AssociationDraftHarness initialDraft={initialDraft} onDraftChange={onDraftChange} />
-          </MemoryRouter>
-        </RuntimeModelsProvider>
-      </ThreadContentProvider>
-    </AppStateProvider>
+    <ToastProvider>
+      <AppStateProvider>
+        <ThreadContentProvider>
+          <RuntimeModelsProvider>
+            <MemoryRouter>
+              <AssociationDraftHarness initialDraft={initialDraft} onDraftChange={onDraftChange} />
+            </MemoryRouter>
+          </RuntimeModelsProvider>
+        </ThreadContentProvider>
+      </AppStateProvider>
+    </ToastProvider>
   );
 }
 
-async function renderAssociationDraft(initialDraft: ThreadWorkDraftSnapshot) {
+async function renderAssociationDraft(
+  initialDraft: ThreadWorkDraftSnapshot,
+  options: { readAttachment?: () => Promise<Uint8Array> } = {},
+) {
   const snapshot = baseSnapshot({});
   const authority = createFakeAppStateAuthority(snapshot);
-  installCarrentBridge(authority, snapshot);
+  installCarrentBridge(authority, snapshot, options);
   const drafts: Array<ThreadWorkDraftSnapshot | null> = [];
   await mount(associationDraftTree(initialDraft, (draft) => drafts.push(draft)));
   return { authority, drafts };
@@ -212,6 +251,7 @@ function installCarrentBridge(
     authorityState?: ChatRunAuthorityState;
     disableAutoComplete?: boolean;
     getKimiStatus?: (request: Record<string, unknown>) => Promise<unknown>;
+    readAttachment?: () => Promise<Uint8Array>;
     workspaceDiff?: () => Promise<unknown>;
   } = {},
 ) {
@@ -221,7 +261,9 @@ function installCarrentBridge(
   sentChatMessages = [];
   sentChatRunIds = [];
   sentChatRequestKeys = [];
+  sentChatRequests = [];
   listedSkillProjectDirs = [];
+  revealedPaths = [];
   window.carrent = {
     appState: {
       load: async () => ({ status: "ready", snapshot }),
@@ -235,7 +277,17 @@ function installCarrentBridge(
       flushDone: async () => {},
     },
     projectDirectories: { check: async () => ({ available: true }) },
-    attachments: { read: async () => new Uint8Array([1]) },
+    attachments: {
+      read: options.readAttachment ?? (async () => new Uint8Array([1])),
+      store: async (input: { name: string; mimeType: string; data: Uint8Array }) => ({
+        id: `stored-${input.name}`,
+        kind: input.mimeType.startsWith("image/") ? ("image" as const) : ("file" as const),
+        name: input.name,
+        mimeType: input.mimeType,
+        size: input.data.length,
+        storageKey: input.name,
+      }),
+    },
     runtimes: {
       list: async () => [
         {
@@ -297,11 +349,12 @@ function installCarrentBridge(
       workspaceDiff: options.workspaceDiff ?? (async () => ({ state: "ready", files: [] })),
     },
     chat: {
-      send: async (request: { message: string; requestKey?: string }) => {
+      send: async (request: ChatTurnRequest) => {
         const runId = `run-${sentChatRunIds.length + 1}`;
         sentChatMessages.push(request.message);
         sentChatRunIds.push(runId);
         sentChatRequestKeys.push(request.requestKey);
+        sentChatRequests.push(request);
         if (activeChatAuthorityState && !options.disableAutoComplete) {
           queueMicrotask(() => {
             const baseRevision = activeChatAuthorityState!.revision;
@@ -362,6 +415,24 @@ function installCarrentBridge(
             },
           }),
     },
+    shell: {
+      openPath: async () => {},
+      revealPath: async (path) => {
+        revealedPaths.push(path);
+        return { revealed: true };
+      },
+      openExternal: async () => {},
+    },
+    localPaths: {
+      resolveFiles: async (files) => ({
+        items: files.map((file) => ({
+          path: `/Users/test/${file.name}`,
+          basename: file.name,
+          kind: "file" as const,
+        })),
+        rejections: [],
+      }),
+    },
   } as unknown as Window["carrent"];
 }
 
@@ -385,7 +456,9 @@ async function renderComposer(
     authorityState?: ChatRunAuthorityState;
     disableAutoComplete?: boolean;
     getKimiStatus?: (request: Record<string, unknown>) => Promise<unknown>;
+    readAttachment?: () => Promise<Uint8Array>;
     workspaceDiff?: () => Promise<unknown>;
+    withTimeline?: boolean;
   } = {},
 ) {
   const snapshot = baseSnapshot(options.threadWork ?? {});
@@ -394,10 +467,31 @@ async function renderComposer(
     authorityState: options.authorityState,
     disableAutoComplete: options.disableAutoComplete,
     getKimiStatus: options.getKimiStatus,
+    readAttachment: options.readAttachment,
     workspaceDiff: options.workspaceDiff,
   });
-  await mount(composerTree(undefined, options.threadId));
+  await mount(composerTree(undefined, options.threadId, options.withTimeline));
   return authority;
+}
+
+async function dispatchFileDrag(
+  type: "dragenter" | "dragleave" | "dragover" | "drop",
+  files: File[],
+  types = ["Files"],
+) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", {
+    value: {
+      files,
+      items: files.map(() => ({ kind: "file" })),
+      types,
+    },
+  });
+  await act(async () => {
+    container!.querySelector<HTMLElement>("[data-local-path-drop-surface]")!.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  return event;
 }
 
 function getLexicalEditor() {
@@ -508,6 +602,583 @@ afterEach(async () => {
   container?.remove();
   root = null;
   container = null;
+});
+
+describe("Composer Local Path Context", () => {
+  it("drops a file anywhere on the conversation surface, sends it separately, and renders a badge", async () => {
+    await renderComposer({ withTimeline: true });
+    const file = new File(["hello"], "My Notes (draft) [v2].md", { type: "text/markdown" });
+
+    const enter = await dispatchFileDrag("dragenter", [file]);
+    expect(enter.defaultPrevented).toBe(true);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
+
+    const drop = await dispatchFileDrag("drop", [file]);
+    expect(drop.defaultPrevented).toBe(true);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const card = container!.querySelector<HTMLElement>("[data-local-path-context-card]");
+    expect(card?.textContent).toContain("My Notes (draft) [v2].md");
+    expect(card?.textContent).toContain("File");
+    expect(card?.getAttribute("title")).toBe("/Users/test/My Notes (draft) [v2].md");
+    expect(card?.querySelector('[aria-label="Remove My Notes (draft) [v2].md"]')).not.toBeNull();
+
+    await act(async () => {
+      card?.querySelector<HTMLButtonElement>('[aria-label^="Reveal "]')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(revealedPaths).toEqual(["/Users/test/My Notes (draft) [v2].md"]);
+
+    await setComposerText("Review this file");
+    await submitComposer();
+
+    expect(sentChatRequests[0]?.message).toBe("Review this file");
+    expect(sentChatRequests[0]?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/My Notes (draft) [v2].md",
+        basename: "My Notes (draft) [v2].md",
+        kind: "file",
+      },
+    ]);
+    expect(container!.querySelector("[data-local-path-context-card]")).toBeNull();
+
+    const badge = container!.querySelector<HTMLElement>("[data-local-path-context-badge]");
+    expect(badge?.textContent).toContain("My Notes (draft) [v2].md");
+    expect(badge?.getAttribute("title")).toBe("/Users/test/My Notes (draft) [v2].md");
+    // The badge sits below the message bubble, not inside it.
+    expect(badge?.closest(".bg-user-bubble")).toBeNull();
+    expect(container!.textContent).not.toContain("/Users/test/My Notes (draft) [v2].md");
+    await act(async () => {
+      badge?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(revealedPaths).toEqual([
+      "/Users/test/My Notes (draft) [v2].md",
+      "/Users/test/My Notes (draft) [v2].md",
+    ]);
+  });
+
+  it("renders, sends, and reveals a dropped folder as folder context", async () => {
+    await renderComposer({ withTimeline: true });
+    window.carrent.localPaths.resolveFiles = async () => ({
+      items: [
+        {
+          path: "/Users/test/reference docs",
+          basename: "reference docs",
+          kind: "directory",
+        },
+      ],
+      rejections: [],
+    });
+
+    await dispatchFileDrag("drop", [new File([], "reference docs")]);
+
+    const card = container!.querySelector<HTMLElement>("[data-local-path-context-card]");
+    expect(card?.textContent).toContain("reference docs");
+    expect(card?.textContent).toContain("Folder");
+    expect(card?.getAttribute("title")).toBe("/Users/test/reference docs");
+    expect(card?.querySelector(".lucide-folder")).not.toBeNull();
+    expect(card?.querySelector('[aria-label="Reveal reference docs in Finder"]')).not.toBeNull();
+    expect(card?.querySelector('[aria-label="Remove reference docs"]')).not.toBeNull();
+
+    await act(async () => {
+      card?.querySelector<HTMLButtonElement>('[aria-label^="Reveal "]')?.click();
+      await Promise.resolve();
+    });
+    expect(revealedPaths).toEqual(["/Users/test/reference docs"]);
+
+    await setComposerText("Review these references");
+    await submitComposer();
+
+    expect(sentChatRequests[0]?.message).toBe("Review these references");
+    expect(sentChatRequests[0]?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/reference docs",
+        basename: "reference docs",
+        kind: "directory",
+      },
+    ]);
+    const badge = container!.querySelector<HTMLElement>("[data-local-path-context-badge]");
+    expect(badge?.textContent).toContain("reference docs");
+    expect(badge?.textContent).toContain("Folder");
+    expect(badge?.querySelector(".lucide-folder")).not.toBeNull();
+    expect(container!.textContent).not.toContain("/Users/test/reference docs");
+
+    await act(async () => {
+      badge?.click();
+      await Promise.resolve();
+    });
+    expect(revealedPaths).toEqual(["/Users/test/reference docs", "/Users/test/reference docs"]);
+  });
+
+  it("deduplicates within the current composition and removes a card independently", async () => {
+    await renderComposer();
+    const file = new File(["hello"], "notes.md", { type: "text/markdown" });
+
+    await dispatchFileDrag("drop", [file]);
+    await dispatchFileDrag("drop", [file]);
+    expect(container!.querySelectorAll("[data-local-path-context-card]")).toHaveLength(1);
+
+    await act(async () => {
+      container!.querySelector<HTMLButtonElement>('[aria-label="Remove notes.md"]')!.click();
+    });
+    expect(container!.querySelector("[data-local-path-context-card]")).toBeNull();
+  });
+
+  it("keeps the overlay active across nested dragenter and dragleave events", async () => {
+    await renderComposer();
+    const file = new File(["hello"], "notes.md", { type: "text/markdown" });
+
+    await dispatchFileDrag("dragenter", [file]);
+    await dispatchFileDrag("dragenter", [file]);
+    await dispatchFileDrag("dragleave", [file]);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
+
+    await dispatchFileDrag("dragleave", [file]);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
+  });
+
+  it("restores Local Path Context cards from a persisted draft", async () => {
+    const { drafts } = await renderAssociationDraft({
+      content: "Review this",
+      attachedSkillNames: [],
+      attachments: [],
+      localPathContexts: [
+        {
+          path: "/Users/test/notes.md",
+          basename: "notes.md",
+          kind: "file",
+        },
+      ],
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(container!.querySelector("[data-local-path-context-card]")?.textContent).toContain(
+      "notes.md",
+    );
+    expect(drafts.at(-1)?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/notes.md",
+        basename: "notes.md",
+        kind: "file",
+      },
+    ]);
+  });
+
+  it("drops a file into a new Thread Draft and persists it", async () => {
+    const { drafts } = await renderAssociationDraft({
+      content: "",
+      attachedSkillNames: [],
+      attachments: [],
+    });
+    const file = new File(["hello"], "draft-notes.md", { type: "text/markdown" });
+
+    await dispatchFileDrag("drop", [file]);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(drafts.at(-1)?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/draft-notes.md",
+        basename: "draft-notes.md",
+        kind: "file",
+      },
+    ]);
+  });
+
+  it("persists a newly dropped path when the Thread Draft Composer unmounts before debounce", async () => {
+    const attachment = {
+      id: "existing-attachment",
+      kind: "file" as const,
+      name: "existing.txt",
+      mimeType: "text/plain",
+      size: 5,
+      storageKey: "existing.txt",
+    };
+    const { drafts } = await renderAssociationDraft(
+      {
+        content: "",
+        attachedSkillNames: ["tdd"],
+        attachments: [attachment],
+      },
+      { readAttachment: () => new Promise<Uint8Array>(() => {}) },
+    );
+
+    await dispatchFileDrag("drop", [new File(["hello"], "draft-notes.md")]);
+    await act(async () => {
+      root!.unmount();
+    });
+    root = null;
+
+    expect(drafts.at(-1)).toMatchObject({
+      attachedSkillNames: ["tdd"],
+      attachments: [attachment],
+      localPathContexts: [
+        {
+          path: "/Users/test/draft-notes.md",
+          basename: "draft-notes.md",
+          kind: "file",
+        },
+      ],
+    });
+  });
+
+  it("persists a newly dropped path when the Thread Composer unmounts before debounce", async () => {
+    const attachment = {
+      id: "existing-attachment",
+      kind: "file" as const,
+      name: "existing.txt",
+      mimeType: "text/plain",
+      size: 5,
+      storageKey: "existing.txt",
+    };
+    await renderComposer({
+      threadWork: {
+        "thread-1": {
+          draft: {
+            content: "",
+            attachedSkillNames: ["tdd"],
+            attachments: [attachment],
+          },
+          queuedMessages: [],
+        },
+      },
+      readAttachment: async () => {
+        throw new Error("missing");
+      },
+    });
+
+    await dispatchFileDrag("drop", [new File(["hello"], "thread-notes.md")]);
+    await act(async () => {
+      root!.unmount();
+    });
+    root = null;
+
+    expect(getThreadDraft("thread-1")).toMatchObject({
+      attachedSkillNames: ["tdd"],
+      attachments: [attachment],
+      localPathContexts: [
+        {
+          path: "/Users/test/thread-notes.md",
+          basename: "thread-notes.md",
+          kind: "file",
+        },
+      ],
+    });
+  });
+
+  it("leaves text and URL drags untouched", async () => {
+    await renderComposer();
+    const browserImage = new File(["image"], "remote.png", { type: "image/png" });
+    const event = await dispatchFileDrag(
+      "dragover",
+      [browserImage],
+      ["Files", "text/uri-list", "text/html"],
+    );
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
+  });
+
+  it("shows one error toast and ignores a rejected local path", async () => {
+    await renderComposer();
+    window.carrent.localPaths.resolveFiles = async () => ({
+      items: [],
+      rejections: [{ index: 0, reason: "unavailable" }],
+    });
+
+    await dispatchFileDrag("drop", [new File(["hello"], "missing.md")]);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    });
+
+    const errorToasts = [...container!.querySelectorAll('[role="alert"]')].filter((alert) =>
+      alert.textContent?.includes("One dropped item is not an available local file or folder."),
+    );
+    expect(errorToasts).toHaveLength(1);
+    expect(container!.querySelector("[data-local-path-context-card]")).toBeNull();
+  });
+
+  it("preserves Local Path Context while a message waits in the live-run queue", async () => {
+    const threadId = "thread-2";
+    const sharedRun = {
+      runId: "shared-run",
+      requestKey: "shared-request",
+      threadId,
+      status: "running" as const,
+      stopRequested: false,
+      eventCount: 0,
+      events: [],
+      pendingPermissions: [],
+      pendingQuestions: [],
+    };
+    await renderComposer({
+      threadId,
+      authorityState: { revision: 1, runs: [sharedRun] },
+    });
+    const file = new File(["hello"], "queued-notes.md", { type: "text/markdown" });
+
+    await dispatchFileDrag("drop", [file]);
+    await setComposerText("queued request");
+    await submitComposer();
+
+    expect(getQueuedMessages(threadId)[0]?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/queued-notes.md",
+        basename: "queued-notes.md",
+        kind: "file",
+      },
+    ]);
+
+    const completedEvent: ChatRunEvent = {
+      type: "completed",
+      runId: sharedRun.runId,
+      requestKey: sharedRun.requestKey,
+      text: "done",
+      finishedAt: "2026-08-07T00:00:00.000Z",
+    };
+    await act(async () => {
+      emitChatAuthorityChange?.({
+        baseRevision: 1,
+        revision: 2,
+        run: {
+          ...sharedRun,
+          status: "completed",
+          eventCount: 1,
+          events: [completedEvent],
+        },
+        event: completedEvent,
+      });
+    });
+    await waitForQueueFlush(threadId, 1);
+
+    expect(sentChatRequests[0]?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/queued-notes.md",
+        basename: "queued-notes.md",
+        kind: "file",
+      },
+    ]);
+  });
+
+  it("authorizes Local Path Context retained in Thread history for a later Run", async () => {
+    const threadId = "thread-1";
+    await renderComposer({ threadId });
+    const file = new File(["hello"], "historical-context.md", { type: "text/markdown" });
+
+    await dispatchFileDrag("drop", [file]);
+    await setComposerText("first request");
+    await submitComposer();
+    await act(async () => {
+      emitChatEvent?.({
+        type: "completed",
+        runId: sentChatRunIds[0]!,
+        text: "done",
+        finishedAt: "2026-08-07T00:00:00.000Z",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    await setComposerText("follow up using the same context");
+    await submitComposer();
+
+    expect(sentChatRequests[1]?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/historical-context.md",
+        basename: "historical-context.md",
+        kind: "file",
+      },
+    ]);
+
+    await act(async () => {
+      emitChatEvent?.({
+        type: "completed",
+        runId: sentChatRunIds[1]!,
+        text: "done",
+        finishedAt: "2026-08-07T00:00:01.000Z",
+      });
+    });
+  });
+
+  it("accepts a mixed multi-item drop in Finder order and wraps the cards", async () => {
+    await renderComposer();
+    window.carrent.localPaths.resolveFiles = async () => ({
+      items: [
+        {
+          path: "/Users/test/docs/references",
+          basename: "references",
+          kind: "directory" as const,
+        },
+        { path: "/Users/test/a/report.md", basename: "report.md", kind: "file" as const },
+        { path: "/Users/test/b/report.md", basename: "report.md", kind: "file" as const },
+        {
+          path: "/Users/test/资料/设计 稿 (终版) [v3].png",
+          basename: "设计 稿 (终版) [v3].png",
+          kind: "file" as const,
+        },
+      ],
+      rejections: [],
+    });
+
+    await dispatchFileDrag("drop", [
+      new File([], "references"),
+      new File([], "report.md"),
+      new File([], "report.md"),
+      new File([], "设计 稿 (终版) [v3].png"),
+    ]);
+
+    const cards = [...container!.querySelectorAll<HTMLElement>("[data-local-path-context-card]")];
+    expect(cards.map((card) => card.getAttribute("title"))).toEqual([
+      "/Users/test/docs/references",
+      "/Users/test/a/report.md",
+      "/Users/test/b/report.md",
+      "/Users/test/资料/设计 稿 (终版) [v3].png",
+    ]);
+    // Duplicate basenames stay distinguishable through the full-path tooltip.
+    expect(cards[1]!.textContent).toContain("report.md");
+    expect(cards[2]!.textContent).toContain("report.md");
+    expect(cards[1]!.getAttribute("title")).not.toBe(cards[2]!.getAttribute("title"));
+    // The row wraps instead of overlapping or resizing the conversation layout.
+    expect(cards[0]!.parentElement!.className).toContain("flex-wrap");
+    expect(cards[0]!.className).toContain("max-w-full");
+  });
+
+  it("keeps valid items from a partially rejected drop and shows one error toast", async () => {
+    await renderComposer();
+    window.carrent.localPaths.resolveFiles = async () => ({
+      items: [
+        { path: "/Users/test/kept.md", basename: "kept.md", kind: "file" as const },
+        { path: "/Users/test/assets", basename: "assets", kind: "directory" as const },
+      ],
+      rejections: [{ index: 1, reason: "unavailable" as const }],
+    });
+
+    await dispatchFileDrag("drop", [
+      new File([], "kept.md"),
+      new File([], "missing.md"),
+      new File([], "assets"),
+    ]);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    });
+
+    const cards = [...container!.querySelectorAll<HTMLElement>("[data-local-path-context-card]")];
+    expect(cards.map((card) => card.getAttribute("title"))).toEqual([
+      "/Users/test/kept.md",
+      "/Users/test/assets",
+    ]);
+    const errorToasts = [...container!.querySelectorAll('[role="alert"]')].filter((alert) =>
+      alert.textContent?.includes("One dropped item is not an available local file or folder."),
+    );
+    expect(errorToasts).toHaveLength(1);
+  });
+
+  it("ignores nested dragleave events from non-filesystem drags", async () => {
+    await renderComposer();
+    const file = new File([], "notes.md");
+
+    await dispatchFileDrag("dragenter", [file]);
+    await dispatchFileDrag("dragleave", [file], ["Files", "text/uri-list", "text/html"]);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
+
+    await dispatchFileDrag("dragleave", [file]);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
+  });
+
+  it("clears a stuck overlay when the drag ends without a final dragleave", async () => {
+    await renderComposer();
+    const file = new File([], "notes.md");
+
+    await dispatchFileDrag("dragenter", [file]);
+    await dispatchFileDrag("dragenter", [file]);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(new Event("blur"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
+
+    await dispatchFileDrag("dragenter", [file]);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
+    await act(async () => {
+      window.dispatchEvent(new Event("drop", { cancelable: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
+  });
+
+  it("exposes keyboard-focusable cards and badges with accessible names", async () => {
+    await renderComposer({ withTimeline: true });
+    window.carrent.localPaths.resolveFiles = async () => ({
+      items: [
+        { path: "/Users/test/docs/handbook.md", basename: "handbook.md", kind: "file" as const },
+      ],
+      rejections: [],
+    });
+
+    await dispatchFileDrag("drop", [new File([], "handbook.md")]);
+
+    const card = container!.querySelector<HTMLElement>("[data-local-path-context-card]")!;
+    expect(card.getAttribute("title")).toBe("/Users/test/docs/handbook.md");
+    // Kind is conveyed as text, not color alone.
+    expect(card.textContent).toContain("File");
+
+    const revealButton = card.querySelector<HTMLButtonElement>(
+      '[aria-label="Reveal handbook.md in Finder"]',
+    )!;
+    const removeButton = card.querySelector<HTMLButtonElement>(
+      '[aria-label="Remove handbook.md"]',
+    )!;
+    expect(revealButton.tabIndex).not.toBe(-1);
+    expect(removeButton.tabIndex).not.toBe(-1);
+    // Native buttons: Enter/Space activates them for keyboard users.
+    expect(revealButton.type).toBe("button");
+    expect(removeButton.type).toBe("button");
+
+    await act(async () => {
+      revealButton.focus();
+    });
+    expect(document.activeElement).toBe(revealButton);
+    await act(async () => {
+      removeButton.focus();
+    });
+    expect(document.activeElement).toBe(removeButton);
+
+    await setComposerText("Check this");
+    await submitComposer();
+
+    const badge = container!.querySelector<HTMLElement>("[data-local-path-context-badge]")!;
+    expect(badge.tagName).toBe("BUTTON");
+    expect(badge.getAttribute("aria-label")).toBe("Reveal handbook.md in Finder");
+    expect(badge.getAttribute("title")).toBe("/Users/test/docs/handbook.md");
+  });
+
+  it("routes dropped images to thumbnail attachments instead of Local Path Context", async () => {
+    URL.createObjectURL = () => "blob:mock-preview";
+    URL.revokeObjectURL = () => {};
+    await renderComposer();
+    const image = new File(["fake-png"], "carrent-usage.png", { type: "image/png" });
+    const notes = new File(["hello"], "notes.md", { type: "text/markdown" });
+
+    await dispatchFileDrag("drop", [image, notes]);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    });
+
+    // The image becomes a thumbnail attachment with click-to-preview wiring.
+    const thumbnail = container!.querySelector<HTMLElement>('img[alt="carrent-usage.png"]');
+    expect(thumbnail).not.toBeNull();
+    expect(thumbnail?.getAttribute("src")).toBe("blob:mock-preview");
+    // The non-image file still becomes a Local Path Context card.
+    const cards = [...container!.querySelectorAll<HTMLElement>("[data-local-path-context-card]")];
+    expect(cards.map((card) => card.getAttribute("title"))).toEqual(["/Users/test/notes.md"]);
+  });
 });
 
 describe("Composer inline Skills", () => {

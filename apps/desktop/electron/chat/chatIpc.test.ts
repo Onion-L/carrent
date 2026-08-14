@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ChatTurnRequest } from "../../src/shared/chat";
-import { registerChatIpc as registerProductionChatIpc } from "./chatIpc";
+import { parseChatTurnLocalPathContexts, registerChatIpc as registerProductionChatIpc } from "./chatIpc";
 import { createChatRunAuthority } from "./chatRunAuthority";
 
 function registerChatIpc(
@@ -948,6 +948,95 @@ describe("registerChatIpc", () => {
           height: 480,
         },
       ]);
+    });
+  });
+
+  describe("chat:send Local Path Context pass-through", () => {
+    it("parseChatTurnLocalPathContexts resolves absent to undefined", () => {
+      expect(parseChatTurnLocalPathContexts(undefined)).toBeUndefined();
+      expect(parseChatTurnLocalPathContexts(null)).toBeUndefined();
+    });
+
+    it("parseChatTurnLocalPathContexts drops malformed entries leniently", () => {
+      expect(
+        parseChatTurnLocalPathContexts([
+          { path: "/a/keep.ts", kind: "file" },
+          { path: "relative", kind: "file" },
+          { path: "/a/dir", kind: "directory" },
+        ]),
+      ).toEqual([
+        { path: "/a/keep.ts", basename: "keep.ts", kind: "file" },
+        { path: "/a/dir", basename: "dir", kind: "directory" },
+      ]);
+      expect(parseChatTurnLocalPathContexts([{ path: "bad", kind: "file" }])).toBeUndefined();
+    });
+
+    it("parseChatTurnLocalPathContexts rejects a non-array value", () => {
+      let error: unknown;
+      try {
+        parseChatTurnLocalPathContexts("nope");
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error instanceof Error ? error.message : String(error)).toContain(
+        "Invalid Local Path Context",
+      );
+    });
+
+    it("parseChatTurnLocalPathContexts preserves more than 30 historical paths", () => {
+      const historicalPaths = Array.from({ length: 31 }, (_, index) => ({
+        path: `/a/f${index}.ts`,
+        kind: "file" as const,
+      }));
+      expect(parseChatTurnLocalPathContexts(historicalPaths)).toHaveLength(31);
+    });
+
+    it("forwards sanitized Local Path Context with chat:send and omits it when absent", async () => {
+      const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+      const started: { runId: string; request: ChatTurnRequest }[] = [];
+      registerChatIpc(
+        {
+          handle(channel, listener) {
+            handlers.set(channel, listener);
+          },
+        },
+        {
+          sessionManager: {
+            start: (runId, request) => started.push({ runId, request }),
+            stop: () => {},
+            removeRuntimeSession: async () => {},
+            deleteThreadData: async () => {},
+            respondToPermission: () => {},
+            respondToQuestion: () => {},
+            shutdown: async () => {},
+            getStatus: async () => null,
+          },
+        },
+      );
+
+      await handlers.get("chat:send")?.(
+        {},
+        makeRequest({
+          localPathContexts: [
+            { path: "/Users/onion/My Notes (draft) [v2].md", kind: "file" },
+            { path: "dropped-relative", kind: "file" },
+            { path: "/Users/onion/项目 文件", kind: "directory" },
+          ] as never,
+        }),
+      );
+      await handlers.get("chat:send")?.({}, makeRequest());
+
+      expect(started).toHaveLength(2);
+      expect(started[0].request.localPathContexts).toEqual([
+        {
+          path: "/Users/onion/My Notes (draft) [v2].md",
+          basename: "My Notes (draft) [v2].md",
+          kind: "file",
+        },
+        { path: "/Users/onion/项目 文件", basename: "项目 文件", kind: "directory" },
+      ]);
+      // Absent field stays absent — never coerced to an empty array.
+      expect(started[1].request.localPathContexts).toBeUndefined();
     });
   });
 

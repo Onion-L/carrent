@@ -9,6 +9,7 @@ import {
   getPendingPlanReviewForThread,
   buildSkillReference,
   canSubmitComposerContent,
+  collectRunLocalPathContexts,
   createWorkspaceDiffCapture,
   filterSkillsForQuery,
   formatKimiModelLabel,
@@ -81,6 +82,63 @@ describe("mergeComposerDraftContent", () => {
   it("keeps incoming multiline content unchanged", () => {
     expect(mergeComposerDraftContent("", incoming)).toBe(incoming);
     expect(mergeComposerDraftContent("", incoming).split("\n")).toEqual(incoming.split("\n"));
+  });
+});
+
+describe("collectRunLocalPathContexts", () => {
+  const file = { path: "/tmp/context.ts", basename: "context.ts", kind: "file" as const };
+  const folder = { path: "/tmp/reference", basename: "reference", kind: "directory" as const };
+
+  it("combines retained Thread history with the current request in first-seen order", () => {
+    expect(
+      collectRunLocalPathContexts(
+        [
+          {
+            id: "user-1",
+            threadId: "thread-1",
+            role: "user",
+            content: "first",
+            timestamp: "09:00",
+            localPathContexts: [file],
+          },
+          {
+            id: "assistant-1",
+            threadId: "thread-1",
+            role: "assistant",
+            content: "answer",
+            timestamp: "09:01",
+          },
+        ],
+        [folder, file],
+      ),
+    ).toEqual([file, folder]);
+  });
+
+  it("excludes the edited message and everything after it before applying its replacement", () => {
+    expect(
+      collectRunLocalPathContexts(
+        [
+          {
+            id: "user-1",
+            threadId: "thread-1",
+            role: "user",
+            content: "first",
+            timestamp: "09:00",
+            localPathContexts: [file],
+          },
+          {
+            id: "user-2",
+            threadId: "thread-1",
+            role: "user",
+            content: "second",
+            timestamp: "09:01",
+            localPathContexts: [folder],
+          },
+        ],
+        [],
+        "user-1",
+      ),
+    ).toEqual([]);
   });
 });
 
@@ -168,6 +226,18 @@ describe("shouldSubmitComposerOnKeyDown", () => {
 });
 
 describe("canSubmitComposerContent", () => {
+  it("allows a Local Path Context-only message", () => {
+    expect(
+      canSubmitComposerContent({
+        content: "",
+        attachedSkillCount: 0,
+        attachmentCount: 0,
+        localPathContextCount: 1,
+        isPreparingAttachments: false,
+      }),
+    ).toBe(true);
+  });
+
   it("allows an external attachment-only queued message", () => {
     expect(
       canSubmitComposerContent({

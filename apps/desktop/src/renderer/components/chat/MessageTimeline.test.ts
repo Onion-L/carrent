@@ -114,6 +114,34 @@ describe("user message presentation", () => {
     expect(markup).not.toContain("](/Users");
     expect(markup).toContain("text-skill-reference");
   });
+
+  it("renders structured Local Path Context as a compact file badge", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MessageTimeline, {
+        messages: [
+          {
+            id: "msg-1",
+            threadId: "thread-1",
+            role: "user" as const,
+            content: "Review this file",
+            timestamp: "09:00",
+            type: "text" as const,
+            localPathContexts: [
+              {
+                path: "/Users/test/My Notes (draft) [v2].md",
+                basename: "My Notes (draft) [v2].md",
+                kind: "file" as const,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(markup).toContain("data-local-path-context-badge");
+    expect(markup).toContain("My Notes (draft) [v2].md");
+    expect(markup).toContain('title="/Users/test/My Notes (draft) [v2].md"');
+  });
 });
 
 describe("parseFileReferenceSegments", () => {
@@ -162,6 +190,26 @@ describe("getUserMessageEditDraft", () => {
       messageId: "msg-1",
       content: "please fix this",
       attachments: undefined,
+      localPathContexts: undefined,
+    });
+  });
+
+  it("keeps structured Local Path Context editable without message prose", () => {
+    const message: Message = {
+      id: "msg-1",
+      threadId: "thread-1",
+      role: "user",
+      content: "",
+      timestamp: "09:00",
+      type: "text",
+      localPathContexts: [{ path: "/Users/test/context.ts", basename: "context.ts", kind: "file" }],
+    };
+
+    expect(getUserMessageEditDraft(message)).toEqual({
+      messageId: "msg-1",
+      content: "",
+      attachments: undefined,
+      localPathContexts: [{ path: "/Users/test/context.ts", basename: "context.ts", kind: "file" }],
     });
   });
 

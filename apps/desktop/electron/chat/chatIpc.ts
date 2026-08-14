@@ -8,6 +8,10 @@ import type {
   ThreadDeletionScope,
 } from "../../src/shared/chat";
 import { normalizeAppStateSnapshot } from "../../src/shared/workspacePersistence";
+import {
+  normalizeLocalPathContexts,
+  type LocalPathContextItem,
+} from "../../src/shared/localPathContext";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import type { ChatQuestionAnswer, ChatQuestionResponse } from "../../src/shared/chatQuestions";
 import {
@@ -271,6 +275,23 @@ export function parseChatTurnAttachments(value: unknown): AttachmentMetadata[] |
   return attachments;
 }
 
+// Sanitizes the optional Local Path Context on a chat turn request. Lenient by
+// design at this boundary: absent resolves to undefined (the field is omitted),
+// and malformed entries are dropped rather than rejecting the whole request, so
+// the Runtime never receives authorization for an untrusted path. This is the
+// trust boundary where Runtime authorization begins — downstream code trusts
+// that every item here is a normalized, classified descriptor.
+export function parseChatTurnLocalPathContexts(
+  value: unknown,
+): LocalPathContextItem[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error("Invalid Local Path Context.");
+  }
+  const items = normalizeLocalPathContexts(value);
+  return items.length > 0 ? items : undefined;
+}
+
 export function parseChatPermissionResponse(value: unknown): ChatPermissionResponse {
   if (!value || typeof value !== "object") {
     throw new Error("Invalid permission response.");
@@ -373,6 +394,9 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
       ...req,
       attachments: parseChatTurnAttachments(
         (request as { attachments?: unknown } | null)?.attachments,
+      ),
+      localPathContexts: parseChatTurnLocalPathContexts(
+        (request as { localPathContexts?: unknown } | null)?.localPathContexts,
       ),
     };
 

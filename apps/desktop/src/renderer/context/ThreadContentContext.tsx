@@ -36,6 +36,7 @@ import type {
 } from "../../shared/workspacePersistence";
 import type { GitWorkspaceDiffResult } from "../../../electron/git/gitIpc";
 import type { RunChecklistEntry, RunChecklistOutcome } from "../../shared/runChecklist";
+import type { LocalPathContextItem } from "../../shared/localPathContext";
 import { useAppState } from "./AppStateContext";
 
 type MessageRunStatus = NonNullable<Message["runStatus"]>;
@@ -68,7 +69,8 @@ export function applyRunChecklistUpdate(
         runtimeId: update.runtimeId,
         entries: update.entries,
         outcome: "running",
-        expanded: thread.runChecklist?.runId === update.runId ? thread.runChecklist.expanded : false,
+        expanded:
+          thread.runChecklist?.runId === update.runId ? thread.runChecklist.expanded : false,
       },
     };
   }
@@ -128,6 +130,7 @@ export type ThreadContentContextValue = {
     role: "user" | "assistant";
     content: string;
     attachments?: AttachmentMetadata[];
+    localPathContexts?: LocalPathContextItem[];
     runStatus?: MessageRunStatus;
   }) => Message;
   appendWorkspaceDiffMessage: (
@@ -135,7 +138,11 @@ export type ThreadContentContextValue = {
     result: Extract<GitWorkspaceDiffResult, { state: "ready" }>,
   ) => ChangedFilesMessage;
   updateMessage: (id: string, content: string) => void;
-  updateMessageAndPruneAfter: (id: string, content: string) => void;
+  updateMessageAndPruneAfter: (
+    id: string,
+    content: string,
+    localPathContexts?: LocalPathContextItem[],
+  ) => void;
   updateMessageRunStatus: (id: string, status: MessageRunStatus) => void;
   updateMessageRunEventCount: (id: string, count: number) => void;
   updateMessageParts: (id: string, update: MessagePartUpdate) => void;
@@ -386,6 +393,7 @@ export function updateMessageAndPruneThreadAfter(
   messages: Message[],
   messageId: string,
   content: string,
+  localPathContexts?: LocalPathContextItem[],
 ) {
   const targetIndex = messages.findIndex((message) => message.id === messageId);
   const target = messages[targetIndex];
@@ -397,7 +405,18 @@ export function updateMessageAndPruneThreadAfter(
   return messages
     .slice(0, targetIndex + 1)
     .map((message) =>
-      message.id === messageId ? { ...message, content, parts: undefined } : message,
+      message.id === messageId
+        ? {
+            ...message,
+            content,
+            parts: undefined,
+            ...(localPathContexts === undefined
+              ? {}
+              : localPathContexts.length > 0
+                ? { localPathContexts }
+                : { localPathContexts: undefined }),
+          }
+        : message,
     )
     .concat(
       messages.slice(targetIndex + 1).filter((message) => message.threadId !== target.threadId),
@@ -882,6 +901,7 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
     role: "user" | "assistant";
     content: string;
     attachments?: AttachmentMetadata[];
+    localPathContexts?: LocalPathContextItem[];
     runStatus?: MessageRunStatus;
   }): Message => {
     const now = Date.now();
@@ -925,13 +945,18 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
     }));
   };
 
-  const updateMessageAndPruneAfter = (id: string, content: string) => {
+  const updateMessageAndPruneAfter = (
+    id: string,
+    content: string,
+    localPathContexts?: LocalPathContextItem[],
+  ) => {
     updateThreadContent((state) => ({
       ...state,
       threadMessages: updateMessageAndPruneThreadAfter(
         state.threadMessages as Message[],
         id,
         content,
+        localPathContexts,
       ) as AppThreadMessageRecord[],
     }));
   };

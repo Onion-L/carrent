@@ -6,8 +6,11 @@ import { ChatHeader } from "../components/chat/ChatHeader";
 import { OpenInMenu } from "../components/chat/OpenInMenu";
 import {
   Composer,
+  ConversationDropSurface,
   type ComposerDraftRequest,
   type ComposerSubmitRequest,
+  type ImageFileDropRef,
+  type LocalPathContextAddRef,
 } from "../components/chat/Composer";
 import {
   EmptyThreadPrompt,
@@ -35,7 +38,10 @@ import { useChatRun } from "../hooks/useChatRun";
 import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
 import { useToast } from "../components/toast/ToastContext";
 import { BrowserWorkspace, useBrowserThread } from "../components/browser/BrowserWorkspace";
-import { RightSurfacePane, shouldOpenDiffSurface } from "../components/right-surface/RightSurfacePane";
+import {
+  RightSurfacePane,
+  shouldOpenDiffSurface,
+} from "../components/right-surface/RightSurfacePane";
 import { useRightSurface } from "../components/right-surface/useRightSurface";
 
 export function resolveThreadRouteData(
@@ -69,6 +75,22 @@ export function recordBrowserFocusSequence(
   return previous !== undefined && state.focusSequence > previous;
 }
 
+export function buildRuntimeSessionRetrySubmitRequest(
+  userMessage: Message | undefined,
+  requestId: number,
+): ComposerSubmitRequest | null {
+  if (!userMessage || userMessage.role !== "user") {
+    return null;
+  }
+  return {
+    messageId: userMessage.id,
+    content: userMessage.content,
+    attachments: userMessage.attachments,
+    localPathContexts: userMessage.localPathContexts,
+    requestId,
+  };
+}
+
 function ThreadPageContent() {
   const { workspaceId, projectId, threadId } = useParams();
   const { showToast } = useToast();
@@ -78,6 +100,8 @@ function ThreadPageContent() {
   const [draftRequest, setDraftRequest] = useState<
     { threadId: string; request: ComposerDraftRequest } | undefined
   >();
+  const localPathContextAddRef = useRef<LocalPathContextAddRef["current"]>(null);
+  const imageFileDropRef = useRef<ImageFileDropRef["current"]>(null);
   const draftRequestIdRef = useRef(0);
   const { getThreadRouteData, setSelectedThreadId } = useThreadContent();
   const {
@@ -226,6 +250,7 @@ function ThreadPageContent() {
         messageId: draft.messageId,
         content: draft.content,
         attachments: draft.attachments,
+        localPathContexts: draft.localPathContexts,
         requestId: Date.now(),
       },
     });
@@ -238,7 +263,8 @@ function ThreadPageContent() {
       const userMessage = data.messages.find(
         (message) => message.id === request.userMessageId && message.role === "user",
       );
-      if (!userMessage || userMessage.role !== "user") {
+      const retrySubmitRequest = buildRuntimeSessionRetrySubmitRequest(userMessage, Date.now());
+      if (!retrySubmitRequest) {
         showToast("The original request is unavailable.", "error");
         return;
       }
@@ -255,12 +281,7 @@ function ThreadPageContent() {
 
       setSubmitRequest({
         threadId: request.threadId,
-        request: {
-          messageId: userMessage.id,
-          content: userMessage.content,
-          attachments: userMessage.attachments,
-          requestId: Date.now(),
-        },
+        request: retrySubmitRequest,
       });
     },
     [showToast],
@@ -294,6 +315,8 @@ function ThreadPageContent() {
       draftRequest={
         draftRequest?.threadId === routeData.thread.id ? draftRequest.request : undefined
       }
+      localPathContextAddRef={localPathContextAddRef}
+      imageFileDropRef={imageFileDropRef}
       onRuntimeIdChange={(runtimeId) => {
         if (appThread) void updateThreadConfig(appThread.id, { runtimeId });
       }}
@@ -413,32 +436,37 @@ function ThreadPageContent() {
         </DesktopHeaderPortal>
       ) : null}
       <div className="flex h-full min-w-0 flex-1 flex-col">
-        <ChatHeader title={routeData?.thread.title ?? "Thread not found"} />
-        {routeData && isEmptyThread ? (
-          <div
-            data-empty-thread-layout
-            className="flex min-h-0 flex-1 items-center justify-center px-6 py-8"
-          >
-            <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
-              <EmptyThreadPrompt />
-              {composer}
+        <ConversationDropSurface
+          localPathContextAddRef={localPathContextAddRef}
+          imageFileDropRef={imageFileDropRef}
+        >
+          <ChatHeader title={routeData?.thread.title ?? "Thread not found"} />
+          {routeData && isEmptyThread ? (
+            <div
+              data-empty-thread-layout
+              className="flex min-h-0 flex-1 items-center justify-center px-6 py-8"
+            >
+              <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
+                <EmptyThreadPrompt />
+                {composer}
+              </div>
             </div>
-          </div>
-        ) : (
-          <>
-            <MessageTimeline
-              messages={routeData?.messages ?? []}
-              threadActions={threadActions.filter(
-                (action) => action.threadId === routeData?.thread.id,
-              )}
-              threadId={routeData?.thread.id}
-              onSubmitUserEdit={hasLiveRun ? undefined : handleSubmitUserEdit}
-              onRemoveRuntimeSessionAndRetry={handleRuntimeSessionRetry}
-              onSelectSubagent={handleSelectSubagent}
-            />
-            {composer}
-          </>
-        )}
+          ) : (
+            <>
+              <MessageTimeline
+                messages={routeData?.messages ?? []}
+                threadActions={threadActions.filter(
+                  (action) => action.threadId === routeData?.thread.id,
+                )}
+                threadId={routeData?.thread.id}
+                onSubmitUserEdit={hasLiveRun ? undefined : handleSubmitUserEdit}
+                onRemoveRuntimeSessionAndRetry={handleRuntimeSessionRetry}
+                onSelectSubagent={handleSelectSubagent}
+              />
+              {composer}
+            </>
+          )}
+        </ConversationDropSurface>
       </div>
 
       {showBrowser && browserFullscreen && browserTarget && activeBrowserState ? (

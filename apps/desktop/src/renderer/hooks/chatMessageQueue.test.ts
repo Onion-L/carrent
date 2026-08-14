@@ -406,3 +406,97 @@ describe("chatMessageQueue threadWork persistence", () => {
     removeThreadWork(["t22"]);
   });
 });
+
+describe("chatMessageQueue Local Path Context", () => {
+  const fileContext = {
+    path: "/Users/onion/My Notes (draft) [v2].md",
+    basename: "My Notes (draft) [v2].md",
+    kind: "file" as const,
+  };
+  const folderContext = {
+    path: "/Users/onion/项目 文件",
+    basename: "项目 文件",
+    kind: "directory" as const,
+  };
+
+  it("round-trips draft Local Path Context through set/get as a deep copy", () => {
+    setThreadDraft("lpc-1", {
+      content: "draft",
+      attachedSkillNames: [],
+      attachments: [],
+      localPathContexts: [fileContext, folderContext],
+    });
+
+    const read = getThreadDraft("lpc-1");
+    expect(read?.localPathContexts).toEqual([fileContext, folderContext]);
+    // Mutating the returned copy must not affect stored state.
+    read?.localPathContexts?.pop();
+    expect(getThreadDraft("lpc-1")?.localPathContexts).toEqual([fileContext, folderContext]);
+
+    clearThreadDraft("lpc-1");
+  });
+
+  it("treats Local Path Context as semantic content: a differing draft syncs from a peer broadcast", () => {
+    setThreadDraft("lpc-2", {
+      content: "same text",
+      attachedSkillNames: [],
+      attachments: [],
+    });
+
+    // A peer-window broadcast carries the same text but adds a context. Because
+    // draftsEqualSemantic now compares localPathContexts, this is a real change
+    // and the local draft converges on the peer value.
+    syncThreadWorkFromSnapshot({
+      "lpc-2": {
+        draft: {
+          content: "same text",
+          attachedSkillNames: [],
+          attachments: [],
+          localPathContexts: [fileContext],
+        },
+        queuedMessages: [],
+      },
+    });
+
+    expect(getThreadDraft("lpc-2")?.localPathContexts).toEqual([fileContext]);
+
+    removeThreadWork(["lpc-2"]);
+  });
+
+  it("carries Local Path Context on queued messages through hydration, snapshot, and peer sync", () => {
+    hydrateThreadWork({
+      "lpc-3": {
+        draft: {
+          content: "composer",
+          attachedSkillNames: [],
+          attachments: [],
+          localPathContexts: [folderContext],
+        },
+        queuedMessages: [
+          { id: "q1", content: "queued", localPathContexts: [fileContext] },
+        ],
+      },
+    });
+
+    expect(getThreadDraft("lpc-3")?.localPathContexts).toEqual([folderContext]);
+    expect(getQueuedMessages("lpc-3")[0]?.localPathContexts).toEqual([fileContext]);
+
+    // The serialized snapshot (what gets persisted / shared across windows)
+    // preserves both carriers in order with exact path text.
+    expect(getThreadWorkSnapshot(["lpc-3"])).toEqual({
+      "lpc-3": {
+        draft: {
+          content: "composer",
+          attachedSkillNames: [],
+          attachments: [],
+          localPathContexts: [folderContext],
+        },
+        queuedMessages: [
+          { id: "q1", content: "queued", localPathContexts: [fileContext], requiresConfirmation: true },
+        ],
+      },
+    });
+
+    removeThreadWork(["lpc-3"]);
+  });
+});

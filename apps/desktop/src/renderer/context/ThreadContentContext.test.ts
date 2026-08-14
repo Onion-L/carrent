@@ -272,6 +272,24 @@ describe("mergeThreadMessages", () => {
 });
 
 describe("thread data deletion", () => {
+  it("removes Local Path Context metadata without treating referenced paths as owned files", () => {
+    const messages = [
+      makeMessage({
+        id: "delete",
+        threadId: "thread-1",
+        localPathContexts: [
+          { path: "/Users/test/external.ts", basename: "external.ts", kind: "file" },
+        ],
+      }),
+    ];
+
+    expect(prepareThreadDataDeletion(messages, ["thread-1"]).request).toEqual({
+      threadIds: ["thread-1"],
+      attachmentStorageKeys: [],
+    });
+    expect(prepareThreadDataDeletion(messages, ["thread-1"]).remainingMessages).toEqual([]);
+  });
+
   const attachment = (storageKey: string) => ({
     id: storageKey,
     kind: "image" as const,
@@ -505,6 +523,39 @@ describe("updateMessageAndPruneThreadAfter", () => {
         id: "other-thread",
         threadId: "thread-2",
         content: "keep",
+      }),
+    ]);
+  });
+
+  it("replaces the edited message Local Path Context while pruning later messages", () => {
+    const messages: Message[] = [
+      makeMessage({
+        id: "user-1",
+        threadId: "thread-1",
+        content: "old",
+        localPathContexts: [
+          { path: "/tmp/remove.ts", basename: "remove.ts", kind: "file" },
+          { path: "/tmp/keep", basename: "keep", kind: "directory" },
+        ],
+      }),
+      makeMessage({
+        id: "assistant-1",
+        threadId: "thread-1",
+        role: "assistant",
+        content: "old answer",
+      }),
+    ];
+
+    expect(
+      updateMessageAndPruneThreadAfter(messages, "user-1", "edited", [
+        { path: "/tmp/keep", basename: "keep", kind: "directory" },
+      ]),
+    ).toEqual([
+      makeMessage({
+        id: "user-1",
+        threadId: "thread-1",
+        content: "edited",
+        localPathContexts: [{ path: "/tmp/keep", basename: "keep", kind: "directory" }],
       }),
     ]);
   });

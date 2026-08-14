@@ -1,5 +1,5 @@
 import type { ChildProcess } from "node:child_process";
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -16,6 +16,7 @@ import type {
   RuntimeSessionStatusData,
   KimiTimelineItem,
 } from "../../src/shared/chat";
+import type { LocalPathContextItem } from "../../src/shared/localPathContext";
 import {
   CHAT_PERMISSION_TIMEOUT_MS,
   buildPermissionExpiry,
@@ -40,7 +41,13 @@ import type {
   CarrentBridgeHandle,
   CarrentBridgeMcpServerDescriptor,
 } from "../bridge/carrentBridge";
-import { buildChatPrompt, DEFAULT_FILE_ONLY_PROMPT, DEFAULT_IMAGE_ONLY_PROMPT } from "./chatPrompt";
+import {
+  buildChatPrompt,
+  buildLocalPathContextSection,
+  DEFAULT_FILE_ONLY_PROMPT,
+  DEFAULT_FOLDER_ONLY_PROMPT,
+  DEFAULT_IMAGE_ONLY_PROMPT,
+} from "./chatPrompt";
 import {
   QUESTION_DISMISSED_NOTE,
   QuestionAlreadyPendingError,
@@ -612,11 +619,17 @@ export async function buildKimiPromptParts(
       ? storedAttachments.some((attachment) => attachment.kind === "file")
         ? DEFAULT_FILE_ONLY_PROMPT
         : DEFAULT_IMAGE_ONLY_PROMPT
-      : "");
+      : request.localPathContexts?.some((item) => item.kind === "file")
+        ? DEFAULT_FILE_ONLY_PROMPT
+        : request.localPathContexts?.some((item) => item.kind === "directory")
+          ? DEFAULT_FOLDER_ONLY_PROMPT
+          : "");
   const parts: Array<Record<string, unknown>> = [];
   let text = "";
+  const includesTranscriptPrompt =
+    options?.includeTranscript === true && request.transcript.length > 0;
 
-  if (options?.includeTranscript === true && request.transcript.length > 0) {
+  if (includesTranscriptPrompt) {
     const promptRequest: ChatTurnRequest = {
       ...request,
       message: messageText,
@@ -625,6 +638,13 @@ export async function buildKimiPromptParts(
     text = buildChatPrompt(promptRequest, { includeTranscript: true });
   } else if (messageText) {
     text = messageText;
+  }
+
+  if (!includesTranscriptPrompt) {
+    const localPathContextSection = buildLocalPathContextSection(request.localPathContexts);
+    if (localPathContextSection) {
+      text = text ? `${text}\n\n${localPathContextSection}` : localPathContextSection;
+    }
   }
 
   const imagePathContext = buildImagePathContext(storedAttachments ?? []);
@@ -653,6 +673,17 @@ export async function buildKimiPromptParts(
       data: data.toString("base64"),
       mimeType: attachment.mimeType,
       uri: pathToFileURL(attachment.localPath).toString(),
+    });
+  }
+
+  // Dragged Local Path Context items become ACP resource_link blocks pointing
+  // at the original path. The Runtime reads them through fs/read_text_file;
+  // the Run-start allowlist applies exact-file or directory-descendant access.
+  for (const item of request.localPathContexts ?? []) {
+    parts.push({
+      type: "resource_link",
+      uri: pathToFileURL(item.path).toString(),
+      name: item.basename,
     });
   }
 
@@ -729,6 +760,15 @@ class KimiAcpRun {
   private attachmentTargets: Map<string, string> | null = null;
   private attachmentStorePath: string | null = null;
   private attachmentStoreRealPath: string | null = null;
+  // Canonical real path -> item for the current request's Local Path Context
+  // files (dragged in, outside managed storage). Exact-match read-only
+  // allowlist; never grants sibling or write access.
+  private localPathContextFileTargets: Map<string, LocalPathContextItem> | null = null;
+  private localPathContextDirectoryTargets: Array<{
+    path: string;
+    realPath: string;
+    item: LocalPathContextItem;
+  }> | null = null;
   private pendingPermissions = new Map<
     string,
     {
@@ -818,6 +858,7 @@ class KimiAcpRun {
         return;
       }
       await this.prepareAttachmentTargets();
+      await this.prepareLocalPathContextTargets();
       const { configOptions, resumed } = await this.openSession();
 
       await this.configureModel(configOptions);
@@ -957,6 +998,39 @@ class KimiAcpRun {
     this.attachmentStorePath = attachmentStorePath;
     this.attachmentStoreRealPath = attachmentStoreRealPath;
     this.attachmentTargets = targets;
+  }
+
+  // Canonicalizes each Local Path Context reference at Run start and builds a
+  // read-only allowlist. Files use exact matching; directories grant existing
+  // descendant files whose canonical paths remain inside the canonical root.
+  private async prepareLocalPathContextTargets(): Promise<void> {
+    const contexts = this.options.request.localPathContexts ?? [];
+    const fileTargets = new Map<string, LocalPathContextItem>();
+    const directoryTargets: NonNullable<typeof this.localPathContextDirectoryTargets> = [];
+    for (const item of contexts) {
+      let realPath: string;
+      let stats: Awaited<ReturnType<typeof stat>>;
+      try {
+        realPath = await realpath(item.path);
+        stats = await stat(realPath);
+      } catch {
+        throw new Error(`Local path context is unavailable: ${item.basename}`);
+      }
+      if (item.kind === "file") {
+        if (!stats.isFile()) {
+          throw new Error(`Local path context is no longer a file: ${item.basename}`);
+        }
+        fileTargets.set(realPath, item);
+        continue;
+      }
+
+      if (!stats.isDirectory()) {
+        throw new Error(`Local path context is no longer a folder: ${item.basename}`);
+      }
+      directoryTargets.push({ path: path.resolve(item.path), realPath, item });
+    }
+    this.localPathContextFileTargets = fileTargets.size > 0 ? fileTargets : null;
+    this.localPathContextDirectoryTargets = directoryTargets.length > 0 ? directoryTargets : null;
   }
 
   private async openSession(): Promise<{ configOptions: unknown; resumed: boolean }> {
@@ -1748,6 +1822,19 @@ class KimiAcpRun {
       });
     }
 
+    if (target.kind === "localPathContext") {
+      this.emit({
+        type: "reasoning",
+        runId: this.options.runId,
+        requestKey: this.options.request.requestKey,
+        reasoning: {
+          id: `kimi-fs-read-local-path-context-${target.name}`,
+          content: `Read ${target.name}`,
+          status: "completed",
+        },
+      });
+    }
+
     return { content: await readFile(target.path, "utf8") };
   }
 
@@ -1774,6 +1861,30 @@ class KimiAcpRun {
   private async resolveTextFileTarget(requestedPath: string, access: "read" | "write") {
     const resolvedPath = path.resolve(this.options.cwd, requestedPath);
 
+    // Preserve parent-traversal intent before path.resolve erases it. A request
+    // that starts a ".." step inside an explicitly referenced directory may
+    // not fall back to the broader Project Working Directory grant.
+    if (this.localPathContextDirectoryTargets) {
+      for (const match of requestedPath.matchAll(/(^|[\\/])\.\.(?=$|[\\/])/gu)) {
+        const traversalBase = path.resolve(
+          this.options.cwd,
+          requestedPath.slice(0, match.index) || ".",
+        );
+        const escapedTarget = this.localPathContextDirectoryTargets.find(
+          (target) =>
+            (isContainedRelativePath(path.relative(target.path, traversalBase)) ||
+              isContainedRelativePath(path.relative(target.realPath, traversalBase))) &&
+            !isContainedRelativePath(path.relative(target.path, resolvedPath)) &&
+            !isContainedRelativePath(path.relative(target.realPath, resolvedPath)),
+        );
+        if (escapedTarget) {
+          throw new Error(
+            `Refusing to ${access} outside Local Path Context folder: ${requestedPath}`,
+          );
+        }
+      }
+    }
+
     if (this.attachmentStorePath && this.attachmentStoreRealPath && this.attachmentTargets) {
       const candidateRealPath = await resolveCanonicalCandidatePath(resolvedPath);
       const isInAttachmentStore =
@@ -1791,6 +1902,70 @@ class KimiAcpRun {
           };
         }
         throw new Error(`Refusing to ${access} attachment storage: ${requestedPath}`);
+      }
+    }
+
+    // Explicitly referenced Local Path Context files (dragged into the
+    // composer). Grants read-only access to the exact canonical file only;
+    // siblings, writes, and parent traversal are refused. Symlinks collapse via
+    // realpath so a link pointing elsewhere never matches the exact key.
+    if (this.localPathContextFileTargets) {
+      const candidateRealPath = await resolveCanonicalCandidatePath(resolvedPath);
+      const item = this.localPathContextFileTargets.get(candidateRealPath);
+      if (item) {
+        if (access === "read") {
+          return {
+            kind: "localPathContext" as const,
+            path: candidateRealPath,
+            relativePath: "",
+            name: item.basename,
+          };
+        }
+        throw new Error(`Refusing to ${access} Local Path Context file: ${requestedPath}`);
+      }
+    }
+
+    if (this.localPathContextDirectoryTargets) {
+      const lexicalTarget = this.localPathContextDirectoryTargets.find((target) =>
+        isContainedRelativePath(path.relative(target.path, resolvedPath)),
+      );
+      let candidateRealPath: string;
+      try {
+        candidateRealPath =
+          access === "write"
+            ? await resolveCanonicalCandidatePath(resolvedPath)
+            : await realpath(resolvedPath);
+      } catch (error) {
+        if (lexicalTarget) {
+          if (access === "write") {
+            throw new Error(`Refusing to write Local Path Context folder: ${requestedPath}`);
+          }
+          throw new Error(`Local Path Context descendant is unavailable: ${requestedPath}`);
+        }
+        throw error;
+      }
+      const canonicalTarget = this.localPathContextDirectoryTargets.find((target) =>
+        isContainedRelativePath(path.relative(target.realPath, candidateRealPath)),
+      );
+
+      if (lexicalTarget || canonicalTarget) {
+        if (access === "write") {
+          throw new Error(`Refusing to write Local Path Context folder: ${requestedPath}`);
+        }
+        if (!canonicalTarget) {
+          throw new Error(`Refusing to read outside Local Path Context folder: ${requestedPath}`);
+        }
+        const stats = await stat(candidateRealPath);
+        if (!stats.isFile()) {
+          throw new Error(`Local Path Context descendant is not a file: ${requestedPath}`);
+        }
+        const relativePath = path.relative(canonicalTarget.realPath, candidateRealPath);
+        return {
+          kind: "localPathContext" as const,
+          path: candidateRealPath,
+          relativePath,
+          name: relativePath || canonicalTarget.item.basename,
+        };
       }
     }
 

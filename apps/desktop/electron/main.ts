@@ -69,10 +69,7 @@ import {
 import { registerMcpServerIpc } from "./bridge/mcpServerIpc";
 import { registerSettingsIpc } from "./settings/settingsIpc";
 import { buildWorktreeActivitySnapshot } from "./settings/worktreeActivity";
-import {
-  createWorktreeSizeScanner,
-  measureWorktreeDirectorySize,
-} from "./settings/worktreeSizes";
+import { createWorktreeSizeScanner, measureWorktreeDirectorySize } from "./settings/worktreeSizes";
 import { registerDialogIpc } from "./dialog/dialogIpc";
 import { registerEditorsIpc } from "./editors/editorIpc";
 import { spawn } from "node:child_process";
@@ -120,6 +117,7 @@ import { createBrowserManager, type BrowserManager } from "./browser/browserMana
 import { registerBrowserIpc } from "./browser/browserIpc";
 import { isHttpOrHttpsUrl } from "./browser/browserNavigation";
 import type { BrowserThreadTarget } from "../src/shared/browser";
+import { resolveDroppedLocalPaths, revealLocalPath } from "./localPathContext";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -758,8 +756,18 @@ if (!hasSingleInstanceLock) {
 
     guardedIpcMain.handle("shell:reveal-path", async (_event, filePath) => {
       if (typeof filePath !== "string") throw new Error("Invalid file path.");
-      shell.showItemInFolder(filePath);
+      return revealLocalPath(filePath, (path) => shell.showItemInFolder(path));
     });
+
+    // Resolves dropped filesystem paths to validated Local Path Context descriptors.
+    // The preload already converted each DOM File to an absolute path via
+    // webUtils.getPathForFile; here we stat each path to confirm it exists and
+    // classify it, returning only normalized absolute path, basename, and kind.
+    // Missing or unsupported entries are rejected without throwing so a mixed drop
+    // can still accept its valid items.
+    guardedIpcMain.handle("local-paths:resolve", (_event, paths) =>
+      resolveDroppedLocalPaths(paths),
+    );
 
     guardedIpcMain.handle("clipboard:write-text", async (_event, text) => {
       if (typeof text !== "string") throw new Error("Invalid clipboard text.");

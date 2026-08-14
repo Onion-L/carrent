@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 import type {
   ChatTurnRequest,
   ChatRunEvent,
@@ -25,6 +25,7 @@ import type {
   AppStateCommand,
   AppStateCommandResult,
 } from "../src/shared/appStateAuthority";
+import type { LocalPathResolutionResult, RevealPathResult } from "../src/shared/localPathContext";
 import type { RuntimeId } from "../src/shared/runtimes";
 import type {
   GitBranchInfo,
@@ -77,6 +78,7 @@ import type {
   BrowserThreadTarget,
   BrowserZoomRequest,
 } from "../src/shared/browser";
+import { createLocalPathContextPreloadApi } from "./preloadLocalPathContext";
 
 const mainWindow: MainWindowApi = {
   onNavigate: (listener) => {
@@ -275,9 +277,16 @@ const carrent = {
     openPath: (filePath: string) =>
       ipcRenderer.invoke("shell:open-path", filePath) as Promise<string>,
     revealPath: (filePath: string) =>
-      ipcRenderer.invoke("shell:reveal-path", filePath) as Promise<void>,
+      ipcRenderer.invoke("shell:reveal-path", filePath) as Promise<RevealPathResult>,
     openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url) as Promise<void>,
   },
+  // webUtils.getPathForFile must receive the original DOM File in preload;
+  // Main then validates the resolved path without exposing fs to Renderer.
+  localPaths: createLocalPathContextPreloadApi(
+    (file) => webUtils.getPathForFile(file),
+    (paths) =>
+      ipcRenderer.invoke("local-paths:resolve", paths) as Promise<LocalPathResolutionResult>,
+  ),
   editors: {
     list: () => ipcRenderer.invoke("editors:list") as Promise<DetectedEditor[]>,
     open: (editorId: string, workingDirectory: string) =>

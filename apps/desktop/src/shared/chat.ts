@@ -3,6 +3,7 @@ import type { RuntimeMode } from "./runtimeMode";
 import type { ChatPermissionOptionKind, ChatPermissionRequest } from "./chatPermissions";
 import type { ChatQuestionAnswer, ChatQuestionRequest } from "./chatQuestions";
 import type { RunChecklistSnapshot } from "./runChecklist";
+import type { LocalPathContextItem } from "./localPathContext";
 import type { AppStateSnapshot } from "./workspacePersistence";
 
 export const DEFAULT_CHAT_RUNTIME_ID: RuntimeId = DEFAULT_RUNTIME_ID;
@@ -201,6 +202,10 @@ export interface ChatTurnRequest {
   }>;
   message: string;
   attachments?: Attachment[];
+  // Structured Local Path Context for dragged files/folders. Runtime
+  // authorization consumes this structured field rather than re-parsing user
+  // Markdown; the Primary Runtime builds a read allowlist from it at Run start.
+  localPathContexts?: LocalPathContextItem[];
   historyMode?: "continue" | "replace";
 }
 

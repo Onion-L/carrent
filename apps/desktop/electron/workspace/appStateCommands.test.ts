@@ -912,6 +912,22 @@ describe("thread-draft commands", () => {
     expect(normalizeAppStateSnapshotForWrite(produced.snapshot)).not.toBe(null);
   });
 
+  it("preserves ordered Local Path Context when opening a draft", () => {
+    const localPathContexts = [
+      { path: "/tmp/notes.md", basename: "notes.md", kind: "file" as const },
+      { path: "/tmp/reference", basename: "reference", kind: "directory" as const },
+    ];
+
+    const result = reduce("thread-draft:open", makeSnapshot(), {
+      workspaceId: "ws-a",
+      projectId: "proj-3",
+      draft: draftInput({ localPathContexts }),
+    }) as { snapshot: AppStateSnapshot; data: AssociationThreadDraftRecord };
+
+    expect(result.data.localPathContexts).toEqual(localPathContexts);
+    expect(result.snapshot.threadDrafts?.at(-1)?.localPathContexts).toEqual(localPathContexts);
+  });
+
   it("returns the existing draft as a no-op when one is already open", () => {
     const result = reduce("thread-draft:open", makeSnapshot(), {
       workspaceId: "ws-a",
@@ -973,6 +989,38 @@ describe("thread-draft commands", () => {
     expect(reduce("thread-draft:update", makeSnapshot(), { draftId: "d-404", draft: null })).toBe(
       null,
     );
+  });
+
+  it("replaces and clears Local Path Context when updating a draft", () => {
+    const snapshot = makeSnapshot({
+      threadDrafts: [
+        {
+          ...makeDraft("d-1", "draft-thread-1", "ws-a", "proj-1"),
+          localPathContexts: [{ path: "/tmp/old.md", basename: "old.md", kind: "file" }],
+        },
+      ],
+    });
+    const localPathContexts = [
+      { path: "/tmp/new", basename: "new", kind: "directory" as const },
+      { path: "/tmp/new.md", basename: "new.md", kind: "file" as const },
+    ];
+
+    const updated = reduce("thread-draft:update", snapshot, {
+      draftId: "d-1",
+      draft: {
+        content: "hello",
+        attachedSkillNames: [],
+        attachments: [],
+        localPathContexts,
+      },
+    }) as AppStateSnapshot;
+    expect(updated.threadDrafts?.[0]?.localPathContexts).toEqual(localPathContexts);
+
+    const cleared = reduce("thread-draft:update", updated, {
+      draftId: "d-1",
+      draft: null,
+    }) as AppStateSnapshot;
+    expect(cleared.threadDrafts?.[0]?.localPathContexts).toBeUndefined();
   });
 
   it("updates draft config and clears the model override", () => {

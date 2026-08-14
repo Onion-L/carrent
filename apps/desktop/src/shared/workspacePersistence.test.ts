@@ -1032,3 +1032,214 @@ describe("normalizeProviderSessionSnapshot", () => {
     ).toEqual({ version: 1, sessions: { "kimi:thread-1": "" } });
   });
 });
+
+describe("Local Path Context persistence", () => {
+  // Edge-case paths already in normalized form (absolute, forward slashes,
+  // explicit basename) so the round-trip assertion can compare verbatim.
+  const fileContext = {
+    path: "/Users/onion/My Notes (draft) [v2].md",
+    basename: "My Notes (draft) [v2].md",
+    kind: "file",
+  };
+  const folderContext = {
+    path: "/Users/onion/项目 文件",
+    basename: "项目 文件",
+    kind: "directory",
+  };
+  const longFileContext = {
+    path: "/tmp/a b/c[d].ts",
+    basename: "c[d].ts",
+    kind: "file",
+  };
+  const orderedContexts = [fileContext, folderContext, longFileContext];
+
+  function baseSnapshot() {
+    return {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      threads: [
+        {
+          id: "thread-1",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Local Path Context",
+          createdAt: "2026-07-27T08:00:00.000Z",
+          lastActivityAt: "2026-07-27T08:00:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      activeWorkspaceId: "workspace-1",
+    };
+  }
+
+  it("round-trips Local Path Context on drafts, messages, intents, and Thread Work with order and exact text", () => {
+    const snapshot = {
+      ...baseSnapshot(),
+      threadDrafts: [
+        {
+          id: "draft-1",
+          threadId: "thread-2",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          content: "Draft",
+          attachedSkillNames: [],
+          attachments: [],
+          localPathContexts: orderedContexts,
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      threadMessages: [
+        {
+          id: "message-1",
+          threadId: "thread-1",
+          role: "user",
+          content: "Read these",
+          createdAt: "2026-07-27T08:01:00.000Z",
+          attachments: [],
+          localPathContexts: orderedContexts,
+        },
+      ],
+      threadRuns: [],
+      threadPromotionIntents: [
+        {
+          draftId: "draft-1",
+          threadId: "thread-2",
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          title: "Local Path Context",
+          runId: "run-1",
+          messageId: "message-2",
+          message: "Draft",
+          attachments: [],
+          localPathContexts: [folderContext],
+          startedAt: "2026-07-27T08:02:00.000Z",
+          runtimeId: "kimi",
+          runtimeMode: "approval-required",
+          planMode: false,
+        },
+      ],
+      threadWork: {
+        "thread-1": {
+          draft: {
+            content: "Follow up",
+            composerState: '{"root":{"type":"root"}}',
+            attachedSkillNames: [],
+            attachments: [],
+            localPathContexts: [fileContext, folderContext],
+          },
+          queuedMessages: [
+            {
+              id: "queued-1",
+              content: "Next request",
+              localPathContexts: [longFileContext],
+              requiresConfirmation: true,
+            },
+          ],
+        },
+      },
+      lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
+    };
+
+    const normalized = normalizeAppStateSnapshot(snapshot)!;
+    expect(normalized).toEqual(snapshot);
+    // Order and exact text are preserved through every carrier.
+    expect(normalized.threadDrafts![0].localPathContexts).toEqual(orderedContexts);
+    expect(normalized.threadMessages![0].localPathContexts).toEqual(orderedContexts);
+    expect(normalized.threadPromotionIntents![0].localPathContexts).toEqual([folderContext]);
+    expect(normalized.threadWork!["thread-1"].draft!.localPathContexts).toEqual([
+      fileContext,
+      folderContext,
+    ]);
+    expect(normalized.threadWork!["thread-1"].queuedMessages[0].localPathContexts).toEqual([
+      longFileContext,
+    ]);
+  });
+
+  it("loads an old snapshot without Local Path Context unchanged (no destructive migration)", () => {
+    const legacy = {
+      ...baseSnapshot(),
+      threadDrafts: [],
+      threadMessages: [
+        {
+          id: "message-1",
+          threadId: "thread-1",
+          role: "user",
+          content: "No contexts",
+          createdAt: "2026-07-27T08:01:00.000Z",
+          attachments: [],
+        },
+      ],
+      threadRuns: [],
+      threadPromotionIntents: [],
+      threadWork: {
+        "thread-1": {
+          draft: { content: "Follow up", attachedSkillNames: [], attachments: [] },
+          queuedMessages: [{ id: "q-1", content: "Continue", requiresConfirmation: true }],
+        },
+      },
+    };
+
+    const normalized = normalizeAppStateSnapshot(legacy)!;
+    expect(normalized).toEqual(legacy);
+    expect(normalized.threadMessages![0].localPathContexts).toBeUndefined();
+    expect(normalized.threadWork!["thread-1"].draft!.localPathContexts).toBeUndefined();
+    expect(normalized.threadWork!["thread-1"].queuedMessages[0].localPathContexts).toBeUndefined();
+  });
+
+  it("drops malformed Local Path Context items instead of rejecting the snapshot", () => {
+    const snapshot = {
+      ...baseSnapshot(),
+      threadDrafts: [],
+      threadMessages: [
+        {
+          id: "message-1",
+          threadId: "thread-1",
+          role: "user",
+          content: "Mixed",
+          createdAt: "2026-07-27T08:01:00.000Z",
+          attachments: [],
+          localPathContexts: [
+            fileContext,
+            { path: "relative/path", kind: "file" }, // relative -> dropped
+            { path: "/a/unknown-kind", kind: "folder" }, // bad kind -> dropped
+            folderContext,
+          ],
+        },
+      ],
+      threadRuns: [],
+      threadPromotionIntents: [],
+      threadWork: {
+        "thread-1": {
+          draft: {
+            content: "Follow up",
+            attachedSkillNames: [],
+            attachments: [],
+            localPathContexts: [{ path: "/keep", kind: "file" }, "nope", 7],
+          },
+          queuedMessages: [],
+        },
+      },
+    };
+
+    const normalized = normalizeAppStateSnapshot(snapshot)!;
+    expect(normalized).not.toBe(null);
+    expect(normalized.threadMessages![0].localPathContexts).toEqual([fileContext, folderContext]);
+    expect(normalized.threadWork!["thread-1"].draft!.localPathContexts).toEqual([
+      { path: "/keep", basename: "keep", kind: "file" },
+    ]);
+  });
+});

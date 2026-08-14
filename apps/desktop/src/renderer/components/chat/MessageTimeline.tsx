@@ -9,6 +9,7 @@ import {
   CircleDot,
   Copy,
   FileText,
+  Folder,
   Loader2,
   Pencil,
   XCircle,
@@ -21,6 +22,7 @@ import {
   type SubagentTaskPart,
 } from "../../../shared/threadContent";
 import type { AppThreadActionRecord } from "../../../shared/workspacePersistence";
+import type { LocalPathContextItem } from "../../../shared/localPathContext";
 import { isFileAttachment, isImageAttachment } from "../../../shared/attachment";
 import {
   FILE_ATTACHMENT_ICONS,
@@ -40,6 +42,7 @@ import { PlanReviewBlock } from "./PlanReviewBlock";
 import { QuestionBlock } from "./QuestionBlock";
 import { parseFileReferenceSegments } from "./fileReferences";
 import { formatSkillLabel } from "./skillLabel";
+import { useToast } from "../toast/ToastContext";
 
 export { parseFileReferenceSegments } from "./fileReferences";
 
@@ -52,6 +55,7 @@ export type UserMessageEditDraft = {
   messageId: string;
   content: string;
   attachments?: AttachmentMetadata[];
+  localPathContexts?: LocalPathContextItem[];
 };
 
 export type RuntimeSessionRetryRequest = NonNullable<
@@ -101,7 +105,10 @@ export function parseSkillReferenceSegments(content: string): UserMessageSegment
 }
 
 export function getUserMessageEditDraft(message: Message): UserMessageEditDraft | null {
-  if (message.role !== "user" || !message.content.trim()) {
+  if (
+    message.role !== "user" ||
+    (!message.content.trim() && !message.attachments?.length && !message.localPathContexts?.length)
+  ) {
     return null;
   }
 
@@ -109,6 +116,7 @@ export function getUserMessageEditDraft(message: Message): UserMessageEditDraft 
     messageId: message.id,
     content: message.content,
     attachments: message.attachments,
+    localPathContexts: message.localPathContexts,
   };
 }
 
@@ -331,10 +339,55 @@ export function UserMessageAttachmentList({
   );
 }
 
+export function UserMessageLocalPathContextList({ items }: { items: LocalPathContextItem[] }) {
+  const { showToast } = useToast();
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {items.map((item) => (
+        <button
+          key={`${item.kind}:${item.path}`}
+          type="button"
+          data-local-path-context-badge
+          title={item.path}
+          aria-label={`Reveal ${item.basename} in Finder`}
+          onClick={() => {
+            void window.carrent.shell
+              .revealPath(item.path)
+              .then((result) => {
+                if (!result.revealed) {
+                  showToast(
+                    `Could not reveal “${item.basename}”: the path no longer exists.`,
+                    "error",
+                  );
+                }
+              })
+              .catch(() => {
+                showToast(`Could not reveal “${item.basename}” in the file manager.`, "error");
+              });
+          }}
+          className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-md border border-border-strong bg-bg/45 px-2.5 text-app-12 text-fg outline-none transition hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-fg/25"
+        >
+          {item.kind === "directory" ? (
+            <Folder className="h-4 w-4 shrink-0 text-muted" />
+          ) : (
+            <FileText className="h-4 w-4 shrink-0 text-muted" />
+          )}
+          <span className="truncate font-medium">{item.basename}</span>
+          <span className="shrink-0 text-subtle">
+            {item.kind === "directory" ? "Folder" : "File"}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function UserMessage({
   content,
   timestamp,
   attachments,
+  localPathContexts,
   isEditing,
   onEdit,
   onCancelEdit,
@@ -343,22 +396,25 @@ function UserMessage({
   content: string;
   timestamp: string;
   attachments?: AttachmentMetadata[];
+  localPathContexts?: LocalPathContextItem[];
   isEditing?: boolean;
   onEdit?: () => void;
   onCancelEdit?: () => void;
-  onSubmitEdit?: (content: string) => void;
+  onSubmitEdit?: (content: string, localPathContexts: LocalPathContextItem[]) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const editState = useMemo(() => splitLeadingSkillReferences(content), [content]);
   const [draftBody, setDraftBody] = useState(editState.body);
+  const [draftLocalPathContexts, setDraftLocalPathContexts] = useState(localPathContexts ?? []);
 
   useEffect(() => {
     if (isEditing) {
       setDraftBody(editState.body);
+      setDraftLocalPathContexts(localPathContexts ?? []);
     }
-  }, [editState.body, isEditing]);
+  }, [editState.body, isEditing, localPathContexts]);
 
   const handleCopy = async () => {
     try {
@@ -380,11 +436,12 @@ function UserMessage({
       ...(attachment.sha256 ? { sha256: attachment.sha256 } : {}),
     })) ?? [];
   const editedContent = buildUserMessageEditContent(editState.prefix, draftBody);
-  const canSubmitEdit = !!editedContent.trim();
+  const canSubmitEdit =
+    !!editedContent.trim() || !!attachments?.length || draftLocalPathContexts.length > 0;
 
   const handleSubmitEdit = () => {
     if (!canSubmitEdit) return;
-    onSubmitEdit?.(editedContent);
+    onSubmitEdit?.(editedContent, draftLocalPathContexts);
   };
 
   if (isEditing) {
@@ -425,6 +482,43 @@ function UserMessage({
               />
             </div>
           )}
+          {draftLocalPathContexts.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {draftLocalPathContexts.map((item) => (
+                <div
+                  key={`${item.kind}:${item.path}`}
+                  data-local-path-context-card
+                  title={item.path}
+                  className="flex h-10 min-w-0 max-w-full basis-52 items-center rounded-lg border border-user-bubble-fg/15 bg-user-bubble-fg/[0.04]"
+                >
+                  <span className="flex min-w-0 flex-1 items-center gap-2 px-2.5">
+                    {item.kind === "directory" ? (
+                      <Folder className="h-4 w-4 shrink-0" />
+                    ) : (
+                      <FileText className="h-4 w-4 shrink-0" />
+                    )}
+                    <span className="truncate text-app-12">{item.basename}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDraftLocalPathContexts((current) =>
+                        current.filter(
+                          (candidate) =>
+                            candidate.path !== item.path || candidate.kind !== item.kind,
+                        ),
+                      )
+                    }
+                    aria-label={`Remove ${item.basename}`}
+                    title={`Remove ${item.basename}`}
+                    className="mr-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-user-bubble-fg/70 transition hover:bg-user-bubble-fg/10 hover:text-user-bubble-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-user-bubble-fg/25"
+                  >
+                    <XCircle className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="mt-3 flex justify-end gap-2 border-t border-user-bubble-fg/10 pt-3">
             <button
               type="button"
@@ -461,17 +555,24 @@ function UserMessage({
       onMouseLeave={() => setHovered(false)}
     >
       <div className="max-w-[80%]">
-        <div className="rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
-          {content && <UserMessageContent content={content} />}
-          {attachments && attachments.length > 0 && (
-            <div className={content ? "mt-2" : ""}>
-              <UserMessageAttachmentList
-                attachments={attachments}
-                onImageClick={setLightboxIndex}
-              />
-            </div>
-          )}
-        </div>
+        {content || (attachments && attachments.length > 0) ? (
+          <div className="rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
+            {content && <UserMessageContent content={content} />}
+            {attachments && attachments.length > 0 && (
+              <div className={content ? "mt-2" : ""}>
+                <UserMessageAttachmentList
+                  attachments={attachments}
+                  onImageClick={setLightboxIndex}
+                />
+              </div>
+            )}
+          </div>
+        ) : null}
+        {localPathContexts && localPathContexts.length > 0 ? (
+          <div className="mt-1.5 flex justify-end">
+            <UserMessageLocalPathContextList items={localPathContexts} />
+          </div>
+        ) : null}
         {lightboxIndex !== null && (
           <ImageAttachmentLightbox
             items={lightboxItems}
@@ -1215,6 +1316,7 @@ export function MessageTimeline({
                       content={msg.content}
                       timestamp={getMessageTimestamp(msg)}
                       attachments={msg.attachments}
+                      localPathContexts={msg.localPathContexts}
                       isEditing={editingMessageId === msg.id}
                       onEdit={
                         editDraft && onSubmitUserEdit
@@ -1222,11 +1324,12 @@ export function MessageTimeline({
                           : undefined
                       }
                       onCancelEdit={() => setEditingMessageId(null)}
-                      onSubmitEdit={(content) => {
+                      onSubmitEdit={(content, localPathContexts) => {
                         onSubmitUserEdit?.({
                           messageId: msg.id,
                           content,
                           attachments: msg.attachments,
+                          localPathContexts,
                         });
                         setEditingMessageId(null);
                       }}

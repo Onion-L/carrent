@@ -22,6 +22,7 @@ import {
 import type { AppStateCommandReducer } from "../../src/shared/appStateAuthority";
 import { reconcileInterruptedMessage } from "../../src/shared/threadContent";
 import { deriveThreadTitle } from "../../src/shared/threadTitle";
+import { normalizeLocalPathContexts } from "../../src/shared/localPathContext";
 
 // Command vocabulary for the shared App State data (workspaces, projects,
 // associations, thread metadata, selection, settings). Each reducer mirrors
@@ -575,6 +576,7 @@ function validatedDraftRecord(
   ) {
     return null;
   }
+  const localPathContexts = normalizeLocalPathContexts(value.localPathContexts);
   return {
     id: value.id,
     threadId: value.threadId,
@@ -586,6 +588,7 @@ function validatedDraftRecord(
       : {}),
     attachedSkillNames: [...(value.attachedSkillNames as string[])],
     attachments: value.attachments as AssociationThreadDraftRecord["attachments"],
+    ...(localPathContexts.length > 0 ? { localPathContexts } : {}),
     runtimeId: value.runtimeId as RuntimeId,
     ...(isNonEmptyTrimmedString(value.runtimeModelId)
       ? { runtimeModelId: value.runtimeModelId }
@@ -729,13 +732,19 @@ const updateThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
     composerState?: string;
     attachedSkillNames: string[];
     attachments: AssociationThreadDraftRecord["attachments"];
+    localPathContexts?: AssociationThreadDraftRecord["localPathContexts"];
   } | null;
+  const localPathContexts = normalizeLocalPathContexts(draft?.localPathContexts);
 
   return {
     ...snapshot,
     threadDrafts: (snapshot.threadDrafts ?? []).map((item) => {
       if (item.id !== existing.id) return item;
-      const { composerState: _composerState, ...withoutComposerState } = item;
+      const {
+        composerState: _composerState,
+        localPathContexts: _localPathContexts,
+        ...withoutComposerState
+      } = item;
       const content = draft?.content ?? "";
       const composerState = draft?.composerState ? draft.composerState : undefined;
       return {
@@ -744,6 +753,7 @@ const updateThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
         ...(composerState ? { composerState } : {}),
         attachedSkillNames: draft ? [...draft.attachedSkillNames] : [],
         attachments: draft ? draft.attachments : [],
+        ...(localPathContexts.length > 0 ? { localPathContexts } : {}),
       };
     }),
   };

@@ -7,7 +7,7 @@ import * as React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 
-import type { ChatRunEvent } from "../../../shared/chat";
+import type { ChatRunEvent, ChatTurnRequest } from "../../../shared/chat";
 import type { AppStateSnapshot } from "../../../shared/workspacePersistence";
 import { createFakeAppStateAuthority } from "../../test/fakeAppStateAuthority";
 import { AppStateProvider } from "../../context/AppStateContext";
@@ -56,6 +56,10 @@ function baseSnapshot(): AppStateSnapshot {
         content: "hello",
         createdAt: "2026-07-27T08:00:01.000Z",
         attachments: [],
+        localPathContexts: [
+          { path: "/tmp/remove.ts", basename: "remove.ts", kind: "file" },
+          { path: "/tmp/keep", basename: "keep", kind: "directory" },
+        ],
       },
       {
         id: "assistant-1",
@@ -74,7 +78,10 @@ function baseSnapshot(): AppStateSnapshot {
   };
 }
 
-function installCarrentBridge(authority: ReturnType<typeof createFakeAppStateAuthority>) {
+function installCarrentBridge(
+  authority: ReturnType<typeof createFakeAppStateAuthority>,
+  requests: ChatTurnRequest[] = [],
+) {
   window.carrent = {
     appState: {
       load: async () => ({ status: "ready", snapshot: authority.getState().snapshot }),
@@ -112,7 +119,10 @@ function installCarrentBridge(authority: ReturnType<typeof createFakeAppStateAut
       workspaceDiff: async () => ({ state: "ready", files: [], patch: "" }),
     },
     chat: {
-      send: async () => ({ runId: "run-1" }),
+      send: async (request: ChatTurnRequest) => {
+        requests.push(structuredClone(request));
+        return { runId: "run-1" };
+      },
       stop: async () => {},
       deleteThreadData: async () => {},
       respondToPermission: async () => {},
@@ -139,6 +149,7 @@ function EditResendHarness() {
             messageId: draft.messageId,
             content: draft.content,
             attachments: draft.attachments,
+            localPathContexts: draft.localPathContexts,
             requestId: Date.now(),
           });
         }}
@@ -190,10 +201,10 @@ async function mount(tree: React.ReactNode) {
   });
 }
 
-async function renderEditScenario() {
+async function renderEditScenario(requests: ChatTurnRequest[] = []) {
   const snapshot = baseSnapshot();
   const authority = createFakeAppStateAuthority(snapshot);
-  installCarrentBridge(authority);
+  installCarrentBridge(authority, requests);
   await mount(testTree());
   return authority;
 }
@@ -229,6 +240,34 @@ afterEach(async () => {
 });
 
 describe("edit without content change", () => {
+  it("rehydrates removable Local Path Context and preserves only the submitted selection", async () => {
+    const requests: ChatTurnRequest[] = [];
+    const authority = await renderEditScenario(requests);
+    await enterEditMode();
+
+    expect(container!.querySelectorAll("[data-local-path-context-card]")).toHaveLength(2);
+    const removeButton = container!.querySelector<HTMLButtonElement>(
+      '[aria-label="Remove remove.ts"]',
+    );
+    expect(removeButton).not.toBeNull();
+    await act(async () => removeButton!.click());
+
+    const sendButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "发送",
+    );
+    await act(async () => {
+      sendButton!.click();
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(requests[0]?.localPathContexts).toEqual([
+      { path: "/tmp/keep", basename: "keep", kind: "directory" },
+    ]);
+    expect(authority.getState().snapshot.threadMessages?.[0]?.localPathContexts).toEqual([
+      { path: "/tmp/keep", basename: "keep", kind: "directory" },
+    ]);
+  });
+
   it("opens a spacious, resizable message editor with compact actions", async () => {
     await renderEditScenario();
     await enterEditMode();

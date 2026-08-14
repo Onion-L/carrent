@@ -210,7 +210,10 @@ function reindexAssociationOrders(
   workspaceId: string,
 ): void {
   const rows = client.all<{ project_id: string; association_order: number }>(
-    xz
+    `SELECT project_id, "order" AS association_order
+     FROM workspace_project_associations
+     WHERE workspace_id = ?
+     ORDER BY "order", project_id`,
     workspaceId,
   );
   if (rows.length === 0) return;

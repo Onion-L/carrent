@@ -36,6 +36,7 @@ import { useNavigate } from "react-router-dom";
 import type {
   AttachmentMetadata,
   KimiSessionStatus,
+  PlanUsageErrorKind,
   RuntimeQuotaWindow,
 } from "../../../shared/chat";
 import { isTerminalSharedChatRunStatus } from "../../../shared/chat";
@@ -128,6 +129,7 @@ import {
   type RuntimeRecord,
 } from "../../../shared/runtimes";
 import { RuntimeIcon } from "../RuntimeIcon";
+import { KimiIcon } from "../icons/KimiIcon";
 import { useRuntimeModels } from "../../hooks/useRuntimeModels";
 import { useRuntimes } from "../../hooks/useRuntimes";
 import { useSkills } from "../../hooks/useSkills";
@@ -232,18 +234,43 @@ function ContextUsageIndicator({
         )}
       </button>
       {showPopover && (
-        <div className="absolute bottom-full right-0 mb-2 w-52 rounded-lg border border-border-strong bg-surface px-3 py-2 shadow-xl">
+        <div className="absolute bottom-full right-0 mb-2 w-80 rounded-lg border border-border-strong bg-surface px-5 pb-6 pt-4 shadow-xl">
           {loadState === "error" ? (
             <div className="text-app-12 text-muted">Context usage unavailable</div>
           ) : status ? (
             <>
               <div className="text-app-11 text-muted">Context usage</div>
-              <div className="mt-0.5 text-app-12 font-medium text-fg">
-                {status.used.toLocaleString()} / {status.total.toLocaleString()} (
-                {status.percentage.toFixed(1)}%)
-              </div>
+              {status.total !== undefined && status.percentage !== undefined ? (
+                <div className="mt-1 text-app-14 font-semibold tabular-nums text-fg">
+                  {status.used.toLocaleString()} / {status.total.toLocaleString()} (
+                  {status.percentage.toFixed(1)}%)
+                </div>
+              ) : (
+                <div className="mt-1 text-app-14 font-semibold tabular-nums text-fg">
+                  {status.used.toLocaleString()} tokens used
+                </div>
+              )}
               {status.model ? (
-                <div className="mt-1 truncate text-app-11 text-subtle">{status.model}</div>
+                <span className="mt-1.5 block h-4 w-4" title={status.model}>
+                  <KimiIcon className="h-4 w-4" />
+                </span>
+              ) : null}
+              {status.planUsage?.weekly || status.planUsage?.fiveHour ? (
+                <div className="mt-3 border-t border-border pt-3">
+                  <div className="text-app-11 text-muted">Plan usage</div>
+                  <div className="mt-2 grid gap-3">
+                    {status.planUsage.weekly ? (
+                      <PlanUsageRow label="Weekly" window={status.planUsage.weekly} />
+                    ) : null}
+                    {status.planUsage.fiveHour ? (
+                      <PlanUsageRow label="5h" window={status.planUsage.fiveHour} />
+                    ) : null}
+                  </div>
+                </div>
+              ) : status.planUsageError ? (
+                <div className="mt-3 border-t border-border pt-3 text-app-11 text-subtle">
+                  {planUsageErrorCopy(status.planUsageError)}
+                </div>
               ) : null}
             </>
           ) : (
@@ -260,11 +287,60 @@ function formatPercentage(value: number) {
   return Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1);
 }
 
+/** One plan-usage row: label + percentage, a progress bar, and the reset countdown. */
+function PlanUsageRow({ label, window }: { label: string; window: RuntimeQuotaWindow }) {
+  const used =
+    window.usedPercentage !== undefined
+      ? Math.min(100, Math.max(0, window.usedPercentage))
+      : undefined;
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2 text-app-12">
+        <span className="font-medium text-fg">{label}</span>
+        <span className="shrink-0 font-medium tabular-nums text-muted">
+          {used !== undefined ? `${formatPercentage(used)}%` : ""}
+          {formatResetSuffix(window.resetAt)}
+        </span>
+      </div>
+      {used !== undefined ? (
+        <div className="mt-1.5 h-1.5 rounded-full bg-surface-hover">
+          <div
+            className="h-1.5 rounded-full bg-skill-reference"
+            style={{ width: `${used}%` }}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function formatCompactTokens(value: number) {
   return new Intl.NumberFormat("en", {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(value);
+}
+
+/** Compact countdown like "in 5d 2h" from an ISO reset timestamp. */
+function formatResetCountdown(resetAt: string): string | null {
+  const time = Date.parse(resetAt);
+  if (!Number.isFinite(time)) return null;
+  const remainingMs = time - Date.now();
+  if (remainingMs <= 0) return "soon";
+  const minutes = Math.floor(remainingMs / 60_000);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const mins = minutes % 60;
+  if (days > 0) return `in ${days}d ${hours}h`;
+  if (hours > 0) return `in ${hours}h ${mins}m`;
+  return `in ${mins}m`;
+}
+
+/** Suffix like " · resets in 5d 2h" for the plan-usage lines. */
+function formatResetSuffix(resetAt: string | undefined): string {
+  if (!resetAt) return "";
+  const countdown = formatResetCountdown(resetAt);
+  return countdown ? ` · resets ${countdown}` : "";
 }
 
 function formatQuotaWindow(window: RuntimeQuotaWindow) {
@@ -273,10 +349,22 @@ function formatQuotaWindow(window: RuntimeQuotaWindow) {
     const used = Math.min(100, Math.max(0, window.usedPercentage));
     details.push(`Used ${formatPercentage(used)}%`, `Remaining ${formatPercentage(100 - used)}%`);
   }
-  if (window.reset) {
-    details.push(`Resets ${window.reset}`);
+  const countdown = window.resetAt ? formatResetCountdown(window.resetAt) : null;
+  if (countdown) {
+    details.push(`Resets ${countdown}`);
   }
   return details.join(" · ");
+}
+
+function planUsageErrorCopy(kind: PlanUsageErrorKind): string {
+  switch (kind) {
+    case "no-credentials":
+      return "Sign in with kimi to see plan usage.";
+    case "unauthorized":
+      return "Login expired — run kimi to sign in again.";
+    default:
+      return "Plan usage unavailable.";
+  }
 }
 
 function SessionStatusPanel({
@@ -288,7 +376,6 @@ function SessionStatusPanel({
   loading: boolean;
   onClose: () => void;
 }) {
-  const remaining = Math.min(100, Math.max(0, 100 - status.percentage));
   const planUsage = status.planUsage;
 
   return (
@@ -319,8 +406,9 @@ function SessionStatusPanel({
         <div>
           <dt className="text-muted">Context</dt>
           <dd className="mt-1 text-fg">
-            Remaining {formatPercentage(remaining)}% ({status.used.toLocaleString("en-US")} used /{" "}
-            {formatCompactTokens(status.total)} total)
+            {status.percentage !== undefined && status.total !== undefined
+              ? `Remaining ${formatPercentage(Math.min(100, Math.max(0, 100 - status.percentage)))}% (${status.used.toLocaleString("en-US")} used / ${formatCompactTokens(status.total)} total)`
+              : `${status.used.toLocaleString("en-US")} used`}
           </dd>
         </div>
         {planUsage?.weekly || planUsage?.fiveHour ? (

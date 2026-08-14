@@ -3,6 +3,7 @@ import type {
   ChatRunEvent,
   Attachment,
   DeleteThreadDataRequest,
+  KimiSessionStatus,
   RuntimeSessionRecovery,
   ThreadDataDeletionReceipt,
   ThreadDataDeletionOptions,
@@ -12,12 +13,15 @@ import type { ChatQuestionResponse } from "../../src/shared/chatQuestions";
 import {
   createKimiAcpProcessTransportFactory,
   executeKimiCompact,
-  getKimiSessionStatus,
+  getKimiSessionCommands,
+  KIMI_SUPPORTED_SESSION_COMMANDS,
   KimiRuntimeSessionError,
   startKimiAcpChatRun,
   type KimiAcpTransportFactory,
   type KimiAcpRunHandle,
 } from "./kimiAcpChat";
+import { getKimiContextUsage } from "./kimiContextUsage";
+import { getKimiPlanUsage } from "./kimiPlanUsage";
 import { startCarrentBridge, type CarrentBridgeFactory } from "../bridge/carrentBridge";
 import { startQuestionMcpServer, type QuestionMcpServerFactory } from "./questionMcpServer";
 import type { AttachmentStore } from "../attachments/attachmentStore";
@@ -95,6 +99,8 @@ export function createChatSessionManager(options: {
   questionMcpServerFactory?: QuestionMcpServerFactory;
   attachmentStore?: AttachmentStore;
   threadActionTimeoutMs?: number;
+  kimiContextUsage?: typeof getKimiContextUsage;
+  kimiPlanUsage?: typeof getKimiPlanUsage;
 }): ChatSessionManager {
   const kimiSessions = new Map<string, { handle: KimiAcpRunHandle; threadId: string }>();
   const pendingKimiRuns = new Map<string, string>();
@@ -106,6 +112,15 @@ export function createChatSessionManager(options: {
   const activeStatusRequests = new Map<
     string,
     Promise<import("../../src/shared/chat").KimiSessionStatus | null>
+  >();
+  // Commands harvested from live Runs, keyed by Runtime Session. Lets status
+  // requests skip the CLI-spawning handshake for sessions seen this app run.
+  const lastKnownCommands = new Map<string, ReadonlySet<string>>();
+  // Recently composed statuses, per Thread, so hover churn re-serves the last
+  // result instead of rescanning files. Only a short TTL in v1.
+  const statusFreshness = new Map<
+    string,
+    { expiresAt: number; value: import("../../src/shared/chat").KimiSessionStatus }
   >();
   // A Run that arrived while a Runtime Session status request was active is
   // deferred until that request settles, instead of failing. One per Thread:
@@ -246,6 +261,9 @@ export function createChatSessionManager(options: {
           const questionServerFactory: QuestionMcpServerFactory =
             options.questionMcpServerFactory ??
             ((questionOptions) => startQuestionMcpServer(questionOptions));
+          // Set by onCompletedSession so onDone can harvest the Run's
+          // advertised commands for the session it persisted.
+          let completedSessionId: string | null = null;
           const handle = startKimiAcpChatRun({
             runId,
             request: requestWithAttachments,
@@ -266,8 +284,13 @@ export function createChatSessionManager(options: {
                 return;
               }
               runtimeSessions.set(requestSessionKey, sessionId);
+              completedSessionId = sessionId;
             },
             onDone: () => {
+              const harvested = completedSessionId === null ? null : handle.getAvailableCommands();
+              if (completedSessionId !== null && harvested && harvested.size > 0) {
+                lastKnownCommands.set(completedSessionId, new Set(harvested));
+              }
               kimiSessions.delete(runId);
             },
           });
@@ -694,17 +717,63 @@ export function createChatSessionManager(options: {
     });
   }
 
+  const STATUS_FRESHNESS_TTL_MS = 5_000;
+
   async function loadStatus(request: ChatTurnRequest, sessionId: string) {
-    const transportFactory =
-      options.kimiAcpTransportFactory ?? createKimiAcpProcessTransportFactory(options.spawn);
-    const status = await getKimiSessionStatus({
+    const freshness = statusFreshness.get(request.threadId);
+    if (freshness && freshness.expiresAt > Date.now()) {
+      return freshness.value;
+    }
+
+    const readContextUsage = options.kimiContextUsage ?? getKimiContextUsage;
+    const readPlanUsage = options.kimiPlanUsage ?? getKimiPlanUsage;
+    const [contextUsage, planResult] = await Promise.all([
+      readContextUsage({ sessionId }),
+      readPlanUsage(),
+    ]);
+    if (!contextUsage || deletedThreadIds.has(request.threadId)) return null;
+
+    // Prefer commands harvested from live Runs; only sessions never seen this
+    // app run pay for the prompt-less CLI handshake.
+    let commands = lastKnownCommands.get(sessionId);
+    if (!commands) {
+      const transportFactory =
+        options.kimiAcpTransportFactory ?? createKimiAcpProcessTransportFactory(options.spawn);
+      commands =
+        (await getKimiSessionCommands({
+          sessionId,
+          cwd: request.context.workingDirectory,
+          transportFactory,
+          requestTimeoutMs: 30_000,
+        })) ?? undefined;
+      if (commands && commands.size > 0) {
+        lastKnownCommands.set(sessionId, commands);
+      }
+    }
+    if (deletedThreadIds.has(request.threadId)) return null;
+
+    const total = contextUsage.total;
+    const status: KimiSessionStatus = {
       sessionId,
-      cwd: request.context.workingDirectory,
-      transportFactory,
-      requestTimeoutMs: 30_000,
-    });
-    if (!status || deletedThreadIds.has(request.threadId)) return null;
-    return { ...status, sessionId };
+      ...(contextUsage.model !== undefined ? { model: contextUsage.model } : {}),
+      used: contextUsage.used,
+      ...(total !== undefined && total > 0
+        ? { total, percentage: (contextUsage.used / total) * 100 }
+        : {}),
+      threadActions: commands?.has("compact") ? ["compact"] : [],
+      supportedCommands: KIMI_SUPPORTED_SESSION_COMMANDS.filter((command) =>
+        commands?.has(command),
+      ),
+      ...(planResult.planUsage || planResult.error
+        ? {
+            ...(planResult.planUsage ? { planUsage: planResult.planUsage } : {}),
+            ...(planResult.error ? { planUsageError: planResult.error } : {}),
+          }
+        : {}),
+    };
+
+    statusFreshness.set(request.threadId, { expiresAt: Date.now() + STATUS_FRESHNESS_TTL_MS, value: status });
+    return status;
   }
 
   async function removeRejectedStatusSession(key: string, sessionId: string) {

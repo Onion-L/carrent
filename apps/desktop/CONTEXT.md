@@ -89,11 +89,19 @@ A graphical workspace for driving coding agents, managing project-scoped threads
 _Avoid_: Chat client, API client
 
 **Runtime**:
-An external coding agent implementation that Carrent drives for a run. A runtime owns the agent loop; Carrent owns selection, orchestration, persistence, and presentation around it.
+A coding agent implementation that Carrent drives for a run. A runtime owns the agent loop; Carrent owns selection, orchestration, persistence, and presentation around it. A Runtime may be Carrent-owned or supplied by an external agent implementation.
 _Avoid_: Provider, model, API endpoint
 
+**Native Runtime**:
+The Carrent-owned Runtime that calls model providers directly and owns its Agent Loop, built-in tools, approval flow, and system instructions. It coexists with external Runtimes such as Kimi ACP and does not change Carrent's identity as an Agent GUI.
+_Avoid_: Carrent agent, API client, provider
+
+**Usage**:
+The token consumption Carrent can observe from local Runtime sources. It combines Local Kimi Code records with Native Runtime records while preserving their source, and excludes provider-account-wide usage, balances, billing, and monetary cost.
+_Avoid_: Provider bill, account quota, API cost
+
 **Runtime Setup**:
-The user-facing state and flow for making an external runtime usable by Carrent, including local command availability and runtime-owned sign-in or configuration.
+The user-facing state and flow for making a Runtime usable by Carrent, including local command availability, provider configuration, credentials, and runtime-owned sign-in where applicable.
 _Avoid_: Runtime error, diagnostics, onboarding
 
 **Agent Loop**:

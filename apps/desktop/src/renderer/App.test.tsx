@@ -3435,8 +3435,13 @@ describe("Runtime Session Status", () => {
           return {
             ...passiveStatus,
             planUsage: {
-              weekly: { usedPercentage: 24.5, reset: "in 3d 8h" },
-              fiveHour: { reset: "at 14:30" },
+              weekly: {
+                usedPercentage: 24.5,
+                resetAt: new Date(Date.now() + ((3 * 24 + 8) * 60 + 1) * 60_000).toISOString(),
+              },
+              fiveHour: {
+                resetAt: new Date(Date.now() + ((2 * 60 + 59) * 60 + 30) * 1000).toISOString(),
+              },
             },
           };
         },
@@ -3508,7 +3513,7 @@ describe("Runtime Session Status", () => {
     expect(container!.textContent).toContain("Weekly");
     expect(container!.textContent).toContain("Used 24.5% · Remaining 75.5% · Resets in 3d 8h");
     expect(container!.textContent).toContain("5h");
-    expect(container!.textContent).toContain("5hResets at 14:30");
+    expect(container!.textContent).toContain("5hResets in 2h 59m");
     expect(container!.querySelector('[role="dialog"]')).toBe(null);
     expect(buttonNamed("Close")).toBeDefined();
     expect(

@@ -10,7 +10,7 @@ import type { CarrentBridgeFactory, CarrentBridgeHandle } from "../bridge/carren
 import { DEFAULT_FILE_ONLY_PROMPT, DEFAULT_FOLDER_ONLY_PROMPT } from "./chatPrompt";
 import {
   buildKimiPromptParts,
-  getKimiSessionStatus,
+  getKimiSessionCommands,
   startKimiAcpChatRun,
   type KimiAcpTransport,
 } from "./kimiAcpChat";
@@ -1210,7 +1210,7 @@ describe("startKimiAcpChatRun", () => {
     });
   });
 
-  it("returns parsed session status from a /status prompt", async () => {
+  it("collects advertised commands without sending a prompt", async () => {
     const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
       if (message.method === "initialize") {
         respondAcp(fakeTransport, message, { protocolVersion: 1 });
@@ -1234,52 +1234,24 @@ describe("startKimiAcpChatRun", () => {
           },
         });
         respondAcp(fakeTransport, message, { sessionId: "session-1" });
-        return;
-      }
-
-      if (message.method === "session/prompt") {
-        fakeTransport.emitMessage({
-          jsonrpc: "2.0",
-          method: "session/update",
-          params: {
-            sessionId: "session-1",
-            update: {
-              sessionUpdate: "agent_message_chunk",
-              content: {
-                type: "text",
-                text: "Session status:\n- Model: kimi-code/kimi-for-coding\n- Thinking: on\n- Permission: manual\n- Plan mode: off\n- Context: 21,169 / 262,144 (8.1%)",
-              },
-            },
-          },
-        });
-        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
       }
     });
 
-    const status = await getKimiSessionStatus({
+    const commands = await getKimiSessionCommands({
       sessionId: "session-1",
       cwd: "/code/carrent",
       transportFactory: () => transport,
     });
 
-    expect(status).toEqual({
-      model: "kimi-code/kimi-for-coding",
-      used: 21169,
-      total: 262144,
-      percentage: 8.1,
-      threadActions: ["compact"],
-      supportedCommands: ["compact", "status"],
-    });
-    expect(
-      (
-        transport.sent.find((message) => message.method === "session/prompt")?.params as {
-          prompt?: unknown;
-        }
-      )?.prompt,
-    ).toEqual([{ type: "text", text: "/status" }]);
+    expect(commands).not.toBeNull();
+    expect([...commands!].sort()).toEqual(["compact", "status", "unknown-runtime-command"]);
+    expect(transport.sent.map((message) => message.method)).toEqual([
+      "initialize",
+      "session/resume",
+    ]);
   });
 
-  it("does not send /status unless the exact capability is advertised", async () => {
+  it("resolves unknown command names as-is instead of filtering them", async () => {
     const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
       if (message.method === "initialize") {
         respondAcp(fakeTransport, message, { protocolVersion: 1 });
@@ -1302,13 +1274,13 @@ describe("startKimiAcpChatRun", () => {
       }
     });
 
-    const status = await getKimiSessionStatus({
+    const commands = await getKimiSessionCommands({
       sessionId: "session-1",
       cwd: "/code/carrent",
       transportFactory: () => transport,
     });
 
-    expect(status).toBe(null);
+    expect([...commands!].sort()).toEqual(["status-report", "usage"]);
     expect(transport.sent.some((message) => message.method === "session/prompt")).toBe(false);
   });
 
@@ -1334,41 +1306,19 @@ describe("startKimiAcpChatRun", () => {
             },
           });
         }, 0);
-        return;
-      }
-
-      if (message.method === "session/prompt") {
-        fakeTransport.emitMessage({
-          jsonrpc: "2.0",
-          method: "session/update",
-          params: {
-            sessionId: "session-1",
-            update: {
-              sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: "Context: 35,193 / 1,048,576 (3.4%)" },
-            },
-          },
-        });
-        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
       }
     });
 
-    const status = await getKimiSessionStatus({
+    const commands = await getKimiSessionCommands({
       sessionId: "session-1",
       cwd: "/code/carrent",
       transportFactory: () => transport,
     });
 
-    expect(status).toMatchObject({
-      used: 35193,
-      total: 1048576,
-      percentage: 3.4,
-      supportedCommands: ["status"],
-    });
-    expect(transport.sent.some((message) => message.method === "session/prompt")).toBe(true);
+    expect([...commands!]).toEqual(["status"]);
   });
 
-  it("normalizes chunked optional plan usage independently", async () => {
+  it("rejects with a resume error when the Runtime Session cannot be resumed", async () => {
     const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
       if (message.method === "initialize") {
         respondAcp(fakeTransport, message, { protocolVersion: 1 });
@@ -1378,210 +1328,53 @@ describe("startKimiAcpChatRun", () => {
       if (message.method === "session/resume") {
         fakeTransport.emitMessage({
           jsonrpc: "2.0",
-          method: "session/update",
-          params: {
-            sessionId: "session-1",
-            update: {
-              sessionUpdate: "available_commands_update",
-              commands: [{ name: "status" }],
-            },
-          },
+          id: message.id,
+          error: { code: -32000, message: "invalid session" },
         });
-        respondAcp(fakeTransport, message, { sessionId: "session-1" });
-        return;
-      }
-
-      if (message.method === "session/prompt") {
-        for (const text of [
-          "Session status:\n- Context: 35,193 / 1,048,576 (3.4%)\n- Week",
-          "ly: 24.5% used, resets in 3d 8h\n- Unknown: ignored\n- 5h: 12% used",
-        ]) {
-          fakeTransport.emitMessage({
-            jsonrpc: "2.0",
-            method: "session/update",
-            params: {
-              sessionId: "session-1",
-              update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text },
-              },
-            },
-          });
-        }
-        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
       }
     });
 
-    const status = await getKimiSessionStatus({
-      sessionId: "session-1",
-      cwd: "/code/carrent",
-      transportFactory: () => transport,
-    });
-
-    expect(status?.planUsage).toEqual({
-      weekly: { usedPercentage: 24.5, reset: "in 3d 8h" },
-      fiveHour: { usedPercentage: 12 },
-    });
-  });
-
-  it("omits malformed optional quota windows without invalidating context", async () => {
-    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
-      if (message.method === "initialize") {
-        respondAcp(fakeTransport, message, { protocolVersion: 1 });
-        return;
-      }
-
-      if (message.method === "session/resume") {
-        fakeTransport.emitMessage({
-          jsonrpc: "2.0",
-          method: "session/update",
-          params: {
-            sessionId: "session-1",
-            update: {
-              sessionUpdate: "available_commands_update",
-              availableCommands: [{ name: "status" }],
-            },
-          },
-        });
-        respondAcp(fakeTransport, message, { sessionId: "session-1" });
-        return;
-      }
-
-      if (message.method === "session/prompt") {
-        fakeTransport.emitMessage({
-          jsonrpc: "2.0",
-          method: "session/update",
-          params: {
-            sessionId: "session-1",
-            update: {
-              sessionUpdate: "agent_message_chunk",
-              content: {
-                type: "text",
-                text: "Context: 10 / 100 (10%)\nWeekly: 125% used, resets in 3d\n5h: 25% used, resets at 14:30",
-              },
-            },
-          },
-        });
-        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
-      }
-    });
-
-    const status = await getKimiSessionStatus({
-      sessionId: "session-1",
-      cwd: "/code/carrent",
-      transportFactory: () => transport,
-    });
-
-    expect(status?.planUsage).toEqual({
-      weekly: { reset: "in 3d" },
-      fiveHour: { usedPercentage: 25, reset: "at 14:30" },
-    });
-  });
-
-  it("returns null when status text does not contain context usage", async () => {
-    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
-      if (message.method === "initialize") {
-        respondAcp(fakeTransport, message, { protocolVersion: 1 });
-        return;
-      }
-
-      if (message.method === "session/resume") {
-        fakeTransport.emitMessage({
-          jsonrpc: "2.0",
-          method: "session/update",
-          params: {
-            sessionId: "session-1",
-            update: {
-              sessionUpdate: "available_commands_update",
-              availableCommands: [{ name: "status" }],
-            },
-          },
-        });
-        respondAcp(fakeTransport, message, { sessionId: "session-1" });
-        return;
-      }
-
-      if (message.method === "session/prompt") {
-        fakeTransport.emitMessage({
-          jsonrpc: "2.0",
-          method: "session/update",
-          params: {
-            sessionId: "session-1",
-            update: {
-              sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: "No usage data here." },
-            },
-          },
-        });
-        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
-      }
-    });
-
-    const status = await getKimiSessionStatus({
-      sessionId: "session-1",
-      cwd: "/Users/onion/workbench/carrent",
-      transportFactory: () => transport,
-    });
-
-    expect(status).toBe(null);
-  });
-
-  for (const statusText of [
-    "Context: 10 / 0 (10%)",
-    "Context: 101 / 100 (10%)",
-    "Context: 10 / 100 (101%)",
-    "Context: 10 / 100 (...)%",
-  ]) {
-    it(`returns null for malformed required context data: ${statusText}`, async () => {
-      const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
-        if (message.method === "initialize") {
-          respondAcp(fakeTransport, message, { protocolVersion: 1 });
-          return;
-        }
-
-        if (message.method === "session/resume") {
-          fakeTransport.emitMessage({
-            jsonrpc: "2.0",
-            method: "session/update",
-            params: {
-              sessionId: "session-1",
-              update: {
-                sessionUpdate: "available_commands_update",
-                availableCommands: [{ name: "status" }],
-              },
-            },
-          });
-          respondAcp(fakeTransport, message, { sessionId: "session-1" });
-          return;
-        }
-
-        if (message.method === "session/prompt") {
-          fakeTransport.emitMessage({
-            jsonrpc: "2.0",
-            method: "session/update",
-            params: {
-              sessionId: "session-1",
-              update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: statusText },
-              },
-            },
-          });
-          respondAcp(fakeTransport, message, { stopReason: "end_turn" });
-        }
-      });
-
-      const status = await getKimiSessionStatus({
+    let message = "";
+    try {
+      await getKimiSessionCommands({
         sessionId: "session-1",
         cwd: "/code/carrent",
         transportFactory: () => transport,
       });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
 
-      expect(status).toBe(null);
+    expect(message).toContain("could not resume");
+  });
+
+  it("rejects when the CLI exits before advertising any commands", async () => {
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+
+      if (message.method === "session/resume") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+        fakeTransport.emitClose({ code: 0, signal: null, stderr: "" });
+      }
     });
-  }
 
-  it("does not attach MCP servers to non-Run status checks", async () => {
+    let rejected = false;
+    try {
+      await getKimiSessionCommands({
+        sessionId: "session-1",
+        cwd: "/code/carrent",
+        transportFactory: () => transport,
+      });
+    } catch {
+      rejected = true;
+    }
+    expect(rejected).toBe(true);
+  });
+
+  it("does not attach MCP servers to non-Run command checks", async () => {
     const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
       if (message.method === "initialize") {
         respondAcp(fakeTransport, message, { protocolVersion: 1 });
@@ -1601,15 +1394,10 @@ describe("startKimiAcpChatRun", () => {
           },
         });
         respondAcp(fakeTransport, message, { sessionId: "session-1" });
-        return;
-      }
-
-      if (message.method === "session/prompt") {
-        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
       }
     });
 
-    await getKimiSessionStatus({
+    await getKimiSessionCommands({
       sessionId: "session-1",
       cwd: "/Users/onion/workbench/carrent",
       transportFactory: () => transport,

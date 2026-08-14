@@ -11,9 +11,7 @@ import type {
   ChatSubagentTaskStatus,
   ChatTurnRequest,
   Attachment,
-  RuntimeQuotaWindow,
   RuntimeSessionCommand,
-  RuntimeSessionStatusData,
   KimiTimelineItem,
 } from "../../src/shared/chat";
 import type { LocalPathContextItem } from "../../src/shared/localPathContext";
@@ -69,6 +67,9 @@ const SUPPORTED_SESSION_COMMANDS = [
   "status",
 ] as const satisfies readonly RuntimeSessionCommand[];
 
+export const KIMI_SUPPORTED_SESSION_COMMANDS: readonly RuntimeSessionCommand[] =
+  SUPPORTED_SESSION_COMMANDS;
+
 class RuntimeSessionResumeError extends Error {}
 
 export type KimiAcpTransport = {
@@ -103,6 +104,8 @@ export type KimiAcpRunHandle = {
   shutdown: () => Promise<void>;
   respondToPermission: (response: ChatPermissionResponse) => void;
   respondToQuestion: (response: ChatQuestionResponse) => void;
+  /** Commands the CLI advertised for this Run's Runtime Session so far. */
+  getAvailableCommands: () => ReadonlySet<string>;
 };
 
 export class KimiRuntimeSessionError extends Error {}
@@ -385,22 +388,27 @@ export function startKimiAcpChatRun(options: {
     shutdown: () => runner.shutdown(),
     respondToPermission: (response) => runner.respondToPermission(response),
     respondToQuestion: (response) => runner.respondToQuestion(response),
+    getAvailableCommands: () => runner.getAvailableCommands(),
   };
 }
 
-export async function getKimiSessionStatus(options: {
+/**
+ * Collects the commands the CLI advertises for a Runtime Session via a
+ * prompt-less initialize + resume handshake. Used only as a fallback when no
+ * live Run has harvested `available_commands` for the session yet.
+ */
+export async function getKimiSessionCommands(options: {
   sessionId: string;
   cwd: string;
   transportFactory: KimiAcpTransportFactory;
   requestTimeoutMs?: number;
-}): Promise<RuntimeSessionStatusData | null> {
+}): Promise<ReadonlySet<string> | null> {
   const { sessionId, cwd, transportFactory, requestTimeoutMs = 30_000 } = options;
   const transport = transportFactory({ cwd });
 
-  let statusText = "";
   const availableCommands = new Set<string>();
   let nextId = 1;
-  let phase: "initialize" | "resume" | "prompt" = "initialize";
+  let phase: "initialize" | "resume" = "initialize";
   let receivedAvailableCommands = false;
   let availableCommandsWaiter: {
     resolve: () => void;
@@ -413,7 +421,7 @@ export async function getKimiSessionStatus(options: {
 
   return new Promise((resolve, reject) => {
     const timeoutTimer = setTimeout(() => {
-      const error = new Error("Timed out waiting for Kimi session status.");
+      const error = new Error("Timed out waiting for Kimi session commands.");
       availableCommandsWaiter?.reject(error);
       availableCommandsWaiter = null;
       transport.close();
@@ -448,17 +456,11 @@ export async function getKimiSessionStatus(options: {
       if (message.method === "session/update") {
         const payload = readObject(message.params);
         const update = readObject(payload?.update);
-        const updateType = readString(update?.sessionUpdate);
-        if (updateType === "available_commands_update") {
-          receivedAvailableCommands = true;
-          readAvailableCommandNames(update).forEach((name) => availableCommands.add(name));
-          availableCommandsWaiter?.resolve();
-          availableCommandsWaiter = null;
-        }
-        const text = readTextContent(update?.content);
-        if (updateType === "agent_message_chunk" && text) {
-          statusText += text;
-        }
+        if (readString(update?.sessionUpdate) !== "available_commands_update") return;
+        receivedAvailableCommands = true;
+        readAvailableCommandNames(update).forEach((name) => availableCommands.add(name));
+        availableCommandsWaiter?.resolve();
+        availableCommandsWaiter = null;
       }
     });
 
@@ -471,15 +473,15 @@ export async function getKimiSessionStatus(options: {
 
     transport.onClose(({ stderr, signal, code }) => {
       cleanup();
-      if (!statusText) {
-        reject(
-          new Error(
-            `Kimi ACP exited before status was received: ${stderr || signal || code || "unknown"}`,
-          ),
-        );
+      if (receivedAvailableCommands) {
+        resolve(availableCommands);
         return;
       }
-      resolve(parseKimiStatusText(statusText, availableCommands));
+      reject(
+        new Error(
+          `Kimi ACP exited before commands were received: ${stderr || signal || code || "unknown"}`,
+        ),
+      );
     });
 
     const send = (method: string, params: JsonObject): Promise<unknown> => {
@@ -510,99 +512,14 @@ export async function getKimiSessionStatus(options: {
         phase = "resume";
         await send("session/resume", { sessionId, cwd, mcpServers: [] });
         await waitForAvailableCommands();
-        if (!availableCommands.has("status")) {
-          cleanup();
-          resolve(null);
-          return;
-        }
-        phase = "prompt";
-        await send("session/prompt", {
-          sessionId,
-          prompt: [{ type: "text", text: "/status" }],
-        });
         cleanup();
-        resolve(parseKimiStatusText(statusText, availableCommands));
+        resolve(availableCommands);
       } catch (error) {
         cleanup();
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     })();
   });
-}
-
-function parseKimiStatusText(
-  text: string,
-  availableCommands: ReadonlySet<string> = new Set(),
-): RuntimeSessionStatusData | null {
-  const match = /Context:\s*([\d,]+)\s*\/\s*([\d,]+)\s*\(([\d.]+)%\)/u.exec(text);
-  if (!match) {
-    return null;
-  }
-
-  const used = Number.parseInt(match[1].replace(/,/gu, ""), 10);
-  const total = Number.parseInt(match[2].replace(/,/gu, ""), 10);
-  const percentage = Number.parseFloat(match[3]);
-  if (
-    !Number.isSafeInteger(used) ||
-    !Number.isSafeInteger(total) ||
-    total <= 0 ||
-    used < 0 ||
-    used > total ||
-    !Number.isFinite(percentage) ||
-    percentage < 0 ||
-    percentage > 100
-  ) {
-    return null;
-  }
-  const modelMatch = /Model:\s*(.+)/u.exec(text);
-  const supportedCommands = SUPPORTED_SESSION_COMMANDS.filter((command) =>
-    availableCommands.has(command),
-  );
-  const weekly = parseQuotaWindow(text, "Weekly");
-  const fiveHour = parseQuotaWindow(text, "5h");
-
-  return {
-    model: modelMatch ? modelMatch[1].trim() : undefined,
-    used,
-    total,
-    percentage,
-    threadActions: availableCommands.has("compact") ? ["compact"] : [],
-    supportedCommands,
-    ...(weekly || fiveHour
-      ? {
-          planUsage: {
-            ...(weekly ? { weekly } : {}),
-            ...(fiveHour ? { fiveHour } : {}),
-          },
-        }
-      : {}),
-  };
-}
-
-function parseQuotaWindow(text: string, label: "Weekly" | "5h"): RuntimeQuotaWindow | undefined {
-  const escapedLabel = label === "5h" ? "5h" : "Weekly";
-  const lineMatch = new RegExp(`(?:^|\\n)\\s*-?\\s*${escapedLabel}\\s*:\\s*([^\\n]+)`, "iu").exec(
-    text,
-  );
-  if (!lineMatch) return undefined;
-
-  const detail = lineMatch[1].trim();
-  const percentageMatch = /(?:\bused\s*:?\s*([\d.]+)%|([\d.]+)%\s*used\b)/iu.exec(detail);
-  let usedPercentage: number | undefined;
-  if (percentageMatch) {
-    const parsed = Number.parseFloat(percentageMatch[1] ?? percentageMatch[2]);
-    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 100) {
-      usedPercentage = parsed;
-    }
-  }
-
-  const resetMatch = /\breset(?:s)?\s+((?:in|at)\s+.+)$/iu.exec(detail);
-  const reset = resetMatch?.[1]?.trim();
-  if (usedPercentage === undefined && !reset) return undefined;
-  return {
-    ...(usedPercentage === undefined ? {} : { usedPercentage }),
-    ...(reset ? { reset } : {}),
-  };
 }
 
 export async function buildKimiPromptParts(
@@ -781,6 +698,9 @@ class KimiAcpRun {
   private questionServer: QuestionMcpServerHandle | null = null;
   private cleanupPromise: Promise<void> = Promise.resolve();
   private mcpQuestionCounter = 0;
+  // Commands advertised via `available_commands_update`, harvested so passive
+  // status requests can reuse them without respawning the CLI.
+  private availableCommands = new Set<string>();
   private toolStates = new Map<
     string,
     {
@@ -1259,6 +1179,10 @@ class KimiAcpRun {
       configId: readString(modeConfig.id) ?? "mode",
       value: selectedMode,
     });
+  }
+
+  getAvailableCommands(): ReadonlySet<string> {
+    return this.availableCommands;
   }
 
   stop() {
@@ -2022,6 +1946,11 @@ class KimiAcpRun {
     const updateType = readString(update?.sessionUpdate);
     const text = readTextContent(update?.content);
     this.sessionUpdateSequence += 1;
+
+    if (updateType === "available_commands_update") {
+      readAvailableCommandNames(update).forEach((name) => this.availableCommands.add(name));
+      return;
+    }
 
     if (updateType === "config_option_update") {
       const modeConfig = findModeConfigOption(update?.configOptions);

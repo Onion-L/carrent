@@ -3087,20 +3087,6 @@ describe("createChatSessionManager", () => {
             });
             respondAcp(fakeTransport, message, { sessionId: "session-status" });
           });
-          return;
-        }
-
-        if (message.method === "session/prompt") {
-          queueMicrotask(() => {
-            emitAcpUpdate(fakeTransport, {
-              sessionUpdate: "agent_message_chunk",
-              content: {
-                type: "text",
-                text: "Session status:\n- Model: kimi-code/kimi-for-coding\n- Thinking: on\n- Permission: manual\n- Plan mode: off\n- Context: 21,169 / 262,144 (8.1%)",
-              },
-            });
-            respondAcp(fakeTransport, message, { stopReason: "end_turn" });
-          });
         }
       },
     );
@@ -3119,6 +3105,16 @@ describe("createChatSessionManager", () => {
         get: () => "session-status",
         set: () => {},
       },
+      kimiContextUsage: async () => ({
+        used: 21169,
+        total: 262144,
+        model: "kimi-code/kimi-for-coding",
+      }),
+      kimiPlanUsage: async () => ({
+        planUsage: {
+          weekly: { usedPercentage: 80, resetAt: "2026-08-19T05:57:48Z", used: 80, limit: 100 },
+        },
+      }),
     });
 
     expect(await manager.getStatus(makeRequest({ runtimeId: "kimi" }))).toEqual({
@@ -3126,17 +3122,157 @@ describe("createChatSessionManager", () => {
       model: "kimi-code/kimi-for-coding",
       used: 21169,
       total: 262144,
-      percentage: 8.1,
+      percentage: (21169 / 262144) * 100,
       threadActions: ["compact"],
       supportedCommands: ["compact", "status"],
+      planUsage: {
+        weekly: { usedPercentage: 80, resetAt: "2026-08-19T05:57:48Z", used: 80, limit: 100 },
+      },
     });
     expect(bridgeCalls).toBe(0);
+    // The prompt-less commands handshake is the only transport traffic.
     expect(transport.sent.map((message) => message.method)).toEqual([
       "initialize",
       "session/resume",
-      "session/prompt",
     ]);
     expect((transport.sent[1]!.params as { mcpServers?: unknown[] }).mcpServers).toEqual([]);
+  });
+
+  it("re-serves a recent status from the freshness cache without re-reading files", async () => {
+    let contextReads = 0;
+    let transportCalls = 0;
+    const transport = new FakeKimiAcpTransport("/Users/onion/workbench/timbre", (t, message) => {
+      if (message.method === "initialize") {
+        queueMicrotask(() => respondAcp(t, message, { protocolVersion: 1 }));
+        return;
+      }
+      if (message.method === "session/resume") {
+        queueMicrotask(() => {
+          emitAcpUpdate(t, {
+            sessionUpdate: "available_commands_update",
+            availableCommands: [{ name: "status" }],
+          });
+          respondAcp(t, message, { sessionId: "session-status" });
+        });
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: () => {
+        transportCalls += 1;
+        return transport;
+      },
+      providerSessions: {
+        get: () => "session-status",
+        set: () => {},
+      },
+      kimiContextUsage: async () => {
+        contextReads += 1;
+        return { used: 10, total: 100 };
+      },
+      kimiPlanUsage: async () => ({ planUsage: null }),
+    });
+
+    const request = makeRequest({ runtimeId: "kimi" });
+    expect(await manager.getStatus(request)).toMatchObject({ used: 10 });
+    expect(await manager.getStatus(request)).toMatchObject({ used: 10 });
+    expect(contextReads).toBe(1);
+    expect(transportCalls).toBe(1);
+  });
+
+  it("harvests commands from a completed Run so later status checks skip the handshake", async () => {
+    let handshakeCalls = 0;
+    const runTransport = new FakeKimiAcpTransport("/Users/onion/workbench/timbre", (t, message) => {
+      if (message.method === "initialize") {
+        queueMicrotask(() => respondAcp(t, message, { protocolVersion: 1 }));
+        return;
+      }
+      if (message.method === "session/resume") {
+        queueMicrotask(() => respondAcp(t, message, { sessionId: "session-status" }));
+        return;
+      }
+      if (message.method === "session/prompt") {
+        queueMicrotask(() => {
+          emitAcpUpdate(t, {
+            sessionUpdate: "available_commands_update",
+            availableCommands: [{ name: "compact" }, { name: "status" }],
+          });
+          emitAcpUpdate(t, {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "Done" },
+          });
+          respondAcp(t, message, { stopReason: "end_turn" });
+        });
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: () => {
+        handshakeCalls += 1;
+        return runTransport;
+      },
+      providerSessions: {
+        get: () => "session-status",
+        set: () => {},
+      },
+      kimiContextUsage: async () => ({ used: 10, total: 100 }),
+      kimiPlanUsage: async () => ({ planUsage: null }),
+    });
+
+    // A full chat Run completes and its advertised commands are harvested.
+    manager.start("run-harvest", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+
+    const status = await manager.getStatus(makeRequest({ runtimeId: "kimi" }));
+    expect(status).toMatchObject({
+      sessionId: "session-status",
+      threadActions: ["compact"],
+      supportedCommands: ["compact", "status"],
+    });
+    // Only the Run's transport was created; the status check spawned nothing.
+    expect(handshakeCalls).toBe(1);
+  });
+
+  it("surfaces the plan usage error kind alongside context usage", async () => {
+    const transport = new FakeKimiAcpTransport("/Users/onion/workbench/timbre", (t, message) => {
+      if (message.method === "initialize") {
+        queueMicrotask(() => respondAcp(t, message, { protocolVersion: 1 }));
+        return;
+      }
+      if (message.method === "session/resume") {
+        queueMicrotask(() => {
+          emitAcpUpdate(t, {
+            sessionUpdate: "available_commands_update",
+            availableCommands: [{ name: "status" }],
+          });
+          respondAcp(t, message, { sessionId: "session-status" });
+        });
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: () => transport,
+      providerSessions: {
+        get: () => "session-status",
+        set: () => {},
+      },
+      kimiContextUsage: async () => ({ used: 10, total: 100 }),
+      kimiPlanUsage: async () => ({ planUsage: null, error: "unauthorized" }),
+    });
+
+    expect(await manager.getStatus(makeRequest({ runtimeId: "kimi" }))).toMatchObject({
+      sessionId: "session-status",
+      planUsageError: "unauthorized",
+    });
   });
 
   it("does not create or launch a Runtime Session when status has no mapping", async () => {
@@ -3187,6 +3323,8 @@ describe("createChatSessionManager", () => {
           sessions.delete(key);
         },
       },
+      kimiContextUsage: async () => ({ used: 21169, total: 262144 }),
+      kimiPlanUsage: async () => ({ planUsage: null }),
     });
 
     expect(
@@ -3198,7 +3336,10 @@ describe("createChatSessionManager", () => {
 
   it("isolates an active status request from conflicting work on the same Thread", async () => {
     const emitted: ChatRunEvent[] = [];
-    let completeStatus!: () => void;
+    let resolveContextUsage!: (value: { used: number; total?: number } | null) => void;
+    const contextUsageTask = new Promise<{ used: number; total?: number } | null>((resolve) => {
+      resolveContextUsage = resolve;
+    });
     const transport = new FakeKimiAcpTransport("/code/carrent", (fakeTransport, message) => {
       if (message.method === "initialize") {
         queueMicrotask(() => respondAcp(fakeTransport, message, { protocolVersion: 1 }));
@@ -3212,16 +3353,6 @@ describe("createChatSessionManager", () => {
           });
           respondAcp(fakeTransport, message, { sessionId: "session-status" });
         });
-        return;
-      }
-      if (message.method === "session/prompt") {
-        completeStatus = () => {
-          emitAcpUpdate(fakeTransport, {
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "Context: 10 / 100 (10%)" },
-          });
-          respondAcp(fakeTransport, message, { stopReason: "end_turn" });
-        };
       }
     });
     const manager = createProductionChatSessionManager({
@@ -3234,6 +3365,8 @@ describe("createChatSessionManager", () => {
         get: (key) => (key === "kimi:thread-1" ? "session-status" : undefined),
         set: () => {},
       },
+      kimiContextUsage: () => contextUsageTask,
+      kimiPlanUsage: async () => ({ planUsage: null }),
     });
 
     const statusTask = manager.inspectStatus!(makeRequest({ runtimeId: "kimi" }));
@@ -3278,14 +3411,17 @@ describe("createChatSessionManager", () => {
     // Stopping the deferred Run before the status request settles cancels it:
     // the drain emits `stopped` rather than starting a Run.
     manager.stop("run-conflict");
-    completeStatus();
+    resolveContextUsage({ used: 10, total: 100 });
     expect(await statusTask).toMatchObject({ sessionId: "session-status" });
     await waitForAsyncEvents();
     expect(emitted.at(-1)).toMatchObject({ type: "stopped", runId: "run-conflict" });
   });
 
   it("registers passive Context refreshes as active status requests", async () => {
-    let completeStatus!: () => void;
+    let resolveContextUsage!: (value: { used: number; total?: number } | null) => void;
+    const contextUsageTask = new Promise<{ used: number; total?: number } | null>((resolve) => {
+      resolveContextUsage = resolve;
+    });
     let transportCalls = 0;
     const transport = new FakeKimiAcpTransport("/code/carrent", (fakeTransport, message) => {
       if (message.method === "initialize") {
@@ -3300,16 +3436,6 @@ describe("createChatSessionManager", () => {
           });
           respondAcp(fakeTransport, message, { sessionId: "session-status" });
         });
-        return;
-      }
-      if (message.method === "session/prompt") {
-        completeStatus = () => {
-          emitAcpUpdate(fakeTransport, {
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "Context: 10 / 100 (10%)" },
-          });
-          respondAcp(fakeTransport, message, { stopReason: "end_turn" });
-        };
       }
     });
     const manager = createProductionChatSessionManager({
@@ -3326,6 +3452,8 @@ describe("createChatSessionManager", () => {
         get: () => "session-status",
         set: () => {},
       },
+      kimiContextUsage: () => contextUsageTask,
+      kimiPlanUsage: async () => ({ planUsage: null }),
     });
 
     const passiveTask = manager.getStatus(makeRequest({ runtimeId: "kimi" }));
@@ -3334,16 +3462,19 @@ describe("createChatSessionManager", () => {
     expect(await getErrorMessage(manager.inspectStatus!(makeRequest({ runtimeId: "kimi" })))).toBe(
       "Session status is already loading.",
     );
-    expect(transportCalls).toBe(1);
+    expect(transportCalls).toBe(0);
 
-    completeStatus();
+    resolveContextUsage({ used: 10, total: 100 });
     expect(await passiveTask).toMatchObject({ sessionId: "session-status" });
+    expect(transportCalls).toBe(1);
   });
 
   it("defers a queued Run until a passive status refresh settles", async () => {
     const emitted: ChatRunEvent[] = [];
-    let completeStatus!: () => void;
-    let runPromptMessage: JsonMessage | undefined;
+    let resolveContextUsage!: (value: { used: number; total?: number } | null) => void;
+    const contextUsageTask = new Promise<{ used: number; total?: number } | null>((resolve) => {
+      resolveContextUsage = resolve;
+    });
     const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
       if (message.method === "initialize") {
         queueMicrotask(() => respondAcp(transport, message, { protocolVersion: 1 }));
@@ -3364,20 +3495,7 @@ describe("createChatSessionManager", () => {
         return;
       }
       if (message.method === "session/prompt") {
-        if (!runPromptMessage) {
-          // First prompt seen is the status refresh.
-          runPromptMessage = message;
-          completeStatus = () => {
-            emitAcpUpdate(transport, {
-              sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: "Context: 10 / 100 (10%)" },
-            });
-            respondAcp(transport, message, { stopReason: "end_turn" });
-          };
-        } else {
-          // The deferred Run's prompt just completes.
-          queueMicrotask(() => respondAcp(transport, message, { stopReason: "end_turn" }));
-        }
+        queueMicrotask(() => respondAcp(transport, message, { stopReason: "end_turn" }));
       }
     });
     const manager = createProductionChatSessionManager({
@@ -3390,21 +3508,24 @@ describe("createChatSessionManager", () => {
         get: () => "session-status",
         set: () => {},
       },
+      kimiContextUsage: () => contextUsageTask,
+      kimiPlanUsage: async () => ({ planUsage: null }),
     });
 
-    // The passive status refresh is in flight (only one transport started).
+    // The passive status refresh is in flight (held by the usage reader, so
+    // not even the commands handshake has started).
     const statusTask = manager.getStatus(makeRequest({ runtimeId: "kimi" }));
     await waitForAsyncEvents();
-    expect(transports).toHaveLength(1);
+    expect(transports).toHaveLength(0);
 
     // A Run arrives while the status request is active. It is deferred: no
-    // failure is emitted and no second transport is started yet.
+    // failure is emitted and no transport is started yet.
     manager.start("run-deferred", makeRequest({ runtimeId: "kimi" }));
     await waitForAsyncEvents();
     expect(emitted.some((event) => event.type === "failed" && event.runId === "run-deferred")).toBe(
       false,
     );
-    expect(transports).toHaveLength(1);
+    expect(transports).toHaveLength(0);
     expect(manager.hasLiveRunForThreads?.(["thread-1"])).toBe(true);
     expect(manager.hasLiveRuns?.()).toBe(true);
     expect(
@@ -3414,7 +3535,7 @@ describe("createChatSessionManager", () => {
     ).toBe("Stop the Project's live Run before relocating its directory.");
 
     // Once the status request settles, the deferred Run starts.
-    completeStatus();
+    resolveContextUsage({ used: 10, total: 100 });
     expect(await statusTask).toMatchObject({ sessionId: "session-status" });
     await waitForAsyncEvents();
 
@@ -3426,7 +3547,10 @@ describe("createChatSessionManager", () => {
 
   it("does not start a deferred Run that was stopped before the status refresh settled", async () => {
     const emitted: ChatRunEvent[] = [];
-    let completeStatus!: () => void;
+    let resolveContextUsage!: (value: { used: number; total?: number } | null) => void;
+    const contextUsageTask = new Promise<{ used: number; total?: number } | null>((resolve) => {
+      resolveContextUsage = resolve;
+    });
     const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
       if (message.method === "initialize") {
         queueMicrotask(() => respondAcp(transport, message, { protocolVersion: 1 }));
@@ -3440,16 +3564,6 @@ describe("createChatSessionManager", () => {
           });
           respondAcp(transport, message, { sessionId: "session-status" });
         });
-        return;
-      }
-      if (message.method === "session/prompt") {
-        completeStatus = () => {
-          emitAcpUpdate(transport, {
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "Context: 10 / 100 (10%)" },
-          });
-          respondAcp(transport, message, { stopReason: "end_turn" });
-        };
       }
     });
     const manager = createProductionChatSessionManager({
@@ -3462,6 +3576,8 @@ describe("createChatSessionManager", () => {
         get: () => "session-status",
         set: () => {},
       },
+      kimiContextUsage: () => contextUsageTask,
+      kimiPlanUsage: async () => ({ planUsage: null }),
     });
 
     const statusTask = manager.getStatus(makeRequest({ runtimeId: "kimi" }));
@@ -3469,14 +3585,14 @@ describe("createChatSessionManager", () => {
 
     manager.start("run-deferred-stopped", makeRequest({ runtimeId: "kimi" }));
     await waitForAsyncEvents();
-    expect(transports).toHaveLength(1);
+    expect(transports).toHaveLength(0);
 
     manager.stop("run-deferred-stopped");
     expect(
       emitted.some((event) => event.type === "stopped" && event.runId === "run-deferred-stopped"),
     ).toBe(false);
 
-    completeStatus();
+    resolveContextUsage({ used: 10, total: 100 });
     expect(await statusTask).toMatchObject({ sessionId: "session-status" });
     await waitForAsyncEvents();
 
@@ -3490,7 +3606,10 @@ describe("createChatSessionManager", () => {
 
   it("does not start a deferred Run whose Thread was deleted before the status refresh settled", async () => {
     const emitted: ChatRunEvent[] = [];
-    let completeStatus!: () => void;
+    let resolveContextUsage!: (value: { used: number; total?: number } | null) => void;
+    const contextUsageTask = new Promise<{ used: number; total?: number } | null>((resolve) => {
+      resolveContextUsage = resolve;
+    });
     const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
       if (message.method === "initialize") {
         queueMicrotask(() => respondAcp(transport, message, { protocolVersion: 1 }));
@@ -3504,16 +3623,6 @@ describe("createChatSessionManager", () => {
           });
           respondAcp(transport, message, { sessionId: "session-status" });
         });
-        return;
-      }
-      if (message.method === "session/prompt") {
-        completeStatus = () => {
-          emitAcpUpdate(transport, {
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "Context: 10 / 100 (10%)" },
-          });
-          respondAcp(transport, message, { stopReason: "end_turn" });
-        };
       }
     });
     const manager = createProductionChatSessionManager({
@@ -3527,6 +3636,8 @@ describe("createChatSessionManager", () => {
         set: () => {},
         deleteThreads: () => ({}),
       },
+      kimiContextUsage: () => contextUsageTask,
+      kimiPlanUsage: async () => ({ planUsage: null }),
     });
 
     const statusTask = manager.getStatus(makeRequest({ runtimeId: "kimi" }));
@@ -3534,14 +3645,14 @@ describe("createChatSessionManager", () => {
 
     manager.start("run-deferred-deleted", makeRequest({ runtimeId: "kimi" }));
     await waitForAsyncEvents();
-    expect(transports).toHaveLength(1);
+    expect(transports).toHaveLength(0);
 
     await manager.deleteThreadData({
       threadIds: ["thread-1"],
       attachmentStorageKeys: [],
     });
 
-    completeStatus();
+    resolveContextUsage({ used: 10, total: 100 });
     // The deleted Thread short-circuits the status payload, but the refresh
     // still settles and drains the deferred Run.
     expect(await statusTask).toBe(null);
@@ -3553,12 +3664,15 @@ describe("createChatSessionManager", () => {
       runId: "run-deferred-deleted",
       error: "Thread has been deleted.",
     });
-    expect(transports).toHaveLength(1);
+    expect(transports).toHaveLength(0);
   });
 
   it("starts the deferred Run even when the passive status refresh rejects", async () => {
     const emitted: ChatRunEvent[] = [];
-    let rejectResume!: () => void;
+    let resolveContextUsage!: (value: { used: number; total?: number } | null) => void;
+    const contextUsageTask = new Promise<{ used: number; total?: number } | null>((resolve) => {
+      resolveContextUsage = resolve;
+    });
     const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
       const isStatusTransport = transport === transports[0];
       if (message.method === "initialize") {
@@ -3567,18 +3681,21 @@ describe("createChatSessionManager", () => {
       }
       if (message.method === "session/resume") {
         if (isStatusTransport) {
-          // The status refresh hangs until the test releases it with a resume
-          // failure, exercising the rejection path.
-          rejectResume = () => {
+          // The commands handshake resume fails, exercising the rejection path.
+          queueMicrotask(() => {
             emitAcpUpdate(transport, {
               sessionUpdate: "available_commands_update",
               availableCommands: [{ name: "status" }],
             });
             failAcp(transport, message, "Session not found.");
-          };
+          });
         } else {
           queueMicrotask(() => respondAcp(transport, message, { sessionId: "session-run" }));
         }
+        return;
+      }
+      if (message.method === "session/new") {
+        queueMicrotask(() => respondAcp(transport, message, { sessionId: "session-run" }));
         return;
       }
       if (message.method === "session/prompt") {
@@ -3596,18 +3713,20 @@ describe("createChatSessionManager", () => {
         set: () => {},
         delete: async () => {},
       },
+      kimiContextUsage: () => contextUsageTask,
+      kimiPlanUsage: async () => ({ planUsage: null }),
     });
 
     // The status refresh rejects (KimiRuntimeSessionError), but it must still
     // drain the deferred Run.
     const statusTask = manager.getStatus(makeRequest({ runtimeId: "kimi" }));
     await waitForAsyncEvents();
-    expect(transports).toHaveLength(1);
+    expect(transports).toHaveLength(0);
 
     manager.start("run-deferred-rejected", makeRequest({ runtimeId: "kimi" }));
     await waitForAsyncEvents();
 
-    rejectResume();
+    resolveContextUsage({ used: 10, total: 100 });
     expect(await statusTask).toBe(null);
     await waitForAsyncEvents();
     await waitForAsyncEvents();
@@ -3619,9 +3738,11 @@ describe("createChatSessionManager", () => {
 
   it("keeps other Threads independent while one Thread waits on a status refresh", async () => {
     const emitted: ChatRunEvent[] = [];
-    let completeStatus!: () => void;
-    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
-      const isStatusTransport = transport === transports[0];
+    let resolveContextUsage!: (value: { used: number; total?: number } | null) => void;
+    const contextUsageTask = new Promise<{ used: number; total?: number } | null>((resolve) => {
+      resolveContextUsage = resolve;
+    });
+    const { factory } = createFakeKimiAcpTransportFactory((transport, message) => {
       if (message.method === "initialize") {
         queueMicrotask(() => respondAcp(transport, message, { protocolVersion: 1 }));
         return;
@@ -3641,17 +3762,7 @@ describe("createChatSessionManager", () => {
         return;
       }
       if (message.method === "session/prompt") {
-        if (isStatusTransport) {
-          completeStatus = () => {
-            emitAcpUpdate(transport, {
-              sessionUpdate: "agent_message_chunk",
-              content: { type: "text", text: "Context: 10 / 100 (10%)" },
-            });
-            respondAcp(transport, message, { stopReason: "end_turn" });
-          };
-        } else {
-          queueMicrotask(() => respondAcp(transport, message, { stopReason: "end_turn" }));
-        }
+        queueMicrotask(() => respondAcp(transport, message, { stopReason: "end_turn" }));
       }
     });
     const manager = createProductionChatSessionManager({
@@ -3664,6 +3775,8 @@ describe("createChatSessionManager", () => {
         get: (key) => (key === "kimi:thread-1" ? "session-status" : undefined),
         set: () => {},
       },
+      kimiContextUsage: () => contextUsageTask,
+      kimiPlanUsage: async () => ({ planUsage: null }),
     });
 
     const statusTask = manager.getStatus(makeRequest({ runtimeId: "kimi", threadId: "thread-1" }));
@@ -3687,7 +3800,7 @@ describe("createChatSessionManager", () => {
       emitted.some((event) => event.type === "started" && event.runId === "run-deferred-thread-1"),
     ).toBe(false);
 
-    completeStatus();
+    resolveContextUsage({ used: 10, total: 100 });
     expect(await statusTask).toMatchObject({ sessionId: "session-status" });
     await waitForAsyncEvents();
 

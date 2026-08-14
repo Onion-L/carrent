@@ -42,20 +42,33 @@ export type RuntimeSessionCommand = "compact" | "status";
 
 export type RuntimeQuotaWindow = {
   usedPercentage?: number;
-  reset?: string;
+  /** ISO timestamp the window resets at; the renderer formats countdowns. */
+  resetAt?: string;
+  /** Raw quota units from the provider API. */
+  used?: number;
+  limit?: number;
 };
+
+export type PlanUsageErrorKind =
+  | "no-credentials"
+  | "unauthorized"
+  | "network"
+  | "bad-payload";
 
 export type RuntimeSessionStatusData = {
   model?: string;
   used: number;
-  total: number;
-  percentage: number;
+  /** Context window size; omitted when it cannot be resolved. */
+  total?: number;
+  percentage?: number;
   threadActions?: import("./threadActions").ThreadActionKind[];
   supportedCommands: RuntimeSessionCommand[];
   planUsage?: {
     weekly?: RuntimeQuotaWindow;
     fiveHour?: RuntimeQuotaWindow;
   };
+  /** Set when planUsage is absent because the usage lookup failed. */
+  planUsageError?: PlanUsageErrorKind;
 };
 
 export type RuntimeSessionStatus = RuntimeSessionStatusData & {

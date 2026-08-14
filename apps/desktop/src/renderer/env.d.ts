@@ -119,8 +119,15 @@ declare global {
       };
       shell: {
         openPath: (filePath: string) => Promise<string>;
-        revealPath: (filePath: string) => Promise<void>;
+        revealPath: (
+          filePath: string,
+        ) => Promise<import("../shared/localPathContext").RevealPathResult>;
         openExternal: (url: string) => Promise<void>;
+      };
+      localPaths: {
+        resolveFiles: (
+          files: File[],
+        ) => Promise<import("../shared/localPathContext").LocalPathResolutionResult>;
       };
       editors?: EditorsApi;
       clipboard: {

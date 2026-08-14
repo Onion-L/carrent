@@ -2,10 +2,12 @@ import { describe, expect, it } from "bun:test";
 import { appendFile, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import type { ChatRunEvent, ChatTurnRequest, KimiTimelineItem } from "../../src/shared/chat";
 import { MAX_SUBAGENT_TASK_TEXT_LENGTH } from "../../src/shared/workspacePersistence";
 import type { CarrentBridgeFactory, CarrentBridgeHandle } from "../bridge/carrentBridge";
+import { DEFAULT_FILE_ONLY_PROMPT } from "./chatPrompt";
 import {
   buildKimiPromptParts,
   getKimiSessionStatus,
@@ -125,6 +127,28 @@ class FakeKimiAcpTransport implements KimiAcpTransport {
 }
 
 describe("buildKimiPromptParts", () => {
+  it("uses the file-only default prompt for Local Path Context-only input", async () => {
+    const parts = await buildKimiPromptParts(
+      makeRequest({
+        message: "",
+        localPathContexts: [
+          {
+            path: "/Users/test/notes.md",
+            basename: "notes.md",
+            kind: "file",
+          },
+        ],
+      }),
+    );
+
+    expect(parts[0]).toEqual({ type: "text", text: DEFAULT_FILE_ONLY_PROMPT });
+    expect(parts[1]).toEqual({
+      type: "resource_link",
+      uri: "file:///Users/test/notes.md",
+      name: "notes.md",
+    });
+  });
+
   it("does not inject RTK instructions into Kimi prompts", async () => {
     const parts = await buildKimiPromptParts(makeRequest({ message: "Check git status" }));
 
@@ -3199,6 +3223,180 @@ describe("startKimiAcpChatRun", () => {
       mimeType: "text/plain",
       size: 12,
     });
+  });
+
+  it("reads only the exact Local Path Context file and refuses siblings, writes, and symlinks", async () => {
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-lpc-project-"));
+    // External directory entirely outside the Project Working Directory, so the
+    // only way the Runtime reaches these files is the Local Path Context grant.
+    const externalDir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-lpc-external-"));
+    const targetPath = path.join(externalDir, "notes.md");
+    const siblingPath = path.join(externalDir, "sibling.txt");
+    const secretPath = path.join(externalDir, "secret.txt");
+    const symlinkPath = path.join(externalDir, "link.md");
+    await writeFile(targetPath, "notes");
+    await writeFile(siblingPath, "sibling");
+    await writeFile(secretPath, "secret");
+    await symlink(secretPath, symlinkPath);
+
+    const emitted: ChatRunEvent[] = [];
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-target",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: targetPath },
+        });
+        return;
+      }
+      if (message.id === "read-target" && "result" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-sibling",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: siblingPath },
+        });
+        return;
+      }
+      if (message.id === "read-sibling" && "error" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "write-target",
+          method: "fs/write_text_file",
+          params: { sessionId: "session-1", path: targetPath, content: "hacked" },
+        });
+        return;
+      }
+      if (message.id === "write-target" && "error" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-symlink",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: symlinkPath },
+        });
+        return;
+      }
+      if (message.id === "read-symlink" && "error" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Done" },
+            },
+          },
+        });
+        if (promptRequest) {
+          respondAcp(fakeTransport, promptRequest, { stopReason: "end_turn" });
+        }
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-local-path-context",
+      request: makeRequest({
+        context: {
+          kind: "project",
+          workspaceId: "workspace-1",
+          projectId: "p1",
+          workingDirectory: projectDir,
+        },
+        localPathContexts: [{ path: targetPath, basename: "notes.md", kind: "file" }],
+      }),
+      cwd: projectDir,
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Exact referenced file is readable.
+    expect(transport.sent.find((message) => message.id === "read-target")?.result).toEqual({
+      content: "notes",
+    });
+    // Sibling in the same external dir is not granted (exact-match only).
+    expect(transport.sent.find((message) => message.id === "read-sibling")?.error).toMatchObject({
+      code: -32000,
+    });
+    // Writes to the referenced file are refused even though reads are allowed.
+    expect(transport.sent.find((message) => message.id === "write-target")?.error).toMatchObject({
+      code: -32000,
+    });
+    // A symlink that resolves to a different file is not the exact key.
+    expect(transport.sent.find((message) => message.id === "read-symlink")?.error).toMatchObject({
+      code: -32000,
+    });
+    expect(await readFile(targetPath, "utf8")).toBe("notes");
+
+    const readEvent = emitted.find(
+      (event) => event.type === "reasoning" && event.reasoning.content.startsWith("Read "),
+    );
+    expect(readEvent && readEvent.type === "reasoning" && readEvent.reasoning.content).toBe(
+      "Read notes.md",
+    );
+
+    const prompt = (promptRequest as Record<string, unknown> | null)?.params as {
+      prompt?: Array<Record<string, unknown>>;
+    };
+    const resourceLink = prompt.prompt?.find((part) => part.type === "resource_link");
+    expect(resourceLink).toEqual({
+      type: "resource_link",
+      uri: pathToFileURL(targetPath).toString(),
+      name: "notes.md",
+    });
+  });
+
+  it("fails the Run when a referenced Local Path Context file is unavailable", async () => {
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-lpc-missing-"));
+    const missingPath = path.join(projectDir, "does-not-exist.md");
+
+    const emitted: ChatRunEvent[] = [];
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-local-path-context-missing",
+      request: makeRequest({
+        context: {
+          kind: "project",
+          workspaceId: "workspace-1",
+          projectId: "p1",
+          workingDirectory: projectDir,
+        },
+        localPathContexts: [{ path: missingPath, basename: "does-not-exist.md", kind: "file" }],
+      }),
+      cwd: projectDir,
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // A disappeared path is a clear failure — never guessed or silently dropped.
+    const failed = emitted.find((event) => event.type === "failed");
+    expect(failed && failed.type === "failed" && failed.error).toContain(
+      "Local path context is unavailable",
+    );
   });
 
   it("protects remembered attachment paths when the current request has no attachments", async () => {

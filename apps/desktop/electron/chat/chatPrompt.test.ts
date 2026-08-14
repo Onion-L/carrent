@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { buildChatPrompt } from "./chatPrompt";
+import { buildChatPrompt, DEFAULT_FILE_ONLY_PROMPT } from "./chatPrompt";
 import type { ChatTurnRequest } from "../../src/shared/chat";
 
 function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
@@ -229,5 +229,43 @@ describe("buildChatPrompt", () => {
     const prompt = buildChatPrompt(makeRequest({ message: "No images" }));
 
     expect(prompt).not.toContain("Attached files:");
+  });
+
+  it("includes Local Path Context with exact paths verbatim and omits it when absent", () => {
+    const withContext = buildChatPrompt(
+      makeRequest({
+        localPathContexts: [
+          {
+            path: "/Users/onion/My Notes (draft) [v2].md",
+            basename: "My Notes (draft) [v2].md",
+            kind: "file",
+          },
+        ],
+      }),
+    );
+    expect(withContext).toContain("Local path context");
+    // Exact path text survives without Markdown escaping.
+    expect(withContext).toContain("/Users/onion/My Notes (draft) [v2].md");
+    expect(withContext).toContain("My Notes (draft) [v2].md");
+
+    const withoutContext = buildChatPrompt(makeRequest({ message: "Plain" }));
+    expect(withoutContext).not.toContain("Local path context");
+  });
+
+  it("uses the file-only default prompt for a Local Path Context-only message", () => {
+    const prompt = buildChatPrompt(
+      makeRequest({
+        message: "",
+        localPathContexts: [
+          {
+            path: "/Users/test/notes.md",
+            basename: "notes.md",
+            kind: "file",
+          },
+        ],
+      }),
+    );
+
+    expect(prompt).toContain(`user: ${DEFAULT_FILE_ONLY_PROMPT}`);
   });
 });

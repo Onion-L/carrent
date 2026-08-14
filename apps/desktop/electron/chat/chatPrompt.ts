@@ -1,4 +1,5 @@
 import type { ChatTurnRequest, Attachment } from "../../src/shared/chat";
+import type { LocalPathContextItem } from "../../src/shared/localPathContext";
 
 const MAX_TRANSCRIPT_MESSAGES = 6;
 const MAX_TRANSCRIPT_CHARS = 6000;
@@ -25,7 +26,8 @@ export function buildChatPrompt(
     parts.push("");
   }
 
-  const messageText = request.message.trim() || getDefaultMessage(request.attachments);
+  const messageText =
+    request.message.trim() || getDefaultMessage(request.attachments, request.localPathContexts);
   parts.push(`user: ${messageText}`);
 
   const textOnlyAttachmentSection = buildTextOnlyAttachmentSection(request.attachments);
@@ -34,10 +36,22 @@ export function buildChatPrompt(
     parts.push(textOnlyAttachmentSection);
   }
 
+  const localPathContextSection = buildLocalPathContextSection(request.localPathContexts);
+  if (localPathContextSection) {
+    parts.push("");
+    parts.push(localPathContextSection);
+  }
+
   return parts.join("\n");
 }
 
-function getDefaultMessage(attachments: ChatTurnRequest["attachments"]): string {
+function getDefaultMessage(
+  attachments: ChatTurnRequest["attachments"],
+  localPathContexts: ChatTurnRequest["localPathContexts"],
+): string {
+  if (localPathContexts?.some((item) => item.kind === "file")) {
+    return DEFAULT_FILE_ONLY_PROMPT;
+  }
   if (!attachments || attachments.length === 0) {
     return "";
   }
@@ -66,6 +80,23 @@ function buildTextOnlyAttachmentSection(
   const lines = ["Attached files:"];
   for (const attachment of withPath) {
     lines.push(`- ${attachment.name}: ${attachment.localPath}`);
+  }
+
+  return lines.join("\n");
+}
+
+// Presents dragged Local Path Context as plain-text prompt context. No Markdown
+// is used so exact paths containing spaces, brackets, parentheses, and Unicode
+// survive verbatim without fragile escaping. This text is informational; the
+// Runtime read allowlist (built at Run start) is the authorization boundary.
+function buildLocalPathContextSection(contexts: LocalPathContextItem[] | undefined): string | null {
+  if (!contexts || contexts.length === 0) {
+    return null;
+  }
+
+  const lines = ["Local path context (user-provided references):"];
+  for (const item of contexts) {
+    lines.push(`- ${item.kind} ${item.basename} — ${item.path}`);
   }
 
   return lines.join("\n");

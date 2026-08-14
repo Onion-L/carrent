@@ -18,6 +18,7 @@ import {
 } from "lexical";
 
 import type {
+  ChatTurnRequest,
   ChatRunAuthorityChange,
   ChatRunAuthorityState,
   ChatRunEvent,
@@ -28,6 +29,7 @@ import { chunkStreamingAnswer, LONG_STREAMING_ANSWER } from "../../test/streamin
 import { AppStateProvider } from "../../context/AppStateContext";
 import { RuntimeModelsProvider } from "../../context/RuntimeModelsContext";
 import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
+import { ToastProvider } from "../toast/ToastContext";
 import {
   clearThreadDraft,
   enqueueChatMessage,
@@ -37,9 +39,12 @@ import {
 } from "../../hooks/chatMessageQueue";
 import {
   Composer,
+  ConversationDropSurface,
   type AssociationDraftPromotionInput,
   type ComposerDraftRequest,
+  type LocalPathContextAddRef,
 } from "./Composer";
+import { MessageTimeline } from "./MessageTimeline";
 import type { ThreadWorkDraftSnapshot } from "../../hooks/chatMessageQueue";
 
 let container: HTMLDivElement | null = null;
@@ -50,17 +55,22 @@ let activeChatAuthorityState: ChatRunAuthorityState | null = null;
 let sentChatMessages: string[] = [];
 let sentChatRunIds: string[] = [];
 let sentChatRequestKeys: Array<string | undefined> = [];
+let sentChatRequests: ChatTurnRequest[] = [];
 let listedSkillProjectDirs: Array<string | undefined> = [];
+let revealedPaths: string[] = [];
 let latestAssistantMessage: { content: string; runStatus?: string } | null = null;
 
 function ComposerHarness({
   draftRequest,
   threadId = "thread-1",
+  withTimeline = false,
 }: {
   draftRequest?: ComposerDraftRequest;
   threadId?: string;
+  withTimeline?: boolean;
 }) {
   const { hasHydrated, getThreadRouteData } = useThreadContent();
+  const localPathContextAddRef = React.useRef(null) as LocalPathContextAddRef;
   const routeData = getThreadRouteData("project-1", threadId);
   if (!hasHydrated || !routeData) {
     return null;
@@ -74,31 +84,45 @@ function ComposerHarness({
     : null;
 
   return (
-    <Composer
-      mode="thread"
-      workspaceId="workspace-1"
-      projectId="project-1"
-      threadId={threadId}
-      messages={routeData.messages}
-      runtimeId="kimi"
-      runtimeMode="approval-required"
-      planMode={false}
-      draftRequest={draftRequest}
-    />
+    <ConversationDropSurface localPathContextAddRef={localPathContextAddRef}>
+      {withTimeline ? <MessageTimeline messages={routeData.messages} threadId={threadId} /> : null}
+      <Composer
+        mode="thread"
+        workspaceId="workspace-1"
+        projectId="project-1"
+        threadId={threadId}
+        messages={routeData.messages}
+        runtimeId="kimi"
+        runtimeMode="approval-required"
+        planMode={false}
+        draftRequest={draftRequest}
+        localPathContextAddRef={localPathContextAddRef}
+      />
+    </ConversationDropSurface>
   );
 }
 
-function composerTree(draftRequest?: ComposerDraftRequest, threadId = "thread-1") {
+function composerTree(
+  draftRequest?: ComposerDraftRequest,
+  threadId = "thread-1",
+  withTimeline = false,
+) {
   return (
-    <AppStateProvider>
-      <ThreadContentProvider>
-        <RuntimeModelsProvider>
-          <MemoryRouter>
-            <ComposerHarness draftRequest={draftRequest} threadId={threadId} />
-          </MemoryRouter>
-        </RuntimeModelsProvider>
-      </ThreadContentProvider>
-    </AppStateProvider>
+    <ToastProvider>
+      <AppStateProvider>
+        <ThreadContentProvider>
+          <RuntimeModelsProvider>
+            <MemoryRouter>
+              <ComposerHarness
+                draftRequest={draftRequest}
+                threadId={threadId}
+                withTimeline={withTimeline}
+              />
+            </MemoryRouter>
+          </RuntimeModelsProvider>
+        </ThreadContentProvider>
+      </AppStateProvider>
+    </ToastProvider>
   );
 }
 
@@ -109,25 +133,29 @@ function AssociationDraftHarness({
   initialDraft: ThreadWorkDraftSnapshot;
   onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void;
 }) {
+  const localPathContextAddRef = React.useRef(null) as LocalPathContextAddRef;
   return (
-    <Composer
-      mode="association-draft"
-      placement="centered"
-      workspaceId="workspace-1"
-      projectId="project-1"
-      projectName="Carrent"
-      projectPath="/code/carrent"
-      threadId="draft-thread-1"
-      initialDraft={initialDraft}
-      messages={[]}
-      runtimeId="kimi"
-      runtimeMode="approval-required"
-      planMode={false}
-      onDraftChange={onDraftChange}
-      onPromote={async (_input: AssociationDraftPromotionInput) => false}
-      onPromotionRejected={async () => {}}
-      onPromoted={() => {}}
-    />
+    <ConversationDropSurface localPathContextAddRef={localPathContextAddRef}>
+      <Composer
+        mode="association-draft"
+        placement="centered"
+        workspaceId="workspace-1"
+        projectId="project-1"
+        projectName="Carrent"
+        projectPath="/code/carrent"
+        threadId="draft-thread-1"
+        initialDraft={initialDraft}
+        messages={[]}
+        runtimeId="kimi"
+        runtimeMode="approval-required"
+        planMode={false}
+        localPathContextAddRef={localPathContextAddRef}
+        onDraftChange={onDraftChange}
+        onPromote={async (_input: AssociationDraftPromotionInput) => false}
+        onPromotionRejected={async () => {}}
+        onPromoted={() => {}}
+      />
+    </ConversationDropSurface>
   );
 }
 
@@ -136,15 +164,17 @@ function associationDraftTree(
   onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void,
 ) {
   return (
-    <AppStateProvider>
-      <ThreadContentProvider>
-        <RuntimeModelsProvider>
-          <MemoryRouter>
-            <AssociationDraftHarness initialDraft={initialDraft} onDraftChange={onDraftChange} />
-          </MemoryRouter>
-        </RuntimeModelsProvider>
-      </ThreadContentProvider>
-    </AppStateProvider>
+    <ToastProvider>
+      <AppStateProvider>
+        <ThreadContentProvider>
+          <RuntimeModelsProvider>
+            <MemoryRouter>
+              <AssociationDraftHarness initialDraft={initialDraft} onDraftChange={onDraftChange} />
+            </MemoryRouter>
+          </RuntimeModelsProvider>
+        </ThreadContentProvider>
+      </AppStateProvider>
+    </ToastProvider>
   );
 }
 
@@ -221,7 +251,9 @@ function installCarrentBridge(
   sentChatMessages = [];
   sentChatRunIds = [];
   sentChatRequestKeys = [];
+  sentChatRequests = [];
   listedSkillProjectDirs = [];
+  revealedPaths = [];
   window.carrent = {
     appState: {
       load: async () => ({ status: "ready", snapshot }),
@@ -297,11 +329,12 @@ function installCarrentBridge(
       workspaceDiff: options.workspaceDiff ?? (async () => ({ state: "ready", files: [] })),
     },
     chat: {
-      send: async (request: { message: string; requestKey?: string }) => {
+      send: async (request: ChatTurnRequest) => {
         const runId = `run-${sentChatRunIds.length + 1}`;
         sentChatMessages.push(request.message);
         sentChatRunIds.push(runId);
         sentChatRequestKeys.push(request.requestKey);
+        sentChatRequests.push(request);
         if (activeChatAuthorityState && !options.disableAutoComplete) {
           queueMicrotask(() => {
             const baseRevision = activeChatAuthorityState!.revision;
@@ -362,6 +395,24 @@ function installCarrentBridge(
             },
           }),
     },
+    shell: {
+      openPath: async () => {},
+      revealPath: async (path) => {
+        revealedPaths.push(path);
+        return { revealed: true };
+      },
+      openExternal: async () => {},
+    },
+    localPaths: {
+      resolveFiles: async (files) => ({
+        items: files.map((file) => ({
+          path: `/Users/test/${file.name}`,
+          basename: file.name,
+          kind: "file" as const,
+        })),
+        rejections: [],
+      }),
+    },
   } as unknown as Window["carrent"];
 }
 
@@ -386,6 +437,7 @@ async function renderComposer(
     disableAutoComplete?: boolean;
     getKimiStatus?: (request: Record<string, unknown>) => Promise<unknown>;
     workspaceDiff?: () => Promise<unknown>;
+    withTimeline?: boolean;
   } = {},
 ) {
   const snapshot = baseSnapshot(options.threadWork ?? {});
@@ -396,8 +448,28 @@ async function renderComposer(
     getKimiStatus: options.getKimiStatus,
     workspaceDiff: options.workspaceDiff,
   });
-  await mount(composerTree(undefined, options.threadId));
+  await mount(composerTree(undefined, options.threadId, options.withTimeline));
   return authority;
+}
+
+async function dispatchFileDrag(
+  type: "dragenter" | "dragleave" | "dragover" | "drop",
+  files: File[],
+  types = ["Files"],
+) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", {
+    value: {
+      files,
+      items: files.map(() => ({ kind: "file" })),
+      types,
+    },
+  });
+  await act(async () => {
+    container!.querySelector<HTMLElement>("[data-local-path-drop-surface]")!.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  return event;
 }
 
 function getLexicalEditor() {
@@ -508,6 +580,233 @@ afterEach(async () => {
   container?.remove();
   root = null;
   container = null;
+});
+
+describe("Composer Local Path Context", () => {
+  it("drops a file anywhere on the conversation surface, sends it separately, and renders a badge", async () => {
+    await renderComposer({ withTimeline: true });
+    const file = new File(["hello"], "My Notes (draft) [v2].md", { type: "text/markdown" });
+
+    const enter = await dispatchFileDrag("dragenter", [file]);
+    expect(enter.defaultPrevented).toBe(true);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
+
+    const drop = await dispatchFileDrag("drop", [file]);
+    expect(drop.defaultPrevented).toBe(true);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const card = container!.querySelector<HTMLElement>("[data-local-path-context-card]");
+    expect(card?.textContent).toContain("My Notes (draft) [v2].md");
+    expect(card?.textContent).toContain("File");
+    expect(card?.getAttribute("title")).toBe("/Users/test/My Notes (draft) [v2].md");
+    expect(card?.querySelector('[aria-label="Remove My Notes (draft) [v2].md"]')).not.toBeNull();
+
+    await act(async () => {
+      card?.querySelector<HTMLButtonElement>('[aria-label^="Reveal "]')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(revealedPaths).toEqual(["/Users/test/My Notes (draft) [v2].md"]);
+
+    await setComposerText("Review this file");
+    await submitComposer();
+
+    expect(sentChatRequests[0]?.message).toBe("Review this file");
+    expect(sentChatRequests[0]?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/My Notes (draft) [v2].md",
+        basename: "My Notes (draft) [v2].md",
+        kind: "file",
+      },
+    ]);
+    expect(container!.querySelector("[data-local-path-context-card]")).toBeNull();
+
+    const badge = container!.querySelector<HTMLElement>("[data-local-path-context-badge]");
+    expect(badge?.textContent).toContain("My Notes (draft) [v2].md");
+    expect(badge?.getAttribute("title")).toBe("/Users/test/My Notes (draft) [v2].md");
+    expect(container!.textContent).not.toContain("/Users/test/My Notes (draft) [v2].md");
+    await act(async () => {
+      badge?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(revealedPaths).toEqual([
+      "/Users/test/My Notes (draft) [v2].md",
+      "/Users/test/My Notes (draft) [v2].md",
+    ]);
+  });
+
+  it("deduplicates within the current composition and removes a card independently", async () => {
+    await renderComposer();
+    const file = new File(["hello"], "notes.md", { type: "text/markdown" });
+
+    await dispatchFileDrag("drop", [file]);
+    await dispatchFileDrag("drop", [file]);
+    expect(container!.querySelectorAll("[data-local-path-context-card]")).toHaveLength(1);
+
+    await act(async () => {
+      container!.querySelector<HTMLButtonElement>('[aria-label="Remove notes.md"]')!.click();
+    });
+    expect(container!.querySelector("[data-local-path-context-card]")).toBeNull();
+  });
+
+  it("keeps the overlay active across nested dragenter and dragleave events", async () => {
+    await renderComposer();
+    const file = new File(["hello"], "notes.md", { type: "text/markdown" });
+
+    await dispatchFileDrag("dragenter", [file]);
+    await dispatchFileDrag("dragenter", [file]);
+    await dispatchFileDrag("dragleave", [file]);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
+
+    await dispatchFileDrag("dragleave", [file]);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
+  });
+
+  it("restores Local Path Context cards from a persisted draft", async () => {
+    const { drafts } = await renderAssociationDraft({
+      content: "Review this",
+      attachedSkillNames: [],
+      attachments: [],
+      localPathContexts: [
+        {
+          path: "/Users/test/notes.md",
+          basename: "notes.md",
+          kind: "file",
+        },
+      ],
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(container!.querySelector("[data-local-path-context-card]")?.textContent).toContain(
+      "notes.md",
+    );
+    expect(drafts.at(-1)?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/notes.md",
+        basename: "notes.md",
+        kind: "file",
+      },
+    ]);
+  });
+
+  it("drops a file into a new Thread Draft and persists it", async () => {
+    const { drafts } = await renderAssociationDraft({
+      content: "",
+      attachedSkillNames: [],
+      attachments: [],
+    });
+    const file = new File(["hello"], "draft-notes.md", { type: "text/markdown" });
+
+    await dispatchFileDrag("drop", [file]);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(drafts.at(-1)?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/draft-notes.md",
+        basename: "draft-notes.md",
+        kind: "file",
+      },
+    ]);
+  });
+
+  it("leaves text and URL drags untouched", async () => {
+    await renderComposer();
+    const browserImage = new File(["image"], "remote.png", { type: "image/png" });
+    const event = await dispatchFileDrag(
+      "dragover",
+      [browserImage],
+      ["Files", "text/uri-list", "text/html"],
+    );
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
+  });
+
+  it("shows one error toast and ignores a rejected local file", async () => {
+    await renderComposer();
+    window.carrent.localPaths.resolveFiles = async () => ({
+      items: [],
+      rejections: [{ index: 0, reason: "unavailable" }],
+    });
+
+    await dispatchFileDrag("drop", [new File(["hello"], "missing.md")]);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    });
+
+    const errorToasts = [...container!.querySelectorAll('[role="alert"]')].filter((alert) =>
+      alert.textContent?.includes("One dropped item is not an available local file."),
+    );
+    expect(errorToasts).toHaveLength(1);
+    expect(container!.querySelector("[data-local-path-context-card]")).toBeNull();
+  });
+
+  it("preserves Local Path Context while a message waits in the live-run queue", async () => {
+    const threadId = "thread-2";
+    const sharedRun = {
+      runId: "shared-run",
+      requestKey: "shared-request",
+      threadId,
+      status: "running" as const,
+      stopRequested: false,
+      eventCount: 0,
+      events: [],
+      pendingPermissions: [],
+      pendingQuestions: [],
+    };
+    await renderComposer({
+      threadId,
+      authorityState: { revision: 1, runs: [sharedRun] },
+    });
+    const file = new File(["hello"], "queued-notes.md", { type: "text/markdown" });
+
+    await dispatchFileDrag("drop", [file]);
+    await setComposerText("queued request");
+    await submitComposer();
+
+    expect(getQueuedMessages(threadId)[0]?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/queued-notes.md",
+        basename: "queued-notes.md",
+        kind: "file",
+      },
+    ]);
+
+    const completedEvent: ChatRunEvent = {
+      type: "completed",
+      runId: sharedRun.runId,
+      requestKey: sharedRun.requestKey,
+      text: "done",
+      finishedAt: "2026-08-07T00:00:00.000Z",
+    };
+    await act(async () => {
+      emitChatAuthorityChange?.({
+        baseRevision: 1,
+        revision: 2,
+        run: {
+          ...sharedRun,
+          status: "completed",
+          eventCount: 1,
+          events: [completedEvent],
+        },
+        event: completedEvent,
+      });
+    });
+    await waitForQueueFlush(threadId, 1);
+
+    expect(sentChatRequests[0]?.localPathContexts).toEqual([
+      {
+        path: "/Users/test/queued-notes.md",
+        basename: "queued-notes.md",
+        kind: "file",
+      },
+    ]);
+  });
 });
 
 describe("Composer inline Skills", () => {

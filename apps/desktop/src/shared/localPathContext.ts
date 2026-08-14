@@ -16,6 +16,26 @@ export type LocalPathContextItem = {
   kind: LocalPathContextKind;
 };
 
+export type LocalPathResolutionRejectionReason = "non-local" | "unavailable" | "not-file";
+
+export type LocalPathResolutionRejection = {
+  index: number;
+  reason: LocalPathResolutionRejectionReason;
+};
+
+// Result of resolving dropped DOM File objects through the privileged preload
+// capability. Rejections stay typed so the Renderer can report one concise
+// error without accepting a path the Main Process did not validate.
+export type LocalPathResolutionResult = {
+  items: LocalPathContextItem[];
+  rejections: LocalPathResolutionRejection[];
+};
+
+// Result of asking the OS to reveal a path in the file manager. The privileged
+// handler verifies the target still exists before asking the OS to reveal it;
+// failures surface through the toast system rather than throwing.
+export type RevealPathResult = { revealed: true } | { revealed: false; reason: "missing" };
+
 // Mirrors the File Attachment count guard (MAX_ATTACHMENT_COUNT). Local Path
 // Context copies no bytes, but a composition still caps how many references a
 // user can stage so the composer stays scannable.
@@ -31,7 +51,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // so dedupe stays by exact normalized path text.
 export function normalizeLocalPathContextPath(value: unknown): string | null {
   if (typeof value !== "string" || !value) return null;
-  const withForwardSlashes = value.replace(/\\/g, "/");
+  const isWindowsPath = /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith("\\\\");
+  const withForwardSlashes = isWindowsPath ? value.replace(/\\/g, "/") : value;
   const drive = withForwardSlashes.match(/^([A-Za-z]:)(?:\/|$)/)?.[1] ?? "";
   const isUnc = withForwardSlashes.startsWith("//");
   const isAbsolute = isUnc || withForwardSlashes.startsWith("/") || Boolean(drive);
@@ -76,6 +97,27 @@ export function normalizeLocalPathContextItem(value: unknown): LocalPathContextI
   if (!basename) return null;
 
   return { path, basename, kind: value.kind };
+}
+
+// Platform-normalized identity key for dedupe within a single composition.
+// The same path may be referenced again in a later message; dedupe is scoped by
+// the caller to one composition (draft or message), never globally.
+export function localPathContextIdentityKey(item: LocalPathContextItem): string {
+  return `${item.kind}\u0000${item.path}`;
+}
+
+// Deduplicates Local Path Context items by normalized identity within one
+// composition, preserving Finder/input order of the first occurrence.
+export function dedupeLocalPathContexts(items: LocalPathContextItem[]): LocalPathContextItem[] {
+  const seen = new Set<string>();
+  const result: LocalPathContextItem[] = [];
+  for (const item of items) {
+    const key = localPathContextIdentityKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
 }
 
 // Lenient list normalization: an absent or non-array field resolves to an empty

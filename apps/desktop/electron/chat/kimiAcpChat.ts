@@ -1,5 +1,5 @@
 import type { ChildProcess } from "node:child_process";
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -16,6 +16,7 @@ import type {
   RuntimeSessionStatusData,
   KimiTimelineItem,
 } from "../../src/shared/chat";
+import type { LocalPathContextItem } from "../../src/shared/localPathContext";
 import {
   CHAT_PERMISSION_TIMEOUT_MS,
   buildPermissionExpiry,
@@ -612,7 +613,9 @@ export async function buildKimiPromptParts(
       ? storedAttachments.some((attachment) => attachment.kind === "file")
         ? DEFAULT_FILE_ONLY_PROMPT
         : DEFAULT_IMAGE_ONLY_PROMPT
-      : "");
+      : request.localPathContexts?.some((item) => item.kind === "file")
+        ? DEFAULT_FILE_ONLY_PROMPT
+        : "");
   const parts: Array<Record<string, unknown>> = [];
   let text = "";
 
@@ -653,6 +656,18 @@ export async function buildKimiPromptParts(
       data: data.toString("base64"),
       mimeType: attachment.mimeType,
       uri: pathToFileURL(attachment.localPath).toString(),
+    });
+  }
+
+  // Dragged Local Path Context files become ACP resource_link blocks pointing
+  // at the original path. The Runtime reads them through fs/read_text_file,
+  // which the Run-start allowlist authorizes for the exact canonical file only.
+  for (const item of request.localPathContexts ?? []) {
+    if (item.kind !== "file") continue;
+    parts.push({
+      type: "resource_link",
+      uri: pathToFileURL(item.path).toString(),
+      name: item.basename,
     });
   }
 
@@ -729,6 +744,11 @@ class KimiAcpRun {
   private attachmentTargets: Map<string, string> | null = null;
   private attachmentStorePath: string | null = null;
   private attachmentStoreRealPath: string | null = null;
+  // Canonical real path -> item for the current request's Local Path Context
+  // files (dragged in, outside managed storage). Exact-match read-only
+  // allowlist; never grants sibling or write access. Directory contexts get a
+  // descendant grant added in a later slice.
+  private localPathContextFileTargets: Map<string, LocalPathContextItem> | null = null;
   private pendingPermissions = new Map<
     string,
     {
@@ -818,6 +838,7 @@ class KimiAcpRun {
         return;
       }
       await this.prepareAttachmentTargets();
+      await this.prepareLocalPathContextTargets();
       const { configOptions, resumed } = await this.openSession();
 
       await this.configureModel(configOptions);
@@ -957,6 +978,32 @@ class KimiAcpRun {
     this.attachmentStorePath = attachmentStorePath;
     this.attachmentStoreRealPath = attachmentStoreRealPath;
     this.attachmentTargets = targets;
+  }
+
+  // Canonicalizes each Local Path Context file reference at Run start and builds
+  // an exact-match read-only allowlist. A reference that has disappeared, or
+  // whose kind no longer matches (e.g. a file replaced by a directory), fails
+  // the Run with a clear error rather than granting or guessing a replacement.
+  private async prepareLocalPathContextTargets(): Promise<void> {
+    const contexts = this.options.request.localPathContexts ?? [];
+    const fileTargets = new Map<string, LocalPathContextItem>();
+    for (const item of contexts) {
+      if (item.kind !== "file") continue;
+
+      let realPath: string;
+      let stats: Awaited<ReturnType<typeof stat>>;
+      try {
+        realPath = await realpath(item.path);
+        stats = await stat(realPath);
+      } catch {
+        throw new Error(`Local path context is unavailable: ${item.basename}`);
+      }
+      if (!stats.isFile()) {
+        throw new Error(`Local path context is no longer a file: ${item.basename}`);
+      }
+      fileTargets.set(realPath, item);
+    }
+    this.localPathContextFileTargets = fileTargets.size > 0 ? fileTargets : null;
   }
 
   private async openSession(): Promise<{ configOptions: unknown; resumed: boolean }> {
@@ -1748,6 +1795,19 @@ class KimiAcpRun {
       });
     }
 
+    if (target.kind === "localPathContext") {
+      this.emit({
+        type: "reasoning",
+        runId: this.options.runId,
+        requestKey: this.options.request.requestKey,
+        reasoning: {
+          id: `kimi-fs-read-local-path-context-${target.name}`,
+          content: `Read ${target.name}`,
+          status: "completed",
+        },
+      });
+    }
+
     return { content: await readFile(target.path, "utf8") };
   }
 
@@ -1791,6 +1851,26 @@ class KimiAcpRun {
           };
         }
         throw new Error(`Refusing to ${access} attachment storage: ${requestedPath}`);
+      }
+    }
+
+    // Explicitly referenced Local Path Context files (dragged into the
+    // composer). Grants read-only access to the exact canonical file only;
+    // siblings, writes, and parent traversal are refused. Symlinks collapse via
+    // realpath so a link pointing elsewhere never matches the exact key.
+    if (this.localPathContextFileTargets) {
+      const candidateRealPath = await resolveCanonicalCandidatePath(resolvedPath);
+      const item = this.localPathContextFileTargets.get(candidateRealPath);
+      if (item) {
+        if (access === "read") {
+          return {
+            kind: "localPathContext" as const,
+            path: candidateRealPath,
+            relativePath: "",
+            name: item.basename,
+          };
+        }
+        throw new Error(`Refusing to ${access} Local Path Context file: ${requestedPath}`);
       }
     }
 

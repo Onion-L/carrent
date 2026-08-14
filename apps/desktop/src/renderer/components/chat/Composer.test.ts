@@ -168,6 +168,18 @@ describe("shouldSubmitComposerOnKeyDown", () => {
 });
 
 describe("canSubmitComposerContent", () => {
+  it("allows a Local Path Context-only message", () => {
+    expect(
+      canSubmitComposerContent({
+        content: "",
+        attachedSkillCount: 0,
+        attachmentCount: 0,
+        localPathContextCount: 1,
+        isPreparingAttachments: false,
+      }),
+    ).toBe(true);
+  });
+
   it("allows an external attachment-only queued message", () => {
     expect(
       canSubmitComposerContent({

@@ -6,8 +6,10 @@ import { ChatHeader } from "../components/chat/ChatHeader";
 import { OpenInMenu } from "../components/chat/OpenInMenu";
 import {
   Composer,
+  ConversationDropSurface,
   type ComposerDraftRequest,
   type ComposerSubmitRequest,
+  type LocalPathContextAddRef,
 } from "../components/chat/Composer";
 import {
   EmptyThreadPrompt,
@@ -35,7 +37,10 @@ import { useChatRun } from "../hooks/useChatRun";
 import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
 import { useToast } from "../components/toast/ToastContext";
 import { BrowserWorkspace, useBrowserThread } from "../components/browser/BrowserWorkspace";
-import { RightSurfacePane, shouldOpenDiffSurface } from "../components/right-surface/RightSurfacePane";
+import {
+  RightSurfacePane,
+  shouldOpenDiffSurface,
+} from "../components/right-surface/RightSurfacePane";
 import { useRightSurface } from "../components/right-surface/useRightSurface";
 
 export function resolveThreadRouteData(
@@ -78,6 +83,7 @@ function ThreadPageContent() {
   const [draftRequest, setDraftRequest] = useState<
     { threadId: string; request: ComposerDraftRequest } | undefined
   >();
+  const localPathContextAddRef = useRef<LocalPathContextAddRef["current"]>(null);
   const draftRequestIdRef = useRef(0);
   const { getThreadRouteData, setSelectedThreadId } = useThreadContent();
   const {
@@ -294,6 +300,7 @@ function ThreadPageContent() {
       draftRequest={
         draftRequest?.threadId === routeData.thread.id ? draftRequest.request : undefined
       }
+      localPathContextAddRef={localPathContextAddRef}
       onRuntimeIdChange={(runtimeId) => {
         if (appThread) void updateThreadConfig(appThread.id, { runtimeId });
       }}
@@ -414,31 +421,33 @@ function ThreadPageContent() {
       ) : null}
       <div className="flex h-full min-w-0 flex-1 flex-col">
         <ChatHeader title={routeData?.thread.title ?? "Thread not found"} />
-        {routeData && isEmptyThread ? (
-          <div
-            data-empty-thread-layout
-            className="flex min-h-0 flex-1 items-center justify-center px-6 py-8"
-          >
-            <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
-              <EmptyThreadPrompt />
-              {composer}
+        <ConversationDropSurface localPathContextAddRef={localPathContextAddRef}>
+          {routeData && isEmptyThread ? (
+            <div
+              data-empty-thread-layout
+              className="flex min-h-0 flex-1 items-center justify-center px-6 py-8"
+            >
+              <div className="flex w-full max-w-[56rem] flex-col items-center gap-6">
+                <EmptyThreadPrompt />
+                {composer}
+              </div>
             </div>
-          </div>
-        ) : (
-          <>
-            <MessageTimeline
-              messages={routeData?.messages ?? []}
-              threadActions={threadActions.filter(
-                (action) => action.threadId === routeData?.thread.id,
-              )}
-              threadId={routeData?.thread.id}
-              onSubmitUserEdit={hasLiveRun ? undefined : handleSubmitUserEdit}
-              onRemoveRuntimeSessionAndRetry={handleRuntimeSessionRetry}
-              onSelectSubagent={handleSelectSubagent}
-            />
-            {composer}
-          </>
-        )}
+          ) : (
+            <>
+              <MessageTimeline
+                messages={routeData?.messages ?? []}
+                threadActions={threadActions.filter(
+                  (action) => action.threadId === routeData?.thread.id,
+                )}
+                threadId={routeData?.thread.id}
+                onSubmitUserEdit={hasLiveRun ? undefined : handleSubmitUserEdit}
+                onRemoveRuntimeSessionAndRetry={handleRuntimeSessionRetry}
+                onSelectSubagent={handleSelectSubagent}
+              />
+              {composer}
+            </>
+          )}
+        </ConversationDropSurface>
       </div>
 
       {showBrowser && browserFullscreen && browserTarget && activeBrowserState ? (

@@ -6,6 +6,7 @@ import {
   ChevronDown,
   CircleAlert,
   CornerDownRight,
+  FileText,
   GitBranch,
   Lock,
   ListChecks,
@@ -26,7 +27,9 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type DragEvent as ReactDragEvent,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
@@ -54,6 +57,11 @@ import {
   validateAttachmentSelection,
   type PendingAttachment,
 } from "../../lib/attachments";
+import {
+  dedupeLocalPathContexts,
+  type LocalPathContextItem,
+  type LocalPathContextKind,
+} from "../../../shared/localPathContext";
 import { deriveThreadTitle } from "../../../shared/threadTitle";
 import { ImageAttachmentLightbox, type LightboxItem } from "./ImageAttachmentLightbox";
 import { splitPatchIntoFileBlocks } from "./WorkspaceDiffViewer";
@@ -360,6 +368,104 @@ export type AssociationDraftPromotionInput = AppThreadRunStartInput & {
 
 export type ComposerAcceptedRunInput = AppThreadRunStartInput & { assistantMessageId: string };
 
+// Imperative handle a parent surface (the whole conversation area) uses to push
+// resolved Local Path Context items into the Composer, which owns the card
+// state. The parent resolves dropped DOM File objects through the privileged
+// preload capability and shows the rejection toast; this adder only merges the
+// accepted items into the composition.
+export type LocalPathContextAddRef = {
+  current: ((items: LocalPathContextItem[]) => void) | null;
+};
+
+function isFilesystemFileDrag(dataTransfer: DataTransfer): boolean {
+  const types = Array.from(dataTransfer.types);
+  return (
+    types.includes("Files") && !types.includes("text/uri-list") && !types.includes("text/html")
+  );
+}
+
+export function ConversationDropSurface({
+  children,
+  localPathContextAddRef,
+}: {
+  children: ReactNode;
+  localPathContextAddRef: LocalPathContextAddRef;
+}) {
+  const { showToast } = useToast();
+  const dragDepthRef = useRef(0);
+  const [dropActive, setDropActive] = useState(false);
+
+  const resetDropState = useCallback(() => {
+    dragDepthRef.current = 0;
+    setDropActive(false);
+  }, []);
+
+  const handleDragEnter = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!isFilesystemFileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setDropActive(true);
+  };
+
+  const handleDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (dragDepthRef.current === 0) return;
+    if (isFilesystemFileDrag(event.dataTransfer)) event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDropActive(false);
+  };
+
+  const handleDrop = async (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!isFilesystemFileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    resetDropState();
+
+    try {
+      const result = await window.carrent.localPaths.resolveFiles(
+        Array.from(event.dataTransfer.files),
+      );
+      localPathContextAddRef.current?.(result.items);
+      if (result.rejections.length > 0) {
+        showToast(
+          result.rejections.length === 1
+            ? "One dropped item is not an available local file."
+            : `${result.rejections.length} dropped items are not available local files.`,
+          "error",
+        );
+      }
+    } catch {
+      showToast("The dropped local file could not be resolved.", "error");
+    }
+  };
+
+  return (
+    <div
+      data-local-path-drop-surface
+      className="relative flex min-h-0 flex-1 flex-col"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={(event) => {
+        if (isFilesystemFileDrag(event.dataTransfer)) event.preventDefault();
+      }}
+      onDrop={(event) => void handleDrop(event)}
+    >
+      {children}
+      {dropActive ? (
+        <div
+          data-local-path-drop-overlay
+          className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-lg border-2 border-dashed border-fg/35 bg-surface-raised/90 text-fg"
+          role="status"
+        >
+          <div className="flex items-center gap-2 text-app-13 font-medium">
+            <FileText className="h-4 w-4" />
+            <span>File context</span>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function mergeComposerDraftContent(current: string, incoming: string): string {
   if (!current.trim()) {
     return incoming;
@@ -400,6 +506,7 @@ type ComposerProps =
       planMode: boolean;
       submitRequest?: ComposerSubmitRequest;
       draftRequest?: ComposerDraftRequest;
+      localPathContextAddRef?: LocalPathContextAddRef;
       onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
       onRuntimeModelIdChange?: (modelId: string | undefined) => void;
       onRuntimeModeChange?: (mode: RuntimeMode) => void;
@@ -423,6 +530,7 @@ type ComposerProps =
       planMode: boolean;
       submitRequest?: ComposerSubmitRequest;
       draftRequest?: ComposerDraftRequest;
+      localPathContextAddRef?: LocalPathContextAddRef;
       onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void;
       onPromote: (input: AssociationDraftPromotionInput) => Promise<boolean>;
       onPromotionRejected: (draft: ThreadWorkDraftSnapshot) => Promise<void>;
@@ -530,6 +638,7 @@ export function canSubmitComposerContent(input: {
   content: string;
   attachedSkillCount: number;
   attachmentCount: number;
+  localPathContextCount?: number;
   isPreparingAttachments: boolean;
   isExternalSubmit?: boolean;
   hasUnavailableAttachments?: boolean;
@@ -541,7 +650,10 @@ export function canSubmitComposerContent(input: {
     return false;
   }
   return (
-    input.content.trim().length > 0 || input.attachedSkillCount > 0 || input.attachmentCount > 0
+    input.content.trim().length > 0 ||
+    input.attachedSkillCount > 0 ||
+    input.attachmentCount > 0 ||
+    (input.localPathContextCount ?? 0) > 0
   );
 }
 
@@ -559,33 +671,43 @@ export function resolveDraftSkillRecords(
 
 // Builds the persistable draft for a Thread, or null when the Composer holds
 // nothing worth keeping. Only metadata is persisted for attachments — never
-// File instances or preview URLs.
+// File instances or preview URLs. Local Path Context is plain path data and is
+// persisted verbatim alongside attachments.
 export function buildThreadDraftSnapshot(input: {
   content: string;
   attachedSkills: SkillRecord[];
   pendingAttachments: PendingAttachment[];
+  localPathContexts?: LocalPathContextItem[];
   composerState?: string;
 }): ThreadWorkDraftSnapshot | null {
   const attachments = metadataOnly(
     input.pendingAttachments.flatMap((pending) => (pending.metadata ? [pending.metadata] : [])),
   );
   const attachedSkillNames = input.attachedSkills.map((skill) => skill.name);
-  if (!input.content.trim() && attachedSkillNames.length === 0 && attachments.length === 0) {
+  const localPathContexts = input.localPathContexts ?? [];
+  if (
+    !input.content.trim() &&
+    attachedSkillNames.length === 0 &&
+    attachments.length === 0 &&
+    localPathContexts.length === 0
+  ) {
     return null;
   }
   return {
     content: input.content,
     attachedSkillNames,
     attachments,
+    ...(localPathContexts.length > 0 ? { localPathContexts } : {}),
     ...(input.composerState ? { composerState: input.composerState } : {}),
   };
 }
 
-// Compares two drafts by their semantic content only (text, skills, attachments),
-// ignoring `composerState`. The serialized editor state changes on every keystroke
-// (Lexical node keys, selection offsets), so including it in a readback equality
-// check would make a locally-typed draft always differ from the just-persisted
-// copy, echo-looping readback into the editor until the caret is lost.
+// Compares two drafts by their semantic content only (text, skills, attachments,
+// Local Path Context), ignoring `composerState`. The serialized editor state
+// changes on every keystroke (Lexical node keys, selection offsets), so
+// including it in a readback equality check would make a locally-typed draft
+// always differ from the just-persisted copy, echo-looping readback into the
+// editor until the caret is lost.
 function draftsContentEqual(
   a: ThreadWorkDraftSnapshot | null,
   b: ThreadWorkDraftSnapshot | null,
@@ -595,7 +717,8 @@ function draftsContentEqual(
   return (
     a.content === b.content &&
     JSON.stringify(a.attachedSkillNames) === JSON.stringify(b.attachedSkillNames) &&
-    JSON.stringify(a.attachments) === JSON.stringify(b.attachments)
+    JSON.stringify(a.attachments) === JSON.stringify(b.attachments) &&
+    JSON.stringify(a.localPathContexts ?? []) === JSON.stringify(b.localPathContexts ?? [])
   );
 }
 
@@ -1172,6 +1295,13 @@ export function Composer(props: ComposerProps) {
   if (draftAttachmentsRef.current === null) {
     draftAttachmentsRef.current = initialDraft?.attachments ?? [];
   }
+  // Local Path Context restores straight from the draft (plain path data, no
+  // byte reload like attachments). The ref seeds the once-per-mount restore so a
+  // peer-window echo does not double-add on re-mount.
+  const draftLocalPathContextsRef = useRef<LocalPathContextItem[] | null>(null);
+  if (draftLocalPathContextsRef.current === null) {
+    draftLocalPathContextsRef.current = initialDraft?.localPathContexts ?? [];
+  }
   const draftRestoreCompleteRef = useRef(false);
   const associationDraftChangeRef = useRef<
     ((draft: ThreadWorkDraftSnapshot | null) => void) | null
@@ -1192,6 +1322,7 @@ export function Composer(props: ComposerProps) {
     useState<CascadingPanelPosition | null>(null);
   const [showModePicker, setShowModePicker] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [localPathContexts, setLocalPathContexts] = useState<LocalPathContextItem[]>([]);
   const [isPreparingAttachments, setIsPreparingAttachments] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [threadActionError, setThreadActionError] = useState<string | null>(null);
@@ -1231,6 +1362,7 @@ export function Composer(props: ComposerProps) {
       );
       setEditorStateJson(draft?.composerState);
       editorRef.current?.replaceDraft(content, restoredSkills, draft?.composerState);
+      setLocalPathContexts(draft?.localPathContexts ?? []);
 
       draftRestoreCompleteRef.current = false;
       let cancelled = false;
@@ -1292,12 +1424,13 @@ export function Composer(props: ComposerProps) {
     if (compositionActiveRef.current) return;
     compositionActiveRef.current = true;
     setIsCompositionActive(true);
-    const { content, attachedSkills, pendingAttachments, composerState } =
+    const { content, attachedSkills, pendingAttachments, localPathContexts, composerState } =
       compositionBaselineInputRef.current;
     compositionDraftBaseRef.current = buildThreadDraftSnapshot({
       content,
       attachedSkills,
       pendingAttachments,
+      localPathContexts,
       composerState,
     });
     pendingSharedDraftRef.current = undefined;
@@ -1324,15 +1457,17 @@ export function Composer(props: ComposerProps) {
       content,
       attachedSkills: liveSkills,
       pendingAttachments: livePending,
+      localPathContexts: liveLocalPathContexts,
       composerState,
     } = compositionBaselineInputRef.current;
     const currentDraft = buildThreadDraftSnapshot({
       content,
       attachedSkills: liveSkills,
       pendingAttachments: livePending,
+      localPathContexts: liveLocalPathContexts,
       composerState,
     });
-    // Compare only the semantic fields (content/skills/attachments).
+    // Compare only the semantic fields (content/skills/attachments/path contexts).
     // `composerState` is excluded: it is the local editor's serialized state,
     // which changes on every keystroke (node keys, selection offsets). Including
     // it here would make a locally-typed draft always look "different" from the
@@ -1427,12 +1562,14 @@ export function Composer(props: ComposerProps) {
     content: input,
     attachedSkills,
     pendingAttachments,
+    localPathContexts,
     composerState: editorStateJson,
   });
   compositionBaselineInputRef.current = {
     content: input,
     attachedSkills,
     pendingAttachments,
+    localPathContexts,
     composerState: editorStateJson,
   };
   const threadId = props.threadId;
@@ -1872,6 +2009,7 @@ export function Composer(props: ComposerProps) {
     content: input,
     attachedSkillCount: effectiveAttachedSkills.length,
     attachmentCount: pendingAttachments.length,
+    localPathContextCount: localPathContexts.length,
     isPreparingAttachments,
     hasUnavailableAttachments: hasUnavailablePendingAttachments(pendingAttachments),
   });
@@ -2280,6 +2418,42 @@ export function Composer(props: ComposerProps) {
     });
   }, []);
 
+  // Merges resolved Local Path Context items into the composition, deduplicating
+  // by normalized identity so a repeated drop of the same path does not stack.
+  // The parent surface has already resolved the DOM File objects and shown a
+  // toast for any rejected entries; this only accepts the valid items.
+  const addLocalPathContexts = useCallback((items: LocalPathContextItem[]) => {
+    if (items.length === 0) return;
+    setLocalPathContexts((prev) => dedupeLocalPathContexts([...prev, ...items]));
+  }, []);
+
+  const handleRemoveLocalPathContext = useCallback((path: string, kind: LocalPathContextKind) => {
+    setLocalPathContexts((prev) => prev.filter((item) => item.path !== path || item.kind !== kind));
+  }, []);
+
+  const handleRevealLocalPathContext = useCallback(
+    async (path: string, basename: string) => {
+      try {
+        const result = await window.carrent.shell.revealPath(path);
+        if (!result.revealed) {
+          showToast(`Could not reveal “${basename}”: the path no longer exists.`, "error");
+        }
+      } catch {
+        showToast(`Could not reveal “${basename}” in the file manager.`, "error");
+      }
+    },
+    [showToast],
+  );
+
+  useEffect(() => {
+    const ref = props.localPathContextAddRef;
+    if (!ref) return;
+    ref.current = addLocalPathContexts;
+    return () => {
+      ref.current = null;
+    };
+  }, [addLocalPathContexts, props.localPathContextAddRef]);
+
   const resolvePastedComposerContent = useCallback(
     (text: string) => {
       if (localMcpSkillsDisabled) return null;
@@ -2398,6 +2572,7 @@ export function Composer(props: ComposerProps) {
     messageId?: string;
     content: string;
     attachments?: AttachmentMetadata[];
+    localPathContexts?: LocalPathContextItem[];
   }) => {
     const externalSubmit = override;
     const isExternalSubmit = externalSubmit !== undefined;
@@ -2416,6 +2591,9 @@ export function Composer(props: ComposerProps) {
     if (isThreadCompacting || isSessionStatusLoading) return false;
     const currentPendingAttachments = externalSubmit ? [] : pendingAttachments;
     const currentAttachedSkills = externalSubmit ? [] : effectiveAttachedSkills;
+    const currentLocalPathContexts = externalSubmit
+      ? (externalSubmit.localPathContexts ?? [])
+      : localPathContexts;
     const planSubmission = getPlanSubmissionState(input, props.runtimeId, props.planMode);
     const planCommand = externalSubmit ? null : planSubmission.command;
     const effectivePlanMode = externalSubmit
@@ -2428,6 +2606,7 @@ export function Composer(props: ComposerProps) {
       content: currentInput,
       attachedSkillCount: currentAttachedSkills.length,
       attachmentCount: externalSubmit?.attachments?.length ?? currentPendingAttachments.length,
+      localPathContextCount: currentLocalPathContexts.length,
       isPreparingAttachments: isPreparingAttachmentsRef.current,
       isExternalSubmit,
       hasUnavailableAttachments: hasUnavailablePendingAttachments(currentPendingAttachments),
@@ -2490,6 +2669,7 @@ export function Composer(props: ComposerProps) {
         id: `queued-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         content: messageText,
         attachments: attachmentMetadata,
+        localPathContexts: currentLocalPathContexts,
       });
       setInput("");
       setAttachedSkills([]);
@@ -2502,6 +2682,7 @@ export function Composer(props: ComposerProps) {
         });
         return [];
       });
+      setLocalPathContexts([]);
       setAttachmentError(null);
       if (props.mode !== "association-draft") {
         clearThreadDraft(threadId);
@@ -2519,6 +2700,7 @@ export function Composer(props: ComposerProps) {
       role: "user" | "assistant",
       content: string,
       attachments?: AttachmentMetadata[],
+      messageLocalPathContexts?: LocalPathContextItem[],
       runStatus?: Message["runStatus"],
     ) => {
       if (props.mode === "association-draft") {
@@ -2530,6 +2712,9 @@ export function Composer(props: ComposerProps) {
           type: "text" as const,
           content,
           attachments: attachments ?? [],
+          ...(messageLocalPathContexts && messageLocalPathContexts.length > 0
+            ? { localPathContexts: messageLocalPathContexts }
+            : {}),
           runStatus,
           timestamp: new Date(now).toLocaleTimeString("en-US", {
             hour: "2-digit",
@@ -2544,6 +2729,7 @@ export function Composer(props: ComposerProps) {
         role,
         content,
         attachments,
+        localPathContexts: messageLocalPathContexts,
         runStatus,
       });
     };
@@ -2618,7 +2804,12 @@ export function Composer(props: ComposerProps) {
     if (externalSubmit?.messageId) {
       updateMessageAndPruneAfter(externalSubmit.messageId, messageText);
     } else {
-      const userMessage = appendLocalMessage("user", messageText, attachmentMetadata);
+      const userMessage = appendLocalMessage(
+        "user",
+        messageText,
+        attachmentMetadata,
+        currentLocalPathContexts,
+      );
       userMessageId = userMessage.id;
       userMessageCreatedAt =
         userMessage.createdAt == null
@@ -2629,7 +2820,7 @@ export function Composer(props: ComposerProps) {
     }
     markThreadActivity(threadId);
 
-    const assistantMsg = appendLocalMessage("assistant", "", undefined, "running");
+    const assistantMsg = appendLocalMessage("assistant", "", undefined, undefined, "running");
 
     flushTypewriterRef.current?.();
     const textRevealer = new StreamingTextRevealer({
@@ -2675,6 +2866,7 @@ export function Composer(props: ComposerProps) {
             content: currentInput,
             attachedSkills: currentAttachedSkills,
             pendingAttachments: currentPendingAttachments,
+            localPathContexts: currentLocalPathContexts,
             composerState: editorStateJson,
           })!
         : null;
@@ -2685,6 +2877,7 @@ export function Composer(props: ComposerProps) {
       assistantMessageId: assistantMsg.id,
       message: messageText,
       attachments: attachmentMetadata,
+      localPathContexts: currentLocalPathContexts,
       startedAt,
       messageCreatedAt: userMessageCreatedAt,
       runtimeId: props.runtimeId,
@@ -2718,6 +2911,7 @@ export function Composer(props: ComposerProps) {
             content: currentInput,
             attachedSkills: currentAttachedSkills,
             pendingAttachments: currentPendingAttachments,
+            localPathContexts: currentLocalPathContexts,
             composerState: editorStateJson,
           })!,
         );
@@ -2745,6 +2939,7 @@ export function Composer(props: ComposerProps) {
         transcript,
         message: messageText,
         attachments: attachmentMetadata,
+        localPathContexts: currentLocalPathContexts,
         historyMode: getChatHistoryMode(!!externalSubmit?.messageId),
       },
       {
@@ -2969,6 +3164,7 @@ export function Composer(props: ComposerProps) {
         });
         return [];
       });
+      setLocalPathContexts([]);
       if (props.mode !== "association-draft") {
         clearThreadDraft(threadId);
       }
@@ -2983,7 +3179,7 @@ export function Composer(props: ComposerProps) {
       // back to "New thread" — is protected by the customTitle guard.
       if (thread && thread.title === "New thread" && !thread.customTitle) {
         const title = deriveThreadTitle(currentInput, {
-          attachmentName: attachmentMetadata[0]?.name,
+          attachmentName: attachmentMetadata[0]?.name ?? currentLocalPathContexts[0]?.basename,
         });
         if (title !== thread.title) {
           upsertThread(props.projectId, { ...thread, title });
@@ -2998,7 +3194,11 @@ export function Composer(props: ComposerProps) {
     // Wait for the coordinator's terminal state to be visible before starting
     // the next Run, then restore the item if the new request is rejected.
     setTimeout(() => {
-      void handleSend({ content: item.content, attachments: item.attachments }).then((sent) => {
+      void handleSend({
+        content: item.content,
+        attachments: item.attachments,
+        localPathContexts: item.localPathContexts,
+      }).then((sent) => {
         if (sent) {
           // A queued item can be reintroduced by an older Thread Work
           // broadcast that was already in flight when the item was shifted.
@@ -3020,13 +3220,15 @@ export function Composer(props: ComposerProps) {
 
     if (!isThreadSending) {
       removeQueuedChatMessage(threadId, queuedItem.id);
-      void handleSend({ content: queuedItem.content, attachments: queuedItem.attachments }).then(
-        (sent) => {
-          if (!sent) {
-            unshiftQueuedChatMessage(threadId, queuedItem);
-          }
-        },
-      );
+      void handleSend({
+        content: queuedItem.content,
+        attachments: queuedItem.attachments,
+        localPathContexts: queuedItem.localPathContexts,
+      }).then((sent) => {
+        if (!sent) {
+          unshiftQueuedChatMessage(threadId, queuedItem);
+        }
+      });
       return;
     }
     // Ignore extra steer clicks while a steer-triggered stop is in flight.
@@ -3092,30 +3294,36 @@ export function Composer(props: ComposerProps) {
     // Missing/unreadable attachments are dropped one by one without blocking
     // the text draft or Skill chips from loading.
     const persisted = draftAttachmentsRef.current ?? [];
+    let cancelled = false;
     if (persisted.length === 0) {
       draftRestoreCompleteRef.current = true;
-      return;
+    } else {
+      void (async () => {
+        const { attachments: restored, unavailableNames } =
+          await restoreDraftAttachments(persisted);
+        if (cancelled) {
+          restored.forEach((pending) => {
+            if (pending.previewUrl) {
+              URL.revokeObjectURL(pending.previewUrl);
+            }
+          });
+          return;
+        }
+        if (restored.length > 0) {
+          setPendingAttachments((prev) => [...prev, ...restored]);
+        }
+        if (unavailableNames.length > 0) {
+          setAttachmentError(`文件不可用，请移除或重新添加：${unavailableNames.join(", ")}`);
+        }
+        draftRestoreCompleteRef.current = true;
+      })();
     }
 
-    let cancelled = false;
-    void (async () => {
-      const { attachments: restored, unavailableNames } = await restoreDraftAttachments(persisted);
-      if (cancelled) {
-        restored.forEach((pending) => {
-          if (pending.previewUrl) {
-            URL.revokeObjectURL(pending.previewUrl);
-          }
-        });
-        return;
-      }
-      if (restored.length > 0) {
-        setPendingAttachments((prev) => [...prev, ...restored]);
-      }
-      if (unavailableNames.length > 0) {
-        setAttachmentError(`文件不可用，请移除或重新添加：${unavailableNames.join(", ")}`);
-      }
-      draftRestoreCompleteRef.current = true;
-    })();
+    // Local Path Context restores straight from the draft (plain path data).
+    const persistedContexts = draftLocalPathContextsRef.current ?? [];
+    if (persistedContexts.length > 0) {
+      setLocalPathContexts((prev) => dedupeLocalPathContexts([...prev, ...persistedContexts]));
+    }
 
     return () => {
       cancelled = true;
@@ -3148,12 +3356,13 @@ export function Composer(props: ComposerProps) {
       ) {
         return;
       }
-      const { content, attachedSkills, pendingAttachments, composerState } =
+      const { content, attachedSkills, pendingAttachments, localPathContexts, composerState } =
         compositionBaselineInputRef.current;
       const draft = buildThreadDraftSnapshot({
         content,
         attachedSkills,
         pendingAttachments,
+        localPathContexts,
         composerState,
       });
       const existing = getThreadDraft(sourceThreadId);
@@ -3189,6 +3398,7 @@ export function Composer(props: ComposerProps) {
         content: input,
         attachedSkills,
         pendingAttachments,
+        localPathContexts,
         composerState: editorStateJson,
       });
       if (props.mode === "association-draft") {
@@ -3221,6 +3431,7 @@ export function Composer(props: ComposerProps) {
     input,
     attachedSkills,
     pendingAttachments,
+    localPathContexts,
     pendingDraftSkillNames,
     editorStateJson,
     props.mode,
@@ -3718,6 +3929,42 @@ export function Composer(props: ComposerProps) {
               : "border-border focus-within:border-border-strong"
           }`}
         >
+          {localPathContexts.length > 0 ? (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {localPathContexts.map((item) => (
+                <div
+                  key={`${item.kind}:${item.path}`}
+                  data-local-path-context-card
+                  title={item.path}
+                  className="group flex h-14 min-w-0 max-w-full basis-52 items-center rounded-lg border border-border-strong bg-bg/45"
+                >
+                  <button
+                    type="button"
+                    onClick={() => void handleRevealLocalPathContext(item.path, item.basename)}
+                    aria-label={`Reveal ${item.basename} in Finder`}
+                    className="flex h-full min-w-0 flex-1 items-center gap-2 px-2.5 text-left outline-none transition hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+                  >
+                    <FileText className="h-4 w-4 shrink-0 text-muted" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-app-12 leading-5 text-fg">
+                        {item.basename}
+                      </span>
+                      <span className="block text-app-11 leading-4 text-subtle">File</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveLocalPathContext(item.path, item.kind)}
+                    aria-label={`Remove ${item.basename}`}
+                    title={`Remove ${item.basename}`}
+                    className="mr-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted outline-none transition hover:bg-surface-hover hover:text-fg focus-visible:ring-2 focus-visible:ring-fg/25"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {pendingAttachments.length > 0 && (
             <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
               {pendingAttachments.map((attachment) => {
@@ -3934,6 +4181,7 @@ export function Composer(props: ComposerProps) {
                     content: snapshot.content,
                     attachedSkills: snapshot.skills,
                     pendingAttachments,
+                    localPathContexts,
                     composerState: snapshot.serializedState,
                   });
                   const localChanged = JSON.stringify(currentDraft) !== JSON.stringify(base);

@@ -21,6 +21,7 @@ import {
   type SubagentTaskPart,
 } from "../../../shared/threadContent";
 import type { AppThreadActionRecord } from "../../../shared/workspacePersistence";
+import type { LocalPathContextItem } from "../../../shared/localPathContext";
 import { isFileAttachment, isImageAttachment } from "../../../shared/attachment";
 import {
   FILE_ATTACHMENT_ICONS,
@@ -40,6 +41,7 @@ import { PlanReviewBlock } from "./PlanReviewBlock";
 import { QuestionBlock } from "./QuestionBlock";
 import { parseFileReferenceSegments } from "./fileReferences";
 import { formatSkillLabel } from "./skillLabel";
+import { useToast } from "../toast/ToastContext";
 
 export { parseFileReferenceSegments } from "./fileReferences";
 
@@ -331,10 +333,49 @@ export function UserMessageAttachmentList({
   );
 }
 
+export function UserMessageLocalPathContextList({ items }: { items: LocalPathContextItem[] }) {
+  const { showToast } = useToast();
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {items.map((item) => (
+        <button
+          key={`${item.kind}:${item.path}`}
+          type="button"
+          data-local-path-context-badge
+          title={item.path}
+          aria-label={`Reveal ${item.basename} in Finder`}
+          onClick={() => {
+            void window.carrent.shell
+              .revealPath(item.path)
+              .then((result) => {
+                if (!result.revealed) {
+                  showToast(
+                    `Could not reveal “${item.basename}”: the path no longer exists.`,
+                    "error",
+                  );
+                }
+              })
+              .catch(() => {
+                showToast(`Could not reveal “${item.basename}” in the file manager.`, "error");
+              });
+          }}
+          className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border border-user-bubble-fg/15 bg-user-bubble-fg/[0.04] px-2 text-app-11 text-user-bubble-fg outline-none transition hover:bg-user-bubble-fg/10 focus-visible:ring-2 focus-visible:ring-user-bubble-fg/30"
+        >
+          <FileText className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate font-medium">{item.basename}</span>
+          <span className="shrink-0 text-user-bubble-fg/60">File</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function UserMessage({
   content,
   timestamp,
   attachments,
+  localPathContexts,
   isEditing,
   onEdit,
   onCancelEdit,
@@ -343,6 +384,7 @@ function UserMessage({
   content: string;
   timestamp: string;
   attachments?: AttachmentMetadata[];
+  localPathContexts?: LocalPathContextItem[];
   isEditing?: boolean;
   onEdit?: () => void;
   onCancelEdit?: () => void;
@@ -425,6 +467,11 @@ function UserMessage({
               />
             </div>
           )}
+          {localPathContexts && localPathContexts.length > 0 ? (
+            <div className="mt-2">
+              <UserMessageLocalPathContextList items={localPathContexts} />
+            </div>
+          ) : null}
           <div className="mt-3 flex justify-end gap-2 border-t border-user-bubble-fg/10 pt-3">
             <button
               type="button"
@@ -463,8 +510,13 @@ function UserMessage({
       <div className="max-w-[80%]">
         <div className="rounded-2xl rounded-tr-sm bg-user-bubble px-4 py-3">
           {content && <UserMessageContent content={content} />}
-          {attachments && attachments.length > 0 && (
+          {localPathContexts && localPathContexts.length > 0 ? (
             <div className={content ? "mt-2" : ""}>
+              <UserMessageLocalPathContextList items={localPathContexts} />
+            </div>
+          ) : null}
+          {attachments && attachments.length > 0 && (
+            <div className={content || localPathContexts?.length ? "mt-2" : ""}>
               <UserMessageAttachmentList
                 attachments={attachments}
                 onImageClick={setLightboxIndex}
@@ -1215,6 +1267,7 @@ export function MessageTimeline({
                       content={msg.content}
                       timestamp={getMessageTimestamp(msg)}
                       attachments={msg.attachments}
+                      localPathContexts={msg.localPathContexts}
                       isEditing={editingMessageId === msg.id}
                       onEdit={
                         editDraft && onSubmitUserEdit

@@ -8,6 +8,10 @@ import {
 } from "./localPathContext";
 
 describe("normalizeLocalPathContextPath", () => {
+  it("preserves a backslash inside an absolute POSIX filename", () => {
+    expect(normalizeLocalPathContextPath(String.raw`/tmp/a\b.md`)).toBe(String.raw`/tmp/a\b.md`);
+  });
+
   it("keeps an absolute POSIX path and collapses redundant segments", () => {
     expect(normalizeLocalPathContextPath("/Users/onion/./work/../work/carrent")).toBe(
       "/Users/onion/work/carrent",
@@ -106,7 +110,11 @@ describe("normalizeLocalPathContexts (leniency)", () => {
       { path: `/repo/src/${longName}`, kind: "file" },
     ];
     expect(normalizeLocalPathContexts(items)).toEqual([
-      { path: "/Users/onion/My Notes (draft) [v2].md", basename: "My Notes (draft) [v2].md", kind: "file" },
+      {
+        path: "/Users/onion/My Notes (draft) [v2].md",
+        basename: "My Notes (draft) [v2].md",
+        kind: "file",
+      },
       { path: "/Users/onion/项目 文件", basename: "项目 文件", kind: "directory" },
       { path: "/tmp/a b/c[d].ts", basename: "c[d].ts", kind: "file" },
       { path: `/repo/src/${longName}`, basename: longName, kind: "file" },

@@ -36,6 +36,7 @@ import type {
 } from "../../shared/workspacePersistence";
 import type { GitWorkspaceDiffResult } from "../../../electron/git/gitIpc";
 import type { RunChecklistEntry, RunChecklistOutcome } from "../../shared/runChecklist";
+import type { LocalPathContextItem } from "../../shared/localPathContext";
 import { useAppState } from "./AppStateContext";
 
 type MessageRunStatus = NonNullable<Message["runStatus"]>;
@@ -68,7 +69,8 @@ export function applyRunChecklistUpdate(
         runtimeId: update.runtimeId,
         entries: update.entries,
         outcome: "running",
-        expanded: thread.runChecklist?.runId === update.runId ? thread.runChecklist.expanded : false,
+        expanded:
+          thread.runChecklist?.runId === update.runId ? thread.runChecklist.expanded : false,
       },
     };
   }
@@ -128,6 +130,7 @@ export type ThreadContentContextValue = {
     role: "user" | "assistant";
     content: string;
     attachments?: AttachmentMetadata[];
+    localPathContexts?: LocalPathContextItem[];
     runStatus?: MessageRunStatus;
   }) => Message;
   appendWorkspaceDiffMessage: (
@@ -882,6 +885,7 @@ export function ThreadContentProvider({ children }: { children: ReactNode }) {
     role: "user" | "assistant";
     content: string;
     attachments?: AttachmentMetadata[];
+    localPathContexts?: LocalPathContextItem[];
     runStatus?: MessageRunStatus;
   }): Message => {
     const now = Date.now();

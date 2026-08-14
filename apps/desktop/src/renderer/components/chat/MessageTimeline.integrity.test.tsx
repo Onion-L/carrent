@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { AttachmentMetadata } from "../../../shared/chat";
 import type { Message } from "../../../shared/threadContent";
 import { MessageTimeline, UserMessageAttachmentList } from "./MessageTimeline";
+import { ToastProvider } from "../toast/ToastContext";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -26,6 +27,7 @@ describe("historical attachment integrity", () => {
   it("marks each unreadable attachment unavailable without hiding the message content", async () => {
     Object.defineProperty(window, "carrent", {
       configurable: true,
+      writable: true,
       value: {
         attachments: {
           read: async () => {
@@ -61,6 +63,51 @@ describe("historical attachment integrity", () => {
     expect(container.textContent).toContain("missing.ts");
     expect(container.textContent?.match(/文件不可用/gu)).toHaveLength(2);
     expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+});
+
+describe("Local Path Context reveal", () => {
+  it("shows a clear error toast when the referenced file no longer exists", async () => {
+    Object.defineProperty(window, "carrent", {
+      configurable: true,
+      writable: true,
+      value: {
+        shell: {
+          revealPath: async () => ({ revealed: false, reason: "missing" }),
+        },
+      },
+    });
+    const message: Message = {
+      id: "user-local-path",
+      role: "user",
+      threadId: "thread-1",
+      type: "text",
+      timestamp: "09:00",
+      content: "Review this file",
+      localPathContexts: [
+        {
+          path: "/Users/test/missing.md",
+          basename: "missing.md",
+          kind: "file",
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <ToastProvider>
+          <MessageTimeline messages={[message]} threadActions={[]} />
+        </ToastProvider>,
+      );
+    });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("[data-local-path-context-badge]")!.click();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Could not reveal “missing.md”: the path no longer exists.",
+    );
   });
 });
 

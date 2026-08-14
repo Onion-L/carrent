@@ -1863,6 +1863,30 @@ class KimiAcpRun {
   private async resolveTextFileTarget(requestedPath: string, access: "read" | "write") {
     const resolvedPath = path.resolve(this.options.cwd, requestedPath);
 
+    // Preserve parent-traversal intent before path.resolve erases it. A request
+    // that starts a ".." step inside an explicitly referenced directory may
+    // not fall back to the broader Project Working Directory grant.
+    if (this.localPathContextDirectoryTargets) {
+      for (const match of requestedPath.matchAll(/(^|[\\/])\.\.(?=$|[\\/])/gu)) {
+        const traversalBase = path.resolve(
+          this.options.cwd,
+          requestedPath.slice(0, match.index) || ".",
+        );
+        const escapedTarget = this.localPathContextDirectoryTargets.find(
+          (target) =>
+            (isContainedRelativePath(path.relative(target.path, traversalBase)) ||
+              isContainedRelativePath(path.relative(target.realPath, traversalBase))) &&
+            !isContainedRelativePath(path.relative(target.path, resolvedPath)) &&
+            !isContainedRelativePath(path.relative(target.realPath, resolvedPath)),
+        );
+        if (escapedTarget) {
+          throw new Error(
+            `Refusing to ${access} outside Local Path Context folder: ${requestedPath}`,
+          );
+        }
+      }
+    }
+
     if (this.attachmentStorePath && this.attachmentStoreRealPath && this.attachmentTargets) {
       const candidateRealPath = await resolveCanonicalCandidatePath(resolvedPath);
       const isInAttachmentStore =

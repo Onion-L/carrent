@@ -3399,9 +3399,13 @@ describe("startKimiAcpChatRun", () => {
     const missingPath = path.join(directoryPath, "guides", "moved.md");
     const siblingPath = path.join(externalRoot, "sibling.txt");
     const escapingSymlinkPath = path.join(directoryPath, "outside.txt");
+    const projectDirectoryPath = path.join(projectDir, "Project Reference");
+    const projectSiblingPath = path.join(projectDir, "project-sibling.txt");
     await mkdir(path.dirname(nestedPath), { recursive: true });
+    await mkdir(projectDirectoryPath);
     await writeFile(nestedPath, "setup guide");
     await writeFile(siblingPath, "outside secret");
+    await writeFile(projectSiblingPath, "project sibling");
     await symlink(siblingPath, escapingSymlinkPath);
 
     let promptRequest: Record<string, unknown> | null = null;
@@ -3445,16 +3449,37 @@ describe("startKimiAcpChatRun", () => {
       if (message.id === "write-descendant") {
         fakeTransport.emitMessage({
           jsonrpc: "2.0",
-          id: "read-parent-sibling",
+          id: "read-sibling",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: siblingPath },
+        });
+        return;
+      }
+      if (message.id === "read-sibling") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-parent-traversal",
           method: "fs/read_text_file",
           params: {
             sessionId: "session-1",
-            path: path.join(directoryPath, "..", "sibling.txt"),
+            path: `${directoryPath}${path.sep}..${path.sep}sibling.txt`,
           },
         });
         return;
       }
-      if (message.id === "read-parent-sibling") {
+      if (message.id === "read-parent-traversal") {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-project-parent-traversal",
+          method: "fs/read_text_file",
+          params: {
+            sessionId: "session-1",
+            path: `${projectDirectoryPath}${path.sep}..${path.sep}project-sibling.txt`,
+          },
+        });
+        return;
+      }
+      if (message.id === "read-project-parent-traversal") {
         fakeTransport.emitMessage({
           jsonrpc: "2.0",
           id: "read-escaping-symlink",
@@ -3488,7 +3513,14 @@ describe("startKimiAcpChatRun", () => {
           projectId: "p1",
           workingDirectory: projectDir,
         },
-        localPathContexts: [{ path: directoryPath, basename: "Reference Docs", kind: "directory" }],
+        localPathContexts: [
+          { path: directoryPath, basename: "Reference Docs", kind: "directory" },
+          {
+            path: projectDirectoryPath,
+            basename: "Project Reference",
+            kind: "directory",
+          },
+        ],
       }),
       cwd: projectDir,
       emit: () => {},
@@ -3503,7 +3535,9 @@ describe("startKimiAcpChatRun", () => {
     for (const id of [
       "read-missing",
       "write-descendant",
-      "read-parent-sibling",
+      "read-sibling",
+      "read-parent-traversal",
+      "read-project-parent-traversal",
       "read-escaping-symlink",
     ]) {
       expect(transport.sent.find((message) => message.id === id)?.error).toMatchObject({

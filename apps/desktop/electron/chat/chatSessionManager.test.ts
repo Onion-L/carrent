@@ -3138,6 +3138,110 @@ describe("createChatSessionManager", () => {
     expect((transport.sent[1]!.params as { mcpServers?: unknown[] }).mcpServers).toEqual([]);
   });
 
+  it("shows plan usage with zero Context usage while the first Kimi Run is live", async () => {
+    let promptRequest: JsonMessage | null = null;
+    const { factory, transports } = createFakeKimiAcpTransportFactory((transport, message) => {
+      if (message.method === "initialize") {
+        queueMicrotask(() => respondAcp(transport, message, { protocolVersion: 1 }));
+        return;
+      }
+      if (message.method === "session/new") {
+        queueMicrotask(() => respondAcp(transport, message, { sessionId: "session-live" }));
+        return;
+      }
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+      }
+    });
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Kimi ACP should use the transport factory");
+      },
+      kimiAcpTransportFactory: factory,
+      providerSessions: {
+        get: () => undefined,
+        set: () => {},
+      },
+      kimiContextUsage: async () => null,
+      kimiPlanUsage: async () => ({
+        planUsage: {
+          weekly: { usedPercentage: 20, resetAt: "2026-08-19T05:57:48Z" },
+          fiveHour: { usedPercentage: 10, resetAt: "2026-08-14T10:57:48Z" },
+        },
+      }),
+    });
+
+    manager.start("run-live-status", makeRequest({ runtimeId: "kimi" }));
+    await waitForAsyncEvents();
+    expect(promptRequest).not.toBe(null);
+
+    expect(await manager.getStatus(makeRequest({ runtimeId: "kimi" }))).toEqual({
+      sessionId: "session-live",
+      used: 0,
+      threadActions: [],
+      supportedCommands: [],
+      planUsage: {
+        weekly: { usedPercentage: 20, resetAt: "2026-08-19T05:57:48Z" },
+        fiveHour: { usedPercentage: 10, resetAt: "2026-08-14T10:57:48Z" },
+      },
+    });
+    expect(transports).toHaveLength(1);
+
+    emitAcpUpdate(transports[0]!, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "Done" },
+    });
+    respondAcp(transports[0]!, promptRequest!, { stopReason: "end_turn" });
+    await waitForAsyncEvents();
+  });
+
+  it("shows plan usage with zero Context usage before a Runtime Session exists", async () => {
+    let contextReads = 0;
+    let planReads = 0;
+    let transportCalls = 0;
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Status must not spawn a Runtime Session.");
+      },
+      kimiAcpTransportFactory: () => {
+        transportCalls += 1;
+        throw new Error("Status must not launch ACP without a mapping.");
+      },
+      providerSessions: {
+        get: () => undefined,
+        set: () => {},
+      },
+      kimiContextUsage: async () => {
+        contextReads += 1;
+        return null;
+      },
+      kimiPlanUsage: async () => {
+        planReads += 1;
+        return {
+          planUsage: {
+            weekly: { usedPercentage: 20, resetAt: "2026-08-19T05:57:48Z" },
+            fiveHour: { usedPercentage: 10, resetAt: "2026-08-14T10:57:48Z" },
+          },
+        };
+      },
+    });
+
+    expect(await manager.getStatus(makeRequest({ runtimeId: "kimi" }))).toEqual({
+      used: 0,
+      threadActions: [],
+      supportedCommands: [],
+      planUsage: {
+        weekly: { usedPercentage: 20, resetAt: "2026-08-19T05:57:48Z" },
+        fiveHour: { usedPercentage: 10, resetAt: "2026-08-14T10:57:48Z" },
+      },
+    });
+    expect(contextReads).toBe(0);
+    expect(planReads).toBe(1);
+    expect(transportCalls).toBe(0);
+  });
+
   it("re-serves a recent status from the freshness cache without re-reading files", async () => {
     let contextReads = 0;
     let transportCalls = 0;

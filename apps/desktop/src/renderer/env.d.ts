@@ -14,6 +14,7 @@ import type {
   AttachmentMetadata,
   AttachmentIntegrityMetadata,
   KimiSessionStatus,
+  KimiTelemetryStatus,
   ChatRunAuthorityState,
   ChatRunAuthorityChange,
   ChatRunCommandResult,
@@ -106,7 +107,7 @@ declare global {
         deleteThreadTransaction?: (request: ThreadDeletionTransactionRequest) => Promise<void>;
         respondToPermission: (response: ChatPermissionResponse) => Promise<ChatRunCommandResult>;
         respondToQuestion: (response: ChatQuestionResponse) => Promise<ChatRunCommandResult>;
-        getKimiStatus: (request: ChatTurnRequest) => Promise<KimiSessionStatus | null>;
+        getKimiStatus: (request: ChatTurnRequest) => Promise<KimiTelemetryStatus | null>;
         getSessionStatus: (request: ChatTurnRequest) => Promise<KimiSessionStatus | null>;
         onEvent: (listener: (event: ChatRunEvent) => void) => VoidFunction;
         subscribe: () => Promise<ChatRunAuthorityState>;

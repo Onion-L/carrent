@@ -27,6 +27,7 @@ import type {
   DeleteThreadDataRequest,
   ThreadDeletionTransactionRequest,
   KimiSessionStatus,
+  KimiTelemetryStatus,
 } from "../shared/chat";
 import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
 import type { SkillRecord } from "../shared/skills";
@@ -80,9 +81,9 @@ type TestTerminalEvent = import("../shared/terminal").TerminalEvent extends infe
 let emitTerminalEvent: ((event: TestTerminalEvent) => void) | null = null;
 
 type KimiStatusSource =
-  | KimiSessionStatus
+  | KimiTelemetryStatus
   | null
-  | (() => KimiSessionStatus | null | Promise<KimiSessionStatus | null>);
+  | (() => KimiTelemetryStatus | null | Promise<KimiTelemetryStatus | null>);
 
 function NavigationProbe() {
   const location = useLocation();
@@ -2151,6 +2152,34 @@ describe("Association Thread Drafts", () => {
     expect(saved.at(-1)?.threads).toEqual([]);
   });
 
+  it("shows Context and plan usage in a Thread Draft", async () => {
+    await renderApp(state, "/workspace/workspace-1/project/project-1", [], false, [], false, {
+      kimiStatus: {
+        used: 0,
+        threadActions: [],
+        supportedCommands: [],
+        planUsage: {
+          weekly: { usedPercentage: 20 },
+          fiveHour: { usedPercentage: 10 },
+        },
+      },
+    });
+    await waitForProjectDraft();
+
+    const indicator = container!.querySelector<HTMLButtonElement>(
+      '[aria-label="Kimi context usage"]',
+    )!;
+    await act(async () => {
+      indicator.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    expect(container!.textContent).toContain("0 tokens used");
+    expect(container!.textContent).toContain("Weekly20%");
+    expect(container!.textContent).toContain("5h10%");
+    expect(container!.textContent).not.toContain("No context data yet");
+  });
+
   it("restores an Association Draft from the persisted App State", async () => {
     const restoredState: AppStateSnapshot = {
       ...state,
@@ -3345,6 +3374,46 @@ describe("Runtime Session Status", () => {
     await act(async () => {
       document.body.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
     });
+    expect(container!.textContent).not.toContain("No context data yet");
+  });
+
+  it("shows zero Context usage and plan usage before the first usage record", async () => {
+    await renderApp(
+      statusAppState,
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      {
+        kimiStatus: {
+          sessionId: "session-live",
+          used: 0,
+          threadActions: [],
+          supportedCommands: [],
+          planUsage: {
+            weekly: { usedPercentage: 20 },
+            fiveHour: { usedPercentage: 10 },
+          },
+        },
+      },
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const indicator = container!.querySelector<HTMLButtonElement>(
+      '[aria-label="Kimi context usage"]',
+    )!;
+    await act(async () => {
+      indicator.click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    expect(container!.textContent).toContain("0 tokens used");
+    expect(container!.textContent).toContain("Plan usage");
+    expect(container!.textContent).toContain("Weekly20%");
+    expect(container!.textContent).toContain("5h10%");
     expect(container!.textContent).not.toContain("No context data yet");
   });
 

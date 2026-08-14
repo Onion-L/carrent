@@ -3,6 +3,7 @@ import type {
   ChatTurnRequest,
   DeleteThreadDataRequest,
   KimiSessionStatus,
+  KimiTelemetryStatus,
   RuntimeSessionRecovery,
   ThreadDeletionTransactionRequest,
   ThreadDeletionScope,
@@ -281,9 +282,7 @@ export function parseChatTurnAttachments(value: unknown): AttachmentMetadata[] |
 // the Runtime never receives authorization for an untrusted path. This is the
 // trust boundary where Runtime authorization begins — downstream code trusts
 // that every item here is a normalized, classified descriptor.
-export function parseChatTurnLocalPathContexts(
-  value: unknown,
-): LocalPathContextItem[] | undefined {
+export function parseChatTurnLocalPathContexts(value: unknown): LocalPathContextItem[] | undefined {
   if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value)) {
     throw new Error("Invalid Local Path Context.");
@@ -467,7 +466,7 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
   ipcMainLike.handle("chat:kimi-status", async (_event, request) => {
     const req = request as ChatTurnRequest;
     assertSupportedRuntime(req);
-    return services.sessionManager.getStatus(req) as Promise<KimiSessionStatus | null>;
+    return services.sessionManager.getStatus(req) as Promise<KimiTelemetryStatus | null>;
   });
 
   ipcMainLike.handle("chat:session-status", async (_event, request) => {

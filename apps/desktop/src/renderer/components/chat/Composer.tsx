@@ -36,6 +36,7 @@ import { useNavigate } from "react-router-dom";
 import type {
   AttachmentMetadata,
   KimiSessionStatus,
+  KimiTelemetryStatus,
   PlanUsageErrorKind,
   RuntimeQuotaWindow,
 } from "../../../shared/chat";
@@ -159,7 +160,7 @@ function ContextUsageIndicator({
   loadState,
   onRefresh,
 }: {
-  status: KimiSessionStatus | null;
+  status: KimiTelemetryStatus | null;
   loadState: "loading" | "ready" | "error";
   onRefresh: () => void;
 }) {
@@ -304,10 +305,7 @@ function PlanUsageRow({ label, window }: { label: string; window: RuntimeQuotaWi
       </div>
       {used !== undefined ? (
         <div className="mt-1.5 h-1.5 rounded-full bg-surface-hover">
-          <div
-            className="h-1.5 rounded-full bg-skill-reference"
-            style={{ width: `${used}%` }}
-          />
+          <div className="h-1.5 rounded-full bg-skill-reference" style={{ width: `${used}%` }} />
         </div>
       ) : null}
     </div>
@@ -1341,7 +1339,7 @@ export function Composer(props: ComposerProps) {
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [threadActionError, setThreadActionError] = useState<string | null>(null);
   const [lightboxAttachmentIndex, setLightboxAttachmentIndex] = useState<number | null>(null);
-  const [kimiStatus, setKimiStatus] = useState<KimiSessionStatus | null>(null);
+  const [kimiStatus, setKimiStatus] = useState<KimiTelemetryStatus | null>(null);
   const [kimiStatusLoadState, setKimiStatusLoadState] = useState<"loading" | "ready" | "error">(
     "loading",
   );

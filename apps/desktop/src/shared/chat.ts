@@ -49,11 +49,7 @@ export type RuntimeQuotaWindow = {
   limit?: number;
 };
 
-export type PlanUsageErrorKind =
-  | "no-credentials"
-  | "unauthorized"
-  | "network"
-  | "bad-payload";
+export type PlanUsageErrorKind = "no-credentials" | "unauthorized" | "network" | "bad-payload";
 
 export type RuntimeSessionStatusData = {
   model?: string;
@@ -73,6 +69,10 @@ export type RuntimeSessionStatusData = {
 
 export type RuntimeSessionStatus = RuntimeSessionStatusData & {
   sessionId: string;
+};
+
+export type KimiTelemetryStatus = RuntimeSessionStatusData & {
+  sessionId?: string;
 };
 
 export type KimiSessionStatus = RuntimeSessionStatus;

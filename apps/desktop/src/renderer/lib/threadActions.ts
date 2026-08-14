@@ -1,5 +1,5 @@
 import type { AppThreadActionRecord, AppThreadRunRecord } from "../../shared/workspacePersistence";
-import type { KimiSessionStatus } from "../../shared/chat";
+import type { KimiTelemetryStatus } from "../../shared/chat";
 import type { Message } from "../../shared/threadContent";
 import type { RuntimeId } from "../../shared/runtimes";
 
@@ -68,7 +68,7 @@ export function hasCompleteExchangeAfterLatestCompact(input: {
 
 export function getCompactAvailability(input: {
   runtimeId: RuntimeId;
-  status: KimiSessionStatus | null;
+  status: KimiTelemetryStatus | null;
   running: boolean;
   compacting: boolean;
   statusLoading?: boolean;

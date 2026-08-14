@@ -104,6 +104,8 @@ export type KimiAcpRunHandle = {
   shutdown: () => Promise<void>;
   respondToPermission: (response: ChatPermissionResponse) => void;
   respondToQuestion: (response: ChatQuestionResponse) => void;
+  /** Runtime Session created or resumed for this Run, once available. */
+  getSessionId: () => string | null;
   /** Commands the CLI advertised for this Run's Runtime Session so far. */
   getAvailableCommands: () => ReadonlySet<string>;
 };
@@ -388,6 +390,7 @@ export function startKimiAcpChatRun(options: {
     shutdown: () => runner.shutdown(),
     respondToPermission: (response) => runner.respondToPermission(response),
     respondToQuestion: (response) => runner.respondToQuestion(response),
+    getSessionId: () => runner.getSessionId(),
     getAvailableCommands: () => runner.getAvailableCommands(),
   };
 }
@@ -1184,6 +1187,10 @@ class KimiAcpRun {
 
   getAvailableCommands(): ReadonlySet<string> {
     return this.availableCommands;
+  }
+
+  getSessionId(): string | null {
+    return this.sessionId;
   }
 
   stop() {

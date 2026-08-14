@@ -124,10 +124,16 @@ import type { BrowserThreadTarget } from "../src/shared/browser";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function resolveIconPath() {
-  const iconPath = [
-    join(app.getAppPath(), "build", "icon.png"),
-    join(__dirname, "../../build/icon.png"),
-  ].find((candidate) => existsSync(candidate));
+  // Dev runs get the alternate "test" icon so a local build is easy to tell
+  // apart from the packaged app in the Dock; packaged builds always use the
+  // production icon (the bundle itself carries icon.icns).
+  const iconNames = app.isPackaged ? ["icon.png"] : ["icon-dev.png", "icon.png"];
+  const iconPath = iconNames
+    .flatMap((name) => [
+      join(app.getAppPath(), "build", name),
+      join(__dirname, "../../build", name),
+    ])
+    .find((candidate) => existsSync(candidate));
 
   return iconPath;
 }

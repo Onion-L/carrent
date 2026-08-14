@@ -8,6 +8,7 @@ export function createLocalPathContextPreloadApi(
   resolvePaths: ResolvePaths,
 ) {
   return {
-    resolveFiles: (files: File[]) => resolvePaths(files.map((file) => getPathForFile(file))),
+    resolveDroppedItems: (files: File[]) =>
+      resolvePaths(files.map((file) => getPathForFile(file))),
   };
 }

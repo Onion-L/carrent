@@ -452,7 +452,7 @@ export function ConversationDropSurface({
     if (contextFiles.length === 0) return;
 
     try {
-      const result = await window.carrent.localPaths.resolveFiles(contextFiles);
+      const result = await window.carrent.localPaths.resolveDroppedItems(contextFiles);
       localPathContextAddRef.current?.(result.items);
       if (result.rejections.length > 0) {
         showToast(

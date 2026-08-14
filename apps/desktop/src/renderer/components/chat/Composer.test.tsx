@@ -424,7 +424,7 @@ function installCarrentBridge(
       openExternal: async () => {},
     },
     localPaths: {
-      resolveFiles: async (files) => ({
+      resolveDroppedItems: async (files) => ({
         items: files.map((file) => ({
           path: `/Users/test/${file.name}`,
           basename: file.name,
@@ -662,7 +662,7 @@ describe("Composer Local Path Context", () => {
 
   it("renders, sends, and reveals a dropped folder as folder context", async () => {
     await renderComposer({ withTimeline: true });
-    window.carrent.localPaths.resolveFiles = async () => ({
+    window.carrent.localPaths.resolveDroppedItems = async () => ({
       items: [
         {
           path: "/Users/test/reference docs",
@@ -887,7 +887,7 @@ describe("Composer Local Path Context", () => {
 
   it("shows one error toast and ignores a rejected local path", async () => {
     await renderComposer();
-    window.carrent.localPaths.resolveFiles = async () => ({
+    window.carrent.localPaths.resolveDroppedItems = async () => ({
       items: [],
       rejections: [{ index: 0, reason: "unavailable" }],
     });
@@ -1007,7 +1007,7 @@ describe("Composer Local Path Context", () => {
 
   it("accepts a mixed multi-item drop in Finder order and wraps the cards", async () => {
     await renderComposer();
-    window.carrent.localPaths.resolveFiles = async () => ({
+    window.carrent.localPaths.resolveDroppedItems = async () => ({
       items: [
         {
           path: "/Users/test/docs/references",
@@ -1050,7 +1050,7 @@ describe("Composer Local Path Context", () => {
 
   it("keeps valid items from a partially rejected drop and shows one error toast", async () => {
     await renderComposer();
-    window.carrent.localPaths.resolveFiles = async () => ({
+    window.carrent.localPaths.resolveDroppedItems = async () => ({
       items: [
         { path: "/Users/test/kept.md", basename: "kept.md", kind: "file" as const },
         { path: "/Users/test/assets", basename: "assets", kind: "directory" as const },
@@ -1115,7 +1115,7 @@ describe("Composer Local Path Context", () => {
 
   it("exposes keyboard-focusable cards and badges with accessible names", async () => {
     await renderComposer({ withTimeline: true });
-    window.carrent.localPaths.resolveFiles = async () => ({
+    window.carrent.localPaths.resolveDroppedItems = async () => ({
       items: [
         { path: "/Users/test/docs/handbook.md", basename: "handbook.md", kind: "file" as const },
       ],

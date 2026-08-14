@@ -26,7 +26,7 @@ export async function resolveDroppedLocalPaths(paths: unknown): Promise<LocalPat
       const stats = await stat(normalizedPath.path);
       const kind = stats.isFile() ? "file" : stats.isDirectory() ? "directory" : null;
       if (!kind) {
-        rejections.push({ index, reason: "not-file" });
+        rejections.push({ index, reason: "unsupported-kind" });
         continue;
       }
       items.push({ ...normalizedPath, kind });

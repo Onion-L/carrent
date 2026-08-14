@@ -22,7 +22,7 @@ describe("Local Path Context preload boundary", () => {
       },
     );
 
-    expect(await api.resolveFiles([file])).toEqual(expected);
+    expect(await api.resolveDroppedItems([file])).toEqual(expected);
     expect(receivedFiles).toEqual([file]);
     expect(receivedFiles[0]).toBe(file);
     expect(receivedPaths).toEqual([["/Users/test/notes.md"]]);

@@ -125,7 +125,7 @@ declare global {
         openExternal: (url: string) => Promise<void>;
       };
       localPaths: {
-        resolveFiles: (
+        resolveDroppedItems: (
           files: File[],
         ) => Promise<import("../shared/localPathContext").LocalPathResolutionResult>;
       };

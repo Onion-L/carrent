@@ -16,7 +16,7 @@ export type LocalPathContextItem = {
   kind: LocalPathContextKind;
 };
 
-export type LocalPathResolutionRejectionReason = "non-local" | "unavailable" | "not-file";
+export type LocalPathResolutionRejectionReason = "non-local" | "unavailable" | "unsupported-kind";
 
 export type LocalPathResolutionRejection = {
   index: number;

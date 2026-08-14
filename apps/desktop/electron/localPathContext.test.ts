@@ -6,14 +6,14 @@ import { join } from "node:path";
 import { resolveDroppedLocalPaths, revealLocalPath } from "./localPathContext";
 
 describe("Local Path Context privileged boundary", () => {
-  it("resolves existing files and directories and rejects missing and non-local entries", async () => {
+  it("resolves files and directories and rejects missing, non-local, and other entries", async () => {
     const root = await mkdtemp(join(tmpdir(), "carrent-local-path-"));
     const filePath = join(root, "My Notes (draft) [v2].md");
     await writeFile(filePath, "hello");
 
     try {
       expect(
-        await resolveDroppedLocalPaths([filePath, join(root, "missing.md"), root, ""]),
+        await resolveDroppedLocalPaths([filePath, join(root, "missing.md"), root, "", "/dev/null"]),
       ).toEqual({
         items: [
           {
@@ -30,6 +30,7 @@ describe("Local Path Context privileged boundary", () => {
         rejections: [
           { index: 1, reason: "unavailable" },
           { index: 3, reason: "non-local" },
+          { index: 4, reason: "unsupported-kind" },
         ],
       });
     } finally {

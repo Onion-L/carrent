@@ -366,12 +366,12 @@ export function UserMessageLocalPathContextList({ items }: { items: LocalPathCon
                 showToast(`Could not reveal “${item.basename}” in the file manager.`, "error");
               });
           }}
-          className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-md border border-border-strong bg-bg/45 px-2 text-app-11 text-fg outline-none transition hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-fg/25"
+          className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-md border border-border-strong bg-bg/45 px-2.5 text-app-12 text-fg outline-none transition hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-fg/25"
         >
           {item.kind === "directory" ? (
-            <Folder className="h-3.5 w-3.5 shrink-0 text-muted" />
+            <Folder className="h-4 w-4 shrink-0 text-muted" />
           ) : (
-            <FileText className="h-3.5 w-3.5 shrink-0 text-muted" />
+            <FileText className="h-4 w-4 shrink-0 text-muted" />
           )}
           <span className="truncate font-medium">{item.basename}</span>
           <span className="shrink-0 text-subtle">

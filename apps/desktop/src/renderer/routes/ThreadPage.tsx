@@ -3,6 +3,7 @@ import { Navigate, useParams } from "react-router-dom";
 import { PanelRight } from "lucide-react";
 
 import { ChatHeader } from "../components/chat/ChatHeader";
+import { DebugTimeline } from "../components/chat/DebugTimeline";
 import { OpenInMenu } from "../components/chat/OpenInMenu";
 import {
   Composer,
@@ -142,6 +143,7 @@ function ThreadPageContent() {
   const { state: diffState, openDiff, closeDiff } = useThreadContentDiff();
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [debugView, setDebugView] = useState(false);
   const browserTarget =
     appProject && routeData ? { projectId: appProject.id, threadId: routeData.thread.id } : null;
   const {
@@ -431,7 +433,31 @@ function ThreadPageContent() {
       ) : null}
       <div className="flex h-full min-w-0 flex-1 flex-col">
         <ConversationDropSurface>
-          <ChatHeader title={routeData?.thread.title ?? "Thread not found"} />
+          <ChatHeader
+            title={routeData?.thread.title ?? "Thread not found"}
+            leading={
+              import.meta.env.DEV ? (
+                <div className="no-drag flex items-center gap-0.5 rounded-md border border-border bg-surface p-0.5">
+                  {(["chat", "debug"] as const).map((view) => {
+                    const active = debugView === (view === "debug");
+                    return (
+                      <button
+                        key={view}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setDebugView(view === "debug")}
+                        className={`rounded px-2 py-0.5 text-app-12 transition ${
+                          active ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
+                        }`}
+                      >
+                        {view === "chat" ? "Chat" : "Debug"}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : undefined
+            }
+          />
           {routeData && isEmptyThread ? (
             <div
               data-empty-thread-layout
@@ -444,16 +470,20 @@ function ThreadPageContent() {
             </div>
           ) : (
             <>
-              <MessageTimeline
-                messages={routeData?.messages ?? []}
-                threadActions={threadActions.filter(
-                  (action) => action.threadId === routeData?.thread.id,
-                )}
-                threadId={routeData?.thread.id}
-                onSubmitUserEdit={hasLiveRun ? undefined : handleSubmitUserEdit}
-                onRemoveRuntimeSessionAndRetry={handleRuntimeSessionRetry}
-                onSelectSubagent={handleSelectSubagent}
-              />
+              {import.meta.env.DEV && debugView ? (
+                <DebugTimeline messages={routeData?.messages ?? []} />
+              ) : (
+                <MessageTimeline
+                  messages={routeData?.messages ?? []}
+                  threadActions={threadActions.filter(
+                    (action) => action.threadId === routeData?.thread.id,
+                  )}
+                  threadId={routeData?.thread.id}
+                  onSubmitUserEdit={hasLiveRun ? undefined : handleSubmitUserEdit}
+                  onRemoveRuntimeSessionAndRetry={handleRuntimeSessionRetry}
+                  onSelectSubagent={handleSelectSubagent}
+                />
+              )}
               {composer}
             </>
           )}

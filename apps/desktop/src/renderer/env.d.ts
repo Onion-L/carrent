@@ -60,6 +60,16 @@ import type {
 } from "../shared/appStateAuthority";
 
 declare global {
+  interface ImportMetaEnv {
+    readonly DEV: boolean;
+    readonly PROD: boolean;
+    readonly MODE: string;
+  }
+
+  interface ImportMeta {
+    readonly env: ImportMetaEnv;
+  }
+
   interface Window {
     browserMenuOverlay: BrowserMenuOverlayApi;
     carrent: {

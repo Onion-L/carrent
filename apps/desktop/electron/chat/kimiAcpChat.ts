@@ -458,6 +458,7 @@ export async function getKimiSessionCommands(options: {
         const update = readObject(payload?.update);
         if (readString(update?.sessionUpdate) !== "available_commands_update") return;
         receivedAvailableCommands = true;
+        availableCommands.clear();
         readAvailableCommandNames(update).forEach((name) => availableCommands.add(name));
         availableCommandsWaiter?.resolve();
         availableCommandsWaiter = null;
@@ -1948,6 +1949,7 @@ class KimiAcpRun {
     this.sessionUpdateSequence += 1;
 
     if (updateType === "available_commands_update") {
+      this.availableCommands.clear();
       readAvailableCommandNames(update).forEach((name) => this.availableCommands.add(name));
       return;
     }

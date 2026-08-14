@@ -74,7 +74,7 @@ async function writeSessionIndex(
               entry.sessionId,
             ),
           }),
-      workDir: "/Users/onion/workbench/carrent",
+      workDir: "/code/carrent",
     }),
   );
   await fs.writeFile(path.join(kimiDir, "session_index.jsonl"), `${lines.join("\n")}\n`, "utf8");
@@ -136,18 +136,12 @@ describe("scanWireLines", () => {
   });
 
   it("resets to zero after a context.clear", () => {
-    const scan = scanWireLines([
-      usageLine(fullUsage(10, 10, 10, 10)),
-      line("context.clear"),
-    ]);
+    const scan = scanWireLines([usageLine(fullUsage(10, 10, 10, 10)), line("context.clear")]);
     expect(scan?.used).toBe(0);
   });
 
   it("lets a later usage record win over an earlier clear", () => {
-    const scan = scanWireLines([
-      line("context.clear"),
-      usageLine(fullUsage(2, 2, 2, 2)),
-    ]);
+    const scan = scanWireLines([line("context.clear"), usageLine(fullUsage(2, 2, 2, 2))]);
     expect(scan?.used).toBe(8);
   });
 
@@ -207,9 +201,7 @@ describe("getKimiContextUsage", () => {
   });
 
   it("drops a truncated final line written mid-flush", async () => {
-    const filePath = await writeWire("session-truncated", [
-      usageLine(fullUsage(5, 5, 5, 5)),
-    ]);
+    const filePath = await writeWire("session-truncated", [usageLine(fullUsage(5, 5, 5, 5))]);
     await fs.appendFile(filePath, '{"type":"usage.record","usage":{"inputOther":999');
 
     const usage = await getKimiContextUsage({ sessionId: "session-truncated", homeDir });
@@ -219,21 +211,37 @@ describe("getKimiContextUsage", () => {
   it("streams the whole file when the tail window holds no usage record", async () => {
     // Pad the file past the tail window with non-usage records, keeping the
     // only usage record at the very top of the file.
-    const padding = Array.from(
-      { length: 4_000 },
-      (_, index) =>
-        line("context.append_loop_event", {
-          event: { type: "step.begin", uuid: `step-${index}`, turnId: "0", step: index },
-          time: 1786640648700 + index,
-        }),
+    const padding = Array.from({ length: 4_000 }, (_, index) =>
+      line("context.append_loop_event", {
+        event: { type: "step.begin", uuid: `step-${index}`, turnId: "0", step: index },
+        time: 1786640648700 + index,
+      }),
     );
-    await writeWire("session-padded", [
-      usageLine(fullUsage(7, 7, 7, 7)),
-      ...padding,
-    ]);
+    await writeWire("session-padded", [usageLine(fullUsage(7, 7, 7, 7)), ...padding]);
 
     const usage = await getKimiContextUsage({ sessionId: "session-padded", homeDir });
     expect(usage).toEqual({ used: 28 });
+  });
+
+  it("streams the whole file when the tail has usage but not the latest model request", async () => {
+    const padding = Array.from({ length: 4_000 }, (_, index) =>
+      line("context.append_loop_event", {
+        event: { type: "step.begin", uuid: `step-${index}`, turnId: "0", step: index },
+        time: 1786640648700 + index,
+      }),
+    );
+    await writeWire("session-model-before-tail", [
+      llmRequestLine("k3", "kimi-code/k3"),
+      ...padding,
+      usageLine(fullUsage(7, 7, 7, 7)),
+    ]);
+
+    const usage = await getKimiContextUsage({
+      sessionId: "session-model-before-tail",
+      homeDir,
+      fetchImpl: fakeCatalogFetch(1_048_576),
+    });
+    expect(usage).toEqual({ used: 28, total: 1_048_576, model: "k3" });
   });
 
   it("resolves total from config.toml before the catalog and builtin map", async () => {
@@ -286,19 +294,19 @@ describe("getKimiContextUsage", () => {
     expect(usage).toEqual({ used: 4, total: 1048576, model: "k3" });
   });
 
-  it("falls back to the builtin map when the catalog cannot resolve the alias", async () => {
-    await writeSessionIndex([{ sessionId: "session-builtin" }]);
-    await writeWire("session-builtin", [
+  it("omits total when the catalog cannot resolve a known alias", async () => {
+    await writeSessionIndex([{ sessionId: "session-unresolved" }]);
+    await writeWire("session-unresolved", [
       llmRequestLine("k3-256k", "kimi-code/k3-256k"),
       usageLine(fullUsage(1, 1, 1, 1)),
     ]);
 
     const usage = await getKimiContextUsage({
-      sessionId: "session-builtin",
+      sessionId: "session-unresolved",
       homeDir,
       fetchImpl: async () => new Response("{}", { status: 200 }),
     });
-    expect(usage).toEqual({ used: 4, total: 262144, model: "k3-256k" });
+    expect(usage).toEqual({ used: 4, model: "k3-256k" });
   });
 
   it("omits total for an unknown alias", async () => {
@@ -308,12 +316,17 @@ describe("getKimiContextUsage", () => {
       usageLine(fullUsage(1, 1, 1, 1)),
     ]);
 
+    let catalogCalls = 0;
     const usage = await getKimiContextUsage({
       sessionId: "session-unknown",
       homeDir,
-      fetchImpl: async () => new Response("{}", { status: 200 }),
+      fetchImpl: async () => {
+        catalogCalls += 1;
+        return new Response("{}", { status: 200 });
+      },
     });
     expect(usage).toEqual({ used: 4, model: "mystery-model" });
+    expect(catalogCalls).toBe(0);
   });
 });
 

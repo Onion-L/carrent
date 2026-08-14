@@ -12,15 +12,17 @@ const MODELS_CATALOG_URL = "https://models.dev/api.json";
 const MODELS_CATALOG_TIMEOUT_MS = 3_000;
 // The models.dev catalog keys Kimi models under this provider id, while the
 // wire log's model alias is prefixed `kimi-code/`.
-const CATALOG_PROVIDER_ID = "kimi-for-coding";
-const MODEL_ALIAS_PREFIX = "kimi-code/";
-// Fallback context limits for known Kimi models, used when neither the local
-// config.toml nor the models.dev catalog resolves the alias.
-const BUILTIN_MODEL_CONTEXT_LIMITS: Record<string, number> = {
-  "kimi-code/kimi-for-coding": 262_144,
-  "kimi-code/kimi-for-coding-highspeed": 262_144,
-  "kimi-code/k3": 1_048_576,
-  "kimi-code/k3-256k": 262_144,
+const CATALOG_MODEL_LOOKUPS: Record<string, { providerId: string; modelId: string }> = {
+  "kimi-code/kimi-for-coding": {
+    providerId: "kimi-for-coding",
+    modelId: "kimi-for-coding",
+  },
+  "kimi-code/kimi-for-coding-highspeed": {
+    providerId: "kimi-for-coding",
+    modelId: "kimi-for-coding-highspeed",
+  },
+  "kimi-code/k3": { providerId: "kimi-for-coding", modelId: "k3" },
+  "kimi-code/k3-256k": { providerId: "kimi-for-coding", modelId: "k3-256k" },
 };
 
 export type KimiContextUsage = {
@@ -232,10 +234,12 @@ async function scanWireFile(wirePath: string): Promise<WireUsageScan | null> {
     const windowSize = Math.min(stat.size, TAIL_WINDOW_BYTES);
     const buffer = Buffer.alloc(windowSize);
     await handle.read(buffer, 0, windowSize, stat.size - windowSize);
-    const scan = scanWireLines(splitTailLines(buffer.toString("utf8"), windowSize < stat.size));
-    if (scan) return scan;
-    if (windowSize >= stat.size) return null;
-    // The tail window held nothing usable; stream the whole file once.
+    const tailLines = splitTailLines(buffer.toString("utf8"), windowSize < stat.size);
+    const scan = scanWireLines(tailLines);
+    if (windowSize >= stat.size) return scan;
+    const tailHasModelRequest = tailLines.some((line) => line.includes('"type":"llm.request"'));
+    if (scan?.modelAlias || tailHasModelRequest) return scan;
+    // The tail lacks either usage or the model request needed to resolve total.
     return await streamScanWireFile(wirePath);
   } finally {
     await handle.close();
@@ -287,7 +291,7 @@ async function resolveContextTotal(
   const fromCatalog = await fetchCatalogContextLimit(modelAlias, fetchImpl);
   if (fromCatalog !== undefined) return fromCatalog;
 
-  return BUILTIN_MODEL_CONTEXT_LIMITS[modelAlias];
+  return undefined;
 }
 
 async function readConfigContextLimit(kimiDir: string, alias: string): Promise<number | undefined> {
@@ -301,10 +305,7 @@ async function readConfigContextLimit(kimiDir: string, alias: string): Promise<n
 }
 
 /** Matches `[models."<alias>"]` sections and their `max_context_size` key. */
-export function parseContextLimitFromToml(
-  content: string,
-  alias: string,
-): number | undefined {
+export function parseContextLimitFromToml(content: string, alias: string): number | undefined {
   const quotedHeader = `[models."${alias}"]`;
   const plainHeader = `[models.${alias}]`;
   let inSection = false;
@@ -332,6 +333,9 @@ async function fetchCatalogContextLimit(
   modelAlias: string,
   fetchImpl?: typeof fetch,
 ): Promise<number | undefined> {
+  const lookup = CATALOG_MODEL_LOOKUPS[modelAlias];
+  if (!lookup) return undefined;
+
   const fetchFn = fetchImpl ?? fetch;
   if (!fetchFn) return undefined;
 
@@ -353,7 +357,7 @@ async function fetchCatalogContextLimit(
 
   let provider: unknown;
   try {
-    provider = (await catalogCache)[CATALOG_PROVIDER_ID];
+    provider = (await catalogCache)[lookup.providerId];
   } catch {
     return undefined;
   }
@@ -362,10 +366,7 @@ async function fetchCatalogContextLimit(
   const models = (provider as Record<string, unknown>).models;
   if (!models || typeof models !== "object") return undefined;
 
-  const modelId = modelAlias.startsWith(MODEL_ALIAS_PREFIX)
-    ? modelAlias.slice(MODEL_ALIAS_PREFIX.length)
-    : modelAlias;
-  const model = (models as Record<string, unknown>)[modelId];
+  const model = (models as Record<string, unknown>)[lookup.modelId];
   if (!model || typeof model !== "object") return undefined;
 
   const limit = (model as Record<string, unknown>).limit;

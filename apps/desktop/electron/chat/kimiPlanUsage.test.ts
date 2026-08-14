@@ -133,6 +133,27 @@ describe("getKimiPlanUsage", () => {
     expect(result).toEqual({ planUsage: null, error: "no-credentials" });
   });
 
+  it("refreshes credentials when expires_at is missing", async () => {
+    const credentials = validCredentials(0);
+    delete credentials.expires_at;
+    await writeCredentials(credentials);
+
+    const result = await getKimiPlanUsage({
+      homeDir,
+      now: () => NOW_MS,
+      usagesUrl: USAGES_URL,
+      tokenUrl: TOKEN_URL,
+      fetchImpl: makeFetch((url) =>
+        url === TOKEN_URL
+          ? jsonResponse({ access_token: "rotated-access-token", expires_in: 900 })
+          : jsonResponse(LIVE_PAYLOAD),
+      ),
+    });
+
+    expect(result.planUsage?.weekly?.usedPercentage).toBe(80);
+    expect(fetchLog.map((entry) => entry.url)).toEqual([TOKEN_URL, USAGES_URL]);
+  });
+
   it("returns unauthorized when the usages endpoint rejects the token", async () => {
     await writeCredentials(validCredentials((NOW_MS + 120_000) / 1000));
 
@@ -169,7 +190,9 @@ describe("getKimiPlanUsage", () => {
       now: () => NOW_MS,
       usagesUrl: USAGES_URL,
       tokenUrl: TOKEN_URL,
-      fetchImpl: makeFetch((url) => (url === USAGES_URL ? jsonResponse({}, 503) : jsonResponse({}))),
+      fetchImpl: makeFetch((url) =>
+        url === USAGES_URL ? jsonResponse({}, 503) : jsonResponse({}),
+      ),
     });
     expect(serverError).toEqual({ planUsage: null, error: "network" });
 
@@ -188,9 +211,7 @@ describe("getKimiPlanUsage", () => {
   });
 
   it("refreshes an expired token, writes the merged credentials, and uses the new token", async () => {
-    const credentialsPath = await writeCredentials(
-      validCredentials((NOW_MS - 60_000) / 1000),
-    );
+    const credentialsPath = await writeCredentials(validCredentials((NOW_MS - 60_000) / 1000));
 
     const result = await getKimiPlanUsage({
       homeDir,
@@ -212,7 +233,9 @@ describe("getKimiPlanUsage", () => {
             token_type: "Bearer",
           });
         }
-        const auth = String(init?.headers ? (init.headers as Record<string, string>).authorization : "");
+        const auth = String(
+          init?.headers ? (init.headers as Record<string, string>).authorization : "",
+        );
         expect(auth).toBe("Bearer rotated-access-token");
         return jsonResponse(LIVE_PAYLOAD);
       }),
@@ -221,7 +244,10 @@ describe("getKimiPlanUsage", () => {
     expect(result.planUsage?.weekly?.usedPercentage).toBe(80);
     expect(fetchLog.map((entry) => entry.url)).toEqual([TOKEN_URL, USAGES_URL]);
 
-    const written = JSON.parse(await fs.readFile(credentialsPath, "utf8")) as Record<string, unknown>;
+    const written = JSON.parse(await fs.readFile(credentialsPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
     expect(written.access_token).toBe("rotated-access-token");
     expect(written.refresh_token).toBe("rotated-refresh-token");
     expect(written.expires_at).toBe(NOW_MS / 1000 + 900);
@@ -257,6 +283,42 @@ describe("getKimiPlanUsage", () => {
 
     expect(result).toEqual({ planUsage: null, error: "unauthorized" });
     expect(tokenCalls).toBe(1);
+    expect(fetchLog.map((entry) => entry.url)).toEqual([TOKEN_URL]);
+  });
+
+  it("classifies refresh server failures as network errors", async () => {
+    await writeCredentials(validCredentials((NOW_MS - 60_000) / 1000));
+
+    const result = await getKimiPlanUsage({
+      homeDir,
+      now: () => NOW_MS,
+      usagesUrl: USAGES_URL,
+      tokenUrl: TOKEN_URL,
+      fetchImpl: makeFetch((url) =>
+        url === TOKEN_URL
+          ? jsonResponse({ error: "unavailable" }, 503)
+          : jsonResponse(LIVE_PAYLOAD),
+      ),
+    });
+
+    expect(result).toEqual({ planUsage: null, error: "network" });
+    expect(fetchLog.map((entry) => entry.url)).toEqual([TOKEN_URL]);
+  });
+
+  it("classifies malformed refresh responses as bad payloads", async () => {
+    await writeCredentials(validCredentials((NOW_MS - 60_000) / 1000));
+
+    const result = await getKimiPlanUsage({
+      homeDir,
+      now: () => NOW_MS,
+      usagesUrl: USAGES_URL,
+      tokenUrl: TOKEN_URL,
+      fetchImpl: makeFetch((url) =>
+        url === TOKEN_URL ? new Response("{not json", { status: 200 }) : jsonResponse(LIVE_PAYLOAD),
+      ),
+    });
+
+    expect(result).toEqual({ planUsage: null, error: "bad-payload" });
     expect(fetchLog.map((entry) => entry.url)).toEqual([TOKEN_URL]);
   });
 

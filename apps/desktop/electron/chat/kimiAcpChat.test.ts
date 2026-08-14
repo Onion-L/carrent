@@ -428,6 +428,49 @@ describe("buildKimiPromptParts", () => {
 });
 
 describe("startKimiAcpChatRun", () => {
+  it("replaces the advertised command snapshot when Kimi withdraws a command", async () => {
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        for (const availableCommands of [
+          [{ name: "compact" }, { name: "status" }],
+          [{ name: "status" }],
+        ]) {
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-commands",
+              update: {
+                sessionUpdate: "available_commands_update",
+                availableCommands,
+              },
+            },
+          });
+        }
+        respondAcp(fakeTransport, message, { sessionId: "session-commands" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      }
+    });
+
+    const handle = startKimiAcpChatRun({
+      runId: "run-command-snapshot",
+      request: makeRequest(),
+      cwd: "/test/project",
+      emit: () => {},
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+
+    expect([...handle.getAvailableCommands()]).toEqual(["status"]);
+  });
+
   it("emits ordered Kimi thinking phases and message segments", async () => {
     const emitted: ChatRunEvent[] = [];
     const transport = new FakeKimiAcpTransport((fakeTransport, message) => {

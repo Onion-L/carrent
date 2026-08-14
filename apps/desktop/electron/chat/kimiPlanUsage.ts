@@ -75,7 +75,10 @@ export async function getKimiPlanUsage(deps: KimiPlanUsageDeps = {}): Promise<Ki
     return { planUsage: null, error: "no-credentials" };
   }
 
-  if (credentials.expiresAt !== null && credentials.expiresAt <= now() / 1000 + TOKEN_EXPIRY_MARGIN_SECONDS) {
+  if (
+    credentials.expiresAt === null ||
+    credentials.expiresAt <= now() / 1000 + TOKEN_EXPIRY_MARGIN_SECONDS
+  ) {
     const refreshed = await ensureFreshCredentials(kimiDir, credentials, deps, now);
     if ("error" in refreshed) {
       return { planUsage: null, error: refreshed.error };
@@ -189,20 +192,22 @@ async function ensureFreshCredentials(
     // Includes `invalid_grant`; never auto-retry — replaying a rotated
     // refresh token risks tripping reuse detection and killing the login.
     if (!response.ok) {
-      return { error: "unauthorized" };
+      return {
+        error: response.status >= 400 && response.status < 500 ? "unauthorized" : "network",
+      };
     }
 
     let payload: unknown;
     try {
       payload = await response.json();
     } catch {
-      return { error: "unauthorized" };
+      return { error: "bad-payload" };
     }
-    if (!payload || typeof payload !== "object") return { error: "unauthorized" };
+    if (!payload || typeof payload !== "object") return { error: "bad-payload" };
 
     const granted = payload as Record<string, unknown>;
     if (typeof granted.access_token !== "string" || granted.access_token === "") {
-      return { error: "unauthorized" };
+      return { error: "bad-payload" };
     }
 
     const merged: Record<string, unknown> = { ...current.raw, ...granted };
@@ -343,9 +348,7 @@ function mapUsagesPayload(payload: unknown): KimiPlanUsageWindows | null {
         })
     : undefined;
 
-  const fiveHourWindow = fiveHour
-    ? mapQuotaWindow(fiveHour.detail ?? undefined)
-    : undefined;
+  const fiveHourWindow = fiveHour ? mapQuotaWindow(fiveHour.detail ?? undefined) : undefined;
 
   if (!weekly && !fiveHourWindow) return null;
   return {
@@ -367,7 +370,12 @@ function mapQuotaWindow(detail: unknown): RuntimeQuotaWindow | undefined {
     usedPercentage = (used / limit) * 100;
   }
 
-  if (usedPercentage === undefined && resetAt === undefined && used === undefined && limit === undefined) {
+  if (
+    usedPercentage === undefined &&
+    resetAt === undefined &&
+    used === undefined &&
+    limit === undefined
+  ) {
     return undefined;
   }
   return {

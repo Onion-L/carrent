@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  dedupeLocalPathContexts,
   localPathBasename,
   normalizeLocalPathContextItem,
   normalizeLocalPathContextPath,
@@ -127,5 +128,29 @@ describe("normalizeLocalPathContexts (leniency)", () => {
       kind: "file" as const,
     }));
     expect(normalizeLocalPathContexts(items)).toHaveLength(60);
+  });
+});
+
+describe("dedupeLocalPathContexts", () => {
+  it("keeps the first occurrence and preserves order", () => {
+    expect(
+      dedupeLocalPathContexts([
+        { path: "/a/notes.md", basename: "notes.md", kind: "file" },
+        { path: "/b/assets", basename: "assets", kind: "directory" },
+        { path: "/a/notes.md", basename: "notes.md", kind: "file" },
+      ]),
+    ).toEqual([
+      { path: "/a/notes.md", basename: "notes.md", kind: "file" },
+      { path: "/b/assets", basename: "assets", kind: "directory" },
+    ]);
+  });
+
+  it("treats the same path with a different kind as a distinct item", () => {
+    expect(
+      dedupeLocalPathContexts([
+        { path: "/a/thing", basename: "thing", kind: "file" },
+        { path: "/a/thing", basename: "thing", kind: "directory" },
+      ]),
+    ).toHaveLength(2);
   });
 });

@@ -986,6 +986,160 @@ describe("Composer Local Path Context", () => {
       });
     });
   });
+
+  it("accepts a mixed multi-item drop in Finder order and wraps the cards", async () => {
+    await renderComposer();
+    window.carrent.localPaths.resolveFiles = async () => ({
+      items: [
+        {
+          path: "/Users/test/docs/references",
+          basename: "references",
+          kind: "directory" as const,
+        },
+        { path: "/Users/test/a/report.md", basename: "report.md", kind: "file" as const },
+        { path: "/Users/test/b/report.md", basename: "report.md", kind: "file" as const },
+        {
+          path: "/Users/test/资料/设计 稿 (终版) [v3].png",
+          basename: "设计 稿 (终版) [v3].png",
+          kind: "file" as const,
+        },
+      ],
+      rejections: [],
+    });
+
+    await dispatchFileDrag("drop", [
+      new File([], "references"),
+      new File([], "report.md"),
+      new File([], "report.md"),
+      new File([], "设计 稿 (终版) [v3].png"),
+    ]);
+
+    const cards = [...container!.querySelectorAll<HTMLElement>("[data-local-path-context-card]")];
+    expect(cards.map((card) => card.getAttribute("title"))).toEqual([
+      "/Users/test/docs/references",
+      "/Users/test/a/report.md",
+      "/Users/test/b/report.md",
+      "/Users/test/资料/设计 稿 (终版) [v3].png",
+    ]);
+    // Duplicate basenames stay distinguishable through the full-path tooltip.
+    expect(cards[1]!.textContent).toContain("report.md");
+    expect(cards[2]!.textContent).toContain("report.md");
+    expect(cards[1]!.getAttribute("title")).not.toBe(cards[2]!.getAttribute("title"));
+    // The row wraps instead of overlapping or resizing the conversation layout.
+    expect(cards[0]!.parentElement!.className).toContain("flex-wrap");
+    expect(cards[0]!.className).toContain("max-w-full");
+  });
+
+  it("keeps valid items from a partially rejected drop and shows one error toast", async () => {
+    await renderComposer();
+    window.carrent.localPaths.resolveFiles = async () => ({
+      items: [
+        { path: "/Users/test/kept.md", basename: "kept.md", kind: "file" as const },
+        { path: "/Users/test/assets", basename: "assets", kind: "directory" as const },
+      ],
+      rejections: [{ index: 1, reason: "unavailable" as const }],
+    });
+
+    await dispatchFileDrag("drop", [
+      new File([], "kept.md"),
+      new File([], "missing.md"),
+      new File([], "assets"),
+    ]);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    });
+
+    const cards = [...container!.querySelectorAll<HTMLElement>("[data-local-path-context-card]")];
+    expect(cards.map((card) => card.getAttribute("title"))).toEqual([
+      "/Users/test/kept.md",
+      "/Users/test/assets",
+    ]);
+    const errorToasts = [...container!.querySelectorAll('[role="alert"]')].filter((alert) =>
+      alert.textContent?.includes("One dropped item is not an available local file or folder."),
+    );
+    expect(errorToasts).toHaveLength(1);
+  });
+
+  it("ignores nested dragleave events from non-filesystem drags", async () => {
+    await renderComposer();
+    const file = new File([], "notes.md");
+
+    await dispatchFileDrag("dragenter", [file]);
+    await dispatchFileDrag("dragleave", [file], ["Files", "text/uri-list", "text/html"]);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
+
+    await dispatchFileDrag("dragleave", [file]);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
+  });
+
+  it("clears a stuck overlay when the drag ends without a final dragleave", async () => {
+    await renderComposer();
+    const file = new File([], "notes.md");
+
+    await dispatchFileDrag("dragenter", [file]);
+    await dispatchFileDrag("dragenter", [file]);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(new Event("blur"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
+
+    await dispatchFileDrag("dragenter", [file]);
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).not.toBeNull();
+    await act(async () => {
+      window.dispatchEvent(new Event("drop", { cancelable: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container!.querySelector("[data-local-path-drop-overlay]")).toBeNull();
+  });
+
+  it("exposes keyboard-focusable cards and badges with accessible names", async () => {
+    await renderComposer({ withTimeline: true });
+    window.carrent.localPaths.resolveFiles = async () => ({
+      items: [
+        { path: "/Users/test/docs/handbook.md", basename: "handbook.md", kind: "file" as const },
+      ],
+      rejections: [],
+    });
+
+    await dispatchFileDrag("drop", [new File([], "handbook.md")]);
+
+    const card = container!.querySelector<HTMLElement>("[data-local-path-context-card]")!;
+    expect(card.getAttribute("title")).toBe("/Users/test/docs/handbook.md");
+    // Kind is conveyed as text, not color alone.
+    expect(card.textContent).toContain("File");
+
+    const revealButton = card.querySelector<HTMLButtonElement>(
+      '[aria-label="Reveal handbook.md in Finder"]',
+    )!;
+    const removeButton = card.querySelector<HTMLButtonElement>(
+      '[aria-label="Remove handbook.md"]',
+    )!;
+    expect(revealButton.tabIndex).not.toBe(-1);
+    expect(removeButton.tabIndex).not.toBe(-1);
+    // Native buttons: Enter/Space activates them for keyboard users.
+    expect(revealButton.type).toBe("button");
+    expect(removeButton.type).toBe("button");
+
+    await act(async () => {
+      revealButton.focus();
+    });
+    expect(document.activeElement).toBe(revealButton);
+    await act(async () => {
+      removeButton.focus();
+    });
+    expect(document.activeElement).toBe(removeButton);
+
+    await setComposerText("Check this");
+    await submitComposer();
+
+    const badge = container!.querySelector<HTMLElement>("[data-local-path-context-badge]")!;
+    expect(badge.tagName).toBe("BUTTON");
+    expect(badge.getAttribute("aria-label")).toBe("Reveal handbook.md in Finder");
+    expect(badge.getAttribute("title")).toBe("/Users/test/docs/handbook.md");
+  });
 });
 
 describe("Composer inline Skills", () => {

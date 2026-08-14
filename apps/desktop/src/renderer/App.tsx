@@ -17,6 +17,7 @@ import { AppStateRecoveryPage } from "./routes/AppStateRecoveryPage";
 import { useToast } from "./components/toast/ToastContext";
 import { getWorkspaceRestorePath, resolveThreeLevelRoute } from "./lib/navigation";
 import { useChatRun } from "./hooks/useChatRun";
+import { useFileDropNavigationGuard } from "./hooks/useFileDropNavigationGuard";
 
 const LEGACY_ROUTE_PATTERN = /^\/(?:project\/[^/]+|thread\/[^/]+\/[^/]+|chat\/[^/]+)$/u;
 
@@ -274,6 +275,7 @@ function AppContent() {
 }
 
 export default function App() {
+  useFileDropNavigationGuard();
   return (
     <AppStateProvider>
       <AppContent />

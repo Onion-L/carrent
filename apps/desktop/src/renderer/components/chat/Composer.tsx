@@ -58,6 +58,7 @@ import {
   validateAttachmentSelection,
   type PendingAttachment,
 } from "../../lib/attachments";
+import { isFilesystemFileDrag } from "../../lib/fileDrag";
 import {
   dedupeLocalPathContexts,
   type LocalPathContextItem,
@@ -379,13 +380,6 @@ export type LocalPathContextAddRef = {
   current: ((items: LocalPathContextItem[]) => void) | null;
 };
 
-function isFilesystemFileDrag(dataTransfer: DataTransfer): boolean {
-  const types = Array.from(dataTransfer.types);
-  return (
-    types.includes("Files") && !types.includes("text/uri-list") && !types.includes("text/html")
-  );
-}
-
 export function ConversationDropSurface({
   children,
   localPathContextAddRef,
@@ -410,11 +404,26 @@ export function ConversationDropSurface({
   };
 
   const handleDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!isFilesystemFileDrag(event.dataTransfer)) return;
     if (dragDepthRef.current === 0) return;
-    if (isFilesystemFileDrag(event.dataTransfer)) event.preventDefault();
+    event.preventDefault();
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
     if (dragDepthRef.current === 0) setDropActive(false);
   };
+
+  // Safety net: a drag that ends anywhere in the window (or loses window focus
+  // mid-drag) without a matching dragleave must not leave the overlay stuck.
+  useEffect(() => {
+    const reset = () => resetDropState();
+    window.addEventListener("dragend", reset);
+    window.addEventListener("drop", reset);
+    window.addEventListener("blur", reset);
+    return () => {
+      window.removeEventListener("dragend", reset);
+      window.removeEventListener("drop", reset);
+      window.removeEventListener("blur", reset);
+    };
+  }, [resetDropState]);
 
   const handleDrop = async (event: ReactDragEvent<HTMLDivElement>) => {
     if (!isFilesystemFileDrag(event.dataTransfer)) return;

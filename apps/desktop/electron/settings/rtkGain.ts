@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process";
 import os from "node:os";
+import path from "node:path";
 import type { RtkGainStats } from "../../src/shared/rtk";
+import { resolveCommandLaunch } from "../runtime/commandLaunch";
 
 const RTK_GAIN_TIMEOUT_MS = 10_000;
-const EXTRA_CLI_PATHS = [
+const UNIX_EXTRA_CLI_PATHS = [
   "/opt/homebrew/bin",
   "/usr/local/bin",
   "/opt/local/bin",
@@ -30,15 +32,18 @@ const defaultRunner: ExecFileRunner = (command, args, options) =>
   });
 
 export async function getRtkGainStats(
-  deps: { runner?: ExecFileRunner } = {},
+  deps: { runner?: ExecFileRunner; platform?: NodeJS.Platform } = {},
 ): Promise<RtkGainStats> {
   const lastCheckedAt = new Date().toISOString();
   const runner = deps.runner ?? defaultRunner;
+  const platform = deps.platform ?? process.platform;
 
   try {
-    const { stdout } = await runner("rtk", ["gain"], {
+    // On Windows, npm's rtk is a .cmd shim that only cmd.exe can launch.
+    const direct = resolveCommandLaunch("rtk", ["gain"], { platform });
+    const { stdout } = await runner(direct.command, direct.args, {
       timeout: RTK_GAIN_TIMEOUT_MS,
-      env: getCliEnv(),
+      env: getCliEnv(platform),
     });
     return {
       ...parseRtkGain(stdout),
@@ -47,7 +52,8 @@ export async function getRtkGainStats(
     };
   } catch {
     try {
-      const { stdout } = await runner(getShellPath(), ["-lc", "rtk gain"], {
+      const fallback = fallbackShellInvocation(platform);
+      const { stdout } = await runner(fallback.command, fallback.args, {
         timeout: RTK_GAIN_TIMEOUT_MS,
         env: process.env,
       });
@@ -107,18 +113,28 @@ function parseEfficiency(output: string) {
   return Number.isFinite(value) ? value : 0;
 }
 
-function getCliEnv(): NodeJS.ProcessEnv {
+function getCliEnv(platform: NodeJS.Platform): NodeJS.ProcessEnv {
   const existingPath = process.env.PATH ?? "";
-  const pathParts = [...EXTRA_CLI_PATHS, existingPath].filter(Boolean);
+  const pathParts = [...(platform === "win32" ? [] : UNIX_EXTRA_CLI_PATHS), existingPath].filter(
+    Boolean,
+  );
   return {
     ...process.env,
-    PATH: pathParts.join(":"),
+    PATH: pathParts.join(path.delimiter),
   };
 }
 
-function getShellPath() {
+function fallbackShellInvocation(platform: NodeJS.Platform): { command: string; args: string[] } {
+  // On Windows the fallback shell is cmd.exe, whose /c tail re-resolves the
+  // rtk command through PATH and PATHEXT the way a login shell does on Unix.
+  if (platform === "win32") {
+    return { command: process.env.COMSPEC || "cmd.exe", args: ["/d", "/s", "/c", "rtk gain"] };
+  }
   const shell = process.env.SHELL;
-  return shell && shell.startsWith("/") ? shell : "/bin/zsh";
+  return {
+    command: shell && shell.startsWith("/") ? shell : "/bin/zsh",
+    args: ["-lc", "rtk gain"],
+  };
 }
 
 function normalizeRtkError(error: unknown) {

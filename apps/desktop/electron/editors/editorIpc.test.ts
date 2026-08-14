@@ -31,8 +31,14 @@ function createIpcHarness(deps: Parameters<typeof registerEditorsIpc>[1] = {}) {
 }
 
 const cursorInstalled = {
+  platform: "darwin" as const,
   homedir: () => "/Users/tester",
   pathExists: async (targetPath: string) => targetPath === "/Applications/Cursor.app",
+};
+
+const darwin = {
+  platform: "darwin" as const,
+  homedir: () => "/Users/tester",
 };
 
 async function captureErrorMessage(action: () => unknown): Promise<string> {
@@ -74,9 +80,46 @@ describe("editors:open", () => {
     ]);
   });
 
+  it("launches the detected executable directly on Windows", async () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const executable = "C:\\Users\\tester\\AppData\\Local\\Programs\\Cursor\\Cursor.exe";
+    const ipc = createIpcHarness({
+      platform: "win32",
+      env: { LOCALAPPDATA: "C:\\Users\\tester\\AppData\\Local" },
+      pathExists: async (targetPath) => targetPath === executable,
+      run: async (command, args) => {
+        calls.push({ command, args });
+        return { ok: true, exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    const result = await ipc.invoke("editors:open", "cursor", "D:\\work\\project");
+
+    expect(result).toBe("");
+    expect(calls).toEqual([{ command: executable, args: ["D:\\work\\project"] }]);
+  });
+
+  it("launches the detected executable directly on Linux", async () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const ipc = createIpcHarness({
+      platform: "linux",
+      homedir: () => "/home/tester",
+      pathExists: async (targetPath) => targetPath === "/usr/bin/code",
+      run: async (command, args) => {
+        calls.push({ command, args });
+        return { ok: true, exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    const result = await ipc.invoke("editors:open", "vscode", "/home/tester/project");
+
+    expect(result).toBe("");
+    expect(calls).toEqual([{ command: "/usr/bin/code", args: ["/home/tester/project"] }]);
+  });
+
   it("returns an error message when the editor is not installed", async () => {
     const ipc = createIpcHarness({
-      homedir: () => "/Users/tester",
+      ...darwin,
       pathExists: async () => false,
       run: async () => {
         throw new Error("run should not be called");

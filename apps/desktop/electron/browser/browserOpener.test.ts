@@ -22,4 +22,48 @@ describe("installBrowserOpener", () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+
+  it("generates an xdg-open script and POSIX launcher on Linux", () => {
+    const directory = mkdtempSync(join(tmpdir(), "carrent-browser-opener-"));
+    try {
+      const path = installBrowserOpener(directory, "/opt/Carrent/Carrent", "linux");
+
+      expect(path).toBe(join(directory, "carrent-browser-opener"));
+      expect(statSync(path).mode & 0o111).not.toBe(0);
+      const launcher = readFileSync(path, "utf8");
+      expect(launcher).toContain("export ELECTRON_RUN_AS_NODE=1");
+      expect(launcher).toContain("exec '/opt/Carrent/Carrent'");
+
+      const script = readFileSync(join(directory, "carrent-browser-opener.cjs"), "utf8");
+      expect(script).toContain('spawn("xdg-open"');
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("generates a quoted cmd.exe start handoff and batch launcher on Windows", () => {
+    const directory = mkdtempSync(join(tmpdir(), "carrent-browser-opener-"));
+    try {
+      const path = installBrowserOpener(
+        directory,
+        "C:\\Program Files\\Carrent\\Carrent.exe",
+        "win32",
+      );
+
+      expect(path).toBe(join(directory, "carrent-browser-opener.cmd"));
+      const launcher = readFileSync(path, "utf8");
+      expect(launcher).toContain("@echo off");
+      expect(launcher).toContain('set "ELECTRON_RUN_AS_NODE=1"');
+      expect(launcher).toContain('"C:\\Program Files\\Carrent\\Carrent.exe"');
+      expect(launcher).toContain("%*");
+
+      const script = readFileSync(join(directory, "carrent-browser-opener.cjs"), "utf8");
+      expect(script).toContain('process.env.COMSPEC || "cmd.exe"');
+      expect(script).toContain('"/d", "/s", "/c"');
+      expect(script).toContain("'start \"\" \"' + target.toString() + '\"'");
+      expect(script).toContain("windowsVerbatimArguments: true");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });

@@ -19,6 +19,8 @@ interface IpcMainLike {
 interface EditorsIpcDeps {
   pathExists?: (targetPath: string) => Promise<boolean>;
   homedir?: () => string;
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
   run?: ProcessRunner["run"];
 }
 
@@ -46,9 +48,15 @@ export async function openInEditor(
   }
 
   const run = deps.run ?? createProcessRunner().run;
-  const result = await run("open", ["-a", detected.appPath, workingDirectory], {
-    timeoutMs: OPEN_TIMEOUT_MS,
-  });
+  // macOS launches .app bundles through `open -a`; elsewhere the detected
+  // path is the executable itself.
+  const platform = deps.platform ?? process.platform;
+  const result =
+    platform === "darwin"
+      ? await run("open", ["-a", detected.appPath, workingDirectory], {
+          timeoutMs: OPEN_TIMEOUT_MS,
+        })
+      : await run(detected.appPath, [workingDirectory], { timeoutMs: OPEN_TIMEOUT_MS });
 
   if (result.ok) {
     return "";

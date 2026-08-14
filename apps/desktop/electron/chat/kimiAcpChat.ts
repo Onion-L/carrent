@@ -55,6 +55,7 @@ import {
   type SessionQuestionToolResult,
 } from "./questionMcpServer";
 import { terminateChildProcess } from "./terminateChildProcess";
+import { resolveCommandLaunch } from "../runtime/commandLaunch";
 
 type JsonRpcId = string | number;
 type JsonObject = Record<string, unknown>;
@@ -283,7 +284,9 @@ export function createKimiAcpProcessTransport(
   spawn: SpawnAcpProcess,
   cwd: string,
 ): KimiAcpTransport {
-  const child = spawn("kimi", ["acp"], {
+  // npm-installed CLIs are .cmd shims on Windows that only cmd.exe can launch.
+  const launch = resolveCommandLaunch("kimi", ["acp"]);
+  const child = spawn(launch.command, launch.args, {
     cwd,
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,

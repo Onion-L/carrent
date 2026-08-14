@@ -1,13 +1,28 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { RuntimeId, RuntimeStatus } from "../../src/shared/runtimes";
 import { runtimeCatalog } from "./runtimeCatalog";
+import { resolveCommandLaunch } from "./commandLaunch";
+import { killProcessTree } from "./processTermination";
 
 interface ProcessEntry {
   process: ChildProcess;
   startedAt: string;
 }
 
+export interface RuntimeProcessManagerDeps {
+  platform?: NodeJS.Platform;
+  env?: { COMSPEC?: string | undefined };
+  spawnChild?: (command: string, args: string[], options: ChildProcessSpawnOptions) => ChildProcess;
+}
+
+type ChildProcessSpawnOptions = {
+  detached: boolean;
+  stdio: "ignore";
+  shell: false;
+};
+
 export class RuntimeProcessManager {
+  constructor(private deps: RuntimeProcessManagerDeps = {}) {}
   private processes = new Map<RuntimeId, ProcessEntry>();
 
   start(runtimeId: RuntimeId): { pid: number; startedAt: string } {
@@ -18,7 +33,12 @@ export class RuntimeProcessManager {
 
     this.stop(runtimeId);
 
-    const child = spawn(runtime.command, [], {
+    const launch = resolveCommandLaunch(runtime.command, [], {
+      platform: this.deps.platform,
+      env: this.deps.env,
+    });
+    const spawnChild = this.deps.spawnChild ?? spawn;
+    const child = spawnChild(launch.command, launch.args, {
       detached: false,
       stdio: "ignore",
       shell: false,
@@ -44,7 +64,7 @@ export class RuntimeProcessManager {
       return false;
     }
 
-    const killed = entry.process.kill();
+    const killed = killProcessTree(entry.process, { platform: this.deps.platform });
     this.processes.delete(runtimeId);
     return killed;
   }

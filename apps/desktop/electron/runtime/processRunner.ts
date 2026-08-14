@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
+import { resolveCommandLaunch } from "./commandLaunch";
+import { killProcessTree } from "./processTermination";
 
 export interface ProcessRunnerOptions {
   cwd?: string;
@@ -24,14 +27,26 @@ export interface ProcessRunner {
   ) => Promise<ProcessRunnerResult>;
 }
 
-export function createProcessRunner(): ProcessRunner {
+export interface ProcessRunnerDeps {
+  platform?: NodeJS.Platform;
+  env?: NodeJS.ProcessEnv;
+  execFile?: typeof execFile;
+}
+
+export function createProcessRunner(deps: ProcessRunnerDeps = {}): ProcessRunner {
+  const execute = deps.execFile ?? execFile;
   return {
     run(command, args, options) {
+      const launch = resolveCommandLaunch(command, args, {
+        platform: deps.platform,
+        env: deps.env,
+      });
       return new Promise<ProcessRunnerResult>((resolve) => {
         let timedOut = false;
-        const childProcess = execFile(
-          command,
-          args,
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+        const childProcess = execute(
+          launch.command,
+          launch.args,
           {
             cwd: options?.cwd,
             env: options?.env,
@@ -70,15 +85,15 @@ export function createProcessRunner(): ProcessRunner {
               timedOut,
             });
           },
-        );
+        ) as ChildProcess;
         childProcess.stdin?.end();
 
-        const timeoutHandle =
+        timeoutHandle =
           options?.timeoutMs == null
             ? undefined
             : setTimeout(() => {
                 timedOut = true;
-                childProcess.kill();
+                killProcessTree(childProcess, { platform: deps.platform });
               }, options.timeoutMs);
       });
     },

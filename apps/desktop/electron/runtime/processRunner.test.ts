@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import type { ChildProcess } from "node:child_process";
+import { execFile } from "node:child_process";
 
 import { createProcessRunner } from "./processRunner";
 
@@ -13,6 +15,35 @@ describe("createProcessRunner", () => {
     expect(result.errorCode).toBe("ENOENT");
     expect(result.signal).toBe(null);
     expect(result.timedOut).toBe(false);
+  });
+
+  it("executes bare CLI names through cmd.exe on Windows", async () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const fakeExecFile = ((
+      command: string,
+      args: readonly string[],
+      _options: unknown,
+      callback: (error: null, stdout: string, stderr: string) => void,
+    ) => {
+      calls.push({ command, args: [...args] });
+      callback(null, "", "");
+      return {} as ChildProcess;
+    }) as unknown as typeof execFile;
+    const runner = createProcessRunner({
+      platform: "win32",
+      env: { COMSPEC: "C:\\Windows\\system32\\cmd.exe" },
+      execFile: fakeExecFile,
+    });
+
+    const result = await runner.run("kimi", ["--version"]);
+
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual([
+      {
+        command: "C:\\Windows\\system32\\cmd.exe",
+        args: ["/d", "/s", "/c", "kimi", "--version"],
+      },
+    ]);
   });
 
   it("marks timed out commands explicitly", async () => {

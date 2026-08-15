@@ -10,10 +10,14 @@ const relaxCspForDevServer = {
   name: "relax-csp-for-dev-server",
   apply: "serve" as const,
   transformIndexHtml(html: string) {
-    return html.replace(
+    const relaxed = html.replace(
       "connect-src 'self' blob:;",
       "connect-src 'self' blob: ws://localhost:* http://localhost:*;",
     );
+    if (relaxed === html) {
+      console.warn("[relax-csp-for-dev-server] CSP literal not found; HMR may be blocked.");
+    }
+    return relaxed;
   },
 };
 

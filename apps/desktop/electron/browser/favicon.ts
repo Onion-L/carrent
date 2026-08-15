@@ -15,7 +15,11 @@ async function fetchFaviconViaSession(
   session: Session,
 ): Promise<FaviconPayload | null> {
   const response = await session.fetch(url);
-  if (!response.ok || !response.body) return null;
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    return null;
+  }
+  if (!response.body) return null;
 
   const contentType = (response.headers.get("content-type") ?? "").split(";")[0]?.trim() ?? "";
   if (!contentType.startsWith("image/")) {

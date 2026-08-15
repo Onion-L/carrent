@@ -967,6 +967,9 @@ export function createBrowserManager({
           }
           tab.view.webContents.close();
         }
+        // Emptied so an in-flight favicon fetch cannot update (and broadcast)
+        // state for a tab of a deleted thread.
+        thread.tabs.clear();
         if (thread.auxiliaryWindow && !thread.auxiliaryWindow.isDestroyed()) {
           auxiliaryOwners.delete(thread.auxiliaryWindow.webContents.id);
           thread.auxiliaryWindow.destroy();

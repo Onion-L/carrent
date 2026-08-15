@@ -1,3 +1,7 @@
+// Classic (non-module) JavaScript, deliberately outside TypeScript: this
+// must execute synchronously before first paint to avoid a theme flash,
+// and Vite copies public/ verbatim with no transform or type checking.
+// Documented exception to the repo's TypeScript guideline.
 (() => {
   try {
     const raw = localStorage.getItem("carrent:settings");

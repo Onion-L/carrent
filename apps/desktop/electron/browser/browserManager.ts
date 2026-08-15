@@ -23,12 +23,14 @@ import type {
   BrowserThreadTarget,
 } from "../../src/shared/browser";
 import { isBrowserUrl, resolveBrowserInput } from "./browserNavigation";
+import { createFaviconResolver } from "./favicon";
 import { createBrowserMenuOverlay } from "./browserMenuOverlay";
 import { installBrowserOpener } from "./browserOpener";
 
 type TabRecord = {
   state: BrowserTab;
   view: WebContentsView;
+  faviconGeneration: number;
 };
 
 type ThreadRecord = {
@@ -57,6 +59,7 @@ type BrowserManagerDependencies = {
   resolveProjectTarget: (
     projectId: string,
   ) => { ownerId: number; target: BrowserThreadTarget } | null;
+  resolveFavicon?: (url: string, session: Session) => Promise<string | null>;
 };
 
 const SEARCH_ENGINES = new Set<BrowserSearchEngine>(["google", "bing", "duckduckgo"]);
@@ -100,6 +103,7 @@ export function createBrowserManager({
   loadBrowserMenuOverlay,
   resolveOwner,
   resolveProjectTarget,
+  resolveFavicon = createFaviconResolver(),
 }: BrowserManagerDependencies) {
   const threads = new Map<string, ThreadRecord>();
   const ownerThread = new Map<number, string>();
@@ -314,6 +318,26 @@ export function createBrowserManager({
     sendState(thread);
   };
 
+  // Remote favicons are resolved to CSP-safe data: URLs in the main process
+  // (see ./favicon). The generation counter makes a stale in-flight fetch
+  // lose against a newer favicon event; a closed tab is not updated at all.
+  const updateTabFavicon = async (
+    thread: ThreadRecord,
+    tab: TabRecord,
+    faviconUrl: string | null,
+  ) => {
+    const generation = ++tab.faviconGeneration;
+    if (!faviconUrl) {
+      tab.state.faviconUrl = undefined;
+      sendState(thread);
+      return;
+    }
+    const dataUrl = await resolveFavicon(faviconUrl, tab.view.webContents.session);
+    if (generation !== tab.faviconGeneration || !thread.tabs.has(tab.state.id)) return;
+    tab.state.faviconUrl = dataUrl ?? undefined;
+    sendState(thread);
+  };
+
   const navigateTab = async (thread: ThreadRecord, tab: TabRecord, value: string) => {
     const url = resolveBrowserInput(value, searchEngine);
     delete tab.state.certificateError;
@@ -334,6 +358,7 @@ export function createBrowserManager({
     view.setBackgroundColor(BROWSER_BACKGROUND_COLORS[theme]);
     const tab: TabRecord = {
       view,
+      faviconGeneration: 0,
       state: {
         id,
         title: DEFAULT_TITLE,
@@ -354,8 +379,7 @@ export function createBrowserManager({
     view.webContents.on("did-navigate-in-page", update);
     view.webContents.on("page-title-updated", update);
     view.webContents.on("page-favicon-updated", (_event, favicons) => {
-      tab.state.faviconUrl = favicons.find(isBrowserUrl);
-      sendState(thread);
+      void updateTabFavicon(thread, tab, favicons.find(isBrowserUrl) ?? null);
     });
     view.webContents.on("will-navigate", (event, url) => {
       if (isBrowserUrl(url)) return;

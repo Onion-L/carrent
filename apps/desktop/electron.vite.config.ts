@@ -11,8 +11,8 @@ const relaxCspForDevServer = {
   apply: "serve" as const,
   transformIndexHtml(html: string) {
     return html.replace(
-      "connect-src 'self';",
-      "connect-src 'self' ws://localhost:* http://localhost:*;",
+      "connect-src 'self' blob:;",
+      "connect-src 'self' blob: ws://localhost:* http://localhost:*;",
     );
   },
 };

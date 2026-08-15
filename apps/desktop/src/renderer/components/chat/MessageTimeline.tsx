@@ -164,7 +164,7 @@ function FileReferenceBadge({ label, path }: { label: string; path: string }) {
       type="button"
       title={path}
       onClick={() => {
-        void window.carrent.shell.openPath(filePath);
+        void window.carrent.shell.revealPath(filePath);
       }}
       className="inline-flex max-w-full items-center gap-1 align-middle text-skill-reference hover:underline"
     >

@@ -116,9 +116,9 @@ import type { MainWindowZoomAction } from "../src/shared/mainWindow";
 import { createBrowserManager, type BrowserManager } from "./browser/browserManager";
 import { registerBrowserIpc } from "./browser/browserIpc";
 import { isHttpOrHttpsUrl } from "./browser/browserNavigation";
-import { isAppRendererUrl } from "./appRendererUrl";
+import { denyAppRendererWindowOpen, guardAppRendererNavigation } from "./appRendererUrl";
 import type { BrowserThreadTarget } from "../src/shared/browser";
-import { openLocalPath, resolveDroppedLocalPaths, revealLocalPath } from "./localPathContext";
+import { resolveDroppedLocalPaths, revealLocalPath } from "./localPathContext";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -184,12 +184,8 @@ const DEFAULT_WINDOW_WIDTH = 1280;
 const DEFAULT_WINDOW_HEIGHT = 840;
 
 function loadBrowserMenuOverlay(contents: WebContents) {
-  // Guard before the first load: the overlay carries the preload bridge, so
-  // its top-level frame may only ever show the app renderer.
-  contents.on("will-navigate", (event, url) => {
-    if (isAppRendererUrl(url)) return;
-    event.preventDefault();
-  });
+  guardAppRendererNavigation(contents);
+  denyAppRendererWindowOpen(contents);
   const query = { browserMenuOverlay: "1" };
   if (process.env.ELECTRON_RENDERER_URL) {
     const url = new URL(process.env.ELECTRON_RENDERER_URL);
@@ -223,10 +219,7 @@ function createBrowserWindow(target: BrowserThreadTarget) {
   window.once("ready-to-show", () => window.show());
   // Same contract as createWindow: the preload bridge must never reach a
   // remote origin, and window.open never opens a native Electron window.
-  window.webContents.on("will-navigate", (event, url) => {
-    if (isAppRendererUrl(url)) return;
-    event.preventDefault();
-  });
+  guardAppRendererNavigation(window.webContents);
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isHttpOrHttpsUrl(url)) {
       void shell.openExternal(url);
@@ -432,12 +425,9 @@ function createWindow(
 
   // The preload bridge (terminal, shell, clipboard) must never be exposed to
   // a remote origin: drop-navigation of a dragged link, or any script-assigned
-  // location change, is blocked. loadURL/loadFile from the main process do not
-  // fire this event, so the app's own loads are unaffected.
-  window.webContents.on("will-navigate", (event, url) => {
-    if (isAppRendererUrl(url)) return;
-    event.preventDefault();
-  });
+  // location change or server redirect, is blocked. Main-process loads bypass
+  // will-navigate, but any redirect they receive is still checked.
+  guardAppRendererNavigation(window.webContents);
 
   if (process.env.ELECTRON_RENDERER_URL) {
     window.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -783,15 +773,10 @@ if (!hasSingleInstanceLock) {
 
     registerEditorsIpc(guardedIpcMain);
 
-    guardedIpcMain.handle("shell:open-path", async (_event, filePath) => {
+    guardedIpcMain.handle("shell:reveal-path", async (_event, filePath) => {
       if (typeof filePath !== "string" || filePath.length === 0 || filePath.length > 4_096) {
         throw new Error("Invalid file path.");
       }
-      return openLocalPath(filePath, (path) => shell.openPath(path));
-    });
-
-    guardedIpcMain.handle("shell:reveal-path", async (_event, filePath) => {
-      if (typeof filePath !== "string") throw new Error("Invalid file path.");
       return revealLocalPath(filePath, (path) => shell.showItemInFolder(path));
     });
 

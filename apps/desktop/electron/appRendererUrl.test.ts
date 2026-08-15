@@ -2,11 +2,17 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { isAppRendererUrl } from "./appRendererUrl";
+import {
+  denyAppRendererWindowOpen,
+  guardAppRendererNavigation,
+  isAppRendererUrl,
+} from "./appRendererUrl";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const originalDevServerUrl = process.env.ELECTRON_RENDERER_URL;
+
+type NavigationListener = (event: { preventDefault: () => void }, url: string) => void;
 
 function restoreDevServerUrl() {
   if (originalDevServerUrl === undefined) {
@@ -72,5 +78,62 @@ describe("isAppRendererUrl (prod)", () => {
 describe("isAppRendererUrl (garbage input)", () => {
   it("rejects non-URL strings", () => {
     expect(isAppRendererUrl("not a url")).toBe(false);
+  });
+});
+
+describe("privileged renderer WebContents guards", () => {
+  beforeEach(() => {
+    process.env.ELECTRON_RENDERER_URL = "http://localhost:5173";
+  });
+
+  it("blocks non-app navigation starts and server redirects", () => {
+    const listeners = new Map<string, NavigationListener>();
+    const contents = {
+      on(event: "will-navigate" | "will-redirect", listener: NavigationListener) {
+        listeners.set(event, listener);
+      },
+    };
+    guardAppRendererNavigation(contents);
+
+    expect([...listeners.keys()]).toEqual(["will-navigate", "will-redirect"]);
+    for (const eventName of ["will-navigate", "will-redirect"] as const) {
+      let prevented = false;
+      listeners.get(eventName)?.(
+        { preventDefault: () => (prevented = true) },
+        "https://evil.example",
+      );
+      expect(prevented).toBe(true);
+    }
+  });
+
+  it("allows navigation and redirects that stay on the app renderer page", () => {
+    const listeners = new Map<string, NavigationListener>();
+    const contents = {
+      on(event: "will-navigate" | "will-redirect", listener: NavigationListener) {
+        listeners.set(event, listener);
+      },
+    };
+    guardAppRendererNavigation(contents);
+
+    for (const eventName of ["will-navigate", "will-redirect"] as const) {
+      let prevented = false;
+      listeners.get(eventName)?.(
+        { preventDefault: () => (prevented = true) },
+        "http://localhost:5173/?window=1",
+      );
+      expect(prevented).toBe(false);
+    }
+  });
+
+  it("denies every renderer-created child window including about:blank", () => {
+    let handler: ((details: { url: string }) => { action: "deny" }) | undefined;
+    denyAppRendererWindowOpen({
+      setWindowOpenHandler(nextHandler) {
+        handler = nextHandler;
+      },
+    });
+
+    expect(handler?.({ url: "about:blank" })).toEqual({ action: "deny" });
+    expect(handler?.({ url: "https://evil.example" })).toEqual({ action: "deny" });
   });
 });

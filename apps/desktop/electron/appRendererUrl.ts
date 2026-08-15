@@ -3,6 +3,21 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+type NavigationEvent = {
+  preventDefault: () => void;
+};
+
+type AppRendererNavigationTarget = {
+  on(
+    event: "will-navigate" | "will-redirect",
+    listener: (event: NavigationEvent, url: string) => void,
+  ): unknown;
+};
+
+type AppRendererWindowOpenTarget = {
+  setWindowOpenHandler(handler: (details: { url: string }) => { action: "deny" }): void;
+};
+
 // True when `url` points at Carrent's own renderer bundle: the Vite dev
 // server in development (ELECTRON_RENDERER_URL), the packaged file://
 // bundle in production. Privileged windows must never navigate their
@@ -27,4 +42,16 @@ export function isAppRendererUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function guardAppRendererNavigation(contents: AppRendererNavigationTarget) {
+  const preventRemoteNavigation = (event: NavigationEvent, url: string) => {
+    if (!isAppRendererUrl(url)) event.preventDefault();
+  };
+  contents.on("will-navigate", preventRemoteNavigation);
+  contents.on("will-redirect", preventRemoteNavigation);
+}
+
+export function denyAppRendererWindowOpen(contents: AppRendererWindowOpenTarget) {
+  contents.setWindowOpenHandler(() => ({ action: "deny" }));
 }

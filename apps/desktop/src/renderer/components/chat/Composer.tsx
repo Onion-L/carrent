@@ -251,11 +251,6 @@ function ContextUsageIndicator({
                   {status.used.toLocaleString()} tokens used
                 </div>
               )}
-              {status.model ? (
-                <span className="mt-1.5 block h-4 w-4" title={status.model}>
-                  <KimiIcon className="h-4 w-4" />
-                </span>
-              ) : null}
               {status.planUsage?.weekly || status.planUsage?.fiveHour ? (
                 <div className="mt-3 border-t border-border pt-3">
                   <div className="text-app-11 text-muted">Plan usage</div>

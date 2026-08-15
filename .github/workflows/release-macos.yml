@@ -80,16 +80,14 @@ jobs:
             "apps/desktop/release/Carrent-${version}-intel.zip"
             "apps/desktop/release/Carrent-${version}-apple-silicon.zip"
           )
+          release_args=(--generate-notes --title "Carrent ${version}")
+          if [[ "${version}" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
 
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" "${assets[@]}" --clobber
-          elif [[ "${version}" == *-* ]]; then
-            gh release create "${GITHUB_REF_NAME}" "${assets[@]}" \
-              --generate-notes \
-              --prerelease \
-              --title "Carrent ${version}"
-          else
-            gh release create "${GITHUB_REF_NAME}" "${assets[@]}" \
-              --generate-notes \
-              --title "Carrent ${version}"
+          elif ! gh release create "${GITHUB_REF_NAME}" "${assets[@]}" "${release_args[@]}"; then
+            gh release view "${GITHUB_REF_NAME}" >/dev/null
+            gh release upload "${GITHUB_REF_NAME}" "${assets[@]}" --clobber
           fi

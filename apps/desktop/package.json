@@ -1,6 +1,7 @@
 {
   "name": "@carrent/desktop",
   "version": "0.0.3",
+  "homepage": "https://github.com/Onion-L/carrent",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -47,6 +48,7 @@
     "tailwindcss": "3"
   },
   "build": {
+    "npmRebuild": false,
     "appId": "com.carrent.desktop",
     "productName": "Carrent",
     "protocols": [
@@ -75,6 +77,28 @@
         "dmg",
         "zip"
       ]
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "artifactName": "Carrent-Setup-${version}.${ext}"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Development",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    },
+    "deb": {
+      "maintainer": "Carrent Team",
+      "packageName": "carrent",
+      "artifactName": "carrent_${version}_${arch}.${ext}"
     },
     "dmg": {
       "icon": "build/icon.icns",

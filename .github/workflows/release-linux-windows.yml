@@ -1,0 +1,152 @@
+name: Release Linux & Windows
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "[0-9]*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, e.g. 1.2.3 or 1.2.3-beta.1 (leading v is optional)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# Separate group from release-macos.yml so all three platforms build in
+# parallel; the publish step retries release creation to absorb the race.
+concurrency:
+  group: release-linux-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+            builder-flags: "--linux --x64"
+            artifact-globs: |-
+              apps/desktop/release/Carrent-*.AppImage
+              apps/desktop/release/carrent_*_amd64.deb
+          - platform: windows
+            os: windows-latest
+            builder-flags: "--win --x64"
+            artifact-globs: apps/desktop/release/Carrent-Setup-*.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      RAW_VERSION: ${{ inputs.version || github.ref_name }}
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - name: Read version from tag
+        id: version
+        shell: bash
+        run: |
+          version="${RAW_VERSION#v}"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Version must be semver such as v1.2.3 or 1.2.3-beta.1" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build and package
+        shell: bash
+        run: |
+          cd apps/desktop
+          bun run dist -- ${{ matrix.builder-flags }} \
+            --publish never \
+            -c.extraMetadata.version=${{ steps.version.outputs.version }}
+
+      - name: Verify Linux artifacts
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cd apps/desktop/release
+          appimage=$(ls Carrent-*.AppImage)
+          deb=$(ls carrent_*_amd64.deb)
+
+          chmod +x "${appimage}"
+          "./${appimage}" --appimage-extract >/dev/null
+          entry=$(ls squashfs-root/*.desktop)
+          grep -q "^Exec=" "${entry}"
+          app_bin=$(find squashfs-root -maxdepth 1 -type f -perm -u+x -iname '*carrent*')
+          if [[ -z "${app_bin}" ]]; then
+            echo "No executable Carrent binary inside AppImage" >&2
+            exit 1
+          fi
+          rm -rf squashfs-root
+
+          dpkg-deb --info "${deb}"
+          contents="${RUNNER_TEMP}/carrent-deb-contents.txt"
+          dpkg-deb --contents "${deb}" > "${contents}"
+          grep -q "opt/" "${contents}"
+          grep -q "usr/share/applications/" "${contents}"
+
+      - name: Verify Windows installer
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cd apps/desktop/release
+          exe=$(ls Carrent-Setup-*.exe)
+          ls -la "${exe}"
+          7z l "${exe}" >/dev/null
+
+      - name: Upload build artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: carrent-${{ matrix.platform }}-${{ steps.version.outputs.version }}
+          path: ${{ matrix.artifact-globs }}
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ARTIFACT_GLOBS: ${{ matrix.artifact-globs }}
+        run: |
+          shopt -s nullglob
+          assets=(${ARTIFACT_GLOBS})
+          if [[ ${#assets[@]} -eq 0 ]]; then
+            echo "No release artifacts matched: ${ARTIFACT_GLOBS}" >&2
+            exit 1
+          fi
+
+          tag="${GITHUB_REF_NAME}"
+          if ! gh release view "${tag}" >/dev/null 2>&1; then
+            title=(--generate-notes --title "Carrent ${VERSION}")
+            if [[ "${VERSION}" == *-* ]]; then
+              title+=(--prerelease)
+            fi
+            for attempt in 1 2 3 4 5; do
+              if gh release create "${tag}" "${title[@]}" >/dev/null 2>&1; then
+                break
+              fi
+              if gh release view "${tag}" >/dev/null 2>&1; then
+                break
+              fi
+              sleep $((attempt * 10))
+            done
+          fi
+          gh release view "${tag}" >/dev/null
+
+          gh release upload "${tag}" "${assets[@]}" --clobber

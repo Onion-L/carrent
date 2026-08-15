@@ -5,28 +5,33 @@
 <h1 align="center">Carrent</h1>
 
 <p align="center">
-  A calm, focused desktop workspace for your coding agents.
+  A calm, focused desktop workspace for Kimi Code.
 </p>
 
 <p align="center">
   <img src="assets/screenshot.png" alt="Carrent desktop app" width="900" />
 </p>
 
+> **Note:** Carrent is a hobby project under active development. Major changes
+> may happen at any time, and features and APIs may change without notice.
+> Thank you to everyone who has taken an interest in and supported the project.
+
 ## What is Carrent?
 
-Carrent is a desktop GUI for project-scoped coding agents. Rather than being an
-agent itself, it's a host application: you bring your own coding agent runtimes,
-and Carrent provides the workspace around them — project organization, chat
-thread persistence, permission and approval flows, attachments, and a clean
-presentation of what the agent is doing.
+Carrent is a desktop GUI for project-scoped coding work with
+[Kimi Code](https://moonshotai.github.io/kimi-code/). Rather than being an agent itself, it's
+a host application: Kimi Code provides the agent runtime, and Carrent provides
+the workspace around it — project organization, chat thread persistence,
+permission and approval flows, attachments, and a clean presentation of what
+the agent is doing.
 
 ## Why Carrent?
 
-- **Your agents, your choice.** Carrent is runtime-agnostic. It drives external
-  agent runtimes and normalizes their output into a unified chat and event
-  stream, so you can switch runtimes and models without changing how you work.
-- **Always know what's running.** The active runtime, model, permissions, and
-  project context stay visible at all times. No hidden state, no surprises.
+- **Made for Kimi Code.** Carrent drives the Kimi Code CLI and presents its
+  output as a clean, unified chat and event stream, purpose-built for how Kimi
+  Code works.
+- **Always know what's running.** The active model, permissions, and project
+  context stay visible at all times. No hidden state, no surprises.
 - **Built for long sessions.** Approvals, thread history, terminal sessions,
   and agent activity are designed to stay easy to scan without interrupting
   your flow.
@@ -38,10 +43,6 @@ presentation of what the agent is doing.
 macOS releases are signed and notarized DMGs for both Intel and Apple Silicon.
 Grab the latest build from the
 [Releases](https://github.com/Onion-L/carrent/releases) page.
-
-> Carrent is a hobby project under active development. Features and APIs may
-> change without notice. Thank you to everyone who has taken an interest in and
-> supported the project.
 
 ## Development
 

@@ -7,13 +7,10 @@ function shellQuote(value: string) {
 
 function openCommandSource(platform: NodeJS.Platform) {
   if (platform === "win32") {
-    // `start` is a cmd.exe builtin, so the handoff goes through COMSPEC with
-    // windowsVerbatimArguments; the manual quotes keep the URL's "&" out of
-    // cmd's command separator during argument re-parsing.
-    return `spawn(process.env.COMSPEC || "cmd.exe", ["/d", "/s", "/c", 'start "" "' + target.toString() + '"'], { detached: true, stdio: "ignore", windowsVerbatimArguments: true })`;
+    return `spawn((process.env.SystemRoot || process.env.WINDIR || "C:\\\\Windows") + "\\\\explorer.exe", [target.toString()], { detached: true, stdio: "ignore", windowsHide: true, env: openEnvironment })`;
   }
   const openCommand = platform === "darwin" ? "/usr/bin/open" : "xdg-open";
-  return `spawn("${openCommand}", [target.toString()], { detached: true, stdio: "ignore" })`;
+  return `spawn("${openCommand}", [target.toString()], { detached: true, stdio: "ignore", env: openEnvironment })`;
 }
 
 export function installBrowserOpener(
@@ -32,6 +29,8 @@ if (url.protocol !== "http:" && url.protocol !== "https:") process.exit(1);
 const target = new URL("carrent://browser/open");
 target.searchParams.set("token", token);
 target.searchParams.set("url", url.toString());
+const openEnvironment = { ...process.env };
+delete openEnvironment.ELECTRON_RUN_AS_NODE;
 const child = ${openCommandSource(platform)};
 child.unref();
 `;

@@ -33,6 +33,7 @@ import type {
   GitWorkspaceSnapshotResult,
 } from "./git/gitIpc";
 import type { RtkGainStats } from "../src/shared/rtk";
+import type { UpdateCheckResult } from "../src/shared/updates";
 import type { KimiUsageStats } from "../src/shared/kimiUsage";
 import type { KimiMemoryIndex } from "../src/shared/kimiMemory";
 import type {
@@ -357,10 +358,7 @@ const carrent = {
   settings: {
     getAppVersion: () => ipcRenderer.invoke("settings:app-version") as Promise<string>,
     checkForUpdates: () =>
-      ipcRenderer.invoke("settings:check-for-updates") as Promise<{
-        hasUpdate: boolean;
-        latestVersion?: string;
-      }>,
+      ipcRenderer.invoke("settings:check-for-updates") as Promise<UpdateCheckResult>,
     rtkGain: () => ipcRenderer.invoke("settings:rtk-gain") as Promise<RtkGainStats>,
     kimiUsage: () => ipcRenderer.invoke("settings:kimi-usage") as Promise<KimiUsageStats>,
     kimiMemory: () => ipcRenderer.invoke("settings:kimi-memory") as Promise<KimiMemoryIndex>,

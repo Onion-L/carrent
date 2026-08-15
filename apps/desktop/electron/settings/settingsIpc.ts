@@ -9,6 +9,7 @@ import {
   type WorktreeSizeTarget,
 } from "../../src/shared/worktrees";
 import { getKimiUsageStats } from "./kimiUsage";
+import { checkForUpdates } from "./checkForUpdates";
 import { deleteKimiMemoryFile, listKimiMemory } from "./kimiMemory";
 import { getRtkGainStats } from "./rtkGain";
 import { pruneWorktreeRecords, removeWorktree, scanWorktrees } from "./worktrees";
@@ -72,9 +73,9 @@ export function registerSettingsIpc(
 ): void {
   ipcMainLike.handle("settings:app-version", async () => getAppVersion());
 
-  ipcMainLike.handle("settings:check-for-updates", async () => {
-    return { hasUpdate: false };
-  });
+  ipcMainLike.handle("settings:check-for-updates", async () =>
+    checkForUpdates(getAppVersion()),
+  );
 
   ipcMainLike.handle("settings:rtk-gain", async () => getRtkGainStats());
   ipcMainLike.handle("settings:worktrees", async () =>

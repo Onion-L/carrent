@@ -35,6 +35,7 @@ import type {
   ProjectRelocationRequest,
 } from "../shared/workspacePersistence";
 import type { RtkGainStats } from "../shared/rtk";
+import type { UpdateCheckResult } from "../shared/updates";
 import type { KimiMemoryIndex } from "../shared/kimiMemory";
 import type {
   WorktreePruneRequest,
@@ -167,7 +168,7 @@ declare global {
       };
       settings: {
         getAppVersion: () => Promise<string>;
-        checkForUpdates: () => Promise<{ hasUpdate: boolean; latestVersion?: string }>;
+        checkForUpdates: () => Promise<UpdateCheckResult>;
         rtkGain: () => Promise<RtkGainStats>;
         kimiUsage: () => Promise<KimiUsageStats>;
         kimiMemory: () => Promise<KimiMemoryIndex>;

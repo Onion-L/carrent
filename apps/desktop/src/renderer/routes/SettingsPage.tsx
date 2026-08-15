@@ -18,6 +18,7 @@ import { useThreadContent } from "../context/ThreadContentContext";
 import { useAppState } from "../context/AppStateContext";
 import { useSettings } from "../context/SettingsContext";
 import { RTK_MD_CONTENT, upsertRtkAgentsBlock, type RtkGainStats } from "../../shared/rtk";
+import type { UpdateCheckResult } from "../../shared/updates";
 import type { RuntimeModelRecord, RuntimeRecord } from "../../shared/runtimes";
 import { resolveSettingsTabId, SETTINGS_TAB_ICONS, SETTINGS_TABS } from "../lib/settingsTabs";
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, parseFontSizeInput, stepFontSize } from "../lib/fontSize";
@@ -383,10 +384,7 @@ function AppVersionField() {
 
 function CheckForUpdatesRow() {
   const [checking, setChecking] = useState(false);
-  const [result, setResult] = useState<{
-    hasUpdate: boolean;
-    latestVersion?: string;
-  } | null>(null);
+  const [result, setResult] = useState<UpdateCheckResult | null>(null);
 
   async function handleCheck() {
     setChecking(true);
@@ -399,13 +397,26 @@ function CheckForUpdatesRow() {
     }
   }
 
+  function handleOpenRelease() {
+    if (result?.releaseUrl) void window.carrent.shell.openExternal(result.releaseUrl);
+  }
+
   return (
     <div className="flex items-center justify-between gap-6 py-3.5">
       <div className="min-w-0">
         <div className="text-app-13 text-fg">Check for updates</div>
         {result && (
-          <div className="mt-0.5 text-app-12 text-subtle">
+          <div className="mt-0.5 flex items-center gap-1.5 text-app-12 text-subtle">
             {result.hasUpdate ? `Update available: ${result.latestVersion}` : "Up to date"}
+            {result.hasUpdate && result.releaseUrl && (
+              <button
+                onClick={handleOpenRelease}
+                className="flex items-center gap-1 text-app-12 text-brand underline-offset-2 hover:underline"
+              >
+                <ExternalLink className="h-3 w-3" />
+                View release
+              </button>
+            )}
           </div>
         )}
       </div>

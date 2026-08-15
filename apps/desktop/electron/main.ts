@@ -118,7 +118,7 @@ import { registerBrowserIpc } from "./browser/browserIpc";
 import { isHttpOrHttpsUrl } from "./browser/browserNavigation";
 import { isAppRendererUrl } from "./appRendererUrl";
 import type { BrowserThreadTarget } from "../src/shared/browser";
-import { resolveDroppedLocalPaths, revealLocalPath } from "./localPathContext";
+import { openLocalPath, resolveDroppedLocalPaths, revealLocalPath } from "./localPathContext";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -784,9 +784,10 @@ if (!hasSingleInstanceLock) {
     registerEditorsIpc(guardedIpcMain);
 
     guardedIpcMain.handle("shell:open-path", async (_event, filePath) => {
-      if (typeof filePath !== "string") throw new Error("Invalid file path.");
-      const result = await shell.openPath(filePath);
-      return result;
+      if (typeof filePath !== "string" || filePath.length === 0 || filePath.length > 4_096) {
+        throw new Error("Invalid file path.");
+      }
+      return openLocalPath(filePath, (path) => shell.openPath(path));
     });
 
     guardedIpcMain.handle("shell:reveal-path", async (_event, filePath) => {

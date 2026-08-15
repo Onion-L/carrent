@@ -116,6 +116,7 @@ import type { MainWindowZoomAction } from "../src/shared/mainWindow";
 import { createBrowserManager, type BrowserManager } from "./browser/browserManager";
 import { registerBrowserIpc } from "./browser/browserIpc";
 import { isHttpOrHttpsUrl } from "./browser/browserNavigation";
+import { isAppRendererUrl } from "./appRendererUrl";
 import type { BrowserThreadTarget } from "../src/shared/browser";
 import { resolveDroppedLocalPaths, revealLocalPath } from "./localPathContext";
 
@@ -183,6 +184,12 @@ const DEFAULT_WINDOW_WIDTH = 1280;
 const DEFAULT_WINDOW_HEIGHT = 840;
 
 function loadBrowserMenuOverlay(contents: WebContents) {
+  // Guard before the first load: the overlay carries the preload bridge, so
+  // its top-level frame may only ever show the app renderer.
+  contents.on("will-navigate", (event, url) => {
+    if (isAppRendererUrl(url)) return;
+    event.preventDefault();
+  });
   const query = { browserMenuOverlay: "1" };
   if (process.env.ELECTRON_RENDERER_URL) {
     const url = new URL(process.env.ELECTRON_RENDERER_URL);
@@ -214,6 +221,18 @@ function createBrowserWindow(target: BrowserThreadTarget) {
   });
   window.setTitle("Browser");
   window.once("ready-to-show", () => window.show());
+  // Same contract as createWindow: the preload bridge must never reach a
+  // remote origin, and window.open never opens a native Electron window.
+  window.webContents.on("will-navigate", (event, url) => {
+    if (isAppRendererUrl(url)) return;
+    event.preventDefault();
+  });
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isHttpOrHttpsUrl(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
   const query = {
     browserWindow: "1",
     threadId: target.threadId,
@@ -409,6 +428,15 @@ function createWindow(
       }
     }
     return { action: "deny" };
+  });
+
+  // The preload bridge (terminal, shell, clipboard) must never be exposed to
+  // a remote origin: drop-navigation of a dragged link, or any script-assigned
+  // location change, is blocked. loadURL/loadFile from the main process do not
+  // fire this event, so the app's own loads are unaffected.
+  window.webContents.on("will-navigate", (event, url) => {
+    if (isAppRendererUrl(url)) return;
+    event.preventDefault();
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {

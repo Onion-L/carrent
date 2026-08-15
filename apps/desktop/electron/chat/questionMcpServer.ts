@@ -127,7 +127,7 @@ export async function startQuestionMcpServer(options: {
       name: QUESTION_MCP_SERVER_NAME,
       type: "http",
       url: server.url,
-      headers: [],
+      headers: [{ name: "Authorization", value: `Bearer ${token}` }],
     },
     close: async () => {
       for (const settle of pendingCalls) {

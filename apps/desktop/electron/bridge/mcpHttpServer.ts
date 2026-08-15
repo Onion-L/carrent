@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
@@ -29,14 +30,22 @@ export type McpHttpServerHandle = {
 export async function startMcpHttpServer(
   options: McpHttpServerOptions,
 ): Promise<McpHttpServerHandle> {
+  let expectedHosts: string[] = [];
   const server = createServer((request, response) => {
-    void handleHttpRequest(options, request, response);
+    void handleHttpRequest(options, request, response, expectedHosts);
   });
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       server.off("error", reject);
+      const port = (server.address() as AddressInfo).port;
+      // Loopback literals only. A well-behaved client derives Host from
+      // the URL we hand it (127.0.0.1), but some HTTP stacks normalize to
+      // "localhost"; both are loopback names an attacker domain cannot
+      // rebind to. Everything else — including a DNS-rebound attacker
+      // host — is rejected.
+      expectedHosts = [`127.0.0.1:${port}`, `localhost:${port}`];
       resolve();
     });
   });
@@ -69,6 +78,7 @@ async function handleHttpRequest(
   options: McpHttpServerOptions,
   request: IncomingMessage,
   response: ServerResponse,
+  expectedHosts: string[],
 ) {
   try {
     const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -77,7 +87,25 @@ async function handleHttpRequest(
       return;
     }
 
-    if (requestUrl.searchParams.get("token") !== options.token) {
+    // DNS-rebinding hardening: only requests addressed to loopback hosts
+    // are considered.
+    if (
+      typeof request.headers.host !== "string" ||
+      !expectedHosts.includes(request.headers.host)
+    ) {
+      sendText(response, 403, "Forbidden");
+      return;
+    }
+
+    // Bearer header is the primary channel; the query token stays as a
+    // legacy fallback for MCP clients that cannot send headers. The
+    // strict token charset rejects spaces, control characters, and
+    // folded multi-header values (Node joins duplicate Authorization
+    // headers with ", ", which cannot match this pattern).
+    const headerToken = request.headers.authorization
+      ?.match(/^Bearer ([A-Za-z0-9._~+/=-]+)$/u)?.[1];
+    const queryToken = requestUrl.searchParams.get("token");
+    if (!tokenMatches(headerToken, options.token) && !tokenMatches(queryToken, options.token)) {
       sendText(response, 401, "Unauthorized");
       return;
     }
@@ -236,6 +264,17 @@ function drainRequest(request: IncomingMessage) {
     request.once("error", finish);
     request.resume();
   });
+}
+
+// Constant-time comparison so a leaked-prefix oracle cannot shortcut the
+// token check; the length guard covers timingSafeEqual's throw-on-mismatch.
+function tokenMatches(received: string | null | undefined, expected: string): boolean {
+  if (typeof received !== "string" || received.length === 0) return false;
+  const receivedBuffer = Buffer.from(received);
+  const expectedBuffer = Buffer.from(expected);
+  return (
+    receivedBuffer.length === expectedBuffer.length && timingSafeEqual(receivedBuffer, expectedBuffer)
+  );
 }
 
 function sendJson(response: ServerResponse, statusCode: number, value: unknown) {

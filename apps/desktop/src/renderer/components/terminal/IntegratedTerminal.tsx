@@ -634,8 +634,8 @@ export function IntegratedTerminal({
             ? `relative h-full w-full overflow-hidden border-border bg-[#151514] ${
                 isOpen && project ? "" : "hidden"
               }`
-            : `relative shrink-0 overflow-hidden border-border bg-[#151514] terminal-panel ${
-                isResizing ? "is-resizing" : ""
+            : `relative flex shrink-0 flex-col justify-end overflow-hidden border-border bg-[#151514] ${
+                isResizing ? "panel-dragging" : "panel-collapse-y"
               } ${isOpen && project ? "border-t" : ""}`
       }
       style={
@@ -658,196 +658,207 @@ export function IntegratedTerminal({
           className="absolute inset-x-0 top-0 z-20 h-1 cursor-row-resize hover:bg-border-strong"
         />
       ) : null}
-      <div className="flex h-9 items-center px-2">
-        <div
-          role="tablist"
-          aria-label="Terminal Tabs"
-          className="no-scrollbar flex min-w-0 flex-1 gap-0.5 overflow-x-auto"
-        >
-          {tabs.map((tab) => (
-            <div
-              key={tab.id}
-              role="tab"
-              aria-selected={tab.active}
-              className={`group flex h-8 w-56 shrink-0 items-center gap-1 rounded-md px-2 text-app-13 ${
-                tab.active ? "bg-surface-raised text-fg" : "text-muted hover:bg-surface"
-              }`}
+      {/* Fixed-height inner layer: the outer section animates its height while
+          this stays at the panel height, so the terminal never re-relayouts or
+          refits mid-animation — the collapse edge only sweeps across it. */}
+      <div
+        className={isMaximized || placement === "side" ? "flex h-full flex-col" : "flex flex-col"}
+        style={isMaximized || placement === "side" ? undefined : { height: panelHeight }}
+      >
+        <div className="flex h-9 shrink-0 items-center px-2">
+          <div
+            role="tablist"
+            aria-label="Terminal Tabs"
+            className="no-scrollbar flex min-w-0 flex-1 gap-0.5 overflow-x-auto"
+          >
+            {tabs.map((tab) => (
+              <div
+                key={tab.id}
+                role="tab"
+                aria-selected={tab.active}
+                className={`group flex h-8 w-56 shrink-0 items-center gap-1 rounded-md px-2 text-app-13 ${
+                  tab.active ? "bg-surface-raised text-fg" : "text-muted hover:bg-surface"
+                }`}
+              >
+                <SquareTerminal aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-subtle" />
+                <button
+                  type="button"
+                  className="flex h-full min-w-0 flex-1 -translate-y-px items-center truncate text-left font-medium leading-none"
+                  onClick={() => void activateTab(tab)}
+                >
+                  {tab.title}
+                </button>
+                {tab.status === "exited" ? <span className="text-danger">●</span> : null}
+                <button
+                  type="button"
+                  aria-label={`Close ${tab.title}`}
+                  title="Close Terminal Tab"
+                  onClick={() => void closeTab(tab)}
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-subtle opacity-0 hover:bg-surface-hover hover:text-fg group-hover:opacity-100"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            aria-label="New Terminal Tab"
+            title="New Terminal Tab"
+            disabled={loadingProjectId === project?.id}
+            onClick={() => void createTab()}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg disabled:opacity-40"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+          {placement === "bottom" ? (
+            <button
+              type="button"
+              aria-label={
+                isMaximized ? "Restore Integrated Terminal" : "Maximize Integrated Terminal"
+              }
+              title={isMaximized ? "Restore Integrated Terminal" : "Maximize Integrated Terminal"}
+              aria-pressed={isMaximized}
+              onClick={() => setIsMaximized((maximized) => !maximized)}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg"
             >
-              <SquareTerminal aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-subtle" />
-              <button
-                type="button"
-                className="flex h-full min-w-0 flex-1 -translate-y-px items-center truncate text-left font-medium leading-none"
-                onClick={() => void activateTab(tab)}
-              >
-                {tab.title}
-              </button>
-              {tab.status === "exited" ? <span className="text-danger">●</span> : null}
-              <button
-                type="button"
-                aria-label={`Close ${tab.title}`}
-                title="Close Terminal Tab"
-                onClick={() => void closeTab(tab)}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-subtle opacity-0 hover:bg-surface-hover hover:text-fg group-hover:opacity-100"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-        <button
-          type="button"
-          aria-label="New Terminal Tab"
-          title="New Terminal Tab"
-          disabled={loadingProjectId === project?.id}
-          onClick={() => void createTab()}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg disabled:opacity-40"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-        {placement === "bottom" ? (
+              {isMaximized ? (
+                <Minimize2 className="h-3.5 w-3.5" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" />
+              )}
+            </button>
+          ) : null}
           <button
             type="button"
-            aria-label={
-              isMaximized ? "Restore Integrated Terminal" : "Maximize Integrated Terminal"
-            }
-            title={isMaximized ? "Restore Integrated Terminal" : "Maximize Integrated Terminal"}
-            aria-pressed={isMaximized}
-            onClick={() => setIsMaximized((maximized) => !maximized)}
+            aria-label="Close Terminal Panel"
+            title="Close Terminal Panel"
+            onClick={() => onOpenChange(false)}
             className="flex h-7 w-7 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg"
-          >
-            {isMaximized ? (
-              <Minimize2 className="h-3.5 w-3.5" />
-            ) : (
-              <Maximize2 className="h-3.5 w-3.5" />
-            )}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          aria-label="Close Terminal Panel"
-          title="Close Terminal Panel"
-          onClick={() => onOpenChange(false)}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-subtle hover:bg-surface-hover hover:text-fg"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {searchOpen ? (
-        <div className="absolute right-2 top-10 z-20 flex h-8 items-center gap-1 rounded-md border border-border bg-surface px-1 shadow-lg">
-          <input
-            autoFocus
-            aria-label="Search terminal output"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") runSearch(event.shiftKey ? "previous" : "next");
-              if (event.key === "Escape") setSearchOpen(false);
-            }}
-            className="h-6 w-48 bg-transparent px-1 text-app-12 text-fg outline-none"
-          />
-          <button
-            type="button"
-            aria-label="Previous match"
-            onClick={() => runSearch("previous")}
-            className="flex h-6 w-6 items-center justify-center text-subtle hover:text-fg"
-          >
-            <ChevronUp className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            aria-label="Next match"
-            onClick={() => runSearch("next")}
-            className="flex h-6 w-6 items-center justify-center text-subtle hover:text-fg"
-          >
-            <ChevronDown className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            aria-label="Close search"
-            onClick={() => setSearchOpen(false)}
-            className="flex h-6 w-6 items-center justify-center text-subtle hover:text-fg"
           >
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
-      ) : null}
 
-      <div className="h-[calc(100%-2.25rem)] min-h-0">
-        {tabs.map((tab) => (
-          <div key={tab.id} className={tab.id === activeTab?.id ? "relative h-full p-2" : "hidden"}>
-            <TerminalViewport
-              tab={tab}
-              threadId={threadId}
-              visible={isOpen && tab.id === activeTab?.id}
-              register={register}
-              onCreateTab={() => void createTab()}
-              onCloseTab={() => void closeTab(tab)}
-              onSearch={() => setSearchOpen(true)}
-              completion={tab.id === activeTab?.id ? activeCompletion : null}
-              onDismissCompletion={dismissCompletion}
-              onMoveCandidate={(direction) =>
-                setCandidateIndex((index) => {
-                  const count = Math.min(
-                    activeCompletion?.candidates.length ?? 0,
-                    MAX_VISIBLE_CANDIDATES,
-                  );
-                  return count === 0 ? 0 : (index + direction + count) % count;
-                })
-              }
-              onAcceptCandidate={acceptCandidate}
-              onAcceptPrediction={acceptPrediction}
-              onFocusChange={onFocusChange}
+        {searchOpen ? (
+          <div className="absolute right-2 top-10 z-20 flex h-8 items-center gap-1 rounded-md border border-border bg-surface px-1 shadow-lg">
+            <input
+              autoFocus
+              aria-label="Search terminal output"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") runSearch(event.shiftKey ? "previous" : "next");
+                if (event.key === "Escape") setSearchOpen(false);
+              }}
+              className="h-6 w-48 bg-transparent px-1 text-app-12 text-fg outline-none"
             />
-            {tab.id === activeTab?.id && activeCompletion?.predictionSuffix ? (
-              <span
-                aria-label="Terminal history prediction"
-                className="pointer-events-none absolute z-10 whitespace-pre font-mono text-[13px] text-subtle"
-                style={{ left: completionAnchor.left, top: completionAnchor.top - 16 }}
-              >
-                {activeCompletion.predictionSuffix}
-              </span>
-            ) : null}
-            {tab.id === activeTab?.id && activeCompletion?.candidates.length ? (
-              <div
-                role="listbox"
-                aria-label="Terminal command candidates"
-                aria-activedescendant={`terminal-candidate-${candidateIndex}`}
-                className="absolute z-20 max-h-56 w-72 overflow-auto rounded-md border border-border bg-surface p-1 shadow-xl"
-                style={{
-                  left: Math.min(completionAnchor.left, 300),
-                  top: `max(0px, min(${completionAnchor.top}px, calc(100% - 15rem)))`,
-                }}
-              >
-                {activeCompletion.candidates
-                  .slice(0, MAX_VISIBLE_CANDIDATES)
-                  .map((candidate, index) => (
-                    <button
-                      id={`terminal-candidate-${index}`}
-                      key={`${candidate.kind}:${candidate.label}`}
-                      type="button"
-                      role="option"
-                      aria-selected={candidateIndex === index}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => writeCompletionText(candidate.insertText, candidate)}
-                      className={`flex min-h-8 w-full items-center gap-2 rounded px-2 text-left text-app-12 ${
-                        candidateIndex === index
-                          ? "bg-surface-hover text-fg"
-                          : "text-muted hover:bg-surface-raised"
-                      }`}
-                    >
-                      <span className="min-w-0 flex-1 truncate font-mono">{candidate.label}</span>
-                      {candidate.description ? (
-                        <span className="max-w-36 truncate text-app-11 text-subtle">
-                          {candidate.description}
-                        </span>
-                      ) : null}
-                    </button>
-                  ))}
-              </div>
-            ) : null}
+            <button
+              type="button"
+              aria-label="Previous match"
+              onClick={() => runSearch("previous")}
+              className="flex h-6 w-6 items-center justify-center text-subtle hover:text-fg"
+            >
+              <ChevronUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              aria-label="Next match"
+              onClick={() => runSearch("next")}
+              className="flex h-6 w-6 items-center justify-center text-subtle hover:text-fg"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              aria-label="Close search"
+              onClick={() => setSearchOpen(false)}
+              className="flex h-6 w-6 items-center justify-center text-subtle hover:text-fg"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
-        ))}
+        ) : null}
+
+        <div className="min-h-0 flex-1">
+          {tabs.map((tab) => (
+            <div
+              key={tab.id}
+              className={tab.id === activeTab?.id ? "relative h-full p-2" : "hidden"}
+            >
+              <TerminalViewport
+                tab={tab}
+                threadId={threadId}
+                visible={isOpen && tab.id === activeTab?.id}
+                register={register}
+                onCreateTab={() => void createTab()}
+                onCloseTab={() => void closeTab(tab)}
+                onSearch={() => setSearchOpen(true)}
+                completion={tab.id === activeTab?.id ? activeCompletion : null}
+                onDismissCompletion={dismissCompletion}
+                onMoveCandidate={(direction) =>
+                  setCandidateIndex((index) => {
+                    const count = Math.min(
+                      activeCompletion?.candidates.length ?? 0,
+                      MAX_VISIBLE_CANDIDATES,
+                    );
+                    return count === 0 ? 0 : (index + direction + count) % count;
+                  })
+                }
+                onAcceptCandidate={acceptCandidate}
+                onAcceptPrediction={acceptPrediction}
+                onFocusChange={onFocusChange}
+              />
+              {tab.id === activeTab?.id && activeCompletion?.predictionSuffix ? (
+                <span
+                  aria-label="Terminal history prediction"
+                  className="pointer-events-none absolute z-10 whitespace-pre font-mono text-[13px] text-subtle"
+                  style={{ left: completionAnchor.left, top: completionAnchor.top - 16 }}
+                >
+                  {activeCompletion.predictionSuffix}
+                </span>
+              ) : null}
+              {tab.id === activeTab?.id && activeCompletion?.candidates.length ? (
+                <div
+                  role="listbox"
+                  aria-label="Terminal command candidates"
+                  aria-activedescendant={`terminal-candidate-${candidateIndex}`}
+                  className="absolute z-20 max-h-56 w-72 overflow-auto rounded-md border border-border bg-surface p-1 shadow-xl"
+                  style={{
+                    left: Math.min(completionAnchor.left, 300),
+                    top: `max(0px, min(${completionAnchor.top}px, calc(100% - 15rem)))`,
+                  }}
+                >
+                  {activeCompletion.candidates
+                    .slice(0, MAX_VISIBLE_CANDIDATES)
+                    .map((candidate, index) => (
+                      <button
+                        id={`terminal-candidate-${index}`}
+                        key={`${candidate.kind}:${candidate.label}`}
+                        type="button"
+                        role="option"
+                        aria-selected={candidateIndex === index}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => writeCompletionText(candidate.insertText, candidate)}
+                        className={`flex min-h-8 w-full items-center gap-2 rounded px-2 text-left text-app-12 ${
+                          candidateIndex === index
+                            ? "bg-surface-hover text-fg"
+                            : "text-muted hover:bg-surface-raised"
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1 truncate font-mono">{candidate.label}</span>
+                        {candidate.description ? (
+                          <span className="max-w-36 truncate text-app-11 text-subtle">
+                            {candidate.description}
+                          </span>
+                        ) : null}
+                      </button>
+                    ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
       </div>
 
       {contextMenu ? (

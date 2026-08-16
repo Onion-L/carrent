@@ -281,7 +281,7 @@ export function ProjectOverviewPage() {
               onToggleFullscreen={() => setBrowserFullscreen(false)}
             />
           </div>
-        ) : activeSurface ? (
+        ) : (
           <RightSurfacePane
             activeSurface={activeSurface}
             availability={{ browser: true, terminal: true, changes: false, inspector: false }}
@@ -289,28 +289,30 @@ export function ProjectOverviewPage() {
             onWidthChange={setRightSurfaceWidth}
             onSelect={selectSurface}
           >
-            {activeSurface === "browser" && showBrowser && browserTarget && activeBrowserState ? (
-              <BrowserWorkspace
-                target={browserTarget}
-                state={activeBrowserState}
-                setState={setBrowserState}
-                visible
-                onToggleFullscreen={() => setBrowserFullscreen(true)}
-              />
-            ) : activeSurface === "terminal" ? (
-              <div ref={setSideContainer} className="h-full w-full" />
-            ) : activeSurface === "inspector" ? (
-              <ThreadInspectorPane
-                embedded
-                messages={[]}
-                projectPath={project.workingDirectory}
-                selectedTaskId={null}
-                onSelectTask={() => {}}
-                onClose={closeRightSurface}
-              />
-            ) : null}
+            {(surface, closing) =>
+              surface === "browser" && showBrowser && browserTarget && activeBrowserState ? (
+                <BrowserWorkspace
+                  target={browserTarget}
+                  state={activeBrowserState}
+                  setState={setBrowserState}
+                  visible={!closing}
+                  onToggleFullscreen={() => setBrowserFullscreen(true)}
+                />
+              ) : surface === "terminal" ? (
+                <div ref={setSideContainer} className="h-full w-full" />
+              ) : surface === "inspector" ? (
+                <ThreadInspectorPane
+                  embedded
+                  messages={[]}
+                  projectPath={project.workingDirectory}
+                  selectedTaskId={null}
+                  onSelectTask={() => {}}
+                  onClose={closeRightSurface}
+                />
+              ) : null
+            }
           </RightSurfacePane>
-        ) : null}
+        )}
       </div>
     );
   }

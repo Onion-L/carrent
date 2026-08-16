@@ -1845,7 +1845,9 @@ describe("three-level navigation", () => {
     await renderApp(navigationState(), "/workspace/workspace-1");
 
     const navigationPane = container!.querySelector("aside.border-r")!;
-    const middlePane = navigationPane.parentElement as HTMLDivElement;
+    // The pane content sits in a fixed-width inner layer that the animated
+    // collapse container clips, so the width assertions target its parent.
+    const middlePane = navigationPane.parentElement!.parentElement as HTMLDivElement;
     const rightContent = middlePane.parentElement!.parentElement as HTMLDivElement;
     const desktopHeader = container!.querySelector("header")!;
     const workspaceRail = container!.querySelector<HTMLDivElement>('div[style*="width: 58px"]');

@@ -6,6 +6,7 @@
     "src/**/*.d.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
+    "scripts/**/*.ts",
     "electron.vite.config.ts"
   ]
 }

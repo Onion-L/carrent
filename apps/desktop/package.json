@@ -66,6 +66,7 @@
     "asarUnpack": [
       "node_modules/node-pty/**/*"
     ],
+    "afterPack": "./scripts/afterPack.ts",
     "directories": {
       "output": "release"
     },

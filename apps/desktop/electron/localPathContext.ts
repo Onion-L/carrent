@@ -1,7 +1,8 @@
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 
 import {
   normalizeLocalPathContextItem,
+  normalizeLocalPathContextPath,
   type LocalPathResolutionRejection,
   type LocalPathResolutionResult,
   type RevealPathResult,
@@ -42,12 +43,20 @@ export async function revealLocalPath(
   filePath: string,
   reveal: (filePath: string) => void,
 ): Promise<RevealPathResult> {
-  try {
-    await stat(filePath);
-  } catch {
+  const normalizedPath = normalizeLocalPathContextPath(filePath);
+  if (!normalizedPath) {
     return { revealed: false, reason: "missing" };
   }
 
-  reveal(filePath);
-  return { revealed: true };
+  try {
+    const resolvedPath = await realpath(normalizedPath);
+    const stats = await stat(resolvedPath);
+    if (!stats.isFile() && !stats.isDirectory()) {
+      return { revealed: false, reason: "missing" };
+    }
+    reveal(resolvedPath);
+    return { revealed: true };
+  } catch {
+    return { revealed: false, reason: "missing" };
+  }
 }

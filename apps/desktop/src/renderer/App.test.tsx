@@ -1163,13 +1163,13 @@ describe("three-level navigation", () => {
       ),
     ).toEqual(["Open in Finder", "Rename project", "Copy path", "Delete"]);
 
-    const openedPaths: string[] = [];
-    window.carrent.shell.openPath = async (path) => {
-      openedPaths.push(path);
-      return "";
+    const revealedPaths: string[] = [];
+    window.carrent.shell.revealPath = async (path) => {
+      revealedPaths.push(path);
+      return { revealed: true };
     };
     await click(buttonNamed("Open in Finder"));
-    expect(openedPaths).toEqual(["/code/carrent"]);
+    expect(revealedPaths).toEqual(["/code/carrent"]);
 
     const copiedPaths: string[] = [];
     window.carrent.clipboard.writeText = async (path) => {

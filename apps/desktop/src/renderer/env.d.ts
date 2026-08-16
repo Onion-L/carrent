@@ -130,7 +130,6 @@ declare global {
         openDirectory: () => Promise<{ canceled: boolean; filePaths: string[] }>;
       };
       shell: {
-        openPath: (filePath: string) => Promise<string>;
         revealPath: (
           filePath: string,
         ) => Promise<import("../shared/localPathContext").RevealPathResult>;

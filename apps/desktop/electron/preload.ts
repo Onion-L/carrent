@@ -275,8 +275,6 @@ const carrent = {
       }>,
   },
   shell: {
-    openPath: (filePath: string) =>
-      ipcRenderer.invoke("shell:open-path", filePath) as Promise<string>,
     revealPath: (filePath: string) =>
       ipcRenderer.invoke("shell:reveal-path", filePath) as Promise<RevealPathResult>,
     openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url) as Promise<void>,

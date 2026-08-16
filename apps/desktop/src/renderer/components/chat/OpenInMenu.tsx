@@ -135,8 +135,8 @@ export function OpenInMenu({
   const handleOpenInFinder = async () => {
     closeMenu();
     try {
-      const error = await window.carrent.shell.openPath(workingDirectory);
-      if (error) showToast(error, "error");
+      const result = await window.carrent.shell.revealPath(workingDirectory);
+      if (!result.revealed) showToast("Working directory could not be found.", "error");
     } catch {
       showToast("Working directory could not be opened in Finder.", "error");
     }

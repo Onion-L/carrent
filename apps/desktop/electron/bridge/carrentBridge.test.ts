@@ -205,7 +205,7 @@ describe("startCarrentBridge", () => {
         id: "carrent_bridge",
         name: "carrent_bridge",
         type: "http",
-        headers: [],
+        headers: [{ name: "Authorization", value: "Bearer test-token" }],
       });
       expect(bridge.mcpServer.url).toContain("/mcp?token=test-token");
 

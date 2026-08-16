@@ -257,8 +257,8 @@ export function WorkspaceNavigationPane() {
 
   const openInFinder = async (workingDirectory: string) => {
     try {
-      const error = await window.carrent.shell.openPath(workingDirectory);
-      if (error) showToast(error, "error");
+      const result = await window.carrent.shell.revealPath(workingDirectory);
+      if (!result.revealed) showToast("Project could not be found.", "error");
     } catch {
       showToast("Project could not be opened in Finder.", "error");
     }

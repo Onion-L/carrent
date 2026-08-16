@@ -142,7 +142,7 @@ class CarrentBridgeServer {
         name: "carrent_bridge",
         type: "http",
         url: server.url,
-        headers: [],
+        headers: [{ name: "Authorization", value: `Bearer ${this.options.token}` }],
       },
       close: () => server.close(),
     };

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   APP_STATE_SNAPSHOT_VERSION,
+  normalizeAppStateSettings,
   normalizeAppStateSnapshot,
   normalizeAppStateSnapshotForMemory,
   normalizeAppStateSnapshotForWrite,
@@ -1241,5 +1242,70 @@ describe("Local Path Context persistence", () => {
     expect(normalized.threadWork!["thread-1"].draft!.localPathContexts).toEqual([
       { path: "/keep", basename: "keep", kind: "file" },
     ]);
+  });
+});
+
+describe("normalizeAppStateSettings keybindingOverrides", () => {
+  it("keeps valid overrides and drops entries with unknown actions or malformed bindings", () => {
+    const normalized = normalizeAppStateSettings({
+      keybindingOverrides: {
+        "search-threads": { key: "p", modifiers: ["mod", "shift"] },
+        "toggle-terminal": { key: "", modifiers: ["mod"] },
+        "zoom-in": "not-a-binding",
+        "zoom-out": { key: "9", modifiers: ["meta"] },
+        "reset-zoom": { modifiers: ["mod"] },
+        "unknown-action": { key: "x", modifiers: ["mod"] },
+      },
+    })!;
+
+    expect(normalized).not.toBe(null);
+    expect(normalized.keybindingOverrides).toEqual({
+      "search-threads": { key: "p", modifiers: ["mod", "shift"] },
+    });
+  });
+
+  it("omits the field when no override survives normalization", () => {
+    const normalized = normalizeAppStateSettings({
+      keybindingOverrides: { "zoom-in": { key: "", modifiers: [] } },
+    })!;
+
+    expect(normalized).not.toBe(null);
+    expect(normalized.keybindingOverrides).toBeUndefined();
+  });
+
+  it("falls back to omitting the field for a non-object value", () => {
+    const normalized = normalizeAppStateSettings({ keybindingOverrides: "nope" })!;
+
+    expect(normalized).not.toBe(null);
+    expect("keybindingOverrides" in normalized).toBe(false);
+  });
+
+  it("preserves overrides when normalizing a full snapshot", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      settings: {
+        keybindingOverrides: {
+          "search-threads": { key: "p", modifiers: ["mod"] },
+        },
+      },
+      activeWorkspaceId: "workspace-1",
+    };
+
+    const normalized = normalizeAppStateSnapshot(snapshot)!;
+    expect(normalized).not.toBe(null);
+    expect(normalized.settings?.keybindingOverrides).toEqual({
+      "search-threads": { key: "p", modifiers: ["mod"] },
+    });
   });
 });

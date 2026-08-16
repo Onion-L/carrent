@@ -7,6 +7,7 @@ import {
 } from "./attachment";
 import { normalizeLocalPathContexts, type LocalPathContextItem } from "./localPathContext";
 import type { ChatPermissionOption } from "./chatPermissions";
+import { ACTION_IDS, isKeyBinding, type ActionId, type KeyBinding } from "./keybindings";
 import { isRuntimeMode, type RuntimeMode } from "./runtimeMode";
 import { normalizePersistedRuntimeId, runtimeIds, type RuntimeId } from "./runtimes";
 import { MAX_TERMINAL_PANEL_HEIGHT, MIN_TERMINAL_PANEL_HEIGHT } from "./terminal";
@@ -196,6 +197,10 @@ export type AppStateSettings = {
   // switching to another model. Affects only title generation — never a Thread
   // Draft's selected Run model or an Association default.
   threadTitleModelId?: string;
+  // User-customized keyboard shortcuts, keyed by action. Only modified
+  // bindings are stored; absent actions fall back to the renderer's
+  // DEFAULT_KEYBINDINGS (src/renderer/lib/defaultKeybindings).
+  keybindingOverrides?: Partial<Record<ActionId, KeyBinding>>;
 };
 
 // Font-size bounds mirror src/renderer/lib/fontSize (kept renderer-local).
@@ -283,6 +288,17 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
           .slice(0, MAX_CUSTOM_FONT_FAMILY_LENGTH)
       : DEFAULT_APP_STATE_SETTINGS.customFontFamily;
 
+  // keybindingOverrides: per-action leniency — entries with a known action id
+  // and a well-formed binding survive, everything else is dropped so a bad
+  // override can never wedge the settings snapshot.
+  const keybindingOverrides: Partial<Record<ActionId, KeyBinding>> = {};
+  if (isRecord(value.keybindingOverrides)) {
+    for (const actionId of ACTION_IDS) {
+      const binding = value.keybindingOverrides[actionId];
+      if (isKeyBinding(binding)) keybindingOverrides[actionId] = binding;
+    }
+  }
+
   return {
     autoDetectRuntimes,
     theme,
@@ -293,6 +309,7 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     runtimeDefaultModelById,
     customFontFamily,
     ...(threadTitleModelId ? { threadTitleModelId } : {}),
+    ...(Object.keys(keybindingOverrides).length > 0 ? { keybindingOverrides } : {}),
   };
 }
 

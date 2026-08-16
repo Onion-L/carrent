@@ -304,8 +304,8 @@ export function DebugTimeline({ messages }: { messages: Message[] }) {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索"
-            aria-label="搜索调试记录"
+            placeholder="Search"
+            aria-label="Search debug records"
             className="h-7 w-44 rounded-md border border-border bg-surface pl-7 pr-2 text-app-12 text-fg outline-none placeholder:text-subtle focus:border-border-strong"
           />
         </div>

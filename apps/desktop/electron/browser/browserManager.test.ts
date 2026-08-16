@@ -237,6 +237,44 @@ describe("BrowserManager", () => {
     }
   });
 
+  it("resolves remote favicons to CSP-safe data URLs and clears them when none arrive", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "carrent-browser-favicon-"));
+    try {
+      new FakeBrowserWindow(17);
+      const target = { projectId: "project-1", threadId: "thread-1" };
+      const manager = createBrowserManager({
+        userDataPath: directory,
+        createAuxiliaryWindow: () => new FakeBrowserWindow() as never,
+        browserMenuOverlayPreload: "/browser-menu-overlay-preload.mjs",
+        loadBrowserMenuOverlay: () => {},
+        resolveOwner: () => 17,
+        resolveProjectTarget: () => ({ ownerId: 17, target }),
+        resolveFavicon: async (url) =>
+          url === "https://example.com/favicon.ico" ? "data:image/png;base64,AAA" : null,
+      });
+
+      manager.activate(17, target);
+      await manager.open(17, target);
+      createdViews[0].webContents.emit("page-favicon-updated", {}, [
+        "https://example.com/favicon.ico",
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(manager.getState(17, target).tabs.at(0)?.faviconUrl).toBe("data:image/png;base64,AAA");
+
+      createdViews[0].webContents.emit("page-favicon-updated", {}, []);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(manager.getState(17, target).tabs.at(0)?.faviconUrl).toBeUndefined();
+
+      createdViews[0].webContents.emit("page-favicon-updated", {}, [
+        "https://example.com/unresolvable.ico",
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(manager.getState(17, target).tabs.at(0)?.faviconUrl).toBeUndefined();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("moves native content ownership without leaving stale state in another window", async () => {
     const directory = mkdtempSync(join(tmpdir(), "carrent-browser-manager-"));
     try {

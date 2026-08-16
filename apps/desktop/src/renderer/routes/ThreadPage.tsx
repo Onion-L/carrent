@@ -511,7 +511,7 @@ function ThreadPageContent() {
             onClose={() => setInspectorOpen(false)}
           />
         </div>
-      ) : activeSurface ? (
+      ) : (
         <RightSurfacePane
           activeSurface={activeSurface}
           availability={{
@@ -524,47 +524,49 @@ function ThreadPageContent() {
           onWidthChange={setRightSurfaceWidth}
           onSelect={handleSelectSurface}
         >
-          {activeSurface === "browser" && showBrowser && browserTarget && activeBrowserState ? (
-            <BrowserWorkspace
-              target={browserTarget}
-              state={activeBrowserState}
-              setState={setBrowserState}
-              visible
-              onToggleFullscreen={() => setBrowserFullscreen(true)}
-            />
-          ) : activeSurface === "terminal" ? (
-            <div ref={setSideContainer} className="h-full w-full" />
-          ) : activeSurface === "changes" && diffState.open ? (
-            <WorkspaceDiffViewer
-              embedded
-              snapshot={diffState.snapshot}
-              files={diffState.files}
-              onClose={closeRightSurface}
-              onCreateFollowUp={
-                routeData
-                  ? (content) => {
-                      draftRequestIdRef.current += 1;
-                      setDraftRequest({
-                        threadId: routeData.thread.id,
-                        request: { content, requestId: draftRequestIdRef.current },
-                      });
-                      closeRightSurface();
-                    }
-                  : undefined
-              }
-            />
-          ) : activeSurface === "inspector" ? (
-            <ThreadInspectorPane
-              embedded
-              messages={inspectorInput?.messages ?? []}
-              projectPath={inspectorInput?.projectPath}
-              selectedTaskId={selectedTaskId}
-              onSelectTask={setSelectedTaskId}
-              onClose={closeRightSurface}
-            />
-          ) : null}
+          {(surface, closing) =>
+            surface === "browser" && showBrowser && browserTarget && activeBrowserState ? (
+              <BrowserWorkspace
+                target={browserTarget}
+                state={activeBrowserState}
+                setState={setBrowserState}
+                visible={!closing}
+                onToggleFullscreen={() => setBrowserFullscreen(true)}
+              />
+            ) : surface === "terminal" ? (
+              <div ref={setSideContainer} className="h-full w-full" />
+            ) : surface === "changes" && diffState.open ? (
+              <WorkspaceDiffViewer
+                embedded
+                snapshot={diffState.snapshot}
+                files={diffState.files}
+                onClose={closeRightSurface}
+                onCreateFollowUp={
+                  routeData
+                    ? (content) => {
+                        draftRequestIdRef.current += 1;
+                        setDraftRequest({
+                          threadId: routeData.thread.id,
+                          request: { content, requestId: draftRequestIdRef.current },
+                        });
+                        closeRightSurface();
+                      }
+                    : undefined
+                }
+              />
+            ) : surface === "inspector" ? (
+              <ThreadInspectorPane
+                embedded
+                messages={inspectorInput?.messages ?? []}
+                projectPath={inspectorInput?.projectPath}
+                selectedTaskId={selectedTaskId}
+                onSelectTask={setSelectedTaskId}
+                onClose={closeRightSurface}
+              />
+            ) : null
+          }
         </RightSurfacePane>
-      ) : null}
+      )}
     </div>
   );
 }

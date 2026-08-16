@@ -18,6 +18,15 @@ const LEFT_SIDEBAR_WIDTH = 58;
 const MIN_SECONDARY_PANE_WIDTH = 200;
 const MAX_SECONDARY_PANE_WIDTH = 480;
 const DEFAULT_SECONDARY_PANE_WIDTH = 280;
+const SECONDARY_PANE_WIDTH_STORAGE_KEY = "carrent:secondary-pane-width";
+
+function readStoredSecondaryPaneWidth() {
+  if (typeof window === "undefined") return DEFAULT_SECONDARY_PANE_WIDTH;
+  const raw = window.localStorage.getItem(SECONDARY_PANE_WIDTH_STORAGE_KEY);
+  const parsed = raw === null ? Number.NaN : Number(raw);
+  if (!Number.isFinite(parsed)) return DEFAULT_SECONDARY_PANE_WIDTH;
+  return Math.min(MAX_SECONDARY_PANE_WIDTH, Math.max(MIN_SECONDARY_PANE_WIDTH, parsed));
+}
 
 export function getSecondaryPaneKind(pathname: string) {
   if (pathname === "/settings") return "settings";
@@ -28,7 +37,7 @@ export function getSecondaryPaneKind(pathname: string) {
 export function DesktopShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const [isSecondaryPaneCollapsed, setIsSecondaryPaneCollapsed] = useState(false);
-  const [secondaryPaneWidth, setSecondaryPaneWidth] = useState(DEFAULT_SECONDARY_PANE_WIDTH);
+  const [secondaryPaneWidth, setSecondaryPaneWidth] = useState(readStoredSecondaryPaneWidth);
   const [isResizing, setIsResizing] = useState(false);
   const resizeStartRef = useRef({ x: 0, width: DEFAULT_SECONDARY_PANE_WIDTH });
   const location = useLocation();
@@ -133,6 +142,10 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
         document.body.style.userSelect = "";
         document.removeEventListener("mousemove", handleMouseMove);
         document.removeEventListener("mouseup", handleMouseUp);
+        setSecondaryPaneWidth((width) => {
+          window.localStorage.setItem(SECONDARY_PANE_WIDTH_STORAGE_KEY, String(width));
+          return width;
+        });
       };
 
       document.addEventListener("mousemove", handleMouseMove);
@@ -157,13 +170,20 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
                 aria-label={isSecondaryPaneCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                 title={isSecondaryPaneCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                 onClick={toggleSecondaryPane}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
+                className="relative flex h-7 w-7 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
               >
-                {isSecondaryPaneCollapsed ? (
-                  <PanelLeftOpen className="h-4 w-4" />
-                ) : (
-                  <PanelLeftClose className="h-4 w-4" />
-                )}
+                <PanelLeftOpen
+                  aria-hidden="true"
+                  className={`panel-fade absolute h-4 w-4 ${
+                    isSecondaryPaneCollapsed ? "opacity-100" : "opacity-0"
+                  }`}
+                />
+                <PanelLeftClose
+                  aria-hidden="true"
+                  className={`panel-fade h-4 w-4 ${
+                    isSecondaryPaneCollapsed ? "opacity-0" : "opacity-100"
+                  }`}
+                />
               </button>
               <button
                 type="button"
@@ -215,10 +235,14 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
             <div className="min-h-0 min-w-0 flex-1 bg-sidebar pb-1.5 pr-1.5">
               <div className="flex h-full min-h-0">
                 <div
-                  className={`min-h-0 shrink-0 overflow-hidden ${isResizing ? "" : "transition-[width] duration-200 ease-out"}`}
+                  className={`min-h-0 shrink-0 overflow-hidden ${
+                    isResizing ? "panel-dragging" : "panel-collapse-x"
+                  }`}
                   style={{ width: isSecondaryPaneCollapsed ? 0 : secondaryPaneWidth }}
                 >
-                  {secondaryPane}
+                  <div className="h-full" style={{ width: secondaryPaneWidth }}>
+                    {secondaryPane}
+                  </div>
                 </div>
 
                 {!isSecondaryPaneCollapsed && (

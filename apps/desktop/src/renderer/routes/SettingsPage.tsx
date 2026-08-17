@@ -1543,7 +1543,7 @@ export function SettingsPage() {
                 {activeTabId === "keybindings" ? <KeybindingsTab /> : null}
 
                 {activeTabId === "interface" ? (
-                  <Section>
+                  <div>
                     <Select
                       label="Theme"
                       value={theme}
@@ -1572,7 +1572,7 @@ export function SettingsPage() {
                       enabled={enhancedTerminalCompletion}
                       onChange={(value) => updateSetting("enhancedTerminalCompletion", value)}
                     />
-                  </Section>
+                  </div>
                 ) : null}
 
                 {activeTabId === "archives" ? (

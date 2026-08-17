@@ -141,7 +141,7 @@ export function KeybindingsTab() {
   };
 
   return (
-    <div className="border-y border-border">
+    <div className="border-t border-border">
       <table className="w-full table-fixed border-collapse text-left">
         <thead className="text-app-11 font-medium uppercase text-subtle">
           <tr className="border-b border-border">

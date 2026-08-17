@@ -1,10 +1,17 @@
 import {
   ACTION_IDS,
+  normalizeKeybindingInputKey,
   type ActionId,
+  type EffectiveKeybindingMap,
   type KeyBinding,
   type KeyBindingModifier,
+  type KeybindingScope,
 } from "../../shared/keybindings";
-import { DEFAULT_KEYBINDINGS } from "./defaultKeybindings";
+import {
+  getDefaultKeybindings,
+  KEYBINDING_ACTION_BY_ID,
+  type KeybindingCondition,
+} from "./defaultKeybindings";
 
 // Canonical modifier order for storage and display, per the keybindings PRD.
 const MODIFIER_ORDER: Record<KeyBindingModifier, number> = {
@@ -48,6 +55,9 @@ export type PreparedKeybindingUpdate =
     };
 
 export function isMacPlatform(): boolean {
+  if (typeof window !== "undefined" && window.carrent?.platform) {
+    return window.carrent.platform === "darwin";
+  }
   return typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent);
 }
 
@@ -68,7 +78,57 @@ export function resolveKeybinding(
   overrides?: Partial<Record<ActionId, KeyBinding>>,
 ): KeyBinding | undefined {
   if (overrides && actionId in overrides) return overrides[actionId];
-  return DEFAULT_KEYBINDINGS[actionId];
+  return getDefaultKeybindings(actionId, isMacPlatform())[0];
+}
+
+export function resolveKeybindings(
+  actionId: ActionId,
+  overrides?: Partial<Record<ActionId, KeyBinding>>,
+): KeyBinding[] {
+  if (overrides && actionId in overrides) {
+    return overrides[actionId] ? [overrides[actionId]] : [];
+  }
+  return getDefaultKeybindings(actionId, isMacPlatform());
+}
+
+function conditionsOverlap(left: KeybindingCondition, right: KeybindingCondition): boolean {
+  return !(
+    (left === "model-picker-open" && right === "model-picker-closed") ||
+    (left === "model-picker-closed" && right === "model-picker-open")
+  );
+}
+
+export function keybindingScopesOverlap(left: ActionId, right: ActionId): boolean {
+  const leftAction = KEYBINDING_ACTION_BY_ID[left];
+  const rightAction = KEYBINDING_ACTION_BY_ID[right];
+  if (!conditionsOverlap(leftAction.condition ?? "default", rightAction.condition ?? "default")) {
+    return false;
+  }
+  const rightScopes = new Set(rightAction.scopes);
+  return leftAction.scopes.some((scope) => rightScopes.has(scope));
+}
+
+export function isKeybindingActionActive(actionId: ActionId): boolean {
+  const condition = KEYBINDING_ACTION_BY_ID[actionId].condition ?? "default";
+  if (condition === "default") return true;
+  if (typeof document === "undefined") return false;
+  const modelPickerOpen = Boolean(document.querySelector('[data-model-picker-open="true"]'));
+  if (condition === "model-picker-open") return modelPickerOpen;
+  if (condition === "model-picker-closed") return !modelPickerOpen;
+  return Boolean(document.querySelector('[data-approval-open="true"]'));
+}
+
+export function buildEffectiveKeybindingMap(
+  overrides?: Partial<Record<ActionId, KeyBinding>>,
+): EffectiveKeybindingMap {
+  const result: EffectiveKeybindingMap = { app: {}, terminal: {}, browser: {} };
+  for (const actionId of ACTION_IDS) {
+    const bindings = resolveKeybindings(actionId, overrides);
+    for (const scope of KEYBINDING_ACTION_BY_ID[actionId].scopes) {
+      result[scope][actionId] = bindings;
+    }
+  }
+  return result;
 }
 
 /**
@@ -85,8 +145,9 @@ export function detectConflict(
   const candidate: KeyBinding = { key, modifiers };
   for (const actionId of ACTION_IDS) {
     if (actionId === excludeActionId) continue;
-    const binding = resolveKeybinding(actionId, currentOverrides);
-    if (binding && isSameBinding(binding, candidate)) {
+    if (!keybindingScopesOverlap(actionId, excludeActionId)) continue;
+    const bindings = resolveKeybindings(actionId, currentOverrides);
+    if (bindings.some((binding) => isSameBinding(binding, candidate))) {
       return actionId;
     }
   }
@@ -137,6 +198,13 @@ export function isKeybindingTextInputTarget(target: EventTarget | null): boolean
   );
 }
 
+export function getKeybindingScope(target: EventTarget | null): KeybindingScope {
+  if (!(target instanceof Element)) return "app";
+  const scoped = target.closest<HTMLElement>("[data-keybinding-scope]");
+  const scope = scoped?.dataset.keybindingScope;
+  return scope === "terminal" || scope === "browser" ? scope : "app";
+}
+
 /**
  * Extracts a canonical binding from a keyboard event. On Mac, metaKey maps to
  * "mod" and ctrlKey stays "ctrl"; elsewhere ctrlKey maps to "mod" and metaKey
@@ -156,7 +224,7 @@ export function normalizeModifiers(
   if (event.shiftKey && !shiftedPlus) modifiers.push("shift");
   if (event.metaKey && isMac) modifiers.push("mod");
   return {
-    key: shiftedPlus || event.code === "NumpadAdd" ? "=" : event.key,
+    key: normalizeKeybindingInputKey(event),
     modifiers: canonicalModifiers(modifiers),
   };
 }
@@ -167,6 +235,14 @@ export function normalizeModifiers(
  * Single-character keys are uppercased; named keys pass through as-is.
  */
 export function formatKeybinding(keybinding: KeyBinding, isMac = isMacPlatform()): string {
+  const parts = getKeybindingDisplayParts(keybinding, isMac);
+  return parts.join(isMac ? "" : "+");
+}
+
+export function getKeybindingDisplayParts(
+  keybinding: KeyBinding,
+  isMac = isMacPlatform(),
+): string[] {
   const modifiers = platformModifiers(keybinding.modifiers, isMac);
   const display = isMac
     ? modifiers
@@ -174,10 +250,10 @@ export function formatKeybinding(keybinding: KeyBinding, isMac = isMacPlatform()
         (left, right) => NON_MAC_DISPLAY_ORDER[left] - NON_MAC_DISPLAY_ORDER[right],
       );
   const key = keybinding.key.length === 1 ? keybinding.key.toLocaleUpperCase() : keybinding.key;
-  if (isMac) {
-    return `${display.map((modifier) => MAC_MODIFIER_SYMBOLS[modifier]).join("")}${key}`;
-  }
-  return [...display.map((modifier) => NON_MAC_MODIFIER_LABELS[modifier]), key].join("+");
+  const modifierLabels = isMac
+    ? display.map((modifier) => MAC_MODIFIER_SYMBOLS[modifier])
+    : display.map((modifier) => NON_MAC_MODIFIER_LABELS[modifier]);
+  return [...modifierLabels, key];
 }
 
 /**
@@ -222,7 +298,7 @@ export function prepareKeybindingUpdate(
 
   const overrides: Partial<Record<ActionId, KeyBinding | undefined>> = { ...currentOverrides };
   if (conflict) overrides[conflict] = undefined;
-  if (binding && isSameBinding(binding, DEFAULT_KEYBINDINGS[actionId])) {
+  if (binding && isSameBinding(binding, getDefaultKeybindings(actionId, isMacPlatform())[0])) {
     delete overrides[actionId];
   } else {
     overrides[actionId] = binding;

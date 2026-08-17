@@ -1,10 +1,19 @@
 import { describe, expect, it } from "bun:test";
 
-import type { ActionId, KeyBinding, KeyBindingModifier } from "../../shared/keybindings";
 import {
+  ACTION_IDS,
+  matchingKeybindingActionIds,
+  matchesKeybindingInput,
+  type ActionId,
+  type KeyBinding,
+  type KeyBindingModifier,
+} from "../../shared/keybindings";
+import {
+  buildEffectiveKeybindingMap,
   canonicalModifiers,
   detectConflict,
   formatKeybinding,
+  getKeybindingDisplayParts,
   isMacPlatform,
   isReservedKey,
   isSameBinding,
@@ -12,6 +21,7 @@ import {
   prepareKeybindingUpdate,
   resetKeybindingOverride,
   resolveKeybinding,
+  resolveKeybindings,
 } from "./keybindings";
 
 type StubKeyboardEvent = {
@@ -58,9 +68,45 @@ describe("resolveKeybinding", () => {
   });
 });
 
+describe("resolveKeybindings", () => {
+  it("returns all defaults until an override replaces them", () => {
+    expect(resolveKeybindings("new-thread", {})).toEqual([
+      { key: "n", modifiers: ["mod"] },
+      { key: "o", modifiers: ["mod", "shift"] },
+    ]);
+    expect(
+      resolveKeybindings("new-thread", { "new-thread": { key: "t", modifiers: ["alt"] } }),
+    ).toEqual([{ key: "t", modifiers: ["alt"] }]);
+  });
+});
+
+describe("buildEffectiveKeybindingMap", () => {
+  it("publishes every action to at least one runtime scope", () => {
+    const bindings = buildEffectiveKeybindingMap();
+    for (const actionId of ACTION_IDS) {
+      expect(
+        bindings.app[actionId] !== undefined ||
+          bindings.terminal[actionId] !== undefined ||
+          bindings.browser[actionId] !== undefined,
+      ).toBe(true);
+    }
+  });
+
+  it("publishes overrides and explicit unbinds to their configured scopes", () => {
+    const bindings = buildEffectiveKeybindingMap({
+      "preview-find": { key: "F5", modifiers: [] },
+      "terminal-find": undefined,
+    });
+
+    expect(bindings.browser["preview-find"]).toEqual([{ key: "F5", modifiers: [] }]);
+    expect(bindings.terminal["terminal-find"]).toEqual([]);
+    expect(bindings.app["preview-find"]).toBeUndefined();
+  });
+});
+
 describe("detectConflict", () => {
   it("returns null for an unbound combination", () => {
-    expect(detectConflict("p", ["mod"], "search-threads", {})).toBeNull();
+    expect(detectConflict("u", ["mod", "alt"], "search-threads", {})).toBeNull();
   });
 
   it("detects a conflict with another action's default binding", () => {
@@ -87,8 +133,17 @@ describe("detectConflict", () => {
   });
 
   it("does not conflict when modifiers differ", () => {
-    expect(detectConflict("j", ["mod", "shift"], "search-threads", {})).toBeNull();
+    expect(detectConflict("j", ["mod", "alt"], "search-threads", {})).toBeNull();
     expect(detectConflict("j", [], "search-threads", {})).toBeNull();
+  });
+
+  it("allows the same key in mutually exclusive scopes", () => {
+    expect(detectConflict("n", ["mod"], "terminal-new", {})).toBeNull();
+    expect(detectConflict("=", ["mod"], "preview-zoom-in", {})).toBeNull();
+  });
+
+  it("detects conflicts with secondary default bindings", () => {
+    expect(detectConflict("o", ["mod", "shift"], "search-threads", {})).toBe("new-thread");
   });
 
   it("matches regardless of modifier order", () => {
@@ -157,11 +212,55 @@ describe("normalizeModifiers", () => {
     });
   });
 
+  it("canonicalizes shifted brackets to their stored base keys", () => {
+    expect(
+      normalizeModifiers(keyboardEvent({ key: "{", shiftKey: true, code: "BracketLeft" }), true),
+    ).toEqual({ key: "[", modifiers: ["shift"] });
+    expect(
+      normalizeModifiers(keyboardEvent({ key: "}", shiftKey: true, code: "BracketRight" }), true),
+    ).toEqual({ key: "]", modifiers: ["shift"] });
+  });
+
   it("returns no modifiers for a plain key", () => {
     expect(normalizeModifiers(keyboardEvent({ key: "9" }), true)).toEqual({
       key: "9",
       modifiers: [],
     });
+  });
+});
+
+describe("matchesKeybindingInput", () => {
+  it("matches Electron input on Mac and canonicalizes shifted plus", () => {
+    expect(
+      matchesKeybindingInput(
+        { key: "=", modifiers: ["mod"] },
+        {
+          key: "+",
+          code: "Equal",
+          metaKey: true,
+          ctrlKey: false,
+          altKey: false,
+          shiftKey: true,
+        },
+        true,
+      ),
+    ).toBe(true);
+  });
+
+  it("returns the matching action ids for the active scope map", () => {
+    expect(
+      matchingKeybindingActionIds(
+        { "preview-refresh": [{ key: "x", modifiers: ["mod"] }] },
+        {
+          key: "x",
+          metaKey: true,
+          ctrlKey: false,
+          altKey: false,
+          shiftKey: false,
+        },
+        true,
+      ),
+    ).toEqual(["preview-refresh"]);
   });
 });
 
@@ -191,6 +290,24 @@ describe("formatKeybinding", () => {
 
   it("leaves multi-character keys untouched on Mac", () => {
     expect(formatKeybinding({ key: "Escape", modifiers: ["mod"] }, true)).toBe("⌘Escape");
+  });
+});
+
+describe("getKeybindingDisplayParts", () => {
+  it("returns one display part per Mac keycap", () => {
+    expect(getKeybindingDisplayParts({ key: "k", modifiers: ["mod", "shift"] }, true)).toEqual([
+      "⇧",
+      "⌘",
+      "K",
+    ]);
+  });
+
+  it("returns one display part per non-Mac keycap", () => {
+    expect(getKeybindingDisplayParts({ key: "k", modifiers: ["mod", "shift"] }, false)).toEqual([
+      "Ctrl",
+      "Shift",
+      "K",
+    ]);
   });
 });
 
@@ -310,6 +427,15 @@ describe("prepareKeybindingUpdate", () => {
         { "search-threads": { key: "p", modifiers: ["mod"] } },
       ),
     ).toEqual({ status: "saved", overrides: {} });
+  });
+
+  it("stores a secondary default when it should replace the full default set", () => {
+    expect(
+      prepareKeybindingUpdate("new-thread", { key: "o", modifiers: ["mod", "shift"] }, {}),
+    ).toEqual({
+      status: "saved",
+      overrides: { "new-thread": { key: "o", modifiers: ["mod", "shift"] } },
+    });
   });
 });
 

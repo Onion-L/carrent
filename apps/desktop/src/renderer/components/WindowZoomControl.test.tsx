@@ -25,6 +25,7 @@ describe("WindowZoomControl", () => {
     const actions: MainWindowZoomAction[] = [];
     window.carrent = {
       keybindings: {
+        setBindings: () => {},
         setRecording: () => {},
         onInput: () => () => {},
         onShortcutInput: () => () => {},
@@ -46,7 +47,6 @@ describe("WindowZoomControl", () => {
             };
           },
         },
-        onCmdWCloseTab: () => () => {},
       },
     } as unknown as Window["carrent"];
     container = document.createElement("div");

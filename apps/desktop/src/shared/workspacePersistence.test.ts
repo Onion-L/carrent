@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
+import { ACTION_IDS, type ActionId, type KeyBinding } from "./keybindings";
+
 import {
   APP_STATE_SNAPSHOT_VERSION,
   normalizeAppStateSettings,
@@ -1247,6 +1249,26 @@ describe("Local Path Context persistence", () => {
 });
 
 describe("normalizeAppStateSettings keybindingOverrides", () => {
+  it("round-trips overrides and explicit unbinds for every supported action", () => {
+    const overrides = Object.fromEntries(
+      ACTION_IDS.map((actionId, index) => [
+        actionId,
+        index % 2 === 0 ? { key: `F${index + 1}`, modifiers: ["mod"] } : undefined,
+      ]),
+    ) as Partial<Record<ActionId, KeyBinding>>;
+
+    const settings = normalizeAppStateSettings({ keybindingOverrides: overrides })!;
+    const restored = normalizeAppStateSettings(JSON.parse(serializeAppStateSettings(settings)))!;
+
+    expect(Object.keys(restored.keybindingOverrides ?? {})).toHaveLength(ACTION_IDS.length);
+    for (const [index, actionId] of ACTION_IDS.entries()) {
+      expect(actionId in restored.keybindingOverrides!).toBe(true);
+      expect(restored.keybindingOverrides?.[actionId]).toEqual(
+        index % 2 === 0 ? { key: `F${index + 1}`, modifiers: ["mod"] } : undefined,
+      );
+    }
+  });
+
   it("keeps valid overrides and drops entries with unknown actions or malformed bindings", () => {
     const normalized = normalizeAppStateSettings({
       keybindingOverrides: {

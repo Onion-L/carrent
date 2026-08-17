@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import type { ActionId, KeybindingInput } from "../../shared/keybindings";
 import { useSettings } from "../context/SettingsContext";
 import {
   isKeybindingRecorderTarget,
   isKeybindingTextInputTarget,
+  getKeybindingScope,
+  isKeybindingActionActive,
   isSameBinding,
   normalizeModifiers,
-  resolveKeybinding,
+  resolveKeybindings,
 } from "../lib/keybindings";
+import { KEYBINDING_ACTION_BY_ID } from "../lib/defaultKeybindings";
 
 /**
  * Runs `handler` when the effective shortcut for `actionId` (user override or
@@ -23,7 +26,11 @@ import {
  */
 export function useKeybinding(actionId: ActionId, handler: () => void): () => void {
   const { keybindingOverrides } = useSettings();
-  const binding = resolveKeybinding(actionId, keybindingOverrides);
+  const bindings = useMemo(
+    () => resolveKeybindings(actionId, keybindingOverrides),
+    [actionId, keybindingOverrides],
+  );
+  const scopes = KEYBINDING_ACTION_BY_ID[actionId].scopes;
 
   // Latest-ref so a new inline handler does not re-register the listener.
   const handlerRef = useRef(handler);
@@ -33,39 +40,46 @@ export function useKeybinding(actionId: ActionId, handler: () => void): () => vo
 
   const removeListenerRef = useRef<() => void>(() => {});
   useEffect(() => {
-    if (!binding) {
+    if (bindings.length === 0) {
       removeListenerRef.current = () => {};
       return;
     }
 
     const matchesInput = (input: KeybindingInput | KeyboardEvent) =>
-      isSameBinding(normalizeModifiers(input), binding);
+      scopes.includes(
+        ("scope" in input ? input.scope : undefined) ?? getKeybindingScope(document.activeElement),
+      ) && bindings.some((binding) => isSameBinding(normalizeModifiers(input), binding));
     const runIfMatching = (input: KeybindingInput) => {
-      if (!matchesInput(input)) return;
+      if (!isKeybindingActionActive(actionId)) return;
+      if (input.actionIds ? !input.actionIds.includes(actionId) : !matchesInput(input)) return;
       handlerRef.current();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isKeybindingActionActive(actionId)) return;
       if (isKeybindingRecorderTarget(event.target)) return;
+      const scope = getKeybindingScope(event.target);
       if (
-        binding.modifiers.length === 0 &&
+        bindings.some((binding) => binding.modifiers.length === 0) &&
         event.key.length === 1 &&
-        isKeybindingTextInputTarget(event.target)
+        isKeybindingTextInputTarget(event.target) &&
+        scope !== "terminal"
       ) {
         return;
       }
-      if (!matchesInput(event)) return;
+      if (!scopes.includes(scope) || !matchesInput(event)) return;
       event.preventDefault();
       handlerRef.current();
     };
     window.addEventListener("keydown", handleKeyDown, true);
-    const removeShortcutInputListener = window.carrent.keybindings.onShortcutInput(runIfMatching);
+    const removeShortcutInputListener =
+      window.carrent?.keybindings?.onShortcutInput(runIfMatching) ?? (() => {});
     const removeListener = () => {
       window.removeEventListener("keydown", handleKeyDown, true);
       removeShortcutInputListener();
     };
     removeListenerRef.current = removeListener;
     return removeListener;
-  }, [binding]);
+  }, [bindings, scopes]);
 
   return useCallback(() => removeListenerRef.current(), []);
 }

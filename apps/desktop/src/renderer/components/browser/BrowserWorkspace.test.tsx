@@ -5,6 +5,7 @@ import "../../test/registerHappyDom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { BrowserThreadState, BrowserThreadTarget } from "../../../shared/browser";
+import type { KeybindingInput } from "../../../shared/keybindings";
 import { BrowserWorkspace, useBrowserThread } from "./BrowserWorkspace";
 
 let container: HTMLDivElement | null = null;
@@ -89,6 +90,12 @@ describe("BrowserWorkspace menu", () => {
     const menuRequests: unknown[] = [];
     window.carrent = {
       platform: "darwin",
+      keybindings: {
+        setBindings: () => {},
+        setRecording: () => {},
+        onInput: () => () => {},
+        onShortcutInput: () => () => {},
+      },
       browser: {
         openMenu: async (request: unknown) => {
           menuRequests.push(request);
@@ -103,7 +110,6 @@ describe("BrowserWorkspace menu", () => {
         },
         setBounds: async () => {},
         onFocusAddress: () => () => {},
-        onFind: () => () => {},
         stopFind: async () => {},
       },
       clipboard: { writeText: async () => {} },
@@ -168,11 +174,16 @@ describe("BrowserWorkspace menu", () => {
     let fullscreenToggles = 0;
     window.carrent = {
       platform: "darwin",
+      keybindings: {
+        setBindings: () => {},
+        setRecording: () => {},
+        onInput: () => () => {},
+        onShortcutInput: () => () => {},
+      },
       browser: {
         setVisible: async () => {},
         setBounds: async () => {},
         onFocusAddress: () => () => {},
-        onFind: () => () => {},
         onMenuAction: () => () => {},
         onMenuClosed: () => () => {},
         popOut: async (target: unknown) => {
@@ -216,5 +227,117 @@ describe("BrowserWorkspace menu", () => {
 
     expect(fullscreenToggles).toBe(1);
     expect(popOutRequests).toHaveLength(0);
+  });
+
+  it("runs matched custom shortcuts in a standalone browser window", async () => {
+    const shortcutListeners: Array<(input: KeybindingInput) => void> = [];
+    const actionRequests: unknown[] = [];
+    const dockRequests: unknown[] = [];
+    const newTabRequests: unknown[] = [];
+    const closeTabRequests: unknown[] = [];
+    const clipboardWrites: string[] = [];
+    const target = { projectId: "project-1", threadId: "thread-1" };
+    window.carrent = {
+      platform: "darwin",
+      keybindings: {
+        setBindings: () => {},
+        setRecording: () => {},
+        onInput: () => () => {},
+        onShortcutInput: (listener: (input: KeybindingInput) => void) => {
+          shortcutListeners.push(listener);
+          return () => {};
+        },
+      },
+      browser: {
+        setVisible: async () => {},
+        setBounds: async () => {},
+        onFocusAddress: () => () => {},
+        onMenuAction: () => () => {},
+        onMenuClosed: () => () => {},
+        stopFind: async () => {},
+        action: async (request: unknown) => {
+          actionRequests.push(request);
+          return browserState(target);
+        },
+        newTab: async (request: unknown) => {
+          newTabRequests.push(request);
+          return browserState(target);
+        },
+        closeTab: async (request: unknown) => {
+          closeTabRequests.push(request);
+          return browserState(target);
+        },
+        dock: async (request: unknown) => {
+          dockRequests.push(request);
+          return browserState(target);
+        },
+      },
+      clipboard: {
+        writeText: async (text: string) => {
+          clipboardWrites.push(text);
+        },
+      },
+    } as unknown as typeof window.carrent;
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(
+        <BrowserWorkspace
+          target={target}
+          state={{
+            ...browserState(target),
+            placement: "window",
+            tabs: [{ ...browserState(target).tabs[0], url: "https://example.com" }],
+          }}
+          setState={() => {}}
+          visible
+          standalone
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      const refreshInput: KeybindingInput = {
+        key: "x",
+        metaKey: true,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+        scope: "browser",
+        actionIds: ["preview-refresh"],
+      };
+      const toggleInput: KeybindingInput = {
+        key: "x",
+        metaKey: true,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+        scope: "browser",
+        actionIds: ["toggle-preview"],
+      };
+      for (const listener of shortcutListeners) listener(refreshInput);
+      for (const listener of shortcutListeners) listener(toggleInput);
+      for (const actionId of [
+        "preview-new-tab",
+        "preview-close-tab",
+        "preview-find",
+        "preview-copy-url",
+      ] as const) {
+        for (const listener of shortcutListeners) {
+          listener({ ...refreshInput, actionIds: [actionId] });
+        }
+      }
+      await Promise.resolve();
+    });
+
+    expect(actionRequests).toEqual([{ ...target, tabId: "tab-1", action: "reload" }]);
+    expect(dockRequests).toEqual([target]);
+    expect(newTabRequests).toEqual([target]);
+    expect(closeTabRequests).toEqual([{ ...target, tabId: "tab-1" }]);
+    expect(container.querySelector('input[placeholder="Find in page"]')).not.toBe(null);
+    expect(clipboardWrites).toEqual(["https://example.com"]);
   });
 });

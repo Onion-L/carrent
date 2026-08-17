@@ -116,11 +116,6 @@ const mainWindow: MainWindowApi = {
     captureDone: (route: string) =>
       ipcRenderer.invoke("windows:capture-done", route) as Promise<void>,
   },
-  onCmdWCloseTab: (listener) => {
-    const wrapped = () => listener();
-    ipcRenderer.on("terminal:cmd-w", wrapped);
-    return () => ipcRenderer.removeListener("terminal:cmd-w", wrapped);
-  },
 };
 
 const keybindings = createKeybindingsPreloadApi(ipcRenderer);
@@ -185,11 +180,6 @@ const carrent = {
       const wrapped = () => listener();
       ipcRenderer.on("browser:focus-address", wrapped);
       return () => ipcRenderer.removeListener("browser:focus-address", wrapped);
-    },
-    onFind: (listener: () => void) => {
-      const wrapped = () => listener();
-      ipcRenderer.on("browser:find", wrapped);
-      return () => ipcRenderer.removeListener("browser:find", wrapped);
     },
     onMenuAction: (listener: (event: BrowserMenuActionEvent) => void) => {
       const wrapped = (_event: IpcRendererEvent, actionEvent: BrowserMenuActionEvent) =>

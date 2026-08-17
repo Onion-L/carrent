@@ -198,7 +198,7 @@ export type AppStateSettings = {
   // Draft's selected Run model or an Association default.
   threadTitleModelId?: string;
   // User-customized keyboard shortcuts, keyed by action. An absent action
-  // falls back to DEFAULT_KEYBINDINGS; an own property with value undefined is
+  // falls back to the renderer's platform-specific default; an own property with value undefined is
   // explicitly unbound and is serialized as null for JSON persistence.
   keybindingOverrides?: Partial<Record<ActionId, KeyBinding>>;
 };

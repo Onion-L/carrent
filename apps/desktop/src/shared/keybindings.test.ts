@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import { ACTION_IDS, isKeyBinding } from "./keybindings";
+import {
+  ACTION_IDS,
+  browserPopupOwnerActionIds,
+  isKeyBinding,
+  matchesKeybindingInput,
+} from "./keybindings";
 
 describe("isKeyBinding", () => {
   it("accepts a binding with a key and the mod modifier", () => {
@@ -38,13 +43,45 @@ describe("isKeyBinding", () => {
 });
 
 describe("ACTION_IDS", () => {
-  it("lists the five customizable actions", () => {
-    expect(ACTION_IDS).toEqual([
-      "search-threads",
-      "toggle-terminal",
-      "zoom-in",
-      "zoom-out",
-      "reset-zoom",
-    ]);
+  it("lists each customizable action exactly once", () => {
+    expect(new Set(ACTION_IDS).size).toBe(ACTION_IDS.length);
+    expect(ACTION_IDS).toHaveLength(52);
+    expect(ACTION_IDS).toContain("open-file-picker");
+    expect(ACTION_IDS).toContain("thread-jump-9");
+    expect(ACTION_IDS).toContain("model-picker-select-9");
+    expect(ACTION_IDS).toContain("preview-new-tab");
+    expect(ACTION_IDS).toContain("terminal-copy");
+  });
+});
+
+describe("matchesKeybindingInput", () => {
+  it("matches shifted bracket shortcuts using their unshifted stored key", () => {
+    expect(
+      matchesKeybindingInput(
+        { key: "[", modifiers: ["mod", "shift"] },
+        {
+          key: "{",
+          code: "BracketLeft",
+          metaKey: true,
+          ctrlKey: false,
+          altKey: false,
+          shiftKey: true,
+        },
+        true,
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("browserPopupOwnerActionIds", () => {
+  it("keeps global actions in the main window and leaves preview actions in the popup", () => {
+    expect(
+      browserPopupOwnerActionIds([
+        "preview-new-tab",
+        "toggle-preview",
+        "toggle-sidebar",
+        "thread-next",
+      ]),
+    ).toEqual(["toggle-sidebar", "thread-next"]);
   });
 });

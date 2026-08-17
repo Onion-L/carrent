@@ -42,6 +42,7 @@ import {
   shouldOpenDiffSurface,
 } from "../components/right-surface/RightSurfacePane";
 import { useRightSurface } from "../components/right-surface/useRightSurface";
+import { useKeybinding } from "../hooks/useKeybinding";
 
 export function resolveThreadRouteData(
   getThreadRouteData: ReturnType<typeof useThreadContent>["getThreadRouteData"],
@@ -364,6 +365,22 @@ function ThreadPageContent() {
       openDiff(routeData.thread.id, latestChanges.snapshot, latestChanges.changedFiles);
     }
   };
+
+  useKeybinding("toggle-right-panel", () => {
+    if (activeSurface) closeRightSurface();
+    else {
+      setInspectorOpen(false);
+      openRightSurface();
+    }
+  });
+  useKeybinding("toggle-preview", () => {
+    if (activeSurface === "browser") closeRightSurface();
+    else handleSelectSurface("browser");
+  });
+  useKeybinding("toggle-diff", () => {
+    if (activeSurface === "changes") closeRightSurface();
+    else if (latestChanges?.snapshot && routeData) handleSelectSurface("changes");
+  });
 
   if (workspaceId && !appThread) {
     return <Navigate replace to={`/workspace/${workspaceId}/project/${projectId}`} />;

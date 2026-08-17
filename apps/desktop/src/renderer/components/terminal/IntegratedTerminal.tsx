@@ -25,6 +25,7 @@ import {
   type TerminalTab,
 } from "../../../shared/terminal";
 import { useSettings } from "../../context/SettingsContext";
+import { useKeybinding } from "../../hooks/useKeybinding";
 
 type TerminalController = {
   terminal: Terminal;
@@ -43,9 +44,6 @@ function TerminalViewport({
   threadId,
   visible,
   register,
-  onCreateTab,
-  onCloseTab,
-  onSearch,
   completion,
   onDismissCompletion,
   onMoveCandidate,
@@ -57,9 +55,6 @@ function TerminalViewport({
   threadId: string | null;
   visible: boolean;
   register: (terminalId: string, controller: TerminalController) => VoidFunction;
-  onCreateTab: () => void;
-  onCloseTab: () => void;
-  onSearch: () => void;
   completion: CompletionState | null;
   onDismissCompletion: () => void;
   onMoveCandidate: (direction: 1 | -1) => void;
@@ -69,9 +64,6 @@ function TerminalViewport({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const handlersRef = useRef({
-    onCreateTab,
-    onCloseTab,
-    onSearch,
     completion,
     onDismissCompletion,
     onMoveCandidate,
@@ -79,9 +71,6 @@ function TerminalViewport({
     onAcceptPrediction,
   });
   handlersRef.current = {
-    onCreateTab,
-    onCloseTab,
-    onSearch,
     completion,
     onDismissCompletion,
     onMoveCandidate,
@@ -190,29 +179,6 @@ function TerminalViewport({
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") return true;
       const handlers = handlersRef.current;
-      if (event.metaKey) {
-        switch (event.key.toLocaleLowerCase()) {
-          case "t":
-            handlers.onCreateTab();
-            return false;
-          case "w":
-            handlers.onCloseTab();
-            return false;
-          case "f":
-            handlers.onSearch();
-            return false;
-          case "c":
-            if (terminal.hasSelection()) {
-              void window.carrent.clipboard.writeText(terminal.getSelection());
-            }
-            return false;
-          case "v":
-            void window.carrent.clipboard.readText().then((text) => terminal.paste(text));
-            return false;
-          default:
-            return true;
-        }
-      }
       if (event.key === "Tab") return true;
       if (handlers.completion?.predictionSuffix) {
         if (event.key === "End" || (event.key === "ArrowRight" && !event.altKey)) {
@@ -374,15 +340,8 @@ export function IntegratedTerminal({
     },
     [activeTab, onOpenChange, project, tabs.length, updateTabs],
   );
-
-  // The main process routes Cmd+W to "close terminal tab" while a terminal
-  // holds focus (see the before-input-event handler in electron/main.ts); it
-  // pings us here so we reuse the same close path as the in-terminal Cmd+W.
-  useEffect(() => {
-    return window.carrent.mainWindow.onCmdWCloseTab(() => {
-      void closeTab();
-    });
-  }, [closeTab]);
+  useKeybinding("terminal-new", () => void createTab());
+  useKeybinding("terminal-close", () => void closeTab());
 
   const activateTab = useCallback(
     async (tab: TerminalTab) => {
@@ -527,6 +486,18 @@ export function IntegratedTerminal({
 
   const activeController = activeTab ? controllers.current.get(activeTab.id) : undefined;
 
+  useKeybinding("terminal-find", () => setSearchOpen(true));
+  useKeybinding("terminal-copy", () => {
+    const selection = activeController?.terminal.getSelection();
+    if (selection) void window.carrent.clipboard.writeText(selection);
+  });
+  useKeybinding("terminal-paste", () => {
+    if (!activeController) return;
+    void window.carrent.clipboard
+      .readText()
+      .then((text) => activeController.terminal.paste(text));
+  });
+
   const dismissCompletion = useCallback(() => {
     if (!activeTab) return;
     setCompletionByTerminal((current) => ({ ...current, [activeTab.id]: undefined }));
@@ -626,6 +597,7 @@ export function IntegratedTerminal({
   const terminal = (
     <section
       aria-label="Integrated Terminal"
+      data-keybinding-scope="terminal"
       data-terminal-maximized={isMaximized ? "true" : undefined}
       className={
         isMaximized
@@ -791,9 +763,6 @@ export function IntegratedTerminal({
                 threadId={threadId}
                 visible={isOpen && tab.id === activeTab?.id}
                 register={register}
-                onCreateTab={() => void createTab()}
-                onCloseTab={() => void closeTab(tab)}
-                onSearch={() => setSearchOpen(true)}
                 completion={tab.id === activeTab?.id ? activeCompletion : null}
                 onDismissCompletion={dismissCompletion}
                 onMoveCandidate={(direction) =>

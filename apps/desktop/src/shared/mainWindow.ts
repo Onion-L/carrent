@@ -24,8 +24,4 @@ export type MainWindowApi = {
     onFactorChange: (listener: (factor: number) => void) => VoidFunction;
   };
   windows: CarrentWindowsApi;
-  // Fired by the main process when Cmd+W is pressed while a terminal holds
-  // focus, so the renderer can close the active terminal tab instead of the
-  // window. No payload; the renderer decides which tab to close.
-  onCmdWCloseTab: (listener: () => void) => VoidFunction;
 };

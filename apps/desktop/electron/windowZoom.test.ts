@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { createWindowZoomController, isNativeWindowZoomShortcut } from "./windowZoom";
+import { createWindowZoomController } from "./windowZoom";
 
 function createWebContents(initialFactor = 1) {
   let factor = initialFactor;
@@ -47,22 +47,5 @@ describe("createWindowZoomController", () => {
 
     expect(prevented).toBe(1);
     expect(zoom.getFactor()).toBe(1.1);
-  });
-});
-
-describe("isNativeWindowZoomShortcut", () => {
-  it("recognizes the zoom accelerators owned by Electron's application menu", () => {
-    const input = {
-      type: "keyDown",
-      key: "=",
-      code: "Equal",
-      control: false,
-      meta: true,
-    };
-
-    expect(isNativeWindowZoomShortcut(input)).toBe(true);
-    expect(isNativeWindowZoomShortcut({ ...input, key: "-", code: "Minus" })).toBe(true);
-    expect(isNativeWindowZoomShortcut({ ...input, key: "0", code: "Digit0" })).toBe(true);
-    expect(isNativeWindowZoomShortcut({ ...input, key: "k", code: "KeyK" })).toBe(false);
   });
 });

@@ -30,9 +30,8 @@ type TerminalIpcManager = Pick<
   | "closeProject"
 >;
 
-// Lets the focus handler mirror terminal focus into the window registry so the
-// main process can route Cmd+W to "close terminal tab" while a terminal holds
-// focus. Optional to keep callers that don't need it simple.
+// Lets the main process choose the terminal keybinding scope for the active
+// renderer. Optional to keep callers that don't need it simple.
 export type TerminalFocusSink = {
   setTerminalFocused: (contentsId: number, focused: boolean) => void;
 };
@@ -138,8 +137,7 @@ export function registerTerminalIpc(
       request.rows,
       request.focusVersion,
     );
-    // Mirror focus into the window registry so the main process can route
-    // Cmd+W to "close terminal tab" while a terminal holds focus.
+    // Mirror focus into the window registry for scoped keybinding dispatch.
     focusSink?.setTerminalFocused(ownerId(event), request.focused);
   });
   ipcMain.handle("terminal:activate", (event, input) => {

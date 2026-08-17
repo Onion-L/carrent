@@ -32,17 +32,26 @@ describe("Keybindings preload boundary", () => {
     });
     const received: string[] = [];
 
+    const bindings = { app: {}, terminal: {}, browser: {} };
+    api.setBindings(bindings);
     api.setRecording(true);
     const removeInput = api.onInput((input) => received.push(`recording:${input.key}`));
     const removeShortcut = api.onShortcutInput((input) => received.push(`shortcut:${input.key}`));
+    const removeSecondShortcut = api.onShortcutInput((input) =>
+      received.push(`second-shortcut:${input.key}`),
+    );
     const modifiers = { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false };
     listeners.get("keybindings:recording-input")?.({}, { key: "k", ...modifiers });
     listeners.get("keybindings:shortcut-input")?.({}, { key: "j", ...modifiers });
     removeInput();
     removeShortcut();
+    removeSecondShortcut();
 
-    expect(sent).toEqual([["keybindings:set-recording", true]]);
-    expect(received).toEqual(["recording:k", "shortcut:j"]);
+    expect(sent).toEqual([
+      ["keybindings:set-bindings", bindings],
+      ["keybindings:set-recording", true],
+    ]);
+    expect(received).toEqual(["recording:k", "shortcut:j", "second-shortcut:j"]);
     expect(removed).toEqual(["keybindings:recording-input", "keybindings:shortcut-input"]);
   });
 });

@@ -111,11 +111,17 @@ import { createTerminalCompletionService } from "./terminal/completion/completio
 import { createTerminalHistory, parseZshHistory } from "./terminal/completion/history";
 import { readHistoryTail } from "./terminal/completion/historyFile";
 import { createZshShellIntegration } from "./terminal/completion/shellIntegration";
-import { createWindowZoomController, isNativeWindowZoomShortcut } from "./windowZoom";
+import { createWindowZoomController } from "./windowZoom";
 import { createKeybindingRecordingController } from "./keybindingRecording";
 import { registerKeybindingIpc } from "./keybindingIpc";
 import type { MainWindowZoomAction } from "../src/shared/mainWindow";
-import type { KeybindingInput } from "../src/shared/keybindings";
+import {
+  browserPopupOwnerActionIds,
+  matchingKeybindingActionIds,
+  type EffectiveKeybindingMap,
+  type KeybindingInput,
+  type KeybindingScope,
+} from "../src/shared/keybindings";
 import { createBrowserManager, type BrowserManager } from "./browser/browserManager";
 import { registerBrowserIpc } from "./browser/browserIpc";
 import { isHttpOrHttpsUrl } from "./browser/browserNavigation";
@@ -167,6 +173,8 @@ let logger: Logger | null = null;
 // "recent-position recovery" when no Carrent Window exists but a session does.
 let recentRestoredWindow: RestoredWindow | null = null;
 let browserManager: BrowserManager | null = null;
+const effectiveKeybindingsByContentsId = new Map<number, EffectiveKeybindingMap>();
+let latestEffectiveKeybindings: EffectiveKeybindingMap | undefined;
 
 // Carrent Windows are peers: every window provides complete navigation and
 // owns only its route, history, and presentation state. The registry tracks
@@ -200,6 +208,16 @@ function loadBrowserMenuOverlay(contents: WebContents) {
   }
 }
 
+function resolveBrowserOwnerId(target: BrowserThreadTarget) {
+  const suffix = `/project/${encodeURIComponent(target.projectId)}/thread/${encodeURIComponent(target.threadId)}`;
+  const matching = BrowserWindow.getAllWindows().filter((window) =>
+    windowRegistry.getRoute(window.id)?.endsWith(suffix),
+  );
+  const focused = BrowserWindow.getFocusedWindow();
+  const window = (focused && matching.includes(focused) ? focused : matching.at(-1)) ?? null;
+  return window?.webContents.id ?? null;
+}
+
 function createBrowserWindow(target: BrowserThreadTarget) {
   const window = new BrowserWindow({
     width: 1100,
@@ -229,6 +247,42 @@ function createBrowserWindow(target: BrowserThreadTarget) {
       void shell.openExternal(url);
     }
     return { action: "deny" };
+  });
+  window.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    const sideOwnerId = resolveBrowserOwnerId(target);
+    const effectiveKeybindings =
+      (sideOwnerId === null ? undefined : effectiveKeybindingsByContentsId.get(sideOwnerId)) ??
+      latestEffectiveKeybindings;
+    const shortcutInput: KeybindingInput = {
+      key: input.key,
+      code: input.code,
+      metaKey: input.meta,
+      ctrlKey: input.control,
+      altKey: input.alt,
+      shiftKey: input.shift,
+      scope: "browser",
+    };
+    const actionIds = effectiveKeybindings
+      ? matchingKeybindingActionIds(
+          effectiveKeybindings.browser,
+          shortcutInput,
+          process.platform === "darwin",
+        )
+      : [];
+    if (actionIds.length === 0) return;
+    event.preventDefault();
+    const payload = { ...shortcutInput, actionIds };
+    window.webContents.send("keybindings:shortcut-input", payload);
+    if (sideOwnerId !== null && sideOwnerId !== window.webContents.id) {
+      const ownerActionIds = browserPopupOwnerActionIds(actionIds);
+      if (ownerActionIds.length > 0) {
+        webContents.fromId(sideOwnerId)?.send("keybindings:shortcut-input", {
+          ...shortcutInput,
+          actionIds: ownerActionIds,
+        });
+      }
+    }
   });
   const query = {
     browserWindow: "1",
@@ -372,6 +426,7 @@ function createWindow(
     terminalSessionManager?.detach(contentsId);
     zoomControllersByContentsId.delete(contentsId);
     keybindingRecording.clear(contentsId);
+    effectiveKeybindingsByContentsId.delete(contentsId);
     windowRegistry.setTerminalFocused(contentsId, false);
     windowRegistry.unregister(windowId);
     browserManager?.destroyOwner(contentsId);
@@ -400,36 +455,27 @@ function createWindow(
     ) {
       return;
     }
-    if (isNativeWindowZoomShortcut(input)) {
+    if (input.type !== "keyDown") return;
+    if (!input.meta && !input.control && !input.alt) return;
+    const scope: KeybindingScope = windowRegistry.isTerminalFocused(window.webContents.id)
+      ? "terminal"
+      : "app";
+    const shortcutInput: KeybindingInput = {
+      key: input.key,
+      code: input.code,
+      metaKey: input.meta,
+      ctrlKey: input.control,
+      altKey: input.alt,
+      shiftKey: input.shift,
+      scope,
+    };
+    const scopeBindings = effectiveKeybindingsByContentsId.get(window.webContents.id)?.[scope];
+    const actionIds = scopeBindings
+      ? matchingKeybindingActionIds(scopeBindings, shortcutInput, process.platform === "darwin")
+      : [];
+    if (actionIds.length > 0) {
       event.preventDefault();
-      sendKeybindingShortcutInput({
-        key: input.key,
-        code: input.code,
-        metaKey: input.meta,
-        ctrlKey: input.control,
-        altKey: input.alt,
-        shiftKey: input.shift,
-      });
-      return;
-    }
-    // macOS: while a terminal holds focus, Cmd+W closes the terminal tab
-    // instead of the window. The default app menu binds Cmd+W to Window→Close,
-    // which fires at the menu layer before the renderer can see the keydown;
-    // preventDefault here blocks that accelerator and we ping the renderer to
-    // run its existing close-tab path. When no terminal is focused we do
-    // nothing and let the default menu close the window as usual.
-    if (
-      process.platform === "darwin" &&
-      input.type === "keyDown" &&
-      !input.control &&
-      !input.alt &&
-      !input.shift &&
-      input.meta &&
-      input.key.toLowerCase() === "w" &&
-      windowRegistry.isTerminalFocused(window.webContents.id)
-    ) {
-      event.preventDefault();
-      if (!window.isDestroyed()) window.webContents.send("terminal:cmd-w");
+      sendKeybindingShortcutInput({ ...shortcutInput, actionIds });
     }
   });
 
@@ -521,7 +567,13 @@ if (!hasSingleInstanceLock) {
   ipcMain.on("app:navigation-ready", (event) => {
     windowRegistry.markReady(event.sender.id);
   });
-  registerKeybindingIpc(ipcMain, keybindingRecording);
+  registerKeybindingIpc(ipcMain, {
+    setRecording: keybindingRecording.setRecording,
+    setBindings: (contentsId, bindings) => {
+      effectiveKeybindingsByContentsId.set(contentsId, bindings);
+      latestEffectiveKeybindings = bindings;
+    },
+  });
   ipcMain.handle("app:zoom:get", (event) => {
     const zoom = getZoomController(event.sender.id);
     if (!zoom) throw new Error("Unknown zoom request sender.");
@@ -613,15 +665,7 @@ if (!hasSingleInstanceLock) {
       createAuxiliaryWindow: createBrowserWindow,
       browserMenuOverlayPreload: join(__dirname, "../preload/browserMenuOverlay.mjs"),
       loadBrowserMenuOverlay,
-      resolveOwner: (target) => {
-        const suffix = `/project/${encodeURIComponent(target.projectId)}/thread/${encodeURIComponent(target.threadId)}`;
-        const matching = BrowserWindow.getAllWindows().filter((window) =>
-          windowRegistry.getRoute(window.id)?.endsWith(suffix),
-        );
-        const focused = BrowserWindow.getFocusedWindow();
-        const window = (focused && matching.includes(focused) ? focused : matching.at(-1)) ?? null;
-        return window?.webContents.id ?? null;
-      },
+      resolveOwner: resolveBrowserOwnerId,
       resolveProjectTarget: (projectId) => {
         const matching = BrowserWindow.getAllWindows().flatMap((window) => {
           const route = windowRegistry.getRoute(window.id);
@@ -644,6 +688,8 @@ if (!hasSingleInstanceLock) {
           ? { ownerId: resolved.window.webContents.id, target: resolved.target }
           : null;
       },
+      getKeybindings: (ownerId) =>
+        effectiveKeybindingsByContentsId.get(ownerId) ?? latestEffectiveKeybindings,
     });
     registerBrowserIpc(guardedIpcMain, browserManager);
     registerRuntimeIpc(guardedIpcMain);

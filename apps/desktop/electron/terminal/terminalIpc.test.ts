@@ -138,7 +138,7 @@ describe("registerTerminalIpc", () => {
     expect(() => handlers.get("terminal:list")?.({ sender: {} }, "project-1")).toThrow();
   });
 
-  it("mirrors terminal focus into the focus sink so Cmd+W can be routed per window", async () => {
+  it("mirrors terminal focus into the focus sink for scoped shortcuts", async () => {
     const handlers = new Map<string, (event: unknown, input?: unknown) => unknown>();
     const focusCalls: Array<{ contentsId: number; focused: boolean }> = [];
     registerTerminalIpc(

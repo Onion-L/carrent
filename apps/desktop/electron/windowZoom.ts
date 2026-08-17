@@ -10,14 +10,6 @@ type ZoomWebContents = {
   isDestroyed: () => boolean;
 };
 
-type NativeWindowZoomInput = {
-  type: string;
-  key: string;
-  code: string;
-  control: boolean;
-  meta: boolean;
-};
-
 type PreventableEvent = {
   preventDefault: () => void;
 };
@@ -32,19 +24,6 @@ function nextZoomFactor(currentFactor: number, action: MainWindowZoomAction) {
   return (
     [...ZOOM_FACTORS].reverse().find((factor) => factor < currentFactor - Number.EPSILON) ??
     ZOOM_FACTORS[0]
-  );
-}
-
-export function isNativeWindowZoomShortcut(input: NativeWindowZoomInput): boolean {
-  if (input.type !== "keyDown" || (!input.meta && !input.control)) return false;
-  return (
-    input.key === "+" ||
-    input.key === "=" ||
-    input.key === "-" ||
-    input.key === "0" ||
-    input.code === "NumpadAdd" ||
-    input.code === "NumpadSubtract" ||
-    input.code === "Numpad0"
   );
 }
 

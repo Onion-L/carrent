@@ -82,6 +82,7 @@ function snapshot(): AppStateSnapshot {
       autoDetectRuntimes: true,
       theme: "system",
       fontSize: 15,
+      defaultEditorId: "",
       enhancedTerminalCompletion: true,
       terminalPanelHeight: 320,
       runtimeEnabledById: {},

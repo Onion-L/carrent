@@ -8,3 +8,7 @@ export interface EditorsApi {
   list: () => Promise<DetectedEditor[]>;
   open: (editorId: string, workingDirectory: string) => Promise<string>;
 }
+
+export function resolveDefaultEditor(editors: DetectedEditor[], defaultEditorId: string) {
+  return editors.find((editor) => editor.id === defaultEditorId) ?? editors[0];
+}

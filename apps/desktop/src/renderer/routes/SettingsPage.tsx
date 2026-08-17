@@ -23,6 +23,7 @@ import type { RuntimeModelRecord, RuntimeRecord } from "../../shared/runtimes";
 import { resolveSettingsTabId, SETTINGS_TAB_ICONS, SETTINGS_TABS } from "../lib/settingsTabs";
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, parseFontSizeInput, stepFontSize } from "../lib/fontSize";
 import { RuntimeIcon } from "../components/RuntimeIcon";
+import { EditorIcon } from "../components/EditorIcon";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MarqueeText } from "../components/MarqueeText";
 import { WorktreesPanel } from "../components/worktrees/WorktreesPanel";
@@ -36,6 +37,7 @@ import { formatKimiModelLabel } from "../components/chat/Composer";
 import { formatAbsoluteTime } from "../lib/formatRelativeTime";
 import { useToast } from "../components/toast/ToastContext";
 import type { AppThreadRecord } from "../../shared/workspacePersistence";
+import { resolveDefaultEditor, type DetectedEditor } from "../../shared/editors";
 
 /* -------------------------------------------------------------------------- */
 /*  Toggle                                                                    */
@@ -87,14 +89,16 @@ function Select({
   description,
   icon,
   wide = false,
+  disabled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; icon?: React.ReactNode }[];
   label: string;
   description?: string;
   icon?: React.ReactNode;
   wide?: boolean;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -125,11 +129,12 @@ function Select({
           aria-label={label}
           aria-expanded={open}
           aria-haspopup="listbox"
+          disabled={disabled}
           className={`flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-left transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 ${
             wide ? "w-[200px]" : "w-[140px]"
-          }`}
+          } disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border`}
         >
-          {icon}
+          {selected?.icon ?? icon}
           <span
             className="min-w-0 flex-1 truncate whitespace-nowrap text-app-13 text-fg"
             title={selected?.label ?? value}
@@ -169,7 +174,7 @@ function Select({
                       : "text-muted hover:bg-surface-raised hover:text-fg"
                   }`}
                 >
-                  {icon}
+                  {opt.icon ?? icon}
                   <span className="min-w-0 flex-1 truncate whitespace-nowrap" title={opt.label}>
                     {opt.label}
                   </span>
@@ -180,6 +185,77 @@ function Select({
         )}
       </div>
     </div>
+  );
+}
+
+export function DefaultEditorControl({
+  defaultEditorId,
+  onChange,
+}: {
+  defaultEditorId: string;
+  onChange: (editorId: string) => void;
+}) {
+  const [editors, setEditors] = useState<DetectedEditor[] | null>(null);
+  const { theme } = useSettings();
+  const [systemIsDark, setSystemIsDark] = useState(
+    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
+  );
+
+  useEffect(() => {
+    if (theme !== "system") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => setSystemIsDark(media.matches);
+    media.addEventListener("change", update);
+    update();
+    return () => media.removeEventListener("change", update);
+  }, [theme]);
+
+  const isDark = theme === "dark" || (theme === "system" && systemIsDark);
+
+  useEffect(() => {
+    let active = true;
+    const editorsApi = window.carrent.editors;
+    if (typeof editorsApi?.list !== "function") {
+      setEditors([]);
+      return;
+    }
+
+    editorsApi
+      .list()
+      .then((detected) => {
+        if (active) setEditors(detected);
+      })
+      .catch(() => {
+        if (active) setEditors([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const selectedEditor = editors ? resolveDefaultEditor(editors, defaultEditorId) : undefined;
+  const options =
+    editors === null
+      ? [{ value: "", label: "Detecting editors..." }]
+      : editors.length > 0
+        ? editors.map((editor) => ({
+            value: editor.id,
+            label: editor.name,
+            icon: <EditorIcon editorId={editor.id} isDark={isDark} />,
+          }))
+        : [{ value: "", label: "No editors detected" }];
+
+  return (
+    <Select
+      label="Default editor"
+      description="Used by the Open in button in the header"
+      value={selectedEditor?.id ?? ""}
+      onChange={onChange}
+      options={options}
+      wide
+      disabled={!editors?.length}
+    />
   );
 }
 
@@ -1480,6 +1556,7 @@ export function SettingsPage() {
     autoDetectRuntimes,
     theme,
     fontSize,
+    defaultEditorId,
     enhancedTerminalCompletion,
     customFontFamily,
     updateSetting,
@@ -1501,6 +1578,10 @@ export function SettingsPage() {
         description="Automatically detect installed runtimes on startup"
         enabled={autoDetectRuntimes}
         onChange={(value) => updateSetting("autoDetectRuntimes", value)}
+      />
+      <DefaultEditorControl
+        defaultEditorId={defaultEditorId}
+        onChange={(editorId) => updateSetting("defaultEditorId", editorId)}
       />
       <ThreadTitleModelPanel />
       <RtkCheckPanel />

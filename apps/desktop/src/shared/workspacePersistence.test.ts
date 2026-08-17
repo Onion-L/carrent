@@ -1355,3 +1355,16 @@ describe("normalizeAppStateSettings keybindingOverrides", () => {
     });
   });
 });
+
+describe("normalizeAppStateSettings defaultEditorId", () => {
+  it("keeps a valid editor id and trims surrounding whitespace", () => {
+    expect(normalizeAppStateSettings({ defaultEditorId: "  vscode  " })?.defaultEditorId).toBe(
+      "vscode",
+    );
+  });
+
+  it("falls back to automatic editor detection for malformed values", () => {
+    expect(normalizeAppStateSettings({ defaultEditorId: "bad editor" })?.defaultEditorId).toBe("");
+    expect(normalizeAppStateSettings({ defaultEditorId: 42 })?.defaultEditorId).toBe("");
+  });
+});

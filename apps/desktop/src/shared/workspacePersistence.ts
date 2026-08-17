@@ -179,6 +179,8 @@ export type AppStateSettings = {
   autoDetectRuntimes: boolean;
   theme: AppStateSettingsTheme;
   fontSize: number;
+  // Empty means the first installed editor returned by detection.
+  defaultEditorId: string;
   enhancedTerminalCompletion: boolean;
   terminalPanelHeight: number;
   runtimeEnabledById: Partial<Record<RuntimeId, boolean>>;
@@ -212,6 +214,7 @@ export const DEFAULT_APP_STATE_SETTINGS: AppStateSettings = {
   autoDetectRuntimes: true,
   theme: "dark",
   fontSize: 14,
+  defaultEditorId: "",
   enhancedTerminalCompletion: true,
   terminalPanelHeight: 320,
   runtimeEnabledById: {},
@@ -250,6 +253,11 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     typeof value.autoDetectRuntimes === "boolean"
       ? value.autoDetectRuntimes
       : DEFAULT_APP_STATE_SETTINGS.autoDetectRuntimes;
+  const defaultEditorIdCandidate =
+    typeof value.defaultEditorId === "string" ? value.defaultEditorId.trim() : "";
+  const defaultEditorId = /^[a-z0-9][a-z0-9._-]{0,63}$/i.test(defaultEditorIdCandidate)
+    ? defaultEditorIdCandidate
+    : DEFAULT_APP_STATE_SETTINGS.defaultEditorId;
   const enhancedTerminalCompletion =
     typeof value.enhancedTerminalCompletion === "boolean"
       ? value.enhancedTerminalCompletion
@@ -321,6 +329,7 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     autoDetectRuntimes,
     theme,
     fontSize,
+    defaultEditorId,
     enhancedTerminalCompletion,
     terminalPanelHeight,
     runtimeEnabledById,

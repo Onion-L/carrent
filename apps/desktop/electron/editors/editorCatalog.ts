@@ -19,7 +19,7 @@ export const editorCatalog: EditorDescriptor[] = [
   },
   {
     id: "vscode",
-    name: "Visual Studio Code",
+    name: "VS Code",
     appBundleName: "Visual Studio Code.app",
     windowsExecutables: [
       "%LOCALAPPDATA%\\Programs\\Microsoft VS Code\\Code.exe",

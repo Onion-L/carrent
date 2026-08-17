@@ -54,6 +54,7 @@ function baseSnapshot(overrides: Partial<AppThreadRecord> = {}): AppStateSnapsho
       autoDetectRuntimes: true,
       theme: "system",
       fontSize: 15,
+      defaultEditorId: "",
       enhancedTerminalCompletion: true,
       terminalPanelHeight: 320,
       runtimeEnabledById: {},

@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   FontFamilyInput,
+  DefaultEditorControl,
   KimiConnectionCheckError,
   KimiCliSetupNotice,
   ThreadTitleModelControl,
@@ -75,6 +76,37 @@ async function renderFontFamilyInput(onChange: (value: string) => void) {
   });
 
   return container.querySelector<HTMLInputElement>("#font-family-input")!;
+}
+
+async function renderDefaultEditorControl(onChange: (value: string) => void) {
+  window.carrent = {
+    editors: {
+      list: async () => [
+        { id: "cursor", name: "Cursor", appPath: "/Applications/Cursor.app" },
+        {
+          id: "vscode",
+          name: "VS Code",
+          appPath: "/Applications/Visual Studio Code.app",
+        },
+      ],
+      open: async () => "",
+    },
+  } as unknown as Window["carrent"];
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+
+  await act(async () => {
+    root!.render(
+      createElement(DefaultEditorControl, {
+        defaultEditorId: "vscode",
+        onChange,
+      }),
+    );
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 function typeIntoInput(input: HTMLInputElement, text: string) {
@@ -150,6 +182,30 @@ describe("Font family setting", () => {
 
     expect(changes).toEqual([]);
     expect(input.value).toBe("Geist");
+  });
+});
+
+describe("Default editor setting", () => {
+  it("shows installed editors and updates the selection", async () => {
+    const changes: string[] = [];
+    await renderDefaultEditorControl((value) => changes.push(value));
+
+    const trigger = container!.querySelector<HTMLButtonElement>(
+      'button[aria-label="Default editor"]',
+    )!;
+    expect(trigger.textContent).toContain("VS Code");
+    expect(trigger.querySelector("img")).not.toBeNull();
+
+    await act(async () => trigger.click());
+    const options = container!.querySelectorAll<HTMLButtonElement>('[role="option"]');
+    expect(options).toHaveLength(2);
+    expect(Array.from(options).every((option) => option.querySelector("img"))).toBe(true);
+    const cursorOption = Array.from(options).find((button) =>
+      button.textContent?.includes("Cursor"),
+    )!;
+    await act(async () => cursorOption.click());
+
+    expect(changes).toEqual(["cursor"]);
   });
 });
 

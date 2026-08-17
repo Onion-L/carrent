@@ -1,50 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Code2, SquarePen } from "lucide-react";
+import { ChevronDown, SquarePen } from "lucide-react";
 
-import type { DetectedEditor } from "../../../shared/editors";
-import cursorDarkIcon from "../../assets/editors/cursor-dark.png";
-import cursorLightIcon from "../../assets/editors/cursor-light.png";
+import { resolveDefaultEditor, type DetectedEditor } from "../../../shared/editors";
 import finderIcon from "../../assets/editors/finder.png";
-import vscodeIcon from "../../assets/editors/vscode.png";
-import xcodeIcon from "../../assets/editors/xcode.png";
-import zedDarkIcon from "../../assets/editors/zed-dark.png";
-import zedLightIcon from "../../assets/editors/zed-light.png";
+import { EditorIcon } from "../EditorIcon";
 import { useSettings } from "../../context/SettingsContext";
 import { useKeybinding } from "../../hooks/useKeybinding";
-import { ContextMenuShell, MenuItem } from "../workspace/ContextMenu";
+import { ContextMenuShell } from "../workspace/ContextMenu";
 import { useToast } from "../toast/ToastContext";
 
-const MENU_ITEM_ICON_CLASS = "h-3.5 w-3.5 shrink-0 object-contain text-muted";
-const LAST_EDITOR_STORAGE_KEY = "carrent:last-open-in-editor";
-
-function loadLastEditorId(): string | null {
-  try {
-    const raw = localStorage.getItem(LAST_EDITOR_STORAGE_KEY);
-    return raw && raw.trim() ? raw : null;
-  } catch {
-    return null;
-  }
-}
-
-const EDITOR_ICONS: Record<string, { light: string; dark?: string }> = {
-  cursor: { light: cursorLightIcon, dark: cursorDarkIcon },
-  vscode: { light: vscodeIcon },
-  zed: { light: zedLightIcon, dark: zedDarkIcon },
-  xcode: { light: xcodeIcon },
-};
-
-function editorIcon(editorId: string, isDark: boolean) {
-  const icons = EDITOR_ICONS[editorId];
-  if (!icons) return <Code2 className={MENU_ITEM_ICON_CLASS} />;
-
+function OpenMenuItem({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
   return (
-    <img
-      src={isDark ? (icons.dark ?? icons.light) : icons.light}
-      alt=""
-      aria-hidden="true"
-      draggable={false}
-      className={MENU_ITEM_ICON_CLASS}
-    />
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-app-13 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25"
+    >
+      {icon}
+      <span className="min-w-0 flex-1 truncate whitespace-nowrap">{label}</span>
+    </button>
   );
 }
 
@@ -56,11 +39,10 @@ export function OpenInMenu({
   disabled?: boolean;
 }) {
   const { showToast } = useToast();
-  const { theme } = useSettings();
+  const { theme, defaultEditorId } = useSettings();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const [editors, setEditors] = useState<DetectedEditor[]>([]);
-  const [lastEditorId, setLastEditorId] = useState<string | null>(loadLastEditorId);
   const [systemIsDark, setSystemIsDark] = useState(
     () => window.matchMedia("(prefers-color-scheme: dark)").matches,
   );
@@ -118,13 +100,6 @@ export function OpenInMenu({
       return;
     }
 
-    setLastEditorId(editor.id);
-    try {
-      localStorage.setItem(LAST_EDITOR_STORAGE_KEY, editor.id);
-    } catch {
-      // Ignore unavailable or quota-limited storage; the default still works in memory.
-    }
-
     try {
       const error = await editorsApi.open(editor.id, workingDirectory);
       if (error) showToast(error, "error");
@@ -152,9 +127,7 @@ export function OpenInMenu({
     await handleOpenInEditor(defaultEditor);
   };
 
-  // The trigger opens the editor picked last time; fall back to the first
-  // detected editor when none was picked yet or it is no longer installed.
-  const defaultEditor = editors.find((editor) => editor.id === lastEditorId) ?? editors[0];
+  const defaultEditor = resolveDefaultEditor(editors, defaultEditorId);
   useKeybinding("open-default-editor", () => {
     if (!disabled) void handleOpenDefault();
   });
@@ -162,7 +135,7 @@ export function OpenInMenu({
   return (
     <>
       <div
-        className={`order-first flex h-8 items-stretch overflow-hidden rounded-md border border-border bg-bg transition ${
+        className={`order-first flex h-8 w-[52px] items-stretch overflow-hidden rounded-md border border-border bg-bg transition ${
           disabled ? "cursor-not-allowed text-subtle" : anchor ? "text-fg" : "text-muted"
         }`}
       >
@@ -172,12 +145,11 @@ export function OpenInMenu({
           title={defaultEditor ? `Open in ${defaultEditor.name}` : "Open in editor"}
           disabled={disabled}
           onClick={() => void handleOpenDefault()}
-          className="flex items-center gap-1.5 px-1.5 transition hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-subtle"
+          className="flex min-w-0 flex-1 items-center justify-center px-1 text-left transition hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-subtle"
         >
           {defaultEditor ? (
             <>
-              {editorIcon(defaultEditor.id, isDark)}
-              <span className="text-app-13 font-medium">{defaultEditor.name}</span>
+              <EditorIcon editorId={defaultEditor.id} isDark={isDark} />
             </>
           ) : (
             <SquarePen className="h-4 w-4" />
@@ -193,7 +165,7 @@ export function OpenInMenu({
           title="Open in"
           disabled={disabled}
           onClick={handleTriggerClick}
-          className="flex items-center px-1 transition hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-subtle"
+          className="flex w-6 items-center justify-center transition hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-subtle"
         >
           <ChevronDown className="h-3 w-3" />
         </button>
@@ -203,27 +175,30 @@ export function OpenInMenu({
           <div
             role="menu"
             aria-label="Open working directory in"
-            className="w-48 rounded-lg border border-border-strong bg-surface py-1 shadow-xl"
+            className="w-[180px] rounded-lg border border-border-strong bg-surface p-1 shadow-xl"
           >
             {editors.map((editor) => (
-              <MenuItem
+              <OpenMenuItem
                 key={editor.id}
-                icon={editorIcon(editor.id, isDark)}
+                icon={
+                  <EditorIcon
+                    editorId={editor.id}
+                    isDark={isDark}
+                    className="h-4 w-4 shrink-0 object-contain text-muted"
+                  />
+                }
                 label={editor.name}
                 onClick={() => void handleOpenInEditor(editor)}
               />
             ))}
-            {editors.length > 0 ? (
-              <div role="separator" className="mx-2 my-1 border-t border-border" />
-            ) : null}
-            <MenuItem
+            <OpenMenuItem
               icon={
                 <img
                   src={finderIcon}
                   alt=""
                   aria-hidden="true"
                   draggable={false}
-                  className={MENU_ITEM_ICON_CLASS}
+                  className="h-4 w-4 shrink-0 object-contain"
                 />
               }
               label="Finder"

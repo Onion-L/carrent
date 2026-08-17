@@ -782,6 +782,7 @@ describe("SQLite App State thread history", () => {
         autoDetectRuntimes: false,
         theme: "light",
         fontSize: 18,
+        defaultEditorId: "",
         enhancedTerminalCompletion: false,
         terminalPanelHeight: 400,
         runtimeEnabledById: { kimi: true },

@@ -130,6 +130,7 @@ function completeSnapshot(messageBytes = 32): AppStateSnapshot {
       autoDetectRuntimes: false,
       theme: "dark",
       fontSize: 16,
+      defaultEditorId: "",
       enhancedTerminalCompletion: true,
       terminalPanelHeight: 420,
       runtimeEnabledById: { kimi: true },

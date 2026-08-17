@@ -63,6 +63,10 @@ import type {
 } from "../shared/appStateAuthority";
 
 declare global {
+  interface Window {
+    queryLocalFonts?: () => Promise<import("./lib/localFonts").LocalFontData[]>;
+  }
+
   interface ImportMetaEnv {
     readonly DEV: boolean;
     readonly PROD: boolean;

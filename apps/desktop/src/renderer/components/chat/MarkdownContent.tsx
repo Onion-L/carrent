@@ -59,16 +59,12 @@ const components: Components = {
   code: ({ children, className }) => {
     const isInline = !className;
     if (isInline) {
-      return (
-        <code className="rounded bg-code-bg px-1 py-0.5 font-mono text-app-13 text-fg">
-          {children}
-        </code>
-      );
+      return <code className="font-code rounded bg-code-bg px-1 py-0.5 text-fg">{children}</code>;
     }
-    return <code className="font-mono text-app-13 text-fg">{children}</code>;
+    return <code className="font-code text-fg">{children}</code>;
   },
   pre: ({ children }) => (
-    <pre className="overflow-x-auto rounded-lg bg-code-bg p-3 font-mono text-app-13 leading-relaxed text-fg">
+    <pre className="font-code overflow-x-auto rounded-lg bg-code-bg p-3 leading-relaxed text-fg">
       {children}
     </pre>
   ),

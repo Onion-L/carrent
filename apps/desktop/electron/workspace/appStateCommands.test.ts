@@ -722,15 +722,14 @@ describe("settings:update", () => {
 
     const snapshot = next as AppStateSnapshot;
     expect(snapshot.settings).toEqual({
+      ...DEFAULT_APP_STATE_SETTINGS,
       autoDetectRuntimes: false,
       theme: "light",
-      fontSize: 18,
-      defaultEditorId: "",
       enhancedTerminalCompletion: false,
+      fontSizeInterface: 18,
       terminalPanelHeight: 400,
       runtimeEnabledById: { kimi: false },
       runtimeDefaultModelById: { kimi: "kimi-k2.5" },
-      customFontFamily: "",
     });
     expect(normalizeAppStateSnapshotForWrite(snapshot)).not.toBe(null);
   });
@@ -805,42 +804,42 @@ describe("settings:update", () => {
     expect(next.settings?.threadTitleModelId).toBe(undefined);
   });
 
-  it("defaults customFontFamily to an empty string when omitted", () => {
+  it("defaults fontFamilySans to an empty string when omitted", () => {
     const next = reduce("settings:update", makeSnapshot(), {
       settings: { ...DEFAULT_APP_STATE_SETTINGS },
     }) as AppStateSnapshot;
-    expect(next.settings?.customFontFamily).toBe("");
+    expect(next.settings?.fontFamilySans).toBe("");
   });
 
-  it("trims outer whitespace from customFontFamily but keeps internal spaces", () => {
+  it("trims outer whitespace from fontFamilySans but keeps internal spaces", () => {
     const next = reduce("settings:update", makeSnapshot(), {
-      settings: { ...DEFAULT_APP_STATE_SETTINGS, customFontFamily: "  Noto Sans CJK SC  " },
+      settings: { ...DEFAULT_APP_STATE_SETTINGS, fontFamilySans: "  Noto Sans CJK SC  " },
     }) as AppStateSnapshot;
-    expect(next.settings?.customFontFamily).toBe("Noto Sans CJK SC");
+    expect(next.settings?.fontFamilySans).toBe("Noto Sans CJK SC");
   });
 
-  it("strips control characters from customFontFamily", () => {
+  it("strips control characters from fontFamilySans", () => {
     const next = reduce("settings:update", makeSnapshot(), {
       settings: {
         ...DEFAULT_APP_STATE_SETTINGS,
-        customFontFamily: "\u0000Geist\u0007Name\u001F",
+        fontFamilySans: "\u0000Geist\u0007Name\u001F",
       },
     }) as AppStateSnapshot;
-    expect(next.settings?.customFontFamily).toBe("GeistName");
+    expect(next.settings?.fontFamilySans).toBe("GeistName");
   });
 
-  it("truncates customFontFamily to 64 characters", () => {
+  it("truncates fontFamilySans to 64 characters", () => {
     const next = reduce("settings:update", makeSnapshot(), {
-      settings: { ...DEFAULT_APP_STATE_SETTINGS, customFontFamily: "A".repeat(100) },
+      settings: { ...DEFAULT_APP_STATE_SETTINGS, fontFamilySans: "A".repeat(100) },
     }) as AppStateSnapshot;
-    expect(next.settings?.customFontFamily).toBe("A".repeat(64));
+    expect(next.settings?.fontFamilySans).toBe("A".repeat(64));
   });
 
-  it("falls back to empty string for a non-string customFontFamily", () => {
+  it("falls back to empty string for a non-string fontFamilySans", () => {
     const next = reduce("settings:update", makeSnapshot(), {
-      settings: { ...DEFAULT_APP_STATE_SETTINGS, customFontFamily: { brand: "x" } },
+      settings: { ...DEFAULT_APP_STATE_SETTINGS, fontFamilySans: { brand: "x" } },
     }) as AppStateSnapshot;
-    expect(next.settings?.customFontFamily).toBe("");
+    expect(next.settings?.fontFamilySans).toBe("");
   });
 });
 
@@ -2005,7 +2004,7 @@ describe("appStateCommandReducers through createAppStateAuthority", () => {
     );
 
     expect(result).toEqual({ status: "accepted", revision: 1 });
-    const expected = { ...DEFAULT_APP_STATE_SETTINGS, theme: "light", fontSize: 16 };
+    const expected = { ...DEFAULT_APP_STATE_SETTINGS, theme: "light", fontSizeInterface: 16 };
     expect(authority.getState().snapshot.settings).toEqual(expected);
     expect(saved).toHaveLength(1);
     expect(saved[0]?.settings).toEqual(expected);

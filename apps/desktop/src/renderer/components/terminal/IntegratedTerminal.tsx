@@ -26,6 +26,8 @@ import {
 } from "../../../shared/terminal";
 import { useSettings } from "../../context/SettingsContext";
 import { useKeybinding } from "../../hooks/useKeybinding";
+import { checkMonospaceFamily, loadSymbolsFont } from "../../lib/localFonts";
+import { BASE_FONT_TERMINAL_STACK, buildFontStack } from "../../lib/fontFamily";
 
 type TerminalController = {
   terminal: Terminal;
@@ -50,6 +52,10 @@ function TerminalViewport({
   onAcceptCandidate,
   onAcceptPrediction,
   onFocusChange,
+  terminalFontFamily,
+  terminalFontName,
+  terminalFontSize,
+  terminalFontForce,
 }: {
   tab: TerminalTab;
   threadId: string | null;
@@ -61,8 +67,13 @@ function TerminalViewport({
   onAcceptCandidate: () => void;
   onAcceptPrediction: (amount: "all" | "word") => void;
   onFocusChange: (tab: TerminalTab, focused: boolean, columns: number, rows: number) => number;
+  terminalFontFamily: string;
+  terminalFontName: string;
+  terminalFontSize: number;
+  terminalFontForce: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const controllerRef = useRef<TerminalController | null>(null);
   const handlersRef = useRef({
     completion,
     onDismissCompletion,
@@ -86,9 +97,8 @@ function TerminalViewport({
       convertEol: false,
       cursorBlink: true,
       cursorStyle: "block",
-      fontFamily:
-        '"SFMono-Regular", "IBM Plex Mono", Consolas, "MesloLGS NF", "JetBrainsMono Nerd Font", "Symbols Nerd Font", monospace',
-      fontSize: 13,
+      fontFamily: terminalFontFamily,
+      fontSize: terminalFontSize,
       lineHeight: 1.2,
       scrollback: 10_000,
       theme: {
@@ -138,6 +148,7 @@ function TerminalViewport({
         if (container.clientWidth > 0 && container.clientHeight > 0) fit.fit();
       },
     };
+    controllerRef.current = controller;
     const unregister = register(tab.id, controller);
 
     const dataDisposable = terminal.onData((data) => {
@@ -222,9 +233,33 @@ function TerminalViewport({
       window.removeEventListener("focus", handleWindowFocus);
       window.removeEventListener("blur", handleBlur);
       unregister();
+      controllerRef.current = null;
       terminal.dispose();
     };
   }, [onFocusChange, register, tab.id, tab.projectId, threadId]);
+
+  useEffect(() => {
+    const controller = controllerRef.current;
+    if (!controller) return;
+    let active = true;
+    const applyTypography = async () => {
+      let nextFamily = terminalFontFamily;
+      if (terminalFontName && !terminalFontForce) {
+        const result = await checkMonospaceFamily(terminalFontName);
+        if (!active) return;
+        if (result !== "monospace") nextFamily = BASE_FONT_TERMINAL_STACK;
+      }
+      await loadSymbolsFont();
+      if (!active) return;
+      controller.terminal.options.fontFamily = nextFamily;
+      controller.terminal.options.fontSize = terminalFontSize;
+      controller.fit();
+    };
+    void applyTypography();
+    return () => {
+      active = false;
+    };
+  }, [terminalFontFamily, terminalFontForce, terminalFontName, terminalFontSize]);
 
   useEffect(() => {
     if (!visible) return;
@@ -252,7 +287,11 @@ export function IntegratedTerminal({
   placement?: "bottom" | "side";
   sideContainer?: HTMLElement | null;
 }) {
-  const { enhancedTerminalCompletion, terminalPanelHeight, updateSetting } = useSettings();
+  const settings = useSettings();
+  const { enhancedTerminalCompletion, terminalPanelHeight, updateSetting } = settings;
+  const terminalFontName =
+    settings.typographyMode === "advanced" ? settings.fontFamilyTerminal : settings.fontFamilyCode;
+  const terminalFontFamily = buildFontStack(terminalFontName, BASE_FONT_TERMINAL_STACK);
   const [panelHeight, setPanelHeight] = useState(terminalPanelHeight);
   const [tabsByProject, setTabsByProject] = useState<Record<string, TerminalTab[]>>({});
   const [loadingProjectId, setLoadingProjectId] = useState<string | null>(null);
@@ -493,9 +532,7 @@ export function IntegratedTerminal({
   });
   useKeybinding("terminal-paste", () => {
     if (!activeController) return;
-    void window.carrent.clipboard
-      .readText()
-      .then((text) => activeController.terminal.paste(text));
+    void window.carrent.clipboard.readText().then((text) => activeController.terminal.paste(text));
   });
 
   const dismissCompletion = useCallback(() => {
@@ -777,11 +814,15 @@ export function IntegratedTerminal({
                 onAcceptCandidate={acceptCandidate}
                 onAcceptPrediction={acceptPrediction}
                 onFocusChange={onFocusChange}
+                terminalFontFamily={terminalFontFamily}
+                terminalFontName={terminalFontName}
+                terminalFontSize={settings.fontSizeTerminal}
+                terminalFontForce={settings.terminalFontForce}
               />
               {tab.id === activeTab?.id && activeCompletion?.predictionSuffix ? (
                 <span
                   aria-label="Terminal history prediction"
-                  className="pointer-events-none absolute z-10 whitespace-pre font-mono text-[13px] text-subtle"
+                  className="font-terminal pointer-events-none absolute z-10 whitespace-pre text-subtle"
                   style={{ left: completionAnchor.left, top: completionAnchor.top - 16 }}
                 >
                   {activeCompletion.predictionSuffix}
@@ -815,7 +856,9 @@ export function IntegratedTerminal({
                             : "text-muted hover:bg-surface-raised"
                         }`}
                       >
-                        <span className="min-w-0 flex-1 truncate font-mono">{candidate.label}</span>
+                        <span className="font-terminal min-w-0 flex-1 truncate">
+                          {candidate.label}
+                        </span>
                         {candidate.description ? (
                           <span className="max-w-36 truncate text-app-11 text-subtle">
                             {candidate.description}

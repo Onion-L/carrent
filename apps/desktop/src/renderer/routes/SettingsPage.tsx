@@ -7,9 +7,8 @@ import {
   FolderOpen,
   Save,
   ExternalLink,
-  Minus,
-  Plus,
   Search,
+  RotateCcw,
   Trash2,
   Archive,
 } from "lucide-react";
@@ -21,7 +20,6 @@ import { RTK_MD_CONTENT, upsertRtkAgentsBlock, type RtkGainStats } from "../../s
 import type { UpdateCheckResult } from "../../shared/updates";
 import type { RuntimeModelRecord, RuntimeRecord } from "../../shared/runtimes";
 import { resolveSettingsTabId, SETTINGS_TAB_ICONS, SETTINGS_TABS } from "../lib/settingsTabs";
-import { MAX_FONT_SIZE, MIN_FONT_SIZE, parseFontSizeInput, stepFontSize } from "../lib/fontSize";
 import { RuntimeIcon } from "../components/RuntimeIcon";
 import { EditorIcon } from "../components/EditorIcon";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -38,6 +36,8 @@ import { formatAbsoluteTime } from "../lib/formatRelativeTime";
 import { useToast } from "../components/toast/ToastContext";
 import type { AppThreadRecord } from "../../shared/workspacePersistence";
 import { resolveDefaultEditor, type DetectedEditor } from "../../shared/editors";
+import { checkMonospaceFamily, queryInstalledFontFamilies } from "../lib/localFonts";
+import { isMacPlatform, TYPOGRAPHY_SIZE_RANGES } from "../lib/typography";
 
 /* -------------------------------------------------------------------------- */
 /*  Toggle                                                                    */
@@ -259,101 +259,6 @@ export function DefaultEditorControl({
   );
 }
 
-function IntegerInput({
-  value,
-  onChange,
-  label,
-}: {
-  value: number;
-  onChange: (value: number) => void;
-  label: string;
-}) {
-  const [draft, setDraft] = useState(String(value));
-
-  useEffect(() => {
-    setDraft(String(value));
-  }, [value]);
-
-  const commit = () => {
-    const nextValue = parseFontSizeInput(draft);
-    if (nextValue === null) {
-      setDraft(String(value));
-      return;
-    }
-    onChange(nextValue);
-  };
-
-  return (
-    <div className="flex items-center justify-between gap-6 py-3.5">
-      <label className="text-app-13 text-fg" htmlFor="font-size-input">
-        {label}
-      </label>
-      <div className="flex min-h-8 w-[148px] shrink-0 items-stretch overflow-hidden rounded-md border border-border bg-surface transition-colors focus-within:border-border-strong">
-        <button
-          type="button"
-          aria-label="Decrease font size"
-          title="Decrease font size"
-          disabled={value <= MIN_FONT_SIZE}
-          onClick={() => onChange(stepFontSize(value, -1))}
-          className="flex w-8 shrink-0 items-center justify-center border-r border-border text-subtle transition-colors hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          <Minus className="h-3.5 w-3.5" />
-        </button>
-        <input
-          id="font-size-input"
-          className="min-w-0 flex-1 bg-transparent pl-2 text-center text-app-13 text-fg outline-none"
-          inputMode="numeric"
-          maxLength={2}
-          value={draft}
-          onBlur={commit}
-          onChange={(event) => {
-            const nextDraft = event.target.value;
-            if (nextDraft === "" || /^\d+$/.test(nextDraft)) {
-              const boundedDraft =
-                nextDraft !== "" && Number(nextDraft) > MAX_FONT_SIZE
-                  ? String(MAX_FONT_SIZE)
-                  : nextDraft;
-              setDraft(boundedDraft);
-              const nextValue = parseFontSizeInput(boundedDraft);
-              if (nextValue !== null) onChange(nextValue);
-            }
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") event.currentTarget.blur();
-            if (event.key === "Escape") {
-              setDraft(String(value));
-              event.currentTarget.blur();
-            }
-            if (event.key === "ArrowDown") {
-              event.preventDefault();
-              onChange(stepFontSize(value, -1));
-            }
-            if (event.key === "ArrowUp") {
-              event.preventDefault();
-              onChange(stepFontSize(value, 1));
-            }
-          }}
-          aria-describedby="font-size-range"
-        />
-        <span className="flex items-center pr-2 text-app-12 text-subtle">px</span>
-        <button
-          type="button"
-          aria-label="Increase font size"
-          title="Increase font size"
-          disabled={value >= MAX_FONT_SIZE}
-          onClick={() => onChange(stepFontSize(value, 1))}
-          className="flex w-8 shrink-0 items-center justify-center border-l border-border text-subtle transition-colors hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <span className="sr-only" id="font-size-range">
-        Integer from {MIN_FONT_SIZE} to {MAX_FONT_SIZE}
-      </span>
-    </div>
-  );
-}
-
 export function FontFamilyInput({
   value,
   onChange,
@@ -411,6 +316,381 @@ export function FontFamilyInput({
           }
         }}
       />
+    </div>
+  );
+}
+
+function FontFamilyPicker({
+  value,
+  onChange,
+  label,
+  description,
+  onReset,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+  description?: string;
+  onReset?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [families, setFamilies] = useState<string[] | null>(null);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [manual, setManual] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => setDraft(value), [value]);
+
+  useEffect(() => {
+    if (!open || families || manual) return;
+    let active = true;
+    setLoading(true);
+    void queryInstalledFontFamilies()
+      .then((nextFamilies) => {
+        if (!active) return;
+        if (nextFamilies.length === 0) {
+          setManual(true);
+          return;
+        }
+        setFamilies(nextFamilies);
+      })
+      .catch(() => {
+        if (active) setManual(true);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [families, manual, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const filteredFamilies = (families ?? []).filter((family) =>
+    family.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
+  );
+  const commitManual = () => {
+    const next = draft.trim();
+    if (next !== value) onChange(next);
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-6 py-3.5">
+      <div className="min-w-0">
+        <div className="text-app-13 text-fg">{label}</div>
+        {description ? <div className="mt-0.5 text-app-12 text-subtle">{description}</div> : null}
+      </div>
+      <div ref={ref} className="relative flex shrink-0 items-center gap-1.5">
+        {manual ? (
+          <input
+            aria-label={label}
+            type="text"
+            spellCheck={false}
+            autoComplete="off"
+            placeholder="System default"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={commitManual}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+              if (event.key === "Escape") {
+                setDraft(value);
+                event.currentTarget.blur();
+              }
+            }}
+            className="min-h-8 w-[200px] rounded-md border border-border bg-surface px-2 text-app-13 text-fg outline-none focus:border-border-strong"
+          />
+        ) : (
+          <>
+            <button
+              type="button"
+              aria-label={label}
+              aria-expanded={open}
+              aria-haspopup="listbox"
+              onClick={() => setOpen((current) => !current)}
+              className="flex min-h-8 w-[200px] items-center gap-2 rounded-md border border-border bg-surface px-2.5 text-left transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20"
+            >
+              <span
+                className="min-w-0 flex-1 truncate text-app-13 text-fg"
+                style={value ? { fontFamily: `"${value.replaceAll('"', "")}"` } : undefined}
+              >
+                {value || "System default"}
+              </span>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-subtle" />
+            </button>
+            {open ? (
+              <div className="absolute right-0 top-full z-20 mt-1 w-[280px] overflow-hidden rounded-md border border-border bg-surface-raised shadow-xl">
+                <div className="border-b border-border p-2">
+                  <div className="flex items-center gap-2 rounded border border-border bg-surface px-2">
+                    <Search className="h-3.5 w-3.5 shrink-0 text-subtle" />
+                    <input
+                      autoFocus
+                      aria-label={`Search ${label}`}
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Search fonts..."
+                      className="min-h-8 min-w-0 flex-1 bg-transparent text-app-13 text-fg outline-none placeholder:text-subtle"
+                    />
+                  </div>
+                </div>
+                <div role="listbox" aria-label={label} className="max-h-64 overflow-auto p-1">
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={!value}
+                    onClick={() => {
+                      onChange("");
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-app-13 transition-colors ${
+                      !value ? "bg-surface-hover text-fg" : "text-muted hover:bg-surface-hover"
+                    }`}
+                  >
+                    <span>System default</span>
+                    <span className="text-app-11 text-subtle">default</span>
+                  </button>
+                  {loading ? (
+                    <div className="px-2 py-3 text-app-12 text-subtle">Loading fonts...</div>
+                  ) : filteredFamilies.length > 0 ? (
+                    filteredFamilies.map((family) => (
+                      <button
+                        key={family}
+                        type="button"
+                        role="option"
+                        aria-selected={family === value}
+                        onClick={() => {
+                          onChange(family);
+                          setOpen(false);
+                        }}
+                        style={{ fontFamily: `"${family.replaceAll('"', "")}"` }}
+                        className={`flex w-full items-center rounded px-2 py-1.5 text-left text-app-13 transition-colors ${
+                          family === value
+                            ? "bg-surface-hover text-fg"
+                            : "text-muted hover:bg-surface-hover hover:text-fg"
+                        }`}
+                      >
+                        <span className="truncate">{family}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-2 py-3 text-app-12 text-subtle">No matching fonts.</div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManual(true);
+                    setOpen(false);
+                  }}
+                  className="w-full border-t border-border px-3 py-2 text-left text-app-12 text-muted hover:bg-surface-hover hover:text-fg"
+                >
+                  Enter a font name manually
+                </button>
+              </div>
+            ) : null}
+          </>
+        )}
+        {onReset ? (
+          <button
+            type="button"
+            aria-label={`Reset ${label}`}
+            title={`Reset ${label}`}
+            onClick={onReset}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-subtle transition-colors hover:bg-surface-hover hover:text-fg"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function TypographySizeInput({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <Select
+      label={label}
+      value={String(value)}
+      onChange={(next) => onChange(Number(next))}
+      options={Array.from({ length: max - min + 1 }, (_, index) => {
+        const size = min + index;
+        return { value: String(size), label: `${size} px` };
+      })}
+    />
+  );
+}
+
+function TypographyPanel() {
+  const settings = useSettings();
+  const { showToast } = useToast();
+  const {
+    typographyMode,
+    fontFamilySans,
+    fontFamilyComposer,
+    fontFamilyCode,
+    fontFamilyTerminal,
+    fontSizeInterface,
+    fontSizePrompt,
+    fontSizeCode,
+    fontSizeTerminal,
+    fontSmoothing,
+    terminalFontForce,
+    updateSetting,
+  } = settings;
+  const updateTerminalFamily = async (family: string) => {
+    updateSetting("fontFamilyTerminal", family);
+    if (!family) {
+      updateSetting("terminalFontForce", false);
+      return;
+    }
+    const result = await checkMonospaceFamily(family);
+    if (result === "proportional" && !terminalFontForce) {
+      showToast(`"${family}" is proportional and will fall back in Terminal.`, "error", {
+        label: "Use anyway",
+        onClick: () => updateSetting("terminalFontForce", true),
+      });
+    }
+  };
+  const reset = (
+    key: "fontFamilySans" | "fontFamilyComposer" | "fontFamilyCode" | "fontFamilyTerminal",
+  ) => updateSetting(key, "");
+  const ranges = TYPOGRAPHY_SIZE_RANGES;
+
+  return (
+    <div className="divide-y divide-border">
+      <div className="flex items-center justify-between gap-6 py-4">
+        <div>
+          <div className="text-app-15 font-medium text-fg">Typography</div>
+          <div className="mt-0.5 text-app-12 text-subtle">
+            Fonts and sizes for the interface, editor, code, and terminal.
+          </div>
+        </div>
+        <Select
+          label="Typography mode"
+          value={typographyMode}
+          onChange={(value) => updateSetting("typographyMode", value as "simple" | "advanced")}
+          options={[
+            { value: "simple", label: "Simple" },
+            { value: "advanced", label: "Advanced" },
+          ]}
+        />
+      </div>
+
+      <div className="py-2">
+        <FontFamilyPicker
+          label="Interface font"
+          description="Everything outside code blocks and the terminal."
+          value={fontFamilySans}
+          onChange={(value) => updateSetting("fontFamilySans", value)}
+          onReset={() => reset("fontFamilySans")}
+        />
+        {typographyMode === "simple" ? (
+          <FontFamilyPicker
+            label="Monospace font"
+            description="Code blocks, diffs, file previews, and the terminal."
+            value={fontFamilyCode}
+            onChange={(value) => updateSetting("fontFamilyCode", value)}
+            onReset={() => reset("fontFamilyCode")}
+          />
+        ) : (
+          <>
+            <FontFamilyPicker
+              label="Prompt font"
+              description="The message composer."
+              value={fontFamilyComposer}
+              onChange={(value) => updateSetting("fontFamilyComposer", value)}
+              onReset={() => reset("fontFamilyComposer")}
+            />
+            <FontFamilyPicker
+              label="Code font"
+              description="Code blocks, diffs, and file previews."
+              value={fontFamilyCode}
+              onChange={(value) => updateSetting("fontFamilyCode", value)}
+              onReset={() => reset("fontFamilyCode")}
+            />
+            <FontFamilyPicker
+              label="Terminal font"
+              description="Must be monospaced unless forced."
+              value={fontFamilyTerminal}
+              onChange={(value) => void updateTerminalFamily(value)}
+              onReset={() => {
+                reset("fontFamilyTerminal");
+                updateSetting("terminalFontForce", false);
+              }}
+            />
+            {fontFamilyTerminal ? (
+              <Toggle
+                label="Allow proportional Terminal font"
+                description="Use the selected font even when it is not detected as monospaced"
+                enabled={terminalFontForce}
+                onChange={(value) => updateSetting("terminalFontForce", value)}
+              />
+            ) : null}
+          </>
+        )}
+      </div>
+
+      <div className="py-2">
+        <TypographySizeInput
+          label="Interface size"
+          value={fontSizeInterface}
+          min={ranges.interface.min}
+          max={ranges.interface.max}
+          onChange={(value) => updateSetting("fontSizeInterface", value)}
+        />
+        <TypographySizeInput
+          label="Prompt size"
+          value={fontSizePrompt}
+          min={ranges.prompt.min}
+          max={ranges.prompt.max}
+          onChange={(value) => updateSetting("fontSizePrompt", value)}
+        />
+        <TypographySizeInput
+          label="Code size"
+          value={fontSizeCode}
+          min={ranges.code.min}
+          max={ranges.code.max}
+          onChange={(value) => updateSetting("fontSizeCode", value)}
+        />
+        <TypographySizeInput
+          label="Terminal size"
+          value={fontSizeTerminal}
+          min={ranges.terminal.min}
+          max={ranges.terminal.max}
+          onChange={(value) => updateSetting("fontSizeTerminal", value)}
+        />
+      </div>
+
+      {isMacPlatform() ? (
+        <Toggle
+          label="Font smoothing"
+          description="Use antialiased text rendering in the app"
+          enabled={fontSmoothing}
+          onChange={(value) => updateSetting("fontSmoothing", value)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1552,15 +1832,8 @@ export function SettingsPage() {
   const { setSelectedThreadId, deleteThread: deleteThreadContent } = useThreadContent();
   const { workspaces, projects, associations, threads, restoreThread, permanentlyDeleteThread } =
     useAppState();
-  const {
-    autoDetectRuntimes,
-    theme,
-    fontSize,
-    defaultEditorId,
-    enhancedTerminalCompletion,
-    customFontFamily,
-    updateSetting,
-  } = useSettings();
+  const { autoDetectRuntimes, theme, defaultEditorId, enhancedTerminalCompletion, updateSetting } =
+    useSettings();
   const [searchParams] = useSearchParams();
   const activeTabId = resolveSettingsTabId(searchParams.get("tab"));
   const activeTab = SETTINGS_TABS.find((tab) => tab.id === activeTabId) ?? SETTINGS_TABS[0];
@@ -1637,16 +1910,7 @@ export function SettingsPage() {
                         { value: "system", label: "System" },
                       ]}
                     />
-                    <IntegerInput
-                      label="Font size"
-                      value={fontSize}
-                      onChange={(value) => updateSetting("fontSize", value)}
-                    />
-                    <FontFamilyInput
-                      label="Font family"
-                      value={customFontFamily}
-                      onChange={(value) => updateSetting("customFontFamily", value)}
-                    />
+                    <TypographyPanel />
                     <Toggle
                       label="Enhanced terminal completion"
                       description="Show local zsh history predictions and command candidates in new Terminal Tabs"

@@ -12,7 +12,7 @@ import {
   type AppStateSettings,
 } from "../../shared/workspacePersistence";
 import { getFontSizeCssVariables } from "../lib/fontSize";
-import { buildFontSansStack } from "../lib/fontFamily";
+import { isMacPlatform, resolveTypography } from "../lib/typography";
 import { useAppState } from "./AppStateContext";
 
 export type Theme = AppStateSettings["theme"];
@@ -134,33 +134,77 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }
   }, [settings.theme]);
 
-  /* Apply font size without scaling rem-based layout dimensions. */
+  /* Apply the interface scale and the direct region sizes. */
   useLayoutEffect(() => {
     const root = document.documentElement;
-    for (const [property, value] of Object.entries(getFontSizeCssVariables(settings.fontSize))) {
+    for (const [property, value] of Object.entries(
+      getFontSizeCssVariables(settings.fontSizeInterface),
+    )) {
       root.style.setProperty(property, value);
     }
-  }, [settings.fontSize]);
+    root.style.setProperty("--font-size-interface", `${settings.fontSizeInterface}px`);
+    root.style.setProperty("--font-size-prompt", `${settings.fontSizePrompt}px`);
+    root.style.setProperty("--font-size-code", `${settings.fontSizeCode}px`);
+    root.style.setProperty("--font-size-terminal", `${settings.fontSizeTerminal}px`);
+  }, [
+    settings.fontSizeCode,
+    settings.fontSizeInterface,
+    settings.fontSizePrompt,
+    settings.fontSizeTerminal,
+  ]);
 
-  /* Apply the custom font family. When set, prepend it (escaped) to the base
-     Geist/Inter stack as an inline override; when empty, remove the override so
-     the :root --font-sans in index.css wins. Inline style beats :root, so no
-     extra selector work is needed. */
+  /* Apply all resolved family stacks at the document root. */
   useLayoutEffect(() => {
     const root = document.documentElement;
-    if (settings.customFontFamily) {
-      root.style.setProperty("--font-sans", buildFontSansStack(settings.customFontFamily));
+    const typography = resolveTypography(settings);
+    if (settings.fontFamilySans) root.style.setProperty("--font-sans", typography.sans);
+    else root.style.removeProperty("--font-sans");
+    root.style.setProperty("--font-composer", typography.composer);
+    root.style.setProperty("--font-code", typography.code);
+    root.style.setProperty("--font-terminal", typography.terminal);
+    root.style.setProperty("--font-mono", typography.code);
+  }, [
+    settings.fontFamilyCode,
+    settings.fontFamilyComposer,
+    settings.fontFamilySans,
+    settings.fontFamilyTerminal,
+    settings.typographyMode,
+  ]);
+
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (isMacPlatform() && settings.fontSmoothing) {
+      root.style.setProperty("-webkit-font-smoothing", "antialiased");
     } else {
-      root.style.removeProperty("--font-sans");
+      root.style.removeProperty("-webkit-font-smoothing");
     }
-  }, [settings.customFontFamily]);
+  }, [settings.fontSmoothing]);
 
   const updateSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => {
-    void updateSettings({ ...settings, [key]: value });
+    const next = { ...settings };
+    if (key === "fontSize") {
+      next.fontSizeInterface = value as number;
+      delete next.fontSize;
+    } else if (key === "customFontFamily") {
+      next.fontFamilySans = value as string;
+      delete next.customFontFamily;
+    } else {
+      next[key] = value;
+    }
+    void updateSettings(next);
   };
 
   return (
-    <SettingsContext.Provider value={{ ...settings, updateSetting }}>
+    <SettingsContext.Provider
+      value={{
+        ...settings,
+        // Keep the old context aliases readable for extensions while new
+        // persistence writes only the Typography fields.
+        fontSize: settings.fontSizeInterface,
+        customFontFamily: settings.fontFamilySans,
+        updateSetting,
+      }}
+    >
       {children}
     </SettingsContext.Provider>
   );

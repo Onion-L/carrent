@@ -301,7 +301,7 @@ function ComposerEditorBridge(
   return (
     <div
       data-composer-editor="true"
-      className={`relative min-h-20 cursor-text whitespace-pre-wrap break-words text-app-15 leading-6 text-fg ${
+      className={`font-composer relative min-h-20 cursor-text whitespace-pre-wrap break-words text-fg ${
         props.skillsDisabled ? "[&_[data-skill-marker='true']]:opacity-50" : ""
       }`}
       onMouseDown={(event) => {
@@ -323,7 +323,7 @@ function ComposerEditorBridge(
             aria-controls={props.menuOpen ? props.controlsId : undefined}
             aria-activedescendant={props.menuOpen ? props.activeDescendantId : undefined}
             data-composer-text="true"
-            className="min-h-20 whitespace-pre-wrap break-words outline-none"
+            className="font-composer min-h-20 whitespace-pre-wrap break-words outline-none"
             onFocus={() => {
               focusedRef.current = true;
               editor.getEditorState().read(publishTrigger);
@@ -336,7 +336,7 @@ function ComposerEditorBridge(
           />
         }
         placeholder={
-          <div className="pointer-events-none absolute left-0 top-0 text-app-15 leading-6 text-subtle">
+          <div className="font-composer pointer-events-none absolute left-0 top-0 leading-6 text-subtle">
             Message...
           </div>
         }

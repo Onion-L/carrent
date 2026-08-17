@@ -7,6 +7,7 @@ import {
   clipboard,
   webContents,
   screen,
+  session,
   type WebContents,
 } from "electron";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
@@ -126,6 +127,7 @@ import { createBrowserManager, type BrowserManager } from "./browser/browserMana
 import { registerBrowserIpc } from "./browser/browserIpc";
 import { isHttpOrHttpsUrl } from "./browser/browserNavigation";
 import { denyAppRendererWindowOpen, guardAppRendererNavigation } from "./appRendererUrl";
+import { installLocalFontPermissionHandler } from "./fontPermissions";
 import type { BrowserThreadTarget } from "../src/shared/browser";
 import { resolveDroppedLocalPaths, revealLocalPath } from "./localPathContext";
 
@@ -613,6 +615,7 @@ if (!hasSingleInstanceLock) {
   const initialLaunchTargeting = windowRegistry.handleSecondInstance(process.argv);
 
   app.whenReady().then(async () => {
+    installLocalFontPermissionHandler(session.defaultSession);
     ensureCliPaths();
 
     // Stand up diagnostics before anything else so a crash during startup or

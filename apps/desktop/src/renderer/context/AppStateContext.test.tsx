@@ -600,13 +600,13 @@ describe("multi-window synchronization", () => {
         await contextValue!.updateSettings({
           ...contextValue!.settings,
           theme: "light",
-          fontSize: 18,
+          fontSizeInterface: 18,
         }),
       ).toBe(true);
     });
 
     expect(contextB!.hasPersistedSettings).toBe(true);
-    expect(contextB!.settings).toMatchObject({ theme: "light", fontSize: 18 });
+    expect(contextB!.settings).toMatchObject({ theme: "light", fontSizeInterface: 18 });
     expect(contextValue!.settings.theme).toBe("light");
   });
 

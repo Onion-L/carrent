@@ -164,6 +164,7 @@ export type AppThreadPromotionIntentRecord = AppThreadRunStartInput & {
 };
 
 export type AppStateSettingsTheme = "dark" | "light" | "system";
+export type TypographyMode = "simple" | "advanced";
 
 /**
  * User settings shared across windows through the App State snapshot.
@@ -178,7 +179,19 @@ export type AppStateSettingsTheme = "dark" | "light" | "system";
 export type AppStateSettings = {
   autoDetectRuntimes: boolean;
   theme: AppStateSettingsTheme;
-  fontSize: number;
+  typographyMode: TypographyMode;
+  fontFamilySans: string;
+  fontFamilyComposer: string;
+  fontFamilyCode: string;
+  fontFamilyTerminal: string;
+  fontSizeInterface: number;
+  fontSizePrompt: number;
+  fontSizeCode: number;
+  fontSizeTerminal: number;
+  fontSmoothing: boolean;
+  terminalFontForce: boolean;
+  /** @deprecated Legacy input-only field. Normalized settings omit it. */
+  fontSize?: number;
   // Empty means the first installed editor returned by detection.
   defaultEditorId: string;
   enhancedTerminalCompletion: boolean;
@@ -191,7 +204,8 @@ export type AppStateSettings = {
   // at the write site (src/renderer/lib/fontFamily); the normalizer only
   // validates shape — type check, trim outer whitespace, strip control chars,
   // truncate.
-  customFontFamily: string;
+  /** @deprecated Legacy input-only field. Normalized settings omit it. */
+  customFontFamily?: string;
   // Concrete Kimi model id used by automatic Thread title generation. Omitted
   // means "use the current Kimi default" (resolved per job from the live ACP
   // model config). A concrete id is validated against the ACP model catalog at
@@ -209,17 +223,29 @@ export type AppStateSettings = {
 const MIN_SETTINGS_FONT_SIZE = 8;
 const MAX_SETTINGS_FONT_SIZE = 32;
 const MAX_CUSTOM_FONT_FAMILY_LENGTH = 64;
+const TYPOGRAPHY_DEFAULTS = {
+  typographyMode: "simple" as TypographyMode,
+  fontFamilySans: "",
+  fontFamilyComposer: "",
+  fontFamilyCode: "",
+  fontFamilyTerminal: "",
+  fontSizeInterface: 16,
+  fontSizePrompt: 14,
+  fontSizeCode: 13,
+  fontSizeTerminal: 12,
+  fontSmoothing: true,
+  terminalFontForce: false,
+};
 
 export const DEFAULT_APP_STATE_SETTINGS: AppStateSettings = {
   autoDetectRuntimes: true,
   theme: "dark",
-  fontSize: 14,
+  ...TYPOGRAPHY_DEFAULTS,
   defaultEditorId: "",
   enhancedTerminalCompletion: true,
   terminalPanelHeight: 320,
   runtimeEnabledById: {},
   runtimeDefaultModelById: {},
-  customFontFamily: "",
 };
 
 /** Preserves explicitly unbound shortcuts as null across the JSON boundary. */
@@ -242,13 +268,36 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     value.theme === "dark" || value.theme === "light" || value.theme === "system"
       ? value.theme
       : DEFAULT_APP_STATE_SETTINGS.theme;
-  const fontSize =
+  const legacyFontSize =
     typeof value.fontSize === "number" &&
     Number.isInteger(value.fontSize) &&
     value.fontSize >= MIN_SETTINGS_FONT_SIZE &&
     value.fontSize <= MAX_SETTINGS_FONT_SIZE
       ? value.fontSize
-      : DEFAULT_APP_STATE_SETTINGS.fontSize;
+      : null;
+  const normalizeTypographySize = (candidate: unknown, fallback: number) =>
+    typeof candidate === "number" &&
+    Number.isInteger(candidate) &&
+    candidate >= MIN_SETTINGS_FONT_SIZE &&
+    candidate <= MAX_SETTINGS_FONT_SIZE
+      ? candidate
+      : fallback;
+  const fontSizeInterface = normalizeTypographySize(
+    value.fontSizeInterface,
+    legacyFontSize ?? TYPOGRAPHY_DEFAULTS.fontSizeInterface,
+  );
+  const fontSizePrompt = normalizeTypographySize(
+    value.fontSizePrompt,
+    TYPOGRAPHY_DEFAULTS.fontSizePrompt,
+  );
+  const fontSizeCode = normalizeTypographySize(
+    value.fontSizeCode,
+    TYPOGRAPHY_DEFAULTS.fontSizeCode,
+  );
+  const fontSizeTerminal = normalizeTypographySize(
+    value.fontSizeTerminal,
+    TYPOGRAPHY_DEFAULTS.fontSizeTerminal,
+  );
   const autoDetectRuntimes =
     typeof value.autoDetectRuntimes === "boolean"
       ? value.autoDetectRuntimes
@@ -296,18 +345,41 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
       ? value.threadTitleModelId.trim()
       : undefined;
 
-  // customFontFamily: non-string falls back to the default. The order is fixed
-  // — type check → trim outer whitespace → strip control chars → truncate — so
-  // internal spaces survive (e.g. "SF Pro Display", "Noto Sans CJK SC"). CSS
-  // escaping of the survivor happens at the renderer write site, not here.
-  // \p{Cc} covers C0 controls + DEL (and C1); all are invalid in a font name.
-  const customFontFamily =
-    typeof value.customFontFamily === "string"
-      ? value.customFontFamily
-          .trim()
-          .replace(/\p{Cc}/gu, "")
-          .slice(0, MAX_CUSTOM_FONT_FAMILY_LENGTH)
-      : DEFAULT_APP_STATE_SETTINGS.customFontFamily;
+  const normalizeFontFamily = (candidate: unknown, fallback: string) => {
+    if (typeof candidate !== "string") return fallback;
+    return candidate
+      .trim()
+      .replace(/\p{Cc}/gu, "")
+      .replace(/,/g, "")
+      .replace(/\s+/g, " ")
+      .slice(0, MAX_CUSTOM_FONT_FAMILY_LENGTH);
+  };
+  const legacyFontFamily = normalizeFontFamily(value.customFontFamily, "");
+  const fontFamilySans = normalizeFontFamily(value.fontFamilySans, legacyFontFamily);
+  const fontFamilyComposer = normalizeFontFamily(
+    value.fontFamilyComposer,
+    TYPOGRAPHY_DEFAULTS.fontFamilyComposer,
+  );
+  const fontFamilyCode = normalizeFontFamily(
+    value.fontFamilyCode,
+    TYPOGRAPHY_DEFAULTS.fontFamilyCode,
+  );
+  const fontFamilyTerminal = normalizeFontFamily(
+    value.fontFamilyTerminal,
+    TYPOGRAPHY_DEFAULTS.fontFamilyTerminal,
+  );
+  const typographyMode: TypographyMode =
+    value.typographyMode === "advanced" || value.typographyMode === "simple"
+      ? value.typographyMode
+      : TYPOGRAPHY_DEFAULTS.typographyMode;
+  const fontSmoothing =
+    typeof value.fontSmoothing === "boolean"
+      ? value.fontSmoothing
+      : TYPOGRAPHY_DEFAULTS.fontSmoothing;
+  const terminalFontForce =
+    typeof value.terminalFontForce === "boolean"
+      ? value.terminalFontForce
+      : TYPOGRAPHY_DEFAULTS.terminalFontForce;
 
   // keybindingOverrides: valid bindings survive, while null/undefined on a
   // known action preserves an explicit unbind. Everything else is dropped.
@@ -328,13 +400,22 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
   return {
     autoDetectRuntimes,
     theme,
-    fontSize,
+    typographyMode,
+    fontFamilySans,
+    fontFamilyComposer,
+    fontFamilyCode,
+    fontFamilyTerminal,
+    fontSizeInterface,
+    fontSizePrompt,
+    fontSizeCode,
+    fontSizeTerminal,
+    fontSmoothing,
+    terminalFontForce: terminalFontForce && Boolean(fontFamilyTerminal),
     defaultEditorId,
     enhancedTerminalCompletion,
     terminalPanelHeight,
     runtimeEnabledById,
     runtimeDefaultModelById,
-    customFontFamily,
     ...(threadTitleModelId ? { threadTitleModelId } : {}),
     ...(Object.keys(keybindingOverrides).length > 0 ? { keybindingOverrides } : {}),
   };

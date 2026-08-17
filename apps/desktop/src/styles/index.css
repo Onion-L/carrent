@@ -55,7 +55,16 @@
       "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
       Arial, sans-serif;
     --font-sans: var(--font-sans-base);
-    --font-mono: "SFMono-Regular", "IBM Plex Mono", Consolas, monospace;
+    --font-composer: var(--font-sans);
+    --font-code: "SFMono-Regular", "IBM Plex Mono", Consolas, "Liberation Mono", monospace;
+    --font-terminal:
+      "SFMono-Regular", "IBM Plex Mono", Consolas, "MesloLGS NF", "JetBrainsMono Nerd Font",
+      "Symbols Nerd Font Mono", "Symbols Nerd Font", monospace;
+    --font-mono: var(--font-code);
+    --font-size-interface: 16px;
+    --font-size-prompt: 14px;
+    --font-size-code: 13px;
+    --font-size-terminal: 12px;
     color-scheme: dark;
   }
 
@@ -106,9 +115,23 @@
     color: rgb(var(--color-fg));
     margin: 0;
     font-family: var(--font-sans);
-    -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow: hidden;
+  }
+
+  .font-composer {
+    font-family: var(--font-composer);
+    font-size: var(--font-size-prompt);
+  }
+
+  .font-code {
+    font-family: var(--font-code);
+    font-size: var(--font-size-code);
+  }
+
+  .font-terminal {
+    font-family: var(--font-terminal);
+    font-size: var(--font-size-terminal);
   }
 
   #root {

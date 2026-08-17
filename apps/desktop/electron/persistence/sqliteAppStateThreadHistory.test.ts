@@ -781,14 +781,23 @@ describe("SQLite App State thread history", () => {
       snapshot.settings = {
         autoDetectRuntimes: false,
         theme: "light",
-        fontSize: 18,
+        typographyMode: "simple",
+        fontFamilySans: "",
+        fontFamilyComposer: "",
+        fontFamilyCode: "",
+        fontFamilyTerminal: "",
+        fontSizeInterface: 18,
+        fontSizePrompt: 14,
+        fontSizeCode: 13,
+        fontSizeTerminal: 12,
+        fontSmoothing: true,
+        terminalFontForce: false,
         defaultEditorId: "",
         enhancedTerminalCompletion: false,
         terminalPanelHeight: 400,
         runtimeEnabledById: { kimi: true },
         runtimeDefaultModelById: { kimi: "kimi-k2.5" },
-        customFontFamily: "",
-      };
+      } as NonNullable<AppStateSnapshot["settings"]>;
       snapshot.lastThreadIdByWorkspace = { "workspace-a": "thread-a" };
 
       const first = createSqliteAppStateStore(path, { driver: bunSqliteDriver });

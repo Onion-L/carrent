@@ -364,7 +364,7 @@ function FileDiffBlock({
       </div>
 
       {expanded && (
-        <div className="border-t border-border bg-bg px-3 py-2 font-mono text-app-13 leading-5">
+        <div className="font-code border-t border-border bg-bg px-3 py-2 leading-5">
           {(firstHunkIndex < 0 ? block.lines : block.lines.slice(0, firstHunkIndex)).map(
             (line, index) => (
               <DiffLine key={`${index}-${line.slice(0, 40)}`} line={line} />

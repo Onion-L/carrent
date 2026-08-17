@@ -372,7 +372,7 @@ describe("real multi-window workflows", () => {
       settings: {
         ...DEFAULT_APP_STATE_SETTINGS,
         theme: "light",
-        fontSize: 17,
+        fontSizeInterface: 17,
         threadTitleModelId: "kimi-k2.5",
       },
     });
@@ -455,7 +455,7 @@ describe("real multi-window workflows", () => {
       associations: [{ workspaceId: "workspace-1", projectId: "project-1" }],
       threads: [{ id: "thread-1" }],
       threadDrafts: [],
-      settings: { theme: "light", fontSize: 17, threadTitleModelId: "kimi-k2.5" },
+      settings: { theme: "light", fontSizeInterface: 17, threadTitleModelId: "kimi-k2.5" },
     });
     expect(snapshot.threadWork?.["thread-1"]?.draft?.content).toBe("composer from B");
     expect(snapshot.threadMessages?.find((message) => message.id === "assistant-1")).toMatchObject({

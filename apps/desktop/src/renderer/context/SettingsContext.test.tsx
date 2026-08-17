@@ -93,7 +93,7 @@ describe("SettingsContext", () => {
   it("resolves settings from the App State snapshot", async () => {
     await renderProviders({
       ...baseSnapshot,
-      settings: { ...DEFAULT_APP_STATE_SETTINGS, theme: "light", fontSize: 18 },
+      settings: { ...DEFAULT_APP_STATE_SETTINGS, theme: "light", fontSizeInterface: 18 },
     });
 
     expect(settingsValue!.theme).toBe("light");
@@ -104,7 +104,7 @@ describe("SettingsContext", () => {
     await renderProviders(baseSnapshot);
 
     expect(settingsValue!.theme).toBe("dark");
-    expect(settingsValue!.fontSize).toBe(14);
+    expect(settingsValue!.fontSize).toBe(16);
     expect(settingsValue!.autoDetectRuntimes).toBe(true);
     expect(localStorage.getItem("carrent:settings")).toBe(null);
   });
@@ -141,7 +141,7 @@ describe("SettingsContext", () => {
     expect(authority!.getState().snapshot.settings).toEqual({
       ...DEFAULT_APP_STATE_SETTINGS,
       theme: "light",
-      fontSize: 20,
+      fontSizeInterface: 20,
       autoDetectRuntimes: false,
       terminalPanelHeight: 720,
       runtimeEnabledById: { kimi: false },
@@ -153,7 +153,7 @@ describe("SettingsContext", () => {
     localStorage.setItem("carrent:settings", JSON.stringify({ theme: "light", fontSize: 20 }));
     await renderProviders({
       ...baseSnapshot,
-      settings: { ...DEFAULT_APP_STATE_SETTINGS, theme: "dark", fontSize: 14 },
+      settings: { ...DEFAULT_APP_STATE_SETTINGS, theme: "dark", fontSizeInterface: 14 },
     });
 
     expect(settingsValue!.theme).toBe("dark");
@@ -175,7 +175,7 @@ describe("SettingsContext", () => {
 
     const withOverride = root.style.getPropertyValue("--font-sans");
     expect(withOverride.startsWith('"Comic Sans MS"')).toBe(true);
-    expect(withOverride).toContain("var(--font-sans-base)");
+    expect(withOverride).toContain('"Geist"');
 
     // Clear it: the inline override must be removed so the :root base stack wins.
     await act(async () => {

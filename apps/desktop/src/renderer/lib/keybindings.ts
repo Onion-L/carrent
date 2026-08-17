@@ -74,12 +74,11 @@ export function detectConflict(
   excludeActionId: ActionId,
   currentOverrides?: Partial<Record<ActionId, KeyBinding>>,
 ): ActionId | null {
-  const candidateModifiers = canonicalModifiers(modifiers);
+  const candidate: KeyBinding = { key, modifiers };
   for (const actionId of ACTION_IDS) {
     if (actionId === excludeActionId) continue;
     const binding = resolveKeybinding(actionId, currentOverrides);
-    if (!binding) continue;
-    if (binding.key === key && sameModifiers(binding.modifiers, candidateModifiers)) {
+    if (binding && isSameBinding(binding, candidate)) {
       return actionId;
     }
   }
@@ -90,6 +89,18 @@ function sameModifiers(left: KeyBindingModifier[], right: KeyBindingModifier[]):
   const a = canonicalModifiers(left);
   const b = canonicalModifiers(right);
   return a.length === b.length && a.every((modifier, index) => modifier === b[index]);
+}
+
+/**
+ * The single equality rule for keybindings, shared by runtime matching
+ * (useKeybinding) and conflict detection (detectConflict): keys compare
+ * case-insensitively (so caps lock cannot break or hide a shortcut — shift is
+ * tracked as a modifier anyway) and modifiers compare as a set in canonical
+ * order.
+ */
+export function isSameBinding(left: KeyBinding, right: KeyBinding): boolean {
+  if (left.key.toLocaleLowerCase() !== right.key.toLocaleLowerCase()) return false;
+  return sameModifiers(left.modifiers, right.modifiers);
 }
 
 /**

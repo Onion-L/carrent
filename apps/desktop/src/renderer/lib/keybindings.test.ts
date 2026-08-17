@@ -7,6 +7,7 @@ import {
   formatKeybinding,
   isMacPlatform,
   isReservedKey,
+  isSameBinding,
   normalizeModifiers,
   resolveKeybinding,
 } from "./keybindings";
@@ -94,6 +95,10 @@ describe("detectConflict", () => {
     expect(detectConflict("j", ["mod", "shift"], "search-threads", overrides)).toBe(
       "toggle-terminal",
     );
+  });
+
+  it("matches keys case-insensitively so caps lock cannot hide a conflict", () => {
+    expect(detectConflict("K", ["mod"], "toggle-terminal", {})).toBe("search-threads");
   });
 });
 
@@ -199,6 +204,42 @@ describe("canonicalModifiers", () => {
   it("sorts modifiers into storage order and drops duplicates", () => {
     const modifiers: KeyBindingModifier[] = ["mod", "shift", "mod", "ctrl"];
     expect(canonicalModifiers(modifiers)).toEqual(["ctrl", "shift", "mod"]);
+  });
+});
+
+describe("isSameBinding", () => {
+  it("matches identical bindings regardless of modifier order", () => {
+    expect(isSameBinding({ key: "k", modifiers: ["mod"] }, { key: "k", modifiers: ["mod"] })).toBe(
+      true,
+    );
+    expect(
+      isSameBinding(
+        { key: "j", modifiers: ["shift", "mod"] },
+        { key: "j", modifiers: ["mod", "shift"] },
+      ),
+    ).toBe(true);
+  });
+
+  it("compares keys case-insensitively so caps lock cannot break a shortcut", () => {
+    expect(isSameBinding({ key: "K", modifiers: ["mod"] }, { key: "k", modifiers: ["mod"] })).toBe(
+      true,
+    );
+  });
+
+  it("rejects different keys or modifier sets", () => {
+    expect(isSameBinding({ key: "k", modifiers: ["mod"] }, { key: "p", modifiers: ["mod"] })).toBe(
+      false,
+    );
+    expect(
+      isSameBinding({ key: "k", modifiers: ["mod"] }, { key: "k", modifiers: ["mod", "shift"] }),
+    ).toBe(false);
+    expect(isSameBinding({ key: "k", modifiers: [] }, { key: "k", modifiers: ["mod"] })).toBe(
+      false,
+    );
+  });
+
+  it("matches bindings without modifiers", () => {
+    expect(isSameBinding({ key: "F5", modifiers: [] }, { key: "F5", modifiers: [] })).toBe(true);
   });
 });
 

@@ -660,27 +660,39 @@ function TypographyPanel() {
           max={ranges.interface.max}
           onChange={(value) => updateSetting("fontSizeInterface", value)}
         />
-        <TypographySizeInput
-          label="Prompt size"
-          value={fontSizePrompt}
-          min={ranges.prompt.min}
-          max={ranges.prompt.max}
-          onChange={(value) => updateSetting("fontSizePrompt", value)}
-        />
-        <TypographySizeInput
-          label="Code size"
-          value={fontSizeCode}
-          min={ranges.code.min}
-          max={ranges.code.max}
-          onChange={(value) => updateSetting("fontSizeCode", value)}
-        />
-        <TypographySizeInput
-          label="Terminal size"
-          value={fontSizeTerminal}
-          min={ranges.terminal.min}
-          max={ranges.terminal.max}
-          onChange={(value) => updateSetting("fontSizeTerminal", value)}
-        />
+        {typographyMode === "simple" ? (
+          <TypographySizeInput
+            label="Monospace size"
+            value={fontSizeCode}
+            min={ranges.code.min}
+            max={ranges.code.max}
+            onChange={(value) => updateSetting("fontSizeCode", value)}
+          />
+        ) : (
+          <>
+            <TypographySizeInput
+              label="Prompt size"
+              value={fontSizePrompt}
+              min={ranges.prompt.min}
+              max={ranges.prompt.max}
+              onChange={(value) => updateSetting("fontSizePrompt", value)}
+            />
+            <TypographySizeInput
+              label="Code size"
+              value={fontSizeCode}
+              min={ranges.code.min}
+              max={ranges.code.max}
+              onChange={(value) => updateSetting("fontSizeCode", value)}
+            />
+            <TypographySizeInput
+              label="Terminal size"
+              value={fontSizeTerminal}
+              min={ranges.terminal.min}
+              max={ranges.terminal.max}
+              onChange={(value) => updateSetting("fontSizeTerminal", value)}
+            />
+          </>
+        )}
       </div>
 
       {isMacPlatform() ? (

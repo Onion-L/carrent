@@ -12,7 +12,7 @@ import {
   type AppStateSettings,
 } from "../../shared/workspacePersistence";
 import { getFontSizeCssVariables } from "../lib/fontSize";
-import { isMacPlatform, resolveTypography } from "../lib/typography";
+import { isMacPlatform, resolveTypography, resolveTypographySizes } from "../lib/typography";
 import { useAppState } from "./AppStateContext";
 
 export type Theme = AppStateSettings["theme"];
@@ -137,20 +137,22 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   /* Apply the interface scale and the direct region sizes. */
   useLayoutEffect(() => {
     const root = document.documentElement;
+    const sizes = resolveTypographySizes(settings);
     for (const [property, value] of Object.entries(
-      getFontSizeCssVariables(settings.fontSizeInterface),
+      getFontSizeCssVariables(sizes.interface),
     )) {
       root.style.setProperty(property, value);
     }
-    root.style.setProperty("--font-size-interface", `${settings.fontSizeInterface}px`);
-    root.style.setProperty("--font-size-prompt", `${settings.fontSizePrompt}px`);
-    root.style.setProperty("--font-size-code", `${settings.fontSizeCode}px`);
-    root.style.setProperty("--font-size-terminal", `${settings.fontSizeTerminal}px`);
+    root.style.setProperty("--font-size-interface", `${sizes.interface}px`);
+    root.style.setProperty("--font-size-prompt", `${sizes.prompt}px`);
+    root.style.setProperty("--font-size-code", `${sizes.code}px`);
+    root.style.setProperty("--font-size-terminal", `${sizes.terminal}px`);
   }, [
     settings.fontSizeCode,
     settings.fontSizeInterface,
     settings.fontSizePrompt,
     settings.fontSizeTerminal,
+    settings.typographyMode,
   ]);
 
   /* Apply all resolved family stacks at the document root. */

@@ -7,9 +7,9 @@ import {
 } from "./fontFamily";
 
 export const TYPOGRAPHY_SIZE_RANGES = {
-  interface: { min: 12, max: 20, defaultValue: 16 },
+  interface: { min: 12, max: 20, defaultValue: 14 },
   prompt: { min: 12, max: 20, defaultValue: 14 },
-  code: { min: 10, max: 18, defaultValue: 13 },
+  code: { min: 10, max: 18, defaultValue: 14 },
   terminal: { min: 8, max: 20, defaultValue: 12 },
 } as const;
 
@@ -47,6 +47,33 @@ export function resolveTypography(
         : settings.fontFamilyCode,
       BASE_FONT_TERMINAL_STACK,
     ),
+  };
+}
+
+export function resolveTypographySizes(
+  settings: Pick<
+    AppStateSettings,
+    | "typographyMode"
+    | "fontSizeInterface"
+    | "fontSizePrompt"
+    | "fontSizeCode"
+    | "fontSizeTerminal"
+  >,
+): {
+  interface: number;
+  prompt: number;
+  code: number;
+  terminal: number;
+} {
+  return {
+    interface: settings.fontSizeInterface,
+    prompt:
+      settings.typographyMode === "advanced"
+        ? settings.fontSizePrompt
+        : settings.fontSizeInterface,
+    code: settings.fontSizeCode,
+    terminal:
+      settings.typographyMode === "advanced" ? settings.fontSizeTerminal : settings.fontSizeCode,
   };
 }
 

@@ -28,6 +28,7 @@ import { useSettings } from "../../context/SettingsContext";
 import { useKeybinding } from "../../hooks/useKeybinding";
 import { checkMonospaceFamily, loadSymbolsFont } from "../../lib/localFonts";
 import { BASE_FONT_TERMINAL_STACK, buildFontStack } from "../../lib/fontFamily";
+import { resolveTypographySizes } from "../../lib/typography";
 
 type TerminalController = {
   terminal: Terminal;
@@ -292,6 +293,7 @@ export function IntegratedTerminal({
   const terminalFontName =
     settings.typographyMode === "advanced" ? settings.fontFamilyTerminal : settings.fontFamilyCode;
   const terminalFontFamily = buildFontStack(terminalFontName, BASE_FONT_TERMINAL_STACK);
+  const terminalFontSize = resolveTypographySizes(settings).terminal;
   const [panelHeight, setPanelHeight] = useState(terminalPanelHeight);
   const [tabsByProject, setTabsByProject] = useState<Record<string, TerminalTab[]>>({});
   const [loadingProjectId, setLoadingProjectId] = useState<string | null>(null);
@@ -816,7 +818,7 @@ export function IntegratedTerminal({
                 onFocusChange={onFocusChange}
                 terminalFontFamily={terminalFontFamily}
                 terminalFontName={terminalFontName}
-                terminalFontSize={settings.fontSizeTerminal}
+                terminalFontSize={terminalFontSize}
                 terminalFontForce={settings.terminalFontForce}
               />
               {tab.id === activeTab?.id && activeCompletion?.predictionSuffix ? (

@@ -257,7 +257,7 @@ describe("SQLite App State identity graph", () => {
         fontFamilyTerminal: "",
         fontSizeInterface: 18,
         fontSizePrompt: 14,
-        fontSizeCode: 13,
+        fontSizeCode: 14,
         fontSizeTerminal: 12,
         fontSmoothing: true,
         terminalFontForce: false,

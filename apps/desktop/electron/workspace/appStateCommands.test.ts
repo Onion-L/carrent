@@ -2004,7 +2004,7 @@ describe("appStateCommandReducers through createAppStateAuthority", () => {
     );
 
     expect(result).toEqual({ status: "accepted", revision: 1 });
-    const expected = { ...DEFAULT_APP_STATE_SETTINGS, theme: "light", fontSizeInterface: 16 };
+    const expected = { ...DEFAULT_APP_STATE_SETTINGS, theme: "light", fontSizeInterface: 14 };
     expect(authority.getState().snapshot.settings).toEqual(expected);
     expect(saved).toHaveLength(1);
     expect(saved[0]?.settings).toEqual(expected);

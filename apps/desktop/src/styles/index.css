@@ -61,10 +61,10 @@
       "SFMono-Regular", "IBM Plex Mono", Consolas, "MesloLGS NF", "JetBrainsMono Nerd Font",
       "Symbols Nerd Font Mono", "Symbols Nerd Font", monospace;
     --font-mono: var(--font-code);
-    --font-size-interface: 16px;
+    --font-size-interface: 14px;
     --font-size-prompt: 14px;
-    --font-size-code: 13px;
-    --font-size-terminal: 12px;
+    --font-size-code: 14px;
+    --font-size-terminal: 14px;
     color-scheme: dark;
   }
 

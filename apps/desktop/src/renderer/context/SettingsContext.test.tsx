@@ -104,9 +104,29 @@ describe("SettingsContext", () => {
     await renderProviders(baseSnapshot);
 
     expect(settingsValue!.theme).toBe("dark");
-    expect(settingsValue!.fontSize).toBe(16);
+    expect(settingsValue!.fontSize).toBe(14);
     expect(settingsValue!.autoDetectRuntimes).toBe(true);
     expect(localStorage.getItem("carrent:settings")).toBe(null);
+  });
+
+  it("applies the Interface and Monospace sizes in simple mode", async () => {
+    await renderProviders({
+      ...baseSnapshot,
+      settings: {
+        ...DEFAULT_APP_STATE_SETTINGS,
+        typographyMode: "simple",
+        fontSizeInterface: 17,
+        fontSizePrompt: 12,
+        fontSizeCode: 15,
+        fontSizeTerminal: 9,
+      },
+    });
+
+    const style = document.documentElement.style;
+    expect(style.getPropertyValue("--font-size-interface")).toBe("17px");
+    expect(style.getPropertyValue("--font-size-prompt")).toBe("17px");
+    expect(style.getPropertyValue("--font-size-code")).toBe("15px");
+    expect(style.getPropertyValue("--font-size-terminal")).toBe("15px");
   });
 
   it("persists updateSetting through the authority", async () => {

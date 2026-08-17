@@ -725,6 +725,7 @@ describe("settings:update", () => {
       autoDetectRuntimes: false,
       theme: "light",
       fontSize: 18,
+      defaultEditorId: "",
       enhancedTerminalCompletion: false,
       terminalPanelHeight: 400,
       runtimeEnabledById: { kimi: false },

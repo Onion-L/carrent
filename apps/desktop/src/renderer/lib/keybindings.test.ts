@@ -10,6 +10,7 @@ import {
   isSameBinding,
   normalizeModifiers,
   prepareKeybindingUpdate,
+  resetKeybindingOverride,
   resolveKeybinding,
 } from "./keybindings";
 
@@ -278,5 +279,19 @@ describe("prepareKeybindingUpdate", () => {
         "toggle-terminal": { key: "k", modifiers: ["mod"] },
       },
     });
+  });
+});
+
+describe("resetKeybindingOverride", () => {
+  it("removes only the requested override without mutating the current object", () => {
+    const overrides: Partial<Record<ActionId, KeyBinding>> = {
+      "search-threads": undefined,
+      "toggle-terminal": { key: "t", modifiers: ["mod"] },
+    };
+
+    expect(resetKeybindingOverride("search-threads", overrides)).toEqual({
+      "toggle-terminal": { key: "t", modifiers: ["mod"] },
+    });
+    expect("search-threads" in overrides).toBe(true);
   });
 });

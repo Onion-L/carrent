@@ -201,3 +201,12 @@ export function prepareKeybindingUpdate(
     },
   };
 }
+
+export function resetKeybindingOverride(
+  actionId: ActionId,
+  currentOverrides: Partial<Record<ActionId, KeyBinding>> = {},
+): Partial<Record<ActionId, KeyBinding>> {
+  const nextOverrides = { ...currentOverrides };
+  delete nextOverrides[actionId];
+  return nextOverrides;
+}

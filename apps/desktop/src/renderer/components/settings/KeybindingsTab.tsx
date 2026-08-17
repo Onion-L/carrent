@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { RotateCcw } from "lucide-react";
 
 import {
   ACTION_IDS,
@@ -13,6 +14,7 @@ import {
   isReservedKey,
   normalizeModifiers,
   prepareKeybindingUpdate,
+  resetKeybindingOverride,
   resolveKeybinding,
 } from "../../lib/keybindings";
 
@@ -29,6 +31,7 @@ export function KeybindingsTab() {
   const [recordingActionId, setRecordingActionId] = useState<ActionId | null>(null);
   const [candidate, setCandidate] = useState<KeyBinding | null>(null);
   const recorderRef = useRef<HTMLButtonElement>(null);
+  const hasOverrides = Boolean(keybindingOverrides && Object.keys(keybindingOverrides).length > 0);
 
   useEffect(() => {
     recorderRef.current?.focus();
@@ -56,6 +59,16 @@ export function KeybindingsTab() {
     const update = prepareKeybindingUpdate(actionId, undefined, keybindingOverrides);
     if (update.status !== "saved") return;
     updateSetting("keybindingOverrides", update.overrides);
+    stopRecording();
+  };
+
+  const resetBinding = (actionId: ActionId) => {
+    updateSetting("keybindingOverrides", resetKeybindingOverride(actionId, keybindingOverrides));
+    if (recordingActionId === actionId) stopRecording();
+  };
+
+  const resetAllBindings = () => {
+    updateSetting("keybindingOverrides", undefined);
     stopRecording();
   };
 
@@ -118,6 +131,9 @@ export function KeybindingsTab() {
         <tbody className="divide-y divide-border">
           {ACTION_IDS.map((actionId) => {
             const binding = resolveKeybinding(actionId, keybindingOverrides);
+            const hasCustomBinding = Boolean(
+              keybindingOverrides && actionId in keybindingOverrides,
+            );
             const isRecording = recordingActionId === actionId;
             const reserved =
               isRecording && candidate ? isReservedKey(candidate.key, candidate.modifiers) : null;
@@ -198,12 +214,36 @@ export function KeybindingsTab() {
                     ) : null}
                   </div>
                 </td>
-                <td className="w-12 px-2 py-3.5" />
+                <td className="w-12 px-2 py-3.5 text-center">
+                  {hasCustomBinding ? (
+                    <button
+                      type="button"
+                      aria-label={`Reset ${ACTION_LABELS[actionId]} shortcut`}
+                      title={`Reset ${ACTION_LABELS[actionId]} shortcut`}
+                      onClick={() => resetBinding(actionId)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-subtle transition-colors hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20"
+                    >
+                      <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+
+      <div className="flex justify-end border-t border-border bg-surface-raised px-3 py-2.5">
+        <button
+          type="button"
+          disabled={!hasOverrides}
+          onClick={resetAllBindings}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-app-12 font-medium text-muted transition-colors hover:border-border-strong hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 disabled:pointer-events-none disabled:opacity-40"
+        >
+          <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
+          Reset All
+        </button>
+      </div>
     </div>
   );
 }

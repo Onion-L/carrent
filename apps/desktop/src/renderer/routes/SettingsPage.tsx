@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import {
   RefreshCw,
   Download,
@@ -326,12 +326,14 @@ function FontFamilyPicker({
   label,
   description,
   onReset,
+  sizeControl,
 }: {
   value: string;
   onChange: (value: string) => void;
   label: string;
   description?: string;
   onReset?: () => void;
+  sizeControl?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [families, setFamilies] = useState<string[] | null>(null);
@@ -500,6 +502,7 @@ function FontFamilyPicker({
             ) : null}
           </>
         )}
+        {sizeControl}
         {onReset ? (
           <button
             type="button"
@@ -605,6 +608,15 @@ function TypographyPanel() {
           value={fontFamilySans}
           onChange={(value) => updateSetting("fontFamilySans", value)}
           onReset={() => reset("fontFamilySans")}
+          sizeControl={
+            <TypographySizeInput
+              label="Interface size"
+              value={fontSizeInterface}
+              min={ranges.interface.min}
+              max={ranges.interface.max}
+              onChange={(value) => updateSetting("fontSizeInterface", value)}
+            />
+          }
         />
         {typographyMode === "simple" ? (
           <FontFamilyPicker
@@ -613,6 +625,15 @@ function TypographyPanel() {
             value={fontFamilyCode}
             onChange={(value) => updateSetting("fontFamilyCode", value)}
             onReset={() => reset("fontFamilyCode")}
+            sizeControl={
+              <TypographySizeInput
+                label="Monospace size"
+                value={fontSizeCode}
+                min={ranges.code.min}
+                max={ranges.code.max}
+                onChange={(value) => updateSetting("fontSizeCode", value)}
+              />
+            }
           />
         ) : (
           <>
@@ -622,6 +643,15 @@ function TypographyPanel() {
               value={fontFamilyComposer}
               onChange={(value) => updateSetting("fontFamilyComposer", value)}
               onReset={() => reset("fontFamilyComposer")}
+              sizeControl={
+                <TypographySizeInput
+                  label="Prompt size"
+                  value={fontSizePrompt}
+                  min={ranges.prompt.min}
+                  max={ranges.prompt.max}
+                  onChange={(value) => updateSetting("fontSizePrompt", value)}
+                />
+              }
             />
             <FontFamilyPicker
               label="Code font"
@@ -629,6 +659,15 @@ function TypographyPanel() {
               value={fontFamilyCode}
               onChange={(value) => updateSetting("fontFamilyCode", value)}
               onReset={() => reset("fontFamilyCode")}
+              sizeControl={
+                <TypographySizeInput
+                  label="Code size"
+                  value={fontSizeCode}
+                  min={ranges.code.min}
+                  max={ranges.code.max}
+                  onChange={(value) => updateSetting("fontSizeCode", value)}
+                />
+              }
             />
             <FontFamilyPicker
               label="Terminal font"
@@ -639,6 +678,15 @@ function TypographyPanel() {
                 reset("fontFamilyTerminal");
                 updateSetting("terminalFontForce", false);
               }}
+              sizeControl={
+                <TypographySizeInput
+                  label="Terminal size"
+                  value={fontSizeTerminal}
+                  min={ranges.terminal.min}
+                  max={ranges.terminal.max}
+                  onChange={(value) => updateSetting("fontSizeTerminal", value)}
+                />
+              }
             />
             {fontFamilyTerminal ? (
               <Toggle
@@ -648,49 +696,6 @@ function TypographyPanel() {
                 onChange={(value) => updateSetting("terminalFontForce", value)}
               />
             ) : null}
-          </>
-        )}
-      </div>
-
-      <div className="py-2">
-        <TypographySizeInput
-          label="Interface size"
-          value={fontSizeInterface}
-          min={ranges.interface.min}
-          max={ranges.interface.max}
-          onChange={(value) => updateSetting("fontSizeInterface", value)}
-        />
-        {typographyMode === "simple" ? (
-          <TypographySizeInput
-            label="Monospace size"
-            value={fontSizeCode}
-            min={ranges.code.min}
-            max={ranges.code.max}
-            onChange={(value) => updateSetting("fontSizeCode", value)}
-          />
-        ) : (
-          <>
-            <TypographySizeInput
-              label="Prompt size"
-              value={fontSizePrompt}
-              min={ranges.prompt.min}
-              max={ranges.prompt.max}
-              onChange={(value) => updateSetting("fontSizePrompt", value)}
-            />
-            <TypographySizeInput
-              label="Code size"
-              value={fontSizeCode}
-              min={ranges.code.min}
-              max={ranges.code.max}
-              onChange={(value) => updateSetting("fontSizeCode", value)}
-            />
-            <TypographySizeInput
-              label="Terminal size"
-              value={fontSizeTerminal}
-              min={ranges.terminal.min}
-              max={ranges.terminal.max}
-              onChange={(value) => updateSetting("fontSizeTerminal", value)}
-            />
           </>
         )}
       </div>

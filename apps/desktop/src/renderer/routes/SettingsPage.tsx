@@ -91,6 +91,7 @@ function Select({
   wide = false,
   disabled = false,
   showLabel = true,
+  compact = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -101,6 +102,7 @@ function Select({
   wide?: boolean;
   disabled?: boolean;
   showLabel?: boolean;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -119,7 +121,9 @@ function Select({
   }, [open]);
 
   return (
-    <div className="flex items-center justify-between gap-6 py-3.5">
+    <div
+      className={compact ? "flex items-center" : "flex items-center justify-between gap-6 py-3.5"}
+    >
       <div className={showLabel ? "min-w-0" : "sr-only"}>
         <div className="text-app-13 text-fg">{label}</div>
         {description && <div className="mt-0.5 text-app-12 text-subtle">{description}</div>}
@@ -132,7 +136,9 @@ function Select({
           aria-expanded={open}
           aria-haspopup="listbox"
           disabled={disabled}
-          className={`flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-left transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 ${
+          className={`flex items-center gap-2 rounded-md border border-border bg-surface text-left transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 ${
+            compact ? "min-h-8 px-2.5 py-0" : "px-3 py-1.5"
+          } ${
             wide ? "w-[200px]" : "w-[140px]"
           } disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border`}
         >
@@ -538,6 +544,7 @@ function TypographySizeInput({
     <Select
       label={label}
       showLabel={false}
+      compact
       value={String(value)}
       onChange={(next) => onChange(Number(next))}
       options={Array.from({ length: max - min + 1 }, (_, index) => {

@@ -16,6 +16,7 @@ import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDire
 import { useChatRun } from "../hooks/useChatRun";
 import { RightSurfacePane } from "../components/right-surface/RightSurfacePane";
 import { useRightSurface } from "../components/right-surface/useRightSurface";
+import { useKeybinding } from "../hooks/useKeybinding";
 
 export function ProjectOverviewPage() {
   const { workspaceId, projectId } = useParams();
@@ -74,6 +75,10 @@ export function ProjectOverviewPage() {
     scopeKey: openDraft?.threadId ?? null,
     openBrowser: openBrowserSurface,
   });
+  const handleLastBrowserTabClosed = () => {
+    setBrowserFullscreen(false);
+    selectSurface("chooser");
+  };
 
   useEffect(() => {
     if (activeSurface !== "browser" || activeBrowserState?.placement !== "side") {
@@ -122,6 +127,21 @@ export function ProjectOverviewPage() {
     void selectWorkspace(workspace.id);
   }, [activeWorkspaceId, selectWorkspace, workspace]);
 
+  const closeRightSurface = () => {
+    setBrowserFullscreen(false);
+    closeSurface();
+  };
+  useKeybinding("toggle-right-panel", () => {
+    if (!openDraft) return;
+    if (activeSurface) closeRightSurface();
+    else openRightSurface();
+  });
+  useKeybinding("toggle-preview", () => {
+    if (!openDraft || !browserTarget) return;
+    if (activeSurface === "browser") closeRightSurface();
+    else selectSurface("browser");
+  });
+
   if (!workspace) return <Navigate replace to="/" />;
   if (!project || !association) return <Navigate replace to={`/workspace/${workspace.id}`} />;
 
@@ -133,10 +153,6 @@ export function ProjectOverviewPage() {
     activeBrowserState.contentOwned &&
     browserTarget !== null;
 
-  const closeRightSurface = () => {
-    setBrowserFullscreen(false);
-    closeSurface();
-  };
   if (projectDirectoryStatusById[project.id] === "unavailable") {
     return (
       <ProjectDirectoryUnavailable
@@ -279,6 +295,7 @@ export function ProjectOverviewPage() {
               visible
               fullscreen
               onToggleFullscreen={() => setBrowserFullscreen(false)}
+              onLastTabClosed={handleLastBrowserTabClosed}
             />
           </div>
         ) : (
@@ -297,6 +314,7 @@ export function ProjectOverviewPage() {
                   setState={setBrowserState}
                   visible={!closing}
                   onToggleFullscreen={() => setBrowserFullscreen(true)}
+                  onLastTabClosed={handleLastBrowserTabClosed}
                 />
               ) : surface === "terminal" ? (
                 <div ref={setSideContainer} className="h-full w-full" />

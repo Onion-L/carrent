@@ -209,6 +209,189 @@ afterEach(() => {
 });
 
 describe("BrowserManager", () => {
+  it("forwards configured browser shortcuts to the owning renderer", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "carrent-browser-keybindings-"));
+    try {
+      const window = new FakeBrowserWindow(17);
+      const target = { projectId: "project-1", threadId: "thread-1" };
+      const manager = createBrowserManager({
+        userDataPath: directory,
+        createAuxiliaryWindow: () => new FakeBrowserWindow() as never,
+        browserMenuOverlayPreload: "/browser-menu-overlay-preload.mjs",
+        loadBrowserMenuOverlay: () => {},
+        resolveOwner: () => 17,
+        resolveProjectTarget: () => ({ ownerId: 17, target }),
+        getKeybindings: () => ({
+          app: {},
+          terminal: {},
+          browser: {
+            "preview-refresh": [{ key: "r", modifiers: ["mod"] }],
+            "preview-find": [{ key: "F5", modifiers: [] }],
+          },
+        }),
+      });
+
+      manager.activate(17, target);
+      await manager.open(17, target);
+      let prevented = false;
+      createdViews[0].webContents.emit(
+        "before-input-event",
+        { preventDefault: () => (prevented = true) },
+        {
+          type: "keyDown",
+          key: "r",
+          code: "KeyR",
+          meta: process.platform === "darwin",
+          control: process.platform !== "darwin",
+          alt: false,
+          shift: false,
+        },
+      );
+
+      expect(prevented).toBe(true);
+      expect(window.webContents.sent).toContainEqual([
+        "keybindings:shortcut-input",
+        {
+          key: "r",
+          code: "KeyR",
+          metaKey: process.platform === "darwin",
+          ctrlKey: process.platform !== "darwin",
+          altKey: false,
+          shiftKey: false,
+          scope: "browser",
+          actionIds: ["preview-refresh"],
+        },
+      ]);
+
+      prevented = false;
+      createdViews[0].webContents.emit(
+        "before-input-event",
+        { preventDefault: () => (prevented = true) },
+        {
+          type: "keyDown",
+          key: "F5",
+          code: "F5",
+          meta: false,
+          control: false,
+          alt: false,
+          shift: false,
+        },
+      );
+      expect(prevented).toBe(true);
+      expect(window.webContents.sent).toContainEqual([
+        "keybindings:shortcut-input",
+        {
+          key: "F5",
+          code: "F5",
+          metaKey: false,
+          ctrlKey: false,
+          altKey: false,
+          shiftKey: false,
+          scope: "browser",
+          actionIds: ["preview-find"],
+        },
+      ]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("forwards popped-out browser shortcuts to both the popup and its main window", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "carrent-browser-popup-keybindings-"));
+    try {
+      const mainWindow = new FakeBrowserWindow(17);
+      const popupWindow = new FakeBrowserWindow();
+      const keybindingOwnerIds: number[] = [];
+      const target = { projectId: "project-1", threadId: "thread-1" };
+      const manager = createBrowserManager({
+        userDataPath: directory,
+        createAuxiliaryWindow: () => popupWindow as never,
+        browserMenuOverlayPreload: "/browser-menu-overlay-preload.mjs",
+        loadBrowserMenuOverlay: () => {},
+        resolveOwner: () => 17,
+        resolveProjectTarget: () => ({ ownerId: 17, target }),
+        getKeybindings: (ownerId) => {
+          keybindingOwnerIds.push(ownerId);
+          return {
+            app: {},
+            terminal: {},
+            browser: {
+              "preview-new-tab": [{ key: "t", modifiers: ["mod"] }],
+              "toggle-sidebar": [{ key: "b", modifiers: ["mod"] }],
+            },
+          };
+        },
+      });
+
+      manager.activate(17, target);
+      await manager.open(17, target);
+      manager.popOut(17, target);
+      let prevented = false;
+      createdViews[0].webContents.emit(
+        "before-input-event",
+        { preventDefault: () => (prevented = true) },
+        {
+          type: "keyDown",
+          key: "t",
+          code: "KeyT",
+          meta: process.platform === "darwin",
+          control: process.platform !== "darwin",
+          alt: false,
+          shift: false,
+        },
+      );
+
+      const payload = {
+        key: "t",
+        code: "KeyT",
+        metaKey: process.platform === "darwin",
+        ctrlKey: process.platform !== "darwin",
+        altKey: false,
+        shiftKey: false,
+        scope: "browser",
+        actionIds: ["preview-new-tab"],
+      };
+      expect(prevented).toBe(true);
+      expect(keybindingOwnerIds.at(-1)).toBe(17);
+      expect(popupWindow.webContents.sent).toContainEqual(["keybindings:shortcut-input", payload]);
+      expect(mainWindow.webContents.sent).not.toContainEqual([
+        "keybindings:shortcut-input",
+        payload,
+      ]);
+
+      prevented = false;
+      createdViews[0].webContents.emit(
+        "before-input-event",
+        { preventDefault: () => (prevented = true) },
+        {
+          type: "keyDown",
+          key: "b",
+          code: "KeyB",
+          meta: process.platform === "darwin",
+          control: process.platform !== "darwin",
+          alt: false,
+          shift: false,
+        },
+      );
+      expect(prevented).toBe(true);
+      expect(mainWindow.webContents.sent).toContainEqual([
+        "keybindings:shortcut-input",
+        {
+          key: "b",
+          code: "KeyB",
+          metaKey: process.platform === "darwin",
+          ctrlKey: process.platform !== "darwin",
+          altKey: false,
+          shiftKey: false,
+          scope: "browser",
+          actionIds: ["toggle-sidebar"],
+        },
+      ]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("updates existing and new browser views for the current theme", async () => {
     const directory = mkdtempSync(join(tmpdir(), "carrent-browser-manager-"));
     try {

@@ -135,6 +135,7 @@ import { useRuntimeModels } from "../../hooks/useRuntimeModels";
 import { useRuntimes } from "../../hooks/useRuntimes";
 import { useSkills } from "../../hooks/useSkills";
 import { useMcpServer } from "../../hooks/useMcpServer";
+import { useKeybinding } from "../../hooks/useKeybinding";
 import { getChatRuntimeOptions, isChatRuntimeAvailable } from "../../lib/runtimeSelection";
 import { useToast } from "../toast/ToastContext";
 import {
@@ -1081,22 +1082,6 @@ export function getPermissionDetail(permission: ChatPermissionRequest) {
     permission.toolName ??
     permission.action
   );
-}
-
-// Approval-mode keyboard shortcuts: y allows once, a allows for the session,
-// n rejects once.
-export function getPermissionShortcutKind(key: string): ChatPermissionOptionKind | null {
-  const normalized = key.toLowerCase();
-  if (normalized === "y") {
-    return "allow_once";
-  }
-  if (normalized === "a") {
-    return "allow_always";
-  }
-  if (normalized === "n") {
-    return "reject_once";
-  }
-  return null;
 }
 
 export function getSkillSlashTrigger(
@@ -2078,6 +2063,66 @@ export function Composer(props: ComposerProps) {
     setIsPointerOverRuntimeMenu(false);
     setIsPointerOverCascadingPanel(false);
   };
+
+  useKeybinding("toggle-model-picker", () => {
+    if (!props.onRuntimeIdChange || isThreadSending || isThreadCompacting) return;
+    if (showRuntimePicker) {
+      closeRuntimePicker();
+      return;
+    }
+    setShowModePicker(false);
+    setShowBranchPicker(false);
+    setIsPointerOverRuntimeMenu(true);
+    setShowRuntimePicker(true);
+  });
+  useKeybinding("open-file-picker", () => {
+    if (isThreadSending || isPreparingAttachments) return;
+    fileInputRef.current?.click();
+  });
+  useKeybinding("save-composer-draft", () => {
+    if (
+      !draftRestoreCompleteRef.current ||
+      pendingDraftSkillNamesRef.current !== null ||
+      compositionActiveRef.current
+    ) {
+      return;
+    }
+    const draft = buildThreadDraftSnapshot({
+      content: input,
+      attachedSkills,
+      pendingAttachments,
+      localPathContexts,
+      composerState: editorStateJson,
+    });
+    if (props.mode === "association-draft") {
+      associationDraftChangeRef.current?.(draft);
+    } else if (draft) {
+      setThreadDraft(threadId, draft);
+      lastAppliedThreadDraftSourceKeyRef.current = `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
+    } else {
+      clearThreadDraft(threadId);
+      lastAppliedThreadDraftSourceKeyRef.current = `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
+    }
+  });
+  const selectModelPickerOption = (index: number) => {
+    if (!showRuntimePicker || isThreadSending || isThreadCompacting) return;
+    const container =
+      document.querySelector<HTMLElement>('[data-model-picker-cascade="true"]') ??
+      runtimePickerRef.current;
+    const options = container
+      ? [...container.querySelectorAll<HTMLButtonElement>('[data-model-picker-option="true"]')]
+      : [];
+    options.filter((option) => !option.disabled)[index]?.click();
+  };
+  useKeybinding("model-picker-select-1", () => selectModelPickerOption(0));
+  useKeybinding("model-picker-select-2", () => selectModelPickerOption(1));
+  useKeybinding("model-picker-select-3", () => selectModelPickerOption(2));
+  useKeybinding("model-picker-select-4", () => selectModelPickerOption(3));
+  useKeybinding("model-picker-select-5", () => selectModelPickerOption(4));
+  useKeybinding("model-picker-select-6", () => selectModelPickerOption(5));
+  useKeybinding("model-picker-select-7", () => selectModelPickerOption(6));
+  useKeybinding("model-picker-select-8", () => selectModelPickerOption(7));
+  useKeybinding("model-picker-select-9", () => selectModelPickerOption(8));
 
   const scheduleRuntimePickerClose = () => {
     if (runtimeCloseTimerRef.current) {
@@ -3564,48 +3609,21 @@ export function Composer(props: ComposerProps) {
   const rejectOnceOption = activePermission
     ? getPermissionOption(activePermission, "reject_once")
     : null;
-  const approvalShortcutHint = [
-    allowOnceOption ? "y" : null,
-    allowAlwaysOption ? "a" : null,
-    rejectOnceOption ? "n" : null,
-  ]
-    .filter(Boolean)
-    .join(" / ");
-
-  // Approval-mode keyboard flow: y allows, n denies. Ignored while the user
-  // is typing in another field (e.g. editing a queued message).
-  useEffect(() => {
-    if (!activePermission) {
-      return;
+  useKeybinding("approval-allow-once", () => {
+    if (activePermission && allowOnceOption) {
+      handlePermissionResponse(activePermission, allowOnceOption.optionId);
     }
-    const handleApprovalKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing) {
-        return;
-      }
-      const target = event.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
-      ) {
-        return;
-      }
-      const kind = getPermissionShortcutKind(event.key);
-      if (!kind) {
-        return;
-      }
-      const option = getPermissionOption(activePermission, kind);
-      if (option) {
-        event.preventDefault();
-        void respondToPermission({
-          runId: activePermission.runId,
-          permissionId: activePermission.id,
-          optionId: option.optionId,
-        });
-      }
-    };
-    window.addEventListener("keydown", handleApprovalKeyDown);
-    return () => window.removeEventListener("keydown", handleApprovalKeyDown);
-  }, [activePermission, respondToPermission]);
+  });
+  useKeybinding("approval-allow-always", () => {
+    if (activePermission && allowAlwaysOption) {
+      handlePermissionResponse(activePermission, allowAlwaysOption.optionId);
+    }
+  });
+  useKeybinding("approval-reject", () => {
+    if (activePermission && rejectOnceOption) {
+      handlePermissionResponse(activePermission, rejectOnceOption.optionId);
+    }
+  });
   const runChecklistPanel = runChecklist ? (
     <RunChecklist
       checklist={runChecklist}
@@ -4103,7 +4121,10 @@ export function Composer(props: ComposerProps) {
             </div>
           ) : null}
           {activePermission ? (
-            <div className="flex min-h-20 flex-col justify-center gap-3">
+            <div
+              data-approval-open="true"
+              className="flex min-h-20 flex-col justify-center gap-3"
+            >
               <div className="flex items-start gap-2.5">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                 <div className="min-w-0 flex-1">
@@ -4160,7 +4181,6 @@ export function Composer(props: ComposerProps) {
                     {rejectOnceOption.name || "Deny"}
                   </button>
                 ) : null}
-                <span className="ml-1 text-app-11 text-subtle">{approvalShortcutHint}</span>
               </div>
             </div>
           ) : (
@@ -4264,7 +4284,11 @@ export function Composer(props: ComposerProps) {
           <div className="mt-3 flex items-end justify-between gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-1">
               {props.onRuntimeIdChange ? (
-                <div ref={runtimePickerRef} className="relative">
+                <div
+                  ref={runtimePickerRef}
+                  data-model-picker-open={showRuntimePicker ? "true" : undefined}
+                  className="relative"
+                >
                   <button
                     onClick={() => {
                       if (!isThreadSending && !isThreadCompacting) {
@@ -4316,6 +4340,7 @@ export function Composer(props: ComposerProps) {
                             <div key={runtime.id}>
                               {!(runtime.id === "kimi" && props.onRuntimeModelIdChange) ? (
                                 <button
+                                  data-model-picker-option="true"
                                   onMouseEnter={(event) => {
                                     if (!supportsModelCascade) {
                                       setCascadingRuntimeId(null);
@@ -4384,6 +4409,7 @@ export function Composer(props: ComposerProps) {
                                       return (
                                         <button
                                           key={model.id}
+                                          data-model-picker-option="true"
                                           onClick={() => {
                                             props.onRuntimeIdChange?.("kimi");
                                             props.onRuntimeModelIdChange?.(model.id);
@@ -4425,6 +4451,7 @@ export function Composer(props: ComposerProps) {
                 ? createPortal(
                     <div
                       ref={cascadingPanelRef}
+                      data-model-picker-cascade="true"
                       onMouseEnter={() => {
                         setIsPointerOverCascadingPanel(true);
                         if (runtimeCloseTimerRef.current) {
@@ -4461,6 +4488,7 @@ export function Composer(props: ComposerProps) {
                         {props.runtimeModelId &&
                         !cascadingModels.some((model) => model.id === props.runtimeModelId) ? (
                           <button
+                            data-model-picker-option="true"
                             onClick={() => {
                               props.onRuntimeIdChange?.(cascadingRuntimeId ?? "kimi");
                               props.onRuntimeModelIdChange?.(props.runtimeModelId);
@@ -4487,6 +4515,7 @@ export function Composer(props: ComposerProps) {
                             return (
                               <button
                                 key={model.id}
+                                data-model-picker-option="true"
                                 onClick={() => {
                                   props.onRuntimeIdChange?.(cascadingRuntimeId ?? "kimi");
                                   props.onRuntimeModelIdChange?.(model.id);

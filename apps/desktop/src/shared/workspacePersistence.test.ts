@@ -1,12 +1,16 @@
 import { describe, expect, it } from "bun:test";
 
+import { ACTION_IDS, type ActionId, type KeyBinding } from "./keybindings";
+
 import {
   APP_STATE_SNAPSHOT_VERSION,
+  normalizeAppStateSettings,
   normalizeAppStateSnapshot,
   normalizeAppStateSnapshotForMemory,
   normalizeAppStateSnapshotForWrite,
   normalizePersistedAppStateSnapshot,
   normalizeProviderSessionSnapshot,
+  serializeAppStateSettings,
 } from "./workspacePersistence";
 
 describe("normalizeAppStateSnapshot", () => {
@@ -1241,5 +1245,113 @@ describe("Local Path Context persistence", () => {
     expect(normalized.threadWork!["thread-1"].draft!.localPathContexts).toEqual([
       { path: "/keep", basename: "keep", kind: "file" },
     ]);
+  });
+});
+
+describe("normalizeAppStateSettings keybindingOverrides", () => {
+  it("round-trips overrides and explicit unbinds for every supported action", () => {
+    const overrides = Object.fromEntries(
+      ACTION_IDS.map((actionId, index) => [
+        actionId,
+        index % 2 === 0 ? { key: `F${index + 1}`, modifiers: ["mod"] } : undefined,
+      ]),
+    ) as Partial<Record<ActionId, KeyBinding>>;
+
+    const settings = normalizeAppStateSettings({ keybindingOverrides: overrides })!;
+    const restored = normalizeAppStateSettings(JSON.parse(serializeAppStateSettings(settings)))!;
+
+    expect(Object.keys(restored.keybindingOverrides ?? {})).toHaveLength(ACTION_IDS.length);
+    for (const [index, actionId] of ACTION_IDS.entries()) {
+      expect(actionId in restored.keybindingOverrides!).toBe(true);
+      expect(restored.keybindingOverrides?.[actionId]).toEqual(
+        index % 2 === 0 ? { key: `F${index + 1}`, modifiers: ["mod"] } : undefined,
+      );
+    }
+  });
+
+  it("keeps valid overrides and drops entries with unknown actions or malformed bindings", () => {
+    const normalized = normalizeAppStateSettings({
+      keybindingOverrides: {
+        "search-threads": { key: "p", modifiers: ["mod", "shift"] },
+        "toggle-terminal": { key: "", modifiers: ["mod"] },
+        "zoom-in": "not-a-binding",
+        "zoom-out": { key: "9", modifiers: ["meta"] },
+        "reset-zoom": { modifiers: ["mod"] },
+        "unknown-action": { key: "x", modifiers: ["mod"] },
+      },
+    })!;
+
+    expect(normalized).not.toBe(null);
+    expect(normalized.keybindingOverrides).toEqual({
+      "search-threads": { key: "p", modifiers: ["mod", "shift"] },
+    });
+  });
+
+  it("omits the field when no override survives normalization", () => {
+    const normalized = normalizeAppStateSettings({
+      keybindingOverrides: { "zoom-in": { key: "", modifiers: [] } },
+    })!;
+
+    expect(normalized).not.toBe(null);
+    expect(normalized.keybindingOverrides).toBeUndefined();
+  });
+
+  it("preserves an explicitly cleared shortcut", () => {
+    const normalized = normalizeAppStateSettings({
+      keybindingOverrides: { "search-threads": undefined },
+    })!;
+
+    expect(normalized.keybindingOverrides).not.toBeUndefined();
+    expect("search-threads" in normalized.keybindingOverrides!).toBe(true);
+    expect(normalized.keybindingOverrides?.["search-threads"]).toBeUndefined();
+  });
+
+  it("round-trips an explicitly cleared shortcut through persisted JSON", () => {
+    const settings = normalizeAppStateSettings({
+      keybindingOverrides: { "search-threads": undefined },
+    })!;
+
+    const persisted = JSON.parse(serializeAppStateSettings(settings));
+    expect(persisted.keybindingOverrides["search-threads"]).toBeNull();
+
+    const restored = normalizeAppStateSettings(persisted)!;
+    expect("search-threads" in restored.keybindingOverrides!).toBe(true);
+    expect(restored.keybindingOverrides?.["search-threads"]).toBeUndefined();
+  });
+
+  it("falls back to omitting the field for a non-object value", () => {
+    const normalized = normalizeAppStateSettings({ keybindingOverrides: "nope" })!;
+
+    expect(normalized).not.toBe(null);
+    expect("keybindingOverrides" in normalized).toBe(false);
+  });
+
+  it("preserves overrides when normalizing a full snapshot", () => {
+    const snapshot = {
+      version: APP_STATE_SNAPSHOT_VERSION,
+      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
+      associations: [
+        {
+          workspaceId: "workspace-1",
+          projectId: "project-1",
+          order: 0,
+          defaultRuntimeId: "kimi",
+          defaultRuntimeMode: "approval-required",
+        },
+      ],
+      settings: {
+        keybindingOverrides: {
+          "search-threads": { key: "p", modifiers: ["mod"] },
+        },
+      },
+      activeWorkspaceId: "workspace-1",
+    };
+
+    const normalized = normalizeAppStateSnapshot(snapshot)!;
+    expect(normalized).not.toBe(null);
+    expect(normalized.settings?.keybindingOverrides).toEqual({
+      "search-threads": { key: "p", modifiers: ["mod"] },
+    });
   });
 });

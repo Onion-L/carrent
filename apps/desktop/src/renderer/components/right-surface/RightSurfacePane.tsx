@@ -127,7 +127,7 @@ export function RightSurfacePane({
       className={`flex h-full shrink-0 justify-end overflow-hidden ${
         isResizing ? "panel-dragging" : "panel-collapse-x"
       }`}
-      style={{ width: shownSurface ? resolvedWidth : 0 }}
+      style={{ width: activeSurface ? resolvedWidth : 0 }}
     >
       {shownSurface ? (
         <div

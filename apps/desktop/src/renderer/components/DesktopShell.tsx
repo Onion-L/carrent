@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PanelLeftClose, PanelLeftOpen, Search, SquareTerminal } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Search, SquarePen, SquareTerminal, X } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ThreadHistoryPane } from "./chat/ThreadHistoryPane";
 import { SettingsTabsPane } from "./settings/SettingsTabsPane";
@@ -9,10 +9,14 @@ import { WorkspaceRail } from "./workspace/WorkspaceRail";
 import { useAppState } from "../context/AppStateContext";
 import { ThreadSearchDialog } from "./workspace/ThreadSearchDialog";
 import { WorkspaceSwitcher } from "./workspace/WorkspaceSwitcher";
-import { buildThreadPath } from "../lib/navigation";
+import { buildProjectPath, buildThreadPath } from "../lib/navigation";
 import { IntegratedTerminal } from "./terminal/IntegratedTerminal";
 import { WindowZoomControl } from "./WindowZoomControl";
 import { TerminalPanelProvider, type TerminalPlacement } from "../context/TerminalPanelContext";
+import { useKeybinding } from "../hooks/useKeybinding";
+import { useSettings } from "../context/SettingsContext";
+import { buildEffectiveKeybindingMap } from "../lib/keybindings";
+import { getProjectThreads } from "../lib/projectThreads";
 
 const LEFT_SIDEBAR_WIDTH = 58;
 const MIN_SECONDARY_PANE_WIDTH = 200;
@@ -36,6 +40,7 @@ export function getSecondaryPaneKind(pathname: string) {
 
 export function DesktopShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
+  const { keybindingOverrides } = useSettings();
   const [isSecondaryPaneCollapsed, setIsSecondaryPaneCollapsed] = useState(false);
   const [secondaryPaneWidth, setSecondaryPaneWidth] = useState(readStoredSecondaryPaneWidth);
   const [isResizing, setIsResizing] = useState(false);
@@ -48,22 +53,51 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     threads,
     activeWorkspaceId,
     projectDirectoryStatusById,
+    openThreadDraft,
     selectWorkspace,
   } = useAppState();
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
   const [isThreadSearchOpen, setIsThreadSearchOpen] = useState(false);
+  const [isNewThreadProjectPickerOpen, setIsNewThreadProjectPickerOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [terminalPlacement, setTerminalPlacement] = useState<TerminalPlacement>("bottom");
   const [terminalSideContainer, setTerminalSideContainer] = useState<HTMLElement | null>(null);
   const terminalPlacementRef = useRef(terminalPlacement);
   terminalPlacementRef.current = terminalPlacement;
   const projectRoute = location.pathname.match(/^\/workspace\/[^/]+\/project\/([^/]+)(?:\/|$)/u);
+  const workspaceRoute = location.pathname.match(/^\/workspace\/([^/]+)(?:\/|$)/u);
   const threadRoute = location.pathname.match(
     /^\/workspace\/[^/]+\/project\/[^/]+\/thread\/([^/]+)$/u,
   );
   const currentProject = projectRoute
     ? (projects.find((project) => project.id === decodeURIComponent(projectRoute[1])) ?? null)
     : null;
+  const currentWorkspaceId = workspaceRoute ? decodeURIComponent(workspaceRoute[1]) : null;
+  const currentThreadId = threadRoute ? decodeURIComponent(threadRoute[1]) : null;
+  const currentProjectThreads = useMemo(
+    () =>
+      currentProject && currentWorkspaceId
+        ? getProjectThreads(
+            threads.filter(
+              (thread) =>
+                thread.workspaceId === currentWorkspaceId &&
+                thread.projectId === currentProject.id &&
+                !thread.archived,
+            ),
+          )
+        : [],
+    [currentProject, currentWorkspaceId, threads],
+  );
+  const newThreadProjects = associations
+    .filter(
+      (association) =>
+        association.workspaceId === activeWorkspaceId &&
+        projectDirectoryStatusById[association.projectId] === "available",
+    )
+    .flatMap((association) => {
+      const project = projects.find((item) => item.id === association.projectId);
+      return project ? [{ association, project }] : [];
+    });
   const canOpenTerminal =
     currentProject != null && projectDirectoryStatusById[currentProject.id] === "available";
   const isBottomTerminalOpen = isTerminalOpen && terminalPlacement === "bottom";
@@ -80,6 +114,85 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   const toggleSecondaryPane = useCallback(() => {
     setIsSecondaryPaneCollapsed((collapsed) => !collapsed);
   }, []);
+
+  useEffect(() => {
+    window.carrent.keybindings.setBindings(buildEffectiveKeybindingMap(keybindingOverrides));
+  }, [keybindingOverrides]);
+
+  useEffect(() => {
+    if (!isNewThreadProjectPickerOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsNewThreadProjectPickerOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [isNewThreadProjectPickerOpen]);
+
+  const openSearchDialog = useCallback(() => setIsThreadSearchOpen(true), []);
+  const openNewThreadDraft = useCallback(
+    async (workspaceId: string, projectId: string) => {
+      const draft = await openThreadDraft(workspaceId, projectId);
+      if (draft) navigate(buildProjectPath(workspaceId, projectId));
+      setIsNewThreadProjectPickerOpen(false);
+    },
+    [navigate, openThreadDraft],
+  );
+  const createNewThread = useCallback(() => {
+    if (newThreadProjects.length === 1 && activeWorkspaceId) {
+      void openNewThreadDraft(activeWorkspaceId, newThreadProjects[0].project.id);
+    } else if (newThreadProjects.length > 1) {
+      setIsNewThreadProjectPickerOpen(true);
+    }
+  }, [activeWorkspaceId, newThreadProjects, openNewThreadDraft]);
+  const createNewLocalThread = useCallback(() => {
+    if (!currentWorkspaceId || !currentProject || !canOpenTerminal) return;
+    void openNewThreadDraft(currentWorkspaceId, currentProject.id);
+  }, [canOpenTerminal, currentProject, currentWorkspaceId, openNewThreadDraft]);
+  const toggleTerminal = useCallback(() => {
+    if (!canOpenTerminal) return;
+    if (isBottomTerminalOpen) {
+      setIsTerminalOpen(false);
+    } else {
+      setTerminalPlacement("bottom");
+      setIsTerminalOpen(true);
+    }
+  }, [canOpenTerminal, isBottomTerminalOpen]);
+  const navigateToThreadIndex = useCallback(
+    (index: number) => {
+      if (!currentWorkspaceId || !currentProject) return;
+      const thread = currentProjectThreads[index];
+      if (!thread || thread.id === currentThreadId) return;
+      navigate(buildThreadPath(currentWorkspaceId, currentProject.id, thread.id));
+    },
+    [currentProject, currentProjectThreads, currentThreadId, currentWorkspaceId, navigate],
+  );
+  const navigateAdjacentThread = useCallback(
+    (direction: -1 | 1) => {
+      if (currentProjectThreads.length === 0) return;
+      const currentIndex = currentProjectThreads.findIndex((thread) => thread.id === currentThreadId);
+      const startIndex = currentIndex < 0 ? (direction === 1 ? -1 : 0) : currentIndex;
+      const nextIndex =
+        (startIndex + direction + currentProjectThreads.length) % currentProjectThreads.length;
+      navigateToThreadIndex(nextIndex);
+    },
+    [currentProjectThreads, currentThreadId, navigateToThreadIndex],
+  );
+  useKeybinding("search-threads", openSearchDialog);
+  useKeybinding("toggle-sidebar", toggleSecondaryPane);
+  useKeybinding("toggle-terminal", toggleTerminal);
+  useKeybinding("new-thread", createNewThread);
+  useKeybinding("new-local-thread", createNewLocalThread);
+  useKeybinding("thread-previous", () => navigateAdjacentThread(-1));
+  useKeybinding("thread-next", () => navigateAdjacentThread(1));
+  useKeybinding("thread-jump-1", () => navigateToThreadIndex(0));
+  useKeybinding("thread-jump-2", () => navigateToThreadIndex(1));
+  useKeybinding("thread-jump-3", () => navigateToThreadIndex(2));
+  useKeybinding("thread-jump-4", () => navigateToThreadIndex(3));
+  useKeybinding("thread-jump-5", () => navigateToThreadIndex(4));
+  useKeybinding("thread-jump-6", () => navigateToThreadIndex(5));
+  useKeybinding("thread-jump-7", () => navigateToThreadIndex(6));
+  useKeybinding("thread-jump-8", () => navigateToThreadIndex(7));
+  useKeybinding("thread-jump-9", () => navigateToThreadIndex(8));
 
   const openTerminal = useCallback((placement: TerminalPlacement) => {
     setTerminalPlacement(placement);
@@ -100,26 +213,6 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     }),
     [closeTerminal, isTerminalOpen, openTerminal, setTerminalSideTarget, terminalPlacement],
   );
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "k") {
-        event.preventDefault();
-        setIsThreadSearchOpen(true);
-      }
-      if (event.metaKey && event.key.toLocaleLowerCase() === "j" && canOpenTerminal) {
-        event.preventDefault();
-        if (isBottomTerminalOpen) {
-          setIsTerminalOpen(false);
-        } else {
-          setTerminalPlacement("bottom");
-          setIsTerminalOpen(true);
-        }
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown, true);
-    return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [canOpenTerminal, isBottomTerminalOpen]);
 
   const handleResizeStart = useCallback(
     (event: React.MouseEvent) => {
@@ -189,7 +282,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
                 type="button"
                 aria-label="Search Threads"
                 title="Search Threads"
-                onClick={() => setIsThreadSearchOpen(true)}
+                onClick={openSearchDialog}
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
               >
                 <Search className="h-3.5 w-3.5" />
@@ -209,14 +302,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
                     isBottomTerminalOpen ? "Hide Integrated Terminal" : "Show Integrated Terminal"
                   }
                   aria-pressed={isBottomTerminalOpen}
-                  onClick={() => {
-                    if (isBottomTerminalOpen) {
-                      setIsTerminalOpen(false);
-                    } else {
-                      setTerminalPlacement("bottom");
-                      setIsTerminalOpen(true);
-                    }
-                  }}
+                  onClick={toggleTerminal}
                   className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-surface-hover active:scale-95 ${
                     isBottomTerminalOpen ? "text-fg" : "text-subtle hover:text-fg"
                   }`}
@@ -289,6 +375,44 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
             }}
           />
         )}
+        {isNewThreadProjectPickerOpen ? (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Choose a project for the new thread"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-6"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setIsNewThreadProjectPickerOpen(false);
+            }}
+          >
+            <div className="w-full max-w-sm overflow-hidden rounded-lg border border-border-strong bg-surface shadow-xl">
+              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                <h2 className="text-app-14 font-medium text-fg">New thread</h2>
+                <button
+                  type="button"
+                  aria-label="Close project picker"
+                  onClick={() => setIsNewThreadProjectPickerOpen(false)}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-hover hover:text-fg"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="max-h-80 overflow-y-auto p-2">
+                {newThreadProjects.map(({ association, project }) => (
+                  <button
+                    key={project.id}
+                    type="button"
+                    onClick={() => void openNewThreadDraft(association.workspaceId, project.id)}
+                    className="flex min-h-10 w-full items-center gap-3 rounded-md px-3 text-left text-app-13 text-fg transition hover:bg-surface-hover"
+                  >
+                    <SquarePen className="h-4 w-4 shrink-0 text-muted" />
+                    <span className="min-w-0 truncate">{association.alias ?? project.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </TerminalPanelProvider>
   );

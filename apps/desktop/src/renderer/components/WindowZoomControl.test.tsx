@@ -24,6 +24,12 @@ describe("WindowZoomControl", () => {
     let listener: ((nextFactor: number) => void) | null = null;
     const actions: MainWindowZoomAction[] = [];
     window.carrent = {
+      keybindings: {
+        setBindings: () => {},
+        setRecording: () => {},
+        onInput: () => () => {},
+        onShortcutInput: () => () => {},
+      },
       mainWindow: {
         onNavigate: () => () => {},
         zoom: {
@@ -41,7 +47,6 @@ describe("WindowZoomControl", () => {
             };
           },
         },
-        onCmdWCloseTab: () => () => {},
       },
     } as unknown as Window["carrent"];
     container = document.createElement("div");

@@ -20,7 +20,6 @@ import {
   getMessageTranscriptContent,
   getMissingRunCompletionText,
   getPermissionDetail,
-  getPermissionShortcutKind,
   getPlanSubmissionState,
   getRuntimeModelIdForSend,
   getRuntimeSelectionLabel,
@@ -673,23 +672,6 @@ describe("getActionablePermissionsForThread", () => {
         pendingPermissions: [kimiPermission, planReview],
       }),
     ).toEqual(planReview);
-  });
-});
-
-describe("getPermissionShortcutKind", () => {
-  it("maps y/a/n to allow once, allow always, and reject", () => {
-    expect(getPermissionShortcutKind("y")).toBe("allow_once");
-    expect(getPermissionShortcutKind("Y")).toBe("allow_once");
-    expect(getPermissionShortcutKind("a")).toBe("allow_always");
-    expect(getPermissionShortcutKind("A")).toBe("allow_always");
-    expect(getPermissionShortcutKind("n")).toBe("reject_once");
-    expect(getPermissionShortcutKind("N")).toBe("reject_once");
-  });
-
-  it("ignores other keys", () => {
-    expect(getPermissionShortcutKind("Enter")).toBe(null);
-    expect(getPermissionShortcutKind("b")).toBe(null);
-    expect(getPermissionShortcutKind("Escape")).toBe(null);
   });
 });
 

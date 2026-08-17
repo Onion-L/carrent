@@ -7,6 +7,7 @@ import {
 } from "./attachment";
 import { normalizeLocalPathContexts, type LocalPathContextItem } from "./localPathContext";
 import type { ChatPermissionOption } from "./chatPermissions";
+import { ACTION_IDS, isKeyBinding, type ActionId, type KeyBinding } from "./keybindings";
 import { isRuntimeMode, type RuntimeMode } from "./runtimeMode";
 import { normalizePersistedRuntimeId, runtimeIds, type RuntimeId } from "./runtimes";
 import { MAX_TERMINAL_PANEL_HEIGHT, MIN_TERMINAL_PANEL_HEIGHT } from "./terminal";
@@ -196,6 +197,10 @@ export type AppStateSettings = {
   // switching to another model. Affects only title generation — never a Thread
   // Draft's selected Run model or an Association default.
   threadTitleModelId?: string;
+  // User-customized keyboard shortcuts, keyed by action. An absent action
+  // falls back to the renderer's platform-specific default; an own property with value undefined is
+  // explicitly unbound and is serialized as null for JSON persistence.
+  keybindingOverrides?: Partial<Record<ActionId, KeyBinding>>;
 };
 
 // Font-size bounds mirror src/renderer/lib/fontSize (kept renderer-local).
@@ -213,6 +218,19 @@ export const DEFAULT_APP_STATE_SETTINGS: AppStateSettings = {
   runtimeDefaultModelById: {},
   customFontFamily: "",
 };
+
+/** Preserves explicitly unbound shortcuts as null across the JSON boundary. */
+export function serializeAppStateSettings(settings: AppStateSettings): string {
+  if (!settings.keybindingOverrides) return JSON.stringify(settings);
+
+  const keybindingOverrides = Object.fromEntries(
+    ACTION_IDS.filter((actionId) => actionId in settings.keybindingOverrides!).map((actionId) => [
+      actionId,
+      settings.keybindingOverrides![actionId] ?? null,
+    ]),
+  );
+  return JSON.stringify({ ...settings, keybindingOverrides });
+}
 
 export function normalizeAppStateSettings(value: unknown): AppStateSettings | null {
   if (!isRecord(value)) return null;
@@ -283,6 +301,22 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
           .slice(0, MAX_CUSTOM_FONT_FAMILY_LENGTH)
       : DEFAULT_APP_STATE_SETTINGS.customFontFamily;
 
+  // keybindingOverrides: valid bindings survive, while null/undefined on a
+  // known action preserves an explicit unbind. Everything else is dropped.
+  const keybindingOverrides: Partial<Record<ActionId, KeyBinding>> = {};
+  if (isRecord(value.keybindingOverrides)) {
+    for (const actionId of ACTION_IDS) {
+      const binding = value.keybindingOverrides[actionId];
+      if (isKeyBinding(binding)) keybindingOverrides[actionId] = binding;
+      else if (
+        actionId in value.keybindingOverrides &&
+        (binding === undefined || binding === null)
+      ) {
+        keybindingOverrides[actionId] = undefined;
+      }
+    }
+  }
+
   return {
     autoDetectRuntimes,
     theme,
@@ -293,6 +327,7 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     runtimeDefaultModelById,
     customFontFamily,
     ...(threadTitleModelId ? { threadTitleModelId } : {}),
+    ...(Object.keys(keybindingOverrides).length > 0 ? { keybindingOverrides } : {}),
   };
 }
 

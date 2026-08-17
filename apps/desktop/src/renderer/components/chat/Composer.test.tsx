@@ -23,6 +23,8 @@ import type {
   ChatRunAuthorityState,
   ChatRunEvent,
 } from "../../../shared/chat";
+import type { ChatPermissionResponse } from "../../../shared/chatPermissions";
+import type { RuntimeModelRecord } from "../../../shared/runtimes";
 import type { AppStateSnapshot } from "../../../shared/workspacePersistence";
 import { createFakeAppStateAuthority } from "../../test/fakeAppStateAuthority";
 import { chunkStreamingAnswer, LONG_STREAMING_ANSWER } from "../../test/streamingFixture";
@@ -58,17 +60,22 @@ let sentChatRequests: ChatTurnRequest[] = [];
 let listedSkillProjectDirs: Array<string | undefined> = [];
 let revealedPaths: string[] = [];
 let latestAssistantMessage: { content: string; runStatus?: string } | null = null;
+let permissionResponses: ChatPermissionResponse[] = [];
+let selectedRuntimeModelIds: Array<string | undefined> = [];
 
 function ComposerHarness({
   draftRequest,
   threadId = "thread-1",
   withTimeline = false,
+  withRuntimePicker = false,
 }: {
   draftRequest?: ComposerDraftRequest;
   threadId?: string;
   withTimeline?: boolean;
+  withRuntimePicker?: boolean;
 }) {
   const { hasHydrated, getThreadRouteData } = useThreadContent();
+  const [runtimeModelId, setRuntimeModelId] = React.useState<string>();
   const routeData = getThreadRouteData("project-1", threadId);
   if (!hasHydrated || !routeData) {
     return null;
@@ -91,9 +98,19 @@ function ComposerHarness({
         threadId={threadId}
         messages={routeData.messages}
         runtimeId="kimi"
+        runtimeModelId={runtimeModelId}
         runtimeMode="approval-required"
         planMode={false}
         draftRequest={draftRequest}
+        onRuntimeIdChange={withRuntimePicker ? () => {} : undefined}
+        onRuntimeModelIdChange={
+          withRuntimePicker
+            ? (modelId) => {
+                selectedRuntimeModelIds.push(modelId);
+                setRuntimeModelId(modelId);
+              }
+            : undefined
+        }
       />
     </ConversationDropSurface>
   );
@@ -103,6 +120,7 @@ function composerTree(
   draftRequest?: ComposerDraftRequest,
   threadId = "thread-1",
   withTimeline = false,
+  withRuntimePicker = false,
 ) {
   return (
     <ToastProvider>
@@ -114,6 +132,7 @@ function composerTree(
                 draftRequest={draftRequest}
                 threadId={threadId}
                 withTimeline={withTimeline}
+                withRuntimePicker={withRuntimePicker}
               />
             </MemoryRouter>
           </RuntimeModelsProvider>
@@ -242,6 +261,7 @@ function installCarrentBridge(
     getKimiStatus?: (request: Record<string, unknown>) => Promise<unknown>;
     readAttachment?: () => Promise<Uint8Array>;
     workspaceDiff?: () => Promise<unknown>;
+    runtimeModels?: RuntimeModelRecord[];
   } = {},
 ) {
   emitChatEvent = null;
@@ -253,7 +273,10 @@ function installCarrentBridge(
   sentChatRequests = [];
   listedSkillProjectDirs = [];
   revealedPaths = [];
+  permissionResponses = [];
+  selectedRuntimeModelIds = [];
   window.carrent = {
+    platform: "darwin",
     appState: {
       load: async () => ({ status: "ready", snapshot }),
       reread: async () => ({ status: "ready", snapshot }),
@@ -291,7 +314,7 @@ function installCarrentBridge(
           supportsModelPing: false,
         },
       ],
-      listModels: async () => ({ state: "listed", models: [] }),
+      listModels: async () => ({ state: "listed", models: options.runtimeModels ?? [] }),
     },
     skills: {
       list: async (projectDir) => {
@@ -381,7 +404,9 @@ function installCarrentBridge(
       },
       stop: async () => {},
       deleteThreadData: async () => {},
-      respondToPermission: async () => {},
+      respondToPermission: async (response: ChatPermissionResponse) => {
+        permissionResponses.push(response);
+      },
       respondToQuestion: async () => {},
       getKimiStatus: options.getKimiStatus ?? (async () => null),
       ...(activeChatAuthorityState
@@ -448,6 +473,8 @@ async function renderComposer(
     readAttachment?: () => Promise<Uint8Array>;
     workspaceDiff?: () => Promise<unknown>;
     withTimeline?: boolean;
+    withRuntimePicker?: boolean;
+    runtimeModels?: RuntimeModelRecord[];
   } = {},
 ) {
   const snapshot = baseSnapshot(options.threadWork ?? {});
@@ -458,8 +485,11 @@ async function renderComposer(
     getKimiStatus: options.getKimiStatus,
     readAttachment: options.readAttachment,
     workspaceDiff: options.workspaceDiff,
+    runtimeModels: options.runtimeModels,
   });
-  await mount(composerTree(undefined, options.threadId, options.withTimeline));
+  await mount(
+    composerTree(undefined, options.threadId, options.withTimeline, options.withRuntimePicker),
+  );
   return authority;
 }
 
@@ -591,6 +621,116 @@ afterEach(async () => {
   container?.remove();
   root = null;
   container = null;
+});
+
+describe("Composer keybindings", () => {
+  it("opens the file picker and saves the current draft immediately", async () => {
+    await renderComposer();
+    const fileInput = container!.querySelector<HTMLInputElement>('input[type="file"]')!;
+    let pickerClicks = 0;
+    fileInput.addEventListener("click", () => {
+      pickerClicks += 1;
+    });
+    await setComposerText("Save this before the debounce");
+    clearThreadDraft("thread-1");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "p", metaKey: true, bubbles: true }),
+      );
+      window.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(pickerClicks).toBe(1);
+    expect(getThreadDraft("thread-1")?.content).toBe("Save this before the debounce");
+  });
+
+  it("selects a model picker item with the matching number key", async () => {
+    await renderComposer({
+      withRuntimePicker: true,
+      runtimeModels: [
+        { id: "kimi-for-coding", name: "Kimi for Coding", source: "cli" },
+        { id: "kimi-latest", name: "Kimi Latest", source: "cli" },
+      ],
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new window.KeyboardEvent("keydown", {
+          key: "m",
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(document.querySelector('[data-model-picker-open="true"]')).not.toBe(null);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "2", metaKey: true, bubbles: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(selectedRuntimeModelIds).toEqual(["kimi-latest"]);
+    expect(document.querySelector('[data-model-picker-open="true"]')).toBe(null);
+  });
+
+  it("responds to approval requests with the configured approval actions", async () => {
+    const options = [
+      { optionId: "allow-once", name: "Allow once", kind: "allow_once" as const },
+      { optionId: "allow-session", name: "Allow for session", kind: "allow_always" as const },
+      { optionId: "reject", name: "Reject", kind: "reject_once" as const },
+    ];
+    const permission = {
+      id: "permission-1",
+      runId: "run-1",
+      threadId: "thread-1",
+      provider: "kimi" as const,
+      action: "shell" as const,
+      title: "Run command",
+      command: "pwd",
+      options,
+      createdAt: "2026-08-17T00:00:00.000Z",
+      expiresAt: "2026-08-17T00:01:00.000Z",
+    };
+    await renderComposer({
+      authorityState: {
+        revision: 1,
+        runs: [
+          {
+            runId: "run-1",
+            threadId: "thread-1",
+            status: "running",
+            stopRequested: false,
+            eventCount: 0,
+            events: [],
+            pendingPermissions: [permission],
+            pendingQuestions: [],
+          },
+        ],
+      },
+    });
+    expect(document.querySelector('[data-approval-open="true"]')).not.toBe(null);
+
+    for (const key of ["y", "a", "n"]) {
+      await act(async () => {
+        window.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+
+    expect(permissionResponses).toEqual([
+      { permissionId: "permission-1", runId: "run-1", optionId: "allow-once" },
+      { permissionId: "permission-1", runId: "run-1", optionId: "allow-session" },
+      { permissionId: "permission-1", runId: "run-1", optionId: "reject" },
+    ]);
+  });
 });
 
 describe("Composer Local Path Context", () => {

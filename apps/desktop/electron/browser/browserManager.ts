@@ -22,6 +22,12 @@ import type {
   BrowserThreadState,
   BrowserThreadTarget,
 } from "../../src/shared/browser";
+import {
+  browserPopupOwnerActionIds,
+  matchingKeybindingActionIds,
+  type EffectiveKeybindingMap,
+  type KeybindingInput,
+} from "../../src/shared/keybindings";
 import { isBrowserUrl, resolveBrowserInput } from "./browserNavigation";
 import { createFaviconResolver } from "./favicon";
 import { createBrowserMenuOverlay } from "./browserMenuOverlay";
@@ -59,6 +65,7 @@ type BrowserManagerDependencies = {
   resolveProjectTarget: (
     projectId: string,
   ) => { ownerId: number; target: BrowserThreadTarget } | null;
+  getKeybindings?: (ownerId: number) => EffectiveKeybindingMap | undefined;
   resolveFavicon?: (url: string, session: Session) => Promise<string | null>;
 };
 
@@ -103,6 +110,7 @@ export function createBrowserManager({
   loadBrowserMenuOverlay,
   resolveOwner,
   resolveProjectTarget,
+  getKeybindings = () => undefined,
   resolveFavicon = createFaviconResolver(),
 }: BrowserManagerDependencies) {
   const threads = new Map<string, ThreadRecord>();
@@ -395,52 +403,39 @@ export function createBrowserManager({
       return { action: "deny" };
     });
     view.webContents.on("before-input-event", (event, input) => {
-      const command = process.platform === "darwin" ? input.meta : input.control;
-      if (!command || input.alt || input.type !== "keyDown") return;
-      const key = input.key.toLowerCase();
-      if (key === "l") {
+      if (input.type !== "keyDown") return;
+      const ownerId = contentOwnerId(thread);
+      const shortcutInput: KeybindingInput = {
+        key: input.key,
+        code: input.code,
+        metaKey: input.meta,
+        ctrlKey: input.control,
+        altKey: input.alt,
+        shiftKey: input.shift,
+        scope: "browser",
+      };
+      const keybindingOwnerId = thread.sideOwnerId ?? ownerId;
+      const browserBindings =
+        keybindingOwnerId === null ? undefined : getKeybindings(keybindingOwnerId)?.browser;
+      const actionIds = browserBindings
+        ? matchingKeybindingActionIds(browserBindings, shortcutInput, process.platform === "darwin")
+        : [];
+      if (actionIds.length > 0) {
         event.preventDefault();
-        const owner =
-          thread.placement === "window"
-            ? thread.auxiliaryWindow?.webContents
-            : thread.sideOwnerId
-              ? webContents.fromId(thread.sideOwnerId)
-              : null;
-        owner?.send("browser:focus-address");
-      } else if (key === "f") {
-        event.preventDefault();
-        const owner =
-          thread.placement === "window"
-            ? thread.auxiliaryWindow?.webContents
-            : thread.sideOwnerId
-              ? webContents.fromId(thread.sideOwnerId)
-              : null;
-        owner?.send("browser:find");
-      } else if (key === "t") {
-        event.preventDefault();
-        createTab(thread);
-        syncAttachment(thread);
-        sendState(thread);
-      } else if (key === "w") {
-        event.preventDefault();
-        closeTab(thread, id);
-      } else if (key === "r") {
-        event.preventDefault();
-        view.webContents.reload();
-      } else if (key === "=" || key === "+") {
-        event.preventDefault();
-        const factor = Math.min(3, view.webContents.getZoomFactor() + 0.1);
-        view.webContents.setZoomFactor(factor);
-        updateTabState(thread, tab);
-      } else if (key === "-") {
-        event.preventDefault();
-        const factor = Math.max(0.25, view.webContents.getZoomFactor() - 0.1);
-        view.webContents.setZoomFactor(factor);
-        updateTabState(thread, tab);
-      } else if (key === "0") {
-        event.preventDefault();
-        view.webContents.setZoomFactor(1);
-        updateTabState(thread, tab);
+        if (ownerId !== null) {
+          webContents
+            .fromId(ownerId)
+            ?.send("keybindings:shortcut-input", { ...shortcutInput, actionIds });
+        }
+        if (thread.placement === "window" && thread.sideOwnerId !== null) {
+          const ownerActionIds = browserPopupOwnerActionIds(actionIds);
+          if (ownerActionIds.length > 0) {
+            webContents.fromId(thread.sideOwnerId)?.send("keybindings:shortcut-input", {
+              ...shortcutInput,
+              actionIds: ownerActionIds,
+            });
+          }
+        }
       }
     });
     view.webContents.on("before-mouse-event", (_event, input) => {

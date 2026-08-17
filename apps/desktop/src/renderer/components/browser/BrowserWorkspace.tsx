@@ -21,6 +21,7 @@ import type {
   BrowserThreadState,
   BrowserThreadTarget,
 } from "../../../shared/browser";
+import { useKeybinding } from "../../hooks/useKeybinding";
 import { ConfirmDialog } from "../ConfirmDialog";
 
 export function useBrowserThread(target: BrowserThreadTarget | null) {
@@ -65,6 +66,7 @@ type BrowserWorkspaceProps = {
   standalone?: boolean;
   fullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  onLastTabClosed?: () => void;
 };
 
 function IconButton({
@@ -107,6 +109,7 @@ export function BrowserWorkspace({
   standalone = false,
   fullscreen = false,
   onToggleFullscreen,
+  onLastTabClosed,
 }: BrowserWorkspaceProps) {
   const activeTab = state.tabs.find((tab) => tab.id === state.activeTabId) ?? null;
   const canContinueCertificate = (() => {
@@ -150,14 +153,6 @@ export function BrowserWorkspace({
   useEffect(() => setAddress(activeTab?.url ?? ""), [activeTab?.id, activeTab?.url]);
 
   useEffect(() => window.carrent.browser.onFocusAddress(() => addressRef.current?.select()), []);
-  useEffect(
-    () =>
-      window.carrent.browser.onFind(() => {
-        setFindOpen(true);
-        window.setTimeout(() => findRef.current?.focus());
-      }),
-    [],
-  );
 
   useEffect(() => {
     void window.carrent.browser.setVisible({ ...target, visible: nativeVisible });
@@ -187,7 +182,41 @@ export function BrowserWorkspace({
   }, [target.projectId, target.threadId]);
 
   const tabTarget = activeTab ? { ...target, tabId: activeTab.id } : null;
-  const run = async (operation: Promise<BrowserThreadState>) => setState(await operation);
+  const run = async (operation: Promise<BrowserThreadState>) => {
+    const next = await operation;
+    setState(next);
+    if (!next.open) onLastTabClosed?.();
+  };
+
+  useKeybinding("preview-focus-url", () => addressRef.current?.select());
+  useKeybinding("preview-new-tab", () => {
+    void run(window.carrent.browser.newTab(target));
+  });
+  useKeybinding("preview-close-tab", () => {
+    if (tabTarget) void run(window.carrent.browser.closeTab(tabTarget));
+  });
+  useKeybinding("preview-find", () => {
+    setFindOpen(true);
+    window.setTimeout(() => findRef.current?.focus());
+  });
+  useKeybinding("preview-copy-url", () => {
+    if (activeTab?.url) void window.carrent.clipboard.writeText(activeTab.url);
+  });
+  useKeybinding("preview-refresh", () => {
+    if (tabTarget) void run(window.carrent.browser.action({ ...tabTarget, action: "reload" }));
+  });
+  useKeybinding("preview-zoom-in", () => {
+    if (tabTarget) void run(window.carrent.browser.zoom({ ...tabTarget, action: "in" }));
+  });
+  useKeybinding("preview-zoom-out", () => {
+    if (tabTarget) void run(window.carrent.browser.zoom({ ...tabTarget, action: "out" }));
+  });
+  useKeybinding("preview-reset-zoom", () => {
+    if (tabTarget) void run(window.carrent.browser.zoom({ ...tabTarget, action: "reset" }));
+  });
+  useKeybinding("toggle-preview", () => {
+    if (standalone) void run(window.carrent.browser.dock(target));
+  });
 
   useEffect(() => {
     menuRequestId.current += 1;
@@ -289,47 +318,6 @@ export function BrowserWorkspace({
     return () => document.removeEventListener("pointerdown", closeOnHostPointer, true);
   }, [menuSession]);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const section = sectionRef.current;
-      if (!section || !(event.target instanceof Node) || !section.contains(event.target)) return;
-      const command = window.carrent.platform === "darwin" ? event.metaKey : event.ctrlKey;
-      if (!command || event.altKey || !tabTarget) return;
-      const key = event.key.toLowerCase();
-      if (key === "l") {
-        event.preventDefault();
-        addressRef.current?.select();
-      } else if (key === "t") {
-        event.preventDefault();
-        void run(window.carrent.browser.newTab(target));
-      } else if (key === "w") {
-        event.preventDefault();
-        void run(window.carrent.browser.closeTab(tabTarget));
-      } else if (key === "r") {
-        event.preventDefault();
-        void run(window.carrent.browser.action({ ...tabTarget, action: "reload" }));
-      } else if (key === "f") {
-        event.preventDefault();
-        setFindOpen(true);
-        window.setTimeout(() => findRef.current?.focus());
-      } else if (key === "=" || key === "+") {
-        event.preventDefault();
-        void run(window.carrent.browser.zoom({ ...tabTarget, action: "in" }));
-      } else if (key === "-") {
-        event.preventDefault();
-        void run(window.carrent.browser.zoom({ ...tabTarget, action: "out" }));
-      } else if (key === "0") {
-        event.preventDefault();
-        void run(window.carrent.browser.zoom({ ...tabTarget, action: "reset" }));
-      } else if (key === "c" && event.shiftKey && activeTab?.url) {
-        event.preventDefault();
-        void window.carrent.clipboard.writeText(activeTab.url);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown, true);
-    return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [activeTab?.url, tabTarget?.tabId, target.projectId, target.threadId]);
-
   const submitAddress = (event: React.FormEvent) => {
     event.preventDefault();
     if (!tabTarget) return;
@@ -376,6 +364,7 @@ export function BrowserWorkspace({
   return (
     <section
       ref={sectionRef}
+      data-keybinding-scope="browser"
       className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg"
     >
       <div

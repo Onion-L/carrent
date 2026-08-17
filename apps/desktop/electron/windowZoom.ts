@@ -10,14 +10,6 @@ type ZoomWebContents = {
   isDestroyed: () => boolean;
 };
 
-type ZoomInput = {
-  type: string;
-  key: string;
-  code: string;
-  control: boolean;
-  meta: boolean;
-};
-
 type PreventableEvent = {
   preventDefault: () => void;
 };
@@ -33,14 +25,6 @@ function nextZoomFactor(currentFactor: number, action: MainWindowZoomAction) {
     [...ZOOM_FACTORS].reverse().find((factor) => factor < currentFactor - Number.EPSILON) ??
     ZOOM_FACTORS[0]
   );
-}
-
-function shortcutAction(input: ZoomInput): MainWindowZoomAction | null {
-  if (input.type !== "keyDown" || (!input.meta && !input.control)) return null;
-  if (input.key === "+" || input.key === "=" || input.code === "NumpadAdd") return "in";
-  if (input.key === "-" || input.code === "NumpadSubtract") return "out";
-  if (input.key === "0" || input.code === "Numpad0") return "reset";
-  return null;
 }
 
 export function createWindowZoomController(getWebContents: () => ZoomWebContents | null) {
@@ -61,13 +45,6 @@ export function createWindowZoomController(getWebContents: () => ZoomWebContents
   return {
     getFactor,
     change,
-    handleBeforeInput(event: PreventableEvent, input: ZoomInput) {
-      const action = shortcutAction(input);
-      if (!action) return false;
-      event.preventDefault();
-      change(action);
-      return true;
-    },
     handleZoomChanged(event: PreventableEvent, direction: "in" | "out") {
       event.preventDefault();
       change(direction);

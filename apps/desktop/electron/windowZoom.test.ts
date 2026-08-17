@@ -38,29 +38,14 @@ describe("createWindowZoomController", () => {
     ]);
   });
 
-  it("handles platform zoom shortcuts and leaves unrelated input alone", () => {
+  it("preserves non-keyboard native zoom requests", () => {
     const fake = createWebContents();
     const zoom = createWindowZoomController(() => fake.webContents);
     let prevented = 0;
-    const event = { preventDefault: () => (prevented += 1) };
-    const input = {
-      type: "keyDown",
-      key: "+",
-      code: "Equal",
-      control: false,
-      meta: true,
-    };
 
-    expect(zoom.handleBeforeInput(event, input)).toBe(true);
+    zoom.handleZoomChanged({ preventDefault: () => (prevented += 1) }, "in");
+
+    expect(prevented).toBe(1);
     expect(zoom.getFactor()).toBe(1.1);
-    expect(prevented).toBe(1);
-    expect(
-      zoom.handleBeforeInput(event, {
-        ...input,
-        key: "k",
-        code: "KeyK",
-      }),
-    ).toBe(false);
-    expect(prevented).toBe(1);
   });
 });

@@ -1,6 +1,7 @@
 import type { AppStateCommand } from "../../src/shared/appStateAuthority";
 import {
   getProjectWorkingDirectoryIdentity,
+  serializeAppStateSettings,
   type AppProjectRecord,
   type AppStateSnapshot,
   type AppThreadActionRecord,
@@ -411,7 +412,7 @@ export function persistIncrementalAppStateCommand(
         `INSERT INTO settings (id, value) VALUES (?, ?)
          ON CONFLICT(id) DO UPDATE SET value = excluded.value`,
         1,
-        JSON.stringify(settings),
+        serializeAppStateSettings(settings),
       );
       return;
     }

@@ -135,7 +135,6 @@ export type BrowserApi = {
   setTheme: (theme: BrowserTheme) => Promise<void>;
   onState: (listener: (state: BrowserThreadState) => void) => VoidFunction;
   onFocusAddress: (listener: () => void) => VoidFunction;
-  onFind: (listener: () => void) => VoidFunction;
   onMenuAction: (listener: (event: BrowserMenuActionEvent) => void) => VoidFunction;
   onMenuClosed: (listener: (event: BrowserMenuClosedEvent) => void) => VoidFunction;
 };

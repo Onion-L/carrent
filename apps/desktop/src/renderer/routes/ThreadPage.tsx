@@ -42,6 +42,7 @@ import {
   shouldOpenDiffSurface,
 } from "../components/right-surface/RightSurfacePane";
 import { useRightSurface } from "../components/right-surface/useRightSurface";
+import { useKeybinding } from "../hooks/useKeybinding";
 
 export function resolveThreadRouteData(
   getThreadRouteData: ReturnType<typeof useThreadContent>["getThreadRouteData"],
@@ -198,6 +199,10 @@ function ThreadPageContent() {
     scopeKey: routeData?.thread.id ?? null,
     openBrowser: openBrowserSurface,
   });
+  const handleLastBrowserTabClosed = () => {
+    setBrowserFullscreen(false);
+    selectSurface("chooser");
+  };
 
   useEffect(() => {
     if (activeSurface !== "browser" || activeBrowserState?.placement !== "side") {
@@ -365,6 +370,22 @@ function ThreadPageContent() {
     }
   };
 
+  useKeybinding("toggle-right-panel", () => {
+    if (activeSurface) closeRightSurface();
+    else {
+      setInspectorOpen(false);
+      openRightSurface();
+    }
+  });
+  useKeybinding("toggle-preview", () => {
+    if (activeSurface === "browser") closeRightSurface();
+    else handleSelectSurface("browser");
+  });
+  useKeybinding("toggle-diff", () => {
+    if (activeSurface === "changes") closeRightSurface();
+    else if (latestChanges?.snapshot && routeData) handleSelectSurface("changes");
+  });
+
   if (workspaceId && !appThread) {
     return <Navigate replace to={`/workspace/${workspaceId}/project/${projectId}`} />;
   }
@@ -499,6 +520,7 @@ function ThreadPageContent() {
             visible
             fullscreen
             onToggleFullscreen={() => setBrowserFullscreen(false)}
+            onLastTabClosed={handleLastBrowserTabClosed}
           />
         </div>
       ) : inspectorOpen ? (
@@ -532,6 +554,7 @@ function ThreadPageContent() {
                 setState={setBrowserState}
                 visible={!closing}
                 onToggleFullscreen={() => setBrowserFullscreen(true)}
+                onLastTabClosed={handleLastBrowserTabClosed}
               />
             ) : surface === "terminal" ? (
               <div ref={setSideContainer} className="h-full w-full" />

@@ -3,6 +3,7 @@ import {
   Brain,
   ChartColumn,
   GitBranch,
+  Keyboard,
   Monitor,
   Palette,
   SlidersHorizontal,
@@ -13,6 +14,16 @@ export const SETTINGS_TABS = [
     id: "general",
     label: "General",
     description: "Runtime, instructions, server and updates",
+  },
+  {
+    id: "interface",
+    label: "Interface",
+    description: "Theme and text size",
+  },
+  {
+    id: "keybindings",
+    label: "Keybindings",
+    description: "Customize keyboard shortcuts",
   },
   {
     id: "usage",
@@ -31,11 +42,6 @@ export const SETTINGS_TABS = [
     description: "Git worktrees across Projects",
   },
   {
-    id: "interface",
-    label: "Interface",
-    description: "Theme and text size",
-  },
-  {
     id: "archives",
     label: "Archived Threads",
     description: "Restore or permanently delete",
@@ -46,10 +52,11 @@ export type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
 
 export const SETTINGS_TAB_ICONS: Record<SettingsTabId, typeof Monitor> = {
   general: SlidersHorizontal,
+  interface: Palette,
+  keybindings: Keyboard,
   usage: ChartColumn,
   memory: Brain,
   worktrees: GitBranch,
-  interface: Palette,
   archives: Archive,
 };
 

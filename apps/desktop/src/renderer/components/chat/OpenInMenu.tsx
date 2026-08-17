@@ -10,6 +10,7 @@ import xcodeIcon from "../../assets/editors/xcode.png";
 import zedDarkIcon from "../../assets/editors/zed-dark.png";
 import zedLightIcon from "../../assets/editors/zed-light.png";
 import { useSettings } from "../../context/SettingsContext";
+import { useKeybinding } from "../../hooks/useKeybinding";
 import { ContextMenuShell, MenuItem } from "../workspace/ContextMenu";
 import { useToast } from "../toast/ToastContext";
 
@@ -154,6 +155,9 @@ export function OpenInMenu({
   // The trigger opens the editor picked last time; fall back to the first
   // detected editor when none was picked yet or it is no longer installed.
   const defaultEditor = editors.find((editor) => editor.id === lastEditorId) ?? editors[0];
+  useKeybinding("open-default-editor", () => {
+    if (!disabled) void handleOpenDefault();
+  });
 
   return (
     <>

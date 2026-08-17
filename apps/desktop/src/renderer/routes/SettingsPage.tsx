@@ -29,6 +29,7 @@ import { WorktreesPanel } from "../components/worktrees/WorktreesPanel";
 import { McpServerControl } from "../components/mcp/McpServerControl";
 import { UsagePanel } from "../components/usage/UsagePanel";
 import { MemoryPanel } from "../components/memory/MemoryPanel";
+import { KeybindingsTab } from "../components/settings/KeybindingsTab";
 import { useRuntimeModels } from "../hooks/useRuntimeModels";
 import { useRuntimes } from "../hooks/useRuntimes";
 import { formatKimiModelLabel } from "../components/chat/Composer";
@@ -1539,8 +1540,10 @@ export function SettingsPage() {
 
                 {activeTabId === "usage" ? <UsagePanel /> : null}
 
+                {activeTabId === "keybindings" ? <KeybindingsTab /> : null}
+
                 {activeTabId === "interface" ? (
-                  <Section>
+                  <div>
                     <Select
                       label="Theme"
                       value={theme}
@@ -1569,7 +1572,7 @@ export function SettingsPage() {
                       enabled={enhancedTerminalCompletion}
                       onChange={(value) => updateSetting("enhancedTerminalCompletion", value)}
                     />
-                  </Section>
+                  </div>
                 ) : null}
 
                 {activeTabId === "archives" ? (

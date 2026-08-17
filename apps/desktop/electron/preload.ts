@@ -80,6 +80,7 @@ import type {
   BrowserZoomRequest,
 } from "../src/shared/browser";
 import { createLocalPathContextPreloadApi } from "./preloadLocalPathContext";
+import { createKeybindingsPreloadApi } from "./preloadKeybindings";
 
 const mainWindow: MainWindowApi = {
   onNavigate: (listener) => {
@@ -115,17 +116,15 @@ const mainWindow: MainWindowApi = {
     captureDone: (route: string) =>
       ipcRenderer.invoke("windows:capture-done", route) as Promise<void>,
   },
-  onCmdWCloseTab: (listener) => {
-    const wrapped = () => listener();
-    ipcRenderer.on("terminal:cmd-w", wrapped);
-    return () => ipcRenderer.removeListener("terminal:cmd-w", wrapped);
-  },
 };
+
+const keybindings = createKeybindingsPreloadApi(ipcRenderer);
 
 const carrent = {
   platform: process.platform,
   electronVersion: process.versions.electron,
   mainWindow,
+  keybindings,
   browser: {
     activate: (target: BrowserThreadTarget | null) =>
       ipcRenderer.invoke("browser:activate", target) as Promise<BrowserThreadState | null>,
@@ -181,11 +180,6 @@ const carrent = {
       const wrapped = () => listener();
       ipcRenderer.on("browser:focus-address", wrapped);
       return () => ipcRenderer.removeListener("browser:focus-address", wrapped);
-    },
-    onFind: (listener: () => void) => {
-      const wrapped = () => listener();
-      ipcRenderer.on("browser:find", wrapped);
-      return () => ipcRenderer.removeListener("browser:find", wrapped);
     },
     onMenuAction: (listener: (event: BrowserMenuActionEvent) => void) => {
       const wrapped = (_event: IpcRendererEvent, actionEvent: BrowserMenuActionEvent) =>

@@ -8,6 +8,7 @@ import {
   normalizeAppStateSnapshotForWrite,
   normalizePersistedAppStateSnapshot,
   normalizeProviderSessionSnapshot,
+  serializeAppStateSettings,
 } from "./workspacePersistence";
 
 describe("normalizeAppStateSnapshot", () => {
@@ -1271,6 +1272,29 @@ describe("normalizeAppStateSettings keybindingOverrides", () => {
 
     expect(normalized).not.toBe(null);
     expect(normalized.keybindingOverrides).toBeUndefined();
+  });
+
+  it("preserves an explicitly cleared shortcut", () => {
+    const normalized = normalizeAppStateSettings({
+      keybindingOverrides: { "search-threads": undefined },
+    })!;
+
+    expect(normalized.keybindingOverrides).not.toBeUndefined();
+    expect("search-threads" in normalized.keybindingOverrides!).toBe(true);
+    expect(normalized.keybindingOverrides?.["search-threads"]).toBeUndefined();
+  });
+
+  it("round-trips an explicitly cleared shortcut through persisted JSON", () => {
+    const settings = normalizeAppStateSettings({
+      keybindingOverrides: { "search-threads": undefined },
+    })!;
+
+    const persisted = JSON.parse(serializeAppStateSettings(settings));
+    expect(persisted.keybindingOverrides["search-threads"]).toBeNull();
+
+    const restored = normalizeAppStateSettings(persisted)!;
+    expect("search-threads" in restored.keybindingOverrides!).toBe(true);
+    expect(restored.keybindingOverrides?.["search-threads"]).toBeUndefined();
   });
 
   it("falls back to omitting the field for a non-object value", () => {

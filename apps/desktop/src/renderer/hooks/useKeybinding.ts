@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef } from "react";
 
 import type { ActionId } from "../../shared/keybindings";
 import { useSettings } from "../context/SettingsContext";
-import { isSameBinding, normalizeModifiers, resolveKeybinding } from "../lib/keybindings";
+import {
+  isKeybindingRecorderTarget,
+  isSameBinding,
+  normalizeModifiers,
+  resolveKeybinding,
+} from "../lib/keybindings";
 
 /**
  * Runs `handler` when the effective shortcut for `actionId` (user override or
@@ -33,6 +38,7 @@ export function useKeybinding(actionId: ActionId, handler: () => void): () => vo
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (isKeybindingRecorderTarget(event.target)) return;
       if (!isSameBinding(normalizeModifiers(event), binding)) return;
       event.preventDefault();
       handlerRef.current();

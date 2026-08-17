@@ -3,6 +3,7 @@ import {
   getProjectWorkingDirectoryIdentity,
   normalizeAppStateSettings,
   normalizeAppStateSnapshotForWrite,
+  serializeAppStateSettings,
   type AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
 import type { RuntimeMode } from "../../src/shared/runtimeMode";
@@ -430,7 +431,10 @@ export function replaceAppStateSnapshot(
   }
 
   if (snapshot.settings) {
-    client.run("INSERT INTO settings (id, value) VALUES (1, ?)", JSON.stringify(snapshot.settings));
+    client.run(
+      "INSERT INTO settings (id, value) VALUES (1, ?)",
+      serializeAppStateSettings(snapshot.settings),
+    );
   }
   if (snapshot.activeWorkspaceId !== null) {
     client.run(

@@ -49,6 +49,7 @@ import type {
 } from "../src/shared/worktrees";
 import type { DetectedEditor, EditorsApi } from "../src/shared/editors";
 import type { MainWindowApi, MainWindowZoomAction } from "../src/shared/mainWindow";
+import type { KeybindingRecordingApi, KeybindingRecordingInput } from "../src/shared/keybindings";
 import type { ThreadActionRequest, ThreadActionResult } from "../src/shared/threadActions";
 import type {
   CreateTerminalRequest,
@@ -122,10 +123,20 @@ const mainWindow: MainWindowApi = {
   },
 };
 
+const keybindings: KeybindingRecordingApi = {
+  setRecording: (active) => ipcRenderer.send("keybindings:set-recording", active),
+  onInput: (listener) => {
+    const wrapped = (_event: IpcRendererEvent, input: KeybindingRecordingInput) => listener(input);
+    ipcRenderer.on("keybindings:recording-input", wrapped);
+    return () => ipcRenderer.removeListener("keybindings:recording-input", wrapped);
+  },
+};
+
 const carrent = {
   platform: process.platform,
   electronVersion: process.versions.electron,
   mainWindow,
+  keybindings,
   browser: {
     activate: (target: BrowserThreadTarget | null) =>
       ipcRenderer.invoke("browser:activate", target) as Promise<BrowserThreadState | null>,

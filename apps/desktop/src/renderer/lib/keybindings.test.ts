@@ -9,6 +9,7 @@ import {
   isReservedKey,
   isSameBinding,
   normalizeModifiers,
+  prepareKeybindingUpdate,
   resolveKeybinding,
 } from "./keybindings";
 
@@ -246,5 +247,36 @@ describe("isSameBinding", () => {
 describe("isMacPlatform", () => {
   it("resolves to a boolean without throwing", () => {
     expect(typeof isMacPlatform()).toBe("boolean");
+  });
+});
+
+describe("prepareKeybindingUpdate", () => {
+  it("blocks hard-reserved shortcuts during final validation", () => {
+    expect(prepareKeybindingUpdate("search-threads", { key: "q", modifiers: ["mod"] }, {})).toEqual(
+      { status: "blocked", reason: "hard-reserved" },
+    );
+  });
+
+  it("requires confirmation before replacing another action's shortcut", () => {
+    expect(
+      prepareKeybindingUpdate("toggle-terminal", { key: "k", modifiers: ["mod"] }, {}),
+    ).toEqual({ status: "conflict", actionId: "search-threads" });
+  });
+
+  it("clears the confirmed conflicting action and saves the new shortcut", () => {
+    expect(
+      prepareKeybindingUpdate(
+        "toggle-terminal",
+        { key: "k", modifiers: ["mod"] },
+        {},
+        "search-threads",
+      ),
+    ).toEqual({
+      status: "saved",
+      overrides: {
+        "search-threads": undefined,
+        "toggle-terminal": { key: "k", modifiers: ["mod"] },
+      },
+    });
   });
 });

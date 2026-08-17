@@ -13,6 +13,7 @@ import { buildThreadPath } from "../lib/navigation";
 import { IntegratedTerminal } from "./terminal/IntegratedTerminal";
 import { WindowZoomControl } from "./WindowZoomControl";
 import { TerminalPanelProvider, type TerminalPlacement } from "../context/TerminalPanelContext";
+import { isKeybindingRecorderTarget } from "../lib/keybindings";
 
 const LEFT_SIDEBAR_WIDTH = 58;
 const MIN_SECONDARY_PANE_WIDTH = 200;
@@ -103,6 +104,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (isKeybindingRecorderTarget(event.target)) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "k") {
         event.preventDefault();
         setIsThreadSearchOpen(true);

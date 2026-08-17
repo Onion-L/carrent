@@ -39,6 +39,14 @@ const NON_MAC_DISPLAY_ORDER: Record<KeyBindingModifier, number> = {
 
 export type ReservedKeyLevel = "hard" | "warning";
 
+export type PreparedKeybindingUpdate =
+  | { status: "blocked"; reason: "hard-reserved" }
+  | { status: "conflict"; actionId: ActionId }
+  | {
+      status: "saved";
+      overrides: Partial<Record<ActionId, KeyBinding | undefined>>;
+    };
+
 export function isMacPlatform(): boolean {
   return typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent);
 }
@@ -103,6 +111,10 @@ export function isSameBinding(left: KeyBinding, right: KeyBinding): boolean {
   return sameModifiers(left.modifiers, right.modifiers);
 }
 
+export function isKeybindingRecorderTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.dataset.keybindingRecorder === "true";
+}
+
 /**
  * Extracts a canonical binding from a keyboard event. On Mac, metaKey maps to
  * "mod" and ctrlKey stays "ctrl"; elsewhere ctrlKey maps to "mod" and metaKey
@@ -161,4 +173,31 @@ export function isReservedKey(
     default:
       return null;
   }
+}
+
+/** Final validation and immutable override update for recording confirmation. */
+export function prepareKeybindingUpdate(
+  actionId: ActionId,
+  binding: KeyBinding | undefined,
+  currentOverrides: Partial<Record<ActionId, KeyBinding>> = {},
+  confirmedConflictActionId?: ActionId,
+): PreparedKeybindingUpdate {
+  if (binding && isReservedKey(binding.key, binding.modifiers) === "hard") {
+    return { status: "blocked", reason: "hard-reserved" };
+  }
+  const conflict = binding
+    ? detectConflict(binding.key, binding.modifiers, actionId, currentOverrides)
+    : null;
+  if (conflict && conflict !== confirmedConflictActionId) {
+    return { status: "conflict", actionId: conflict };
+  }
+
+  return {
+    status: "saved",
+    overrides: {
+      ...currentOverrides,
+      ...(conflict ? { [conflict]: undefined } : {}),
+      [actionId]: binding,
+    },
+  };
 }

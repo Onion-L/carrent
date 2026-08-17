@@ -197,9 +197,9 @@ export type AppStateSettings = {
   // switching to another model. Affects only title generation — never a Thread
   // Draft's selected Run model or an Association default.
   threadTitleModelId?: string;
-  // User-customized keyboard shortcuts, keyed by action. Only modified
-  // bindings are stored; absent actions fall back to the renderer's
-  // DEFAULT_KEYBINDINGS (src/renderer/lib/defaultKeybindings).
+  // User-customized keyboard shortcuts, keyed by action. An absent action
+  // falls back to DEFAULT_KEYBINDINGS; an own property with value undefined is
+  // explicitly unbound and is serialized as null for JSON persistence.
   keybindingOverrides?: Partial<Record<ActionId, KeyBinding>>;
 };
 
@@ -218,6 +218,19 @@ export const DEFAULT_APP_STATE_SETTINGS: AppStateSettings = {
   runtimeDefaultModelById: {},
   customFontFamily: "",
 };
+
+/** Preserves explicitly unbound shortcuts as null across the JSON boundary. */
+export function serializeAppStateSettings(settings: AppStateSettings): string {
+  if (!settings.keybindingOverrides) return JSON.stringify(settings);
+
+  const keybindingOverrides = Object.fromEntries(
+    ACTION_IDS.filter((actionId) => actionId in settings.keybindingOverrides!).map((actionId) => [
+      actionId,
+      settings.keybindingOverrides![actionId] ?? null,
+    ]),
+  );
+  return JSON.stringify({ ...settings, keybindingOverrides });
+}
 
 export function normalizeAppStateSettings(value: unknown): AppStateSettings | null {
   if (!isRecord(value)) return null;
@@ -288,14 +301,19 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
           .slice(0, MAX_CUSTOM_FONT_FAMILY_LENGTH)
       : DEFAULT_APP_STATE_SETTINGS.customFontFamily;
 
-  // keybindingOverrides: per-action leniency — entries with a known action id
-  // and a well-formed binding survive, everything else is dropped so a bad
-  // override can never wedge the settings snapshot.
+  // keybindingOverrides: valid bindings survive, while null/undefined on a
+  // known action preserves an explicit unbind. Everything else is dropped.
   const keybindingOverrides: Partial<Record<ActionId, KeyBinding>> = {};
   if (isRecord(value.keybindingOverrides)) {
     for (const actionId of ACTION_IDS) {
       const binding = value.keybindingOverrides[actionId];
       if (isKeyBinding(binding)) keybindingOverrides[actionId] = binding;
+      else if (
+        actionId in value.keybindingOverrides &&
+        (binding === undefined || binding === null)
+      ) {
+        keybindingOverrides[actionId] = undefined;
+      }
     }
   }
 

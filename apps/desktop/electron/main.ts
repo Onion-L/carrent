@@ -112,7 +112,9 @@ import { createTerminalHistory, parseZshHistory } from "./terminal/completion/hi
 import { readHistoryTail } from "./terminal/completion/historyFile";
 import { createZshShellIntegration } from "./terminal/completion/shellIntegration";
 import { createWindowZoomController } from "./windowZoom";
+import { createKeybindingRecordingController } from "./keybindingRecording";
 import type { MainWindowZoomAction } from "../src/shared/mainWindow";
+import type { KeybindingRecordingInput } from "../src/shared/keybindings";
 import { createBrowserManager, type BrowserManager } from "./browser/browserManager";
 import { registerBrowserIpc } from "./browser/browserIpc";
 import { isHttpOrHttpsUrl } from "./browser/browserNavigation";
@@ -175,6 +177,7 @@ const zoomControllersByContentsId = new Map<
   number,
   ReturnType<typeof createWindowZoomController>
 >();
+const keybindingRecording = createKeybindingRecordingController();
 
 function getZoomController(contentsId: number) {
   return zoomControllersByContentsId.get(contentsId) ?? null;
@@ -307,6 +310,9 @@ function createWindow(
   }
 
   const window = new BrowserWindow(constructorOptions);
+  const sendKeybindingRecordingInput = (input: KeybindingRecordingInput) => {
+    if (!window.isDestroyed()) window.webContents.send("keybindings:recording-input", input);
+  };
   if (process.platform === "darwin") {
     window.setWindowButtonVisibility(true);
   }
@@ -322,6 +328,9 @@ function createWindow(
   window.on("focus", () => {
     windowRegistry.setActive(window.id);
     browserManager?.focusOwner(window.webContents.id);
+  });
+  window.on("blur", () => {
+    keybindingRecording.handleWindowBlur(window.webContents.id, sendKeybindingRecordingInput);
   });
 
   window.on("ready-to-show", () => {
@@ -358,6 +367,7 @@ function createWindow(
   registerCarrentWindowCleanup(window, ({ windowId, contentsId }) => {
     terminalSessionManager?.detach(contentsId);
     zoomControllersByContentsId.delete(contentsId);
+    keybindingRecording.clear(contentsId);
     windowRegistry.setTerminalFocused(contentsId, false);
     windowRegistry.unregister(windowId);
     browserManager?.destroyOwner(contentsId);
@@ -365,6 +375,7 @@ function createWindow(
 
   window.webContents.on("did-start-navigation", (event) => {
     if (event.isSameDocument || !event.isMainFrame) return;
+    keybindingRecording.clear(window.webContents.id);
     windowRegistry.markLoading(window.webContents.id, event);
     windowRegistry.setTerminalFocused(window.webContents.id, false);
     terminalSessionManager?.detach(window.webContents.id);
@@ -375,6 +386,16 @@ function createWindow(
   );
   zoomControllersByContentsId.set(window.webContents.id, zoomController);
   window.webContents.on("before-input-event", (event, input) => {
+    if (
+      keybindingRecording.handleBeforeInput(
+        window.webContents.id,
+        event,
+        input,
+        sendKeybindingRecordingInput,
+      )
+    ) {
+      return;
+    }
     zoomController.handleBeforeInput(event, input);
     // macOS: while a terminal holds focus, Cmd+W closes the terminal tab
     // instead of the window. The default app menu binds Cmd+W to Window→Close,
@@ -484,6 +505,10 @@ if (!hasSingleInstanceLock) {
   });
   ipcMain.on("app:navigation-ready", (event) => {
     windowRegistry.markReady(event.sender.id);
+  });
+  ipcMain.on("keybindings:set-recording", (event, active: unknown) => {
+    if (typeof active !== "boolean") return;
+    keybindingRecording.setRecording(event.sender.id, active);
   });
   ipcMain.handle("app:zoom:get", (event) => {
     const zoom = getZoomController(event.sender.id);

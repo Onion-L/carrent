@@ -12,6 +12,19 @@ export type KeyBinding = {
   modifiers: Array<KeyBindingModifier>;
 };
 
+export type KeybindingRecordingInput = {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+};
+
+export type KeybindingRecordingApi = {
+  setRecording: (active: boolean) => void;
+  onInput: (listener: (input: KeybindingRecordingInput) => void) => VoidFunction;
+};
+
 export const ACTION_IDS: ActionId[] = [
   "search-threads",
   "toggle-terminal",

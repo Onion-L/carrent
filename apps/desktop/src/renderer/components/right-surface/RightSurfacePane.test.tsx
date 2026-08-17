@@ -1,4 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import "../../test/registerHappyDom";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { RightSurfacePane, shouldOpenDiffSurface } from "./RightSurfacePane";
@@ -43,6 +46,35 @@ describe("RightSurfacePane", () => {
 
     expect(html).toContain('title="Changes unavailable"');
     expect(html).toContain("disabled");
+  });
+
+  it("starts collapsing immediately while retaining its content", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const props = {
+      availability: { browser: true, terminal: true, changes: true, inspector: true },
+      width: 480,
+      onWidthChange: () => {},
+      onSelect: () => {},
+    };
+
+    try {
+      await act(async () => root.render(<RightSurfacePane {...props} activeSurface="chooser" />));
+      expect(container.querySelector<HTMLElement>('[aria-label="Right panel"]')?.style.width).toBe(
+        "480px",
+      );
+
+      await act(async () => root.render(<RightSurfacePane {...props} activeSurface={null} />));
+
+      expect(container.querySelector<HTMLElement>('[aria-label="Right panel"]')?.style.width).toBe(
+        "0px",
+      );
+      expect(container.textContent).toContain("Open a panel");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
   });
 });
 

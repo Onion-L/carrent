@@ -90,6 +90,7 @@ function Select({
   icon,
   wide = false,
   disabled = false,
+  showLabel = true,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -99,6 +100,7 @@ function Select({
   icon?: React.ReactNode;
   wide?: boolean;
   disabled?: boolean;
+  showLabel?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -118,7 +120,7 @@ function Select({
 
   return (
     <div className="flex items-center justify-between gap-6 py-3.5">
-      <div className="min-w-0">
+      <div className={showLabel ? "min-w-0" : "sr-only"}>
         <div className="text-app-13 text-fg">{label}</div>
         {description && <div className="mt-0.5 text-app-12 text-subtle">{description}</div>}
       </div>
@@ -535,6 +537,7 @@ function TypographySizeInput({
   return (
     <Select
       label={label}
+      showLabel={false}
       value={String(value)}
       onChange={(next) => onChange(Number(next))}
       options={Array.from({ length: max - min + 1 }, (_, index) => {

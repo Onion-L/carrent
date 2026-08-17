@@ -15,11 +15,17 @@ import {
 } from "react-router-dom";
 
 import type {
+  AppStateSettings,
   AppStateLoadResult,
   AppStateSnapshot,
   ProjectRelocationRequest,
 } from "../shared/workspacePersistence";
-import { normalizeAppStateSettings } from "../shared/workspacePersistence";
+import {
+  DEFAULT_APP_STATE_SETTINGS,
+  normalizeAppStateSettings,
+  serializeAppStateSettings,
+} from "../shared/workspacePersistence";
+import type { MainWindowZoomAction } from "../shared/mainWindow";
 import { createFakeAppStateAuthority } from "./test/fakeAppStateAuthority";
 import type {
   ChatRunEvent,
@@ -73,6 +79,10 @@ let terminalCreateRequests: import("../shared/terminal").CreateTerminalRequest[]
 let terminalWriteRequests: import("../shared/terminal").TerminalWriteRequest[] = [];
 let terminalFocusRequests: import("../shared/terminal").TerminalFocusRequest[] = [];
 let terminalCloseProjectRequests: string[] = [];
+let windowZoomActions: MainWindowZoomAction[] = [];
+const nativeKeybindingInputListeners = new Set<
+  (input: import("../shared/keybindings").KeybindingInput) => void
+>();
 type TestTerminalEvent = import("../shared/terminal").TerminalEvent extends infer Event
   ? Event extends { revision: number }
     ? Omit<Event, "revision">
@@ -475,7 +485,10 @@ function installBridge(
       },
       zoom: {
         getFactor: async () => 1,
-        change: async () => 1,
+        change: async (action: MainWindowZoomAction) => {
+          windowZoomActions.push(action);
+          return 1;
+        },
         onFactorChange: () => () => {},
       },
       windows: {
@@ -486,6 +499,16 @@ function installBridge(
         captureDone: async () => {},
       },
       onCmdWCloseTab: () => () => {},
+    },
+    keybindings: {
+      setRecording: () => {},
+      onInput: () => () => {},
+      onShortcutInput: (
+        listener: (input: import("../shared/keybindings").KeybindingInput) => void,
+      ) => {
+        nativeKeybindingInputListeners.add(listener);
+        return () => nativeKeybindingInputListeners.delete(listener);
+      },
     },
   } as unknown as Window["carrent"];
 }
@@ -560,6 +583,7 @@ type RenderAppOptions = {
   chatStopRequests?: string[];
   skills?: SkillRecord[];
   mcpServerEnabled?: boolean;
+  settings?: AppStateSettings;
 };
 
 async function renderApp(
@@ -574,12 +598,9 @@ async function renderApp(
   const saved: AppStateSnapshot[] = [];
   localStorage.setItem(
     "carrent:settings",
-    JSON.stringify({
-      autoDetectRuntimes: true,
-      theme: "dark",
-      fontSize: 14,
-      runtimeEnabledById: { kimi: true },
-      runtimeDefaultModelById: {},
+    serializeAppStateSettings({
+      ...DEFAULT_APP_STATE_SETTINGS,
+      ...options.settings,
     }),
   );
   installBridge(
@@ -614,6 +635,28 @@ function buttonNamed(name: string) {
   );
   if (!button) throw new Error(`Button not found: ${name}`);
   return button;
+}
+
+async function pressKeybinding(key: string) {
+  const command = /Mac/i.test(navigator.userAgent) ? { metaKey: true } : { ctrlKey: true };
+  await act(async () => {
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key, ...command }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+async function pressNativeKeybinding(key: string) {
+  const input = {
+    key,
+    metaKey: /Mac/i.test(navigator.userAgent),
+    ctrlKey: !/Mac/i.test(navigator.userAgent),
+    altKey: false,
+    shiftKey: false,
+  };
+  await act(async () => {
+    for (const listener of nativeKeybindingInputListeners) listener(input);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 }
 
 async function fillInput(input: HTMLInputElement, value: string) {
@@ -710,6 +753,8 @@ afterEach(async () => {
   terminalWriteRequests = [];
   terminalFocusRequests = [];
   terminalCloseProjectRequests = [];
+  windowZoomActions = [];
+  nativeKeybindingInputListeners.clear();
   emitTerminalEvent = null;
 });
 
@@ -1628,11 +1673,7 @@ describe("three-level navigation", () => {
       false,
     );
 
-    await act(async () => {
-      window.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, key: "k", metaKey: true }),
-      );
-    });
+    await pressKeybinding("k");
 
     const dialog = container!.ownerDocument.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="Search Threads"]',
@@ -1643,6 +1684,111 @@ describe("three-level navigation", () => {
     expect(dialog!.textContent!.indexOf("Client Thread")).toBeLessThan(
       dialog!.textContent!.indexOf("Personal Thread"),
     );
+  });
+
+  it("uses customized bindings for search, terminal, and window zoom", async () => {
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      {
+        settings: {
+          ...DEFAULT_APP_STATE_SETTINGS,
+          keybindingOverrides: {
+            "search-threads": { key: "p", modifiers: ["mod"] },
+            "toggle-terminal": { key: "u", modifiers: ["mod"] },
+            "zoom-in": { key: "i", modifiers: ["mod"] },
+            "zoom-out": { key: "o", modifiers: ["mod"] },
+            "reset-zoom": { key: "z", modifiers: ["mod"] },
+          },
+        },
+      },
+    );
+
+    await pressKeybinding("k");
+    await pressKeybinding("j");
+    await pressKeybinding("=");
+    await pressKeybinding("-");
+    await pressKeybinding("0");
+    await pressNativeKeybinding("=");
+    await pressNativeKeybinding("-");
+    await pressNativeKeybinding("0");
+    expect(document.querySelector('[role="dialog"][aria-label="Search Threads"]')).toBe(null);
+    expect(terminalCreateRequests).toHaveLength(0);
+    expect(windowZoomActions).toEqual([]);
+
+    await pressKeybinding("p");
+    expect(document.querySelector('[role="dialog"][aria-label="Search Threads"]')).not.toBe(null);
+    await pressKeybinding("u");
+    expect(terminalCreateRequests).toHaveLength(1);
+    await pressKeybinding("i");
+    await pressKeybinding("o");
+    await pressKeybinding("z");
+    expect(windowZoomActions).toEqual(["in", "out", "reset"]);
+  });
+
+  it("does not run actions whose bindings were cleared", async () => {
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      {
+        settings: {
+          ...DEFAULT_APP_STATE_SETTINGS,
+          keybindingOverrides: {
+            "search-threads": undefined,
+            "toggle-terminal": undefined,
+            "zoom-in": undefined,
+            "zoom-out": undefined,
+            "reset-zoom": undefined,
+          },
+        },
+      },
+    );
+
+    await pressKeybinding("k");
+    await pressKeybinding("j");
+    await pressKeybinding("=");
+    await pressKeybinding("-");
+    await pressKeybinding("0");
+    await pressNativeKeybinding("=");
+    await pressNativeKeybinding("-");
+    await pressNativeKeybinding("0");
+
+    expect(document.querySelector('[role="dialog"][aria-label="Search Threads"]')).toBe(null);
+    expect(terminalCreateRequests).toHaveLength(0);
+    expect(windowZoomActions).toEqual([]);
+  });
+
+  it("routes native zoom accelerators through the effective bindings", async () => {
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      {
+        settings: {
+          ...DEFAULT_APP_STATE_SETTINGS,
+          keybindingOverrides: {
+            "search-threads": { key: "=", modifiers: ["mod"] },
+            "zoom-in": { key: "i", modifiers: ["mod"] },
+          },
+        },
+      },
+    );
+
+    await pressNativeKeybinding("=");
+
+    expect(document.querySelector('[role="dialog"][aria-label="Search Threads"]')).not.toBe(null);
+    expect(windowZoomActions).toEqual([]);
   });
 
   it("opens Thread search from the header button and shows matches across all Workspaces", async () => {
@@ -1679,11 +1825,7 @@ describe("three-level navigation", () => {
       false,
     );
 
-    await act(async () => {
-      window.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, key: "k", ctrlKey: true }),
-      );
-    });
+    await pressKeybinding("k");
     let dialog = document.querySelector<HTMLElement>(
       '[role="dialog"][aria-label="Search Threads"]',
     )!;
@@ -1697,11 +1839,7 @@ describe("three-level navigation", () => {
     expect(saved.at(-1)?.activeWorkspaceId).toBe("workspace-2");
     expect(document.querySelector('[role="dialog"][aria-label="Search Threads"]')).toBe(null);
 
-    await act(async () => {
-      window.dispatchEvent(
-        new window.KeyboardEvent("keydown", { bubbles: true, key: "k", metaKey: true }),
-      );
-    });
+    await pressKeybinding("k");
     dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Search Threads"]')!;
     const currentResult = [...dialog.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
       (button) => button.textContent?.includes("Client Thread"),
@@ -5031,18 +5169,12 @@ describe("Integrated Terminal", () => {
       "visible terminal output",
     );
 
-    await act(async () => {
-      window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "j", metaKey: true }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await pressKeybinding("j");
     expect(
       container!.querySelector<HTMLElement>('section[aria-label="Integrated Terminal"]')?.style
         .height,
     ).toBe("0px");
-    await act(async () => {
-      window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "j", metaKey: true }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await pressKeybinding("j");
     expect(terminalCreateRequests).toHaveLength(1);
 
     await act(async () => {
@@ -5115,10 +5247,7 @@ describe("Integrated Terminal", () => {
         (button) => button.getAttribute("aria-label") === "Show Integrated Terminal",
       ),
     ).toBe(false);
-    await act(async () => {
-      window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "j", metaKey: true }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await pressKeybinding("j");
     expect(terminalCreateRequests).toHaveLength(0);
   });
 

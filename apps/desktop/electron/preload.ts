@@ -49,7 +49,7 @@ import type {
 } from "../src/shared/worktrees";
 import type { DetectedEditor, EditorsApi } from "../src/shared/editors";
 import type { MainWindowApi, MainWindowZoomAction } from "../src/shared/mainWindow";
-import type { KeybindingRecordingApi, KeybindingRecordingInput } from "../src/shared/keybindings";
+import type { KeybindingInput, KeybindingsApi } from "../src/shared/keybindings";
 import type { ThreadActionRequest, ThreadActionResult } from "../src/shared/threadActions";
 import type {
   CreateTerminalRequest,
@@ -123,12 +123,17 @@ const mainWindow: MainWindowApi = {
   },
 };
 
-const keybindings: KeybindingRecordingApi = {
+const keybindings: KeybindingsApi = {
   setRecording: (active) => ipcRenderer.send("keybindings:set-recording", active),
   onInput: (listener) => {
-    const wrapped = (_event: IpcRendererEvent, input: KeybindingRecordingInput) => listener(input);
+    const wrapped = (_event: IpcRendererEvent, input: KeybindingInput) => listener(input);
     ipcRenderer.on("keybindings:recording-input", wrapped);
     return () => ipcRenderer.removeListener("keybindings:recording-input", wrapped);
+  },
+  onShortcutInput: (listener) => {
+    const wrapped = (_event: IpcRendererEvent, input: KeybindingInput) => listener(input);
+    ipcRenderer.on("keybindings:shortcut-input", wrapped);
+    return () => ipcRenderer.removeListener("keybindings:shortcut-input", wrapped);
   },
 };
 

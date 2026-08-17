@@ -5,7 +5,7 @@ import {
   ACTION_IDS,
   type ActionId,
   type KeyBinding,
-  type KeybindingRecordingInput,
+  type KeybindingInput,
 } from "../../../shared/keybindings";
 import { useSettings } from "../../context/SettingsContext";
 import {
@@ -72,7 +72,7 @@ export function KeybindingsTab() {
     stopRecording();
   };
 
-  const handleRecordedInput = (input: KeybindingRecordingInput, actionId: ActionId) => {
+  const handleRecordedInput = (input: KeybindingInput, actionId: ActionId) => {
     if (input.key === "Escape") {
       stopRecording();
       return;

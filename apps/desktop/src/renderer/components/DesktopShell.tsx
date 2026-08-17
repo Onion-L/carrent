@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen, Search, SquareTerminal } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ThreadHistoryPane } from "./chat/ThreadHistoryPane";
@@ -13,7 +13,7 @@ import { buildThreadPath } from "../lib/navigation";
 import { IntegratedTerminal } from "./terminal/IntegratedTerminal";
 import { WindowZoomControl } from "./WindowZoomControl";
 import { TerminalPanelProvider, type TerminalPlacement } from "../context/TerminalPanelContext";
-import { isKeybindingRecorderTarget } from "../lib/keybindings";
+import { useKeybinding } from "../hooks/useKeybinding";
 
 const LEFT_SIDEBAR_WIDTH = 58;
 const MIN_SECONDARY_PANE_WIDTH = 200;
@@ -82,6 +82,19 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     setIsSecondaryPaneCollapsed((collapsed) => !collapsed);
   }, []);
 
+  const openSearchDialog = useCallback(() => setIsThreadSearchOpen(true), []);
+  const toggleTerminal = useCallback(() => {
+    if (!canOpenTerminal) return;
+    if (isBottomTerminalOpen) {
+      setIsTerminalOpen(false);
+    } else {
+      setTerminalPlacement("bottom");
+      setIsTerminalOpen(true);
+    }
+  }, [canOpenTerminal, isBottomTerminalOpen]);
+  useKeybinding("search-threads", openSearchDialog);
+  useKeybinding("toggle-terminal", toggleTerminal);
+
   const openTerminal = useCallback((placement: TerminalPlacement) => {
     setTerminalPlacement(placement);
     setIsTerminalOpen(true);
@@ -101,27 +114,6 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
     }),
     [closeTerminal, isTerminalOpen, openTerminal, setTerminalSideTarget, terminalPlacement],
   );
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (isKeybindingRecorderTarget(event.target)) return;
-      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "k") {
-        event.preventDefault();
-        setIsThreadSearchOpen(true);
-      }
-      if (event.metaKey && event.key.toLocaleLowerCase() === "j" && canOpenTerminal) {
-        event.preventDefault();
-        if (isBottomTerminalOpen) {
-          setIsTerminalOpen(false);
-        } else {
-          setTerminalPlacement("bottom");
-          setIsTerminalOpen(true);
-        }
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown, true);
-    return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [canOpenTerminal, isBottomTerminalOpen]);
 
   const handleResizeStart = useCallback(
     (event: React.MouseEvent) => {
@@ -191,7 +183,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
                 type="button"
                 aria-label="Search Threads"
                 title="Search Threads"
-                onClick={() => setIsThreadSearchOpen(true)}
+                onClick={openSearchDialog}
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-hover hover:text-fg active:scale-95"
               >
                 <Search className="h-3.5 w-3.5" />
@@ -211,14 +203,7 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
                     isBottomTerminalOpen ? "Hide Integrated Terminal" : "Show Integrated Terminal"
                   }
                   aria-pressed={isBottomTerminalOpen}
-                  onClick={() => {
-                    if (isBottomTerminalOpen) {
-                      setIsTerminalOpen(false);
-                    } else {
-                      setTerminalPlacement("bottom");
-                      setIsTerminalOpen(true);
-                    }
-                  }}
+                  onClick={toggleTerminal}
                   className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-surface-hover active:scale-95 ${
                     isBottomTerminalOpen ? "text-fg" : "text-subtle hover:text-fg"
                   }`}

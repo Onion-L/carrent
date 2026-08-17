@@ -111,10 +111,10 @@ import { createTerminalCompletionService } from "./terminal/completion/completio
 import { createTerminalHistory, parseZshHistory } from "./terminal/completion/history";
 import { readHistoryTail } from "./terminal/completion/historyFile";
 import { createZshShellIntegration } from "./terminal/completion/shellIntegration";
-import { createWindowZoomController } from "./windowZoom";
+import { createWindowZoomController, isNativeWindowZoomShortcut } from "./windowZoom";
 import { createKeybindingRecordingController } from "./keybindingRecording";
 import type { MainWindowZoomAction } from "../src/shared/mainWindow";
-import type { KeybindingRecordingInput } from "../src/shared/keybindings";
+import type { KeybindingInput } from "../src/shared/keybindings";
 import { createBrowserManager, type BrowserManager } from "./browser/browserManager";
 import { registerBrowserIpc } from "./browser/browserIpc";
 import { isHttpOrHttpsUrl } from "./browser/browserNavigation";
@@ -310,8 +310,11 @@ function createWindow(
   }
 
   const window = new BrowserWindow(constructorOptions);
-  const sendKeybindingRecordingInput = (input: KeybindingRecordingInput) => {
+  const sendKeybindingRecordingInput = (input: KeybindingInput) => {
     if (!window.isDestroyed()) window.webContents.send("keybindings:recording-input", input);
+  };
+  const sendKeybindingShortcutInput = (input: KeybindingInput) => {
+    if (!window.isDestroyed()) window.webContents.send("keybindings:shortcut-input", input);
   };
   if (process.platform === "darwin") {
     window.setWindowButtonVisibility(true);
@@ -396,7 +399,17 @@ function createWindow(
     ) {
       return;
     }
-    zoomController.handleBeforeInput(event, input);
+    if (isNativeWindowZoomShortcut(input)) {
+      event.preventDefault();
+      sendKeybindingShortcutInput({
+        key: input.key,
+        metaKey: input.meta,
+        ctrlKey: input.control,
+        altKey: input.alt,
+        shiftKey: input.shift,
+      });
+      return;
+    }
     // macOS: while a terminal holds focus, Cmd+W closes the terminal tab
     // instead of the window. The default app menu binds Cmd+W to Window→Close,
     // which fires at the menu layer before the renderer can see the keydown;

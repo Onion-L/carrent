@@ -24,6 +24,11 @@ describe("WindowZoomControl", () => {
     let listener: ((nextFactor: number) => void) | null = null;
     const actions: MainWindowZoomAction[] = [];
     window.carrent = {
+      keybindings: {
+        setRecording: () => {},
+        onInput: () => () => {},
+        onShortcutInput: () => () => {},
+      },
       mainWindow: {
         onNavigate: () => () => {},
         zoom: {

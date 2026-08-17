@@ -51,7 +51,7 @@ import type {
 import type { KimiUsageStats } from "../shared/kimiUsage";
 
 import type { MainWindowApi } from "../shared/mainWindow";
-import type { KeybindingRecordingApi } from "../shared/keybindings";
+import type { KeybindingsApi } from "../shared/keybindings";
 import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
 import type { TerminalApi } from "../shared/terminal";
 import type { BrowserApi, BrowserMenuOverlayApi } from "../shared/browser";
@@ -79,7 +79,7 @@ declare global {
       platform: NodeJS.Platform;
       electronVersion: string;
       mainWindow: MainWindowApi;
-      keybindings: KeybindingRecordingApi;
+      keybindings: KeybindingsApi;
       browser: BrowserApi;
       runtimes: {
         list: () => Promise<RuntimeRecord[]>;

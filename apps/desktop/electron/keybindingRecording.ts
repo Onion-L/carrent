@@ -1,4 +1,4 @@
-import type { KeybindingRecordingInput } from "../src/shared/keybindings";
+import type { KeybindingInput } from "../src/shared/keybindings";
 
 type BeforeInput = {
   type: string;
@@ -33,7 +33,7 @@ export function createKeybindingRecordingController() {
       contentsId: number,
       event: PreventableEvent,
       input: BeforeInput,
-      send: (input: KeybindingRecordingInput) => void,
+      send: (input: KeybindingInput) => void,
     ) {
       if (!recordingContentsIds.has(contentsId)) return false;
       if (
@@ -62,7 +62,7 @@ export function createKeybindingRecordingController() {
       });
       return true;
     },
-    handleWindowBlur(contentsId: number, send: (input: KeybindingRecordingInput) => void) {
+    handleWindowBlur(contentsId: number, send: (input: KeybindingInput) => void) {
       if (!recordingContentsIds.has(contentsId) || !pendingCmdTabContentsIds.delete(contentsId)) {
         return false;
       }

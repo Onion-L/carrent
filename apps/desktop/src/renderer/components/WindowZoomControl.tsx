@@ -2,6 +2,7 @@ import { Minus, Plus, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { MainWindowZoomAction } from "../../shared/mainWindow";
+import { useKeybinding } from "../hooks/useKeybinding";
 
 export function WindowZoomControl() {
   const [factor, setFactor] = useState(1);
@@ -35,10 +36,17 @@ export function WindowZoomControl() {
     };
   }, [showPopup]);
 
-  const changeZoom = async (action: MainWindowZoomAction) => {
-    setFactor(await window.carrent.mainWindow.zoom.change(action));
-    showPopup();
-  };
+  const changeZoom = useCallback(
+    async (action: MainWindowZoomAction) => {
+      setFactor(await window.carrent.mainWindow.zoom.change(action));
+      showPopup();
+    },
+    [showPopup],
+  );
+
+  useKeybinding("zoom-in", () => void changeZoom("in"));
+  useKeybinding("zoom-out", () => void changeZoom("out"));
+  useKeybinding("reset-zoom", () => void changeZoom("reset"));
 
   if (!isVisible) return null;
 

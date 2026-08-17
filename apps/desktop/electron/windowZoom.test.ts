@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { createWindowZoomController } from "./windowZoom";
+import { createWindowZoomController, isNativeWindowZoomShortcut } from "./windowZoom";
 
 function createWebContents(initialFactor = 1) {
   let factor = initialFactor;
@@ -38,29 +38,31 @@ describe("createWindowZoomController", () => {
     ]);
   });
 
-  it("handles platform zoom shortcuts and leaves unrelated input alone", () => {
+  it("preserves non-keyboard native zoom requests", () => {
     const fake = createWebContents();
     const zoom = createWindowZoomController(() => fake.webContents);
     let prevented = 0;
-    const event = { preventDefault: () => (prevented += 1) };
+
+    zoom.handleZoomChanged({ preventDefault: () => (prevented += 1) }, "in");
+
+    expect(prevented).toBe(1);
+    expect(zoom.getFactor()).toBe(1.1);
+  });
+});
+
+describe("isNativeWindowZoomShortcut", () => {
+  it("recognizes the zoom accelerators owned by Electron's application menu", () => {
     const input = {
       type: "keyDown",
-      key: "+",
+      key: "=",
       code: "Equal",
       control: false,
       meta: true,
     };
 
-    expect(zoom.handleBeforeInput(event, input)).toBe(true);
-    expect(zoom.getFactor()).toBe(1.1);
-    expect(prevented).toBe(1);
-    expect(
-      zoom.handleBeforeInput(event, {
-        ...input,
-        key: "k",
-        code: "KeyK",
-      }),
-    ).toBe(false);
-    expect(prevented).toBe(1);
+    expect(isNativeWindowZoomShortcut(input)).toBe(true);
+    expect(isNativeWindowZoomShortcut({ ...input, key: "-", code: "Minus" })).toBe(true);
+    expect(isNativeWindowZoomShortcut({ ...input, key: "0", code: "Digit0" })).toBe(true);
+    expect(isNativeWindowZoomShortcut({ ...input, key: "k", code: "KeyK" })).toBe(false);
   });
 });

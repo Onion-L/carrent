@@ -12,7 +12,7 @@ export type KeyBinding = {
   modifiers: Array<KeyBindingModifier>;
 };
 
-export type KeybindingRecordingInput = {
+export type KeybindingInput = {
   key: string;
   metaKey: boolean;
   ctrlKey: boolean;
@@ -20,9 +20,10 @@ export type KeybindingRecordingInput = {
   shiftKey: boolean;
 };
 
-export type KeybindingRecordingApi = {
+export type KeybindingsApi = {
   setRecording: (active: boolean) => void;
-  onInput: (listener: (input: KeybindingRecordingInput) => void) => VoidFunction;
+  onInput: (listener: (input: KeybindingInput) => void) => VoidFunction;
+  onShortcutInput: (listener: (input: KeybindingInput) => void) => VoidFunction;
 };
 
 export const ACTION_IDS: ActionId[] = [

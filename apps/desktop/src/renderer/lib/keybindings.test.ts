@@ -221,6 +221,15 @@ describe("normalizeModifiers", () => {
     ).toEqual({ key: "]", modifiers: ["shift"] });
   });
 
+  it("canonicalizes a macOS Option-modified letter to its displayed letter", () => {
+    expect(
+      normalizeModifiers(
+        keyboardEvent({ key: "∫", code: "KeyB", metaKey: true, altKey: true }),
+        true,
+      ),
+    ).toEqual({ key: "b", modifiers: ["alt", "mod"] });
+  });
+
   it("returns no modifiers for a plain key", () => {
     expect(normalizeModifiers(keyboardEvent({ key: "9" }), true)).toEqual({
       key: "9",

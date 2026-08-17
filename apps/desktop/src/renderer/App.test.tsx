@@ -5186,7 +5186,11 @@ describe("Integrated Browser", () => {
       "/workspace/workspace-1/project/project-1/thread/thread-1",
     );
 
-    await click(buttonNamed("Open right panel"));
+    await pressKeybinding("∫", { code: "KeyB", altKey: true });
+    expect(buttonNamed("Close right panel")).toBeDefined();
+    await pressKeybinding("∫", { code: "KeyB", altKey: true });
+    expect(buttonNamed("Open right panel")).toBeDefined();
+    await pressKeybinding("∫", { code: "KeyB", altKey: true });
     await click(buttonNamed("Browser"));
 
     expect(container!.querySelector<HTMLInputElement>('input[aria-label="Address"]')).not.toBe(

@@ -55,6 +55,23 @@ describe("ACTION_IDS", () => {
 });
 
 describe("matchesKeybindingInput", () => {
+  it("matches an Alt-modified letter by its physical letter code", () => {
+    expect(
+      matchesKeybindingInput(
+        { key: "b", modifiers: ["mod", "alt"] },
+        {
+          key: "∫",
+          code: "KeyB",
+          metaKey: true,
+          ctrlKey: false,
+          altKey: true,
+          shiftKey: false,
+        },
+        true,
+      ),
+    ).toBe(true);
+  });
+
   it("matches shifted bracket shortcuts using their unshifted stored key", () => {
     expect(
       matchesKeybindingInput(

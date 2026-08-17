@@ -194,7 +194,7 @@ export function matchesKeybindingInput(
 }
 
 export function normalizeKeybindingInputKey(
-  input: Pick<KeybindingInput, "key" | "code" | "shiftKey">,
+  input: Pick<KeybindingInput, "key" | "code" | "altKey" | "shiftKey">,
 ): string {
   if (
     (input.key === "+" && input.code !== "NumpadAdd" && input.shiftKey) ||
@@ -202,6 +202,8 @@ export function normalizeKeybindingInputKey(
   ) {
     return "=";
   }
+  const altLetter = input.altKey ? input.code?.match(/^Key([A-Z])$/u) : null;
+  if (altLetter) return altLetter[1].toLocaleLowerCase();
   if (input.shiftKey && input.code === "BracketLeft") return "[";
   if (input.shiftKey && input.code === "BracketRight") return "]";
   return input.key;

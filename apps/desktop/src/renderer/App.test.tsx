@@ -229,7 +229,16 @@ function installBridge(
       },
       newTab: async () => requireBrowserState(),
       activateTab: async () => requireBrowserState(),
-      closeTab: async () => requireBrowserState(),
+      closeTab: async () => {
+        browserState = {
+          ...requireBrowserState(),
+          open: false,
+          activeTabId: null,
+          tabs: [],
+        };
+        for (const listener of browserListeners) listener(requireBrowserState());
+        return requireBrowserState();
+      },
       navigate: async () => requireBrowserState(),
       action: async () => requireBrowserState(),
       zoom: async () => requireBrowserState(),
@@ -5198,6 +5207,13 @@ describe("Integrated Browser", () => {
     );
     expect(container!.textContent).toContain("New Tab");
     expect(container!.textContent).toContain("Start browsing");
+
+    await click(buttonNamed("Close tab"));
+
+    expect(container!.querySelector<HTMLInputElement>('input[aria-label="Address"]')).toBe(null);
+    expect(buttonNamed("Browser")).toBeDefined();
+    expect(buttonNamed("Terminal")).toBeDefined();
+    expect(buttonNamed("Close right panel")).toBeDefined();
   });
 });
 

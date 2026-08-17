@@ -66,6 +66,7 @@ type BrowserWorkspaceProps = {
   standalone?: boolean;
   fullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  onLastTabClosed?: () => void;
 };
 
 function IconButton({
@@ -108,6 +109,7 @@ export function BrowserWorkspace({
   standalone = false,
   fullscreen = false,
   onToggleFullscreen,
+  onLastTabClosed,
 }: BrowserWorkspaceProps) {
   const activeTab = state.tabs.find((tab) => tab.id === state.activeTabId) ?? null;
   const canContinueCertificate = (() => {
@@ -180,7 +182,11 @@ export function BrowserWorkspace({
   }, [target.projectId, target.threadId]);
 
   const tabTarget = activeTab ? { ...target, tabId: activeTab.id } : null;
-  const run = async (operation: Promise<BrowserThreadState>) => setState(await operation);
+  const run = async (operation: Promise<BrowserThreadState>) => {
+    const next = await operation;
+    setState(next);
+    if (!next.open) onLastTabClosed?.();
+  };
 
   useKeybinding("preview-focus-url", () => addressRef.current?.select());
   useKeybinding("preview-new-tab", () => {

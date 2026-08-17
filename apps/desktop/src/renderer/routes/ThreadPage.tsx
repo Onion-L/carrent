@@ -199,6 +199,10 @@ function ThreadPageContent() {
     scopeKey: routeData?.thread.id ?? null,
     openBrowser: openBrowserSurface,
   });
+  const handleLastBrowserTabClosed = () => {
+    setBrowserFullscreen(false);
+    selectSurface("chooser");
+  };
 
   useEffect(() => {
     if (activeSurface !== "browser" || activeBrowserState?.placement !== "side") {
@@ -516,6 +520,7 @@ function ThreadPageContent() {
             visible
             fullscreen
             onToggleFullscreen={() => setBrowserFullscreen(false)}
+            onLastTabClosed={handleLastBrowserTabClosed}
           />
         </div>
       ) : inspectorOpen ? (
@@ -549,6 +554,7 @@ function ThreadPageContent() {
                 setState={setBrowserState}
                 visible={!closing}
                 onToggleFullscreen={() => setBrowserFullscreen(true)}
+                onLastTabClosed={handleLastBrowserTabClosed}
               />
             ) : surface === "terminal" ? (
               <div ref={setSideContainer} className="h-full w-full" />

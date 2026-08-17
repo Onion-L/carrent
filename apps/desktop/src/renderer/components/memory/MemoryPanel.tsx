@@ -66,6 +66,33 @@ const VIEW_MODES = [
   { id: "plain", label: "Plain" },
 ] as const;
 
+function resolveRelativeMarkdownPath(currentPath: string, href: string): string | null {
+  const hrefPath = href.split(/[?#]/u, 1)[0] ?? "";
+  if (hrefPath === "" || hrefPath.startsWith("/") || /^[a-z][a-z\d+.-]*:/iu.test(hrefPath)) {
+    return null;
+  }
+
+  let decodedPath: string;
+  try {
+    decodedPath = decodeURIComponent(hrefPath).replaceAll("\\", "/");
+  } catch {
+    return null;
+  }
+  if (!decodedPath.toLowerCase().endsWith(".md")) return null;
+
+  const segments = currentPath.replaceAll("\\", "/").split("/");
+  segments.pop();
+  for (const segment of decodedPath.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") {
+      segments.pop();
+    } else {
+      segments.push(segment);
+    }
+  }
+  return segments.join("/");
+}
+
 export function MemoryPanel() {
   return <MemoryPanelView api={window.carrent.settings} shellApi={window.carrent.shell} />;
 }
@@ -123,6 +150,37 @@ export function MemoryPanelView({
     if (allFiles.length === 0) return null;
     return allFiles.find((file) => file.path === selectedPath) ?? null;
   }, [allFiles, selectedPath]);
+
+  const selectedProject = useMemo(
+    () =>
+      selectedFile === null
+        ? null
+        : (index?.projects.find((project) =>
+            project.files.some((file) => file.path === selectedFile.path),
+          ) ?? null),
+    [index, selectedFile],
+  );
+
+  const handleMemoryLinkClick = useCallback(
+    (href: string) => {
+      if (selectedFile === null || selectedProject === null) return false;
+      const targetPath = resolveRelativeMarkdownPath(selectedFile.path, href);
+      if (targetPath === null) return false;
+
+      const targetFile = selectedProject.files.find(
+        (file) => file.path.replaceAll("\\", "/") === targetPath,
+      );
+      if (targetFile === undefined) {
+        setActionError(`Memory file not found: ${href}`);
+        return true;
+      }
+
+      setActionError(null);
+      setSelectedPath(targetFile.path);
+      return true;
+    },
+    [selectedFile, selectedProject],
+  );
 
   // Default to the first file once data arrives (kept out of selectedFile so
   // the fallback does not resurrect a selection right after a delete).
@@ -389,7 +447,9 @@ export function MemoryPanelView({
                       <div
                         className={`flex flex-col gap-2 ${previewLineWrap ? "" : "[&>*]:whitespace-nowrap"}`}
                       >
-                        <MarkdownContent>{selectedFile.body}</MarkdownContent>
+                        <MarkdownContent onLinkClick={handleMemoryLinkClick}>
+                          {selectedFile.body}
+                        </MarkdownContent>
                       </div>
                     </div>
                   )

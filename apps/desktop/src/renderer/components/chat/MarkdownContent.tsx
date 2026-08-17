@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
@@ -78,14 +78,39 @@ const components: Components = {
   hr: () => <hr className="border-border" />,
 };
 
-export const MarkdownContent = memo(function MarkdownContent({ children }: { children: string }) {
+export const MarkdownContent = memo(function MarkdownContent({
+  children,
+  onLinkClick,
+}: {
+  children: string;
+  onLinkClick?: (href: string) => boolean;
+}) {
   const content = normalizeMathDelimiters(children);
+  const markdownComponents = useMemo<Components>(() => {
+    if (onLinkClick === undefined) return components;
+    return {
+      ...components,
+      a: ({ children: linkChildren, href }) => (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(event) => {
+            if (href !== undefined && onLinkClick(href)) event.preventDefault();
+          }}
+          className="text-brand underline underline-offset-2"
+        >
+          {linkChildren}
+        </a>
+      ),
+    };
+  }, [onLinkClick]);
 
   return (
     <ReactMarkdown
       remarkPlugins={remarkPlugins}
       rehypePlugins={rehypePlugins}
-      components={components}
+      components={markdownComponents}
     >
       {content}
     </ReactMarkdown>

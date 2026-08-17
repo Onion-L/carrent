@@ -129,7 +129,7 @@ function makeUiIndex(): KimiMemoryIndex {
             fileName: "MEMORY.md",
             name: "MEMORY",
             isIndex: true,
-            body: "# Memory Index\n",
+            body: "# Memory Index\n\n- [user-role](user-role.md) — Who the user is\n",
             raw: "# Memory Index\n\n- [user-role](user-role.md) — Who the user is\n",
           }),
           makeFile({
@@ -221,6 +221,16 @@ describe("MemoryPanel UI", () => {
     if (!row) throw new Error("row not found");
 
     await click(row);
+
+    expect(c.querySelector("[data-detail-header]")?.textContent).toContain("user-role");
+  });
+
+  it("opens relative markdown links within the current memory project", async () => {
+    const c = await renderPanel();
+    const link = c.querySelector('a[href="user-role.md"]');
+    if (!link) throw new Error("memory link not found");
+
+    await click(link);
 
     expect(c.querySelector("[data-detail-header]")?.textContent).toContain("user-role");
   });

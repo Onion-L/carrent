@@ -17,6 +17,7 @@ describe("createKeybindingRecordingController", () => {
         {
           type: "keyDown",
           key: "Q",
+          code: "KeyQ",
           meta: true,
           control: false,
           alt: false,
@@ -29,6 +30,7 @@ describe("createKeybindingRecordingController", () => {
     expect(received).toEqual([
       {
         key: "Q",
+        code: "KeyQ",
         metaKey: true,
         ctrlKey: false,
         altKey: false,

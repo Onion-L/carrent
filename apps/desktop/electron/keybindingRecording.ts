@@ -3,6 +3,7 @@ import type { KeybindingInput } from "../src/shared/keybindings";
 type BeforeInput = {
   type: string;
   key: string;
+  code?: string;
   meta: boolean;
   control: boolean;
   alt: boolean;
@@ -58,6 +59,7 @@ export function createKeybindingRecordingController() {
       event.preventDefault();
       send({
         key: input.key,
+        ...(input.code ? { code: input.code } : {}),
         ...modifiers,
       });
       return true;

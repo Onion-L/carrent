@@ -93,9 +93,19 @@ export function detectConflict(
   return null;
 }
 
-function sameModifiers(left: KeyBindingModifier[], right: KeyBindingModifier[]): boolean {
-  const a = canonicalModifiers(left);
-  const b = canonicalModifiers(right);
+function platformModifiers(modifiers: KeyBindingModifier[], isMac: boolean): KeyBindingModifier[] {
+  return canonicalModifiers(
+    isMac ? modifiers : modifiers.map((modifier) => (modifier === "ctrl" ? "mod" : modifier)),
+  );
+}
+
+function sameModifiers(
+  left: KeyBindingModifier[],
+  right: KeyBindingModifier[],
+  isMac: boolean,
+): boolean {
+  const a = platformModifiers(left, isMac);
+  const b = platformModifiers(right, isMac);
   return a.length === b.length && a.every((modifier, index) => modifier === b[index]);
 }
 
@@ -106,13 +116,25 @@ function sameModifiers(left: KeyBindingModifier[], right: KeyBindingModifier[]):
  * tracked as a modifier anyway) and modifiers compare as a set in canonical
  * order.
  */
-export function isSameBinding(left: KeyBinding, right: KeyBinding): boolean {
+export function isSameBinding(
+  left: KeyBinding,
+  right: KeyBinding,
+  isMac = isMacPlatform(),
+): boolean {
   if (left.key.toLocaleLowerCase() !== right.key.toLocaleLowerCase()) return false;
-  return sameModifiers(left.modifiers, right.modifiers);
+  return sameModifiers(left.modifiers, right.modifiers, isMac);
 }
 
 export function isKeybindingRecorderTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && target.dataset.keybindingRecorder === "true";
+}
+
+export function isKeybindingTextInputTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])") !==
+      null
+  );
 }
 
 /**
@@ -122,15 +144,21 @@ export function isKeybindingRecorderTarget(target: EventTarget | null): boolean 
  * platform so tests and callers can pin either path.
  */
 export function normalizeModifiers(
-  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">,
+  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey"> & {
+    code?: string;
+  },
   isMac = isMacPlatform(),
 ): KeyBinding {
   const modifiers: KeyBindingModifier[] = [];
+  const shiftedPlus = event.key === "+" && event.code !== "NumpadAdd" && event.shiftKey;
   if (event.ctrlKey) modifiers.push(isMac ? "ctrl" : "mod");
   if (event.altKey) modifiers.push("alt");
-  if (event.shiftKey) modifiers.push("shift");
+  if (event.shiftKey && !shiftedPlus) modifiers.push("shift");
   if (event.metaKey && isMac) modifiers.push("mod");
-  return { key: event.key, modifiers: canonicalModifiers(modifiers) };
+  return {
+    key: shiftedPlus || event.code === "NumpadAdd" ? "=" : event.key,
+    modifiers: canonicalModifiers(modifiers),
+  };
 }
 
 /**
@@ -139,7 +167,7 @@ export function normalizeModifiers(
  * Single-character keys are uppercased; named keys pass through as-is.
  */
 export function formatKeybinding(keybinding: KeyBinding, isMac = isMacPlatform()): string {
-  const modifiers = canonicalModifiers(keybinding.modifiers);
+  const modifiers = platformModifiers(keybinding.modifiers, isMac);
   const display = isMac
     ? modifiers
     : [...modifiers].sort(
@@ -192,14 +220,14 @@ export function prepareKeybindingUpdate(
     return { status: "conflict", actionId: conflict };
   }
 
-  return {
-    status: "saved",
-    overrides: {
-      ...currentOverrides,
-      ...(conflict ? { [conflict]: undefined } : {}),
-      [actionId]: binding,
-    },
-  };
+  const overrides: Partial<Record<ActionId, KeyBinding | undefined>> = { ...currentOverrides };
+  if (conflict) overrides[conflict] = undefined;
+  if (binding && isSameBinding(binding, DEFAULT_KEYBINDINGS[actionId])) {
+    delete overrides[actionId];
+  } else {
+    overrides[actionId] = binding;
+  }
+  return { status: "saved", overrides };
 }
 
 export function resetKeybindingOverride(

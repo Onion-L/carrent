@@ -645,13 +645,17 @@ async function pressKeybinding(key: string) {
   });
 }
 
-async function pressNativeKeybinding(key: string) {
+async function pressNativeKeybinding(
+  key: string,
+  options: { code?: string; shiftKey?: boolean } = {},
+) {
   const input = {
     key,
+    code: options.code ?? "",
     metaKey: /Mac/i.test(navigator.userAgent),
     ctrlKey: !/Mac/i.test(navigator.userAgent),
     altKey: false,
-    shiftKey: false,
+    shiftKey: options.shiftKey ?? false,
   };
   await act(async () => {
     for (const listener of nativeKeybindingInputListeners) listener(input);
@@ -1730,6 +1734,38 @@ describe("three-level navigation", () => {
     expect(windowZoomActions).toEqual(["in", "out", "reset"]);
   });
 
+  it("does not consume unmodified text bindings inside editable content", async () => {
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+      {
+        settings: {
+          ...DEFAULT_APP_STATE_SETTINGS,
+          keybindingOverrides: {
+            "search-threads": { key: "k", modifiers: [] },
+          },
+        },
+      },
+    );
+    const editor = container!.querySelector<HTMLElement>("[data-composer-text='true']")!;
+
+    await act(async () => {
+      editor.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "k" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.querySelector('[role="dialog"][aria-label="Search Threads"]')).toBe(null);
+
+    await act(async () => {
+      window.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "k" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.querySelector('[role="dialog"][aria-label="Search Threads"]')).not.toBe(null);
+  });
+
   it("does not run actions whose bindings were cleared", async () => {
     await renderApp(
       navigationState(),
@@ -1789,6 +1825,22 @@ describe("three-level navigation", () => {
 
     expect(document.querySelector('[role="dialog"][aria-label="Search Threads"]')).not.toBe(null);
     expect(windowZoomActions).toEqual([]);
+  });
+
+  it("keeps shifted plus and numpad add as aliases for the default zoom-in binding", async () => {
+    await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+      [],
+      false,
+      [],
+      false,
+    );
+
+    await pressNativeKeybinding("+", { code: "Equal", shiftKey: true });
+    await pressNativeKeybinding("+", { code: "NumpadAdd" });
+
+    expect(windowZoomActions).toEqual(["in", "in"]);
   });
 
   it("opens Thread search from the header button and shows matches across all Workspaces", async () => {

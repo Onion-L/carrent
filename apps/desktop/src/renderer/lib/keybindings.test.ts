@@ -16,6 +16,7 @@ import {
 
 type StubKeyboardEvent = {
   key: string;
+  code?: string;
   metaKey?: boolean;
   ctrlKey?: boolean;
   altKey?: boolean;
@@ -146,6 +147,16 @@ describe("normalizeModifiers", () => {
     });
   });
 
+  it("canonicalizes shifted plus and numpad add to the zoom-in key", () => {
+    expect(
+      normalizeModifiers(keyboardEvent({ key: "+", shiftKey: true, code: "Equal" }), true),
+    ).toEqual({ key: "=", modifiers: [] });
+    expect(normalizeModifiers(keyboardEvent({ key: "+", code: "NumpadAdd" }), true)).toEqual({
+      key: "=",
+      modifiers: [],
+    });
+  });
+
   it("returns no modifiers for a plain key", () => {
     expect(normalizeModifiers(keyboardEvent({ key: "9" }), true)).toEqual({
       key: "9",
@@ -170,6 +181,7 @@ describe("formatKeybinding", () => {
     expect(formatKeybinding({ key: "K", modifiers: ["mod", "shift"] }, false)).toBe("Ctrl+Shift+K");
     expect(formatKeybinding({ key: "j", modifiers: ["mod"] }, false)).toBe("Ctrl+J");
     expect(formatKeybinding({ key: "k", modifiers: ["mod", "alt"] }, false)).toBe("Ctrl+Alt+K");
+    expect(formatKeybinding({ key: "k", modifiers: ["ctrl", "mod"] }, false)).toBe("Ctrl+K");
   });
 
   it("formats a binding without modifiers as the bare key", () => {
@@ -243,6 +255,15 @@ describe("isSameBinding", () => {
   it("matches bindings without modifiers", () => {
     expect(isSameBinding({ key: "F5", modifiers: [] }, { key: "F5", modifiers: [] })).toBe(true);
   });
+
+  it("treats stored ctrl as the command modifier on non-Mac platforms", () => {
+    expect(
+      isSameBinding({ key: "k", modifiers: ["ctrl"] }, { key: "k", modifiers: ["mod"] }, false),
+    ).toBe(true);
+    expect(
+      isSameBinding({ key: "k", modifiers: ["ctrl"] }, { key: "k", modifiers: ["mod"] }, true),
+    ).toBe(false);
+  });
 });
 
 describe("isMacPlatform", () => {
@@ -279,6 +300,16 @@ describe("prepareKeybindingUpdate", () => {
         "toggle-terminal": { key: "k", modifiers: ["mod"] },
       },
     });
+  });
+
+  it("removes an override when the saved binding equals the default", () => {
+    expect(
+      prepareKeybindingUpdate(
+        "search-threads",
+        { key: "k", modifiers: ["mod"] },
+        { "search-threads": { key: "p", modifiers: ["mod"] } },
+      ),
+    ).toEqual({ status: "saved", overrides: {} });
   });
 });
 

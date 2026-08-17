@@ -113,6 +113,7 @@ import { readHistoryTail } from "./terminal/completion/historyFile";
 import { createZshShellIntegration } from "./terminal/completion/shellIntegration";
 import { createWindowZoomController, isNativeWindowZoomShortcut } from "./windowZoom";
 import { createKeybindingRecordingController } from "./keybindingRecording";
+import { registerKeybindingIpc } from "./keybindingIpc";
 import type { MainWindowZoomAction } from "../src/shared/mainWindow";
 import type { KeybindingInput } from "../src/shared/keybindings";
 import { createBrowserManager, type BrowserManager } from "./browser/browserManager";
@@ -403,6 +404,7 @@ function createWindow(
       event.preventDefault();
       sendKeybindingShortcutInput({
         key: input.key,
+        code: input.code,
         metaKey: input.meta,
         ctrlKey: input.control,
         altKey: input.alt,
@@ -519,10 +521,7 @@ if (!hasSingleInstanceLock) {
   ipcMain.on("app:navigation-ready", (event) => {
     windowRegistry.markReady(event.sender.id);
   });
-  ipcMain.on("keybindings:set-recording", (event, active: unknown) => {
-    if (typeof active !== "boolean") return;
-    keybindingRecording.setRecording(event.sender.id, active);
-  });
+  registerKeybindingIpc(ipcMain, keybindingRecording);
   ipcMain.handle("app:zoom:get", (event) => {
     const zoom = getZoomController(event.sender.id);
     if (!zoom) throw new Error("Unknown zoom request sender.");

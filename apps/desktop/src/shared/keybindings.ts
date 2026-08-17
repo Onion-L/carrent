@@ -14,6 +14,7 @@ export type KeyBinding = {
 
 export type KeybindingInput = {
   key: string;
+  code?: string;
   metaKey: boolean;
   ctrlKey: boolean;
   altKey: boolean;

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
 
-import type { ActionId } from "../../shared/keybindings";
+import type { ActionId, KeybindingInput } from "../../shared/keybindings";
 import { useSettings } from "../context/SettingsContext";
 import {
   isKeybindingRecorderTarget,
+  isKeybindingTextInputTarget,
   isSameBinding,
   normalizeModifiers,
   resolveKeybinding,
@@ -37,17 +38,21 @@ export function useKeybinding(actionId: ActionId, handler: () => void): () => vo
       return;
     }
 
-    const matchesInput = (
-      input: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">,
-    ) => isSameBinding(normalizeModifiers(input), binding);
-    const runIfMatching = (
-      input: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">,
-    ) => {
+    const matchesInput = (input: KeybindingInput | KeyboardEvent) =>
+      isSameBinding(normalizeModifiers(input), binding);
+    const runIfMatching = (input: KeybindingInput) => {
       if (!matchesInput(input)) return;
       handlerRef.current();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isKeybindingRecorderTarget(event.target)) return;
+      if (
+        binding.modifiers.length === 0 &&
+        event.key.length === 1 &&
+        isKeybindingTextInputTarget(event.target)
+      ) {
+        return;
+      }
       if (!matchesInput(event)) return;
       event.preventDefault();
       handlerRef.current();

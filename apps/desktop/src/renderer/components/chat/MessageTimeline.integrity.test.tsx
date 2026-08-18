@@ -165,6 +165,48 @@ describe("streaming Markdown output integrity", () => {
   });
 });
 
+describe("user Markdown links", () => {
+  it("opens safe external links through the shell and renders unsafe protocols as text", async () => {
+    const openedUrls: string[] = [];
+    Object.defineProperty(window, "carrent", {
+      configurable: true,
+      writable: true,
+      value: {
+        shell: {
+          openExternal: async (url: string) => {
+            openedUrls.push(url);
+          },
+        },
+      },
+    });
+
+    const message: Message = {
+      id: "user-markdown-links",
+      role: "user",
+      threadId: "thread-1",
+      type: "text",
+      timestamp: "09:00",
+      content: "[safe](https://example.com) [unsafe](javascript:alert(1))",
+    };
+
+    await act(async () => {
+      root.render(<MessageTimeline messages={[message]} threadActions={[]} />);
+    });
+
+    const safeLink = container.querySelector<HTMLAnchorElement>('a[href="https://example.com"]');
+    expect(safeLink).not.toBe(null);
+    expect(container.textContent).toContain("unsafe");
+    expect(container.querySelector('a[href^="javascript:"]')).toBe(null);
+
+    const clickEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    safeLink!.dispatchEvent(clickEvent);
+    await Promise.resolve();
+
+    expect(clickEvent.defaultPrevented).toBe(true);
+    expect(openedUrls).toEqual(["https://example.com"]);
+  });
+});
+
 describe("Kimi message timeline", () => {
   it("renders ordinary text in ACP order while Thinking stays collapsed", async () => {
     const message: Message = {

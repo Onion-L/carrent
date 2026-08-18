@@ -90,7 +90,8 @@ describe("user message presentation", () => {
       }),
     );
 
-    expect(markup).toContain("whitespace-pre-wrap break-words");
+    expect(markup).toContain("whitespace-pre-wrap");
+    expect(markup).toContain("break-words");
   });
 
   it("renders file reference links as styled badges without the raw path", () => {
@@ -113,6 +114,70 @@ describe("user message presentation", () => {
     expect(markup).toContain("index.css (line 30)");
     expect(markup).not.toContain("](/Users");
     expect(markup).toContain("text-skill-reference");
+  });
+
+  it("renders user Markdown blocks while preserving special references", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MessageTimeline, {
+        messages: [
+          {
+            id: "msg-1",
+            threadId: "thread-1",
+            role: "user" as const,
+            content: [
+              "# Commands",
+              "",
+              "Use **bold** text.",
+              "line two",
+              "",
+              "| Command | Shortcut |",
+              "| --- | --- |",
+              "| sidebar.toggle | mod+b |",
+              "",
+              "```bash",
+              "bun test",
+              "```",
+              "",
+              "[$improve](/Users/test/.agents/skills/improve/SKILL.md) [index.css](/Users/test/index.css:30)",
+            ].join("\n"),
+            timestamp: "09:00",
+            type: "text" as const,
+          },
+        ],
+      }),
+    );
+
+    expect(markup).toContain("<h1");
+    expect(markup).toContain("Commands");
+    expect(markup).toContain("<table");
+    expect(markup).toContain("<strong");
+    expect(markup).toContain("<pre");
+    expect(markup).toContain("bun test");
+    expect(markup).toContain("Improve");
+    expect(markup).toContain("index.css");
+    expect(markup).not.toContain("](/Users");
+    expect(markup).toContain("whitespace-pre-wrap");
+    expect(markup).toContain("text-user-bubble-fg");
+  });
+
+  it("does not load images from user Markdown", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MessageTimeline, {
+        messages: [
+          {
+            id: "msg-1",
+            threadId: "thread-1",
+            role: "user" as const,
+            content: "![remote image](https://example.com/image.png)",
+            timestamp: "09:00",
+            type: "text" as const,
+          },
+        ],
+      }),
+    );
+
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain("remote image");
   });
 
   it("renders structured Local Path Context as a compact file badge", () => {

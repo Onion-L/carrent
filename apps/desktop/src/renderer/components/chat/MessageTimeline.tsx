@@ -14,7 +14,7 @@ import {
   Pencil,
   XCircle,
 } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   type Message,
   type MessagePart,
@@ -37,7 +37,7 @@ import {
 import { ChangedFilesCard } from "./ChangedFilesCard";
 import { ErrorBlock } from "./ErrorBlock";
 import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachmentLightbox";
-import { MarkdownContent } from "./MarkdownContent";
+import { MarkdownContent, type MarkdownLinkRender } from "./MarkdownContent";
 import { PlanReviewBlock } from "./PlanReviewBlock";
 import { QuestionBlock } from "./QuestionBlock";
 import { parseFileReferenceSegments } from "./fileReferences";
@@ -174,41 +174,52 @@ function FileReferenceBadge({ label, path }: { label: string; path: string }) {
   );
 }
 
-function UserMessageTextContent({ content }: { content: string }) {
-  return (
-    <>
-      {parseFileReferenceSegments(content).map((segment, index) =>
-        segment.type === "file" ? (
-          <FileReferenceBadge
-            key={`${index}-${segment.path}`}
-            label={segment.label}
-            path={segment.path}
-          />
-        ) : (
-          <span key={`${index}-text`}>{segment.content}</span>
-        ),
-      )}
-    </>
-  );
+function markdownChildrenToText(children: ReactNode): string {
+  if (typeof children === "string" || typeof children === "number") return String(children);
+  if (Array.isArray(children)) return children.map(markdownChildrenToText).join("");
+  return "";
+}
+
+function isSafeExternalMarkdownUrl(href: string) {
+  try {
+    const url = new URL(href);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+const renderUserMarkdownLink: MarkdownLinkRender = ({ children, href }) => {
+  if (href === undefined) return <span>{children}</span>;
+
+  const label = markdownChildrenToText(children);
+  if (href.endsWith("/SKILL.md") && label.startsWith("$")) {
+    return <SkillBadge name={label.slice(1)} path={href} />;
+  }
+
+  if (href.startsWith("/") && !href.startsWith("//")) {
+    return <FileReferenceBadge label={label || href} path={href} />;
+  }
+
+  if (!isSafeExternalMarkdownUrl(href)) return <span>{children}</span>;
+  return undefined;
+};
+
+function handleUserMarkdownLink(href: string) {
+  if (!isSafeExternalMarkdownUrl(href)) return true;
+  void window.carrent.shell.openExternal(href);
+  return true;
 }
 
 function UserMessageContent({ content }: { content: string }) {
   return (
-    <p className="whitespace-pre-wrap break-words text-app-14 leading-relaxed text-user-bubble-fg">
-      {parseSkillReferenceSegments(content).map((segment, index) => {
-        if (segment.type === "skill") {
-          return (
-            <SkillBadge key={`${index}-${segment.name}`} name={segment.name} path={segment.path} />
-          );
-        }
-
-        if (segment.type === "text") {
-          return <UserMessageTextContent key={`${index}-text`} content={segment.content} />;
-        }
-
-        return null;
-      })}
-    </p>
+    <MarkdownContent
+      variant="user"
+      renderLink={renderUserMarkdownLink}
+      onLinkClick={handleUserMarkdownLink}
+    >
+      {content}
+    </MarkdownContent>
   );
 }
 

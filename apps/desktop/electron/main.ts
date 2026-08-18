@@ -97,6 +97,7 @@ import {
   createAppStateIpcGate,
   loadProviderSessionsForAppState,
 } from "./workspace/appStateIpcGate";
+import { createProjectPathAllowlist } from "./workspace/projectPathAllowlist";
 import { createAppStateLifecycle } from "./workspace/appStateLifecycle";
 import {
   createLiveRunQuitWarning,
@@ -713,7 +714,6 @@ if (!hasSingleInstanceLock) {
     const threadDeletionJournalStore = createThreadDeletionJournalStore(userDataPath);
     registerAttachmentIpc(guardedIpcMain, { attachmentStore });
     registerSkillIpc(guardedIpcMain);
-    registerGitIpc(guardedIpcMain);
     const terminalCompletionService = createTerminalCompletionService();
     const terminalHistory = createTerminalHistory(
       parseZshHistory(readHistoryTail(join(app.getPath("home"), ".zsh_history"))),
@@ -857,7 +857,13 @@ if (!hasSingleInstanceLock) {
       dialog.showOpenDialog({ properties: ["openDirectory"] }),
     );
 
-    registerEditorsIpc(guardedIpcMain);
+    // Renderer-supplied project paths are untrusted: git and editor commands
+    // only run inside directories registered as Carrent Projects.
+    const projectPathAllowlist = createProjectPathAllowlist({
+      getSnapshot: () => appStateAuthority.getState().snapshot,
+    });
+    registerGitIpc(guardedIpcMain, { assertProjectPathAllowed: projectPathAllowlist });
+    registerEditorsIpc(guardedIpcMain, { assertProjectPathAllowed: projectPathAllowlist });
 
     guardedIpcMain.handle("shell:reveal-path", async (_event, filePath) => {
       if (typeof filePath !== "string" || filePath.length === 0 || filePath.length > 4_096) {

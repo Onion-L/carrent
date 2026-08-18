@@ -22,13 +22,16 @@ interface EditorsIpcDeps {
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   run?: ProcessRunner["run"];
+  assertProjectPathAllowed?: (workingDirectory: string) => Promise<void>;
 }
 
 export function registerEditorsIpc(ipcMainLike: IpcMainLike, deps: EditorsIpcDeps = {}): void {
   ipcMainLike.handle("editors:list", async () => listInstalledEditors(deps));
-  ipcMainLike.handle("editors:open", async (_event, editorId, workingDirectory) =>
-    openInEditor(assertEditorId(editorId), assertWorkingDirectory(workingDirectory), deps),
-  );
+  ipcMainLike.handle("editors:open", async (_event, editorId, workingDirectory) => {
+    const directory = assertWorkingDirectory(workingDirectory);
+    await deps.assertProjectPathAllowed?.(directory);
+    return openInEditor(assertEditorId(editorId), directory, deps);
+  });
 }
 
 export async function listInstalledEditors(deps: EditorsIpcDeps = {}): Promise<DetectedEditor[]> {

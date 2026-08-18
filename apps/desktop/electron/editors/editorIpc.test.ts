@@ -190,4 +190,48 @@ describe("editors:open", () => {
 
     expect(message).toBe("Editor id is required.");
   });
+
+  it("rejects a directory outside registered projects without launching the editor", async () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const ipc = createIpcHarness({
+      ...cursorInstalled,
+      run: async (command, args) => {
+        calls.push({ command, args });
+        return { ok: true, exitCode: 0, stdout: "", stderr: "" };
+      },
+      assertProjectPathAllowed: async () => {
+        throw new Error("Project path is outside registered Carrent Projects.");
+      },
+    });
+
+    const message = await captureErrorMessage(() =>
+      ipc.invoke("editors:open", "cursor", "/tmp/outside"),
+    );
+
+    expect(message).toBe("Project path is outside registered Carrent Projects.");
+    expect(calls).toEqual([]);
+  });
+
+  it("launches the editor after the allowlist accepts the directory", async () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const allowedDirectories: string[] = [];
+    const ipc = createIpcHarness({
+      ...cursorInstalled,
+      run: async (command, args) => {
+        calls.push({ command, args });
+        return { ok: true, exitCode: 0, stdout: "", stderr: "" };
+      },
+      assertProjectPathAllowed: async (workingDirectory) => {
+        allowedDirectories.push(workingDirectory);
+      },
+    });
+
+    const result = await ipc.invoke("editors:open", "cursor", "/tmp/project");
+
+    expect(result).toBe("");
+    expect(allowedDirectories).toEqual(["/tmp/project"]);
+    expect(calls).toEqual([
+      { command: "open", args: ["-a", "/Applications/Cursor.app", "/tmp/project"] },
+    ]);
+  });
 });

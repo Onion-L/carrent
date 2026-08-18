@@ -60,6 +60,10 @@ interface IpcMainLike {
   ) => void;
 }
 
+export interface GitIpcDeps {
+  assertProjectPathAllowed?: (projectPath: string) => Promise<void>;
+}
+
 const MAX_SUMMARY_FILES = 200;
 const MAX_UNTRACKED_PATCHES = 100;
 const MAX_PATCH_BYTES = 256 * 1024;
@@ -71,12 +75,13 @@ function readString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-export function registerGitIpc(ipcMainLike: IpcMainLike): void {
+export function registerGitIpc(ipcMainLike: IpcMainLike, deps: GitIpcDeps = {}): void {
   ipcMainLike.handle("git:branches", async (_event, projectPath) => {
     const path = readString(projectPath);
     if (!path) {
       throw new Error("Project path is required.");
     }
+    await deps.assertProjectPathAllowed?.(path);
     return getBranches(path, true);
   });
 
@@ -86,6 +91,7 @@ export function registerGitIpc(ipcMainLike: IpcMainLike): void {
     if (!path || !branchName) {
       throw new Error("Project path and branch are required.");
     }
+    await deps.assertProjectPathAllowed?.(path);
     await checkoutBranch(path, branchName);
     return getBranches(path);
   });
@@ -96,6 +102,7 @@ export function registerGitIpc(ipcMainLike: IpcMainLike): void {
     if (!path || !branchName) {
       throw new Error("Project path and branch are required.");
     }
+    await deps.assertProjectPathAllowed?.(path);
     await createBranch(path, branchName);
     return getBranches(path);
   });
@@ -105,6 +112,7 @@ export function registerGitIpc(ipcMainLike: IpcMainLike): void {
     if (!path) {
       throw new Error("Project path is required.");
     }
+    await deps.assertProjectPathAllowed?.(path);
     return captureWorkspaceSnapshot(path);
   });
 
@@ -113,6 +121,7 @@ export function registerGitIpc(ipcMainLike: IpcMainLike): void {
     if (!path) {
       throw new Error("Project path is required.");
     }
+    await deps.assertProjectPathAllowed?.(path);
     return getWorkspaceDiff(path, readString(baseRevision));
   });
 }

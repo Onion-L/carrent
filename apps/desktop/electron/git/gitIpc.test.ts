@@ -768,6 +768,85 @@ branch refs/heads/codex/merge-reasoning-block
   });
 });
 
+describe("registerGitIpc project path allowlist", () => {
+  function createHarness(assertProjectPathAllowed?: (projectPath: string) => Promise<void>) {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>();
+    registerGitIpc(
+      {
+        handle: (channel, listener) => {
+          handlers.set(channel, listener);
+        },
+      },
+      { assertProjectPathAllowed },
+    );
+    return handlers;
+  }
+
+  it("rejects git commands for a path the allowlist refuses", async () => {
+    const guardCalls: string[] = [];
+    const handlers = createHarness(async (projectPath) => {
+      guardCalls.push(projectPath);
+      throw new Error("Project path is outside registered Carrent Projects.");
+    });
+
+    const invocations: Array<() => Promise<unknown>> = [
+      () => handlers.get("git:branches")!({}, "/outside/project"),
+      () => handlers.get("git:checkout")!({}, "/outside/project", "main"),
+      () => handlers.get("git:createBranch")!({}, "/outside/project", "x"),
+      () => handlers.get("git:workspace-snapshot")!({}, "/outside/project"),
+      () => handlers.get("git:workspace-diff")!({}, "/outside/project"),
+    ];
+    for (const invoke of invocations) {
+      try {
+        await invoke();
+        expect(false).toBe(true);
+      } catch (error) {
+        expect((error as Error).message).toBe(
+          "Project path is outside registered Carrent Projects.",
+        );
+      }
+    }
+
+    expect(guardCalls).toEqual([
+      "/outside/project",
+      "/outside/project",
+      "/outside/project",
+      "/outside/project",
+      "/outside/project",
+    ]);
+  });
+
+  it("runs git commands once the allowlist accepts the project path", async () => {
+    const root = mkdtempSync(join(tmpdir(), "carrent-git-ipc-"));
+    const repo = join(root, "repo");
+
+    try {
+      git(root, "init", repo);
+      git(repo, "config", "user.email", "test@example.com");
+      git(repo, "config", "user.name", "Test User");
+      writeFileSync(join(repo, "README.md"), "hello\n");
+      git(repo, "add", "README.md");
+      git(repo, "commit", "-m", "init");
+      git(repo, "branch", "-M", "main");
+
+      const guardCalls: string[] = [];
+      const handlers = createHarness(async (projectPath) => {
+        guardCalls.push(projectPath);
+      });
+
+      const info = await handlers.get("git:branches")!({}, repo);
+      expect(info).toEqual({
+        current: "main",
+        branches: ["main"],
+        branchWorktrees: [],
+      });
+      expect(guardCalls).toEqual([repo]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 function git(cwd: string, ...args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "ignore" });
 }

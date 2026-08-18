@@ -43,6 +43,13 @@
     --color-user-bubble-fg: 238 238 238;
     --color-skill-reference: 130 189 255;
     --color-code-bg: 12 12 11;
+    --color-code-token-comment: 148 146 137;
+    --color-code-token-keyword: 198 120 221;
+    --color-code-token-string: 152 195 121;
+    --color-code-token-number: 209 154 102;
+    --color-code-token-function: 97 175 239;
+    --color-code-token-operator: 86 182 194;
+    --color-code-token-property: 229 192 123;
     --color-success: 70 170 110;
     --color-warning: 232 125 90;
     --color-danger: 200 80 80;
@@ -84,6 +91,13 @@
     --color-user-bubble-fg: 30 30 30;
     --color-skill-reference: 42 112 186;
     --color-code-bg: 241 241 236;
+    --color-code-token-comment: 105 105 100;
+    --color-code-token-keyword: 137 61 160;
+    --color-code-token-string: 42 118 57;
+    --color-code-token-number: 166 89 35;
+    --color-code-token-function: 24 99 164;
+    --color-code-token-operator: 24 112 121;
+    --color-code-token-property: 133 93 20;
     --color-success: 50 150 90;
     --color-warning: 210 110 70;
     --color-danger: 180 60 60;
@@ -127,6 +141,57 @@
   .font-code {
     font-family: var(--font-code);
     font-size: var(--font-size-code);
+  }
+
+  .markdown-code-highlight .token.comment,
+  .markdown-code-highlight .token.prolog,
+  .markdown-code-highlight .token.doctype,
+  .markdown-code-highlight .token.cdata {
+    color: rgb(var(--color-code-token-comment));
+  }
+
+  .markdown-code-highlight .token.punctuation,
+  .markdown-code-highlight .token.operator {
+    color: rgb(var(--color-code-token-operator));
+  }
+
+  .markdown-code-highlight .token.property,
+  .markdown-code-highlight .token.tag,
+  .markdown-code-highlight .token.constant,
+  .markdown-code-highlight .token.symbol,
+  .markdown-code-highlight .token.deleted {
+    color: rgb(var(--color-code-token-property));
+  }
+
+  .markdown-code-highlight .token.boolean,
+  .markdown-code-highlight .token.number {
+    color: rgb(var(--color-code-token-number));
+  }
+
+  .markdown-code-highlight .token.selector,
+  .markdown-code-highlight .token.attr-name,
+  .markdown-code-highlight .token.string,
+  .markdown-code-highlight .token.char,
+  .markdown-code-highlight .token.builtin,
+  .markdown-code-highlight .token.inserted {
+    color: rgb(var(--color-code-token-string));
+  }
+
+  .markdown-code-highlight .token.operator,
+  .markdown-code-highlight .token.entity,
+  .markdown-code-highlight .token.url {
+    color: rgb(var(--color-code-token-operator));
+  }
+
+  .markdown-code-highlight .token.atrule,
+  .markdown-code-highlight .token.attr-value,
+  .markdown-code-highlight .token.keyword {
+    color: rgb(var(--color-code-token-keyword));
+  }
+
+  .markdown-code-highlight .token.function,
+  .markdown-code-highlight .token.class-name {
+    color: rgb(var(--color-code-token-function));
   }
 
   .font-terminal {

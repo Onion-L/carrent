@@ -1,5 +1,17 @@
 import { memo, useMemo, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
+import Prism from "prismjs";
+import "prismjs/components/prism-bash";
+import "prismjs/components/prism-css";
+import "prismjs/components/prism-javascript";
+import "prismjs/components/prism-jsx";
+import "prismjs/components/prism-json";
+import "prismjs/components/prism-markdown";
+import "prismjs/components/prism-markup";
+import "prismjs/components/prism-python";
+import "prismjs/components/prism-tsx";
+import "prismjs/components/prism-typescript";
+import "prismjs/components/prism-yaml";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -23,6 +35,45 @@ export type MarkdownLinkRender = (props: {
 }) => ReactNode | undefined;
 
 export type MarkdownVariant = "assistant" | "user";
+
+const LANGUAGE_ALIASES: Record<string, string> = {
+  bash: "bash",
+  css: "css",
+  html: "markup",
+  javascript: "javascript",
+  js: "javascript",
+  json: "json",
+  jsx: "jsx",
+  markdown: "markdown",
+  md: "markdown",
+  python: "python",
+  py: "python",
+  shell: "bash",
+  sh: "bash",
+  ts: "typescript",
+  tsx: "tsx",
+  typescript: "typescript",
+  xml: "markup",
+  yaml: "yaml",
+  yml: "yaml",
+};
+
+function codeTextContent(children: ReactNode): string {
+  if (typeof children === "string" || typeof children === "number") return String(children);
+  if (Array.isArray(children)) return children.map(codeTextContent).join("");
+  return "";
+}
+
+function highlightCode(children: ReactNode, className?: string) {
+  const languageMatch = className?.match(/(?:^|\s)language-([\w-]+)/u);
+  if (!languageMatch) return null;
+
+  const language = LANGUAGE_ALIASES[languageMatch[1].toLowerCase()];
+  const grammar = language === undefined ? undefined : Prism.languages[language];
+  if (grammar === undefined) return null;
+
+  return Prism.highlight(codeTextContent(children), grammar, language);
+}
 
 const variantStyles = {
   assistant: {
@@ -120,7 +171,16 @@ function createComponents(
           </code>
         );
       }
-      return <code className={`font-code ${styles.text}`}>{children}</code>;
+
+      const highlightedCode = highlightCode(children, className);
+      return highlightedCode === null ? (
+        <code className={`font-code ${styles.text}`}>{children}</code>
+      ) : (
+        <code
+          className={`font-code markdown-code-highlight ${styles.text}`}
+          dangerouslySetInnerHTML={{ __html: highlightedCode }}
+        />
+      );
     },
     pre: ({ children }) => (
       <pre

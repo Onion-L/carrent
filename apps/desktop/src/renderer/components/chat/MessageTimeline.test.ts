@@ -152,7 +152,8 @@ describe("user message presentation", () => {
     expect(markup).toContain("<table");
     expect(markup).toContain("<strong");
     expect(markup).toContain("<pre");
-    expect(markup).toContain("bun test");
+    expect(markup).toContain("bun ");
+    expect(markup).toContain(">test</span>");
     expect(markup).toContain("Improve");
     expect(markup).toContain("index.css");
     expect(markup).not.toContain("](/Users");

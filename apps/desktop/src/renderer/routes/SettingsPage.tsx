@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef, type ReactNode } from "react";
+import { useEffect, useState, useRef, type CSSProperties, type ReactNode } from "react";
 import {
   RefreshCw,
   Download,
   ChevronDown,
+  FileCode,
   FileText,
   FolderOpen,
   Save,
@@ -35,7 +36,12 @@ import { formatKimiModelLabel } from "../components/chat/Composer";
 import { formatAbsoluteTime } from "../lib/formatRelativeTime";
 import { useToast } from "../components/toast/ToastContext";
 import type { AppThreadRecord } from "../../shared/workspacePersistence";
+import {
+  CODE_HIGHLIGHT_THEME_OPTIONS,
+  type CodeHighlightThemeId,
+} from "../../shared/codeHighlightThemes";
 import { resolveDefaultEditor, type DetectedEditor } from "../../shared/editors";
+import { highlightCodeBlock } from "../lib/codeHighlight";
 import { checkMonospaceFamily, queryInstalledFontFamilies } from "../lib/localFonts";
 import { isMacPlatform, TYPOGRAPHY_SIZE_RANGES } from "../lib/typography";
 
@@ -191,6 +197,54 @@ function Select({
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+const CODE_HIGHLIGHT_PREVIEW_LINES = [
+  'const message: string = "Hello, world!";',
+  "console.log(message);",
+];
+
+function CodeHighlightPreview({ themeId }: { themeId: CodeHighlightThemeId }) {
+  const highlighted = highlightCodeBlock(
+    CODE_HIGHLIGHT_PREVIEW_LINES.join("\n"),
+    "typescript",
+    themeId,
+  );
+  if (highlighted === null) return null;
+  const highlightedLines = highlighted.html.split("\n");
+
+  return (
+    <div
+      className="markdown-code-preview mb-4 overflow-x-auto rounded-lg text-app-13"
+      style={
+        {
+          "--shk-fg-light": highlighted.fgLight,
+          "--shk-fg-dark": highlighted.fgDark,
+        } as CSSProperties
+      }
+    >
+      <div className="min-w-[460px]">
+        <div className="flex h-11 items-center gap-2 rounded-lg bg-surface-raised px-3">
+          <FileCode className="h-4 w-4 shrink-0 text-skill-reference" />
+          <span className="font-code min-w-0 flex-1 truncate">src/hello.ts</span>
+        </div>
+
+        <div className="py-1.5">
+          {highlightedLines.map((line, index) => (
+            <div key={index} className="grid min-h-6 grid-cols-[2.5rem_minmax(0,1fr)] items-center">
+              <span className="font-code select-none pr-2 text-right opacity-50">
+                {index + 1}
+              </span>
+              <code
+                className="font-code markdown-code-highlight block whitespace-pre px-3"
+                dangerouslySetInnerHTML={{ __html: line }}
+              />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -1859,8 +1913,14 @@ export function SettingsPage() {
   const { setSelectedThreadId, deleteThread: deleteThreadContent } = useThreadContent();
   const { workspaces, projects, associations, threads, restoreThread, permanentlyDeleteThread } =
     useAppState();
-  const { autoDetectRuntimes, theme, defaultEditorId, enhancedTerminalCompletion, updateSetting } =
-    useSettings();
+  const {
+    autoDetectRuntimes,
+    theme,
+    codeHighlightTheme,
+    defaultEditorId,
+    enhancedTerminalCompletion,
+    updateSetting,
+  } = useSettings();
   const [searchParams] = useSearchParams();
   const activeTabId = resolveSettingsTabId(searchParams.get("tab"));
   const activeTab = SETTINGS_TABS.find((tab) => tab.id === activeTabId) ?? SETTINGS_TABS[0];
@@ -1937,6 +1997,18 @@ export function SettingsPage() {
                         { value: "system", label: "System" },
                       ]}
                     />
+                    <Select
+                      label="Code highlight theme"
+                      value={codeHighlightTheme}
+                      onChange={(value) =>
+                        updateSetting("codeHighlightTheme", value as CodeHighlightThemeId)
+                      }
+                      options={CODE_HIGHLIGHT_THEME_OPTIONS.map((option) => ({
+                        value: option.id,
+                        label: option.label,
+                      }))}
+                    />
+                    <CodeHighlightPreview themeId={codeHighlightTheme} />
                     <TypographyPanel />
                     <Toggle
                       label="Enhanced terminal completion"

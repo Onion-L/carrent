@@ -8,6 +8,11 @@ import {
 import { normalizeLocalPathContexts, type LocalPathContextItem } from "./localPathContext";
 import type { ChatPermissionOption } from "./chatPermissions";
 import { ACTION_IDS, isKeyBinding, type ActionId, type KeyBinding } from "./keybindings";
+import {
+  DEFAULT_CODE_HIGHLIGHT_THEME,
+  isCodeHighlightThemeId,
+  type CodeHighlightThemeId,
+} from "./codeHighlightThemes";
 import { isRuntimeMode, type RuntimeMode } from "./runtimeMode";
 import { normalizePersistedRuntimeId, runtimeIds, type RuntimeId } from "./runtimes";
 import { MAX_TERMINAL_PANEL_HEIGHT, MIN_TERMINAL_PANEL_HEIGHT } from "./terminal";
@@ -179,6 +184,7 @@ export type TypographyMode = "simple" | "advanced";
 export type AppStateSettings = {
   autoDetectRuntimes: boolean;
   theme: AppStateSettingsTheme;
+  codeHighlightTheme: CodeHighlightThemeId;
   typographyMode: TypographyMode;
   fontFamilySans: string;
   fontFamilyComposer: string;
@@ -240,6 +246,7 @@ const TYPOGRAPHY_DEFAULTS = {
 export const DEFAULT_APP_STATE_SETTINGS: AppStateSettings = {
   autoDetectRuntimes: true,
   theme: "dark",
+  codeHighlightTheme: DEFAULT_CODE_HIGHLIGHT_THEME,
   ...TYPOGRAPHY_DEFAULTS,
   defaultEditorId: "",
   enhancedTerminalCompletion: true,
@@ -268,6 +275,9 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     value.theme === "dark" || value.theme === "light" || value.theme === "system"
       ? value.theme
       : DEFAULT_APP_STATE_SETTINGS.theme;
+  const codeHighlightTheme = isCodeHighlightThemeId(value.codeHighlightTheme)
+    ? value.codeHighlightTheme
+    : DEFAULT_APP_STATE_SETTINGS.codeHighlightTheme;
   const legacyFontSize =
     typeof value.fontSize === "number" &&
     Number.isInteger(value.fontSize) &&
@@ -400,6 +410,7 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
   return {
     autoDetectRuntimes,
     theme,
+    codeHighlightTheme,
     typographyMode,
     fontFamilySans,
     fontFamilyComposer,

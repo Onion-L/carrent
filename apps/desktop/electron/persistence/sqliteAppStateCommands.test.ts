@@ -81,6 +81,7 @@ function snapshot(): AppStateSnapshot {
     settings: {
       autoDetectRuntimes: true,
       theme: "system",
+      codeHighlightTheme: "classic",
       typographyMode: "simple",
       fontFamilySans: "",
       fontFamilyComposer: "",

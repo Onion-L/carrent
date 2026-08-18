@@ -1,20 +1,10 @@
-import { memo, useMemo, type ReactNode } from "react";
+import { isValidElement, memo, useMemo, type CSSProperties, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
-import Prism from "prismjs";
-import "prismjs/components/prism-bash";
-import "prismjs/components/prism-css";
-import "prismjs/components/prism-javascript";
-import "prismjs/components/prism-jsx";
-import "prismjs/components/prism-json";
-import "prismjs/components/prism-markdown";
-import "prismjs/components/prism-markup";
-import "prismjs/components/prism-python";
-import "prismjs/components/prism-tsx";
-import "prismjs/components/prism-typescript";
-import "prismjs/components/prism-yaml";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { useSettings } from "../../context/SettingsContext";
+import { highlightCodeBlock } from "../../lib/codeHighlight";
 
 export function normalizeMathDelimiters(markdown: string) {
   return markdown
@@ -36,27 +26,7 @@ export type MarkdownLinkRender = (props: {
 
 export type MarkdownVariant = "assistant" | "user";
 
-const LANGUAGE_ALIASES: Record<string, string> = {
-  bash: "bash",
-  css: "css",
-  html: "markup",
-  javascript: "javascript",
-  js: "javascript",
-  json: "json",
-  jsx: "jsx",
-  markdown: "markdown",
-  md: "markdown",
-  python: "python",
-  py: "python",
-  shell: "bash",
-  sh: "bash",
-  ts: "typescript",
-  tsx: "tsx",
-  typescript: "typescript",
-  xml: "markup",
-  yaml: "yaml",
-  yml: "yaml",
-};
+const LANGUAGE_CLASS_PATTERN = /(?:^|\s)language-([\w-]+)/u;
 
 function codeTextContent(children: ReactNode): string {
   if (typeof children === "string" || typeof children === "number") return String(children);
@@ -64,15 +34,61 @@ function codeTextContent(children: ReactNode): string {
   return "";
 }
 
-function highlightCode(children: ReactNode, className?: string) {
-  const languageMatch = className?.match(/(?:^|\s)language-([\w-]+)/u);
+function fencedCodeDetails(children: ReactNode): { code: string; language: string } | null {
+  if (!isValidElement(children)) return null;
+  const props = children.props as { className?: string; children?: ReactNode };
+  const languageMatch = props.className?.match(LANGUAGE_CLASS_PATTERN);
   if (!languageMatch) return null;
+  const code = codeTextContent(props.children);
+  if (code === "") return null;
+  return { code, language: languageMatch[1] };
+}
 
-  const language = LANGUAGE_ALIASES[languageMatch[1].toLowerCase()];
-  const grammar = language === undefined ? undefined : Prism.languages[language];
-  if (grammar === undefined) return null;
+/**
+ * Fenced code blocks highlight through Shiki with a light/dark token pair;
+ * index.css resolves the active variant from the app's data-theme. Highlight
+ * failures (unknown language) fall back to the plain pre below. Reads the
+ * theme from settings directly so only pre blocks re-render when it changes.
+ */
+function MarkdownPre({ children, variant }: { children: ReactNode; variant: MarkdownVariant }) {
+  const styles = variantStyles[variant];
+  const { codeHighlightTheme } = useSettings();
+  const details = fencedCodeDetails(children);
+  const highlighted =
+    details === null ? null : highlightCodeBlock(details.code, details.language, codeHighlightTheme);
 
-  return Prism.highlight(codeTextContent(children), grammar, language);
+  if (highlighted === null) {
+    return (
+      <pre
+        className={`font-code overflow-x-auto rounded-lg p-3 leading-relaxed ${styles.codeBackground} ${styles.text}`}
+      >
+        {children}
+      </pre>
+    );
+  }
+
+  return (
+    <pre
+      className="font-code markdown-code-block overflow-x-auto rounded-lg p-3 leading-relaxed"
+      style={
+        {
+          "--shk-bg-light": highlighted.bgLight,
+          "--shk-bg-dark": highlighted.bgDark,
+        } as CSSProperties
+      }
+    >
+      <code
+        className="font-code markdown-code-highlight"
+        style={
+          {
+            "--shk-fg-light": highlighted.fgLight,
+            "--shk-fg-dark": highlighted.fgDark,
+          } as CSSProperties
+        }
+        dangerouslySetInnerHTML={{ __html: highlighted.html }}
+      />
+    </pre>
+  );
 }
 
 const variantStyles = {
@@ -172,22 +188,12 @@ function createComponents(
         );
       }
 
-      const highlightedCode = highlightCode(children, className);
-      return highlightedCode === null ? (
-        <code className={`font-code ${styles.text}`}>{children}</code>
-      ) : (
-        <code
-          className={`font-code markdown-code-highlight ${styles.text}`}
-          dangerouslySetInnerHTML={{ __html: highlightedCode }}
-        />
-      );
+      // Fenced code renders through MarkdownPre; this path only draws the
+      // plain fallback when highlighting is unavailable.
+      return <code className={`font-code ${styles.text}`}>{children}</code>;
     },
     pre: ({ children }) => (
-      <pre
-        className={`font-code overflow-x-auto rounded-lg p-3 leading-relaxed ${styles.codeBackground} ${styles.text}`}
-      >
-        {children}
-      </pre>
+      <MarkdownPre variant={variant}>{children}</MarkdownPre>
     ),
     blockquote: ({ children }) => (
       <blockquote className={`border-l-2 pl-3 ${styles.border} ${styles.muted}`}>

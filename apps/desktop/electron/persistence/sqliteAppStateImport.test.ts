@@ -129,6 +129,7 @@ function completeSnapshot(messageBytes = 32): AppStateSnapshot {
     settings: {
       autoDetectRuntimes: false,
       theme: "dark",
+      codeHighlightTheme: "nord",
       typographyMode: "simple",
       fontFamilySans: "",
       fontFamilyComposer: "",

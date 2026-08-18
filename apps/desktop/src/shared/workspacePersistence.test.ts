@@ -1368,3 +1368,21 @@ describe("normalizeAppStateSettings defaultEditorId", () => {
     expect(normalizeAppStateSettings({ defaultEditorId: 42 })?.defaultEditorId).toBe("");
   });
 });
+
+describe("normalizeAppStateSettings codeHighlightTheme", () => {
+  it("keeps a known highlight theme id", () => {
+    expect(normalizeAppStateSettings({ codeHighlightTheme: "dracula" })?.codeHighlightTheme).toBe(
+      "dracula",
+    );
+  });
+
+  it("falls back to classic for unknown or malformed values", () => {
+    expect(normalizeAppStateSettings({ codeHighlightTheme: "nope" })?.codeHighlightTheme).toBe(
+      "classic",
+    );
+    expect(normalizeAppStateSettings({ codeHighlightTheme: 42 })?.codeHighlightTheme).toBe(
+      "classic",
+    );
+    expect(normalizeAppStateSettings({})?.codeHighlightTheme).toBe("classic");
+  });
+});

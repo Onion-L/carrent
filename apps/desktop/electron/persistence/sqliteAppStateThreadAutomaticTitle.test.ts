@@ -53,6 +53,7 @@ function baseSnapshot(overrides: Partial<AppThreadRecord> = {}): AppStateSnapsho
     settings: {
       autoDetectRuntimes: true,
       theme: "system",
+      codeHighlightTheme: "classic",
       typographyMode: "simple",
       fontFamilySans: "",
       fontFamilyComposer: "",

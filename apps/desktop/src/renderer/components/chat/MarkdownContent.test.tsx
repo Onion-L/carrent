@@ -32,8 +32,11 @@ describe("MarkdownContent", () => {
       <MarkdownContent>{"```ts\nconst answer: number = 42;\n```"}</MarkdownContent>,
     );
 
+    expect(html).toContain("markdown-code-block");
     expect(html).toContain("markdown-code-highlight");
-    expect(html).toContain('class="token keyword"');
+    // Classic default theme colors keywords purple in dark mode.
+    expect(html).toContain("--shiki-light:#893DA0;--shiki-dark:#C678DD");
+    expect(html).toContain("--shiki-light:#A65923;--shiki-dark:#D19A66");
     expect(html).toContain("const");
     expect(html).toContain("42");
   });
@@ -43,6 +46,7 @@ describe("MarkdownContent", () => {
       <MarkdownContent>{"```made-up\nconst answer = 42;\n```"}</MarkdownContent>,
     );
 
+    expect(html).not.toContain("markdown-code-block");
     expect(html).not.toContain("markdown-code-highlight");
     expect(html).toContain("const answer = 42;");
   });

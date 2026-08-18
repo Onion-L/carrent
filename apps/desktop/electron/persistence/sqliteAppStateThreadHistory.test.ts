@@ -781,6 +781,7 @@ describe("SQLite App State thread history", () => {
       snapshot.settings = {
         autoDetectRuntimes: false,
         theme: "light",
+        codeHighlightTheme: "classic",
         typographyMode: "simple",
         fontFamilySans: "",
         fontFamilyComposer: "",

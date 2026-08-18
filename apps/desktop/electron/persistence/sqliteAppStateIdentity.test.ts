@@ -106,6 +106,7 @@ function completeIdentitySnapshot(): AppStateSnapshot {
     settings: {
       autoDetectRuntimes: false,
       theme: "system",
+      codeHighlightTheme: "nord",
       typographyMode: "simple",
       fontFamilySans: "",
       fontFamilyComposer: "",
@@ -250,6 +251,7 @@ describe("SQLite App State identity graph", () => {
       expect((await store.loadAppStateSnapshot())?.settings).toEqual({
         autoDetectRuntimes: true,
         theme: "dark",
+        codeHighlightTheme: "classic",
         typographyMode: "simple",
         fontFamilySans: "",
         fontFamilyComposer: "",

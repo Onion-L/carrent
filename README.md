@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="Carrent desktop app" width="900" />
+  <img src="assets/screenshot.jpeg" alt="Carrent desktop app" width="900" />
 </p>
 
 > **Note:** Carrent is a hobby project under active development. Major changes

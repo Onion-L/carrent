@@ -32,6 +32,7 @@ import { MemoryPanel } from "../components/memory/MemoryPanel";
 import { KeybindingsTab } from "../components/settings/KeybindingsTab";
 import { useRuntimeModels } from "../hooks/useRuntimeModels";
 import { useRuntimes } from "../hooks/useRuntimes";
+import { useNewProjectBase } from "../hooks/useNewProjectBase";
 import { formatKimiModelLabel } from "../components/chat/Composer";
 import { formatAbsoluteTime } from "../lib/formatRelativeTime";
 import { useToast } from "../components/toast/ToastContext";
@@ -79,6 +80,63 @@ function Toggle({
           }`}
         />
       </button>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  New Project location                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Settings > General row for the base directory of newly created empty
+ * Projects. The displayed path is read-only; "Choose Folder..." stores a
+ * custom override, "Reset to Default" clears it so the dynamic default
+ * (~/CarrentProjects) applies again. Affects future empty Projects only.
+ */
+function NewProjectLocationControl() {
+  const { newProjectLocation, updateSetting } = useSettings();
+  const { defaultBase } = useNewProjectBase();
+  const effectiveBase = newProjectLocation ?? defaultBase;
+
+  const chooseFolder = async () => {
+    const selection = await window.carrent.dialog.openDirectory();
+    const directory = selection.filePaths[0];
+    if (selection.canceled || !directory) return;
+    updateSetting("newProjectLocation", directory);
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-6 py-3.5">
+      <div className="min-w-0">
+        <div className="text-app-13 text-fg">New project location</div>
+        <div className="mt-0.5 text-app-12 text-subtle">Where new empty Projects are created</div>
+        <div
+          aria-label="New project location path"
+          className="mt-1.5 truncate rounded-md border border-border bg-bg px-2.5 py-1.5 text-app-12 text-subtle"
+        >
+          {effectiveBase ?? "…"}
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-2">
+        <button
+          type="button"
+          onClick={() => void chooseFolder()}
+          className="flex min-h-8 items-center gap-1.5 rounded-md border border-border-strong px-3 text-app-12 font-medium text-muted transition hover:bg-surface-hover hover:text-fg"
+        >
+          <FolderOpen className="h-3.5 w-3.5" />
+          Choose Folder...
+        </button>
+        <button
+          type="button"
+          disabled={!newProjectLocation}
+          onClick={() => updateSetting("newProjectLocation", undefined)}
+          className="flex min-h-8 items-center gap-1.5 rounded-md border border-border-strong px-3 text-app-12 font-medium text-muted transition hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          Reset to Default
+        </button>
+      </div>
     </div>
   );
 }
@@ -2100,6 +2158,7 @@ export function SettingsPage() {
         defaultEditorId={defaultEditorId}
         onChange={(editorId) => updateSetting("defaultEditorId", editorId)}
       />
+      <NewProjectLocationControl />
       <ThreadTitleModelPanel />
       <RtkCheckPanel />
       <GlobalAgentInstructionsPanel />

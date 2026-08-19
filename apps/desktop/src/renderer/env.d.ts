@@ -173,6 +173,11 @@ declare global {
       projectDirectories: {
         check: (workingDirectory: string) => Promise<{ available: boolean }>;
         relocate: (request: ProjectRelocationRequest) => Promise<ProjectRelocationResult>;
+        defaultBase: () => Promise<{ baseDirectory: string }>;
+        createEmpty: (
+          request: import("../shared/emptyProject").CreateEmptyProjectDirectoryRequest,
+        ) => Promise<import("../shared/emptyProject").CreateEmptyProjectDirectoryResult>;
+        removeEmpty: (workingDirectory: string) => Promise<{ removed: boolean }>;
       };
       settings: {
         getAppVersion: () => Promise<string>;

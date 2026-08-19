@@ -80,6 +80,10 @@ let terminalWriteRequests: import("../shared/terminal").TerminalWriteRequest[] =
 let terminalFocusRequests: import("../shared/terminal").TerminalFocusRequest[] = [];
 let terminalCloseProjectRequests: string[] = [];
 let windowZoomActions: MainWindowZoomAction[] = [];
+let emptyProjectCreateRequests: import("../shared/emptyProject").CreateEmptyProjectDirectoryRequest[] =
+  [];
+let emptyProjectCreateError: string | null = null;
+let removedEmptyDirectories: string[] = [];
 const nativeKeybindingInputListeners = new Set<
   (input: import("../shared/keybindings").KeybindingInput) => void
 >();
@@ -426,6 +430,20 @@ function installBridge(
         authority.adoptExternalSnapshot(relocatedAppState);
         return { appState: relocatedAppState };
       },
+      defaultBase: async () => ({ baseDirectory: "/home/test/CarrentProjects" }),
+      createEmpty: async (
+        request: import("../shared/emptyProject").CreateEmptyProjectDirectoryRequest,
+      ) => {
+        emptyProjectCreateRequests.push(structuredClone(request));
+        if (emptyProjectCreateError) throw new Error(emptyProjectCreateError);
+        return {
+          workingDirectory: `${request.baseDirectory ?? "/home/test/CarrentProjects"}/${request.name.trim()}`,
+        };
+      },
+      removeEmpty: async (workingDirectory: string) => {
+        removedEmptyDirectories.push(workingDirectory);
+        return { removed: true };
+      },
     },
     skills: { list: async () => skills },
     attachments: {
@@ -646,6 +664,28 @@ function buttonNamed(name: string) {
   return button;
 }
 
+function dialogButton(dialog: HTMLElement, name: string) {
+  const button = [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
+    (candidate) => candidate.textContent?.trim() === name,
+  );
+  if (!button) throw new Error(`Button not found in dialog: ${name}`);
+  return button;
+}
+
+// The Add Project menu is portaled to document.body, outside the container.
+function menuItemNamed(name: string) {
+  const button = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+    (candidate) => candidate.textContent?.trim() === name,
+  );
+  if (!button) throw new Error(`Menu item not found: ${name}`);
+  return button;
+}
+
+async function clickOpenExistingProjectMenuItem() {
+  await click(buttonNamed("Add Project"));
+  await click(menuItemNamed("Open Existing Project..."));
+}
+
 async function pressKeybinding(
   key: string,
   options: { code?: string; shiftKey?: boolean; altKey?: boolean } = {},
@@ -771,6 +811,9 @@ afterEach(async () => {
   terminalWriteRequests = [];
   terminalFocusRequests = [];
   terminalCloseProjectRequests = [];
+  emptyProjectCreateRequests = [];
+  emptyProjectCreateError = null;
+  removedEmptyDirectories = [];
   windowZoomActions = [];
   nativeKeybindingInputListeners.clear();
   emitTerminalEvent = null;
@@ -962,7 +1005,9 @@ describe("Workspace App State foundation", () => {
       '[role="dialog"][aria-label="Create Workspace"]',
     )!;
     await click(
-      createWorkspaceDialog.querySelector<HTMLButtonElement>('button[aria-label="Add Project"]')!,
+      createWorkspaceDialog.querySelector<HTMLButtonElement>(
+        'button[aria-label="Open Existing Project"]',
+      )!,
     );
     expect(createWorkspaceDialog.textContent).toContain("research-project");
     const createInput = container!.querySelector<HTMLInputElement>('input[name="workspaceName"]')!;
@@ -991,6 +1036,151 @@ describe("Workspace App State foundation", () => {
       },
     ]);
     expect(container!.querySelector("h1")?.textContent).toBe("Research");
+  });
+
+  it("creates a Workspace mixing a staged empty Project with an existing directory", async () => {
+    const saved = await renderApp(
+      {
+        version: 1,
+        workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+        projects: [],
+        associations: [],
+        activeWorkspaceId: "workspace-1",
+      },
+      "/workspace/workspace-1",
+      ["/tmp/research-project"],
+    );
+
+    await click(buttonNamed("Select Workspace"));
+    await click(buttonNamed("Add Workspace..."));
+    const createWorkspaceDialog = container!.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Create Workspace"]',
+    )!;
+    await fillInput(
+      container!.querySelector<HTMLInputElement>('input[name="workspaceName"]')!,
+      "Mixed",
+    );
+    await click(
+      createWorkspaceDialog.querySelector<HTMLButtonElement>(
+        'button[aria-label="Create Empty Project"]',
+      )!,
+    );
+    const emptyProjectDialog = container!.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Create Empty Project"]',
+    )!;
+    await fillInput(
+      emptyProjectDialog.querySelector<HTMLInputElement>('input[name="projectName"]')!,
+      "Fresh Start",
+    );
+    await click(dialogButton(emptyProjectDialog, "Create"));
+
+    // Staged only: the target path is displayed but nothing is created yet.
+    expect(createWorkspaceDialog.textContent).toContain("Fresh Start");
+    expect(createWorkspaceDialog.textContent).toContain("/home/test/CarrentProjects/Fresh Start");
+    expect(emptyProjectCreateRequests).toEqual([]);
+
+    await click(
+      createWorkspaceDialog.querySelector<HTMLButtonElement>(
+        'button[aria-label="Open Existing Project"]',
+      )!,
+    );
+    await click(buttonNamed("Create"));
+
+    expect(emptyProjectCreateRequests).toEqual([{ name: "Fresh Start" }]);
+    expect(saved.at(-1)?.projects).toEqual([
+      {
+        id: saved.at(-1)!.projects[0].id,
+        name: "research-project",
+        workingDirectory: "/tmp/research-project",
+      },
+      {
+        id: saved.at(-1)!.projects[1].id,
+        name: "Fresh Start",
+        workingDirectory: "/home/test/CarrentProjects/Fresh Start",
+      },
+    ]);
+    expect(removedEmptyDirectories).toEqual([]);
+    expect(container!.querySelector("h1")?.textContent).toBe("Mixed");
+  });
+
+  it("rolls back created empty Project directories when Workspace creation fails", async () => {
+    const saved = await renderApp(
+      {
+        version: 1,
+        workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+        projects: [],
+        associations: [],
+        activeWorkspaceId: "workspace-1",
+      },
+      "/workspace/workspace-1",
+      [],
+      true,
+    );
+
+    await click(buttonNamed("Select Workspace"));
+    await click(buttonNamed("Add Workspace..."));
+    const createWorkspaceDialog = container!.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Create Workspace"]',
+    )!;
+    // Fill the Workspace name before staging: the fillInput value-tracker trick
+    // does not register on this input once the nested dialog has been filled.
+    await fillInput(
+      container!.querySelector<HTMLInputElement>('input[name="workspaceName"]')!,
+      "Doomed",
+    );
+    await click(
+      createWorkspaceDialog.querySelector<HTMLButtonElement>(
+        'button[aria-label="Create Empty Project"]',
+      )!,
+    );
+    const emptyProjectDialog = container!.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Create Empty Project"]',
+    )!;
+    await fillInput(
+      emptyProjectDialog.querySelector<HTMLInputElement>('input[name="projectName"]')!,
+      "Fresh Start",
+    );
+    await click(dialogButton(emptyProjectDialog, "Create"));
+    await click(buttonNamed("Create"));
+
+    // The directory was created, the Workspace could not be saved, and the
+    // still-empty directory was rolled back.
+    expect(emptyProjectCreateRequests).toEqual([{ name: "Fresh Start" }]);
+    expect(removedEmptyDirectories).toEqual(["/home/test/CarrentProjects/Fresh Start"]);
+    expect(saved).toHaveLength(0);
+    expect(createWorkspaceDialog.textContent).toContain("could not be saved");
+  });
+
+  it("configures the New project location from Settings > General", async () => {
+    const saved = await renderApp(
+      {
+        version: 1,
+        workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
+        projects: [],
+        associations: [],
+        activeWorkspaceId: "workspace-1",
+      },
+      "/settings",
+      ["/data/projects"],
+    );
+
+    expect(container!.textContent).toContain("New project location");
+    expect(container!.querySelector('[aria-label="New project location path"]')?.textContent).toBe(
+      "/home/test/CarrentProjects",
+    );
+    expect((buttonNamed("Reset to Default") as HTMLButtonElement).disabled).toBe(true);
+
+    await click(buttonNamed("Choose Folder..."));
+    expect(saved.at(-1)?.settings?.newProjectLocation).toBe("/data/projects");
+    expect(container!.querySelector('[aria-label="New project location path"]')?.textContent).toBe(
+      "/data/projects",
+    );
+
+    await click(buttonNamed("Reset to Default"));
+    expect(saved.at(-1)?.settings?.newProjectLocation).toBeUndefined();
+    expect(container!.querySelector('[aria-label="New project location path"]')?.textContent).toBe(
+      "/home/test/CarrentProjects",
+    );
   });
 
   it("restores the persisted active Workspace after restart", async () => {
@@ -2279,7 +2469,7 @@ describe("Workspace Projects and Associations", () => {
     expect(container!.textContent).toContain(
       "Carrent never moves or copies the selected directory.",
     );
-    await click(buttonNamed("Add Project"));
+    await clickOpenExistingProjectMenuItem();
     await waitForProjectDraft();
 
     expect(saved.length).toBeGreaterThan(1);
@@ -2306,6 +2496,69 @@ describe("Workspace Projects and Associations", () => {
     expect(saved.at(-1)?.threadDrafts).toHaveLength(1);
   });
 
+  it("creates an empty Project directory and opens its Thread Draft", async () => {
+    const saved = await renderApp(emptyWorkspaceState, "/workspace/workspace-1");
+
+    await click(buttonNamed("Add Project"));
+    await click(menuItemNamed("Create Empty Project..."));
+
+    const dialog = container!.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Create Empty Project"]',
+    )!;
+    expect(dialog.textContent).toContain("/home/test/CarrentProjects/");
+    await fillInput(
+      dialog.querySelector<HTMLInputElement>('input[name="projectName"]')!,
+      "  My Project  ",
+    );
+    await click(dialogButton(dialog, "Create"));
+    await waitForProjectDraft();
+
+    expect(emptyProjectCreateRequests).toEqual([{ name: "My Project" }]);
+    expect(saved[0].projects).toEqual([
+      {
+        id: saved[0].projects[0].id,
+        name: "My Project",
+        workingDirectory: "/home/test/CarrentProjects/My Project",
+      },
+    ]);
+    expect(container!.querySelector("h1")?.textContent).toBe("New thread");
+  });
+
+  it("rejects an invalid empty Project name without creating a directory", async () => {
+    const saved = await renderApp(emptyWorkspaceState, "/workspace/workspace-1");
+
+    await click(buttonNamed("Add Project"));
+    await click(menuItemNamed("Create Empty Project..."));
+    const dialog = container!.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Create Empty Project"]',
+    )!;
+    await fillInput(dialog.querySelector<HTMLInputElement>('input[name="projectName"]')!, "a/b");
+    await click(dialogButton(dialog, "Create"));
+
+    expect(dialog.textContent).toContain("cannot contain");
+    expect(emptyProjectCreateRequests).toEqual([]);
+    expect(saved).toHaveLength(0);
+  });
+
+  it("shows the creation error when the empty Project path already exists", async () => {
+    emptyProjectCreateError =
+      'A folder named "demo" already exists at /home/test/CarrentProjects. ' +
+      "Choose another name or use Open Existing Project instead.";
+    const saved = await renderApp(emptyWorkspaceState, "/workspace/workspace-1");
+
+    await click(buttonNamed("Add Project"));
+    await click(menuItemNamed("Create Empty Project..."));
+    const dialog = container!.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Create Empty Project"]',
+    )!;
+    await fillInput(dialog.querySelector<HTMLInputElement>('input[name="projectName"]')!, "demo");
+    await click(dialogButton(dialog, "Create"));
+
+    expect(dialog.textContent).toContain("already exists");
+    expect(saved).toHaveLength(0);
+    expect(container!.querySelector("h1")?.textContent).toBe("Personal");
+  });
+
   it("reuses a known Project across Workspaces and ignores a duplicate Association", async () => {
     const state: AppStateSnapshot = {
       version: 1,
@@ -2330,7 +2583,7 @@ describe("Workspace Projects and Associations", () => {
       "/code/carrent",
     ]);
 
-    await click(buttonNamed("Add Project"));
+    await clickOpenExistingProjectMenuItem();
     await waitForProjectDraft();
     expect(saved[0].projects).toEqual(state.projects);
     expect(saved[0].associations).toHaveLength(2);
@@ -2341,7 +2594,7 @@ describe("Workspace Projects and Associations", () => {
     });
     const saveCount = saved.length;
 
-    await click(buttonNamed("Add Project"));
+    await clickOpenExistingProjectMenuItem();
     expect(saved).toHaveLength(saveCount);
   });
 

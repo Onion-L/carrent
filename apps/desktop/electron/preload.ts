@@ -26,6 +26,10 @@ import type {
   AppStateCommandResult,
 } from "../src/shared/appStateAuthority";
 import type { LocalPathResolutionResult, RevealPathResult } from "../src/shared/localPathContext";
+import type {
+  CreateEmptyProjectDirectoryRequest,
+  CreateEmptyProjectDirectoryResult,
+} from "../src/shared/emptyProject";
 import type { RuntimeId } from "../src/shared/runtimes";
 import type {
   GitBranchInfo,
@@ -350,6 +354,19 @@ const carrent = {
       }>,
     relocate: (request: ProjectRelocationRequest) =>
       ipcRenderer.invoke("project-directory:relocate", request) as Promise<ProjectRelocationResult>,
+    defaultBase: () =>
+      ipcRenderer.invoke("project-directory:default-base") as Promise<{
+        baseDirectory: string;
+      }>,
+    createEmpty: (request: CreateEmptyProjectDirectoryRequest) =>
+      ipcRenderer.invoke(
+        "project-directory:create-empty",
+        request,
+      ) as Promise<CreateEmptyProjectDirectoryResult>,
+    removeEmpty: (workingDirectory: string) =>
+      ipcRenderer.invoke("project-directory:remove-empty", workingDirectory) as Promise<{
+        removed: boolean;
+      }>,
   },
   settings: {
     getAppVersion: () => ipcRenderer.invoke("settings:app-version") as Promise<string>,

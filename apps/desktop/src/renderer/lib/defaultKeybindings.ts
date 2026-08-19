@@ -7,11 +7,7 @@ import {
 } from "../../shared/keybindings";
 
 export type KeybindingCategory = "Navigation" | "Terminal" | "Preview" | "Chat" | "Window";
-export type KeybindingCondition =
-  | "default"
-  | "model-picker-open"
-  | "model-picker-closed"
-  | "approval-open";
+export type KeybindingCondition = "default" | "model-picker-open" | "model-picker-closed";
 
 export type KeybindingActionDefinition = {
   id: ActionId;
@@ -289,33 +285,6 @@ export const KEYBINDING_ACTIONS: KeybindingActionDefinition[] = [
     whenLabel: "Terminal not focused",
   },
   ...modelPickerSelectActions,
-  {
-    id: "approval-allow-once",
-    label: "Approve Once",
-    category: "Chat",
-    defaultBindings: [binding("y")],
-    scopes: ["app"],
-    whenLabel: "Approval request open",
-    condition: "approval-open",
-  },
-  {
-    id: "approval-allow-always",
-    label: "Approve for Session",
-    category: "Chat",
-    defaultBindings: [binding("a")],
-    scopes: ["app"],
-    whenLabel: "Approval request open",
-    condition: "approval-open",
-  },
-  {
-    id: "approval-reject",
-    label: "Reject Approval",
-    category: "Chat",
-    defaultBindings: [binding("n")],
-    scopes: ["app"],
-    whenLabel: "Approval request open",
-    condition: "approval-open",
-  },
   {
     id: "zoom-in",
     label: "Zoom In",

@@ -3582,21 +3582,6 @@ export function Composer(props: ComposerProps) {
   const rejectOnceOption = activePermission
     ? getPermissionOption(activePermission, "reject_once")
     : null;
-  useKeybinding("approval-allow-once", () => {
-    if (activePermission && allowOnceOption) {
-      handlePermissionResponse(activePermission, allowOnceOption.optionId);
-    }
-  });
-  useKeybinding("approval-allow-always", () => {
-    if (activePermission && allowAlwaysOption) {
-      handlePermissionResponse(activePermission, allowAlwaysOption.optionId);
-    }
-  });
-  useKeybinding("approval-reject", () => {
-    if (activePermission && rejectOnceOption) {
-      handlePermissionResponse(activePermission, rejectOnceOption.optionId);
-    }
-  });
   const runChecklistPanel = runChecklist ? (
     <RunChecklist
       checklist={runChecklist}
@@ -3929,11 +3914,7 @@ export function Composer(props: ComposerProps) {
         ) : null}
         <div
           data-composer-surface
-          className={`relative z-10 rounded-xl border bg-surface-raised/90 p-3 transition-colors duration-200 ${
-            activePermission
-              ? "border-warning/40"
-              : "border-border focus-within:border-border-strong"
-          }`}
+          className="relative z-10 rounded-xl border border-border bg-surface-raised/90 p-3 transition-colors duration-200 focus-within:border-border-strong"
         >
           {localPathContexts.length > 0 ? (
             <div className="mb-2 flex flex-wrap gap-2">
@@ -4096,7 +4077,7 @@ export function Composer(props: ComposerProps) {
           {activePermission ? (
             <div
               data-approval-open="true"
-              className="flex min-h-20 flex-col justify-center gap-3"
+              className="flex min-h-20 flex-col justify-center gap-2"
             >
               <div className="flex items-start gap-2.5">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
@@ -4114,7 +4095,10 @@ export function Composer(props: ComposerProps) {
                   </span>
                 ) : null}
               </div>
-              <div className="flex items-center gap-2">
+              {/* Actions are quiet left-aligned rows (prototype variant A), not
+                  a button bar: the row fill appears on hover, and Approve once
+                  only stands out by weight. */}
+              <div className="-mx-2 flex flex-col">
                 {allowOnceOption ? (
                   <button
                     type="button"
@@ -4122,9 +4106,9 @@ export function Composer(props: ComposerProps) {
                       handlePermissionResponse(activePermission, allowOnceOption.optionId)
                     }
                     aria-label={`Approve: ${activePermission.title}`}
-                    className="flex h-8 items-center gap-1.5 rounded-full bg-fg px-3.5 text-app-12 font-medium text-bg transition hover:opacity-90 active:scale-95"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-[7px] text-left text-app-13 font-medium text-fg transition hover:bg-surface-hover/60"
                   >
-                    <Check className="h-3.5 w-3.5" />
+                    <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
                     {allowOnceOption.name || "Allow"}
                   </button>
                 ) : null}
@@ -4135,9 +4119,9 @@ export function Composer(props: ComposerProps) {
                       handlePermissionResponse(activePermission, allowAlwaysOption.optionId)
                     }
                     aria-label={`Approve for this session: ${activePermission.title}`}
-                    className="flex h-8 items-center gap-1.5 rounded-full border border-warning/40 px-3.5 text-app-12 text-warning transition hover:bg-warning/10 active:scale-95"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-[7px] text-left text-app-13 text-muted transition hover:bg-surface-hover/60 hover:text-fg"
                   >
-                    <Check className="h-3.5 w-3.5" />
+                    <Check className="h-3.5 w-3.5 shrink-0 text-subtle" />
                     {allowAlwaysOption.name || "Allow for session"}
                   </button>
                 ) : null}
@@ -4148,9 +4132,9 @@ export function Composer(props: ComposerProps) {
                       handlePermissionResponse(activePermission, rejectOnceOption.optionId)
                     }
                     aria-label={`Deny: ${activePermission.title}`}
-                    className="flex h-8 items-center gap-1.5 rounded-full border border-border-strong px-3.5 text-app-12 text-muted transition hover:bg-surface-hover hover:text-fg active:scale-95"
+                    className="group flex w-full items-center gap-2.5 rounded-lg px-2 py-[7px] text-left text-app-13 text-muted transition hover:bg-surface-hover/60 hover:text-danger"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="h-3.5 w-3.5 shrink-0 text-subtle transition group-hover:text-danger" />
                     {rejectOnceOption.name || "Deny"}
                   </button>
                 ) : null}

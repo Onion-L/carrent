@@ -115,7 +115,7 @@ export function isKeybindingActionActive(actionId: ActionId): boolean {
   const modelPickerOpen = Boolean(document.querySelector('[data-model-picker-open="true"]'));
   if (condition === "model-picker-open") return modelPickerOpen;
   if (condition === "model-picker-closed") return !modelPickerOpen;
-  return Boolean(document.querySelector('[data-approval-open="true"]'));
+  return false;
 }
 
 export function buildEffectiveKeybindingMap(

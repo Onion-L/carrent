@@ -37,10 +37,9 @@ export function toggleQuestionOption(
   optionId: string,
 ): QuestionDraft {
   if (!item.multiSelect) {
-    // Single-select keeps exactly one answer; Other replaces the predefined
-    // choice and vice versa.
-    const isOnlySelection = draft.optionIds.length === 1 && draft.optionIds[0] === optionId;
-    return { ...draft, optionIds: isOnlySelection ? [] : [optionId] };
+    // Single-select behaves like a radio group: clicking the current choice
+    // keeps it. The preselected first option must not vanish on a re-click.
+    return { ...draft, optionIds: [optionId] };
   }
 
   const selected = draft.optionIds.includes(optionId);
@@ -226,9 +225,12 @@ export function QuestionPanel({ question }: { question: ChatQuestionRequest }) {
     }
   };
 
+  // Variant A of the .scratch/question-panel-prototype.html exploration: one
+  // soft container with no border, options as compact single-line rows —
+  // selected state is a row fill, not a nested box.
   return (
-    <div className="rounded-xl border border-border bg-surface px-4 py-3">
-      <div className="flex items-start gap-2.5">
+    <div className="rounded-xl bg-surface p-1.5">
+      <div className="flex items-start gap-2.5 px-2.5 pt-2">
         <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
@@ -246,7 +248,7 @@ export function QuestionPanel({ question }: { question: ChatQuestionRequest }) {
         ref={listboxRef}
         tabIndex={-1}
         onKeyDown={handleListboxKeyDown}
-        className="mt-3 flex flex-col gap-1.5 outline-none"
+        className="mt-2 flex flex-col outline-none"
         role="listbox"
         aria-label={item.question}
         aria-multiselectable={item.multiSelect || undefined}
@@ -272,25 +274,12 @@ export function QuestionPanel({ question }: { question: ChatQuestionRequest }) {
             onClick={() =>
               updateDraft(toggleQuestionOption(item, draft, CHAT_QUESTION_OTHER_OPTION_ID))
             }
-            className={`flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition ${
-              otherSelected
-                ? "border-border-strong bg-surface-hover"
-                : item.multiSelect && activeIndex === optionIds.length - 1
-                  ? "border-border-strong"
-                  : "border-border hover:bg-surface-raised"
-            }`}
+            className={`${optionRowClass({
+              selected: otherSelected,
+              active: item.multiSelect && activeIndex === optionIds.length - 1,
+            })} cursor-pointer`}
           >
-            <span
-              className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center border ${
-                item.multiSelect ? "rounded-[4px]" : "rounded-full"
-              } ${otherSelected ? "border-fg bg-fg" : "border-border-strong"}`}
-            >
-              {otherSelected ? (
-                <span
-                  className={`h-1.5 w-1.5 bg-bg ${item.multiSelect ? "rounded-[1px]" : "rounded-full"}`}
-                />
-              ) : null}
-            </span>
+            <OptionIndicator multiSelect={item.multiSelect} selected={otherSelected} />
             <span className="shrink-0 text-app-13 font-medium text-fg">Other</span>
             {otherSelected ? (
               <input
@@ -307,7 +296,7 @@ export function QuestionPanel({ question }: { question: ChatQuestionRequest }) {
           </div>
         ) : null}
       </div>
-      <div className="mt-3 flex items-center justify-end gap-2">
+      <div className="mt-1 flex items-center justify-end gap-2 px-2.5 pb-1">
         <button
           type="button"
           onClick={() => void stop(question.threadId)}
@@ -360,6 +349,35 @@ export function QuestionPanel({ question }: { question: ChatQuestionRequest }) {
   );
 }
 
+// Options render as compact single-line rows inside the panel's single soft
+// container — no per-option boxes. Selection is a row fill; the multi-select
+// keyboard cursor reuses the hover fill.
+function optionRowClass({ selected, active }: { selected: boolean; active: boolean }) {
+  return `flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] transition ${
+    selected ? "bg-surface-hover" : active ? "bg-surface-raised" : "hover:bg-surface-raised"
+  }`;
+}
+
+function OptionIndicator({
+  multiSelect,
+  selected,
+}: {
+  multiSelect: boolean;
+  selected: boolean;
+}) {
+  return (
+    <span
+      className={`flex h-[13px] w-[13px] shrink-0 items-center justify-center border-[1.5px] ${
+        multiSelect ? "rounded-[4px]" : "rounded-full"
+      } ${selected ? "border-fg" : "border-border-strong"}`}
+    >
+      {selected ? (
+        <span className={`h-[5px] w-[5px] bg-fg ${multiSelect ? "rounded-[1px]" : "rounded-full"}`} />
+      ) : null}
+    </span>
+  );
+}
+
 function OptionButton({
   label,
   description,
@@ -381,27 +399,16 @@ function OptionButton({
       role="option"
       aria-selected={isSelected}
       onClick={onSelect}
-      className={`flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition ${
-        isSelected
-          ? "border-border-strong bg-surface-hover"
-          : isActive
-            ? "border-border-strong"
-            : "border-border hover:bg-surface-raised"
-      }`}
+      className={`${optionRowClass({ selected: isSelected, active: isActive })} cursor-pointer text-left`}
     >
-      <span
-        className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center border ${
-          multiSelect ? "rounded-[4px]" : "rounded-full"
-        } ${isSelected ? "border-fg bg-fg" : "border-border-strong"}`}
-      >
-        {isSelected ? (
-          <span className={`h-1.5 w-1.5 bg-bg ${multiSelect ? "rounded-[1px]" : "rounded-full"}`} />
-        ) : null}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-app-13 font-medium text-fg">{label}</span>
+      <OptionIndicator multiSelect={multiSelect} selected={isSelected} />
+      <span className="flex min-w-0 flex-1 items-baseline gap-2">
+        <span className="truncate text-app-13 font-medium text-fg">{label}</span>
         {description ? (
-          <span className="mt-0.5 block break-words text-app-12 text-subtle">{description}</span>
+          <span className="min-w-0 flex-1 truncate text-app-12 text-subtle">
+            <span aria-hidden="true">· </span>
+            {description}
+          </span>
         ) : null}
       </span>
     </button>

@@ -82,7 +82,7 @@ describe("createQuestionDrafts", () => {
 });
 
 describe("toggleQuestionOption", () => {
-  it("selects, replaces, and deselects for a single-select question", () => {
+  it("selects and replaces for a single-select question; re-clicking keeps the choice", () => {
     const empty = makeDraft();
     const selected = toggleQuestionOption(LANGUAGE_ITEM, empty, "mcp-q1-opt-1");
     expect(selected.optionIds).toEqual(["mcp-q1-opt-1"]);
@@ -90,7 +90,9 @@ describe("toggleQuestionOption", () => {
     const replaced = toggleQuestionOption(LANGUAGE_ITEM, selected, "mcp-q1-opt-2");
     expect(replaced.optionIds).toEqual(["mcp-q1-opt-2"]);
 
-    expect(toggleQuestionOption(LANGUAGE_ITEM, replaced, "mcp-q1-opt-2").optionIds).toEqual([]);
+    expect(toggleQuestionOption(LANGUAGE_ITEM, replaced, "mcp-q1-opt-2").optionIds).toEqual([
+      "mcp-q1-opt-2",
+    ]);
   });
 
   it("keeps Other exclusive for a single-select question", () => {

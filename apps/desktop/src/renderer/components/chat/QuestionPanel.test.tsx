@@ -209,10 +209,11 @@ describe("QuestionPanel", () => {
     expect(listbox.getAttribute("aria-multiselectable")).toBe(null);
 
     const typescript = optionByLabel("TypeScript");
-    // Single-select questions render with the first option preselected.
+    // Single-select questions render with the first option preselected, and a
+    // re-click keeps the radio-style choice instead of clearing it.
     expect(typescript.getAttribute("aria-selected")).toBe("true");
     await click(typescript);
-    expect(optionByLabel("TypeScript").getAttribute("aria-selected")).toBe("false");
+    expect(optionByLabel("TypeScript").getAttribute("aria-selected")).toBe("true");
   });
 
   it("marks a multi-select question as aria-multiselectable", async () => {
@@ -232,7 +233,8 @@ describe("QuestionPanel", () => {
     expect(input).not.toBe(null);
     expect(document.activeElement).toBe(input);
 
-    await click(optionByLabel("Other"));
+    // Picking a predefined option leaves Other and hides the input again.
+    await click(optionByLabel("JavaScript"));
     expect(customAnswerInput()).toBe(null);
   });
 

@@ -683,7 +683,7 @@ describe("Composer keybindings", () => {
     expect(document.querySelector('[data-model-picker-open="true"]')).toBe(null);
   });
 
-  it("responds to approval requests with the configured approval actions", async () => {
+  it("responds to approval requests through the approval action buttons", async () => {
     const options = [
       { optionId: "allow-once", name: "Allow once", kind: "allow_once" as const },
       { optionId: "allow-session", name: "Allow for session", kind: "allow_always" as const },
@@ -720,9 +720,15 @@ describe("Composer keybindings", () => {
     });
     expect(document.querySelector('[data-approval-open="true"]')).not.toBe(null);
 
-    for (const key of ["y", "a", "n"]) {
+    for (const label of [
+      "Approve: Run command",
+      "Approve for this session: Run command",
+      "Deny: Run command",
+    ]) {
+      const button = container!.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
+      expect(button).not.toBe(null);
       await act(async () => {
-        window.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true }));
+        button!.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
     }

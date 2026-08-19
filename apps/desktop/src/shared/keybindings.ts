@@ -67,9 +67,6 @@ export type ActionId =
   | "save-composer-draft"
   | "toggle-model-picker"
   | (typeof MODEL_PICKER_SELECT_ACTION_IDS)[number]
-  | "approval-allow-once"
-  | "approval-allow-always"
-  | "approval-reject"
   | "open-default-editor"
   | "thread-previous"
   | "thread-next"
@@ -137,9 +134,6 @@ export const ACTION_IDS: ActionId[] = [
   "save-composer-draft",
   "toggle-model-picker",
   ...MODEL_PICKER_SELECT_ACTION_IDS,
-  "approval-allow-once",
-  "approval-allow-always",
-  "approval-reject",
   "open-default-editor",
   "thread-previous",
   "thread-next",

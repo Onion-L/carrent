@@ -274,6 +274,7 @@ describe("AgentActivityBlock Kimi tool item", () => {
     expect(container.textContent).not.toContain("file contents");
 
     await act(async () => toolButton().click());
+    expect(container.textContent).toContain("Output");
     expect(container.textContent).toContain("file contents");
     await cleanup();
   });

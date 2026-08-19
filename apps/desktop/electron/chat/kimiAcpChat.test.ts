@@ -3981,6 +3981,32 @@ describe("Kimi tool timeline", () => {
     expect(failed.input).toContain("src/a.ts");
   });
 
+  it("does not reuse completed tool result content as input", async () => {
+    const result = '{"answers":{},"note":"User dismissed the question without answering."}';
+    const { emitted } = await runWithUpdates("run-tool-result-content", [
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-question",
+        title: "mcp__carrent_session__ask_user_question",
+        kind: "other",
+        status: "in_progress",
+        rawInput: { questions: [{ question: "Continue?" }] },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-question",
+        status: "completed",
+        content: { type: "text", text: result },
+      },
+    ]);
+
+    const items = toolItemsFrom(emitted);
+    const completed = items[items.length - 1]!;
+    expect(completed.input).toContain("Continue?");
+    expect(completed.input).not.toBe(result);
+    expect(completed.output).toBe(result);
+  });
+
   it("ends the current Thinking phase on a tool update while preserving the assigned order", async () => {
     const { emitted } = await runWithUpdates("run-tool-ends-thinking", [
       {

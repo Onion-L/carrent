@@ -35,7 +35,7 @@ describe("default Keybindings", () => {
 
   it("covers every action exactly once with valid bindings", () => {
     expect(KEYBINDING_ACTIONS.map((action) => action.id).sort()).toEqual([...ACTION_IDS].sort());
-    expect(KEYBINDING_ACTIONS).toHaveLength(52);
+    expect(KEYBINDING_ACTIONS).toHaveLength(49);
     for (const action of KEYBINDING_ACTIONS) {
       expect(action.defaultBindings.length).toBeGreaterThan(0);
       for (const binding of action.defaultBindings) expect(isKeyBinding(binding)).toBe(true);

@@ -411,9 +411,12 @@ function KimiToolItemView({ item }: { item: KimiToolItem }) {
             </pre>
           ) : null}
           {item.output ? (
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-code-bg p-3 font-mono text-app-12 leading-relaxed text-muted">
-              {item.output}
-            </pre>
+            <div className="space-y-1">
+              <div className="text-app-11 font-medium text-subtle">Output</div>
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-code-bg p-3 font-mono text-app-12 leading-relaxed text-muted">
+                {item.output}
+              </pre>
+            </div>
           ) : isRunning ? (
             <div className="text-app-12 text-subtle">Running...</div>
           ) : null}

@@ -2226,7 +2226,7 @@ class KimiAcpRun {
     });
     const acpStatus = normalizeToolStatus(readString(update.status));
     const output = getToolOutput(update, content);
-    const input = readToolInput(rawInput, content);
+    const input = readToolInput(rawInput, content, output);
     const error = acpStatus === "failed" ? output : "";
 
     this.handleSubagentTask(toolCallId, update, rawInput, title, acpStatus);
@@ -2820,13 +2820,13 @@ function kimiToolTimelineStatus(
 // Captures the tool input snapshot shown in the timeline. Prefers the ACP
 // rawInput object; falls back to the textual content for tools that pass their
 // input inline. Long payloads are truncated to the same cap as tool output.
-function readToolInput(rawInput: JsonObject | null, content: string): string {
+function readToolInput(rawInput: JsonObject | null, content: string, output: string): string {
   if (rawInput) {
     const input = truncateToolOutput(safeStringifyToolPayload(rawInput));
     return input;
   }
 
-  return content ? truncateToolOutput(content) : "";
+  return content && content !== output ? truncateToolOutput(content) : "";
 }
 
 function safeStringifyToolPayload(value: unknown): string {

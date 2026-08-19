@@ -1514,19 +1514,6 @@ export function Composer(props: ComposerProps) {
   const wasSendingRef = useRef(false);
   const wasSendingForQueueRef = useRef(false);
   const queueDrainRequestedRef = useRef(false);
-  const workspaceDiffCapturePendingRef = useRef(false);
-  const pendingWorkspaceDiffCaptureRef = useRef<Promise<void> | null>(null);
-  // Tracks the in-flight diff capture so a new send can wait for it; the
-  // capture appends its own message, and without this ordering its block
-  // lands after the next turn's messages.
-  const trackWorkspaceDiffCapture = (capture: Promise<void>) => {
-    pendingWorkspaceDiffCaptureRef.current = capture;
-    void capture.finally(() => {
-      if (pendingWorkspaceDiffCaptureRef.current === capture) {
-        pendingWorkspaceDiffCaptureRef.current = null;
-      }
-    });
-  };
   const [queueDrainVersion, setQueueDrainVersion] = useState(0);
   const [stopGuarded, setStopGuarded] = useState(() => getStopGuardRemainingMs(props.threadId) > 0);
   const lastSubmitRequestIdRef = useRef<number | null>(null);
@@ -2734,10 +2721,6 @@ export function Composer(props: ComposerProps) {
       return true;
     }
 
-    // A previous Run's diff capture may still be in flight; wait for it so
-    // its Workspace Changes block lands ahead of this turn's messages.
-    await pendingWorkspaceDiffCaptureRef.current;
-
     setAttachmentError(null);
 
     const appendLocalMessage = (
@@ -3118,11 +3101,7 @@ export function Composer(props: ComposerProps) {
           // within a short ceiling; larger backlogs appear immediately. Run
           // completion itself never waits on the reveal.
           textRevealer.finish(text);
-          workspaceDiffCapturePendingRef.current = true;
-          const completionCapture = captureWorkspaceDiff();
-          trackWorkspaceDiffCapture(completionCapture);
-          void completionCapture.finally(() => {
-            workspaceDiffCapturePendingRef.current = false;
+          return captureWorkspaceDiff().finally(() => {
             // The capture appends its message before this rerender asks the
             // queue to send the next Run, preserving the conversation order.
             requestQueueDrain();
@@ -3148,13 +3127,13 @@ export function Composer(props: ComposerProps) {
           });
           updateMessageRunStatus(assistantMsg.id, "failed");
           markThreadActivity(threadId);
-          trackWorkspaceDiffCapture(captureWorkspaceDiff());
           queueDrainRequestedRef.current = false;
           // A failed run must not swallow a steer request; put it back.
           if (steerItemRef.current) {
             unshiftQueuedChatMessage(threadId, steerItemRef.current);
             steerItemRef.current = null;
           }
+          return captureWorkspaceDiff();
         },
         onStop: (runId, writtenFiles) => {
           runWrittenFilesRef.current = writtenFiles ?? [];
@@ -3164,16 +3143,11 @@ export function Composer(props: ComposerProps) {
           updateMessageRunStatus(assistantMsg.id, "cancelled");
           markThreadActivity(threadId);
           if (steerItemRef.current) {
-            workspaceDiffCapturePendingRef.current = true;
-            const stopCapture = captureWorkspaceDiff();
-            trackWorkspaceDiffCapture(stopCapture);
-            void stopCapture.finally(() => {
-              workspaceDiffCapturePendingRef.current = false;
+            return captureWorkspaceDiff().finally(() => {
               requestQueueDrain();
             });
-          } else {
-            trackWorkspaceDiffCapture(captureWorkspaceDiff());
           }
+          return captureWorkspaceDiff();
         },
       },
     );
@@ -3287,8 +3261,7 @@ export function Composer(props: ComposerProps) {
   useEffect(() => {
     const wasSending = wasSendingForQueueRef.current;
     wasSendingForQueueRef.current = isThreadSending;
-    const sharedRunCompleted =
-      sharedRun?.status === "completed" && !workspaceDiffCapturePendingRef.current;
+    const sharedRunCompleted = sharedRun?.status === "completed";
     const queueDrainRequested = queueDrainRequestedRef.current;
     // Only the sending→idle transition or an explicit request may admit a
     // drain. sharedRunCompleted alone must not, because the completed run

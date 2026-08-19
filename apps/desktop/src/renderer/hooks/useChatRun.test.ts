@@ -26,6 +26,38 @@ describe("createChatRunCoordinator", () => {
     };
   }
 
+  it("keeps a Thread busy until async Run completion work settles", async () => {
+    const coordinator = createChatRunCoordinator();
+    let resolveCompletion!: () => void;
+
+    expect(
+      coordinator.beginRequest("request-1", "thread-1", {
+        onComplete: () =>
+          new Promise<void>((resolve) => {
+            resolveCompletion = resolve;
+          }),
+      }),
+    ).toBe(true);
+    coordinator.attachRunId("request-1", "run-1");
+    coordinator.handleEvent({
+      type: "completed",
+      runId: "run-1",
+      requestKey: "request-1",
+      text: "done",
+      finishedAt: "2026-08-01T00:00:00.000Z",
+    });
+
+    expect(coordinator.getSnapshot().runningThreadIds).toEqual(["thread-1"]);
+    expect(coordinator.beginRequest("request-2", "thread-1", {})).toBe(false);
+
+    resolveCompletion();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(coordinator.getSnapshot().runningThreadIds).toEqual([]);
+    expect(coordinator.beginRequest("request-2", "thread-1", {})).toBe(true);
+  });
+
   it("keeps two Renderer clients synchronized from shared Run snapshots", () => {
     const first = createChatRunCoordinator();
     const second = createChatRunCoordinator();
@@ -42,7 +74,9 @@ describe("createChatRunCoordinator", () => {
       onPermissionRequested: (permission: { id: string }) =>
         received.push(`approval:${permission.id}`),
       onQuestionRequested: (question: { id: string }) => received.push(`question:${question.id}`),
-      onComplete: (text: string) => received.push(`complete:${text}`),
+      onComplete: (text: string) => {
+        received.push(`complete:${text}`);
+      },
     });
     first.beginRequest("request-1", "thread-1", callbacks(receivedA));
     second.observeThread("thread-1", callbacks(receivedB));
@@ -746,7 +780,9 @@ describe("createChatRunCoordinator", () => {
     coordinator.observeThread(
       "thread-1",
       {
-        onComplete: (text) => received.push(text),
+        onComplete: (text) => {
+          received.push(text);
+        },
         onEventApplied: (count) => appliedCounts.push(count),
       },
       2,
@@ -845,7 +881,9 @@ describe("createChatRunCoordinator", () => {
 
     coordinator.beginRequest("request-1", "thread-1", {
       onDelta: (text) => received.push(`delta:${text}`),
-      onComplete: (text) => received.push(`done:${text}`),
+      onComplete: (text) => {
+        received.push(`done:${text}`);
+      },
     });
 
     coordinator.handleEvent({
@@ -890,7 +928,9 @@ describe("createChatRunCoordinator", () => {
     const recoveries: unknown[] = [];
     const coordinator = createChatRunCoordinator();
     coordinator.beginRequest("request-1", "thread-1", {
-      onError: (_error, _runId, _writtenFiles, recovery) => recoveries.push(recovery),
+      onError: (_error, _runId, _writtenFiles, recovery) => {
+        recoveries.push(recovery);
+      },
     });
 
     coordinator.handleEvent({
@@ -1125,8 +1165,9 @@ describe("createChatRunCoordinator", () => {
       onStarted: (runId) => received.push(`started:${runId}`),
       onChecklist: (checklist) =>
         received.push(`${checklist.entries[0]?.status}:${checklist.entries[0]?.content}`),
-      onComplete: (_text, runId, writtenFiles) =>
-        received.push(`completed:${runId}:${writtenFiles?.join(",")}`),
+      onComplete: (_text, runId, writtenFiles) => {
+        received.push(`completed:${runId}:${writtenFiles?.join(",")}`);
+      },
     });
 
     coordinator.handleEvent({

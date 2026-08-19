@@ -20,6 +20,8 @@ import type { RunChecklistSnapshot } from "../../shared/runChecklist";
 import type { ChatPermissionRequest, ChatPermissionResponse } from "../../shared/chatPermissions";
 import type { ChatQuestionRequest, ChatQuestionResponse } from "../../shared/chatQuestions";
 
+type ChatRunFinalization = void | Promise<void>;
+
 export type ChatRunCallbacks = {
   onNotice?: (message: string) => void;
   onStarted?: (runId: string) => void;
@@ -53,14 +55,14 @@ export type ChatRunCallbacks = {
   }) => void;
   onQuestionsInterrupted?: (questions: ChatQuestionRequest[]) => void;
   onPlanModeChanged?: (enabled: boolean) => void;
-  onComplete?: (text: string, runId: string, writtenFiles?: string[]) => void;
+  onComplete?: (text: string, runId: string, writtenFiles?: string[]) => ChatRunFinalization;
   onError?: (
     error: string,
     runId?: string,
     writtenFiles?: string[],
     runtimeSessionRecovery?: RuntimeSessionRecovery,
-  ) => void;
-  onStop?: (runId: string, writtenFiles?: string[]) => void;
+  ) => ChatRunFinalization;
+  onStop?: (runId: string, writtenFiles?: string[]) => ChatRunFinalization;
   onEventApplied?: (count: number) => void;
 };
 
@@ -82,6 +84,14 @@ type PendingChatRun = {
   callbacks: ChatRunCallbacks;
 };
 
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
 export function createChatRunCoordinator() {
   let snapshot: ChatRunSnapshot = {
     isSending: false,
@@ -94,6 +104,10 @@ export function createChatRunCoordinator() {
   const pendingByRequestKey = new Map<string, PendingChatRun>();
   const requestKeyByRunId = new Map<string, string>();
   const requestKeyByThreadId = new Map<string, string>();
+  // Terminal callbacks can append Run-owned artifacts such as WorkspaceDiff.
+  // Keep admission closed across Composer remounts until that work settles.
+  const finalizingThreadIds = new Set<string>();
+  const finalizationByThreadId = new Map<string, symbol>();
   const listeners = new Set<ChatRunStoreListener>();
   const pendingPermissionById = new Map<string, ChatPermissionRequest>();
   const pendingQuestionById = new Map<string, ChatQuestionRequest>();
@@ -143,17 +157,20 @@ export function createChatRunCoordinator() {
       const liveRuns = authorityState.runs.filter(
         (run) => !isTerminalSharedChatRunStatus(run.status),
       );
+      const runningThreadIds = [
+        ...new Set([...liveRuns.map((run) => run.threadId), ...finalizingThreadIds]),
+      ];
       snapshot = {
-        isSending: liveRuns.length > 0,
+        isSending: runningThreadIds.length > 0,
         lastError,
-        runningThreadIds: liveRuns.map((run) => run.threadId),
+        runningThreadIds,
         pendingPermissions: liveRuns.flatMap((run) => run.pendingPermissions),
         pendingQuestions: liveRuns.flatMap((run) => run.pendingQuestions),
         runs: authorityState.runs,
       };
       return;
     }
-    const runningThreadIds = [...requestKeyByThreadId.keys()];
+    const runningThreadIds = [...new Set([...requestKeyByThreadId.keys(), ...finalizingThreadIds])];
     snapshot = {
       isSending: runningThreadIds.length > 0,
       lastError,
@@ -210,9 +227,27 @@ export function createChatRunCoordinator() {
     }
   };
 
-  const finishPendingRun = (run: PendingChatRun) => {
+  const finishPendingRun = (
+    run: PendingChatRun,
+    finalization?: unknown,
+    lastError = snapshot.lastError,
+  ) => {
     clearPending(run);
-    updateSnapshot();
+    if (isPromiseLike(finalization)) {
+      const token = Symbol(run.threadId);
+      finalizingThreadIds.add(run.threadId);
+      finalizationByThreadId.set(run.threadId, token);
+      void Promise.resolve(finalization)
+        .catch(() => {})
+        .finally(() => {
+          if (finalizationByThreadId.get(run.threadId) !== token) return;
+          finalizationByThreadId.delete(run.threadId);
+          finalizingThreadIds.delete(run.threadId);
+          updateSnapshot();
+          emit();
+        });
+    }
+    updateSnapshot(lastError);
     emit();
   };
 
@@ -289,6 +324,8 @@ export function createChatRunCoordinator() {
       pendingByRequestKey.clear();
       requestKeyByRunId.clear();
       requestKeyByThreadId.clear();
+      finalizingThreadIds.clear();
+      finalizationByThreadId.clear();
       pendingPermissionById.clear();
       pendingQuestionById.clear();
       observersByThreadId.clear();
@@ -317,6 +354,7 @@ export function createChatRunCoordinator() {
     beginRequest(requestKey: string, threadId: string, callbacks: ChatRunCallbacks) {
       if (
         requestKeyByThreadId.has(threadId) ||
+        finalizingThreadIds.has(threadId) ||
         authorityState?.runs.some(
           (run) => run.threadId === threadId && !isTerminalSharedChatRunStatus(run.status),
         )
@@ -472,10 +510,8 @@ export function createChatRunCoordinator() {
         return;
       }
 
-      run.callbacks.onError?.(error);
-      clearPending(run);
-      updateSnapshot(error);
-      emit();
+      const finalization = run.callbacks.onError?.(error);
+      finishPendingRun(run, finalization, error);
     },
     rejectRequest(requestKey: string) {
       const run = pendingByRequestKey.get(requestKey);
@@ -496,16 +532,13 @@ export function createChatRunCoordinator() {
         if (run) {
           clearPermissionsForRun(run, event.runId, true);
           clearQuestionsForRun(run, event.runId, true);
-          run.callbacks.onError?.(event.error, event.runId);
-          finishPendingRun(run);
-        }
-        // Show error to user even if run is not found (may have already ended)
-        if (event.error) {
-          updateSnapshot(event.error);
+          const finalization = run.callbacks.onError?.(event.error, event.runId);
+          finishPendingRun(run, finalization, event.error || snapshot.lastError);
         } else {
-          updateSnapshot();
+          // Show errors even when the Run has already ended.
+          updateSnapshot(event.error || snapshot.lastError);
+          emit();
         }
-        emit();
         return;
       }
 
@@ -596,31 +629,33 @@ export function createChatRunCoordinator() {
       if (event.type === "completed") {
         clearPermissionsForRun(run, event.runId, true);
         clearQuestionsForRun(run, event.runId, true);
-        run.callbacks.onComplete?.(event.text, event.runId, event.writtenFiles);
-        finishPendingRun(run);
+        const finalization = run.callbacks.onComplete?.(
+          event.text,
+          event.runId,
+          event.writtenFiles,
+        );
+        finishPendingRun(run, finalization);
         return;
       }
 
       if (event.type === "failed") {
         clearPermissionsForRun(run, event.runId, true);
         clearQuestionsForRun(run, event.runId, true);
-        run.callbacks.onError?.(
+        const finalization = run.callbacks.onError?.(
           event.error,
           event.runId,
           event.writtenFiles,
           event.runtimeSessionRecovery,
         );
-        clearPending(run);
-        updateSnapshot(event.error);
-        emit();
+        finishPendingRun(run, finalization, event.error);
         return;
       }
 
       if (event.type === "stopped") {
         clearPermissionsForRun(run, event.runId, true);
         clearQuestionsForRun(run, event.runId, true);
-        run.callbacks.onStop?.(event.runId, event.writtenFiles);
-        finishPendingRun(run);
+        const finalization = run.callbacks.onStop?.(event.runId, event.writtenFiles);
+        finishPendingRun(run, finalization);
         return;
       }
 

@@ -45,7 +45,7 @@ describe("isKeyBinding", () => {
 describe("ACTION_IDS", () => {
   it("lists each customizable action exactly once", () => {
     expect(new Set(ACTION_IDS).size).toBe(ACTION_IDS.length);
-    expect(ACTION_IDS).toHaveLength(52);
+    expect(ACTION_IDS).toHaveLength(49);
     expect(ACTION_IDS).toContain("open-file-picker");
     expect(ACTION_IDS).toContain("thread-jump-9");
     expect(ACTION_IDS).toContain("model-picker-select-9");

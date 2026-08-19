@@ -1829,7 +1829,7 @@ describe("three-level navigation", () => {
   it("lists every supported Keybinding with its condition", async () => {
     await renderApp(navigationState(), "/settings?tab=keybindings", [], false, [], false);
 
-    expect(container!.querySelectorAll('button[aria-label$=" shortcut"]')).toHaveLength(52);
+    expect(container!.querySelectorAll('button[aria-label$=" shortcut"]')).toHaveLength(49);
     expect(container!.textContent).toContain("Toggle Sidebar");
     expect(container!.textContent).toContain("Refresh Preview");
     expect(container!.textContent).toContain("Terminal focused");

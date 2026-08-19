@@ -116,6 +116,9 @@ declare global {
         respondToQuestion: (response: ChatQuestionResponse) => Promise<ChatRunCommandResult>;
         getKimiStatus: (request: ChatTurnRequest) => Promise<KimiTelemetryStatus | null>;
         getSessionStatus: (request: ChatTurnRequest) => Promise<KimiSessionStatus | null>;
+        getDebugTrace: (
+          request: import("../shared/runtimeDebug").RuntimeDebugRequest,
+        ) => Promise<import("../shared/runtimeDebug").RuntimeDebugTrace | null>;
         onEvent: (listener: (event: ChatRunEvent) => void) => VoidFunction;
         subscribe: () => Promise<ChatRunAuthorityState>;
         unsubscribe: () => Promise<void>;

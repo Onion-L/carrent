@@ -31,6 +31,8 @@ import type { RuntimeSessionDetachmentReceipt } from "../workspace/projectDirect
 import type { ThreadActionRequest, ThreadActionResult } from "../../src/shared/threadActions";
 import { createAcpTerminalManager, type AcpTerminalManager } from "./acpTerminalManager";
 import { nodePtyAdapter } from "../terminal/nodePtyAdapter";
+import type { RuntimeDebugRequest, RuntimeDebugTrace } from "../../src/shared/runtimeDebug";
+import { readKimiDebugTrace } from "./kimiDebugTrace";
 
 export type SpawnFn = (
   command: string,
@@ -72,6 +74,7 @@ export interface ChatSessionManager {
   inspectStatus?: (
     request: ChatTurnRequest,
   ) => Promise<import("../../src/shared/chat").KimiSessionStatus | null>;
+  inspectDebugTrace?: (request: RuntimeDebugRequest) => Promise<RuntimeDebugTrace | null>;
   executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>;
 }
 
@@ -105,6 +108,7 @@ export function createChatSessionManager(options: {
   threadActionTimeoutMs?: number;
   kimiContextUsage?: typeof getKimiContextUsage;
   kimiPlanUsage?: typeof getKimiPlanUsage;
+  kimiDebugTrace?: typeof readKimiDebugTrace;
 }): ChatSessionManager {
   const kimiSessions = new Map<string, { handle: KimiAcpRunHandle; threadId: string }>();
   const pendingKimiRuns = new Map<string, string>();
@@ -938,6 +942,25 @@ export function createChatSessionManager(options: {
     }
   }
 
+  async function inspectDebugTrace(
+    request: RuntimeDebugRequest,
+  ): Promise<RuntimeDebugTrace | null> {
+    if (deletedThreadIds.has(request.threadId) || relocatingThreadIds.has(request.threadId)) {
+      return null;
+    }
+    const key = buildProviderSessionKey(request.runtimeId, request.threadId);
+    const liveSession = [...kimiSessions.values()].find(
+      (session) => session.threadId === request.threadId,
+    );
+    const sessionId =
+      liveSession?.handle.getSessionId() ??
+      runtimeSessions.get(key) ??
+      options.providerSessions?.get(key);
+    if (!sessionId) return null;
+
+    return (options.kimiDebugTrace ?? readKimiDebugTrace)({ sessionId });
+  }
+
   function resetRuntimeSessions() {
     runtimeSessions.clear();
   }
@@ -960,6 +983,7 @@ export function createChatSessionManager(options: {
     respondToQuestion,
     getStatus,
     inspectStatus,
+    inspectDebugTrace,
     executeThreadAction,
   };
 }

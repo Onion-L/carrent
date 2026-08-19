@@ -332,6 +332,7 @@ describe("registerChatIpc", () => {
     );
 
     expect([...handlers.keys()].sort()).toEqual([
+      "chat:debug-trace",
       "chat:delete-thread-data",
       "chat:delete-thread-transaction",
       "chat:kimi-status",
@@ -345,6 +346,45 @@ describe("registerChatIpc", () => {
       "chat:thread-action",
       "chat:unsubscribe",
     ]);
+  });
+
+  it("validates and forwards Runtime Debug trace requests", async () => {
+    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+    const requests: import("../../src/shared/runtimeDebug").RuntimeDebugRequest[] = [];
+    registerChatIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener) },
+      {
+        sessionManager: {
+          start: () => {},
+          stop: () => {},
+          removeRuntimeSession: async () => {},
+          deleteThreadData: async () => {},
+          respondToPermission: () => {},
+          respondToQuestion: () => {},
+          shutdown: async () => {},
+          getStatus: async () => null,
+          inspectDebugTrace: async (request) => {
+            requests.push(request);
+            return null;
+          },
+        },
+      },
+    );
+
+    expect(
+      await handlers.get("chat:debug-trace")?.({}, { runtimeId: "kimi", threadId: "thread-1" }),
+    ).toBeNull();
+    expect(requests).toEqual([{ runtimeId: "kimi", threadId: "thread-1" }]);
+
+    let error: unknown;
+    try {
+      await handlers.get("chat:debug-trace")?.({}, { runtimeId: "codex", threadId: "thread-1" });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error instanceof Error ? error.message : String(error)).toBe(
+      "Invalid Runtime Debug request.",
+    );
   });
 
   it("validates and forwards a Thread Action", async () => {

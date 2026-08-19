@@ -237,6 +237,10 @@ const carrent = {
       ipcRenderer.invoke("chat:session-status", request) as Promise<
         import("../src/shared/chat").KimiSessionStatus | null
       >,
+    getDebugTrace: (request: import("../src/shared/runtimeDebug").RuntimeDebugRequest) =>
+      ipcRenderer.invoke("chat:debug-trace", request) as Promise<
+        import("../src/shared/runtimeDebug").RuntimeDebugTrace | null
+      >,
     onEvent: (listener: (event: ChatRunEvent) => void) => {
       const wrapped = (_event: IpcRendererEvent, evt: ChatRunEvent) => listener(evt);
       ipcRenderer.on("chat:event", wrapped);

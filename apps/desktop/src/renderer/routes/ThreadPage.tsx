@@ -479,7 +479,7 @@ function ThreadPageContent() {
               ) : undefined
             }
           />
-          {routeData && isEmptyThread ? (
+          {routeData && isEmptyThread && !(import.meta.env.DEV && debugView) ? (
             <div
               data-empty-thread-layout
               className="flex min-h-0 flex-1 items-center justify-center px-6 py-8"
@@ -492,7 +492,10 @@ function ThreadPageContent() {
           ) : (
             <>
               {import.meta.env.DEV && debugView ? (
-                <DebugTimeline messages={routeData?.messages ?? []} />
+                <DebugTimeline
+                  threadId={routeData?.thread.id ?? threadId ?? ""}
+                  messages={routeData?.messages ?? []}
+                />
               ) : (
                 <MessageTimeline
                   messages={routeData?.messages ?? []}
@@ -505,7 +508,7 @@ function ThreadPageContent() {
                   onSelectSubagent={handleSelectSubagent}
                 />
               )}
-              {composer}
+              {import.meta.env.DEV && debugView ? null : composer}
             </>
           )}
         </ConversationDropSurface>

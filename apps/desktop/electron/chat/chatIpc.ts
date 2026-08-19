@@ -30,6 +30,7 @@ import type { ChatSessionManager } from "./chatSessionManager";
 import type { ThreadActionRequest } from "../../src/shared/threadActions";
 import type { ChatRunAuthority } from "./chatRunAuthority";
 import type { ThreadTitleCoordinator } from "./threadTitleCoordinator";
+import type { RuntimeDebugRequest, RuntimeDebugTrace } from "../../src/shared/runtimeDebug";
 
 interface IpcMainLike {
   handle: (
@@ -118,6 +119,22 @@ export function parseRuntimeSessionRecovery(value: unknown): RuntimeSessionRecov
     throw new Error("Invalid Runtime Session recovery request.");
   }
   return { runtimeId: request.runtimeId as RuntimeId, threadId: request.threadId };
+}
+
+export function parseRuntimeDebugRequest(value: unknown): RuntimeDebugRequest {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid Runtime Debug request.");
+  }
+  const request = value as Record<string, unknown>;
+  if (
+    request.runtimeId !== "kimi" ||
+    typeof request.threadId !== "string" ||
+    !request.threadId.trim() ||
+    request.threadId.trim() !== request.threadId
+  ) {
+    throw new Error("Invalid Runtime Debug request.");
+  }
+  return { runtimeId: "kimi", threadId: request.threadId };
 }
 
 export function parseThreadActionRequest(value: unknown): ThreadActionRequest {
@@ -477,5 +494,12 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
     }
 
     return services.sessionManager.inspectStatus(req) as Promise<KimiSessionStatus | null>;
+  });
+
+  ipcMainLike.handle("chat:debug-trace", async (_event, request) => {
+    if (!services.sessionManager.inspectDebugTrace) return null;
+    return services.sessionManager.inspectDebugTrace(
+      parseRuntimeDebugRequest(request),
+    ) as Promise<RuntimeDebugTrace | null>;
   });
 }

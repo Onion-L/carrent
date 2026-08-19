@@ -46,6 +46,17 @@
     --color-success: 70 170 110;
     --color-warning: 232 125 90;
     --color-danger: 200 80 80;
+    --color-debug-system: 0.73 0.13 275;
+    --color-debug-user: 0.76 0.11 225;
+    --color-debug-context: 0.74 0.1 175;
+    --color-debug-assistant: 0.75 0.13 315;
+    --color-debug-thought: 0.73 0.12 350;
+    --color-debug-tool-call: 0.73 0.14 45;
+    --color-debug-tool-result: 0.7 0.14 150;
+    --color-debug-llm: 0.78 0.12 85;
+    --color-debug-step: 0.7 0.05 245;
+    --color-debug-event: 0.68 0.03 245;
+    --color-debug-error: 0.68 0.16 25;
     --radius-sm: 0.375rem;
     --radius-md: 0.5rem;
     --radius-lg: 0.75rem;
@@ -87,6 +98,17 @@
     --color-success: 50 150 90;
     --color-warning: 210 110 70;
     --color-danger: 180 60 60;
+    --color-debug-system: 0.48 0.14 275;
+    --color-debug-user: 0.47 0.12 225;
+    --color-debug-context: 0.45 0.11 175;
+    --color-debug-assistant: 0.48 0.15 315;
+    --color-debug-thought: 0.47 0.14 350;
+    --color-debug-tool-call: 0.5 0.16 45;
+    --color-debug-tool-result: 0.46 0.15 150;
+    --color-debug-llm: 0.48 0.13 85;
+    --color-debug-step: 0.45 0.06 245;
+    --color-debug-event: 0.43 0.03 245;
+    --color-debug-error: 0.5 0.18 25;
     color-scheme: light;
   }
 

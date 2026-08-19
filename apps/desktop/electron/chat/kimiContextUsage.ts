@@ -55,7 +55,7 @@ export async function getKimiContextUsage(
   options: { sessionId: string } & KimiContextUsageDeps,
 ): Promise<KimiContextUsage | null> {
   const kimiDir = resolveKimiCodeHome(options.homeDir);
-  const wirePath = await locateWireFile(kimiDir, options.sessionId);
+  const wirePath = await locateKimiWireFile(kimiDir, options.sessionId);
   if (!wirePath) return null;
 
   const scan = await scanWireFile(wirePath);
@@ -78,7 +78,10 @@ export function resolveKimiCodeHome(homeDir?: string): string {
 
 // --- Session wire file location ----------------------------------------------
 
-async function locateWireFile(kimiDir: string, sessionId: string): Promise<string | null> {
+export async function locateKimiWireFile(
+  kimiDir: string,
+  sessionId: string,
+): Promise<string | null> {
   // The session index carries absolute session dirs; prefer it over scanning.
   try {
     const content = await fs.readFile(path.join(kimiDir, "session_index.jsonl"), "utf8");

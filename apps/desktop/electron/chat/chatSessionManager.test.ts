@@ -175,6 +175,40 @@ function createChatSessionManager(
 }
 
 describe("createChatSessionManager", () => {
+  it("reads Runtime Debug trace from the Thread's persisted Kimi session", async () => {
+    const sessionIds: string[] = [];
+    const manager = createProductionChatSessionManager({
+      emit: () => {},
+      spawn: () => {
+        throw new Error("Kimi ACP should not start while reading Debug trace");
+      },
+      providerSessions: {
+        get: (key) => (key === "kimi:thread-1" ? "session-debug-1" : undefined),
+        set: () => {},
+      },
+      kimiDebugTrace: async ({ sessionId }) => {
+        sessionIds.push(sessionId);
+        return {
+          runtimeId: "kimi",
+          sessionId,
+          source: "kimi-wire",
+          sourcePath: "/tmp/wire.jsonl",
+          loadedAt: "2026-08-19T00:00:00.000Z",
+          fileSize: 1,
+          modifiedAt: 1,
+          truncated: false,
+          parseErrorCount: 0,
+          records: [],
+        };
+      },
+    });
+
+    expect(
+      await manager.inspectDebugTrace?.({ runtimeId: "kimi", threadId: "thread-1" }),
+    ).toMatchObject({ sessionId: "session-debug-1", source: "kimi-wire" });
+    expect(sessionIds).toEqual(["session-debug-1"]);
+  });
+
   it("executes Compact when Kimi advertises commands after the resume response", async () => {
     const emitted: ChatRunEvent[] = [];
     const providerSessions = new Map([["kimi:thread-1", "session-1"]]);

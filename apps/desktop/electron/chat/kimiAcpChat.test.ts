@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import type { ChatRunEvent, ChatTurnRequest, KimiTimelineItem } from "../../src/shared/chat";
 import { MAX_SUBAGENT_TASK_TEXT_LENGTH } from "../../src/shared/workspacePersistence";
 import type { CarrentBridgeFactory, CarrentBridgeHandle } from "../bridge/carrentBridge";
+import type { AcpTerminalManager } from "./acpTerminalManager";
 import { DEFAULT_FILE_ONLY_PROMPT, DEFAULT_FOLDER_ONLY_PROMPT } from "./chatPrompt";
 import {
   buildKimiPromptParts,
@@ -428,6 +429,137 @@ describe("buildKimiPromptParts", () => {
 });
 
 describe("startKimiAcpChatRun", () => {
+  it("avoids unsupported process-backed tools only for affected Kimi versions", async () => {
+    for (const testCase of [
+      { name: "Kimi Code CLI", version: "0.37.1", expectsCompatibility: true },
+      { name: "Kimi Code CLI", version: "1.41.0", expectsCompatibility: false },
+      { name: "Kimi Code CLI", version: "0.37.2", expectsCompatibility: false },
+      { name: "Unknown ACP agent", version: "0.37.1", expectsCompatibility: false },
+    ]) {
+      let promptText = "";
+      const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+        if (message.method === "initialize") {
+          respondAcp(fakeTransport, message, {
+            protocolVersion: 1,
+            agentInfo: { name: testCase.name, version: testCase.version },
+          });
+          return;
+        }
+        if (message.method === "session/new") {
+          respondAcp(fakeTransport, message, { sessionId: `session-${testCase.version}` });
+          return;
+        }
+        if (message.method !== "session/prompt") return;
+
+        const params = message.params as {
+          prompt: Array<{ type: string; text?: string }>;
+        };
+        promptText = params.prompt.find((part) => part.type === "text")?.text ?? "";
+        respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+      });
+
+      startKimiAcpChatRun({
+        runId: `run-compatibility-${testCase.name}-${testCase.version}`,
+        request: makeRequest(),
+        cwd: "/test/project",
+        emit: () => {},
+        transportFactory: () => transport,
+      });
+      await waitForAsyncEvents();
+
+      expect(promptText.includes("Do not use the built-in Glob or Grep tools")).toBe(
+        testCase.expectsCompatibility,
+      );
+    }
+  });
+
+  it("advertises and serves the ACP terminal capability for the Run", async () => {
+    const calls: string[] = [];
+    let closed = false;
+    const terminalManager: AcpTerminalManager = {
+      async create() {
+        calls.push("create");
+        return { terminalId: "terminal-1" };
+      },
+      async output() {
+        calls.push("output");
+        return { output: "ok\r\n", truncated: false, exitStatus: { exitCode: 0 } };
+      },
+      async waitForExit() {
+        calls.push("waitForExit");
+        return { exitCode: 0 };
+      },
+      async kill() {
+        calls.push("kill");
+        return {};
+      },
+      async release() {
+        calls.push("release");
+        return {};
+      },
+      async close() {
+        closed = true;
+      },
+    };
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        expect(message.params).toMatchObject({ clientCapabilities: { terminal: true } });
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-terminal" });
+        return;
+      }
+      if (message.method !== "session/prompt") return;
+
+      for (const [id, method, params] of [
+        ["terminal-create", "terminal/create", { command: "/bin/bash", args: ["-c", "pwd"] }],
+        ["terminal-output", "terminal/output", { terminalId: "terminal-1" }],
+        ["terminal-wait", "terminal/wait_for_exit", { terminalId: "terminal-1" }],
+        ["terminal-kill", "terminal/kill", { terminalId: "terminal-1" }],
+        ["terminal-release", "terminal/release", { terminalId: "terminal-1" }],
+      ] as const) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id,
+          method,
+          params: { sessionId: "session-terminal", ...params },
+        });
+      }
+      setTimeout(() => respondAcp(fakeTransport, message, { stopReason: "end_turn" }), 0);
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-terminal",
+      request: makeRequest(),
+      cwd: "/test/project",
+      emit: () => {},
+      transportFactory: () => transport,
+      terminalManager,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(calls).toEqual(["create", "output", "waitForExit", "kill", "release"]);
+    const responses = Object.fromEntries(
+      transport.sent
+        .filter((message) => String(message.id).startsWith("terminal-"))
+        .map(({ id, result }) => [id, result]),
+    );
+    expect(responses).toEqual({
+      "terminal-create": { terminalId: "terminal-1" },
+      "terminal-output": {
+        output: "ok\r\n",
+        truncated: false,
+        exitStatus: { exitCode: 0 },
+      },
+      "terminal-wait": { exitCode: 0 },
+      "terminal-kill": {},
+      "terminal-release": {},
+    });
+    expect(closed).toBe(true);
+  });
+
   it("replaces the advertised command snapshot when Kimi withdraws a command", async () => {
     const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
       if (message.method === "initialize") {

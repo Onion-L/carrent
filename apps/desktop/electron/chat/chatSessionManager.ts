@@ -29,6 +29,8 @@ import type { AttachmentStore } from "../attachments/attachmentStore";
 import { buildProviderSessionKey } from "../../src/shared/providerSessions";
 import type { RuntimeSessionDetachmentReceipt } from "../workspace/projectDirectory";
 import type { ThreadActionRequest, ThreadActionResult } from "../../src/shared/threadActions";
+import { createAcpTerminalManager, type AcpTerminalManager } from "./acpTerminalManager";
+import { nodePtyAdapter } from "../terminal/nodePtyAdapter";
 
 export type SpawnFn = (
   command: string,
@@ -96,6 +98,7 @@ export function createChatSessionManager(options: {
   spawn: SpawnFn;
   providerSessions?: ProviderSessionStore;
   kimiAcpTransportFactory?: KimiAcpTransportFactory;
+  acpTerminalManagerFactory?: (options: { cwd: string }) => AcpTerminalManager;
   carrentBridgeFactory?: CarrentBridgeFactory;
   questionMcpServerFactory?: QuestionMcpServerFactory;
   attachmentStore?: AttachmentStore;
@@ -265,36 +268,54 @@ export function createChatSessionManager(options: {
           // Set by onCompletedSession so onDone can harvest the Run's
           // advertised commands for the session it persisted.
           let completedSessionId: string | null = null;
-          const handle = startKimiAcpChatRun({
-            runId,
-            request: requestWithAttachments,
-            cwd: requestWithAttachments.context.workingDirectory,
-            emit: options.emit,
-            transportFactory,
-            bridgeFactory,
-            questionServerFactory,
-            attachmentStoreRoot: options.attachmentStore?.resolveRoot(),
-            resumeSessionId,
-            onCompletedSession: async (sessionId) => {
-              if (deletedThreadIds.has(requestWithAttachments.threadId)) {
-                return;
-              }
-              await options.providerSessions?.set(requestSessionKey, sessionId);
-              if (deletedThreadIds.has(requestWithAttachments.threadId)) {
-                await options.providerSessions?.deleteThreads?.([requestWithAttachments.threadId]);
-                return;
-              }
-              runtimeSessions.set(requestSessionKey, sessionId);
-              completedSessionId = sessionId;
-            },
-            onDone: () => {
-              const harvested = completedSessionId === null ? null : handle.getAvailableCommands();
-              if (completedSessionId !== null && harvested && harvested.size > 0) {
-                lastKnownCommands.set(completedSessionId, new Set(harvested));
-              }
-              kimiSessions.delete(runId);
-            },
-          });
+          const terminalManager = options.acpTerminalManagerFactory
+            ? options.acpTerminalManagerFactory({
+                cwd: requestWithAttachments.context.workingDirectory,
+              })
+            : createAcpTerminalManager({
+                pty: nodePtyAdapter,
+                cwd: requestWithAttachments.context.workingDirectory,
+              });
+          let handle: KimiAcpRunHandle;
+          try {
+            handle = startKimiAcpChatRun({
+              runId,
+              request: requestWithAttachments,
+              cwd: requestWithAttachments.context.workingDirectory,
+              emit: options.emit,
+              transportFactory,
+              bridgeFactory,
+              questionServerFactory,
+              terminalManager,
+              attachmentStoreRoot: options.attachmentStore?.resolveRoot(),
+              resumeSessionId,
+              onCompletedSession: async (sessionId) => {
+                if (deletedThreadIds.has(requestWithAttachments.threadId)) {
+                  return;
+                }
+                await options.providerSessions?.set(requestSessionKey, sessionId);
+                if (deletedThreadIds.has(requestWithAttachments.threadId)) {
+                  await options.providerSessions?.deleteThreads?.([
+                    requestWithAttachments.threadId,
+                  ]);
+                  return;
+                }
+                runtimeSessions.set(requestSessionKey, sessionId);
+                completedSessionId = sessionId;
+              },
+              onDone: () => {
+                const harvested =
+                  completedSessionId === null ? null : handle.getAvailableCommands();
+                if (completedSessionId !== null && harvested && harvested.size > 0) {
+                  lastKnownCommands.set(completedSessionId, new Set(harvested));
+                }
+                kimiSessions.delete(runId);
+              },
+            });
+          } catch (error) {
+            void terminalManager.close().catch(() => {});
+            throw error;
+          }
           kimiSessions.set(runId, { handle, threadId: requestWithAttachments.threadId });
         } catch (error) {
           if (stoppedPendingKimiRuns.has(runId)) {

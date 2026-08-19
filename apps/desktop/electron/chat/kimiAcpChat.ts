@@ -56,6 +56,7 @@ import {
 } from "./questionMcpServer";
 import { terminateChildProcess } from "./terminateChildProcess";
 import { resolveCommandLaunch } from "../runtime/commandLaunch";
+import type { AcpTerminalCreateRequest, AcpTerminalManager } from "./acpTerminalManager";
 
 type JsonRpcId = string | number;
 type JsonObject = Record<string, unknown>;
@@ -63,6 +64,10 @@ type JsonObject = Record<string, unknown>;
 const MAX_TOOL_OUTPUT_LENGTH = 12_000;
 const MAX_TEXT_FILE_WRITE_BYTES = 4 * 1024 * 1024;
 const STOP_FALLBACK_MS = 5_000;
+const KIMI_PROCESS_TOOL_COMPATIBILITY_INSTRUCTION = [
+  "Runtime compatibility instructions from Carrent (not part of the user's request):",
+  "Do not use the built-in Glob or Grep tools. Run file discovery and text searches through the Bash tool using `rg --files`, `rg`, or `find` instead.",
+].join("\n");
 const SUPPORTED_SESSION_COMMANDS = [
   "compact",
   "status",
@@ -383,6 +388,7 @@ export function startKimiAcpChatRun(options: {
   requestTimeoutMs?: number;
   bridgeFactory?: CarrentBridgeFactory | null;
   questionServerFactory?: QuestionMcpServerFactory | null;
+  terminalManager?: AcpTerminalManager | null;
   kimiSessionsRoot?: string;
   attachmentStoreRoot?: string;
 }): KimiAcpRunHandle {
@@ -531,7 +537,7 @@ export async function getKimiSessionCommands(options: {
 
 export async function buildKimiPromptParts(
   request: ChatTurnRequest,
-  options?: { includeTranscript?: boolean },
+  options?: { includeTranscript?: boolean; runtimeInstruction?: string | null },
 ): Promise<Array<Record<string, unknown>>> {
   const storedAttachments = request.attachments?.filter(
     (attachment): attachment is Attachment & { localPath: string } =>
@@ -574,6 +580,9 @@ export async function buildKimiPromptParts(
   const imagePathContext = buildImagePathContext(storedAttachments ?? []);
   if (imagePathContext) {
     text = text ? `${text}\n\n${imagePathContext}` : imagePathContext;
+  }
+  if (options?.runtimeInstruction) {
+    text = text ? `${text}\n\n${options.runtimeInstruction}` : options.runtimeInstruction;
   }
   if (text) {
     parts.push({ type: "text", text });
@@ -708,6 +717,7 @@ class KimiAcpRun {
   // Commands advertised via `available_commands_update`, harvested so passive
   // status requests can reuse them without respawning the CLI.
   private availableCommands = new Set<string>();
+  private agentInfo: { name: string; version: string } | null = null;
   private toolStates = new Map<
     string,
     {
@@ -732,6 +742,7 @@ class KimiAcpRun {
       requestTimeoutMs?: number;
       bridgeFactory?: CarrentBridgeFactory | null;
       questionServerFactory?: QuestionMcpServerFactory | null;
+      terminalManager?: AcpTerminalManager | null;
       kimiSessionsRoot?: string;
       attachmentStoreRoot?: string;
     },
@@ -768,13 +779,16 @@ class KimiAcpRun {
 
   async start() {
     try {
-      await this.request("initialize", {
-        protocolVersion: 1,
-        clientCapabilities: {
-          fs: { readTextFile: true, writeTextFile: true },
-          terminal: false,
-        },
-      });
+      const initializeResult = readObject(
+        await this.request("initialize", {
+          protocolVersion: 1,
+          clientCapabilities: {
+            fs: { readTextFile: true, writeTextFile: true },
+            terminal: !!this.options.terminalManager,
+          },
+        }),
+      );
+      this.agentInfo = readKimiAgentInfo(initializeResult?.agentInfo);
 
       await this.startBridge();
       if (this.terminal) {
@@ -802,6 +816,9 @@ class KimiAcpRun {
           sessionId: this.sessionId,
           prompt: await buildKimiPromptParts(this.options.request, {
             includeTranscript: !resumed,
+            runtimeInstruction: needsKimiProcessToolCompatibility(this.agentInfo)
+              ? KIMI_PROCESS_TOOL_COMPATIBILITY_INSTRUCTION
+              : null,
           }),
         },
         { timeoutMs: null },
@@ -1603,6 +1620,43 @@ class KimiAcpRun {
         return;
       }
 
+      if (method === "terminal/create") {
+        await this.respond(id, await this.handleTerminalCreate(message.params));
+        return;
+      }
+
+      if (method === "terminal/output") {
+        await this.respond(
+          id,
+          await this.requireTerminalManager().output(this.readTerminalTarget(message.params)),
+        );
+        return;
+      }
+
+      if (method === "terminal/wait_for_exit") {
+        await this.respond(
+          id,
+          await this.requireTerminalManager().waitForExit(this.readTerminalTarget(message.params)),
+        );
+        return;
+      }
+
+      if (method === "terminal/kill") {
+        await this.respond(
+          id,
+          await this.requireTerminalManager().kill(this.readTerminalTarget(message.params)),
+        );
+        return;
+      }
+
+      if (method === "terminal/release") {
+        await this.respond(
+          id,
+          await this.requireTerminalManager().release(this.readTerminalTarget(message.params)),
+        );
+        return;
+      }
+
       if (method === "session/request_permission") {
         await this.handlePermissionRequest(id, message.params);
         return;
@@ -1618,6 +1672,87 @@ class KimiAcpRun {
         message: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  private requireTerminalManager() {
+    if (!this.options.terminalManager) {
+      throw new Error("ACP terminal capability is unavailable.");
+    }
+    return this.options.terminalManager;
+  }
+
+  private readTerminalSessionId(payload: JsonObject | null) {
+    const sessionId = readString(payload?.sessionId);
+    if (!sessionId || sessionId !== this.sessionId) {
+      throw new Error("ACP terminal session is unavailable.");
+    }
+    return sessionId;
+  }
+
+  private readTerminalTarget(params: unknown) {
+    const payload = readObject(params);
+    const sessionId = this.readTerminalSessionId(payload);
+    const terminalId = readString(payload?.terminalId);
+    if (!terminalId) {
+      throw new Error("ACP terminal identity is required.");
+    }
+    return { sessionId, terminalId };
+  }
+
+  private async handleTerminalCreate(params: unknown) {
+    const payload = readObject(params);
+    const sessionId = this.readTerminalSessionId(payload);
+    const command = readString(payload?.command);
+    if (!command) {
+      throw new Error("ACP terminal command is required.");
+    }
+
+    let args: string[] | undefined;
+    if (payload?.args !== undefined) {
+      if (
+        !Array.isArray(payload.args) ||
+        !payload.args.every((value) => typeof value === "string")
+      ) {
+        throw new Error("ACP terminal args are invalid.");
+      }
+      args = payload.args;
+    }
+
+    let env: AcpTerminalCreateRequest["env"];
+    if (payload?.env !== undefined) {
+      if (!Array.isArray(payload.env)) {
+        throw new Error("ACP terminal env is invalid.");
+      }
+      env = payload.env.map((value) => {
+        const variable = readObject(value);
+        const name = readString(variable?.name);
+        if (!name || typeof variable?.value !== "string") {
+          throw new Error("ACP terminal env is invalid.");
+        }
+        return { name, value: variable.value };
+      });
+    }
+
+    const cwd = payload?.cwd === undefined ? undefined : readString(payload.cwd);
+    if (payload?.cwd !== undefined && !cwd) {
+      throw new Error("ACP terminal cwd is invalid.");
+    }
+    const outputByteLimit = payload?.outputByteLimit;
+    if (
+      outputByteLimit !== undefined &&
+      (!Number.isSafeInteger(outputByteLimit) || (outputByteLimit as number) < 0)
+    ) {
+      throw new Error("ACP terminal outputByteLimit is invalid.");
+    }
+
+    return this.requireTerminalManager().create({
+      sessionId,
+      command,
+      ...(args ? { args } : {}),
+      ...(cwd ? { cwd } : {}),
+      ...(env ? { env } : {}),
+      ...(typeof outputByteLimit === "number" ? { outputByteLimit } : {}),
+    });
   }
 
   private async handlePermissionRequest(id: JsonRpcId, params: unknown) {
@@ -2471,6 +2606,7 @@ class KimiAcpRun {
     this.cleanupPromise = Promise.all([
       this.closeBridge(),
       this.closeQuestionServer(),
+      this.closeTerminalManager(),
       Promise.resolve(this.transport.close()),
     ]).then(() => undefined);
     void this.cleanupPromise.catch(() => {});
@@ -2517,10 +2653,29 @@ class KimiAcpRun {
       // Best-effort cleanup; the run has already reached a terminal state.
     });
   }
+
+  private closeTerminalManager(): Promise<void> {
+    return (this.options.terminalManager?.close() ?? Promise.resolve()).catch(() => {
+      // Best-effort cleanup; the run has already reached a terminal state.
+    });
+  }
 }
 
 function readObject(value: unknown): JsonObject | null {
   return value && typeof value === "object" ? (value as JsonObject) : null;
+}
+
+function readKimiAgentInfo(value: unknown): { name: string; version: string } | null {
+  const agentInfo = readObject(value);
+  const name = readString(agentInfo?.name);
+  const version = readString(agentInfo?.version);
+  return name && version ? { name, version } : null;
+}
+
+function needsKimiProcessToolCompatibility(
+  agentInfo: { name: string; version: string } | null,
+): boolean {
+  return agentInfo?.name === "Kimi Code CLI" && agentInfo.version === "0.37.1";
 }
 
 function readString(value: unknown): string | null {

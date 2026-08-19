@@ -4667,7 +4667,7 @@ export function Composer(props: ComposerProps) {
                 <ChevronDown className="h-3 w-3" />
               </button>
               {showBranchPicker && (
-                <div className="absolute bottom-full right-0 mb-1.5 flex max-h-[24rem] w-72 flex-col rounded-lg border border-border-strong bg-surface shadow-xl">
+                <div className="absolute bottom-full right-0 z-50 mb-1.5 flex max-h-[24rem] w-72 flex-col rounded-lg border border-border-strong bg-surface shadow-xl">
                   <div className="px-2 pb-1.5 pt-2">
                     <div className="relative">
                       <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />

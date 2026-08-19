@@ -323,7 +323,7 @@ function ComposerEditorBridge(
             aria-controls={props.menuOpen ? props.controlsId : undefined}
             aria-activedescendant={props.menuOpen ? props.activeDescendantId : undefined}
             data-composer-text="true"
-            className="font-composer min-h-20 whitespace-pre-wrap break-words outline-none"
+            className="font-composer min-h-20 max-h-48 overflow-y-auto overscroll-contain pr-1 whitespace-pre-wrap break-words outline-none"
             onFocus={() => {
               focusedRef.current = true;
               editor.getEditorState().read(publishTrigger);

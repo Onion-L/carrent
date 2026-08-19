@@ -1,6 +1,9 @@
 import { ChevronDown, ChevronRight, MessageSquarePlus, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ChangedFile } from "../../../shared/threadContent";
+import type { CodeHighlightThemeId } from "../../../shared/codeHighlightThemes";
+import { useSettings } from "../../context/SettingsContext";
+import { highlightCodeBlock } from "../../lib/codeHighlight";
 
 export type WorkspaceDiffSnapshot = {
   baseRevision: string;
@@ -249,42 +252,104 @@ export function getSelectedHunkSummary({
   return `${selected.size} hunk${selected.size === 1 ? "" : "s"} selected`;
 }
 
-function DiffLine({ line }: { line: string }) {
-  const className = classifyDiffLine(line);
-  switch (className) {
-    case "header":
-      return <div className="text-fg">{line}</div>;
-    case "hunk":
-      return <div className="text-muted">{line}</div>;
-    case "addition":
-      return (
-        <div className="bg-success/5 text-success">
-          <span className="inline-block w-4 shrink-0 select-none text-success/60">+</span>
-          {line.slice(1)}
-        </div>
-      );
-    case "deletion":
-      return (
-        <div className="bg-danger/5 text-danger">
-          <span className="inline-block w-4 shrink-0 select-none text-danger/60">-</span>
-          {line.slice(1)}
-        </div>
-      );
-    case "context":
-      return (
-        <div className="text-fg">
-          <span className="inline-block w-4 shrink-0 select-none text-muted"> </span>
-          {line.slice(1)}
-        </div>
-      );
-    case "empty":
-      return (
-        <div className="text-fg">
-          <span className="inline-block w-4 shrink-0 select-none text-muted"> </span>
-          &nbsp;
-        </div>
-      );
+const HUNK_HEADER_PATTERN = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+
+type ReviewRow =
+  | { type: "gap"; count: number }
+  | { type: "hunk"; header: string }
+  | {
+      type: "line";
+      kind: "addition" | "deletion" | "context";
+      html: string | null;
+      text: string;
+      lineNumber: number | null;
+    };
+
+function fileExtension(path: string): string {
+  return /\.([a-z0-9]+)$/i.exec(path)?.[1] ?? "";
+}
+
+// Turns a file block into renderable rows: slim @@ headers, numbered code
+// lines, and "N unmodified lines" bars for the gaps between hunks. Header
+// lines (diff --git/index/---/+++) are hidden — the file row already shows
+// the path. Lines outside any hunk still render, without a line number.
+// Code is highlighted as one block per file so multi-line constructs
+// tokenize correctly; a line-count mismatch falls back to plain text.
+function buildReviewRows(block: DiffFileBlock, theme: CodeHighlightThemeId): ReviewRow[] {
+  const rows: ReviewRow[] = [];
+  const codeLines: string[] = [];
+  const codeRowIndexes: number[] = [];
+  let oldLine = 0;
+  let newLine = 0;
+  let inHunk = false;
+  let previousOldEnd: number | null = null;
+
+  block.lines.forEach((line, index) => {
+    // A patch ending with a newline leaves a phantom empty string as the
+    // last line; it is not a real source line.
+    if (index === block.lines.length - 1 && line === "") return;
+
+    const kind = classifyDiffLine(line);
+    if (kind === "header") return;
+    if (kind === "hunk") {
+      const match = HUNK_HEADER_PATTERN.exec(line);
+      if (match) {
+        oldLine = Number(match[1]);
+        newLine = Number(match[2]);
+        inHunk = true;
+        if (previousOldEnd !== null && oldLine > previousOldEnd) {
+          rows.push({ type: "gap", count: oldLine - previousOldEnd });
+        }
+      }
+      rows.push({ type: "hunk", header: line });
+      return;
+    }
+
+    let rowKind: "addition" | "deletion" | "context";
+    let lineNumber: number | null;
+    if (kind === "addition") {
+      rowKind = "addition";
+      lineNumber = inHunk ? newLine : null;
+      newLine += 1;
+    } else if (kind === "deletion") {
+      rowKind = "deletion";
+      lineNumber = inHunk ? oldLine : null;
+      oldLine += 1;
+    } else {
+      rowKind = "context";
+      lineNumber = inHunk ? newLine : null;
+      oldLine += 1;
+      newLine += 1;
+    }
+    codeRowIndexes.push(rows.length);
+    rows.push({ type: "line", kind: rowKind, html: null, text: line.slice(1), lineNumber });
+    codeLines.push(line.slice(1));
+    previousOldEnd = oldLine;
+  });
+
+  const highlighted = highlightCodeBlock(codeLines.join("\n"), fileExtension(block.path), theme);
+  const htmlLines = highlighted?.html.split("\n") ?? [];
+  if (htmlLines.length === codeLines.length) {
+    codeRowIndexes.forEach((rowIndex, codeIndex) => {
+      const row = rows[rowIndex];
+      if (row?.type === "line") {
+        row.html = htmlLines[codeIndex] ?? null;
+      }
+    });
   }
+  return rows;
+}
+
+function DiffFileName({ path }: { path: string }) {
+  const slash = path.lastIndexOf("/");
+  const directory = slash < 0 ? "" : path.slice(0, slash + 1);
+  const name = slash < 0 ? path : path.slice(slash + 1);
+  return (
+    <span className="min-w-0 truncate font-mono text-app-13" title={path}>
+      <span className="text-muted">{directory}</span>
+      <span className="font-semibold text-fg">{name}</span>
+    </span>
+  );
 }
 
 function FileDiffBlock({
@@ -309,8 +374,12 @@ function FileDiffBlock({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const additions = file?.additions ?? 0;
   const deletions = file?.deletions ?? 0;
+  const { codeHighlightTheme } = useSettings();
   const hunks = useMemo(() => splitFileBlockIntoHunks(block), [block]);
-  const firstHunkIndex = block.lines.findIndex((line) => line.startsWith("@@"));
+  const rows = useMemo(
+    () => buildReviewRows(block, codeHighlightTheme),
+    [block, codeHighlightTheme],
+  );
   const selectable =
     reviewEnabled && block.path !== "unknown" && !file?.isFolder && !file?.binary && !file?.omitted;
   const selectedHunkSummary = getSelectedHunkSummary({
@@ -345,9 +414,7 @@ function FileDiffBlock({
             ) : (
               <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted" />
             )}
-            <span className="min-w-0 truncate font-mono text-app-13 text-fg" title={block.path}>
-              {block.path}
-            </span>
+            <DiffFileName path={block.path} />
           </div>
           <div className="flex shrink-0 items-center gap-2 text-app-12">
             {selectedHunkSummary ? <span className="text-muted">{selectedHunkSummary}</span> : null}
@@ -364,39 +431,57 @@ function FileDiffBlock({
       </div>
 
       {expanded && (
-        <div className="font-code border-t border-border bg-bg px-3 py-2 leading-5">
-          {(firstHunkIndex < 0 ? block.lines : block.lines.slice(0, firstHunkIndex)).map(
-            (line, index) => (
-              <DiffLine key={`${index}-${line.slice(0, 40)}`} line={line} />
-            ),
-          )}
-          {hunks.map((hunk, index) => {
-            const key = getHunkSelectionKey(block.path, hunk.header);
-            return (
-              <div key={`${index}-${hunk.header}`}>
-                {selectable ? (
-                  <div className="flex min-w-0 items-start gap-2">
+        <div className="font-code overflow-x-auto border-t border-border bg-bg py-1 leading-5">
+          {rows.map((row, index) => {
+            if (row.type === "gap") {
+              return (
+                <div key={index} className="px-2 py-0.5">
+                  <div className="select-none rounded bg-surface px-3 py-1 text-app-11 text-subtle">
+                    {row.count} unmodified lines
+                  </div>
+                </div>
+              );
+            }
+            if (row.type === "hunk") {
+              const key = getHunkSelectionKey(block.path, row.header);
+              return (
+                <div key={index} className="flex w-max min-w-full items-center gap-2 px-2 py-0.5">
+                  {selectable ? (
                     <label className="flex h-6 w-6 shrink-0 items-center justify-center">
                       <input
                         type="checkbox"
                         checked={selectedHunkKeys.has(key)}
                         onChange={(event) =>
-                          onHunkSelectionChange(block.path, hunk.header, event.target.checked)
+                          onHunkSelectionChange(block.path, row.header, event.target.checked)
                         }
-                        aria-label={`Select hunk ${hunk.header} in ${block.path}`}
+                        aria-label={`Select hunk ${row.header} in ${block.path}`}
                         className="h-4 w-4 accent-fg outline-none focus-visible:ring-2 focus-visible:ring-fg"
                       />
                     </label>
-                    <div className="min-w-0">
-                      <DiffLine line={hunk.header} />
-                    </div>
-                  </div>
+                  ) : null}
+                  <span className="select-none text-app-11 text-subtle">{row.header}</span>
+                </div>
+              );
+            }
+            return (
+              <div
+                key={index}
+                className={`flex w-max min-w-full whitespace-pre border-l-2 text-fg ${
+                  row.kind === "addition"
+                    ? "border-success/70 bg-success/10"
+                    : row.kind === "deletion"
+                      ? "border-danger/70 bg-danger/10"
+                      : "border-transparent"
+                }`}
+              >
+                <span className="w-10 shrink-0 select-none pr-3 text-right text-subtle">
+                  {row.lineNumber ?? ""}
+                </span>
+                {row.html !== null ? (
+                  <span className="shiki-tokens" dangerouslySetInnerHTML={{ __html: row.html }} />
                 ) : (
-                  <DiffLine line={hunk.header} />
+                  <span>{row.text || " "}</span>
                 )}
-                {hunk.lines.slice(1).map((line, lineIndex) => (
-                  <DiffLine key={`${lineIndex}-${line.slice(0, 40)}`} line={line} />
-                ))}
               </div>
             );
           })}

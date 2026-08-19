@@ -89,7 +89,7 @@
       ]
     },
     "nsis": {
-      "artifactName": "Carrent-Setup-${version}.${ext}"
+      "artifactName": "Carrent-Setup-${version}-${arch}.${ext}"
     },
     "linux": {
       "icon": "build/icon.png",

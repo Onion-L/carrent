@@ -202,6 +202,165 @@ function Select({
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Theme picker (preview cards)                                              */
+/* -------------------------------------------------------------------------- */
+
+type ThemePreviewPalette = {
+  bg: string;
+  sidebar: string;
+  raised: string;
+  border: string;
+  fg: string;
+  muted: string;
+};
+
+// Mirrors the light/dark token values in src/styles/index.css so the preview
+// art renders its own theme regardless of the app's current theme.
+const THEME_PREVIEW_PALETTES: Record<"light" | "dark", ThemePreviewPalette> = {
+  light: {
+    bg: "#fffffc",
+    sidebar: "#f7f7f4",
+    raised: "#fafaf7",
+    border: "#e0e0d8",
+    fg: "#1e1e1e",
+    muted: "#696964",
+  },
+  dark: {
+    bg: "#151514",
+    sidebar: "#191918",
+    raised: "#272724",
+    border: "#31312d",
+    fg: "#e7e6e0",
+    muted: "#949289",
+  },
+};
+
+function ThemePreviewArt({ palette }: { palette: ThemePreviewPalette }) {
+  return (
+    <div className="relative h-full w-full overflow-hidden" style={{ backgroundColor: palette.bg }}>
+      {/* Sidebar */}
+      <div
+        className="absolute inset-y-0 left-0 w-[26%]"
+        style={{ backgroundColor: palette.sidebar, borderRight: `1px solid ${palette.border}` }}
+      >
+        <div className="flex flex-col gap-[5px] p-2">
+          <div className="h-[5px] w-3/5 rounded-full" style={{ backgroundColor: palette.muted }} />
+          <div className="h-[5px] w-4/5 rounded-full" style={{ backgroundColor: palette.border }} />
+          <div
+            className="h-[5px] w-[70%] rounded-full"
+            style={{ backgroundColor: palette.border }}
+          />
+        </div>
+      </div>
+      {/* Content */}
+      <div className="absolute inset-y-0 right-0 w-[74%]">
+        <div
+          className="absolute right-[10%] top-[12%] h-[8px] w-[38%] rounded-full"
+          style={{ backgroundColor: palette.muted }}
+        />
+        <div
+          className="absolute left-[8%] top-[40%] h-[6px] w-[55%] rounded-full"
+          style={{ backgroundColor: palette.border }}
+        />
+        <div
+          className="absolute left-[8%] top-[54%] h-[6px] w-[45%] rounded-full"
+          style={{ backgroundColor: palette.border }}
+        />
+        {/* Floating panel */}
+        <div
+          className="absolute right-[6%] top-[24%] flex w-[30%] flex-col gap-[6px] rounded-md border p-[7px]"
+          style={{ backgroundColor: palette.raised, borderColor: palette.border }}
+        >
+          {["#5ec98f", "#8b9cf9", "#e8b04b"].map((dotColor) => (
+            <div key={dotColor} className="flex items-center gap-[5px]">
+              <div
+                className="h-[4px] w-[4px] shrink-0 rounded-full"
+                style={{ backgroundColor: dotColor }}
+              />
+              <div
+                className="h-[4px] flex-1 rounded-full"
+                style={{ backgroundColor: palette.border }}
+              />
+            </div>
+          ))}
+        </div>
+        {/* Input bar */}
+        <div
+          className="absolute inset-x-[8%] bottom-[8%] flex h-[16%] items-center rounded-full border px-2"
+          style={{ backgroundColor: palette.raised, borderColor: palette.border }}
+        >
+          <div
+            className="h-[5px] w-[45%] rounded-full"
+            style={{ backgroundColor: palette.border }}
+          />
+          <div
+            className="ml-auto h-[10px] w-[10px] shrink-0 rounded-full"
+            style={{ backgroundColor: palette.fg }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SystemThemePreviewArt() {
+  return (
+    <div className="relative h-full w-full">
+      <ThemePreviewArt palette={THEME_PREVIEW_PALETTES.dark} />
+      <div className="absolute inset-0" style={{ clipPath: "inset(0 50% 0 0)" }}>
+        <ThemePreviewArt palette={THEME_PREVIEW_PALETTES.light} />
+      </div>
+    </div>
+  );
+}
+
+const THEME_OPTIONS = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+] as const;
+
+type ThemeId = (typeof THEME_OPTIONS)[number]["value"];
+
+function ThemePicker({ value, onChange }: { value: ThemeId; onChange: (value: ThemeId) => void }) {
+  return (
+    <div className="py-3.5">
+      <div className="text-app-13 text-fg">Theme</div>
+      <div role="radiogroup" aria-label="Theme" className="mt-3 grid grid-cols-3 gap-3">
+        {THEME_OPTIONS.map((option) => {
+          const selected = option.value === value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => onChange(option.value)}
+              className={`rounded-lg border p-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20 ${
+                selected ? "border-fg ring-1 ring-fg" : "border-border hover:border-border-strong"
+              }`}
+            >
+              <div className="aspect-[16/10] w-full overflow-hidden rounded-md border border-border">
+                {option.value === "system" ? (
+                  <SystemThemePreviewArt />
+                ) : (
+                  <ThemePreviewArt palette={THEME_PREVIEW_PALETTES[option.value]} />
+                )}
+              </div>
+              <div
+                className={`mt-2 text-center text-app-13 ${selected ? "text-fg" : "text-muted"}`}
+              >
+                {option.label}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const CODE_HIGHLIGHT_PREVIEW_LINES = [
   'const message: string = "Hello, world!";',
   "console.log(message);",
@@ -235,9 +394,7 @@ function CodeHighlightPreview({ themeId }: { themeId: CodeHighlightThemeId }) {
         <div className="py-1.5">
           {highlightedLines.map((line, index) => (
             <div key={index} className="grid min-h-6 grid-cols-[2.5rem_minmax(0,1fr)] items-center">
-              <span className="font-code select-none pr-2 text-right opacity-50">
-                {index + 1}
-              </span>
+              <span className="font-code select-none pr-2 text-right opacity-50">{index + 1}</span>
               <code
                 className="font-code markdown-code-highlight block whitespace-pre px-3"
                 dangerouslySetInnerHTML={{ __html: line }}
@@ -1985,17 +2142,9 @@ export function SettingsPage() {
 
                 {activeTabId === "interface" ? (
                   <div>
-                    <Select
-                      label="Theme"
+                    <ThemePicker
                       value={theme}
-                      onChange={(value) =>
-                        updateSetting("theme", value as "dark" | "light" | "system")
-                      }
-                      options={[
-                        { value: "dark", label: "Dark" },
-                        { value: "light", label: "Light" },
-                        { value: "system", label: "System" },
-                      ]}
+                      onChange={(value) => updateSetting("theme", value)}
                     />
                     <Select
                       label="Code highlight theme"

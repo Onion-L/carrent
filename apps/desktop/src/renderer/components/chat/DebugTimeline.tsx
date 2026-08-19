@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, Copy, Database, RefreshCw, Search, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronRight,
+  Copy,
+  Database,
+  RefreshCw,
+  Search,
+  X,
+} from "lucide-react";
 
 import type { RuntimeDebugRecord, RuntimeDebugTrace } from "../../../shared/runtimeDebug";
 import type { Message } from "../../../shared/threadContent";
@@ -33,7 +42,18 @@ export type DebugRow = {
 };
 
 type DebugView = "conversation" | "raw";
-type DetailTab = "raw" | "input" | "output";
+type DetailSourceTab = "raw" | "input" | "output";
+type DetailTab = DetailSourceTab | "json";
+
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export type StructuredJsonResult = { ok: true; value: JsonValue } | { ok: false };
 
 const BADGE_STYLES: Record<DebugBadge, string> = {
   SYSTEM: "border-debug-system/40 bg-debug-system/10 text-debug-system",
@@ -80,6 +100,147 @@ function stringify(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+export function toStructuredJson(value: unknown): StructuredJsonResult {
+  let candidate = value;
+  if (typeof candidate === "string") {
+    try {
+      candidate = JSON.parse(candidate);
+    } catch {
+      return { ok: false };
+    }
+  }
+
+  try {
+    const serialized = JSON.stringify(candidate);
+    if (serialized === undefined) return { ok: false };
+    return { ok: true, value: JSON.parse(serialized) as JsonValue };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function jsonContainerSize(value: JsonValue[] | { [key: string]: JsonValue }) {
+  return Array.isArray(value) ? value.length : Object.keys(value).length;
+}
+
+function jsonContainerSummary(value: JsonValue[] | { [key: string]: JsonValue }) {
+  const size = jsonContainerSize(value);
+  if (Array.isArray(value)) return size + (size === 1 ? " item" : " items");
+  return size + (size === 1 ? " key" : " keys");
+}
+
+function JsonKey({ name, arrayItem }: { name: string; arrayItem: boolean }) {
+  return (
+    <span className="shrink-0 text-fg">
+      {arrayItem ? "[" + name + "]" : JSON.stringify(name) + ":"}
+    </span>
+  );
+}
+
+function JsonPrimitiveValue({ value }: { value: Exclude<JsonValue, JsonValue[] | object> }) {
+  if (value === null) return <span className="text-subtle">null</span>;
+  if (typeof value === "string") {
+    return (
+      <span className="min-w-0 whitespace-pre-wrap break-words text-debug-tool-result">
+        {JSON.stringify(value)}
+      </span>
+    );
+  }
+  if (typeof value === "number") {
+    return <span className="text-debug-llm">{String(value)}</span>;
+  }
+  return <span className="text-debug-assistant">{String(value)}</span>;
+}
+
+function JsonTreeNode({
+  value,
+  name,
+  path,
+  depth,
+  arrayItem = false,
+}: {
+  value: JsonValue;
+  name?: string;
+  path: string;
+  depth: number;
+  arrayItem?: boolean;
+}) {
+  const container = value !== null && typeof value === "object";
+  const [expanded, setExpanded] = useState(depth < 2);
+  const paddingLeft = depth * 16;
+
+  if (!container) {
+    return (
+      <div className="flex min-w-0 items-start gap-2" style={{ paddingLeft }}>
+        <span className="h-4 w-4 shrink-0" />
+        {name === undefined ? null : <JsonKey name={name} arrayItem={arrayItem} />}
+        <JsonPrimitiveValue value={value} />
+      </div>
+    );
+  }
+
+  const entries = Array.isArray(value)
+    ? value.map((item, index) => [String(index), item] as const)
+    : Object.entries(value);
+  const opening = Array.isArray(value) ? "[" : "{";
+  const closing = Array.isArray(value) ? "]" : "}";
+  const empty = entries.length === 0;
+  const label = (expanded ? "Collapse " : "Expand ") + "JSON " + path;
+
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={empty ? undefined : expanded}
+        aria-label={empty ? undefined : label}
+        disabled={empty}
+        onClick={() => setExpanded((current) => !current)}
+        className="flex max-w-full items-center gap-1 rounded text-left text-muted hover:text-fg disabled:cursor-default disabled:text-muted"
+        style={{ paddingLeft }}
+      >
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+          {empty ? null : (
+            <ChevronRight
+              className={"h-3 w-3 transition-transform " + (expanded ? "rotate-90" : "")}
+            />
+          )}
+        </span>
+        {name === undefined ? null : <JsonKey name={name} arrayItem={arrayItem} />}
+        <span>{empty ? opening + closing : opening}</span>
+        {!empty && !expanded ? (
+          <span className="text-subtle">{jsonContainerSummary(value)}</span>
+        ) : null}
+        {!empty && !expanded ? <span>{closing}</span> : null}
+      </button>
+      {!empty && expanded ? (
+        <>
+          {entries.map(([key, child]) => (
+            <JsonTreeNode
+              key={key}
+              value={child}
+              name={key}
+              path={path + (Array.isArray(value) ? "[" + key + "]" : "." + key)}
+              depth={depth + 1}
+              arrayItem={Array.isArray(value)}
+            />
+          ))}
+          <div className="text-muted" style={{ paddingLeft: paddingLeft + 20 }}>
+            {closing}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+export function JsonTree({ value }: { value: JsonValue }) {
+  return (
+    <div aria-label="Structured JSON" className="font-mono text-app-11 leading-5">
+      <JsonTreeNode value={value} path="root" depth={0} />
+    </div>
+  );
 }
 
 function summaryOf(value: unknown, fallback: string): string {
@@ -504,6 +665,7 @@ export function DebugTimeline({ threadId, messages }: { threadId: string; messag
   const [query, setQuery] = useState("");
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>("raw");
+  const [detailSourceTab, setDetailSourceTab] = useState<DetailSourceTab>("raw");
   const [copied, setCopied] = useState(false);
   const inFlight = useRef(false);
   const activeThreadId = useRef(threadId);
@@ -593,15 +755,17 @@ export function DebugTimeline({ threadId, messages }: { threadId: string; messag
 
   const selectRow = (row: DebugRow) => {
     setSelectedRowId(row.id);
-    setDetailTab(row.input !== undefined ? "input" : row.output !== undefined ? "output" : "raw");
+    setDetailTab("raw");
+    setDetailSourceTab("raw");
   };
 
   const detailValue =
-    detailTab === "input"
+    detailSourceTab === "input"
       ? selected?.input
-      : detailTab === "output"
+      : detailSourceTab === "output"
         ? selected?.output
         : selected?.raw;
+  const structuredJson = useMemo(() => toStructuredJson(detailValue), [detailValue]);
 
   const copyDetail = async () => {
     await navigator.clipboard.writeText(stringify(detailValue));
@@ -802,7 +966,10 @@ export function DebugTimeline({ threadId, messages }: { threadId: string; messag
                     <button
                       key={tab.key}
                       type="button"
-                      onClick={() => setDetailTab(tab.key)}
+                      onClick={() => {
+                        setDetailTab(tab.key);
+                        setDetailSourceTab(tab.key);
+                      }}
                       className={
                         "h-8 border-b-2 px-0.5 transition " +
                         (detailTab === tab.key
@@ -813,6 +980,20 @@ export function DebugTimeline({ threadId, messages }: { threadId: string; messag
                       {tab.label}
                     </button>
                   ))}
+                {structuredJson.ok ? (
+                  <button
+                    type="button"
+                    onClick={() => setDetailTab("json")}
+                    className={
+                      "h-8 border-b-2 px-0.5 transition " +
+                      (detailTab === "json"
+                        ? "border-brand text-fg"
+                        : "border-transparent text-muted hover:text-fg")
+                    }
+                  >
+                    JSON
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   title="Copy selected data"
@@ -828,9 +1009,16 @@ export function DebugTimeline({ threadId, messages }: { threadId: string; messag
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-auto bg-code-bg p-3">
-                <pre className="whitespace-pre-wrap break-words font-mono text-app-11 leading-relaxed text-muted">
-                  {stringify(detailValue)}
-                </pre>
+                {detailTab === "json" && structuredJson.ok ? (
+                  <JsonTree
+                    key={selected.id + ":" + detailSourceTab}
+                    value={structuredJson.value}
+                  />
+                ) : (
+                  <pre className="whitespace-pre-wrap break-words font-mono text-app-11 leading-relaxed text-muted">
+                    {stringify(detailValue)}
+                  </pre>
+                )}
               </div>
             </aside>
           ) : null}

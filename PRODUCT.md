@@ -6,11 +6,11 @@ product
 
 ## Users
 
-Software engineers using local coding agent runtimes to inspect, modify, and run projects. They work in sustained desktop sessions and need runtime controls, approvals, thread history, and agent activity to remain easy to scan without interrupting flow.
+Software engineers using Carrent to inspect, modify, and run projects. They work in sustained desktop sessions and need provider controls, approvals, thread history, and agent activity to remain easy to scan without interrupting flow.
 
 ## Product Purpose
 
-Carrent is a desktop Agent GUI for project-scoped coding work. It lets users select and configure external coding runtimes while Carrent owns workspace organization, thread persistence, approvals, attachments, and presentation. Success means users can start and steer an agent run with minimal setup and always understand what runtime, model, permissions, and project context are active.
+Carrent is a desktop coding agent for project-scoped work. Carrent owns the agent loop, tools, approvals, workspace organization, thread persistence, attachments, and presentation while calling user-configured model providers directly. Success means users can start and steer an agent run with minimal setup and always understand what provider, model, permissions, and project context are active.
 
 ## Brand Personality
 
@@ -24,9 +24,9 @@ Avoid marketing-style composition inside the app, playful chatbot aesthetics, de
 
 - Put the active coding choice directly in view.
 - Keep repeated workflows compact and predictable.
-- Prefer runtime-owned truth over duplicated static configuration.
+- Keep provider configuration explicit and local.
 - Show execution state and permissions clearly without adding noise.
-- Use domain language consistently across settings, chat, and runtime surfaces.
+- Use domain language consistently across settings, chat, and agent surfaces.
 
 ## Accessibility & Inclusion
 

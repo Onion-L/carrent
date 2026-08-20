@@ -26,7 +26,7 @@ _Avoid_: Workspace, Project Working Directory, repository
 
 **Terminal Tab**:
 A Project-owned interactive shell process and its terminal presentation, retained in memory for the Carrent process lifetime. A Project's Terminal Tabs are shared across every Carrent Window and Workspace-Project Association showing that Project.
-_Avoid_: Runtime Session, window terminal, persisted terminal
+_Avoid_: window terminal, persisted terminal
 
 **Workspace-Project Association**:
 The relationship that makes one Project available inside one Workspace. It stores Workspace-specific presentation, including an optional display alias used by in-Workspace rename actions, and defaults for that Project without changing the Project's identity or affecting the same Project in other Workspaces. Clearing the alias restores the shared Project name. Removing it permanently deletes the Threads and Thread Draft scoped to that Workspace-Project pair after a confirmation, but is blocked while any affected Thread has a live Run.
@@ -45,24 +45,20 @@ An agent that can work inside a local project by reading files, editing files, r
 _Avoid_: Chat agent, chatbot, model
 
 **Thread**:
-A Carrent-owned conversation with an automatically generated, user-editable title that belongs to exactly one Workspace and one Project whose association already exists. Both relationships are fixed when the Thread is created. A Thread may be open in multiple Carrent Windows, which present the same shared messages, Run state, and pending interactions. Carrent preserves its user-visible history across runs and Runtime changes; projectless General Chat is not a Thread in the target model.
+A Carrent-owned conversation with an automatically generated, user-editable title that belongs to exactly one Workspace and one Project whose association already exists. Both relationships are fixed when the Thread is created. A Thread may be open in multiple Carrent Windows, which present the same shared messages, Run state, and pending interactions. Carrent preserves its user-visible history across runs and Provider Profile changes; projectless General Chat is not a Thread in the target model.
 _Avoid_: Session, chat
 
 **Archived Thread**:
-A losslessly suspended Thread removed from normal navigation. It preserves its identity, title, history, attachments, draft, run configuration, Runtime Sessions, and pin state, but cannot start a Run while archived. Only an idle Thread with no queued messages can be archived; restoring it returns it to its original Workspace and Project without changing its Thread Activity Time. Archiving is reversible and applies only to Threads; Workspaces, Projects, and Workspace-Project Associations do not have an archived lifecycle state.
+A losslessly suspended Thread removed from normal navigation. It preserves its identity, title, history, attachments, draft, run configuration, and pin state, but cannot start a Run while archived. Only an idle Thread with no queued messages can be archived; restoring it returns it to its original Workspace and Project without changing its Thread Activity Time. Archiving is reversible and applies only to Threads; Workspaces, Projects, and Workspace-Project Associations do not have an archived lifecycle state.
 _Avoid_: Deleted Thread, hidden Project, archived Workspace
 
 **Permanent Thread Deletion**:
-The irreversible removal of a Thread and all Carrent-owned data attached to it, including messages, attachment snapshots, drafts, queued work, Run Checklists, and Runtime Session mappings. A single active Thread can reach this operation only through the archive area; deleting a Workspace also applies it to every Thread scoped by that Workspace. It never reverses Run Changes or modifies project files, Git branches, commits, the index, or stashes, and it succeeds atomically or leaves the containing operation intact.
+The irreversible removal of a Thread and all Carrent-owned data attached to it, including messages, attachment snapshots, drafts, queued work, and Run Checklists. A single active Thread can reach this operation only through the archive area; deleting a Workspace also applies it to every Thread scoped by that Workspace. It never reverses Run Changes or modifies project files, Git branches, commits, the index, or stashes, and it succeeds atomically or leaves the containing operation intact.
 _Avoid_: project cleanup, archive
-
-**Runtime Session**:
-A replaceable, Runtime-specific continuity handle associated with a Carrent Thread so later Runs can resume that Runtime's internal context. It does not own the Thread's identity or user-visible history, and is detached when its Thread is permanently deleted or when the owning Project is explicitly relocated to another directory path.
-_Avoid_: Thread, Carrent session
 
 **Run**:
 One execution of a coding agent in a thread, beginning with a user request and ending in completion, failure, or cancellation. A Run is shared application state and may be observed or controlled from any Carrent Window showing its Thread.
-_Avoid_: Thread, runtime session, message
+_Avoid_: Thread, message
 
 **Run Checklist**:
 A coding agent-produced, mutable checklist of intended work and each item's current state. Each thread keeps its latest checklist across navigation and app restarts until that thread's next run begins; it communicates current progress, not permanent history, chronological activity, or a plan awaiting review.
@@ -73,56 +69,28 @@ The project file changes associated with one run, regardless of whether the run 
 _Avoid_: Workspace snapshot, Git diff
 
 **Thread Status**:
-The single status shown for a thread. Waiting for approval takes precedence over waiting for an answer, which takes precedence over running, which takes precedence over failed; both waiting states and running exist only while a run is live, and an interrupted run without an explicit failure returns to idle. Compacting is a transient Thread Action status outside the Run lifecycle. A failed result remains visible until the thread's next run begins, while an idle thread without a failure has no status.
-_Avoid_: Runtime status, message status
+The single status shown for a thread. Waiting for approval takes precedence over waiting for an answer, which takes precedence over running, which takes precedence over failed; both waiting states and running exist only while a run is live, and an interrupted run without an explicit failure returns to idle. A failed result remains visible until the thread's next run begins, while an idle thread without a failure has no status.
+_Avoid_: message status
 
 **Thread Activity Time**:
-The time of a thread's most recent meaningful interaction: a submitted user message, a run ending, an approval request, or a successfully persisted Thread Action. Opening, renaming, pinning, starting or failing a Thread Action, and individual streaming updates are not thread activity.
+The time of a thread's most recent meaningful interaction: a submitted user message, a run ending, or an approval request. Opening, renaming, pinning, and individual streaming updates are not thread activity.
 _Avoid_: Updated time, viewed time, modified time
 
 **Approval Request**:
-A request from a run for the user's decision before a controlled action can proceed. Permission is reserved for runtime protocol and implementation terminology.
+A request from a run for the user's decision before a controlled action can proceed.
 _Avoid_: Permission request, confirmation
 
-**Agent GUI**:
-A graphical workspace for driving coding agents, managing project-scoped threads, and controlling how agent runs execute.
-_Avoid_: Chat client, API client
-
-**Runtime**:
-A coding agent implementation that Carrent drives for a run. A runtime owns the agent loop; Carrent owns selection, orchestration, persistence, and presentation around it. A Runtime may be Carrent-owned or supplied by an external agent implementation.
-_Avoid_: Provider, model, API endpoint
-
-**Native Runtime**:
-The Carrent-owned Runtime that calls model providers directly and owns its Agent Loop, built-in tools, approval flow, and system instructions. It coexists with external Runtimes such as Kimi ACP and does not change Carrent's identity as an Agent GUI.
-_Avoid_: Carrent agent, API client, provider
+**Agent Core**:
+The Carrent-owned coding agent implementation that owns the Agent Loop, built-in tools, approval flow, provider calls, and system instructions.
+_Avoid_: Runtime, Native Runtime, ACP Runtime, API client
 
 **Usage**:
-The token consumption Carrent can observe from local Runtime sources. It combines Local Kimi Code records with Native Runtime records while preserving their source, and excludes provider-account-wide usage, balances, billing, and monetary cost.
+The token consumption Carrent can observe from Agent Core model calls. It excludes provider-account-wide usage, balances, billing, and monetary cost.
 _Avoid_: Provider bill, account quota, API cost
-
-**Runtime Setup**:
-The user-facing state and flow for making a Runtime usable by Carrent, including local command availability, provider configuration, credentials, and runtime-owned sign-in where applicable.
-_Avoid_: Runtime error, diagnostics, onboarding
 
 **Agent Loop**:
 The decision loop that turns a user request into model calls, tool use, file edits, shell commands, and follow-up reasoning.
 _Avoid_: Chat completion, single API call
-
-**Thread Action**:
-A user-invoked command that changes the current Thread or how its next Run proceeds, such as compacting context or enabling Plan Mode. The user-facing Chinese label is `会话操作`.
-_Avoid_: Feature Tool, Agent Tool, Session Tool
-
-**Plan Mode**:
-A coding agent run posture that limits the agent to exploration and design until it presents a plan and returns control to the conversation.
-_Avoid_: Permission mode, read-only runtime
-
-**Goal Mode**:
-A Runtime-owned autonomous lifecycle that pursues one durable objective across multiple agent turns until it completes, pauses, or becomes blocked.
-_Avoid_: Long Run, Carrent workflow, background task
-
-**Plan Review**:
-A read-only plan presentation that waits for an explicit user decision before the Runtime proceeds. The user can approve an approach and run it, request changes with feedback for the next Plan Mode turn, or exit Plan Mode without execution; Carrent maps those actions onto the Runtime's native plan options without exposing protocol wording.
-_Avoid_: Generic approval request, implicit approval through a normal message
 
 **Agent Activity**:
 The ordered activity trail produced during a coding agent run, including reasoning summaries, tool activity, file activity, and shell commands.
@@ -140,56 +108,24 @@ _Avoid_: Thinking panel, separate summary, hidden chain of thought
 An agent activity item representing a capability the coding agent used during a run, such as reading a file, editing a file, updating a plan, or running a shell command.
 _Avoid_: Shell-only step, file log, action item
 
-**Subagent**:
-A runtime-owned child coding agent delegated work by another coding agent inside a Run.
-_Avoid_: Child thread, background run
-
-**Subagent Task**:
-One delegated invocation shown by Carrent. A resumed runtime agent can own several Subagent Tasks.
-_Avoid_: Provider session, agent session
-
 **Provider Profile**:
-Non-secret configuration that tells a runtime which provider, proxy, gateway, or model configuration to use for a run.
+The local configuration that tells Agent Core which Anthropic or OpenAI-compatible endpoint, credential, and model to use for a Run.
 _Avoid_: Runtime, API client, account
 
-**Primary Runtime**:
-The runtime Carrent optimizes first and treats as the default path for the current product version. Primary does not mean exclusive; future runtimes may become available without changing the current primary runtime.
-_Avoid_: Only runtime, preferred model, provider
-
-**ACP Runtime**:
-A runtime driven through Agent Client Protocol over stdio, where Carrent acts as the client and the runtime process acts as an agent server.
-_Avoid_: Stream parser, CLI prompt mode
-
-**Carrent Bridge**:
-A Carrent-owned capability surface that lets a runtime discover and request Carrent-provided skills, tools, or resources during a run. Skill reads through this surface are explicit, logged, and separate from prompt-injected skill text.
-_Avoid_: Kimi Bridge, prompt-injected skills
-
-**Local MCP Server**:
-The user-controlled built-in Carrent MCP server that exposes Carrent-owned capabilities, including skills, to runtimes and MCP clients for the current desktop app. Turning it off disables those local MCP capabilities. The internal Run Interaction Server is not part of this surface and remains available when it is off.
-_Avoid_: MCP marketplace, plugin server, third-party server list
-
-**Run Interaction Server**:
-The internal, Run-scoped MCP server (`carrent_session`) that lets a coding agent ask the user structured questions during a live Run. It is not user-controlled, not globally installable, and independent of the Local MCP Server preference.
-_Avoid_: Local MCP Server, global MCP server, user setting
-
 **Skill Catalog**:
-The set of installed skills Carrent can present to users and expose to runtimes through the Carrent Bridge.
+The set of installed skills Carrent can present to users and reference in Agent Core prompts.
 _Avoid_: Prompt prefix, static skill dump
-
-**CLI Runtime**:
-A runtime driven by starting the runtime's command-line process directly for a run, where Carrent maps CLI output into Carrent chat events.
-_Avoid_: ACP runtime, API runtime
 
 **RTK**:
 A local shell command proxy that coding agents can use before development commands to reduce token-heavy command output while preserving command intent.
-_Avoid_: Runtime, provider profile, model
+_Avoid_: Agent Core, provider profile, model
 
 **Image Attachment**:
 An image included in a user message as input for the coding agent to inspect during that run.
 _Avoid_: Preview image, uploaded file, file attachment
 
 **Thread Attachment**:
-A user-added resource, such as an image, file, or pasted text, that becomes available to the coding agent for the current thread. Adding the resource is the user's authorization for Carrent and the selected runtime to read it in that thread.
+A user-added resource, such as an image, file, or pasted text, that becomes available to the coding agent for the current thread. Adding the resource is the user's authorization for Carrent and Agent Core to read it in that thread.
 _Avoid_: Upload, project file, workspace file
 
 **File Attachment**:
@@ -197,11 +133,11 @@ A local file added to a thread as a thread attachment, whether it is inside or o
 _Avoid_: File reference, project-only file
 
 **Local Path Context**:
-A structured reference to a local non-image file or folder the user dragged into the composer, stored as the original absolute path plus a `file` or `directory` kind. It is not a File Attachment or Thread Attachment: Carrent copies no bytes, owns no snapshot, and never enumerates descendants, so it stays a live reference that can become unavailable if the source moves or is deleted. Supported image drops remain snapshot-backed Image Attachments so they retain composer thumbnails and image input behavior. The selected Runtime receives a narrow, Run-scoped read allowlist for the exact referenced file or the referenced directory tree, built at Run start from the canonical path; removing a context through message editing removes that authorization from later Runs. It is rendered as removable composer cards before send and as compact badges in sent messages, never parsed from message prose.
+A structured reference to a local non-image file or folder the user dragged into the composer, stored as the original absolute path plus a `file` or `directory` kind. It is not a File Attachment or Thread Attachment: Carrent copies no bytes, owns no snapshot, and never enumerates descendants, so it stays a live reference that can become unavailable if the source moves or is deleted. Supported image drops remain snapshot-backed Image Attachments. Agent Core applies the current approval policy when accessing the path. It is rendered as removable composer cards before send and as compact badges in sent messages, never parsed from message prose.
 _Avoid_: File Attachment, Thread Attachment, Project Working Directory, uploaded file
 
 **Global Agent Instructions**:
-A user-owned `AGENTS.md` file outside the project tree that a runtime can read as standing instructions for every run. Carrent may let users view and edit these files, but the runtime decides how they are applied.
+A user-owned `AGENTS.md` file outside the project tree that Agent Core reads as standing instructions for every run. Carrent may let users view and edit these files.
 _Avoid_: Settings value, prompt injection, project instructions
 
 **Settings Tab**:

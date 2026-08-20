@@ -6,4 +6,4 @@
 
 ## Relationships
 
-- **Desktop App -> Runtime integrations**: The desktop app drives external agent runtimes and normalizes their output into Carrent chat events.
+- **Desktop App -> Agent Core**: The desktop app drives the Carrent-owned coding agent and presents its runs, approvals, and activity.

@@ -1,6 +1,6 @@
 # Use peer Carrent Windows with Main Process authority
 
-Carrent supports multiple peer top-level windows rather than one Main Window with restricted auxiliary windows. Every Carrent Window has complete navigation and independent presentation state, while Workspace, Project, Thread, Composer, Run, Settings, and Terminal data remain shared application objects. The Main Process is authoritative for shared state and serializes commands from all Renderers because independent Renderer-owned snapshots can overwrite newer changes, duplicate Run controls, and diverge while showing the same Thread. Production App State and Runtime Session mappings are persisted through the Main Process's single SQLite Store and operation queue; Renderer processes never access SQLite directly.
+Carrent supports multiple peer top-level windows rather than one Main Window with restricted auxiliary windows. Every Carrent Window has complete navigation and independent presentation state, while Workspace, Project, Thread, Composer, Run, Settings, and Terminal data remain shared application objects. The Main Process is authoritative for shared state and serializes commands from all Renderers because independent Renderer-owned snapshots can overwrite newer changes, duplicate Run controls, and diverge while showing the same Thread. Production App State is persisted through the Main Process's single SQLite Store and operation queue; Renderer processes never access SQLite directly.
 
 ## Considered Options
 

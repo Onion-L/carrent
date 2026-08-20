@@ -9,6 +9,7 @@ import { useWorkspaceActionDialogs } from "../../hooks/useWorkspaceActionDialogs
 import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
 import { WorkspaceContextMenu } from "./WorkspaceContextMenu";
 import { buildWorkspacePath, getWorkspaceRestorePath } from "../../lib/navigation";
+import { workspaceAvatarColor } from "../../lib/workspaceAvatar";
 
 export function WorkspaceRail() {
   const navigate = useNavigate();
@@ -88,9 +89,10 @@ export function WorkspaceRail() {
                 }}
                 className={`flex h-11 w-11 items-center justify-center rounded-md border text-app-13 font-semibold transition ${
                   active
-                    ? "border-fg/60 bg-surface-hover text-fg"
-                    : "border-border bg-bg text-muted hover:border-border-strong hover:text-fg"
+                    ? "border-fg/60 bg-surface-hover"
+                    : "border-border bg-bg hover:border-border-strong"
                 }`}
+                style={{ color: workspaceAvatarColor(workspace.name) }}
               >
                 {workspace.name.slice(0, 1).toUpperCase()}
               </button>

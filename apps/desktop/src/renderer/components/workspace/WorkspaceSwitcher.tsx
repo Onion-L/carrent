@@ -126,7 +126,8 @@ export function WorkspaceSwitcher() {
                       title={`Actions for ${workspace.name}`}
                       onClick={(event) => {
                         event.stopPropagation();
-                        setIsOpen(false);
+                        // Keep the dropdown open so the menu stays anchored
+                        // next to the row it was opened from.
                         setMenu({
                           workspaceId: workspace.id,
                           x: event.clientX,

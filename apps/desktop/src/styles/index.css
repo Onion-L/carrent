@@ -192,6 +192,17 @@
     font-size: var(--font-size-terminal);
   }
 
+  /* Diff viewer code rows: resolve the same inline --shiki-light/dark token
+     pairs that Markdown code blocks use, following the app theme. Scoped to
+     the content span so sibling spans (line numbers) keep their own color. */
+  .shiki-tokens span {
+    color: var(--shiki-light, inherit);
+  }
+
+  [data-theme="dark"] .shiki-tokens span {
+    color: var(--shiki-dark, inherit);
+  }
+
   #root {
     height: 100vh;
     width: 100vw;

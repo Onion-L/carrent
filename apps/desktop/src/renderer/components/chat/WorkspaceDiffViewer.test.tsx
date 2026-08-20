@@ -66,7 +66,7 @@ describe("classifyDiffLine", () => {
 });
 
 describe("WorkspaceDiffContent", () => {
-  it("renders classified lines with prefix markers and stripped content", () => {
+  it("renders numbered lines with stripped content and keeps the hunk header", () => {
     const snapshot: WorkspaceDiffSnapshot = {
       baseRevision: "abcdef1234567890",
       capturedAt: "2024-01-01T00:00:00.000Z",
@@ -85,11 +85,14 @@ describe("WorkspaceDiffContent", () => {
     ];
 
     const html = renderContent(snapshot, files);
-    expect(html).toContain("diff --git a/file.txt b/file.txt");
     expect(html).toContain("@@ -1,2 +1,3 @@");
-    expect(html).toContain("> </span>context</div>");
-    expect(html).toContain(">-</span>deleted</div>");
-    expect(html).toContain(">+</span>added</div>");
+    expect(html).toContain(">1</span>");
+    expect(html).toContain(">2</span>");
+    expect(html).toContain(">context</span>");
+    expect(html).toContain(">deleted</span>");
+    expect(html).toContain(">added</span>");
+    expect(html).not.toContain(">+</span>");
+    expect(html).not.toContain(">-</span>");
   });
 
   it("escapes source-like script tags as text", () => {
@@ -206,8 +209,8 @@ describe("WorkspaceDiffContent", () => {
     const html = renderContent(snapshot, files);
     expect(html).toContain("first.txt");
     expect(html).toContain("second.txt");
-    expect(html).toContain(">+</span>new</div>");
-    expect(html).not.toContain(">+</span>b</div>");
+    expect(html).toContain(">new</span>");
+    expect(html).not.toContain(">b</span>");
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain('aria-expanded="false"');
   });

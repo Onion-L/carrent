@@ -966,7 +966,7 @@ if (!hasSingleInstanceLock) {
         }
       },
     });
-    registerAgentAuthIpc(guardedIpcMain);
+    registerAgentAuthIpc(guardedIpcMain, { openExternal: (url) => shell.openExternal(url) });
     registerSettingsIpc(
       guardedIpcMain,
       () => app.getVersion(),

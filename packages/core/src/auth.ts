@@ -2,6 +2,8 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import type { Credential, OAuthCredential } from "@earendil-works/pi-ai";
+
 import type { AgentAuthFile, ProviderProfile, ProviderProfileType } from "./types";
 
 const AUTH_VERSION = 1;
@@ -15,14 +17,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function readCredential(value: unknown): Credential | undefined {
+  if (!isRecord(value) || (value.type !== "api_key" && value.type !== "oauth")) return undefined;
+  if (value.type === "api_key") {
+    const key = typeof value.key === "string" ? value.key.trim() : "";
+    return key ? { type: "api_key", key } : undefined;
+  }
+  const refresh = typeof value.refresh === "string" ? value.refresh.trim() : "";
+  const access = typeof value.access === "string" ? value.access.trim() : "";
+  const expires = typeof value.expires === "number" ? value.expires : 0;
+  if (!refresh || !access || !Number.isFinite(expires)) return undefined;
+  return { ...value, type: "oauth", refresh, access, expires } as OAuthCredential;
+}
+
 function readProfile(id: string, value: unknown): ProviderProfile | null {
   if (!PROFILE_ID_PATTERN.test(id) || !isRecord(value)) return null;
   const type: ProviderProfileType | null =
     value.type === "anthropic" || value.api === "anthropic"
       ? "anthropic"
-      : value.type === "openai-compatible" || value.api === "openai-compatible"
-        ? "openai-compatible"
-        : null;
+      : value.type === "kimi-coding" || value.api === "kimi-coding"
+        ? "kimi-coding"
+        : value.type === "openai-compatible" || value.api === "openai-compatible"
+          ? "openai-compatible"
+          : null;
   const apiKey = (
     typeof value.apiKey === "string"
       ? value.apiKey
@@ -30,16 +47,25 @@ function readProfile(id: string, value: unknown): ProviderProfile | null {
         ? value.key
         : ""
   ).trim();
+  const credential = readCredential(value.credential);
   const baseUrl = typeof value.baseUrl === "string" ? value.baseUrl.trim() : "";
   const modelId = typeof value.modelId === "string" ? value.modelId.trim() : "";
-  if (!type || !apiKey || !baseUrl || !modelId) return null;
+  if (!type || !baseUrl || !modelId) return null;
   try {
     const url = new URL(baseUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
   } catch {
     return null;
   }
-  return { id, type, apiKey, baseUrl, modelId, thinking: value.thinking === true };
+  return {
+    id,
+    type,
+    ...(apiKey ? { apiKey } : {}),
+    ...(credential ? { credential } : {}),
+    baseUrl,
+    modelId,
+    thinking: value.thinking === true,
+  };
 }
 
 export function normalizeAgentAuthFile(value: unknown): AgentAuthFile | null {

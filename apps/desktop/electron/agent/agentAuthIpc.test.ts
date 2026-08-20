@@ -19,7 +19,7 @@ function request(overrides: Record<string, unknown> = {}) {
 }
 
 describe("parseAgentAuthSaveRequest", () => {
-  it("accepts Anthropic and OpenAI-compatible profiles", () => {
+  it("accepts Anthropic, OpenAI-compatible, and Kimi profiles", () => {
     expect(
       parseAgentAuthSaveRequest(
         request({
@@ -37,6 +37,22 @@ describe("parseAgentAuthSaveRequest", () => {
         }),
       ).profiles,
     ).toHaveLength(2);
+    expect(
+      parseAgentAuthSaveRequest(
+        request({
+          activeProfileId: "kimi",
+          profiles: [
+            {
+              id: "kimi",
+              type: "kimi-coding",
+              baseUrl: "https://api.kimi.com/coding",
+              modelId: "k3",
+              apiKey: "secret",
+            },
+          ],
+        }),
+      ).profiles[0]?.type,
+    ).toBe("kimi-coding");
   });
 
   it("rejects duplicate IDs, invalid URLs, and a missing active profile", () => {

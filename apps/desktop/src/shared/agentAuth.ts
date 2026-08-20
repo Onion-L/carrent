@@ -1,4 +1,5 @@
-export type ProviderProfileType = "anthropic" | "openai-compatible";
+export type ProviderProfileType = "anthropic" | "openai-compatible" | "kimi-coding";
+export type ProviderAuthType = "api_key" | "oauth";
 
 export type ProviderProfileView = {
   id: string;
@@ -7,6 +8,9 @@ export type ProviderProfileView = {
   modelId: string;
   thinking?: boolean;
   hasApiKey: boolean;
+  authType?: ProviderAuthType;
+  oauthSupported?: boolean;
+  models?: Array<{ id: string; name: string }>;
 };
 
 export type AgentAuthView = {

@@ -77,6 +77,9 @@ declare global {
       agentAuth: {
         load: () => Promise<AgentAuthView>;
         save: (request: SaveAgentAuthRequest) => Promise<AgentAuthView>;
+        login?: (profileId: string) => Promise<AgentAuthView>;
+        cancelLogin?: (profileId: string) => Promise<void>;
+        logout?: (profileId: string) => Promise<AgentAuthView>;
       };
       browser: BrowserApi;
       chat: {

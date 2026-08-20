@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Check, KeyRound, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Check, KeyRound, LogIn, LogOut, Plus, RefreshCw, Trash2, X } from "lucide-react";
 
 import type {
   AgentAuthView,
@@ -19,6 +19,7 @@ function emptyProfile(index: number): DraftProfile {
     thinking: false,
     apiKey: "",
     hasApiKey: false,
+    oauthSupported: false,
   };
 }
 
@@ -29,6 +30,7 @@ export function ProviderProfilesPanel() {
   const [activeProfileId, setActiveProfileId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [oauthProfileId, setOauthProfileId] = useState<string | null>(null);
 
   const applyView = (view: AgentAuthView) => {
     const next = view.profiles.map((profile) => ({ ...profile, apiKey: "" }));
@@ -58,16 +60,26 @@ export function ProviderProfilesPanel() {
     );
   };
 
+  const saveRequest = (): SaveAgentAuthRequest => ({
+    activeProfileId,
+    profiles: profiles.map(
+      ({
+        hasApiKey: _hasApiKey,
+        authType: _authType,
+        oauthSupported: _oauthSupported,
+        models: _models,
+        ...profile
+      }) => ({
+        ...profile,
+        ...(profile.apiKey?.trim() ? { apiKey: profile.apiKey.trim() } : {}),
+      }),
+    ),
+  });
+
   const save = async () => {
     setSaving(true);
     try {
-      const view = await window.carrent.agentAuth.save({
-        activeProfileId,
-        profiles: profiles.map(({ hasApiKey: _hasApiKey, ...profile }) => ({
-          ...profile,
-          ...(profile.apiKey?.trim() ? { apiKey: profile.apiKey.trim() } : {}),
-        })),
-      });
+      const view = await window.carrent.agentAuth.save(saveRequest());
       applyView(view);
       showToast("Provider Profiles saved.", "success");
     } catch (error) {
@@ -77,6 +89,37 @@ export function ProviderProfilesPanel() {
       );
     } finally {
       setSaving(false);
+    }
+  };
+
+  const loginWithOAuth = async (profileId: string) => {
+    if (!window.carrent.agentAuth.login) return;
+    setOauthProfileId(profileId);
+    try {
+      await window.carrent.agentAuth.save(saveRequest());
+      applyView(await window.carrent.agentAuth.login(profileId));
+      showToast("OAuth login completed.", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "OAuth login failed.", "error");
+    } finally {
+      setOauthProfileId(null);
+    }
+  };
+
+  const cancelLogin = async (profileId: string) => {
+    await window.carrent.agentAuth.cancelLogin?.(profileId);
+  };
+
+  const logout = async (profileId: string) => {
+    if (!window.carrent.agentAuth.logout) return;
+    setOauthProfileId(profileId);
+    try {
+      applyView(await window.carrent.agentAuth.logout(profileId));
+      showToast("OAuth disconnected.", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "OAuth logout failed.", "error");
+    } finally {
+      setOauthProfileId(null);
     }
   };
 
@@ -164,14 +207,34 @@ export function ProviderProfilesPanel() {
                       const type = event.target.value as ProviderProfileType;
                       updateProfile(index, {
                         type,
-                        ...(type === "anthropic" && !profile.baseUrl
-                          ? { baseUrl: "https://api.anthropic.com" }
-                          : {}),
+                        ...(type === "kimi-coding"
+                          ? {
+                              baseUrl: "https://api.kimi.com/coding",
+                              modelId: "k3",
+                              authType: undefined,
+                              hasApiKey: false,
+                              oauthSupported: true,
+                            }
+                          : type === "anthropic"
+                            ? {
+                                baseUrl: "https://api.anthropic.com",
+                                modelId: "claude-sonnet-4-6",
+                                authType: undefined,
+                                hasApiKey: false,
+                                oauthSupported: false,
+                              }
+                            : {
+                                authType: undefined,
+                                hasApiKey: false,
+                                oauthSupported: false,
+                                models: undefined,
+                              }),
                       });
                     }}
                     className="field-input"
                   >
                     <option value="anthropic">Anthropic</option>
+                    <option value="kimi-coding">Kimi Coding</option>
                     <option value="openai-compatible">OpenAI-compatible</option>
                   </select>
                 </Field>
@@ -191,7 +254,17 @@ export function ProviderProfilesPanel() {
                     className="field-input"
                     spellCheck={false}
                     placeholder="model-id"
+                    list={`provider-models-${index}`}
                   />
+                  {profile.models?.length ? (
+                    <datalist id={`provider-models-${index}`}>
+                      {profile.models.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}
+                        </option>
+                      ))}
+                    </datalist>
+                  ) : null}
                 </Field>
                 <label className="col-span-2 flex items-center gap-2 text-app-12 text-muted">
                   <input
@@ -212,11 +285,59 @@ export function ProviderProfilesPanel() {
                       className="field-input pl-8"
                       autoComplete="off"
                       placeholder={
-                        profile.hasApiKey ? "Configured - leave blank to keep" : "Required"
+                        profile.authType === "oauth"
+                          ? "OAuth configured"
+                          : profile.hasApiKey
+                            ? "Configured - leave blank to keep"
+                            : "Required"
                       }
                     />
                   </div>
                 </Field>
+                {profile.oauthSupported ? (
+                  <div className="col-span-2 flex flex-wrap items-center justify-between gap-3">
+                    <span className="text-app-11 text-subtle">
+                      {profile.authType === "oauth"
+                        ? "Connected with OAuth"
+                        : "Connect a Kimi Code account"}
+                    </span>
+                    <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void (oauthProfileId === profile.id
+                            ? cancelLogin(profile.id)
+                            : loginWithOAuth(profile.id))
+                        }
+                        disabled={oauthProfileId !== null && oauthProfileId !== profile.id}
+                        className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-app-12 text-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-40"
+                      >
+                        {oauthProfileId === profile.id ? (
+                          <X className="h-3.5 w-3.5" />
+                        ) : (
+                          <LogIn className="h-3.5 w-3.5" />
+                        )}
+                        {oauthProfileId === profile.id
+                          ? "Cancel"
+                          : profile.authType === "oauth"
+                            ? "Sign in again"
+                            : "Sign in with OAuth"}
+                      </button>
+                      {profile.authType === "oauth" ? (
+                        <button
+                          type="button"
+                          aria-label={`Disconnect ${profile.id}`}
+                          onClick={() => void logout(profile.id)}
+                          disabled={oauthProfileId !== null}
+                          className="flex h-8 w-8 items-center justify-center rounded-md text-subtle hover:bg-danger/10 hover:text-danger disabled:opacity-40"
+                          title="Disconnect OAuth"
+                        >
+                          <LogOut className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </section>
           );

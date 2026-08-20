@@ -6,7 +6,7 @@ const PROVIDER_PROFILE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 export type ProviderProfileRecord = {
   id: ProviderProfileId;
   name: string;
-  type: "anthropic" | "openai-compatible";
+  type: "anthropic" | "openai-compatible" | "kimi-coding";
   modelId: string;
   configured: boolean;
 };

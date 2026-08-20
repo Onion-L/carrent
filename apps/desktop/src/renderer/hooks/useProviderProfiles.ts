@@ -17,7 +17,7 @@ export function useProviderProfiles() {
           name: profile.id,
           type: profile.type,
           modelId: profile.modelId,
-          configured: profile.hasApiKey,
+          configured: Boolean(profile.authType),
         })),
       );
     } finally {

@@ -1,13 +1,15 @@
 import type { AgentEvent, StreamFn } from "@earendil-works/pi-agent-core";
+import type { Credential } from "@earendil-works/pi-ai";
 
 export type AgentMode = "ask" | "auto-edit" | "full-project";
 
-export type ProviderProfileType = "anthropic" | "openai-compatible";
+export type ProviderProfileType = "anthropic" | "openai-compatible" | "kimi-coding";
 
 export type ProviderProfile = {
   id: string;
   type: ProviderProfileType;
-  apiKey: string;
+  apiKey?: string;
+  credential?: Credential;
   baseUrl: string;
   modelId: string;
   thinking?: boolean;

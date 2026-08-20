@@ -133,6 +133,12 @@ const carrent = {
     load: () => ipcRenderer.invoke("agent-auth:load") as Promise<AgentAuthView>,
     save: (request: SaveAgentAuthRequest) =>
       ipcRenderer.invoke("agent-auth:save", request) as Promise<AgentAuthView>,
+    login: (profileId: string) =>
+      ipcRenderer.invoke("agent-auth:login", { profileId }) as Promise<AgentAuthView>,
+    cancelLogin: (profileId: string) =>
+      ipcRenderer.invoke("agent-auth:cancel-login", { profileId }) as Promise<void>,
+    logout: (profileId: string) =>
+      ipcRenderer.invoke("agent-auth:logout", { profileId }) as Promise<AgentAuthView>,
   },
   browser: {
     activate: (target: BrowserThreadTarget | null) =>

@@ -1,23 +1,11 @@
-import {
-  Agent,
-  type AgentEvent,
-  type AgentMessage,
-  type StreamFn,
-} from "@earendil-works/pi-agent-core";
-import type { Api, AssistantMessage, Model, Usage } from "@earendil-works/pi-ai";
-import { streamSimple as streamAnthropic } from "@earendil-works/pi-ai/api/anthropic-messages";
-import { streamSimple as streamOpenAi } from "@earendil-works/pi-ai/api/openai-completions";
+import { Agent, type AgentEvent, type AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 
 import { classifyToolApproval } from "./approvalPolicy";
+import { createAgentModels } from "./models";
 import { buildSystemPrompt } from "./systemPrompt";
 import { createAgentTools } from "./tools";
-import type {
-  AgentCoreDependencies,
-  AgentRunHandle,
-  AgentRunInput,
-  AgentRunResult,
-  ProviderProfile,
-} from "./types";
+import type { AgentCoreDependencies, AgentRunHandle, AgentRunInput, AgentRunResult } from "./types";
 
 const ZERO_USAGE: Usage = {
   input: 0,
@@ -27,22 +15,6 @@ const ZERO_USAGE: Usage = {
   totalTokens: 0,
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
-
-function createModel(profile: ProviderProfile): Model<Api> {
-  const thinking = profile.thinking === true;
-  return {
-    id: profile.modelId,
-    name: profile.modelId,
-    api: profile.type === "anthropic" ? "anthropic-messages" : "openai-completions",
-    provider: profile.id,
-    baseUrl: profile.baseUrl.replace(/\/$/, ""),
-    reasoning: thinking,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: profile.type === "anthropic" ? 200_000 : 128_000,
-    maxTokens: 8_192,
-  };
-}
 
 function debugBaseUrl(value: string) {
   try {
@@ -57,11 +29,6 @@ function debugBaseUrl(value: string) {
   }
 }
 
-const defaultStreamFn: StreamFn = (model, context, options) =>
-  model.api === "anthropic-messages"
-    ? streamAnthropic(model as Model<"anthropic-messages">, context, options)
-    : streamOpenAi(model as Model<"openai-completions">, context, options);
-
 function historyMessages(input: AgentRunInput, now: () => number): AgentMessage[] {
   return input.transcript.map((message) => {
     if (message.role === "user") {
@@ -70,7 +37,12 @@ function historyMessages(input: AgentRunInput, now: () => number): AgentMessage[
     return {
       role: "assistant",
       content: [{ type: "text", text: message.content }],
-      api: input.profile.type === "anthropic" ? "anthropic-messages" : "openai-completions",
+      api:
+        input.profile.type === "anthropic"
+          ? "anthropic-messages"
+          : input.profile.type === "kimi-coding"
+            ? "anthropic-messages"
+            : "openai-completions",
       provider: input.profile.id,
       model: input.profile.modelId,
       usage: ZERO_USAGE,
@@ -105,6 +77,7 @@ export function createAgentCore(dependencies: AgentCoreDependencies = {}) {
 
         const messages = historyMessages(input, now);
         const tools = createAgentTools(input.workingDirectory);
+        const agentModels = createAgentModels(input.profile, dependencies.homeDirectory);
         await input.onEvent?.({
           type: "run-context",
           systemPrompt,
@@ -127,13 +100,14 @@ export function createAgentCore(dependencies: AgentCoreDependencies = {}) {
         agent = new Agent({
           initialState: {
             systemPrompt,
-            model: createModel(input.profile),
+            model: agentModels.model,
             thinkingLevel: input.profile.thinking === true ? "medium" : "off",
             tools,
             messages,
           },
-          streamFn: dependencies.streamFn ?? defaultStreamFn,
-          getApiKey: () => input.profile.apiKey,
+          streamFn:
+            dependencies.streamFn ??
+            ((model, context, options) => agentModels.models.streamSimple(model, context, options)),
           toolExecution: "sequential",
           beforeToolCall: async ({ toolCall, args }) => {
             const classification = await classifyToolApproval({

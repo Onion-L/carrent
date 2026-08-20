@@ -10,6 +10,7 @@ export type ProviderProfile = {
   apiKey: string;
   baseUrl: string;
   modelId: string;
+  thinking?: boolean;
 };
 
 export type AgentAuthFile = {
@@ -58,7 +59,7 @@ export type AgentCoreEvent =
       }>;
     }
   | { type: "text-delta"; delta: string }
-  | { type: "reasoning-delta"; delta: string }
+  | { type: "thinking_delta"; delta: string }
   | { type: "tool-start"; toolCallId: string; toolName: string; args: unknown }
   | { type: "tool-update"; toolCallId: string; toolName: string; update: unknown }
   | {

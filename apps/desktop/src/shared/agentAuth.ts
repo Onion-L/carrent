@@ -5,6 +5,7 @@ export type ProviderProfileView = {
   type: ProviderProfileType;
   baseUrl: string;
   modelId: string;
+  thinking?: boolean;
   hasApiKey: boolean;
 };
 

@@ -101,4 +101,64 @@ describe("createAgentCore", () => {
       { type: "text", text: "Finish the task" },
     ]);
   });
+
+  it("enables provider thinking when the profile opts in", async () => {
+    const workingDirectory = await mkdtemp(path.join(os.tmpdir(), "carrent-core-project-"));
+    const homeDirectory = await mkdtemp(path.join(os.tmpdir(), "carrent-core-home-"));
+    const thinkingDeltas: string[] = [];
+    let capturedModel: Model<Api> | undefined;
+
+    const core = createAgentCore({
+      homeDirectory,
+      streamFn: (model) => {
+        capturedModel = model;
+        const stream = createAssistantMessageEventStream();
+        const message: AssistantMessage = {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "Plan" },
+            { type: "text", text: "Done" },
+          ],
+          api: model.api,
+          provider: model.provider,
+          model: model.id,
+          usage,
+          stopReason: "stop",
+          timestamp: 1,
+        };
+        stream.push({ type: "start", partial: { ...message, content: [] } });
+        stream.push({ type: "thinking_start", contentIndex: 0, partial: message });
+        stream.push({ type: "thinking_delta", contentIndex: 0, delta: "Plan", partial: message });
+        stream.push({ type: "thinking_end", contentIndex: 0, content: "Plan", partial: message });
+        stream.push({ type: "text_start", contentIndex: 1, partial: message });
+        stream.push({ type: "text_delta", contentIndex: 1, delta: "Done", partial: message });
+        stream.push({ type: "text_end", contentIndex: 1, content: "Done", partial: message });
+        stream.push({ type: "done", reason: "stop", message });
+        return stream;
+      },
+    });
+
+    await core.run({
+      id: "run-thinking",
+      workingDirectory,
+      profile: {
+        id: "local-openai",
+        type: "openai-compatible",
+        apiKey: "secret",
+        baseUrl: "http://localhost:11434/v1/",
+        modelId: "thinking-model",
+        thinking: true,
+      },
+      mode: "ask",
+      transcript: [],
+      prompt: "Think first",
+      requestApproval: async () => "reject",
+      onEvent: (event) => {
+        if (event.type === "thinking_delta") thinkingDeltas.push(event.delta);
+      },
+    }).result;
+
+    expect(capturedModel?.reasoning).toBe(true);
+    expect(thinkingDeltas).toEqual(["Plan"]);
+  });
 });

@@ -19,6 +19,7 @@ describe("agent auth", () => {
             apiKey: "secret",
             baseUrl: "https://api.anthropic.com",
             modelId: "claude-test",
+            thinking: false,
           },
         },
       },
@@ -35,6 +36,7 @@ describe("agent auth", () => {
           apiKey: "secret",
           baseUrl: "https://api.anthropic.com",
           modelId: "claude-test",
+          thinking: false,
         },
       },
     });
@@ -63,5 +65,20 @@ describe("agent auth", () => {
         activeProfileId: "default",
       }),
     ).toBe(null);
+  });
+
+  it("preserves the opt-in thinking flag while defaulting legacy profiles off", () => {
+    const profile = {
+      type: "openai-compatible",
+      apiKey: "secret",
+      baseUrl: "https://api.example.com/v1",
+      modelId: "thinking-model",
+      thinking: true,
+    };
+
+    expect(
+      normalizeAgentAuthFile({ profiles: { default: profile }, activeProfileId: "default" })
+        ?.profiles.default?.thinking,
+    ).toBe(true);
   });
 });

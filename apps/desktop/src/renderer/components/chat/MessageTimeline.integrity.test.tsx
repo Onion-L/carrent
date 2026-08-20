@@ -298,6 +298,70 @@ describe("Agent message timeline", () => {
     expect(container.textContent).toContain("Here is the final response.");
   });
 
+  it("renders streamed text while agent activity is running", async () => {
+    const message: Message = {
+      id: "assistant-stream-after-tools",
+      role: "assistant",
+      threadId: "thread-1",
+      timestamp: "09:00",
+      content: "",
+      runStatus: "running",
+      parts: [
+        {
+          type: "agent_activity",
+          item: {
+            type: "tool",
+            id: "tool-1",
+            order: 0,
+            toolCallId: "tool-1",
+            title: "Read",
+            kind: "read",
+            command: "",
+            filePath: "src/index.ts",
+            input: "",
+            output: "done",
+            error: "",
+            status: "completed",
+          },
+        },
+        { type: "text", content: "Streaming response" },
+      ],
+    };
+
+    await act(async () => {
+      root.render(<MessageTimeline messages={[message]} />);
+    });
+
+    expect(container.textContent).toContain("Streaming response");
+  });
+
+  it("keeps formal text outside the Thinking block while it streams", async () => {
+    const message: Message = {
+      id: "assistant-stream-after-thinking",
+      role: "assistant",
+      threadId: "thread-1",
+      timestamp: "09:00",
+      content: "",
+      runStatus: "running",
+      parts: [
+        {
+          type: "reasoning",
+          id: "reasoning-1",
+          content: "Private thought",
+          status: "running",
+        },
+        { type: "text", content: "Formal response" },
+      ],
+    };
+
+    await act(async () => {
+      root.render(<MessageTimeline messages={[message]} />);
+    });
+
+    expect(container.textContent).toContain("Formal response");
+    expect(container.querySelector(".border-l")).toBe(null);
+  });
+
   it("renders a dedicated Subagent row that opens its task", async () => {
     let selectedTaskId: string | null = null;
     const message: Message = {

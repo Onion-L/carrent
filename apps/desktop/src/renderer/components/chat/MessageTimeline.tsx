@@ -780,7 +780,7 @@ function AgentActivityGroup({
 
 export function getAssistantMessagePresentation(
   parts: MessagePart[],
-  runStatus: Message["runStatus"],
+  _runStatus: Message["runStatus"],
 ): {
   timelineItems?: AgentTimelinePresentationItem[];
   activityItems: AgentActivityItem[];
@@ -834,7 +834,6 @@ export function getAssistantMessagePresentation(
     // Agent activity is stored separately from streamed text. Once the run
     // settles, text parts after the final activity item are the formal answer
     // and must be rendered after the activity timeline.
-    const answerCanStart = runStatus !== "running";
     const lastActivityIndex = parts.reduce(
       (lastIndex, part, index) =>
         part.type === "agent_activity" || part.type === "reasoning" || part.type === "shell"
@@ -842,15 +841,13 @@ export function getAssistantMessagePresentation(
           : lastIndex,
       -1,
     );
-    const answerText = answerCanStart
-      ? parts
-          .filter(
-            (part, index): part is Extract<MessagePart, { type: "text" }> =>
-              part.type === "text" && index > lastActivityIndex,
-          )
-          .map((part) => part.content)
-          .join("\n")
-      : "";
+    const answerText = parts
+      .filter(
+        (part, index): part is Extract<MessagePart, { type: "text" }> =>
+          part.type === "text" && index > lastActivityIndex,
+      )
+      .map((part) => part.content)
+      .join("\n");
 
     return {
       timelineItems,
@@ -860,7 +857,6 @@ export function getAssistantMessagePresentation(
     };
   }
 
-  const answerCanStart = runStatus !== "running";
   const lastActivityIndex = parts.reduce(
     (lastIndex, part, index) =>
       part.type === "reasoning" || part.type === "shell" ? index : lastIndex,
@@ -868,13 +864,11 @@ export function getAssistantMessagePresentation(
   );
   const finalTextIndexes = new Set<number>();
 
-  if (answerCanStart) {
-    parts.forEach((part, index) => {
-      if (part.type === "text" && index > lastActivityIndex) {
-        finalTextIndexes.add(index);
-      }
-    });
-  }
+  parts.forEach((part, index) => {
+    if (part.type === "text" && index > lastActivityIndex) {
+      finalTextIndexes.add(index);
+    }
+  });
 
   const activityItems: AgentActivityItem[] = [];
   const answerParts: string[] = [];

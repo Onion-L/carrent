@@ -29,13 +29,14 @@ const ZERO_USAGE: Usage = {
 };
 
 function createModel(profile: ProviderProfile): Model<Api> {
+  const thinking = profile.thinking === true;
   return {
     id: profile.modelId,
     name: profile.modelId,
     api: profile.type === "anthropic" ? "anthropic-messages" : "openai-completions",
     provider: profile.id,
     baseUrl: profile.baseUrl.replace(/\/$/, ""),
-    reasoning: false,
+    reasoning: thinking,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: profile.type === "anthropic" ? 200_000 : 128_000,
@@ -127,6 +128,7 @@ export function createAgentCore(dependencies: AgentCoreDependencies = {}) {
           initialState: {
             systemPrompt,
             model: createModel(input.profile),
+            thinkingLevel: input.profile.thinking === true ? "medium" : "off",
             tools,
             messages,
           },
@@ -158,7 +160,7 @@ export function createAgentCore(dependencies: AgentCoreDependencies = {}) {
             if (update.type === "text_delta") {
               await input.onEvent?.({ type: "text-delta", delta: update.delta });
             } else if (update.type === "thinking_delta") {
-              await input.onEvent?.({ type: "reasoning-delta", delta: update.delta });
+              await input.onEvent?.({ type: "thinking_delta", delta: update.delta });
             }
           } else if (event.type === "message_end" && event.message.role === "assistant") {
             finalText = assistantText(event.message);

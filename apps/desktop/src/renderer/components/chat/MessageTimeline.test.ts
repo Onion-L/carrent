@@ -751,6 +751,31 @@ describe("assistant message presentation", () => {
     );
   });
 
+  it("keeps trailing streamed text visible while agent activity is running", () => {
+    const parts = [
+      {
+        type: "agent_activity" as const,
+        item: {
+          type: "tool" as const,
+          id: "tool-1",
+          order: 0,
+          toolCallId: "tool-1",
+          title: "Read",
+          kind: "read",
+          command: "",
+          filePath: "src/index.ts",
+          input: "",
+          output: "done",
+          error: "",
+          status: "completed" as const,
+        },
+      },
+      { type: "text" as const, content: "Streaming response" },
+    ];
+
+    expect(getAssistantMessagePresentation(parts, "running").answerText).toBe("Streaming response");
+  });
+
   it("uses streamed assistant text as Thinking content until the run completes", () => {
     const parts = [
       {
@@ -780,6 +805,24 @@ describe("assistant message presentation", () => {
         parts[2],
       ],
       answerText: "",
+      postAnswerActivityItems: [],
+    });
+  });
+
+  it("separates text after reasoning as a streamed answer while running", () => {
+    const parts = [
+      {
+        type: "reasoning" as const,
+        id: "agent-thinking-1",
+        content: "Private thought",
+        status: "running" as const,
+      },
+      { type: "text" as const, content: "Formal response" },
+    ];
+
+    expect(getAssistantMessagePresentation(parts, "running")).toEqual({
+      activityItems: [parts[0]],
+      answerText: "Formal response",
       postAnswerActivityItems: [],
     });
   });

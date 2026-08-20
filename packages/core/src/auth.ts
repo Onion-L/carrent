@@ -39,7 +39,7 @@ function readProfile(id: string, value: unknown): ProviderProfile | null {
   } catch {
     return null;
   }
-  return { id, type, apiKey, baseUrl, modelId };
+  return { id, type, apiKey, baseUrl, modelId, thinking: value.thinking === true };
 }
 
 export function normalizeAgentAuthFile(value: unknown): AgentAuthFile | null {
@@ -59,9 +59,7 @@ export function normalizeAgentAuthFile(value: unknown): AgentAuthFile | null {
   return { version: AUTH_VERSION, activeProfileId, profiles };
 }
 
-export async function loadAgentAuth(
-  homeDirectory = os.homedir(),
-): Promise<AgentAuthFile | null> {
+export async function loadAgentAuth(homeDirectory = os.homedir()): Promise<AgentAuthFile | null> {
   try {
     const content = await readFile(getAgentAuthPath(homeDirectory), "utf8");
     return normalizeAgentAuthFile(JSON.parse(content));

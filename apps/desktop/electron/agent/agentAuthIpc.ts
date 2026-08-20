@@ -24,6 +24,7 @@ function viewOf(auth: AgentAuthFile | null): AgentAuthView {
       type: profile.type,
       baseUrl: profile.baseUrl,
       modelId: profile.modelId,
+      thinking: profile.thinking === true,
       hasApiKey: Boolean(profile.apiKey),
     })),
   };
@@ -49,6 +50,7 @@ export function parseAgentAuthSaveRequest(value: unknown): SaveAgentAuthRequest 
       (profile.type !== "anthropic" && profile.type !== "openai-compatible") ||
       typeof profile.baseUrl !== "string" ||
       typeof profile.modelId !== "string" ||
+      (profile.thinking !== undefined && typeof profile.thinking !== "boolean") ||
       (profile.apiKey !== undefined && typeof profile.apiKey !== "string")
     ) {
       throw new Error("Provider Profile fields are invalid.");
@@ -83,6 +85,7 @@ export function registerAgentAuthIpc(ipcMainLike: IpcMainLike) {
         apiKey,
         baseUrl: profile.baseUrl.trim().replace(/\/$/, ""),
         modelId: profile.modelId.trim(),
+        thinking: profile.thinking === true,
       };
     }
     await saveAgentAuth({ version: 1, activeProfileId: request.activeProfileId, profiles });

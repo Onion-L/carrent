@@ -16,6 +16,7 @@ function emptyProfile(index: number): DraftProfile {
     type: "anthropic",
     baseUrl: "https://api.anthropic.com",
     modelId: "claude-sonnet-4-6",
+    thinking: false,
     apiKey: "",
     hasApiKey: false,
   };
@@ -41,7 +42,10 @@ export function ProviderProfilesPanel() {
       .load()
       .then(applyView)
       .catch((error) =>
-        showToast(error instanceof Error ? error.message : "Provider Profiles could not be loaded.", "error"),
+        showToast(
+          error instanceof Error ? error.message : "Provider Profiles could not be loaded.",
+          "error",
+        ),
       )
       .finally(() => setLoading(false));
   }, [showToast]);
@@ -67,14 +71,19 @@ export function ProviderProfilesPanel() {
       applyView(view);
       showToast("Provider Profiles saved.", "success");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Provider Profiles could not be saved.", "error");
+      showToast(
+        error instanceof Error ? error.message : "Provider Profiles could not be saved.",
+        "error",
+      );
     } finally {
       setSaving(false);
     }
   };
 
   if (loading) {
-    return <div className="py-12 text-center text-app-13 text-subtle">Loading Provider Profiles...</div>;
+    return (
+      <div className="py-12 text-center text-app-13 text-subtle">Loading Provider Profiles...</div>
+    );
   }
 
   return (
@@ -184,6 +193,15 @@ export function ProviderProfilesPanel() {
                     placeholder="model-id"
                   />
                 </Field>
+                <label className="col-span-2 flex items-center gap-2 text-app-12 text-muted">
+                  <input
+                    type="checkbox"
+                    checked={profile.thinking === true}
+                    onChange={(event) => updateProfile(index, { thinking: event.target.checked })}
+                    className="h-3.5 w-3.5 accent-fg"
+                  />
+                  <span>Enable Thinking</span>
+                </label>
                 <Field label="API Key" className="col-span-2">
                   <div className="relative">
                     <KeyRound className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-subtle" />
@@ -193,7 +211,9 @@ export function ProviderProfilesPanel() {
                       onChange={(event) => updateProfile(index, { apiKey: event.target.value })}
                       className="field-input pl-8"
                       autoComplete="off"
-                      placeholder={profile.hasApiKey ? "Configured - leave blank to keep" : "Required"}
+                      placeholder={
+                        profile.hasApiKey ? "Configured - leave blank to keep" : "Required"
+                      }
                     />
                   </div>
                 </Field>
@@ -210,7 +230,11 @@ export function ProviderProfilesPanel() {
           disabled={saving}
           className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-fg px-3 text-app-12 font-medium text-bg transition-opacity hover:opacity-90 disabled:opacity-40"
         >
-          {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+          {saving ? (
+            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Check className="h-3.5 w-3.5" />
+          )}
           Save Profiles
         </button>
       </div>

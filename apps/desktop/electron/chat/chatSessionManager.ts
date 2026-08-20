@@ -163,7 +163,7 @@ export function createChatSessionManager(options: {
       const timeline = new Map<string, AgentTimelineItem>();
       const writtenFiles = new Set<string>();
       let order = 0;
-      let reasoning = "";
+      let thinking = "";
       handle = core.run({
         id: runId,
         workingDirectory: request.context.workingDirectory,
@@ -235,11 +235,11 @@ export function createChatSessionManager(options: {
             });
           } else if (event.type === "text-delta") {
             emit(runId, request, { type: "delta", text: event.delta });
-          } else if (event.type === "reasoning-delta") {
-            reasoning += event.delta;
+          } else if (event.type === "thinking_delta") {
+            thinking += event.delta;
             emit(runId, request, {
               type: "reasoning",
-              reasoning: { id: `${runId}:reasoning`, content: reasoning, status: "running" },
+              reasoning: { id: `${runId}:reasoning`, content: thinking, status: "running" },
             });
           } else if (event.type === "tool-start") {
             const args =
@@ -288,10 +288,10 @@ export function createChatSessionManager(options: {
         },
       });
       const result = await handle.result;
-      if (reasoning) {
+      if (thinking) {
         emit(runId, request, {
           type: "reasoning",
-          reasoning: { id: `${runId}:reasoning`, content: reasoning, status: "completed" },
+          reasoning: { id: `${runId}:reasoning`, content: thinking, status: "completed" },
         });
       }
       emit(runId, request, {

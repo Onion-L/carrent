@@ -82,6 +82,11 @@ export function registerGitIpc(ipcMainLike: IpcMainLike, deps: GitIpcDeps = {}):
       throw new Error("Project path is required.");
     }
     await deps.assertProjectPathAllowed?.(path);
+    // A Project directory is not necessarily a git repository (e.g. an empty
+    // Project created by Carrent); report no branches instead of failing.
+    if (!(await resolveRepoRoot(path))) {
+      return { current: "", branches: [], branchWorktrees: [] };
+    }
     return getBranches(path, true);
   });
 

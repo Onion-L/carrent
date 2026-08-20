@@ -84,6 +84,7 @@ let emptyProjectCreateRequests: import("../shared/emptyProject").CreateEmptyProj
   [];
 let emptyProjectCreateError: string | null = null;
 let removedEmptyDirectories: string[] = [];
+let nonGitDirectories: string[] = [];
 const nativeKeybindingInputListeners = new Set<
   (input: import("../shared/keybindings").KeybindingInput) => void
 >();
@@ -453,7 +454,10 @@ function installBridge(
       read: async () => new Uint8Array(),
     },
     git: {
-      branches: async () => ({ current: "main", branches: ["main"], branchWorktrees: [] }),
+      branches: async (projectPath: string) =>
+        nonGitDirectories.includes(projectPath)
+          ? { current: "", branches: [], branchWorktrees: [] }
+          : { current: "main", branches: ["main"], branchWorktrees: [] },
       checkout: async () => ({ current: "main", branches: ["main"], branchWorktrees: [] }),
       createBranch: async () => ({ current: "main", branches: ["main"], branchWorktrees: [] }),
       workspaceSnapshot: async () => ({ state: "unavailable", reason: "not-a-repository" }),
@@ -814,6 +818,7 @@ afterEach(async () => {
   emptyProjectCreateRequests = [];
   emptyProjectCreateError = null;
   removedEmptyDirectories = [];
+  nonGitDirectories = [];
   windowZoomActions = [];
   nativeKeybindingInputListeners.clear();
   emitTerminalEvent = null;
@@ -2522,6 +2527,28 @@ describe("Workspace Projects and Associations", () => {
       },
     ]);
     expect(container!.querySelector("h1")?.textContent).toBe("New thread");
+  });
+
+  it("opens an empty Project without a git error toast", async () => {
+    nonGitDirectories.push("/home/test/CarrentProjects/My Project");
+    await renderApp(emptyWorkspaceState, "/workspace/workspace-1");
+
+    await click(buttonNamed("Add Project"));
+    await click(menuItemNamed("Create Empty Project..."));
+    const dialog = container!.querySelector<HTMLElement>(
+      '[role="dialog"][aria-label="Create Empty Project"]',
+    )!;
+    await fillInput(
+      dialog.querySelector<HTMLInputElement>('input[name="projectName"]')!,
+      "My Project",
+    );
+    await click(dialogButton(dialog, "Create"));
+    await waitForProjectDraft();
+
+    // A Project directory that is not a git repository is normal, not an
+    // error: no toast, and the branch picker just shows No branch.
+    expect(container!.querySelector('[role="status"]')).toBe(null);
+    expect(container!.textContent).toContain("No branch");
   });
 
   it("rejects an invalid empty Project name without creating a directory", async () => {

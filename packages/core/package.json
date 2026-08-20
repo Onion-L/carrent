@@ -1,0 +1,24 @@
+{
+  "name": "@carrent/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": ["src"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "bun --eval \"import { mkdir } from 'node:fs/promises'; await mkdir('out', { recursive: true }); await Bun.write('out/.stamp', 'source package\\n')\"",
+    "lint": "oxlint .",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit",
+    "format": "oxfmt . --write"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "^0.84.2",
+    "@earendil-works/pi-ai": "^0.84.2",
+    "diff": "8.0.4",
+    "typebox": "1.3.7"
+  }
+}

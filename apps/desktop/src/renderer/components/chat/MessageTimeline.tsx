@@ -831,10 +831,31 @@ export function getAssistantMessagePresentation(
       };
     });
 
+    // Agent activity is stored separately from streamed text. Once the run
+    // settles, text parts after the final activity item are the formal answer
+    // and must be rendered after the activity timeline.
+    const answerCanStart = runStatus !== "running";
+    const lastActivityIndex = parts.reduce(
+      (lastIndex, part, index) =>
+        part.type === "agent_activity" || part.type === "reasoning" || part.type === "shell"
+          ? index
+          : lastIndex,
+      -1,
+    );
+    const answerText = answerCanStart
+      ? parts
+          .filter(
+            (part, index): part is Extract<MessagePart, { type: "text" }> =>
+              part.type === "text" && index > lastActivityIndex,
+          )
+          .map((part) => part.content)
+          .join("\n")
+      : "";
+
     return {
       timelineItems,
       activityItems: [],
-      answerText: "",
+      answerText,
       postAnswerActivityItems: [],
     };
   }
@@ -994,6 +1015,7 @@ const AssistantMessage = memo(function AssistantMessage({
               renderAgentTimelineItem(item, onSelectSubagent)
             ),
           )}
+          {presentation.answerText && <MarkdownContent>{presentation.answerText}</MarkdownContent>}
           {questionParts.map((part) => (
             <QuestionBlock key={part.id} part={part} />
           ))}

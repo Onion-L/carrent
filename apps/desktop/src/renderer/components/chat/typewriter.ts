@@ -117,8 +117,20 @@ export class StreamingTextRevealer {
   // scheduler only when it converges within the catch-up ceiling; otherwise
   // the final answer is shown immediately.
   finish(finalText: string): void {
-    if (!this.receivedText || finalText.startsWith(this.receivedText)) {
-      this.receivedText = finalText;
+    if (finalText) {
+      if (!this.receivedText || finalText.startsWith(this.receivedText)) {
+        this.receivedText = finalText;
+      } else if (!this.receivedText.endsWith(finalText)) {
+        const maxOverlap = Math.min(this.receivedText.length, finalText.length);
+        let overlap = 0;
+        for (let length = maxOverlap; length > 0; length -= 1) {
+          if (this.receivedText.endsWith(finalText.slice(0, length))) {
+            overlap = length;
+            break;
+          }
+        }
+        this.receivedText += finalText.slice(overlap);
+      }
     }
     if (this.disposed) {
       if (this.receivedText.startsWith(this.visibleText)) {

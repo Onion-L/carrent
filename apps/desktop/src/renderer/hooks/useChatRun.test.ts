@@ -193,6 +193,38 @@ describe("createChatRunCoordinator", () => {
     expect(second.getSnapshot().runningThreadIds).toEqual([]);
   });
 
+  it("replays a compact text snapshot as streaming text for an active request", () => {
+    const coordinator = createChatRunCoordinator();
+    const received: string[] = [];
+
+    coordinator.beginRequest("request-1", "thread-1", {
+      onDelta: (text) => received.push(`delta:${text}`),
+      onTextSnapshot: (text) => received.push(`snapshot:${text}`),
+    });
+
+    coordinator.applyAuthorityState({
+      revision: 1,
+      runs: [
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          requestKey: "request-1",
+          status: "running",
+          stopRequested: false,
+          eventCount: 2,
+          pendingPermissions: [],
+          pendingQuestions: [],
+          events: [
+            { type: "started", runId: "run-1", requestKey: "request-1", threadId: "thread-1" },
+            { type: "text-snapshot", runId: "run-1", requestKey: "request-1", text: "hello" },
+          ],
+        },
+      ],
+    });
+
+    expect(received).toEqual(["delta:hello"]);
+  });
+
   it("applies revisioned updates independently in two Renderer clients", () => {
     const first = createChatRunCoordinator();
     const second = createChatRunCoordinator();

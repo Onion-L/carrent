@@ -2407,6 +2407,25 @@ describe("Composer streaming text reveal", () => {
     expect(latestAssistantMessage?.content).toBe(text);
   });
 
+  it("appends a completion response when only earlier assistant text was streamed", async () => {
+    const driver = await renderStreamingComposer();
+
+    await act(async () => {
+      driver.emit(runEvent({ type: "delta", text: "preface" }));
+      driver.emit(
+        runEvent({
+          type: "completed",
+          text: "final response",
+          finishedAt: "2026-08-07T00:00:00.000Z",
+        }),
+        "completed",
+      );
+    });
+    await runAllAnimationFrames();
+
+    expect(latestAssistantMessage?.content).toBe("prefacefinal response");
+  });
+
   it("replaces buffered text atomically when a snapshot arrives", async () => {
     const driver = await renderStreamingComposer();
     const snapshotText = "authoritative replacement text";

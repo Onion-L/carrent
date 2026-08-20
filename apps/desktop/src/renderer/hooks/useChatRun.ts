@@ -273,6 +273,7 @@ export function createChatRunCoordinator() {
   const deliverRunSnapshot = (run: ChatRunAuthorityState["runs"][number]) => {
     const target = getRunTarget(run);
     if (!target) return;
+    const isPendingRequest = run.requestKey ? pendingByRequestKey.has(run.requestKey) : false;
     if (run.eventCount === undefined) {
       const delivered = deliveredEventCountByRunId.get(run.runId) ?? 0;
       for (let index = delivered; index < run.events.length; index += 1) {
@@ -291,14 +292,28 @@ export function createChatRunCoordinator() {
           event.type === "agent-timeline" && event.item.type === "message",
       )
       .sort((left, right) => left.item.order - right.item.order);
+    const delivered = deliveredEventCountByRunId.get(run.runId) ?? 0;
     if (agentMessages.length > 0) {
-      target.callbacks.onTextSnapshot?.(
-        agentMessages
-          .map((event) => (event.item.type === "message" ? event.item.content : ""))
-          .join(""),
-      );
+      const baselineText = agentMessages
+        .map((event) => (event.item.type === "message" ? event.item.content : ""))
+        .join("");
+      if (isPendingRequest && delivered === 0) {
+        target.callbacks.onDelta?.(baselineText);
+      } else {
+        target.callbacks.onTextSnapshot?.(baselineText);
+      }
     }
-    run.events.forEach((event) => api.handleEvent(event, true));
+    run.events.forEach((event) => {
+      // The initial authority snapshot can race the response to chat.send.
+      // It contains a compact cumulative text snapshot rather than the
+      // original deltas; feed that snapshot into the active request's
+      // revealer so the first visible response still arrives progressively.
+      if (isPendingRequest && delivered === 0 && event.type === "text-snapshot") {
+        target.callbacks.onDelta?.(event.text);
+        return;
+      }
+      api.handleEvent(event, true);
+    });
     target.callbacks.onEventApplied?.(eventCount);
     deliveredEventCountByRunId.set(run.runId, eventCount);
   };

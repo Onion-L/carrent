@@ -173,7 +173,14 @@ export function collectRunLocalPathContexts(
 }
 
 export function getMissingRunCompletionText(receivedText: string, completedText: string) {
-  return completedText.startsWith(receivedText) ? completedText.slice(receivedText.length) : "";
+  if (!completedText || receivedText.endsWith(completedText)) return "";
+  const maxOverlap = Math.min(receivedText.length, completedText.length);
+  for (let length = maxOverlap; length > 0; length -= 1) {
+    if (receivedText.endsWith(completedText.slice(0, length))) {
+      return completedText.slice(length);
+    }
+  }
+  return completedText;
 }
 
 type ComposerProps =

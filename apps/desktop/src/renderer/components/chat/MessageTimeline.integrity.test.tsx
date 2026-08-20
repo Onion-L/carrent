@@ -261,6 +261,43 @@ describe("Agent message timeline", () => {
     expect(container.querySelector("[data-agent-timeline] .border-l")).toBe(null);
   });
 
+  it("renders trailing final text after completed agent activity", async () => {
+    const message: Message = {
+      id: "assistant-final-after-tools",
+      role: "assistant",
+      threadId: "thread-1",
+      timestamp: "09:00",
+      content: "",
+      runStatus: "completed",
+      parts: [
+        {
+          type: "agent_activity",
+          item: {
+            type: "tool",
+            id: "tool-1",
+            order: 0,
+            toolCallId: "tool-1",
+            title: "Read",
+            kind: "read",
+            command: "",
+            filePath: "src/index.ts",
+            input: "",
+            output: "done",
+            error: "",
+            status: "completed",
+          },
+        },
+        { type: "text", content: "Here is the final response." },
+      ],
+    };
+
+    await act(async () => {
+      root.render(<MessageTimeline messages={[message]} />);
+    });
+
+    expect(container.textContent).toContain("Here is the final response.");
+  });
+
   it("renders a dedicated Subagent row that opens its task", async () => {
     let selectedTaskId: string | null = null;
     const message: Message = {

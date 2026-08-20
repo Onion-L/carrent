@@ -183,6 +183,17 @@ describe("StreamingTextRevealer", () => {
     expect(visibleText()).toBe("short final answertail");
   });
 
+  it("finish appends only the missing suffix of a partially streamed final response", () => {
+    const { frames, revealer, visibleText } = createRevealer();
+
+    revealer.appendDelta("preface final");
+    revealer.flush();
+    revealer.finish("final response");
+
+    while (frames.hasScheduledFrame()) frames.runFrame();
+    expect(visibleText()).toBe("preface final response");
+  });
+
   it("finish reveals a huge remaining backlog immediately instead of animating", () => {
     const { frames, revealer, visibleText } = createRevealer();
     const finalText = "x".repeat(100_000);

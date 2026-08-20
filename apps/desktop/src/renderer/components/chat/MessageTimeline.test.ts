@@ -724,6 +724,33 @@ describe("assistant message presentation", () => {
     });
   });
 
+  it("keeps trailing streamed text as the final answer after agent activity", () => {
+    const parts = [
+      {
+        type: "agent_activity" as const,
+        item: {
+          type: "tool" as const,
+          id: "tool-1",
+          order: 0,
+          toolCallId: "tool-1",
+          title: "Read",
+          kind: "read",
+          command: "",
+          filePath: "src/index.ts",
+          input: "",
+          output: "done",
+          error: "",
+          status: "completed" as const,
+        },
+      },
+      { type: "text" as const, content: "Here is the final response." },
+    ];
+
+    expect(getAssistantMessagePresentation(parts, "completed").answerText).toBe(
+      "Here is the final response.",
+    );
+  });
+
   it("uses streamed assistant text as Thinking content until the run completes", () => {
     const parts = [
       {

@@ -138,8 +138,8 @@ describe("getMissingRunCompletionText", () => {
     expect(getMissingRunCompletionText("complete", "complete")).toBe("");
   });
 
-  it("does not append incompatible completion text", () => {
-    expect(getMissingRunCompletionText("local", "canonical")).toBe("");
+  it("appends completion text when the streamed text has no overlap", () => {
+    expect(getMissingRunCompletionText("local", "canonical")).toBe("canonical");
   });
 });
 

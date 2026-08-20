@@ -141,12 +141,9 @@ export function buildUserMessageEditContent(prefix: string, body: string) {
 
 function SkillBadge({ name, path }: { name: string; path: string }) {
   return (
-    <span
-      title={path}
-      className="inline-flex max-w-full items-center gap-1.5 align-middle font-medium text-skill-reference"
-    >
-      <Box className="h-4 w-4 shrink-0" strokeWidth={2} />
-      <span className="truncate">{formatSkillLabel(name)}</span>
+    <span title={path} className="font-medium text-skill-reference">
+      <Box className="mr-1.5 inline-block h-4 w-4 align-middle" strokeWidth={2} />
+      {formatSkillLabel(name)}
     </span>
   );
 }

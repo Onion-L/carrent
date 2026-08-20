@@ -207,20 +207,36 @@ export function getBlockTitle({
 }
 
 function ReasoningStepItem({ step }: { step: ReasoningPart }) {
+  const [expanded, setExpanded] = useState(false);
   const meta = getStepStatusMeta(step);
   const StatusIcon = meta.icon;
   const isRunning = step.status === "running";
 
   return (
-    <div className="flex w-full items-start gap-2.5">
-      {isRunning ? (
-        <ThinkingOrb state="solving" size={20} className="shrink-0" />
-      ) : (
-        <StatusIcon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta.className}`} />
-      )}
-      <pre className="flex-1 whitespace-pre-wrap break-words text-app-12 leading-5 text-muted">
-        {step.content}
-      </pre>
+    <div>
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="group flex w-full items-center gap-2.5 text-left text-app-12 leading-5 text-muted"
+        aria-expanded={expanded}
+      >
+        {isRunning ? (
+          <ThinkingOrb state="solving" size={20} className="shrink-0" />
+        ) : (
+          <StatusIcon className={`h-3.5 w-3.5 shrink-0 ${meta.className}`} />
+        )}
+        <span>{isRunning ? "Thinking" : "Thought"}</span>
+        <ChevronRight
+          className={`h-3.5 w-3.5 shrink-0 text-subtle transition group-hover:text-muted ${
+            expanded ? "rotate-90" : "opacity-0 group-hover:opacity-100"
+          }`}
+        />
+      </button>
+      {expanded ? (
+        <pre className="mt-2 whitespace-pre-wrap break-words pl-7 text-app-12 leading-5 text-muted">
+          {step.content}
+        </pre>
+      ) : null}
     </div>
   );
 }

@@ -94,9 +94,9 @@ export class ComposerSkillNode extends DecoratorNode<ReactNode> {
         title={this.__path}
         data-skill-marker="true"
         contentEditable={false}
-        className="mr-2 inline-flex h-6 max-w-full items-center gap-2 align-top text-app-14 font-medium leading-6 text-skill-reference"
+        className="mr-2 inline-flex h-[1.5em] max-w-full items-center gap-[0.4em] align-top font-medium leading-[1.5em] text-skill-reference"
       >
-        <Box className="h-4 w-4 shrink-0" strokeWidth={2} />
+        <Box className="h-[1em] w-[1em] shrink-0" strokeWidth={2} />
         <span className="truncate">{formatSkillLabel(this.__name)}</span>
       </span>
     );

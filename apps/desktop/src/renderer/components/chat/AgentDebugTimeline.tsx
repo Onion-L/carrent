@@ -116,17 +116,26 @@ function baseRow(record: AgentDebugRecord, suffix: string) {
 
 export function buildAgentDebugConversationRows(records: AgentDebugRecord[]): DebugRow[] {
   const rows: DebugRow[] = [];
+  // The system prompt precedes the user prompt in the actual model call, so the
+  // request row is held back until the context rows have been rendered.
+  let pendingRequestRow: DebugRow | null = null;
+  const flushPendingRequest = () => {
+    if (pendingRequestRow) {
+      rows.push(pendingRequestRow);
+      pendingRequestRow = null;
+    }
+  };
 
   for (const record of records) {
     const raw = record.raw;
     if (record.type === "run.requested") {
-      rows.push({
+      pendingRequestRow = {
         ...baseRow(record, "request"),
         badge: "USER",
         title: "Run request",
         summary: summaryOf(raw.prompt, "Run request"),
         input: raw,
-      });
+      };
       continue;
     }
 
@@ -146,8 +155,11 @@ export function buildAgentDebugConversationRows(records: AgentDebugRecord[]): De
         summary: [model.providerType, model.modelId].filter(Boolean).join(" · ") || "Model context",
         input: { model: raw.model, messages: raw.messages, tools: raw.tools },
       });
+      flushPendingRequest();
       continue;
     }
+
+    flushPendingRequest();
 
     if (record.type === "message_end") {
       const message = raw.message;
@@ -257,6 +269,7 @@ export function buildAgentDebugConversationRows(records: AgentDebugRecord[]): De
     }
   }
 
+  flushPendingRequest();
   return rows;
 }
 

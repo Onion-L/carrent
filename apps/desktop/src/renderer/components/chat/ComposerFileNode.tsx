@@ -77,9 +77,9 @@ export class ComposerFileNode extends DecoratorNode<ReactNode> {
         title={this.__path}
         data-file-marker="true"
         contentEditable={false}
-        className="mx-0.5 inline-flex h-6 max-w-full items-center gap-1 align-top text-app-14 font-medium leading-6 text-skill-reference"
+        className="mx-0.5 inline-flex h-[1.5em] max-w-full items-center gap-[0.3em] align-top font-medium leading-[1.5em] text-skill-reference"
       >
-        <FileText className="h-4 w-4 shrink-0" strokeWidth={2} />
+        <FileText className="h-[1em] w-[1em] shrink-0" strokeWidth={2} />
         <span className="truncate">{this.__label}</span>
       </span>
     );

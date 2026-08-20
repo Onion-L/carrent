@@ -48,6 +48,29 @@ describe("Agent Debug timeline", () => {
     expect(rows.at(-1)).toMatchObject({ title: "Final response", final: true, output: "Done" });
   });
 
+  it("renders the system prompt before the run request row", () => {
+    const rows = buildAgentDebugConversationRows([
+      record(1, "run.requested", { prompt: "Read package.json" }),
+      record(2, "core.context", {
+        systemPrompt: "You are Carrent.",
+        model: { providerType: "anthropic", modelId: "claude-test" },
+        messages: [],
+        tools: [],
+      }),
+    ]);
+
+    expect(rows.map((row) => row.badge)).toEqual(["SYSTEM", "LLM", "USER"]);
+  });
+
+  it("keeps the run request row when no context event arrives", () => {
+    const rows = buildAgentDebugConversationRows([
+      record(1, "run.requested", { prompt: "hello" }),
+      record(2, "run.failed", { error: "boom" }),
+    ]);
+
+    expect(rows.map((row) => row.badge)).toEqual(["USER", "ERROR"]);
+  });
+
   it("keeps every Core record in Raw view", () => {
     const records = [record(1, "agent_start", {}), record(2, "message_update", { delta: "a" })];
     expect(buildAgentDebugRawRows(records).map((row) => row.title)).toEqual([

@@ -144,11 +144,9 @@ function command(type: string, payload?: unknown): AppStateCommand {
   return { commandId: `command:${type}:${Math.random().toString(36).slice(2)}`, type, payload };
 }
 
-// Order-independent comparison for messages that share a `createdAt`: the
-// repository reads `thread_messages` ordered by `(thread_id, created_at, id)`,
-// while the in-memory `after` keeps the reducer's append order. Comparing the
-// sorted sets proves both sides carry the same rows without coupling the test
-// to the database's tie-break ordering.
+// Order-independent comparison for messages when a test is checking row
+// contents rather than the timeline order. Timeline order is asserted by the
+// promotion round-trip test below.
 function byId<T extends { id: string }>(left: T, right: T): number {
   return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
 }
@@ -345,16 +343,20 @@ describe("SQLite App State Thread Draft lifecycle persistence", () => {
       await store.persistAppStateCommand(value, before, after);
 
       const loaded = await store.loadAppStateSnapshot();
-      // The user message and assistant placeholder share `startedAt`, so the
-      // repository reads them back ordered by `(created_at, id)` while the
-      // in-memory `after` keeps the reducer's append order. Compare the entity
-      // sets by id rather than asserting whole-snapshot equality, then verify
-      // each row round-trips with its attachment metadata intact.
+      // The user message and assistant placeholder share `startedAt`; the
+      // repository must preserve their insertion order when it reads them
+      // back. Compare the entity sets, then verify the timeline order and
+      // attachment metadata.
       expect(loaded?.threads ?? []).toEqual(after.threads);
       expect(loaded?.threadDrafts).toEqual([]);
       expect([...(loaded?.threadMessages ?? [])].sort(byId)).toEqual(
         [...(after.threadMessages ?? [])].sort(byId),
       );
+      expect(
+        loaded?.threadMessages
+          ?.filter((message) => message.threadId === "thread-promoted")
+          .map((message) => message.id),
+      ).toEqual(["message-user", "message-assistant"]);
       expect(loaded?.threadRuns ?? []).toEqual(after.threadRuns);
       // The promoted Thread uses the Draft's reserved id + association + the
       // send-time Agent config, exactly as the reducer built it.

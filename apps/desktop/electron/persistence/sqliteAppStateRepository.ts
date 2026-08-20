@@ -476,9 +476,11 @@ export function readAppStateSnapshot(client: RepositoryClient): AppStateSnapshot
     }));
   const threadMessages = client
     .all<MessageRow>(
+      // Messages created by one send can share a millisecond timestamp. Use
+      // insertion order for that tie so reopening preserves the live timeline.
       `SELECT id, thread_id, role, message, created_at, payload
        FROM thread_messages
-       ORDER BY thread_id, created_at, id`,
+       ORDER BY thread_id, created_at, rowid`,
     )
     .map((row) => ({
       // A missing payload leaves the record without its required attachment

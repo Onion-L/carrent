@@ -97,6 +97,32 @@ describe("AgentActivityBlock expansion", () => {
     container.remove();
   });
 
+  it("expands a reasoning item on demand", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        createElement(AgentActivityList, {
+          items: [makeReasoning({ id: "reasoning-1", content: "Inspect hidden details" })],
+        }),
+      );
+    });
+
+    const thinkingButton = container.querySelector("button")!;
+    expect(thinkingButton.textContent).toContain("Thought");
+    expect(thinkingButton.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("Inspect hidden details");
+
+    await act(async () => thinkingButton.click());
+
+    expect(thinkingButton.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("Inspect hidden details");
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("starts expanded while thinking before the final answer starts", () => {
     expect(
       getInitialAgentActivityBlockExpanded({

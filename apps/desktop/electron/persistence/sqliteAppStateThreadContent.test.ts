@@ -140,11 +140,9 @@ function reduce(before: AppStateSnapshot, value: AppStateCommand): AppStateSnaps
   return normalized;
 }
 
-// Order-independent comparison for messages that share a `createdAt`: the
-// repository reads `thread_messages` ordered by `(thread_id, created_at, id)`,
-// while the in-memory `after` keeps the reducer's append order. Comparing the
-// sorted sets proves both sides carry the same rows without coupling the test
-// to the database's tie-break ordering.
+// Order-independent comparison for messages when a test is checking row
+// contents rather than the timeline order. Timeline order is covered by the
+// same-timestamp reopen regression below.
 function byId<T extends { id: string }>(left: T, right: T): number {
   return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
 }
@@ -226,6 +224,20 @@ function threadById(
 }
 
 describe("SQLite App State Thread content & Run incremental persistence", () => {
+  it("preserves user-before-assistant order after reopening same-timestamp messages", async () => {
+    await withStore(baseSnapshot(), async (store) => {
+      await store.close();
+      await store.open();
+
+      const loaded = await store.loadAppStateSnapshot();
+      expect(
+        loaded?.threadMessages
+          ?.filter((message) => message.threadId === ACTIVE_THREAD_ID)
+          .map((message) => message.id),
+      ).toEqual(["message-active-user", "message-active-existing"]);
+    });
+  });
+
   it("archives one thread and clears the remembered location it pointed at", async () => {
     await withStore(baseSnapshot(), async (store, before) => {
       const value = command("thread:archive", { threadId: ACTIVE_THREAD_ID });

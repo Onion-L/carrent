@@ -1,5 +1,4 @@
 import type { AppStateStore } from "../workspace/appStateStore";
-import { readProviderSessions, replaceProviderSessions } from "./providerSessionRepository";
 import type { SqliteAppStateLifecycle } from "./sqliteAppStateLifecycle";
 import type { SqliteAppStateStore } from "./sqliteAppStateStore";
 
@@ -25,14 +24,6 @@ export function createSqliteProductionAppStateStore(
     saveAppStateSnapshot: (snapshot) => sqlite.saveAppStateSnapshot(snapshot),
     persistAppStateCommand: (command, before, after) =>
       sqlite.persistAppStateCommand(command, before, after),
-    loadProviderSessions: async () => ({
-      version: 1,
-      sessions: await sqlite.run((client) => readProviderSessions(client)),
-    }),
-    saveProviderSessions: (snapshot) =>
-      sqlite.run((client) =>
-        client.transaction(() => replaceProviderSessions(client, snapshot.sessions)),
-      ),
     deleteAppStateForThreads: (...args) => sqlite.deleteAppStateForThreads(...args),
     hasCommittedThreadDeletion: (operationId) => sqlite.hasCommittedThreadDeletion(operationId),
     clearCommittedThreadDeletionMarker: (operationId) =>

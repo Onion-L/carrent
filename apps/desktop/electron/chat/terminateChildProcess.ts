@@ -48,7 +48,7 @@ export function terminateChildProcess(
       }
       failureTimer = setTimeout(() => {
         cleanup();
-        reject(new Error("Runtime process did not exit after taskkill."));
+        reject(new Error("Agent process did not exit after taskkill."));
       }, gracePeriodMs);
       return;
     }
@@ -71,7 +71,7 @@ export function terminateChildProcess(
       }
       failureTimer = setTimeout(() => {
         cleanup();
-        reject(new Error("Runtime process did not exit after SIGKILL."));
+        reject(new Error("Agent process did not exit after SIGKILL."));
       }, gracePeriodMs);
     }, gracePeriodMs);
   });

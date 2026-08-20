@@ -3,7 +3,6 @@ import { registerAppStateIpc } from "./appStateIpc";
 import {
   createEmptyAppStateSnapshot,
   type AppStateLoadResult,
-  type ProviderSessionSnapshot,
 } from "../../src/shared/workspacePersistence";
 import { createAppStateStoreStub } from "./appStateStore.testUtils";
 import { createAppStateIpcGate } from "./appStateIpcGate";
@@ -14,16 +13,8 @@ const readyAppStateResult: AppStateLoadResult = {
 };
 const preserveAppStateResult = (result: AppStateLoadResult) => result;
 
-async function caughtError(operation: () => unknown): Promise<unknown> {
-  try {
-    await operation();
-  } catch (error) {
-    return error;
-  }
-}
-
 describe("registerAppStateIpc", () => {
-  it("registers App State and provider session channels", () => {
+  it("registers App State channels", () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
 
     registerAppStateIpc(
@@ -41,8 +32,6 @@ describe("registerAppStateIpc", () => {
       "app-state:full-reset",
       "app-state:load",
       "app-state:reread",
-      "provider-sessions:load",
-      "provider-sessions:save",
     ]);
   });
 
@@ -230,16 +219,8 @@ describe("registerAppStateIpc", () => {
       );
 
       const recoveryRequest = Promise.resolve(handlers.get(recoveryChannel)?.({}));
-      expect(
-        String(await caughtError(() => handlers.get("provider-sessions:load")?.({}))),
-      ).toContain("App State recovery is required");
-
       finishPreparation?.();
       expect(await recoveryRequest).toEqual(readyAppStateResult);
-      expect(await handlers.get("provider-sessions:load")?.({})).toEqual({
-        version: 1,
-        sessions: {},
-      });
     });
   }
 
@@ -271,26 +252,5 @@ describe("registerAppStateIpc", () => {
 
     expect(await handlers.get("app-state:reread")?.({})).toEqual(authoritativeResult);
     expect(await handlers.get("app-state:load")?.({})).toEqual(authoritativeResult);
-  });
-
-  it("provider-sessions:load returns sessions from store", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const sessions: ProviderSessionSnapshot = { version: 1, sessions: { k1: "s1" } };
-
-    registerAppStateIpc(
-      {
-        handle(channel, listener) {
-          handlers.set(channel, listener);
-        },
-      },
-      createAppStateStoreStub({
-        loadProviderSessions: async () => sessions,
-      }),
-      readyAppStateResult,
-      preserveAppStateResult,
-    );
-
-    const result = await handlers.get("provider-sessions:load")?.({});
-    expect(result).toEqual(sessions);
   });
 });

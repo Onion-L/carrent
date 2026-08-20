@@ -12,7 +12,6 @@ import {
   type SqliteAppStateImportOptions,
 } from "./sqliteAppStateImport";
 import { readAppStateSnapshot, replaceAppStateSnapshot } from "./sqliteAppStateRepository";
-import { replaceProviderSessions } from "./providerSessionRepository";
 import type { SqliteAppStateStore } from "./sqliteAppStateStore";
 
 /**
@@ -102,7 +101,7 @@ function buildDiagnostic(
 
 /**
  * Diagnostics surface the failure area and stage but never interpolate a raw
- * error message: a thrown value can carry a Runtime Session id, a Thread title,
+ * error message: a thrown value can carry a Provider Profile id, a Thread title,
  * or attachment content, and the diagnostic summary is a content-bearing surface.
  * The store logs the underlying error separately; the diagnostic keeps a fixed,
  * stage-specific description so message/Draft/attachment/Provider content cannot
@@ -310,7 +309,6 @@ export function createSqliteAppStateLifecycle(
       await store.run((client) =>
         client.transaction(() => {
           replaceAppStateSnapshot(client, empty);
-          replaceProviderSessions(client, {});
           client.run(
             "INSERT INTO app_metadata (key, value) VALUES (?, ?)",
             JSON_IMPORT_MARKER,

@@ -1,7 +1,6 @@
-export type ChatQuestionSource = "native-acp" | "mcp";
+export type ChatQuestionSource = "core";
 
-// Carrent adds this automatic free-text choice to MCP-sourced questions; the
-// Coding Agent never supplies it.
+// Carrent adds this automatic free-text choice; Agent Core never supplies it.
 export const CHAT_QUESTION_OTHER_OPTION_ID = "other";
 
 export type ChatQuestionOption = {
@@ -22,7 +21,7 @@ export type ChatQuestionRequest = {
   runId: string;
   requestKey?: string;
   threadId: string;
-  provider: "kimi";
+  provider: "core";
   source: ChatQuestionSource;
   questions: ChatQuestionItem[];
   skipOptionId?: string;

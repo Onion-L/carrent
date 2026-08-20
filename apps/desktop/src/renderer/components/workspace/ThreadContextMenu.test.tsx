@@ -9,14 +9,12 @@ function renderMenu(overrides: Partial<ThreadContextMenuContentProps> = {}) {
     <ThreadContextMenuContent
       threadTitle="Fix sidebar"
       pinned={false}
-      sessionId="session-1"
       archiveBlockedReason={null}
       onOpenInNewWindow={() => {}}
       onPin={() => {}}
       onRename={() => {}}
       onArchive={() => {}}
       onRevealInFinder={() => {}}
-      onCopySessionId={() => {}}
       {...overrides}
     />,
   );
@@ -37,11 +35,11 @@ describe("getMenuPosition", () => {
 });
 
 describe("ThreadContextMenuContent", () => {
-  it("renders the six thread actions in order with two separators", () => {
+  it("renders the five thread actions in order with two separators", () => {
     const markup = renderMenu();
 
     expect(markup).toContain('role="menu"');
-    expect((markup.match(/role="menuitem"/gu) ?? []).length).toBe(6);
+    expect((markup.match(/role="menuitem"/gu) ?? []).length).toBe(5);
     expect((markup.match(/role="separator"/gu) ?? []).length).toBe(2);
 
     const openInNewWindow = markup.indexOf("Open in new window");
@@ -49,13 +47,11 @@ describe("ThreadContextMenuContent", () => {
     const rename = markup.indexOf("Rename thread");
     const archive = markup.indexOf("Archive thread");
     const reveal = markup.indexOf("Open in Finder");
-    const copy = markup.indexOf("Copy session ID");
     expect(openInNewWindow).toBeGreaterThan(-1);
     expect(openInNewWindow).toBeLessThan(pin);
     expect(pin).toBeLessThan(rename);
     expect(rename).toBeLessThan(archive);
     expect(archive).toBeLessThan(reveal);
-    expect(reveal).toBeLessThan(copy);
   });
 
   it("offers to unpin when the thread is pinned", () => {
@@ -65,26 +61,12 @@ describe("ThreadContextMenuContent", () => {
     expect(markup).not.toContain("Pin thread");
   });
 
-  it("disables archiving with the blocked reason while compacting", () => {
+  it("disables archiving with the supplied blocked reason", () => {
     const markup = renderMenu({
-      archiveBlockedReason: "Wait for Compact to finish before archiving",
+      archiveBlockedReason: "Wait for the Run to finish before archiving",
     });
 
-    expect(markup).toContain('title="Wait for Compact to finish before archiving"');
-    expect(markup).toContain("disabled");
-  });
-
-  it("disables session copying when no session exists", () => {
-    const markup = renderMenu({ sessionId: null });
-
-    expect(markup).toContain('title="No session ID available"');
-    expect(markup).toContain("disabled");
-  });
-
-  it("shows a loading hint while the session ID loads", () => {
-    const markup = renderMenu({ sessionId: undefined });
-
-    expect(markup).toContain('title="Loading session ID"');
+    expect(markup).toContain('title="Wait for the Run to finish before archiving"');
     expect(markup).toContain("disabled");
   });
 });

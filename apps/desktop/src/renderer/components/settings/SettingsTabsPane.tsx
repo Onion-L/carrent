@@ -44,11 +44,6 @@ export function SettingsTabsPane() {
                 <Icon className="h-3.5 w-3.5 shrink-0 text-subtle" />
                 <span className="flex min-w-0 flex-1 items-center gap-1.5">
                   <span className="truncate text-app-13 font-medium">{tab.label}</span>
-                  {"badge" in tab ? (
-                    <span className="shrink-0 rounded-full bg-surface px-1.5 py-px text-app-10 text-subtle">
-                      {tab.badge}
-                    </span>
-                  ) : null}
                 </span>
               </button>
             );

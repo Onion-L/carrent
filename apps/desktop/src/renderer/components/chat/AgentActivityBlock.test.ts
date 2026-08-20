@@ -14,7 +14,7 @@ import {
   inferAgentActivityStatus,
 } from "./AgentActivityBlock";
 import type { MessagePart } from "../../../shared/threadContent";
-import type { KimiToolItem, KimiThinkingItem } from "./AgentActivityBlock";
+import type { AgentToolItem, AgentThinkingItem } from "./AgentActivityBlock";
 
 type ReasoningPart = Extract<MessagePart, { type: "reasoning" }>;
 type ShellPart = Extract<MessagePart, { type: "shell" }>;
@@ -38,9 +38,9 @@ function makeShell(overrides: Partial<ShellPart> & { id: string }): ShellPart {
   };
 }
 
-function makeKimiTool(overrides: Partial<KimiToolItem> & { id: string }): KimiToolItem {
+function makeAgentTool(overrides: Partial<AgentToolItem> & { id: string }): AgentToolItem {
   return {
-    type: "kimi-tool",
+    type: "agent-tool",
     title: "Read",
     kind: "read",
     command: "",
@@ -53,9 +53,11 @@ function makeKimiTool(overrides: Partial<KimiToolItem> & { id: string }): KimiTo
   };
 }
 
-function makeKimiThinking(overrides: Partial<KimiThinkingItem> & { id: string }): KimiThinkingItem {
+function makeAgentThinking(
+  overrides: Partial<AgentThinkingItem> & { id: string },
+): AgentThinkingItem {
   return {
-    type: "kimi-thinking",
+    type: "agent-thinking",
     content: "Thinking",
     status: "running",
     ...overrides,
@@ -63,7 +65,7 @@ function makeKimiThinking(overrides: Partial<KimiThinkingItem> & { id: string })
 }
 
 describe("AgentActivityBlock expansion", () => {
-  it("expands a Kimi Thinking item on demand", async () => {
+  it("expands a Agent Thinking item on demand", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
@@ -73,7 +75,7 @@ describe("AgentActivityBlock expansion", () => {
         createElement(AgentActivityList, {
           items: [
             {
-              type: "kimi-thinking",
+              type: "agent-thinking",
               id: "thinking-1",
               content: "Inspect hidden details",
               status: "running",
@@ -167,35 +169,35 @@ describe("AgentActivityBlock status", () => {
     ).toBe("failed");
   });
 
-  it("infers failed when a Kimi tool step failed", () => {
+  it("infers failed when a Agent tool step failed", () => {
     expect(
       inferAgentActivityStatus([
-        makeKimiThinking({ id: "t1", status: "completed" }),
-        makeKimiTool({ id: "tool-1", status: "failed", error: "boom" }),
+        makeAgentThinking({ id: "t1", status: "completed" }),
+        makeAgentTool({ id: "tool-1", status: "failed", error: "boom" }),
       ]),
     ).toBe("failed");
   });
 
-  it("infers running when a Kimi tool step is pending", () => {
+  it("infers running when a Agent tool step is pending", () => {
     expect(
       inferAgentActivityStatus([
-        makeKimiThinking({ id: "t1", status: "completed" }),
-        makeKimiTool({ id: "tool-1", status: "pending" }),
+        makeAgentThinking({ id: "t1", status: "completed" }),
+        makeAgentTool({ id: "tool-1", status: "pending" }),
       ]),
     ).toBe("running");
   });
 
-  it("infers completed when a Kimi tool step is completed", () => {
+  it("infers completed when a Agent tool step is completed", () => {
     expect(
       inferAgentActivityStatus([
-        makeKimiThinking({ id: "t1", status: "completed" }),
-        makeKimiTool({ id: "tool-1", status: "completed" }),
+        makeAgentThinking({ id: "t1", status: "completed" }),
+        makeAgentTool({ id: "tool-1", status: "completed" }),
       ]),
     ).toBe("completed");
   });
 
-  it("infers cancelled when a Kimi tool step is cancelled", () => {
-    expect(inferAgentActivityStatus([makeKimiTool({ id: "tool-1", status: "cancelled" })])).toBe(
+  it("infers cancelled when a Agent tool step is cancelled", () => {
+    expect(inferAgentActivityStatus([makeAgentTool({ id: "tool-1", status: "cancelled" })])).toBe(
       "cancelled",
     );
   });
@@ -237,7 +239,7 @@ describe("AgentActivityBlock duration formatting", () => {
   });
 });
 
-describe("AgentActivityBlock Kimi tool item", () => {
+describe("AgentActivityBlock Agent tool item", () => {
   async function renderItems(items: Parameters<typeof AgentActivityBlock>[0]["items"]) {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -260,7 +262,7 @@ describe("AgentActivityBlock Kimi tool item", () => {
 
   it("renders a generic tool label and reveals output on demand", async () => {
     const { container, toolButton, cleanup } = await renderItems([
-      makeKimiTool({
+      makeAgentTool({
         id: "tool-read",
         title: "Read",
         kind: "read",
@@ -281,7 +283,7 @@ describe("AgentActivityBlock Kimi tool item", () => {
 
   it("renders a shell tool command with the $ prefix and reveals the error", async () => {
     const { container, toolButton, cleanup } = await renderItems([
-      makeKimiTool({
+      makeAgentTool({
         id: "tool-bash",
         title: "Bash",
         kind: "execute",
@@ -302,9 +304,9 @@ describe("AgentActivityBlock Kimi tool item", () => {
     await cleanup();
   });
 
-  it("reveals ACP tool input when no output is available", async () => {
+  it("reveals tool input when no output is available", async () => {
     const { container, toolButton, cleanup } = await renderItems([
-      makeKimiTool({
+      makeAgentTool({
         id: "tool-edit",
         title: "Edit",
         kind: "edit",

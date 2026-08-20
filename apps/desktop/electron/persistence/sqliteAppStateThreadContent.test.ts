@@ -63,8 +63,8 @@ function baseSnapshot(): AppStateSnapshot {
         workspaceId: "workspace-a",
         projectId: "project-a",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "auto-accept-edits",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "auto-edit",
       },
     ],
     threads: [
@@ -75,9 +75,8 @@ function baseSnapshot(): AppStateSnapshot {
         title: "Active thread",
         createdAt: "2026-08-09T08:00:00.000Z",
         lastActivityAt: "2026-08-09T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "auto-accept-edits",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "auto-edit",
       },
       {
         id: HISTORY_THREAD_ID,
@@ -86,9 +85,8 @@ function baseSnapshot(): AppStateSnapshot {
         title: "History thread",
         createdAt: "2026-08-01T08:00:00.000Z",
         lastActivityAt: "2026-08-01T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     ],
     threadDrafts: [],
@@ -100,16 +98,13 @@ function baseSnapshot(): AppStateSnapshot {
         messageId: "message-active-user",
         assistantMessageId: "message-active-existing",
         startedAt: "2026-08-09T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "auto-accept-edits",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "auto-edit",
       },
     ],
-    threadActions: [],
     threadPromotionIntents: [],
     threadWork: {},
     settings: {
-      autoDetectRuntimes: true,
       theme: "system",
       codeHighlightTheme: "classic",
       typographyMode: "simple",
@@ -126,8 +121,6 @@ function baseSnapshot(): AppStateSnapshot {
       defaultEditorId: "",
       enhancedTerminalCompletion: true,
       terminalPanelHeight: 320,
-      runtimeEnabledById: {},
-      runtimeDefaultModelById: {},
     } as NonNullable<AppStateSnapshot["settings"]>,
     lastThreadIdByWorkspace: { "workspace-a": ACTIVE_THREAD_ID },
     activeWorkspaceId: "workspace-a",
@@ -162,7 +155,6 @@ const AUDIT_TABLES: Array<[string, (row: "OLD" | "NEW") => string]> = [
   ["threads", (row) => `${row}.id`],
   ["thread_messages", (row) => `${row}.id`],
   ["thread_runs", (row) => `${row}.id`],
-  ["thread_actions", (row) => `${row}.id`],
   ["thread_work", (row) => `${row}.thread_id`],
   ["workspace_last_threads", (row) => `${row}.workspace_id`],
 ];
@@ -270,22 +262,20 @@ describe("SQLite App State Thread content & Run incremental persistence", () => 
     });
   });
 
-  it("updates one thread's runtime config with a single thread row write", async () => {
+  it("updates one thread's Agent config with a single thread row write", async () => {
     await withStore(baseSnapshot(), async (store, before) => {
       const value = command("thread:update-config", {
         threadId: ACTIVE_THREAD_ID,
         config: {
-          runtimeId: "kimi",
-          runtimeModelId: "kimi-k2.5",
-          runtimeMode: "full-access",
-          planMode: true,
+          providerProfileId: "default",
+          agentMode: "full-project",
         },
       });
       const after = reduce(before, value);
       await store.persistAppStateCommand(value, before, after);
 
       const loaded = await store.loadAppStateSnapshot();
-      expect(threadById(loaded, ACTIVE_THREAD_ID)?.runtimeMode).toBe("full-access");
+      expect(threadById(loaded, ACTIVE_THREAD_ID)?.agentMode).toBe("full-project");
       // Unrelated history is untouched.
       expect(await auditedEntries(store)).toEqual(["threads:update:thread-active"]);
     });
@@ -321,9 +311,8 @@ describe("SQLite App State Thread content & Run incremental persistence", () => 
           messageId: "message-active-user-2",
           assistantMessageId: "message-active-assistant-next",
           startedAt: "2026-08-09T08:30:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "auto-accept-edits",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "auto-edit",
         },
       });
       const after = reduce(before, value);
@@ -373,9 +362,8 @@ describe("SQLite App State Thread content & Run incremental persistence", () => 
           messageId: "message-active-user",
           assistantMessageId: "message-active-assistant-next",
           startedAt: "2026-08-09T08:30:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "auto-accept-edits",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "auto-edit",
         },
       });
       const after = reduce(before, value);
@@ -433,33 +421,6 @@ describe("SQLite App State Thread content & Run incremental persistence", () => 
         "thread_messages:delete:message-active-existing",
         "thread_messages:delete:message-active-user",
         "thread_runs:delete:run-active",
-        "threads:update:thread-active",
-      ]);
-    });
-  });
-
-  it("records a thread action and bumps activity time in the same transaction", async () => {
-    await withStore(baseSnapshot(), async (store, before) => {
-      const value = command("thread:record-action", {
-        threadId: ACTIVE_THREAD_ID,
-        action: {
-          id: "action-1",
-          threadId: ACTIVE_THREAD_ID,
-          action: "compact",
-          runtimeId: "kimi",
-          completedAt: "2026-08-09T09:00:00.000Z",
-        },
-      });
-      const after = reduce(before, value);
-      await store.persistAppStateCommand(value, before, after);
-
-      const loaded = await store.loadAppStateSnapshot();
-      expect(loaded?.threadActions?.map((action) => action.id)).toEqual(["action-1"]);
-      expect(threadById(loaded, ACTIVE_THREAD_ID)?.lastActivityAt).toBe("2026-08-09T09:00:00.000Z");
-      // The action insert and the activity-time update commit together; the
-      // unrelated history thread's activity is untouched.
-      expect(await auditedEntries(store)).toEqual([
-        "thread_actions:insert:action-1",
         "threads:update:thread-active",
       ]);
     });

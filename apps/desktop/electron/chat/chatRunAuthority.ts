@@ -8,13 +8,13 @@ import type {
   ChatRunCommandResult,
   ChatRunEvent,
   ChatTurnRequest,
-  KimiTimelineItem,
+  AgentTimelineItem,
   SharedChatRun,
   SharedChatRunStatus,
 } from "../../src/shared/chat";
 import {
   compactChatRunEvents,
-  createKimiTimelineItemUpdate,
+  createAgentTimelineItemUpdate,
   isTerminalSharedChatRunStatus,
 } from "../../src/shared/chat";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
@@ -66,7 +66,7 @@ function isValidQuestionResponse(
     if (!answer || answer.optionIds.length === 0) return false;
     if (!item.multiSelect && answer.optionIds.length !== 1) return false;
     const allowedOptionIds = new Set(item.options.map((option) => option.optionId));
-    if (question.source === "mcp") allowedOptionIds.add(CHAT_QUESTION_OTHER_OPTION_ID);
+    allowedOptionIds.add(CHAT_QUESTION_OTHER_OPTION_ID);
     if (answer.optionIds.some((optionId) => !allowedOptionIds.has(optionId))) return false;
     const hasOther = answer.optionIds.includes(CHAT_QUESTION_OTHER_OPTION_ID);
     return (
@@ -82,7 +82,7 @@ export function createChatRunAuthority(options: ChatRunAuthorityOptions) {
   const subscribers = new Set<number>();
   const runsByThreadId = new Map<string, SharedChatRun>();
   const threadIdByRunId = new Map<string, string>();
-  const timelineItemsByRunId = new Map<string, Map<string, KimiTimelineItem>>();
+  const timelineItemsByRunId = new Map<string, Map<string, AgentTimelineItem>>();
   const pendingMessageDeltaByRunId = new Map<string, string>();
   let queuedUpdates: ChatRunAuthorityUpdate[] = [];
   let batchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -117,8 +117,8 @@ export function createChatRunAuthority(options: ChatRunAuthorityOptions) {
       event?.type === "delta" ||
       event?.type === "text-snapshot" ||
       event?.type === "reasoning" ||
-      event?.type === "kimi-timeline" ||
-      event?.type === "kimi-timeline-update" ||
+      event?.type === "agent-timeline" ||
+      event?.type === "agent-timeline-update" ||
       event?.type === "shell" ||
       event?.type === "subagent-task"
     );
@@ -258,7 +258,7 @@ export function createChatRunAuthority(options: ChatRunAuthorityOptions) {
   }
 
   function compactTimelineEvent(event: ChatRunEvent): ChatRunEvent {
-    if (event.type !== "kimi-timeline") return event;
+    if (event.type !== "agent-timeline") return event;
     let items = timelineItemsByRunId.get(event.runId);
     if (!items) {
       items = new Map();
@@ -277,10 +277,10 @@ export function createChatRunAuthority(options: ChatRunAuthorityOptions) {
       else pendingMessageDeltaByRunId.delete(event.runId);
     }
     if (!previous) return event;
-    const update = createKimiTimelineItemUpdate(previous, event.item);
+    const update = createAgentTimelineItemUpdate(previous, event.item);
     if (!update) return event;
     return {
-      type: "kimi-timeline-update",
+      type: "agent-timeline-update",
       runId: event.runId,
       ...(event.requestKey ? { requestKey: event.requestKey } : {}),
       update,

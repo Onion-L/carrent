@@ -21,7 +21,7 @@ import {
   subscribeToThreadWork,
   syncThreadWorkFromSnapshot,
 } from "../hooks/chatMessageQueue";
-import type { RuntimeId } from "../../shared/runtimes";
+import type { ProviderProfileId } from "../../shared/providerProfiles";
 import { reconcileInterruptedRuns } from "../lib/interruptedRuns";
 import type {
   DeleteThreadDataRequest,
@@ -46,7 +46,7 @@ export type RunChecklistUpdate =
   | {
       kind: "snapshot";
       runId: string;
-      runtimeId: RuntimeId;
+      providerProfileId: ProviderProfileId;
       entries: RunChecklistEntry[];
     }
   | { kind: "outcome"; runId: string; outcome: Exclude<RunChecklistOutcome, "running"> }
@@ -66,7 +66,7 @@ export function applyRunChecklistUpdate(
       ...thread,
       runChecklist: {
         runId: update.runId,
-        runtimeId: update.runtimeId,
+        providerProfileId: update.providerProfileId,
         entries: update.entries,
         outcome: "running",
         expanded:
@@ -153,8 +153,8 @@ export type MessagePartUpdate =
   | { kind: "append-text"; content: string }
   | { kind: "replace-text"; content: string }
   | {
-      kind: "upsert-kimi-timeline";
-      item: import("../../shared/chat").KimiTimelineItem;
+      kind: "upsert-agent-timeline";
+      item: import("../../shared/chat").AgentTimelineItem;
     }
   | {
       kind: "upsert-reasoning";
@@ -164,18 +164,6 @@ export type MessagePartUpdate =
       kind: "upsert-shell";
       shell: Extract<MessagePart, { type: "shell" }>;
     }
-  | {
-      kind: "upsert-plan-review";
-      review: Extract<MessagePart, { type: "plan_review" }>;
-    }
-  | {
-      kind: "resolve-plan-review";
-      permissionId: string;
-      status: Extract<MessagePart, { type: "plan_review" }>["status"];
-      selectedOptionId?: string;
-      selectedOptionName?: string;
-    }
-  | { kind: "interrupt-plan-reviews" }
   | {
       kind: "upsert-question";
       question: Extract<MessagePart, { type: "question" }>;
@@ -497,13 +485,13 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
     };
   }
 
-  if (update.kind === "upsert-kimi-timeline") {
+  if (update.kind === "upsert-agent-timeline") {
     const timelineIndex = parts.findIndex(
-      (part) => part.type === "kimi_timeline" && part.item.id === update.item.id,
+      (part) => part.type === "agent_activity" && part.item.id === update.item.id,
     );
-    const nextPart = { type: "kimi_timeline" as const, item: update.item };
+    const nextPart = { type: "agent_activity" as const, item: update.item };
     if (timelineIndex >= 0) {
-      const existing = parts[timelineIndex] as Extract<MessagePart, { type: "kimi_timeline" }>;
+      const existing = parts[timelineIndex] as Extract<MessagePart, { type: "agent_activity" }>;
       const item = { ...update.item, order: existing.item.order };
       if (
         existing.item.type === "tool" &&
@@ -524,51 +512,6 @@ export function applyMessagePartUpdate(message: Message, update: MessagePartUpda
     }
 
     return { ...message, parts };
-  }
-
-  if (update.kind === "upsert-plan-review") {
-    const reviewIndex = parts.findIndex(
-      (part) =>
-        part.type === "plan_review" &&
-        (part.id === update.review.id || part.permissionId === update.review.permissionId),
-    );
-    if (reviewIndex >= 0) {
-      parts[reviewIndex] = update.review;
-    } else {
-      parts.push(update.review);
-    }
-
-    return {
-      ...message,
-      parts,
-    };
-  }
-
-  if (update.kind === "resolve-plan-review") {
-    return {
-      ...message,
-      parts: parts.map((part) =>
-        part.type === "plan_review" && part.permissionId === update.permissionId
-          ? {
-              ...part,
-              status: update.status,
-              selectedOptionId: update.selectedOptionId,
-              selectedOptionName: update.selectedOptionName,
-            }
-          : part,
-      ),
-    };
-  }
-
-  if (update.kind === "interrupt-plan-reviews") {
-    return {
-      ...message,
-      parts: parts.map((part) =>
-        part.type === "plan_review" && part.status === "pending"
-          ? { ...part, status: "interrupted" }
-          : part,
-      ),
-    };
   }
 
   if (update.kind === "upsert-question") {

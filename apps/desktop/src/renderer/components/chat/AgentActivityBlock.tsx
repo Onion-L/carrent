@@ -1,7 +1,7 @@
 import { CheckCircle2, ChevronRight, CircleDashed, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ThinkingOrb } from "thinking-orbs";
-import type { KimiToolTimelineStatus } from "../../../shared/chat";
+import type { AgentToolTimelineStatus } from "../../../shared/chat";
 import type { MessagePart } from "../../../shared/threadContent";
 
 export type ReasoningPart = Extract<MessagePart, { type: "reasoning" }>;
@@ -11,14 +11,14 @@ export type CommentaryPart = {
   id: string;
   content: string;
 };
-export type KimiThinkingItem = {
-  type: "kimi-thinking";
+export type AgentThinkingItem = {
+  type: "agent-thinking";
   id: string;
   content: string;
   status: "running" | "completed" | "cancelled";
 };
-export type KimiToolItem = {
-  type: "kimi-tool";
+export type AgentToolItem = {
+  type: "agent-tool";
   id: string;
   title: string;
   kind: string;
@@ -27,9 +27,9 @@ export type KimiToolItem = {
   input: string;
   output: string;
   error: string;
-  status: KimiToolTimelineStatus;
+  status: AgentToolTimelineStatus;
 };
-export type AgentActivityStep = ReasoningPart | ShellPart | KimiThinkingItem | KimiToolItem;
+export type AgentActivityStep = ReasoningPart | ShellPart | AgentThinkingItem | AgentToolItem;
 export type AgentActivityItem = AgentActivityStep | CommentaryPart;
 export type AgentActivityStatus = "running" | "completed" | "failed" | "cancelled";
 
@@ -109,7 +109,7 @@ export function inferAgentActivityStatus(steps: AgentActivityStep[]): AgentActiv
     steps.some(
       (step) =>
         (step.type === "shell" && step.status === "failed") ||
-        (step.type === "kimi-tool" && step.status === "failed"),
+        (step.type === "agent-tool" && step.status === "failed"),
     )
   ) {
     return "failed";
@@ -118,7 +118,7 @@ export function inferAgentActivityStatus(steps: AgentActivityStep[]): AgentActiv
   if (
     steps.some(
       (step) =>
-        step.status === "running" || (step.type === "kimi-tool" && step.status === "pending"),
+        step.status === "running" || (step.type === "agent-tool" && step.status === "pending"),
     )
   ) {
     return "running";
@@ -142,7 +142,7 @@ export function getInitialAgentActivityBlockExpanded({
 }
 
 function getStepStatusMeta(step: AgentActivityStep) {
-  if (step.status === "running" || (step.type === "kimi-tool" && step.status === "pending")) {
+  if (step.status === "running" || (step.type === "agent-tool" && step.status === "pending")) {
     return { icon: CircleDashed, className: "text-muted" };
   }
 
@@ -152,7 +152,7 @@ function getStepStatusMeta(step: AgentActivityStep) {
 
   if (
     (step.type === "shell" && step.status === "failed") ||
-    (step.type === "kimi-tool" && step.status === "failed")
+    (step.type === "agent-tool" && step.status === "failed")
   ) {
     return { icon: XCircle, className: "text-danger" };
   }
@@ -225,7 +225,7 @@ function ReasoningStepItem({ step }: { step: ReasoningPart }) {
   );
 }
 
-function KimiThinkingItemView({ item }: { item: KimiThinkingItem }) {
+function AgentThinkingItemView({ item }: { item: AgentThinkingItem }) {
   const [expanded, setExpanded] = useState(false);
   const meta = getStepStatusMeta(item);
   const StatusIcon = meta.icon;
@@ -320,7 +320,7 @@ function ShellStepItem({ step }: { step: ShellPart }) {
 // Mirrors the adapter's describeToolActivity so the timeline shows a readable
 // label (e.g. "Read src/a.ts", "Search", "Bash") instead of every tool's raw
 // title. Falls back to the title when the kind is unrecognized.
-function describeKimiToolActivity(tool: KimiToolItem) {
+function describeAgentToolActivity(tool: AgentToolItem) {
   const normalizedKind = tool.kind.toLowerCase();
   const target = tool.filePath ? ` ${tool.filePath}` : "";
 
@@ -343,21 +343,20 @@ function describeKimiToolActivity(tool: KimiToolItem) {
   return `${tool.title}${target}`;
 }
 
-// Web search / fetch tools (ACP kind "fetch", or titles like "WebSearch" /
-// "FetchURL") get the animated searching orb while running.
-function isWebSearchTool(item: KimiToolItem) {
+// Web search and fetch tools get the animated searching orb while running.
+function isWebSearchTool(item: AgentToolItem) {
   const haystack = `${item.title} ${item.kind}`.toLowerCase();
   return (
     haystack.includes("fetch") || haystack.includes("websearch") || haystack.includes("web search")
   );
 }
 
-function KimiToolItemView({ item }: { item: KimiToolItem }) {
+function AgentToolItemView({ item }: { item: AgentToolItem }) {
   const [expanded, setExpanded] = useState(false);
   const meta = getStepStatusMeta(item);
   const StatusIcon = meta.icon;
   const isRunning = item.status === "running" || item.status === "pending";
-  const label = describeKimiToolActivity(item);
+  const label = describeAgentToolActivity(item);
   const hasShellCommand = item.kind.toLowerCase() === "execute" && !!item.command;
   const hasDetail = !!item.output || !!item.error || !!item.input;
   const canExpand = hasShellCommand || hasDetail;
@@ -433,11 +432,11 @@ function ActivityItem({ item }: { item: AgentActivityItem }) {
   if (item.type === "reasoning") {
     return <ReasoningStepItem step={item} />;
   }
-  if (item.type === "kimi-thinking") {
-    return <KimiThinkingItemView item={item} />;
+  if (item.type === "agent-thinking") {
+    return <AgentThinkingItemView item={item} />;
   }
-  if (item.type === "kimi-tool") {
-    return <KimiToolItemView item={item} />;
+  if (item.type === "agent-tool") {
+    return <AgentToolItemView item={item} />;
   }
   return <ShellStepItem step={item} />;
 }

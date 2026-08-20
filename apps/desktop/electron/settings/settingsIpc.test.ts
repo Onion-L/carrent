@@ -34,9 +34,6 @@ describe("registerSettingsIpc", () => {
       "settings:global-agent-instructions:read",
       "settings:global-agent-instructions:write",
       "settings:global-rtk-instructions:write",
-      "settings:kimi-memory",
-      "settings:kimi-memory:delete",
-      "settings:kimi-usage",
       "settings:rtk-gain",
       "settings:worktrees",
       "settings:worktrees:prune",
@@ -196,27 +193,6 @@ describe("registerSettingsIpc", () => {
 
     await cancel({}, 1);
     await cancel({}, 2);
-  });
-
-  it("rejects non-string kimi memory delete paths", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-
-    registerSettingsIpc(
-      {
-        handle(channel, listener) {
-          handlers.set(channel, listener);
-        },
-      },
-      () => "0.0.0-test",
-      () => [],
-    );
-
-    try {
-      await handlers.get("settings:kimi-memory:delete")?.({}, 123);
-      expect(false).toBe(true);
-    } catch (error) {
-      expect((error as Error).message).toBe("Kimi memory file path must be a string.");
-    }
   });
 
   it("rejects non-string global instructions content", async () => {

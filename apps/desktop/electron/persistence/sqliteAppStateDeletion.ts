@@ -5,33 +5,25 @@ import type { SqliteClient } from "./sqliteClient";
  * Row-level Thread deletion, mirroring `applyThreadDeletionToAppState`'s scope
  * rules (see `src/shared/chat.ts`) as bound SQL inside the caller's transaction.
  *
- * The Thread-owned tables (`thread_messages`, `thread_runs`, `thread_actions`,
- * `thread_work`) and `workspace_last_threads` cascade-delete with the `threads`
+ * The Thread-owned tables (`thread_messages`, `thread_runs`, `thread_work`) and
+ * `workspace_last_threads` cascade-delete with the `threads`
  * row (`ON DELETE CASCADE`). A Thread Draft's `reserved_thread_id` is
  * intentionally NOT a foreign key (the Thread does not exist until promotion),
  * so drafts and their cascading `promotion_intents` are deleted explicitly.
- * Provider Session mappings have no foreign key to `threads` (a mapping can
- * outlive a mid-promotion Thread and a single corrupted mapping can be
- * isolated), so they are deleted explicitly too.
- *
- * Returns the removed Provider Session mappings so the caller (the deletion
- * transaction) can restore them on rollback — matching the JSON-era
- * `removedProviderSessions` contract. The whole deletion runs in the caller's
- * transaction, so any constraint or statement failure rolls back every deleted
- * row and leaves the pre-deletion state authoritative.
+ * The whole deletion runs in the caller's transaction, so any constraint or
+ * statement failure rolls back every deleted row.
  */
 export function deleteThreadsFromAppState(
   client: Pick<SqliteClient, "all" | "get" | "run">,
   operationId: string,
   threadIds: string[],
   scope?: ThreadDeletionScope,
-): { removedProviderSessions: Record<string, string> } {
+): void {
   const targetThreadIds = collectTargetThreadIds(client, threadIds, scope);
-  const removedProviderSessions = removeProviderSessionsForThreads(client, targetThreadIds);
 
   for (const threadId of targetThreadIds) {
     // Deleting the `threads` row cascades thread_messages, thread_runs,
-    // thread_actions, thread_work, and workspace_last_threads (thread_id FK).
+    // thread_work, and workspace_last_threads (thread_id FK).
     client.run("DELETE FROM threads WHERE id = ?", threadId);
     // Draft promotion can reserve a Thread ID before the Thread row exists.
     client.run("DELETE FROM thread_drafts WHERE reserved_thread_id = ?", threadId);
@@ -39,18 +31,18 @@ export function deleteThreadsFromAppState(
 
   if (!scope || scope.kind === "threads") {
     recordCommittedDeletion(client, operationId);
-    return { removedProviderSessions };
+    return;
   }
 
   if (scope.kind === "association") {
     deleteAssociationScope(client, scope);
     recordCommittedDeletion(client, operationId);
-    return { removedProviderSessions };
+    return;
   }
 
   deleteWorkspaceScope(client, scope);
   recordCommittedDeletion(client, operationId);
-  return { removedProviderSessions };
+  return;
 }
 
 export function threadDeletionOperationKey(operationId: string): string {
@@ -88,32 +80,6 @@ function recordCommittedDeletion(client: Pick<SqliteClient, "run">, operationId:
     threadDeletionOperationKey(operationId),
     new Date().toISOString(),
   );
-}
-
-/**
- * Remove every Provider Session mapping whose key ends in `:${threadId}` for one
- * of the target Threads, and return the removed `{ key -> sessionId }` set so a
- * rollback can restore exactly what was detached. Keys are read from the
- * database and deleted by exact key, so no user content is ever interpolated
- * into SQL — matching the existing `removedProviderSessions` suffix semantics.
- */
-function removeProviderSessionsForThreads(
-  client: Pick<SqliteClient, "all" | "run">,
-  threadIds: string[],
-): Record<string, string> {
-  const removed: Record<string, string> = {};
-  if (threadIds.length === 0) return removed;
-  const rows = client.all<{ session_key: string; session_id: string }>(
-    "SELECT session_key, session_id FROM provider_sessions",
-  );
-  const suffixes = threadIds.map((threadId) => `:${threadId}`);
-  for (const row of rows) {
-    if (suffixes.some((suffix) => row.session_key.endsWith(suffix))) {
-      removed[row.session_key] = row.session_id;
-      client.run("DELETE FROM provider_sessions WHERE session_key = ?", row.session_key);
-    }
-  }
-  return removed;
 }
 
 function deleteAssociationScope(

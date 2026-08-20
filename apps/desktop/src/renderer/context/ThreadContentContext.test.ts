@@ -35,23 +35,22 @@ describe("applyRunChecklistUpdate", () => {
     title: "Checklist",
     createdAt: "2026-07-27T08:00:00.000Z",
     lastActivityAt: "2026-07-27T08:00:00.000Z",
-    runtimeId: "kimi",
-    runtimeMode: "approval-required",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "ask",
   };
 
   it("keeps the first snapshot collapsed and fully replaces later entries", () => {
     const first = applyRunChecklistUpdate(thread, {
       kind: "snapshot",
       runId: "run-1",
-      runtimeId: "kimi",
+      providerProfileId: "default",
       entries: [{ content: "Inspect", status: "in_progress" }],
     });
     const expanded = applyRunChecklistUpdate(first, { kind: "expanded", expanded: true });
     const replaced = applyRunChecklistUpdate(expanded, {
       kind: "snapshot",
       runId: "run-1",
-      runtimeId: "kimi",
+      providerProfileId: "default",
       entries: [
         { content: "Implement", status: "completed" },
         { content: "Verify", status: "in_progress" },
@@ -74,7 +73,7 @@ describe("applyRunChecklistUpdate", () => {
     const active = applyRunChecklistUpdate(thread, {
       kind: "snapshot",
       runId: "run-1",
-      runtimeId: "kimi",
+      providerProfileId: "default",
       entries: [
         { content: "Implement", status: "in_progress" },
         { content: "Verify", status: "pending" },
@@ -101,7 +100,7 @@ describe("applyRunChecklistUpdate", () => {
     const active = applyRunChecklistUpdate(thread, {
       kind: "snapshot",
       runId: "run-1",
-      runtimeId: "kimi",
+      providerProfileId: "default",
       entries: [{ content: "Implement", status: "in_progress" }],
     });
 
@@ -122,7 +121,7 @@ describe("applyRunChecklistUpdate", () => {
     const active = applyRunChecklistUpdate(thread, {
       kind: "snapshot",
       runId: "run-1",
-      runtimeId: "kimi",
+      providerProfileId: "default",
       entries: [{ content: "Implement", status: "in_progress" }],
     });
 
@@ -130,7 +129,7 @@ describe("applyRunChecklistUpdate", () => {
       applyRunChecklistUpdate(active, {
         kind: "snapshot",
         runId: "run-1",
-        runtimeId: "kimi",
+        providerProfileId: "default",
         entries: [],
       }).runChecklist,
     ).toBeUndefined();
@@ -194,8 +193,8 @@ describe("buildChangedFilesMessage", () => {
             workspaceId: "workspace-1",
             projectId: "project-1",
             order: 0,
-            defaultRuntimeId: "kimi",
-            defaultRuntimeMode: "approval-required",
+            defaultProviderProfileId: "default",
+            defaultAgentMode: "ask",
           },
         ],
         threads: [
@@ -206,9 +205,8 @@ describe("buildChangedFilesMessage", () => {
             title: "First",
             createdAt: "2023-11-14T22:00:00.000Z",
             lastActivityAt: "2023-11-14T22:13:20.000Z",
-            runtimeId: "kimi",
-            runtimeMode: "approval-required",
-            planMode: false,
+            providerProfileId: "default",
+            agentMode: "ask",
           },
         ],
         threadMessages: [{ ...message, attachments: [] }],
@@ -617,7 +615,7 @@ describe("applyMessagePartUpdate", () => {
       parts: [
         { type: "text", content: "partial" },
         {
-          type: "kimi_timeline",
+          type: "agent_activity",
           item: {
             type: "thinking",
             id: "thinking-1",
@@ -635,7 +633,7 @@ describe("applyMessagePartUpdate", () => {
       content: "complete",
       parts: [
         { type: "text", content: "complete" },
-        { type: "kimi_timeline", item: { id: "thinking-1" } },
+        { type: "agent_activity", item: { id: "thinking-1" } },
       ],
     });
   });
@@ -735,7 +733,7 @@ describe("applyMessagePartUpdate", () => {
       kind: "upsert-reasoning",
       reasoning: {
         type: "reasoning",
-        id: "kimi-thinking-1",
+        id: "agent-thinking-1",
         content: "Inspect first",
         status: "completed",
       },
@@ -766,33 +764,33 @@ describe("applyMessagePartUpdate", () => {
         kind: "upsert-reasoning",
         reasoning: {
           type: "reasoning",
-          id: "kimi-thinking-2",
+          id: "agent-thinking-2",
           content: "Verify result",
           status: "running",
         },
       }),
     ).toMatchObject({
-      parts: [{ id: "kimi-thinking-1" }, { id: "tool-shell-1" }, { id: "kimi-thinking-2" }],
+      parts: [{ id: "agent-thinking-1" }, { id: "tool-shell-1" }, { id: "agent-thinking-2" }],
     });
   });
 
-  it("upserts Kimi timeline items without changing their first-seen order", () => {
+  it("upserts Agent timeline items without changing their first-seen order", () => {
     const message = makeMessage({ role: "assistant", content: "", parts: [] });
     const withThinking = applyMessagePartUpdate(message, {
-      kind: "upsert-kimi-timeline",
+      kind: "upsert-agent-timeline",
       item: {
         type: "thinking",
-        id: "kimi-run-1-thinking-1",
+        id: "agent-run-1-thinking-1",
         order: 0,
         content: "Inspect",
         status: "running",
       },
     });
     const withMessage = applyMessagePartUpdate(withThinking, {
-      kind: "upsert-kimi-timeline",
+      kind: "upsert-agent-timeline",
       item: {
         type: "message",
-        id: "kimi-run-1-message-1",
+        id: "agent-run-1-message-1",
         order: 1,
         content: "Working on it.",
         isFinal: false,
@@ -800,10 +798,10 @@ describe("applyMessagePartUpdate", () => {
     });
 
     const replayedUpdate = {
-      kind: "upsert-kimi-timeline" as const,
+      kind: "upsert-agent-timeline" as const,
       item: {
         type: "thinking" as const,
-        id: "kimi-run-1-thinking-1",
+        id: "agent-run-1-thinking-1",
         order: 99,
         content: "Inspect files",
         status: "completed" as const,
@@ -816,40 +814,40 @@ describe("applyMessagePartUpdate", () => {
       content: "",
       parts: [
         {
-          type: "kimi_timeline",
+          type: "agent_activity",
           item: {
-            id: "kimi-run-1-thinking-1",
+            id: "agent-run-1-thinking-1",
             order: 0,
             content: "Inspect files",
             status: "completed",
           },
         },
         {
-          type: "kimi_timeline",
-          item: { id: "kimi-run-1-message-1", order: 1, content: "Working on it." },
+          type: "agent_activity",
+          item: { id: "agent-run-1-message-1", order: 1, content: "Working on it." },
         },
       ],
     });
     expect(replayed.type === "changed_files" ? [] : replayed.parts).toHaveLength(2);
   });
 
-  it("upserts Kimi tool timeline items without duplicating or reordering them", () => {
+  it("upserts Agent tool timeline items without duplicating or reordering them", () => {
     const message = makeMessage({ role: "assistant", content: "", parts: [] });
     const withThinking = applyMessagePartUpdate(message, {
-      kind: "upsert-kimi-timeline",
+      kind: "upsert-agent-timeline",
       item: {
         type: "thinking",
-        id: "kimi-run-2-thinking-1",
+        id: "agent-run-2-thinking-1",
         order: 0,
         content: "Inspect",
         status: "running",
       },
     });
     const withToolStart = applyMessagePartUpdate(withThinking, {
-      kind: "upsert-kimi-timeline",
+      kind: "upsert-agent-timeline",
       item: {
         type: "tool",
-        id: "kimi-run-2-tool-item-1",
+        id: "agent-run-2-tool-item-1",
         order: 1,
         toolCallId: "tool-read",
         title: "Read",
@@ -863,10 +861,10 @@ describe("applyMessagePartUpdate", () => {
       },
     });
     const withMessage = applyMessagePartUpdate(withToolStart, {
-      kind: "upsert-kimi-timeline",
+      kind: "upsert-agent-timeline",
       item: {
         type: "message",
-        id: "kimi-run-2-message-1",
+        id: "agent-run-2-message-1",
         order: 2,
         content: "Done.",
         isFinal: false,
@@ -876,10 +874,10 @@ describe("applyMessagePartUpdate", () => {
     // The completion update carries a later order value; the reducer must keep
     // the item at its first-seen order (1) and not duplicate it.
     const replayedUpdate = {
-      kind: "upsert-kimi-timeline" as const,
+      kind: "upsert-agent-timeline" as const,
       item: {
         type: "tool" as const,
-        id: "kimi-run-2-tool-item-1",
+        id: "agent-run-2-tool-item-1",
         order: 99,
         toolCallId: "tool-read",
         title: "Read",
@@ -895,23 +893,23 @@ describe("applyMessagePartUpdate", () => {
     const updated = applyMessagePartUpdate(withMessage, replayedUpdate);
     const replayed = applyMessagePartUpdate(updated, replayedUpdate);
     const afterLateRunningUpdate = applyMessagePartUpdate(replayed, {
-      kind: "upsert-kimi-timeline",
+      kind: "upsert-agent-timeline",
       item: { ...replayedUpdate.item, status: "running", output: "late update" },
     });
 
     expect(afterLateRunningUpdate).toMatchObject({
       parts: [
-        { type: "kimi_timeline", item: { id: "kimi-run-2-thinking-1", order: 0 } },
+        { type: "agent_activity", item: { id: "agent-run-2-thinking-1", order: 0 } },
         {
-          type: "kimi_timeline",
+          type: "agent_activity",
           item: {
-            id: "kimi-run-2-tool-item-1",
+            id: "agent-run-2-tool-item-1",
             order: 1,
             status: "completed",
             output: "late update",
           },
         },
-        { type: "kimi_timeline", item: { id: "kimi-run-2-message-1", order: 2 } },
+        { type: "agent_activity", item: { id: "agent-run-2-message-1", order: 2 } },
       ],
     });
     expect(
@@ -929,47 +927,11 @@ describe("applyMessagePartUpdate", () => {
       });
       const toolPart = (
         afterRegressionAttempt.type === "changed_files" ? [] : (afterRegressionAttempt.parts ?? [])
-      ).find((part) => part.type === "kimi_timeline" && part.item.id === replayedUpdate.item.id);
+      ).find((part) => part.type === "agent_activity" && part.item.id === replayedUpdate.item.id);
       const toolItem =
-        toolPart?.type === "kimi_timeline" && toolPart.item.type === "tool" ? toolPart.item : null;
+        toolPart?.type === "agent_activity" && toolPart.item.type === "tool" ? toolPart.item : null;
       expect(toolItem?.status).toBe(settledStatus);
     }
-  });
-
-  it("upserts, resolves, and interrupts Plan Reviews", () => {
-    const message = makeMessage({ role: "assistant", content: "", parts: [] });
-    const review = {
-      type: "plan_review" as const,
-      id: "review-1",
-      permissionId: "permission-1",
-      content: "# Plan",
-      status: "pending" as const,
-      options: [{ optionId: "plan_approve", name: "Approve", kind: "allow_once" as const }],
-    };
-
-    const pending = applyMessagePartUpdate(message, { kind: "upsert-plan-review", review });
-    const resolved = applyMessagePartUpdate(pending, {
-      kind: "resolve-plan-review",
-      permissionId: "permission-1",
-      status: "approved",
-      selectedOptionId: "plan_approve",
-      selectedOptionName: "Approve",
-    });
-    expect(resolved).toMatchObject({
-      parts: [
-        {
-          type: "plan_review",
-          status: "approved",
-          selectedOptionId: "plan_approve",
-          selectedOptionName: "Approve",
-        },
-      ],
-    });
-
-    const interrupted = applyMessagePartUpdate(pending, { kind: "interrupt-plan-reviews" });
-    expect(interrupted).toMatchObject({
-      parts: [{ type: "plan_review", status: "interrupted" }],
-    });
   });
 
   it("upserts, resolves, and interrupts structured questions", () => {
@@ -1037,7 +999,7 @@ describe("applyMessagePartUpdate", () => {
     const task = {
       type: "subagent_task" as const,
       id: "0:tool_agent",
-      runtimeId: "kimi" as const,
+      providerProfileId: "default" as const,
       source: "agent" as const,
       agentType: "coder",
       description: "Implement persistence",
@@ -1062,7 +1024,7 @@ describe("applyMessagePartUpdate", () => {
       task: {
         ...task,
         status: "completed",
-        runtimeAgentId: "agent-0",
+        agentId: "agent-0",
         summary: "Done.",
         finishedAt: 2000,
       },
@@ -1075,7 +1037,7 @@ describe("applyMessagePartUpdate", () => {
           type: "subagent_task",
           id: "0:tool_agent",
           status: "completed",
-          runtimeAgentId: "agent-0",
+          agentId: "agent-0",
           summary: "Done.",
           startedAt: 1000,
           finishedAt: 2000,
@@ -1088,7 +1050,7 @@ describe("applyMessagePartUpdate", () => {
   it("interrupts only running Subagent Tasks and keeps settled and detached tasks", () => {
     const baseTask = {
       type: "subagent_task" as const,
-      runtimeId: "kimi" as const,
+      providerProfileId: "default" as const,
       source: "agent" as const,
       description: "Task",
       background: false,

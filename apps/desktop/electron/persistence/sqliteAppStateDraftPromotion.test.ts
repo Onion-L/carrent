@@ -26,19 +26,17 @@ function baseSnapshot(): AppStateSnapshot {
         workspaceId: "workspace-a",
         projectId: "project-a",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "auto-accept-edits",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "auto-edit",
       },
     ],
     threads: [],
     threadDrafts: [],
     threadMessages: [],
     threadRuns: [],
-    threadActions: [],
     threadPromotionIntents: [],
     threadWork: {},
     settings: {
-      autoDetectRuntimes: true,
       theme: "system",
       codeHighlightTheme: "classic",
       typographyMode: "simple",
@@ -55,8 +53,6 @@ function baseSnapshot(): AppStateSnapshot {
       defaultEditorId: "",
       enhancedTerminalCompletion: true,
       terminalPanelHeight: 320,
-      runtimeEnabledById: {},
-      runtimeDefaultModelById: {},
     } as NonNullable<AppStateSnapshot["settings"]>,
     lastThreadIdByWorkspace: {},
     activeWorkspaceId: "workspace-a",
@@ -72,9 +68,8 @@ function draftRecord(): AssociationThreadDraftRecord {
     content: "first turn",
     attachedSkillNames: [],
     attachments: [],
-    runtimeId: "kimi",
-    runtimeMode: "approval-required",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "ask",
   };
 }
 
@@ -102,9 +97,8 @@ function promotionPayload(
       title: "First turn",
       createdAt: startedAt,
       lastActivityAt: startedAt,
-      runtimeId: "kimi",
-      runtimeMode: "full-access",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "full-project",
     },
     message: {
       id: "message-user",
@@ -140,9 +134,8 @@ function promotionPayload(
       messageId: "message-user",
       assistantMessageId: "message-assistant",
       startedAt,
-      runtimeId: "kimi",
-      runtimeMode: "full-access",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "full-project",
     },
   };
 }
@@ -286,15 +279,13 @@ describe("SQLite App State Thread Draft lifecycle persistence", () => {
     });
   });
 
-  it("updates only the runtime config columns of one draft", async () => {
+  it("updates only the Agent config columns of one draft", async () => {
     await withStore(snapshotWithDraft(), async (store, before) => {
       const value = command("thread-draft:update-config", {
         draftId: "draft-a",
         config: {
-          runtimeId: "kimi",
-          runtimeModelId: "kimi-k2.5",
-          runtimeMode: "full-access",
-          planMode: true,
+          providerProfileId: "default",
+          agentMode: "full-project",
         },
       });
       const after = reduce(before, value);
@@ -313,8 +304,8 @@ describe("SQLite App State Thread Draft lifecycle persistence", () => {
         client.run(
           `INSERT INTO promotion_intents (
              draft_id, thread_id, workspace_id, project_id, title, run_id, message_id,
-             message, attachments, started_at, runtime_id, runtime_mode, plan_mode
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             message, attachments, started_at, provider_profile_id, agent_mode
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           "draft-a",
           "thread-promoted",
           "workspace-a",
@@ -325,9 +316,8 @@ describe("SQLite App State Thread Draft lifecycle persistence", () => {
           "first turn",
           "[]",
           "2026-08-09T09:00:00.000Z",
-          "kimi",
-          "full-access",
-          0,
+          "default",
+          "full-project",
         ),
       );
       await clearAudit(store);
@@ -367,7 +357,7 @@ describe("SQLite App State Thread Draft lifecycle persistence", () => {
       );
       expect(loaded?.threadRuns ?? []).toEqual(after.threadRuns);
       // The promoted Thread uses the Draft's reserved id + association + the
-      // send-time runtime config, exactly as the reducer built it.
+      // send-time Agent config, exactly as the reducer built it.
       expect(loaded?.threads?.map((thread) => thread.id)).toEqual(["thread-promoted"]);
       expect(loaded?.threadRuns?.map((run) => run.id)).toEqual(["run-1"]);
       // Attachment metadata round-trips through the payload column.
@@ -588,13 +578,12 @@ describe("SQLite App State Thread Draft lifecycle persistence", () => {
       const value = command("thread-draft:update-config", {
         draftId: "draft-a",
         config: {
-          runtimeId: "kimi",
-          runtimeMode: "full-access",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "full-project",
         },
       });
       const after = reduce(before, value);
-      // Force a CHECK failure on the runtime_mode update by rejecting every
+      // Force a failure on the Agent configuration update by rejecting every
       // thread_drafts update mid-transaction.
       await store.run((client) =>
         client.run(
@@ -614,7 +603,7 @@ describe("SQLite App State Thread Draft lifecycle persistence", () => {
 
       // State unchanged: the draft still has its original config.
       const loaded = await store.loadAppStateSnapshot();
-      expect(loaded?.threadDrafts?.[0]?.runtimeMode).toBe("approval-required");
+      expect(loaded?.threadDrafts?.[0]?.agentMode).toBe("ask");
       expect(loaded).toEqual(before);
     });
   });

@@ -25,8 +25,8 @@ const associations: WorkspaceProjectAssociationRecord[] = [
     workspaceId: "workspace-1",
     projectId: "project-1",
     order: 0,
-    defaultRuntimeId: "kimi",
-    defaultRuntimeMode: "approval-required",
+    defaultProviderProfileId: "default",
+    defaultAgentMode: "ask",
   },
 ];
 const threads: AppThreadRecord[] = [
@@ -37,9 +37,8 @@ const threads: AppThreadRecord[] = [
     title: "Navigation",
     createdAt: "2026-07-27T08:00:00.000Z",
     lastActivityAt: "2026-07-27T08:00:00.000Z",
-    runtimeId: "kimi",
-    runtimeMode: "approval-required",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "ask",
   },
 ];
 

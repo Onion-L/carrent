@@ -6,10 +6,7 @@ type AppStateLifecycleDependencies = {
   recoverThreadDeletion: () => Promise<void>;
   reloadAppState: () => Promise<AppStateLoadResult>;
   reconcileAttachments: (snapshot: AppStateSnapshot) => Promise<void>;
-  reloadProviderSessions: () => Promise<void>;
-  clearProviderSessions: () => Promise<void>;
-  resetRuntimeSessions: () => void;
-  initializeMcpBridge: () => Promise<unknown>;
+  resetThreadState: () => void;
   updateIpcGate: (result: AppStateLoadResult) => void;
 };
 
@@ -35,15 +32,10 @@ export function createAppStateLifecycle(dependencies: AppStateLifecycleDependenc
         await dependencies.reconcileAttachments(authoritativeResult.snapshot);
       }
 
-      if (source === "reread") {
-        await dependencies.reloadProviderSessions();
-        dependencies.resetRuntimeSessions();
-      } else if (source === "full-reset") {
-        await dependencies.clearProviderSessions();
-        dependencies.resetRuntimeSessions();
+      if (source === "reread" || source === "full-reset") {
+        dependencies.resetThreadState();
       }
 
-      await dependencies.initializeMcpBridge();
       dependencies.updateIpcGate(authoritativeResult);
       return authoritativeResult;
     },

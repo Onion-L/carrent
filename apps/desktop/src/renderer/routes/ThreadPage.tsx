@@ -3,7 +3,7 @@ import { Navigate, useParams } from "react-router-dom";
 import { PanelRight } from "lucide-react";
 
 import { ChatHeader } from "../components/chat/ChatHeader";
-import { DebugTimeline } from "../components/chat/DebugTimeline";
+import { AgentDebugTimeline } from "../components/chat/AgentDebugTimeline";
 import { OpenInMenu } from "../components/chat/OpenInMenu";
 import {
   Composer,
@@ -14,7 +14,6 @@ import { ConversationDropSurface } from "../components/chat/ConversationDropSurf
 import {
   EmptyThreadPrompt,
   MessageTimeline,
-  type RuntimeSessionRetryRequest,
   type UserMessageEditDraft,
 } from "../components/chat/MessageTimeline";
 import {
@@ -29,13 +28,12 @@ import { DesktopHeaderPortal } from "../components/DesktopHeaderActions";
 import { useThreadContent } from "../context/ThreadContentContext";
 import { useAppState } from "../context/AppStateContext";
 import { WorkspaceDiffProvider, useThreadContentDiff } from "../context/WorkspaceDiffContext";
-import { DEFAULT_RUNTIME_MODE } from "../../shared/runtimeMode";
-import { DEFAULT_RUNTIME_ID } from "../../shared/runtimes";
+import { DEFAULT_AGENT_MODE } from "../../shared/agentMode";
+import { DEFAULT_PROVIDER_PROFILE_ID } from "../../shared/providerProfiles";
 import type { BrowserThreadState } from "../../shared/browser";
 import type { Message } from "../../shared/threadContent";
 import { useChatRun } from "../hooks/useChatRun";
 import { ProjectDirectoryUnavailable } from "../components/workspace/ProjectDirectoryUnavailable";
-import { useToast } from "../components/toast/ToastContext";
 import { BrowserWorkspace, useBrowserThread } from "../components/browser/BrowserWorkspace";
 import {
   RightSurfacePane,
@@ -75,25 +73,9 @@ export function recordBrowserFocusSequence(
   return previous !== undefined && state.focusSequence > previous;
 }
 
-export function buildRuntimeSessionRetrySubmitRequest(
-  userMessage: Message | undefined,
-  requestId: number,
-): ComposerSubmitRequest | null {
-  if (!userMessage || userMessage.role !== "user") {
-    return null;
-  }
-  return {
-    messageId: userMessage.id,
-    content: userMessage.content,
-    attachments: userMessage.attachments,
-    localPathContexts: userMessage.localPathContexts,
-    requestId,
-  };
-}
-
 function ThreadPageContent() {
   const { workspaceId, projectId, threadId } = useParams();
-  const { showToast } = useToast();
+  const [debugView, setDebugView] = useState(false);
   const [submitRequest, setSubmitRequest] = useState<
     { threadId: string; request: ComposerSubmitRequest } | undefined
   >();
@@ -107,7 +89,6 @@ function ThreadPageContent() {
     projects,
     associations,
     threads,
-    threadActions,
     updateThreadConfig,
     recordThreadRun,
     rollbackThreadRun,
@@ -144,7 +125,6 @@ function ThreadPageContent() {
   const { state: diffState, openDiff, closeDiff } = useThreadContentDiff();
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [debugView, setDebugView] = useState(false);
   const browserTarget =
     appProject && routeData ? { projectId: appProject.id, threadId: routeData.thread.id } : null;
   const {
@@ -259,37 +239,6 @@ function ThreadPageContent() {
     });
   }, []);
 
-  const handleRuntimeSessionRetry = useCallback(
-    async (request: RuntimeSessionRetryRequest) => {
-      const data = routeDataRef.current;
-      if (!data) return;
-      const userMessage = data.messages.find(
-        (message) => message.id === request.userMessageId && message.role === "user",
-      );
-      const retrySubmitRequest = buildRuntimeSessionRetrySubmitRequest(userMessage, Date.now());
-      if (!retrySubmitRequest) {
-        showToast("The original request is unavailable.", "error");
-        return;
-      }
-
-      try {
-        await window.carrent.chat.removeRuntimeSession({
-          runtimeId: request.runtimeId,
-          threadId: request.threadId,
-        });
-      } catch (error) {
-        showToast(error instanceof Error ? error.message : String(error), "error");
-        return;
-      }
-
-      setSubmitRequest({
-        threadId: request.threadId,
-        request: retrySubmitRequest,
-      });
-    },
-    [showToast],
-  );
-
   const handleSelectSubagent = useCallback(
     (taskId: string) => {
       setSelectedTaskId(taskId);
@@ -308,27 +257,23 @@ function ThreadPageContent() {
       projectId={routeData.project.id}
       threadId={routeData.thread.id}
       messages={routeData.messages}
-      runtimeId={appThread?.runtimeId ?? routeData.thread.runtimeId ?? DEFAULT_RUNTIME_ID}
-      runtimeModelId={appThread ? appThread.runtimeModelId : routeData.thread.runtimeModelId}
-      runtimeMode={appThread?.runtimeMode ?? routeData.thread.runtimeMode ?? DEFAULT_RUNTIME_MODE}
-      planMode={appThread?.planMode ?? routeData.thread.planMode === true}
+      providerProfileId={
+        appThread?.providerProfileId ??
+        routeData.thread.providerProfileId ??
+        DEFAULT_PROVIDER_PROFILE_ID
+      }
+      agentMode={appThread?.agentMode ?? routeData.thread.agentMode ?? DEFAULT_AGENT_MODE}
       submitRequest={
         submitRequest?.threadId === routeData.thread.id ? submitRequest.request : undefined
       }
       draftRequest={
         draftRequest?.threadId === routeData.thread.id ? draftRequest.request : undefined
       }
-      onRuntimeIdChange={(runtimeId) => {
-        if (appThread) void updateThreadConfig(appThread.id, { runtimeId });
+      onProviderProfileIdChange={(providerProfileId) => {
+        if (appThread) void updateThreadConfig(appThread.id, { providerProfileId });
       }}
-      onRuntimeModelIdChange={(modelId) => {
-        if (appThread) void updateThreadConfig(appThread.id, { runtimeModelId: modelId });
-      }}
-      onRuntimeModeChange={(mode) => {
-        if (appThread) void updateThreadConfig(appThread.id, { runtimeMode: mode });
-      }}
-      onPlanModeChange={(enabled) => {
-        if (appThread) void updateThreadConfig(appThread.id, { planMode: enabled });
+      onAgentModeChange={(mode) => {
+        if (appThread) void updateThreadConfig(appThread.id, { agentMode: mode });
       }}
       onRunPrepared={
         appThread ? (input) => recordThreadRun({ threadId: appThread.id, ...input }) : undefined
@@ -492,19 +437,12 @@ function ThreadPageContent() {
           ) : (
             <>
               {import.meta.env.DEV && debugView ? (
-                <DebugTimeline
-                  threadId={routeData?.thread.id ?? threadId ?? ""}
-                  messages={routeData?.messages ?? []}
-                />
+                <AgentDebugTimeline threadId={routeData?.thread.id ?? threadId ?? ""} />
               ) : (
                 <MessageTimeline
                   messages={routeData?.messages ?? []}
-                  threadActions={threadActions.filter(
-                    (action) => action.threadId === routeData?.thread.id,
-                  )}
                   threadId={routeData?.thread.id}
                   onSubmitUserEdit={hasLiveRun ? undefined : handleSubmitUserEdit}
-                  onRemoveRuntimeSessionAndRetry={handleRuntimeSessionRetry}
                   onSelectSubagent={handleSelectSubagent}
                 />
               )}

@@ -35,13 +35,13 @@ describe("createProcessRunner", () => {
       execFile: fakeExecFile,
     });
 
-    const result = await runner.run("kimi", ["--version"]);
+    const result = await runner.run("tool", ["--version"]);
 
     expect(result.ok).toBe(true);
     expect(calls).toEqual([
       {
         command: "C:\\Windows\\system32\\cmd.exe",
-        args: ["/d", "/s", "/c", "kimi", "--version"],
+        args: ["/d", "/s", "/c", "tool", "--version"],
       },
     ]);
   });

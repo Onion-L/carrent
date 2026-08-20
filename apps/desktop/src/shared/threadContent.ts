@@ -1,11 +1,5 @@
-import type {
-  AttachmentMetadata,
-  ChatSubagentTaskPayload,
-  KimiTimelineItem,
-  RuntimeSessionRecovery,
-} from "./chat";
+import type { AttachmentMetadata, ChatSubagentTaskPayload, AgentTimelineItem } from "./chat";
 import type { LocalPathContextItem } from "./localPathContext";
-import type { ChatPermissionOption } from "./chatPermissions";
 
 export type { AttachmentMetadata };
 export type { LocalPathContextItem };
@@ -40,7 +34,7 @@ export type SubagentTaskPart = { type: "subagent_task" } & ChatSubagentTaskPaylo
 
 export type MessagePart =
   | { type: "text"; content: string }
-  | { type: "kimi_timeline"; item: KimiTimelineItem }
+  | { type: "agent_activity"; item: AgentTimelineItem }
   | {
       type: "reasoning";
       id: string;
@@ -56,16 +50,6 @@ export type MessagePart =
       exitCode?: number | null;
     }
   | {
-      type: "plan_review";
-      id: string;
-      permissionId: string;
-      content: string;
-      status: "pending" | "approved" | "revision-requested" | "rejected" | "interrupted";
-      options: ChatPermissionOption[];
-      selectedOptionId?: string;
-      selectedOptionName?: string;
-    }
-  | {
       type: "question";
       id: string;
       questionId: string;
@@ -78,7 +62,6 @@ export type MessagePart =
       type: "error";
       id: string;
       message: string;
-      runtimeSessionRecovery?: RuntimeSessionRecovery & { userMessageId: string };
     };
 
 type TextMessage<T extends MessageTimestampFields = UiMessageTimestampFields> = MessageBase<T> & {
@@ -122,14 +105,14 @@ function reconcileRunningParts(parts: MessagePart[] | undefined): MessagePart[] 
       return { ...part, status: "cancelled" as const };
     }
     if (
-      part.type === "kimi_timeline" &&
+      part.type === "agent_activity" &&
       (part.item.type === "thinking" || part.item.type === "tool") &&
       part.item.status === "running"
     ) {
       changed = true;
       return { ...part, item: { ...part.item, status: "cancelled" as const } };
     }
-    if ((part.type === "plan_review" || part.type === "question") && part.status === "pending") {
+    if (part.type === "question" && part.status === "pending") {
       changed = true;
       return { ...part, status: "interrupted" as const };
     }

@@ -32,10 +32,7 @@ import type {
   ChatTurnRequest,
   DeleteThreadDataRequest,
   ThreadDeletionTransactionRequest,
-  KimiSessionStatus,
-  KimiTelemetryStatus,
 } from "../shared/chat";
-import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
 import type { SkillRecord } from "../shared/skills";
 
 mock.module("./assets/logo.png", () => ({ default: "logo.png" }));
@@ -95,11 +92,6 @@ type TestTerminalEvent = import("../shared/terminal").TerminalEvent extends infe
   : never;
 let emitTerminalEvent: ((event: TestTerminalEvent) => void) | null = null;
 
-type KimiStatusSource =
-  | KimiTelemetryStatus
-  | null
-  | (() => KimiTelemetryStatus | null | Promise<KimiTelemetryStatus | null>);
-
 function NavigationProbe() {
   const location = useLocation();
   const navigationType = useNavigationType();
@@ -123,17 +115,8 @@ function installBridge(
   deleteThreadTransactionGate?: Promise<void>,
   projectDirectoryAvailable: boolean | boolean[] | (() => boolean) = true,
   projectRelocationRequests: ProjectRelocationRequest[] = [],
-  kimiStatus: KimiStatusSource = null,
-  executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>,
-  sessionStatus:
-    | KimiSessionStatus
-    | null
-    | ((
-        request: ChatTurnRequest,
-      ) => KimiSessionStatus | null | Promise<KimiSessionStatus | null>) = null,
   chatStopRequests: string[] = [],
   skills: SkillRecord[] = [],
-  mcpServerEnabled = false,
 ) {
   let chatListener: ((event: import("../shared/chat").ChatRunEvent) => void) | null = null;
   const terminalListeners = new Set<(event: import("../shared/terminal").TerminalEvent) => void>();
@@ -203,6 +186,24 @@ function installBridge(
     },
   });
   window.carrent = {
+    agentAuth: {
+      load: async () => ({
+        path: "/home/test/.carrent/agent/auth.json",
+        activeProfileId: "default",
+        profiles: [
+          {
+            id: "default",
+            type: "anthropic",
+            baseUrl: "https://api.anthropic.com",
+            modelId: "claude-sonnet-4-5",
+            hasApiKey: true,
+          },
+        ],
+      }),
+      save: async () => {
+        throw new Error("Unexpected agent auth save");
+      },
+    },
     platform: "darwin",
     browser: {
       activate: async (target: import("../shared/browser").BrowserThreadTarget | null) =>
@@ -379,31 +380,6 @@ function installBridge(
         };
       },
     },
-    runtimes: {
-      list: async () => [
-        {
-          id: "kimi",
-          name: "Kimi Code",
-          command: "kimi",
-          availability: "detected",
-          enabled: true,
-          status: "running",
-          configuration: "configured",
-          verification: "passed",
-          supportsModelPing: true,
-        },
-      ],
-      listModels: async () => ({ state: "listed", models: [] }),
-    },
-    mcpServer: {
-      getStatus: async () => ({ enabled: mcpServerEnabled, running: mcpServerEnabled }),
-      start: async () => ({ enabled: true, running: true }),
-      stop: async () => ({ enabled: false, running: false }),
-    },
-    providerSessions: {
-      load: async () => ({ version: 1, sessions: {} }),
-      save: async () => {},
-    },
     projectDirectories: {
       check: async () => ({
         available:
@@ -465,7 +441,7 @@ function installBridge(
     },
     chat: {
       send: async (request: ChatTurnRequest) => {
-        if (chatSendFails) throw new Error("runtime unavailable");
+        if (chatSendFails) throw new Error("agent unavailable");
         chatRequests.push(structuredClone(request));
         const runId = request.runId ?? "run-1";
         queueMicrotask(() => {
@@ -481,12 +457,8 @@ function installBridge(
       stop: async (runId: string) => {
         chatStopRequests.push(runId);
       },
-      executeThreadAction,
       respondToPermission: async () => {},
       respondToQuestion: async () => {},
-      getKimiStatus: async () => (typeof kimiStatus === "function" ? kimiStatus() : kimiStatus),
-      getSessionStatus: async (request: ChatTurnRequest) =>
-        typeof sessionStatus === "function" ? sessionStatus(request) : sessionStatus,
       onEvent: (listener: (event: import("../shared/chat").ChatRunEvent) => void) => {
         chatListener = listener;
         emitChatEvent = (event) => chatListener?.(event);
@@ -605,15 +577,8 @@ type RenderAppOptions = {
   projectDirectoryAvailable?: boolean | boolean[] | (() => boolean);
   projectRelocationRequests?: ProjectRelocationRequest[];
   strictMode?: boolean;
-  kimiStatus?: KimiStatusSource;
-  executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>;
-  sessionStatus?:
-    | KimiSessionStatus
-    | null
-    | ((request: ChatTurnRequest) => KimiSessionStatus | null | Promise<KimiSessionStatus | null>);
   chatStopRequests?: string[];
   skills?: SkillRecord[];
-  mcpServerEnabled?: boolean;
   settings?: AppStateSettings;
 };
 
@@ -647,12 +612,8 @@ async function renderApp(
     options.deleteThreadTransactionGate,
     options.projectDirectoryAvailable,
     options.projectRelocationRequests,
-    options.kimiStatus,
-    options.executeThreadAction,
-    options.sessionStatus,
     options.chatStopRequests,
     options.skills,
-    options.mcpServerEnabled,
   );
   await mountInstalledBridge(initialEntry, options.strictMode);
 
@@ -754,20 +715,6 @@ function getComposerEditorText(editor: HTMLElement) {
   const copy = text.cloneNode(true) as HTMLElement;
   copy.querySelectorAll("[data-skill-marker='true']").forEach((marker) => marker.remove());
   return copy.textContent;
-}
-
-async function fillNativeTextarea(nativeTextarea: HTMLTextAreaElement, value: string) {
-  const setter = Object.getOwnPropertyDescriptor(
-    window.HTMLTextAreaElement.prototype,
-    "value",
-  )!.set!;
-  await act(async () => {
-    nativeTextarea.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
-    setter.call(nativeTextarea, value);
-    nativeTextarea.dispatchEvent(new window.Event("input", { bubbles: true }));
-    nativeTextarea.dispatchEvent(new window.Event("change", { bubbles: true }));
-    nativeTextarea.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "a" }));
-  });
 }
 
 async function click(button: HTMLButtonElement) {
@@ -1036,8 +983,8 @@ describe("Workspace App State foundation", () => {
         workspaceId: saved.at(-1)!.activeWorkspaceId,
         projectId: saved.at(-1)!.projects[0].id,
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "ask",
       },
     ]);
     expect(container!.querySelector("h1")?.textContent).toBe("Research");
@@ -1249,16 +1196,16 @@ describe("three-level navigation", () => {
           projectId: "project-1",
           alias: "Personal Carrent",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
         {
           workspaceId: "workspace-2",
           projectId: "project-1",
           alias: "Client Carrent",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -1269,9 +1216,8 @@ describe("three-level navigation", () => {
           title: "Personal Thread",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
         {
           id: "thread-2",
@@ -1280,9 +1226,8 @@ describe("three-level navigation", () => {
           title: "Client Thread",
           createdAt: "2026-07-27T09:00:00.000Z",
           lastActivityAt: "2026-07-27T09:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       lastThreadIdByWorkspace: {
@@ -1530,9 +1475,8 @@ describe("three-level navigation", () => {
       title: "Recent Thread",
       createdAt: "2026-07-27T10:00:00.000Z",
       lastActivityAt: "2026-07-27T10:00:00.000Z",
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
     });
     const saved = await renderApp(
       state,
@@ -1603,8 +1547,8 @@ describe("three-level navigation", () => {
           runId: requests[0].runId!,
           requestKey: requests[0].requestKey,
           threadId: "thread-1",
-          provider: "kimi",
-          source: "native-acp",
+          provider: "core",
+          source: "core",
           questions: [
             {
               header: "Choice",
@@ -1633,7 +1577,7 @@ describe("three-level navigation", () => {
           runId: requests[0].runId!,
           requestKey: requests[0].requestKey,
           threadId: "thread-1",
-          provider: "kimi",
+          provider: "core",
           action: "edit",
           title: "Edit file",
           options: [],
@@ -1693,19 +1637,6 @@ describe("three-level navigation", () => {
     expect(buttonNamed("Worktrees").getAttribute("aria-current")).toBe("page");
     expect(container!.textContent).toContain("Git worktrees reachable from your Projects");
     expect(container!.textContent).toContain("No Projects to scan");
-  });
-
-  it("keeps the Local MCP Server control in Settings instead of the header", async () => {
-    const entryPath = "/workspace/workspace-1/project/project-1/thread/thread-1";
-    await renderApp(navigationState(), entryPath, [], false, [], false);
-
-    expect(container!.querySelector('header button[title="Local MCP Server"]')).toBe(null);
-
-    await click(buttonNamed("Settings"));
-    await click(buttonNamed("General"));
-
-    expect(container!.textContent).toContain("Carrent Local Server");
-    expect(buttonNamed("Local MCP Server").getAttribute("aria-checked")).toBe("false");
   });
 
   it("switches the active Workspace directly from Settings", async () => {
@@ -1960,7 +1891,7 @@ describe("three-level navigation", () => {
     });
   });
 
-  it("navigates adjacent Threads, jumps by index, and suspends jumps for the model picker", async () => {
+  it("navigates adjacent Threads, jumps by index, and suspends jumps for the provider picker", async () => {
     const state = navigationState();
     const threads = state.threads!;
     state.threads = [
@@ -2013,10 +1944,9 @@ describe("three-level navigation", () => {
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-oldest");
 
     await pressKeybinding("m", { shiftKey: true });
-    expect(document.querySelector('[data-model-picker-open="true"]')).not.toBe(null);
+    expect(document.querySelector('[data-provider-picker-open="true"]')).not.toBe(null);
     await pressKeybinding("1");
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-oldest");
-    await pressKeybinding("m", { shiftKey: true });
     await pressKeybinding("1");
     expect(currentPathname).toBe("/workspace/workspace-1/project/project-1/thread/thread-newest");
   });
@@ -2321,7 +2251,7 @@ describe("three-level navigation", () => {
           {
             type: "subagent_task",
             id: "task-1",
-            runtimeId: "kimi",
+            providerProfileId: "default",
             source: "agent",
             description: "Inspect lifecycle",
             background: false,
@@ -2430,8 +2360,8 @@ describe("three-level navigation", () => {
             workspaceId: "workspace-1",
             projectId: "project-1",
             order: 0,
-            defaultRuntimeId: "kimi",
-            defaultRuntimeMode: "approval-required",
+            defaultProviderProfileId: "default",
+            defaultAgentMode: "ask",
           },
         ],
         threads: [
@@ -2442,9 +2372,8 @@ describe("three-level navigation", () => {
             title: "Navigation",
             createdAt: "2026-07-27T08:00:00.000Z",
             lastActivityAt: "2026-07-27T08:00:00.000Z",
-            runtimeId: "kimi",
-            runtimeMode: "approval-required",
-            planMode: false,
+            providerProfileId: "default",
+            agentMode: "ask",
           },
         ],
         activeWorkspaceId: "workspace-1",
@@ -2490,8 +2419,8 @@ describe("Workspace Projects and Associations", () => {
         workspaceId: "workspace-1",
         projectId: saved[0].projects[0].id,
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "ask",
       },
     ]);
     expect(container!.querySelector("h1")?.textContent).toBe("New thread");
@@ -2599,8 +2528,8 @@ describe("Workspace Projects and Associations", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       activeWorkspaceId: "workspace-2",
@@ -2638,15 +2567,15 @@ describe("Workspace Projects and Associations", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
         {
           workspaceId: "workspace-2",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       activeWorkspaceId: "workspace-1",
@@ -2664,8 +2593,8 @@ describe("Workspace Projects and Associations", () => {
       workspaceId: "workspace-1",
       projectId: "project-2",
       order: 1,
-      defaultRuntimeId: "kimi",
-      defaultRuntimeMode: "approval-required",
+      defaultProviderProfileId: "default",
+      defaultAgentMode: "ask",
     });
     await renderApp(state, "/workspace/workspace-1");
 
@@ -2684,9 +2613,8 @@ describe("Association Thread Drafts", () => {
         workspaceId: "workspace-1",
         projectId: "project-1",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeModelId: "kimi-k2.5",
-        defaultRuntimeMode: "approval-required",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "ask",
       },
     ],
     threads: [],
@@ -2706,10 +2634,8 @@ describe("Association Thread Drafts", () => {
         title: "Existing Thread",
         createdAt: "2026-07-27T08:00:00.000Z",
         lastActivityAt: "2026-07-27T08:01:00.000Z",
-        runtimeId: "kimi",
-        runtimeModelId: "kimi-k2.5",
-        runtimeMode: "approval-required",
-        planMode: true,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     ],
     threadMessages: [
@@ -2744,9 +2670,8 @@ describe("Association Thread Drafts", () => {
       workspaceId: "workspace-1",
       projectId: "project-1",
       content: "",
-      runtimeId: "kimi",
-      runtimeModelId: "kimi-k2.5",
-      runtimeMode: "approval-required",
+      providerProfileId: "default",
+      agentMode: "ask",
     });
 
     await fillComposerEditor(
@@ -2761,34 +2686,6 @@ describe("Association Thread Drafts", () => {
     expect(saved.at(-1)?.threads).toEqual([]);
   });
 
-  it("shows Context and plan usage in a Thread Draft", async () => {
-    await renderApp(state, "/workspace/workspace-1/project/project-1", [], false, [], false, {
-      kimiStatus: {
-        used: 0,
-        threadActions: [],
-        supportedCommands: [],
-        planUsage: {
-          weekly: { usedPercentage: 20 },
-          fiveHour: { usedPercentage: 10 },
-        },
-      },
-    });
-    await waitForProjectDraft();
-
-    const indicator = container!.querySelector<HTMLButtonElement>(
-      '[aria-label="Kimi context usage"]',
-    )!;
-    await act(async () => {
-      indicator.click();
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-
-    expect(container!.textContent).toContain("0 tokens used");
-    expect(container!.textContent).toContain("Weekly20%");
-    expect(container!.textContent).toContain("5h10%");
-    expect(container!.textContent).not.toContain("No context data yet");
-  });
-
   it("restores an Association Draft from the persisted App State", async () => {
     const restoredState: AppStateSnapshot = {
       ...state,
@@ -2801,10 +2698,8 @@ describe("Association Thread Drafts", () => {
           content: "Recovered request",
           attachedSkillNames: [],
           attachments: [],
-          runtimeId: "kimi",
-          runtimeModelId: "kimi-k2.5",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
     };
@@ -2848,9 +2743,8 @@ describe("Association Thread Drafts", () => {
         projectId: "project-1",
         workingDirectory: "/code/carrent",
       },
-      runtimeId: "kimi",
-      runtimeModelId: "kimi-k2.5",
-      runtimeMode: "approval-required",
+      providerProfileId: "default",
+      agentMode: "ask",
       message: "Implement association drafts",
     });
     expect("draftRef" in requests[0]).toBe(false);
@@ -2860,9 +2754,8 @@ describe("Association Thread Drafts", () => {
       id: requests[0].threadId,
       workspaceId: "workspace-1",
       projectId: "project-1",
-      runtimeId: "kimi",
-      runtimeModelId: "kimi-k2.5",
-      runtimeMode: "approval-required",
+      providerProfileId: "default",
+      agentMode: "ask",
       // Derived by the Main Process from the visible composer text.
       title: "Implement association drafts",
     });
@@ -2879,9 +2772,8 @@ describe("Association Thread Drafts", () => {
     expect(saved.at(-1)?.threadRuns?.[0]).toMatchObject({
       id: requests[0].runId,
       threadId: requests[0].threadId,
-      runtimeId: "kimi",
-      runtimeModelId: "kimi-k2.5",
-      runtimeMode: "approval-required",
+      providerProfileId: "default",
+      agentMode: "ask",
     });
   });
 
@@ -2898,9 +2790,8 @@ describe("Association Thread Drafts", () => {
           content: "Fix the visible request",
           attachedSkillNames: ["tdd"],
           attachments: [],
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
     };
@@ -2920,7 +2811,6 @@ describe("Association Thread Drafts", () => {
             source: "agents",
           },
         ],
-        mcpServerEnabled: true,
       },
     );
 
@@ -2960,9 +2850,8 @@ describe("Association Thread Drafts", () => {
           content,
           attachedSkillNames: [],
           attachments: [],
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
     };
@@ -3003,9 +2892,8 @@ describe("Association Thread Drafts", () => {
               storageKey: "attachment-1.txt",
             },
           ],
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
     };
@@ -3087,18 +2975,18 @@ describe("Association Thread Drafts", () => {
         type: "failed",
         runId: requests[0].runId!,
         requestKey: requests[0].requestKey,
-        error: "Runtime failed before replying",
+        error: "Agent failed before replying",
       });
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
 
     const renderedText = container!.textContent ?? "";
     expect(renderedText.indexOf("First failed request")).toBeLessThan(
-      renderedText.indexOf("Runtime failed before replying"),
+      renderedText.indexOf("Agent failed before replying"),
     );
   });
 
-  it("atomically persists the promoted Thread before the first Runtime dispatch", async () => {
+  it("atomically persists the promoted Thread before the first Agent Core dispatch", async () => {
     const requests: ChatTurnRequest[] = [];
     const saved = await renderApp(
       state,
@@ -3240,10 +3128,8 @@ describe("Association Thread Drafts", () => {
           title: "Recovered Thread",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeModelId: "kimi-k2.5",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       threadMessages: [
@@ -3266,97 +3152,6 @@ describe("Association Thread Drafts", () => {
     expect(container!.textContent).toContain("Recovered Thread");
     expect(container!.textContent).toContain("Recovered message");
     expect(container!.querySelector("[data-composer-editor='true']") !== null).toBe(true);
-  });
-
-  it("keeps a new Thread message when the Runtime synchronizes Plan mode", async () => {
-    const requests: ChatTurnRequest[] = [];
-    const saved = await renderApp(
-      existingThreadState(),
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      requests,
-    );
-
-    await fillComposerEditor(
-      container!.querySelector("[data-composer-editor='true']")!,
-      "New request",
-    );
-    await click(composerSendButton());
-    await act(async () => {
-      emitChatEvent?.({
-        type: "plan-mode-changed",
-        runId: requests[0].runId!,
-        requestKey: requests[0].requestKey,
-        enabled: false,
-      });
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-
-    expect(container!.textContent).toContain("New request");
-    expect(saved.at(-1)?.threadMessages?.some((message) => message.content === "New request")).toBe(
-      true,
-    );
-    expect(saved.at(-1)?.threadRuns?.some((run) => run.id === requests[0].runId)).toBe(true);
-    await act(async () => {
-      emitChatEvent?.({
-        type: "stopped",
-        runId: requests[0].runId!,
-        requestKey: requests[0].requestKey,
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-  });
-
-  it("keeps an edited Thread message when the Runtime synchronizes Plan mode", async () => {
-    const requests: ChatTurnRequest[] = [];
-    const saved = await renderApp(
-      existingThreadState(),
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      requests,
-    );
-    const originalBubble = [...container!.querySelectorAll<HTMLDivElement>(".bg-user-bubble")].find(
-      (element) => element.textContent?.trim() === "Original request",
-    )!.parentElement!.parentElement!;
-    await act(async () => {
-      originalBubble.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
-    });
-    await click(
-      [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
-        (button) => button.title === "Edit",
-      )!,
-    );
-    await fillNativeTextarea(
-      container!.querySelectorAll<HTMLTextAreaElement>("textarea")[0],
-      "Edited request",
-    );
-    await click(
-      [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
-        (button) => button.textContent === "发送",
-      )!,
-    );
-    await act(async () => {
-      emitChatEvent?.({
-        type: "plan-mode-changed",
-        runId: requests[0].runId!,
-        requestKey: requests[0].requestKey,
-        enabled: false,
-      });
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-
-    expect(container!.textContent).toContain("Edited request");
-    expect(saved.at(-1)?.threadMessages?.[0]?.content).toBe("Edited request");
-    await act(async () => {
-      emitChatEvent?.({
-        type: "stopped",
-        runId: requests[0].runId!,
-        requestKey: requests[0].requestKey,
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
   });
 
   it("prunes the previous assistant answer when editing a user message without changing content", async () => {
@@ -3462,7 +3257,7 @@ describe("Association Thread Drafts", () => {
     });
   });
 
-  it("fills the new assistant with a repeated answer when the runtime returns the same text", async () => {
+  it("fills the new assistant with a repeated answer when the provider returns the same text", async () => {
     const requests: ChatTurnRequest[] = [];
     const saved = await renderApp(
       existingThreadState(),
@@ -3491,7 +3286,7 @@ describe("Association Thread Drafts", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
 
-    // The runtime returns the exact same text as the pruned assistant answer.
+    // The provider returns the exact same text as the pruned assistant answer.
     await act(async () => {
       emitChatEvent?.({
         type: "text-snapshot",
@@ -3533,10 +3328,8 @@ describe("Association Thread Drafts", () => {
           title: "Existing Thread",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeModelId: "kimi-k2.5",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
     };
@@ -3559,883 +3352,6 @@ describe("Association Thread Drafts", () => {
   });
 });
 
-describe("Compact Thread Action", () => {
-  const compactAppState: AppStateSnapshot = {
-    version: 1,
-    workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
-    projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
-    associations: [
-      {
-        workspaceId: "workspace-1",
-        projectId: "project-1",
-        order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
-      },
-    ],
-    threads: [
-      {
-        id: "thread-1",
-        workspaceId: "workspace-1",
-        projectId: "project-1",
-        title: "Compact me",
-        createdAt: "2026-07-27T08:00:00.000Z",
-        lastActivityAt: "2026-07-27T08:01:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
-      },
-    ],
-    threadMessages: [
-      {
-        id: "message-1",
-        threadId: "thread-1",
-        role: "user",
-        content: "Finish the work",
-        createdAt: "2026-07-27T08:00:00.000Z",
-        attachments: [],
-      },
-      {
-        id: "message-2",
-        threadId: "thread-1",
-        role: "assistant",
-        content: "Done",
-        createdAt: "2026-07-27T08:01:00.000Z",
-        runStatus: "completed",
-        attachments: [],
-      },
-    ],
-    threadRuns: [
-      {
-        id: "run-1",
-        threadId: "thread-1",
-        messageId: "message-1",
-        startedAt: "2026-07-27T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
-      },
-    ],
-    activeWorkspaceId: "workspace-1",
-  };
-
-  it("runs from the slash menu without a Run and persists the owning Thread boundary", async () => {
-    const requests: ChatTurnRequest[] = [];
-    const actionRequests: ThreadActionRequest[] = [];
-    let finishCompact!: () => void;
-    const compactGate = new Promise<void>((resolve) => {
-      finishCompact = resolve;
-    });
-    const saved = await renderApp(
-      compactAppState,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      requests,
-      false,
-      {
-        kimiStatus: {
-          sessionId: "session-compact",
-          used: 34,
-          total: 100,
-          percentage: 34,
-          threadActions: ["compact"],
-          supportedCommands: ["compact"],
-        },
-        executeThreadAction: async (request) => {
-          actionRequests.push(structuredClone(request));
-          await compactGate;
-          return { ...request, completedAt: "2026-07-27T08:02:00.000Z" };
-        },
-      },
-    );
-    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
-    await fillComposerEditor(editor, "/");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-
-    const menuButtons = [...container!.querySelectorAll<HTMLButtonElement>("button")].filter(
-      (button) =>
-        button.textContent?.includes("Enable plan mode") ||
-        button.textContent?.includes("34% used"),
-    );
-    expect(menuButtons.map((button) => button.textContent?.trim())).toEqual([
-      "Plan modeEnable plan mode",
-      "CompactCompress this thread's context (34% used)",
-    ]);
-    expect(menuButtons.every((button) => button.querySelector("svg") === null)).toBe(true);
-
-    await act(async () => {
-      menuButtons[1]!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    expect(actionRequests).toEqual([
-      {
-        action: "compact",
-        threadId: "thread-1",
-        runtimeId: "kimi",
-        workingDirectory: "/code/carrent",
-      },
-    ]);
-    expect(requests).toEqual([]);
-    expect(container!.textContent).toContain("Compacting");
-    expect(composerSendButton().disabled).toBe(true);
-    expect(getComposerEditorText(editor)).toBe("");
-
-    await fillComposerEditor(editor, "/compact Keep this draft");
-    await act(async () => {
-      editor
-        .querySelector<HTMLElement>("[data-composer-text='true']")!
-        .dispatchEvent(
-          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-        );
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    expect(getComposerEditorText(editor)).toBe("Keep this draft");
-    expect(actionRequests).toHaveLength(1);
-    expect(container!.textContent).toContain("already compacting");
-
-    await fillComposerEditor(editor, "Next request");
-
-    await act(async () => {
-      finishCompact();
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-
-    expect(container!.textContent).toContain("Context compacted");
-    expect(getComposerEditorText(editor)).toBe("Next request");
-    expect(saved.at(-1)?.threadActions?.[0]).toMatchObject({
-      threadId: "thread-1",
-      action: "compact",
-      runtimeId: "kimi",
-      completedAt: "2026-07-27T08:02:00.000Z",
-    });
-    expect(saved.at(-1)?.threadActions?.[0]?.id.startsWith("thread-action-")).toBe(true);
-    expect(saved.at(-1)?.threads?.[0]?.lastActivityAt).toBe("2026-07-27T08:02:00.000Z");
-
-    await fillComposerEditor(editor, "/compact Keep this draft");
-    await act(async () => {
-      editor
-        .querySelector<HTMLElement>("[data-composer-text='true']")!
-        .dispatchEvent(
-          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-        );
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    expect(getComposerEditorText(editor)).toBe("Keep this draft");
-    expect(actionRequests).toHaveLength(1);
-    expect(requests).toEqual([]);
-    expect(container!.textContent).toContain("requires a completed user and Agent exchange");
-
-    await fillComposerEditor(editor, "/");
-    expect(
-      [...container!.querySelectorAll<HTMLButtonElement>("button")].some((button) =>
-        button.textContent?.includes("Compress this thread's context"),
-      ),
-    ).toBe(false);
-  });
-
-  it("clears Compact availability after the Runtime Session becomes invalid", async () => {
-    const actionRequests: ThreadActionRequest[] = [];
-    let sessionAvailable = true;
-    await renderApp(
-      compactAppState,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      [],
-      false,
-      {
-        kimiStatus: () =>
-          sessionAvailable
-            ? {
-                sessionId: "session-compact",
-                used: 34,
-                total: 100,
-                percentage: 34,
-                threadActions: ["compact"],
-                supportedCommands: ["compact"],
-              }
-            : null,
-        executeThreadAction: async (request) => {
-          actionRequests.push(structuredClone(request));
-          sessionAvailable = false;
-          throw new Error("Kimi Code could not resume the Runtime Session.");
-        },
-      },
-    );
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-
-    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
-    await fillComposerEditor(editor, "/compact Keep this draft");
-    await act(async () => {
-      editor
-        .querySelector<HTMLElement>("[data-composer-text='true']")!
-        .dispatchEvent(
-          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-        );
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-    expect(getComposerEditorText(editor)).toBe("Keep this draft");
-    expect(actionRequests).toHaveLength(1);
-
-    await fillComposerEditor(editor, "/compact Try again");
-    await act(async () => {
-      editor
-        .querySelector<HTMLElement>("[data-composer-text='true']")!
-        .dispatchEvent(
-          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-        );
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    expect(getComposerEditorText(editor)).toBe("Try again");
-    expect(actionRequests).toHaveLength(1);
-    expect(container!.textContent).toContain("requires a resumable Runtime Session");
-  });
-
-  it("blocks repeated Compact after Runtime success when boundary persistence fails", async () => {
-    const actionRequests: ThreadActionRequest[] = [];
-    const saved = await renderApp(
-      compactAppState,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      true,
-      [],
-      false,
-      {
-        kimiStatus: {
-          sessionId: "session-compact",
-          used: 34,
-          total: 100,
-          percentage: 34,
-          threadActions: ["compact"],
-          supportedCommands: ["compact"],
-        },
-        executeThreadAction: async (request) => {
-          actionRequests.push(structuredClone(request));
-          return { ...request, completedAt: "2026-07-27T08:02:00.000Z" };
-        },
-      },
-    );
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-
-    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
-    await fillComposerEditor(editor, "/compact Keep this draft");
-    await act(async () => {
-      editor
-        .querySelector<HTMLElement>("[data-composer-text='true']")!
-        .dispatchEvent(
-          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-        );
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-    expect(getComposerEditorText(editor)).toBe("Keep this draft");
-    expect(actionRequests).toHaveLength(1);
-    expect(saved).toHaveLength(0);
-    expect(container!.textContent).toContain("history boundary could not be saved");
-
-    await fillComposerEditor(editor, "/compact Try again");
-    await act(async () => {
-      editor
-        .querySelector<HTMLElement>("[data-composer-text='true']")!
-        .dispatchEvent(
-          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-        );
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    expect(getComposerEditorText(editor)).toBe("Try again");
-    expect(actionRequests).toHaveLength(1);
-    expect(container!.textContent).toContain("requires a completed user and Agent exchange");
-  });
-});
-
-describe("Runtime Session Status", () => {
-  const statusAppState: AppStateSnapshot = {
-    version: 1,
-    workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
-    projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
-    associations: [
-      {
-        workspaceId: "workspace-1",
-        projectId: "project-1",
-        order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
-      },
-    ],
-    threads: [
-      {
-        id: "thread-1",
-        workspaceId: "workspace-1",
-        projectId: "project-1",
-        title: "Inspect status",
-        createdAt: "2026-07-27T08:00:00.000Z",
-        lastActivityAt: "2026-07-27T08:01:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
-      },
-    ],
-    threadMessages: [
-      {
-        id: "message-1",
-        threadId: "thread-1",
-        role: "user",
-        content: "Finish the work",
-        createdAt: "2026-07-27T08:00:00.000Z",
-        attachments: [],
-      },
-      {
-        id: "message-2",
-        threadId: "thread-1",
-        role: "assistant",
-        content: "Done",
-        createdAt: "2026-07-27T08:01:00.000Z",
-        runStatus: "completed",
-        attachments: [],
-      },
-    ],
-    threadRuns: [
-      {
-        id: "run-1",
-        threadId: "thread-1",
-        messageId: "message-1",
-        startedAt: "2026-07-27T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
-      },
-    ],
-    activeWorkspaceId: "workspace-1",
-  };
-  const passiveStatus: KimiSessionStatus = {
-    sessionId: "session-1234567890",
-    used: 35193,
-    total: 1048576,
-    percentage: 3.4,
-    threadActions: ["compact"],
-    supportedCommands: ["compact", "status"],
-  };
-
-  async function submitEditor(editor: HTMLElement) {
-    await act(async () => {
-      editor
-        .querySelector<HTMLElement>("[data-composer-text='true']")!
-        .dispatchEvent(
-          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-        );
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-  }
-
-  it("keeps the Context indicator visible without a Runtime Session", async () => {
-    await renderApp(
-      statusAppState,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      [],
-      false,
-      { kimiStatus: null },
-    );
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-
-    const indicator = container!.querySelector<HTMLButtonElement>(
-      '[aria-label="Kimi context usage"]',
-    )!;
-    expect(indicator).not.toBe(null);
-
-    await act(async () => {
-      indicator.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    expect(container!.textContent).toContain("No context data yet");
-
-    await act(async () => {
-      indicator.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true }));
-    });
-    expect(container!.textContent).not.toContain("No context data yet");
-
-    await act(async () => {
-      indicator.click();
-      indicator.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    expect(container!.textContent).toContain("No context data yet");
-
-    await act(async () => {
-      indicator.click();
-    });
-    expect(container!.textContent).not.toContain("No context data yet");
-
-    await act(async () => {
-      indicator.click();
-    });
-    expect(container!.textContent).toContain("No context data yet");
-
-    await act(async () => {
-      document.body.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
-    });
-    expect(container!.textContent).not.toContain("No context data yet");
-  });
-
-  it("shows zero Context usage and plan usage before the first usage record", async () => {
-    await renderApp(
-      statusAppState,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      [],
-      false,
-      {
-        kimiStatus: {
-          sessionId: "session-live",
-          used: 0,
-          threadActions: [],
-          supportedCommands: [],
-          planUsage: {
-            weekly: { usedPercentage: 20 },
-            fiveHour: { usedPercentage: 10 },
-          },
-        },
-      },
-    );
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-
-    const indicator = container!.querySelector<HTMLButtonElement>(
-      '[aria-label="Kimi context usage"]',
-    )!;
-    await act(async () => {
-      indicator.click();
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-
-    expect(container!.textContent).toContain("0 tokens used");
-    expect(container!.textContent).toContain("Plan usage");
-    expect(container!.textContent).toContain("Weekly20%");
-    expect(container!.textContent).toContain("5h10%");
-    expect(container!.textContent).not.toContain("No context data yet");
-  });
-
-  it("shows an unavailable Context state when status refresh fails", async () => {
-    await renderApp(
-      statusAppState,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      [],
-      false,
-      {
-        kimiStatus: () => {
-          throw new Error("transport failed");
-        },
-      },
-    );
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-
-    const indicator = container!.querySelector<HTMLButtonElement>(
-      '[aria-label="Kimi context usage"]',
-    )!;
-    expect(indicator.textContent).toBe("--");
-
-    await act(async () => {
-      indicator.click();
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    expect(container!.textContent).toContain("Context usage unavailable");
-  });
-
-  it("keeps the previous Context usage visible while refreshing", async () => {
-    let refreshStatus!: (status: KimiSessionStatus | null) => void;
-    let statusCalls = 0;
-    await renderApp(
-      statusAppState,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      [],
-      false,
-      {
-        kimiStatus: () => {
-          statusCalls += 1;
-          if (statusCalls === 1) return passiveStatus;
-          return new Promise((resolve) => {
-            refreshStatus = resolve;
-          });
-        },
-      },
-    );
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-
-    const indicator = container!.querySelector<HTMLButtonElement>(
-      '[aria-label="Kimi context usage"]',
-    )!;
-    await act(async () => {
-      indicator.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    expect(container!.textContent).toContain("35,193 / 1,048,576 (3.4%)");
-
-    await act(async () => {
-      refreshStatus(null);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    expect(container!.textContent).toContain("No context data yet");
-  });
-
-  it("executes Status from the slash menu and renders normalized values without a Run", async () => {
-    const chatRequests: ChatTurnRequest[] = [];
-    const statusRequests: ChatTurnRequest[] = [];
-    await renderApp(
-      statusAppState,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      chatRequests,
-      false,
-      {
-        kimiStatus: passiveStatus,
-        sessionStatus: async (request) => {
-          statusRequests.push(structuredClone(request));
-          return {
-            ...passiveStatus,
-            planUsage: {
-              weekly: {
-                usedPercentage: 24.5,
-                resetAt: new Date(Date.now() + ((3 * 24 + 8) * 60 + 1) * 60_000).toISOString(),
-              },
-              fiveHour: {
-                resetAt: new Date(Date.now() + ((2 * 60 + 59) * 60 + 30) * 1000).toISOString(),
-              },
-            },
-          };
-        },
-      },
-    );
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-
-    const usageIndicator = container!.querySelector<HTMLElement>('[title="Kimi context usage"]')!;
-    await act(async () => {
-      usageIndicator.click();
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      usageIndicator.click();
-    });
-    expect(statusRequests).toHaveLength(0);
-
-    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
-    await fillComposerEditor(editor, "Keep this /st");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-    expect(
-      [...container!.querySelectorAll<HTMLButtonElement>("button")].some((button) =>
-        button.textContent?.startsWith("Status"),
-      ),
-    ).toBe(false);
-
-    await fillComposerEditor(editor, "/");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-    const commandLabels = [...container!.querySelectorAll<HTMLButtonElement>("button")]
-      .map((button) => button.textContent?.trim() ?? "")
-      .filter(
-        (label) =>
-          label.startsWith("Plan mode") ||
-          label.startsWith("Compact") ||
-          label.startsWith("Status"),
-      );
-    expect(commandLabels).toEqual([
-      "Plan modeEnable plan mode",
-      "CompactCompress this thread's context (3% used)",
-      "StatusInspect this Runtime Session",
-    ]);
-
-    const statusButton = [...container!.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent?.startsWith("Status"),
-    )!;
-    await act(async () => {
-      statusButton.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-
-    expect(statusRequests).toHaveLength(1);
-    expect(statusRequests[0]).toMatchObject({
-      threadId: "thread-1",
-      runtimeId: "kimi",
-      message: "",
-      transcript: [],
-    });
-    expect(chatRequests).toEqual([]);
-    expect(getComposerEditorText(editor)).toBe("");
-    expect(container!.textContent).toContain("Status");
-    expect(container!.textContent).toContain("Session");
-    expect(container!.textContent).toContain("session-1234567890");
-    expect(container!.textContent).toContain("Remaining 96.6% (35,193 used / 1M total)");
-    expect(container!.textContent).toContain("Plan usage");
-    expect(container!.textContent).toContain("Weekly");
-    expect(container!.textContent).toContain("Used 24.5% · Remaining 75.5% · Resets in 3d 8h");
-    expect(container!.textContent).toContain("5h");
-    expect(container!.textContent).toContain("5hResets in 2h 59m");
-    expect(container!.querySelector('[role="dialog"]')).toBe(null);
-    expect(buttonNamed("Close")).toBeDefined();
-    expect(
-      [...container!.querySelectorAll<HTMLButtonElement>("button")].some((button) =>
-        button.textContent?.includes("Copy"),
-      ),
-    ).toBe(false);
-  });
-
-  it("preserves an open snapshot and draft when an explicit refresh fails", async () => {
-    let statusCall = 0;
-    let rejectRefresh!: (error: Error) => void;
-    const refreshGate = new Promise<KimiSessionStatus | null>((_resolve, reject) => {
-      rejectRefresh = reject;
-    });
-    await renderApp(
-      statusAppState,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      [],
-      false,
-      {
-        kimiStatus: passiveStatus,
-        sessionStatus: async () => {
-          statusCall += 1;
-          if (statusCall === 1) return passiveStatus;
-          if (statusCall === 2) return refreshGate;
-          return { ...passiveStatus, used: 40000, percentage: 4 };
-        },
-      },
-    );
-    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
-
-    await fillComposerEditor(editor, "/status");
-    await submitEditor(editor);
-    expect(container!.textContent).toContain("35,193 used");
-
-    await fillComposerEditor(editor, "/status Keep this draft");
-    await act(async () => {
-      editor
-        .querySelector<HTMLElement>("[data-composer-text='true']")!
-        .dispatchEvent(
-          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-        );
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    expect(statusCall).toBe(2);
-    expect(getComposerEditorText(editor)).toBe("Keep this draft");
-    expect(container!.textContent).toContain("35,193 used");
-    expect(composerSendButton().disabled).toBe(true);
-    expect(container!.querySelector('[aria-busy="true"]')).not.toBe(null);
-
-    rejectRefresh(new Error("transport failed"));
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-    expect(container!.textContent).toContain("35,193 used");
-    expect(container!.textContent).toContain("Unable to load session status.");
-    expect(getComposerEditorText(editor)).toBe("Keep this draft");
-    expect(composerSendButton().disabled).toBe(false);
-
-    await fillComposerEditor(editor, "/status");
-    await submitEditor(editor);
-    expect(statusCall).toBe(3);
-    expect(container!.textContent).toContain("40,000 used");
-    expect(container!.textContent).not.toContain("Unable to load session status.");
-  });
-
-  it("intercepts unavailable manual Status but preserves normal word-boundary sending", async () => {
-    const chatRequests: ChatTurnRequest[] = [];
-    let statusCalls = 0;
-    await renderApp(
-      statusAppState,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      chatRequests,
-      false,
-      {
-        kimiStatus: null,
-        sessionStatus: async () => {
-          statusCalls += 1;
-          return null;
-        },
-      },
-    );
-    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
-
-    await fillComposerEditor(editor, "/status Keep this draft");
-    await submitEditor(editor);
-    expect(getComposerEditorText(editor)).toBe("Keep this draft");
-    expect(container!.textContent).toContain("Status is unavailable for this runtime.");
-    expect(statusCalls).toBe(0);
-    expect(chatRequests).toEqual([]);
-
-    await fillComposerEditor(editor, "/status-report");
-    await submitEditor(editor);
-    expect(chatRequests).toHaveLength(1);
-    expect(chatRequests[0]?.message).toBe("/status-report");
-    expect(statusCalls).toBe(0);
-    await act(async () => {
-      emitChatEvent?.({
-        type: "completed",
-        runId: chatRequests[0]!.runId!,
-        requestKey: chatRequests[0]!.requestKey,
-        text: "Done",
-        finishedAt: "2026-07-27T08:02:00.000Z",
-      });
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-  });
-
-  it("dismisses the panel with Close and Escape", async () => {
-    await renderApp(
-      statusAppState,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      [],
-      false,
-      { kimiStatus: passiveStatus, sessionStatus: passiveStatus },
-    );
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
-
-    await fillComposerEditor(editor, "/status");
-    await submitEditor(editor);
-    expect(container!.textContent).toContain("session-1234567890");
-    await click(buttonNamed("Close"));
-    expect(container!.textContent).not.toContain("session-1234567890");
-
-    await fillComposerEditor(editor, "/status");
-    await submitEditor(editor);
-    await act(async () => {
-      window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }));
-    });
-    expect(container!.textContent).not.toContain("session-1234567890");
-  });
-
-  it("keeps an in-flight result with its owning Thread across navigation", async () => {
-    let resolveStatus!: (status: KimiSessionStatus) => void;
-    const statusGate = new Promise<KimiSessionStatus>((resolve) => {
-      resolveStatus = resolve;
-    });
-    const twoThreadState: AppStateSnapshot = {
-      ...statusAppState,
-      threads: [
-        ...(statusAppState.threads ?? []),
-        {
-          id: "thread-2",
-          workspaceId: "workspace-1",
-          projectId: "project-1",
-          title: "Other thread",
-          createdAt: "2026-07-27T08:02:00.000Z",
-          lastActivityAt: "2026-07-27T08:02:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
-        },
-      ],
-    };
-    await renderApp(
-      twoThreadState,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      [],
-      false,
-      { kimiStatus: passiveStatus, sessionStatus: () => statusGate },
-    );
-    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
-
-    await fillComposerEditor(editor, "/status");
-    await act(async () => {
-      editor
-        .querySelector<HTMLElement>("[data-composer-text='true']")!
-        .dispatchEvent(
-          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-        );
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      testNavigate?.("/workspace/workspace-1/project/project-1/thread/thread-2");
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    expect(container!.textContent).toContain("Other thread");
-    expect(container!.textContent).not.toContain("session-1234567890");
-
-    resolveStatus(passiveStatus);
-    await act(async () => {
-      await statusGate;
-      testNavigate?.("/workspace/workspace-1/project/project-1/thread/thread-1");
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-    expect(container!.textContent).toContain("session-1234567890");
-  });
-
-  it("does not reopen a panel closed while refresh is loading", async () => {
-    let statusCall = 0;
-    let resolveRefresh!: (status: KimiSessionStatus) => void;
-    const refreshGate = new Promise<KimiSessionStatus>((resolve) => {
-      resolveRefresh = resolve;
-    });
-    await renderApp(
-      statusAppState,
-      "/workspace/workspace-1/project/project-1/thread/thread-1",
-      [],
-      false,
-      [],
-      false,
-      {
-        kimiStatus: passiveStatus,
-        sessionStatus: () => {
-          statusCall += 1;
-          return statusCall === 1 ? passiveStatus : refreshGate;
-        },
-      },
-    );
-    const editor = container!.querySelector<HTMLElement>("[data-composer-editor='true']")!;
-
-    await fillComposerEditor(editor, "/status");
-    await submitEditor(editor);
-    await fillComposerEditor(editor, "/status");
-    await act(async () => {
-      editor
-        .querySelector<HTMLElement>("[data-composer-text='true']")!
-        .dispatchEvent(
-          new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
-        );
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    await click(buttonNamed("Close"));
-    resolveRefresh({ ...passiveStatus, used: 40000, percentage: 4 });
-    await act(async () => {
-      await refreshGate;
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
-
-    expect(container!.textContent).not.toContain("session-1234567890");
-    expect(container!.textContent).not.toContain("40,000 used");
-  });
-});
-
 describe("Project Working Directory recovery", () => {
   const appState: AppStateSnapshot = {
     version: 1,
@@ -4446,8 +3362,8 @@ describe("Project Working Directory recovery", () => {
         workspaceId: "workspace-1",
         projectId: "project-1",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "ask",
       },
     ],
     threads: [
@@ -4458,9 +3374,8 @@ describe("Project Working Directory recovery", () => {
         title: "Keep History",
         createdAt: "2026-07-27T08:00:00.000Z",
         lastActivityAt: "2026-07-27T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     ],
     activeWorkspaceId: "workspace-1",
@@ -4595,8 +3510,8 @@ describe("Archived Thread lifecycle", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -4609,12 +3524,11 @@ describe("Archived Thread lifecycle", () => {
           lastActivityAt: "2026-07-27T10:00:00.000Z",
           pinned: true,
           ...(archivedThreadIds.includes("thread-1") ? { archived: true } : {}),
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
           runChecklist: {
             runId: "run-1",
-            runtimeId: "kimi",
+            providerProfileId: "default",
             entries: [{ content: "Keep checklist", status: "pending" }],
             outcome: "completed",
             expanded: true,
@@ -4628,9 +3542,8 @@ describe("Archived Thread lifecycle", () => {
           createdAt: "2026-07-27T07:00:00.000Z",
           lastActivityAt: "2026-07-27T09:00:00.000Z",
           ...(archivedThreadIds.includes("thread-2") ? { archived: true } : {}),
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       threadMessages: [
@@ -4658,9 +3571,8 @@ describe("Archived Thread lifecycle", () => {
           threadId: "thread-1",
           messageId: "message-1",
           startedAt: "2026-07-27T10:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       threadWork: queued
@@ -4689,9 +3601,8 @@ describe("Archived Thread lifecycle", () => {
       createdAt: "2026-07-27T06:00:00.000Z",
       lastActivityAt: "2026-07-27T08:00:00.000Z",
       pinned: true,
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
     });
     const saved = await renderApp(
       state,
@@ -4727,9 +3638,8 @@ describe("Archived Thread lifecycle", () => {
       title: "Third Thread",
       createdAt: "2026-07-27T06:00:00.000Z",
       lastActivityAt: "2026-07-27T08:00:00.000Z",
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
     });
     await renderApp(
       state,
@@ -5038,7 +3948,7 @@ describe("Archived Thread lifecycle", () => {
         type: "checklist",
         runId: requests[0]!.runId!,
         threadId: "thread-2",
-        runtimeId: "kimi",
+        providerProfileId: "default",
         checklist: {
           entries: [{ content: "Arrived during deletion", status: "in_progress" }],
         },
@@ -5072,9 +3982,8 @@ describe("Archived Thread lifecycle", () => {
         createdAt: "2026-07-27T06:00:00.000Z",
         lastActivityAt: "2026-07-27T08:00:00.000Z",
         archived: true,
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     ];
 
@@ -5118,8 +4027,8 @@ describe("Archived Thread lifecycle", () => {
       workspaceId: "workspace-2",
       projectId: "project-1",
       order: 0,
-      defaultRuntimeId: "kimi",
-      defaultRuntimeMode: "approval-required",
+      defaultProviderProfileId: "default",
+      defaultAgentMode: "ask",
     });
     appState.threads = appState.threads?.map((thread) =>
       thread.id === "thread-2" ? { ...thread, workspaceId: "workspace-2" } : thread,
@@ -5142,9 +4051,8 @@ describe("Archived Thread lifecycle", () => {
             storageKey: "draft-attachment-1.txt",
           },
         ],
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
       {
         id: "draft-2",
@@ -5154,9 +4062,8 @@ describe("Archived Thread lifecycle", () => {
         content: "Keep this draft",
         attachedSkillNames: [],
         attachments: [],
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     ];
     appState.threadPromotionIntents = [
@@ -5180,9 +4087,8 @@ describe("Archived Thread lifecycle", () => {
           },
         ],
         startedAt: "2026-07-27T02:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     ];
     const cleanupRequests: DeleteThreadDataRequest[] = [];
@@ -5236,8 +4142,8 @@ describe("Archived Thread lifecycle", () => {
         workspaceId: "workspace-2",
         projectId: "project-1",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "ask",
       },
     ];
     appState.threads = appState.threads?.map((thread) =>
@@ -5252,9 +4158,8 @@ describe("Archived Thread lifecycle", () => {
         content: "Discard with Workspace",
         attachedSkillNames: [],
         attachments: [],
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     ];
     appState.activeWorkspaceId = "workspace-2";
@@ -5448,8 +4353,8 @@ describe("Integrated Browser", () => {
             workspaceId: "workspace-1",
             projectId: "project-1",
             order: 0,
-            defaultRuntimeId: "kimi",
-            defaultRuntimeMode: "approval-required",
+            defaultProviderProfileId: "default",
+            defaultAgentMode: "ask",
           },
         ],
         threads: [
@@ -5460,9 +4365,8 @@ describe("Integrated Browser", () => {
             title: "Browser Thread",
             createdAt: "2026-08-07T08:00:00.000Z",
             lastActivityAt: "2026-08-07T08:00:00.000Z",
-            runtimeId: "kimi",
-            runtimeMode: "approval-required",
-            planMode: false,
+            providerProfileId: "default",
+            agentMode: "ask",
           },
         ],
         threadDrafts: [],
@@ -5507,8 +4411,8 @@ describe("Integrated Terminal", () => {
         workspaceId: "workspace-1",
         projectId: "project-1",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "ask",
       },
     ],
     threads: [],
@@ -5793,8 +4697,8 @@ describe("Integrated Terminal", () => {
           workspaceId: "workspace-1",
           projectId: "project-2",
           order: 1,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
     };

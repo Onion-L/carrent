@@ -93,8 +93,8 @@ export function resolveKeybindings(
 
 function conditionsOverlap(left: KeybindingCondition, right: KeybindingCondition): boolean {
   return !(
-    (left === "model-picker-open" && right === "model-picker-closed") ||
-    (left === "model-picker-closed" && right === "model-picker-open")
+    (left === "provider-picker-open" && right === "provider-picker-closed") ||
+    (left === "provider-picker-closed" && right === "provider-picker-open")
   );
 }
 
@@ -112,9 +112,9 @@ export function isKeybindingActionActive(actionId: ActionId): boolean {
   const condition = KEYBINDING_ACTION_BY_ID[actionId].condition ?? "default";
   if (condition === "default") return true;
   if (typeof document === "undefined") return false;
-  const modelPickerOpen = Boolean(document.querySelector('[data-model-picker-open="true"]'));
-  if (condition === "model-picker-open") return modelPickerOpen;
-  if (condition === "model-picker-closed") return !modelPickerOpen;
+  const providerPickerOpen = Boolean(document.querySelector('[data-provider-picker-open="true"]'));
+  if (condition === "provider-picker-open") return providerPickerOpen;
+  if (condition === "provider-picker-closed") return !providerPickerOpen;
   return false;
 }
 

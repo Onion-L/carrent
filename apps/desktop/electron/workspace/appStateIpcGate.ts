@@ -1,7 +1,4 @@
-import type {
-  AppStateLoadResult,
-  ProviderSessionSnapshot,
-} from "../../src/shared/workspacePersistence";
+import type { AppStateLoadResult } from "../../src/shared/workspacePersistence";
 
 type IpcListener = (event: unknown, ...args: unknown[]) => unknown;
 
@@ -11,16 +8,6 @@ const RECOVERY_CHANNELS = new Set([
   "app-state:full-reset",
   "clipboard:write-text",
 ]);
-
-export function loadProviderSessionsForAppState(
-  store: { loadProviderSessions: () => Promise<ProviderSessionSnapshot> },
-  result: AppStateLoadResult,
-): Promise<ProviderSessionSnapshot> {
-  if (result.status === "recovery-required") {
-    return Promise.resolve({ version: 1, sessions: {} });
-  }
-  return store.loadProviderSessions();
-}
 
 export function createAppStateIpcGate<T extends { handle: unknown; on: unknown }>(
   ipcMainLike: T,

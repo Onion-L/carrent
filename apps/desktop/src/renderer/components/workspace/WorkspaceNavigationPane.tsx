@@ -14,13 +14,11 @@ import {
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { getThreadRuntimeSessionId } from "../../../shared/providerSessions";
 import type { AppThreadRecord } from "../../../shared/workspacePersistence";
 import { useAppState } from "../../context/AppStateContext";
 import { useThreadContent } from "../../context/ThreadContentContext";
 import { clearQueuedMessages } from "../../hooks/chatMessageQueue";
 import { useChatRun } from "../../hooks/useChatRun";
-import { useThreadActions } from "../../hooks/useThreadActions";
 import { buildProjectPath, buildThreadPath, buildWorkspacePath } from "../../lib/navigation";
 import {
   getThreadDisplayStatus,
@@ -38,7 +36,6 @@ const STATUS_META: Record<ThreadDisplayStatus, { label: string; className: strin
   approval: { label: "Approval", className: "font-medium text-warning" },
   question: { label: "Question", className: "font-medium text-warning" },
   running: { label: "Running", className: "text-success" },
-  compacting: { label: "Compacting", className: "text-success" },
   failed: { label: "Failed", className: "font-medium text-danger" },
 };
 
@@ -95,7 +92,6 @@ export function WorkspaceNavigationPane() {
   } = useAppState();
   const { messages, renameThread, toggleThreadPin, deleteThreads } = useThreadContent();
   const { runningThreadIds, pendingPermissions, pendingQuestions, stop } = useChatRun();
-  const { compactingThreadIds } = useThreadActions();
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingProjectName, setEditingProjectName] = useState("");
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
@@ -111,7 +107,6 @@ export function WorkspaceNavigationPane() {
     threadId: string;
     x: number;
     y: number;
-    sessionId: string | null | undefined;
   } | null>(null);
   const threadMenuTriggerRef = useRef<HTMLElement | null>(null);
   const [pendingProjectRemoval, setPendingProjectRemoval] = useState<{
@@ -228,31 +223,7 @@ export function WorkspaceNavigationPane() {
     const triggerRect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX || triggerRect.left + 12;
     const y = event.clientY || triggerRect.top + 12;
-    setThreadMenu({ threadId: thread.id, x, y, sessionId: undefined });
-
-    void window.carrent.providerSessions
-      .load()
-      .then((snapshot) => {
-        const sessionId = getThreadRuntimeSessionId(snapshot, thread);
-        setThreadMenu((current) =>
-          current?.threadId === thread.id ? { ...current, sessionId } : current,
-        );
-      })
-      .catch(() => {
-        setThreadMenu((current) =>
-          current?.threadId === thread.id ? { ...current, sessionId: null } : current,
-        );
-      });
-  };
-
-  const copyThreadMenuValue = async (value: string, successMessage: string) => {
-    try {
-      await window.carrent.clipboard.writeText(value);
-      closeThreadMenu();
-      showToast(successMessage, "success");
-    } catch {
-      showToast("Failed to copy to clipboard", "error");
-    }
+    setThreadMenu({ threadId: thread.id, x, y });
   };
 
   const openInFinder = async (workingDirectory: string) => {
@@ -551,16 +522,13 @@ export function WorkspaceNavigationPane() {
                         const status = getThreadDisplayStatus({
                           threadId: thread.id,
                           runningThreadIds,
-                          compactingThreadIds,
                           pendingApprovals: pendingPermissions,
                           pendingQuestions,
                           messages,
                         });
                         const statusMeta = status ? STATUS_META[status] : null;
                         const active = location.pathname === threadPath;
-                        const archiveBlockedReason = compactingThreadIds.includes(thread.id)
-                          ? "Wait for Compact to finish before archiving"
-                          : null;
+                        const archiveBlockedReason = null;
 
                         const handleArchive = async () => {
                           if (archiveBlockedReason) return;
@@ -705,7 +673,6 @@ export function WorkspaceNavigationPane() {
                                 anchor={{ x: threadMenu.x, y: threadMenu.y }}
                                 threadTitle={thread.title}
                                 pinned={thread.pinned === true}
-                                sessionId={threadMenu.sessionId}
                                 archiveBlockedReason={archiveBlockedReason}
                                 onClose={closeThreadMenu}
                                 onOpenInNewWindow={() => {
@@ -733,12 +700,6 @@ export function WorkspaceNavigationPane() {
                                 onRevealInFinder={() => {
                                   closeThreadMenu();
                                   void openInFinder(project.workingDirectory);
-                                }}
-                                onCopySessionId={() => {
-                                  const sessionId = threadMenu.sessionId;
-                                  if (sessionId) {
-                                    void copyThreadMenuValue(sessionId, "Session ID copied");
-                                  }
                                 }}
                               />
                             ) : null}

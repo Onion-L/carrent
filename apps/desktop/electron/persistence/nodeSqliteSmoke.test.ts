@@ -107,7 +107,7 @@ try {
   check("applies the canonical initial schema under node:sqlite", () => {
     db.exec(SCHEMA_SQL);
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map(r => r.name);
-    for (const expected of ["schema_migrations", "app_metadata", "workspaces", "projects", "workspace_project_associations", "threads", "thread_drafts", "thread_messages", "thread_runs", "thread_actions", "promotion_intents", "thread_work", "workspace_last_threads", "provider_sessions", "settings"]) {
+    for (const expected of ["schema_migrations", "app_metadata", "workspaces", "projects", "workspace_project_associations", "threads", "thread_drafts", "thread_messages", "thread_runs", "promotion_intents", "thread_work", "workspace_last_threads", "settings"]) {
       if (!tables.includes(expected)) throw new Error("missing table " + expected);
     }
   });

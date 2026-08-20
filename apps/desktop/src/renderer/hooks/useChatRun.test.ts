@@ -17,7 +17,7 @@ describe("createChatRunCoordinator", () => {
       runId: "run-1",
       requestKey: "request-1",
       threadId: "thread-1",
-      provider: "kimi",
+      provider: "core",
       action: "shell",
       title: "Run command",
       options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
@@ -101,7 +101,7 @@ describe("createChatRunCoordinator", () => {
         requestKey: "request-1",
         task: {
           id: "task-1",
-          runtimeId: "kimi",
+          providerProfileId: "default",
           source: "agent",
           description: "Review",
           background: false,
@@ -114,7 +114,7 @@ describe("createChatRunCoordinator", () => {
         runId: "run-1",
         requestKey: "request-1",
         threadId: "thread-1",
-        runtimeId: "kimi",
+        providerProfileId: "default",
         checklist: { entries: [{ content: "Implement", status: "in_progress" }] },
       },
       {
@@ -161,7 +161,7 @@ describe("createChatRunCoordinator", () => {
       "task:Review",
       "checklist:Implement",
       "approval:permission-1",
-      "question:kimi-question-run-1-7",
+      "question:agent-question-run-1-7",
     ]);
 
     const completed: ChatRunAuthorityState = {
@@ -229,7 +229,7 @@ describe("createChatRunCoordinator", () => {
         revision: 2,
         run: { ...run, eventCount: 1 },
         event: {
-          type: "kimi-timeline",
+          type: "agent-timeline",
           runId: "run-1",
           requestKey: "request-1",
           item: {
@@ -246,7 +246,7 @@ describe("createChatRunCoordinator", () => {
         revision: 3,
         run: { ...run, eventCount: 2 },
         event: {
-          type: "kimi-timeline-update",
+          type: "agent-timeline-update",
           runId: "run-1",
           requestKey: "request-1",
           update: {
@@ -261,10 +261,10 @@ describe("createChatRunCoordinator", () => {
 
     [first, second].forEach((coordinator) => coordinator.applyAuthorityState(initial));
     first.observeThread("thread-1", {
-      onKimiTimeline: (item) => receivedA.push("content" in item ? item.content : ""),
+      onAgentTimeline: (item) => receivedA.push("content" in item ? item.content : ""),
     });
     second.observeThread("thread-1", {
-      onKimiTimeline: (item) => receivedB.push("content" in item ? item.content : ""),
+      onAgentTimeline: (item) => receivedB.push("content" in item ? item.content : ""),
     });
     updates.forEach((update) => {
       expect(first.applyAuthorityUpdate(update)).toBe(true);
@@ -275,7 +275,7 @@ describe("createChatRunCoordinator", () => {
     expect(receivedB).toEqual(receivedA);
     expect(first.getSnapshot()).toEqual(second.getSnapshot());
     expect(first.getSnapshot().runs[0]?.events.map((event) => event.type)).toEqual([
-      "kimi-timeline",
+      "agent-timeline",
     ]);
   });
 
@@ -323,9 +323,8 @@ describe("createChatRunCoordinator", () => {
         workspaceId: "workspace-1",
       },
       threadId: "thread-1",
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
       transcript: [],
       message: "stream",
     });
@@ -340,7 +339,7 @@ describe("createChatRunCoordinator", () => {
     expect(second.getSnapshot()).toEqual(first.getSnapshot());
   });
 
-  it("keeps a Kimi timeline baseline when a bounded snapshot is followed by a patch", () => {
+  it("keeps a Agent timeline baseline when a bounded snapshot is followed by a patch", () => {
     const coordinator = createChatRunCoordinator();
     const received: string[] = [];
     const authority = createChatRunAuthority({
@@ -368,9 +367,8 @@ describe("createChatRunCoordinator", () => {
           workspaceId: "w-1",
         },
         threadId: `thread-${index + 1}`,
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
         transcript: [],
         message: "stream",
       });
@@ -388,14 +386,13 @@ describe("createChatRunCoordinator", () => {
       requestKey: "active-request",
       context: { kind: "project", workingDirectory: "/repo", projectId: "p-1", workspaceId: "w-1" },
       threadId: "active-thread",
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
       transcript: [],
       message: "stream",
     });
     authority.handleEvent({
-      type: "kimi-timeline",
+      type: "agent-timeline",
       runId: "active-run",
       item: {
         type: "message",
@@ -408,12 +405,12 @@ describe("createChatRunCoordinator", () => {
 
     coordinator.applyAuthorityState(authority.subscribe(1));
     coordinator.observeThread("active-thread", {
-      onKimiTimeline: (item) => {
+      onAgentTimeline: (item) => {
         if (item.type === "message") received.push(item.content);
       },
     });
     authority.handleEvent({
-      type: "kimi-timeline",
+      type: "agent-timeline",
       runId: "active-run",
       item: {
         type: "message",
@@ -452,9 +449,8 @@ describe("createChatRunCoordinator", () => {
         workspaceId: "workspace-1",
       },
       threadId: "thread-1",
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
       transcript: [],
       message: "stream",
     });
@@ -614,7 +610,7 @@ describe("createChatRunCoordinator", () => {
           pendingQuestions: [],
           events: [
             {
-              type: "kimi-timeline",
+              type: "agent-timeline",
               runId: "run-1",
               item: {
                 type: "thinking",
@@ -625,7 +621,7 @@ describe("createChatRunCoordinator", () => {
               },
             },
             {
-              type: "kimi-timeline-update",
+              type: "agent-timeline-update",
               runId: "run-1",
               update: {
                 itemType: "thinking",
@@ -642,7 +638,7 @@ describe("createChatRunCoordinator", () => {
     coordinator.observeThread(
       "thread-1",
       {
-        onKimiTimeline: (item) => received.push("content" in item ? item.content : ""),
+        onAgentTimeline: (item) => received.push("content" in item ? item.content : ""),
         onEventApplied: (count) => counts.push(count),
       },
       1,
@@ -652,7 +648,7 @@ describe("createChatRunCoordinator", () => {
     expect(counts).toEqual([2]);
   });
 
-  it("replays a materialized Kimi snapshot from its logical event watermark", () => {
+  it("replays a materialized Agent snapshot from its logical event watermark", () => {
     const coordinator = createChatRunCoordinator();
     const textSnapshots: string[] = [];
     const timeline: string[] = [];
@@ -671,7 +667,7 @@ describe("createChatRunCoordinator", () => {
           events: [
             { type: "started", runId: "run-1", threadId: "thread-1" },
             {
-              type: "kimi-timeline",
+              type: "agent-timeline",
               runId: "run-1",
               item: {
                 type: "message",
@@ -690,7 +686,7 @@ describe("createChatRunCoordinator", () => {
       "thread-1",
       {
         onTextSnapshot: (text) => textSnapshots.push(text),
-        onKimiTimeline: (item) => {
+        onAgentTimeline: (item) => {
           if (item.type === "message") timeline.push(item.content);
         },
         onEventApplied: (count) => counts.push(count),
@@ -904,7 +900,7 @@ describe("createChatRunCoordinator", () => {
     expect(coordinator.getSnapshot().isSending).toBe(false);
   });
 
-  it("routes a runtime session notice without ending the run", () => {
+  it("routes a notice without ending the run", () => {
     const notices: string[] = [];
     const coordinator = createChatRunCoordinator();
     coordinator.beginRequest("request-1", "thread-1", {
@@ -915,33 +911,11 @@ describe("createChatRunCoordinator", () => {
       type: "notice",
       requestKey: "request-1",
       runId: "run-1",
-      message: "Invalid Runtime Session mapping was removed. A new session was started.",
+      message: "The Agent updated its context.",
     } satisfies ChatRunEvent);
 
-    expect(notices).toEqual([
-      "Invalid Runtime Session mapping was removed. A new session was started.",
-    ]);
+    expect(notices).toEqual(["The Agent updated its context."]);
     expect(coordinator.getSnapshot().isSending).toBe(true);
-  });
-
-  it("forwards Runtime Session recovery details with a failed run", () => {
-    const recoveries: unknown[] = [];
-    const coordinator = createChatRunCoordinator();
-    coordinator.beginRequest("request-1", "thread-1", {
-      onError: (_error, _runId, _writtenFiles, recovery) => {
-        recoveries.push(recovery);
-      },
-    });
-
-    coordinator.handleEvent({
-      type: "failed",
-      requestKey: "request-1",
-      runId: "run-1",
-      error: "Session not found",
-      runtimeSessionRecovery: { runtimeId: "kimi", threadId: "thread-1" },
-    } satisfies ChatRunEvent);
-
-    expect(recoveries).toEqual([{ runtimeId: "kimi", threadId: "thread-1" }]);
   });
 
   it("ignores events from a different request", () => {
@@ -1098,12 +1072,12 @@ describe("createChatRunCoordinator", () => {
     expect(received).toEqual(["running:Need to inspect files"]);
   });
 
-  it("routes normalized Kimi timeline updates through the Run event channel", () => {
+  it("routes normalized Agent timeline updates through the Run event channel", () => {
     const coordinator = createChatRunCoordinator();
     const received: string[] = [];
 
     coordinator.beginRequest("request-1", "thread-1", {
-      onKimiTimeline: (item) =>
+      onAgentTimeline: (item) =>
         received.push(
           "content" in item
             ? `${item.order}:${item.type}:${item.content}`
@@ -1111,12 +1085,12 @@ describe("createChatRunCoordinator", () => {
         ),
     });
     const event = {
-      type: "kimi-timeline",
+      type: "agent-timeline",
       runId: "run-1",
       requestKey: "request-1",
       item: {
         type: "thinking",
-        id: "kimi-run-1-thinking-1",
+        id: "agent-run-1-thinking-1",
         order: 0,
         content: "Inspect files",
         status: "running",
@@ -1142,8 +1116,8 @@ describe("createChatRunCoordinator", () => {
       runId: "run-1",
       requestKey: "request-1",
       task: {
-        id: "kimi-tool-1",
-        runtimeId: "kimi",
+        id: "agent-tool-1",
+        providerProfileId: "default",
         source: "agent",
         agentType: "coder",
         description: "Implement persistence",
@@ -1181,7 +1155,7 @@ describe("createChatRunCoordinator", () => {
       runId: "run-1",
       requestKey: "request-1",
       threadId: "thread-1",
-      runtimeId: "kimi",
+      providerProfileId: "default",
       checklist: {
         entries: [{ content: "Implement persistence", status: "in_progress" }],
       },
@@ -1231,7 +1205,7 @@ describe("createChatRunCoordinator", () => {
       runId: "run-1",
       requestKey: "request-1",
       threadId: "thread-1",
-      runtimeId: "kimi",
+      providerProfileId: "default",
       checklist: { entries: [{ content: "Stale", status: "in_progress" }] },
     } satisfies ChatRunEvent);
     coordinator.handleEvent({
@@ -1239,7 +1213,7 @@ describe("createChatRunCoordinator", () => {
       runId: "run-2",
       requestKey: "request-2",
       threadId: "thread-1",
-      runtimeId: "kimi",
+      providerProfileId: "default",
       checklist: { entries: [{ content: "Current", status: "in_progress" }] },
     } satisfies ChatRunEvent);
 
@@ -1264,7 +1238,7 @@ describe("createChatRunCoordinator", () => {
       runId: "run-stale",
       requestKey: "request-1",
       threadId: "thread-1",
-      runtimeId: "kimi",
+      providerProfileId: "default",
       checklist: { entries: [{ content: "Stale", status: "in_progress" }] },
     } satisfies ChatRunEvent);
     coordinator.handleEvent({
@@ -1272,7 +1246,7 @@ describe("createChatRunCoordinator", () => {
       runId: "run-current",
       requestKey: "request-1",
       threadId: "thread-1",
-      runtimeId: "kimi",
+      providerProfileId: "default",
       checklist: { entries: [{ content: "Current", status: "in_progress" }] },
     } satisfies ChatRunEvent);
 
@@ -1292,8 +1266,8 @@ describe("createChatRunCoordinator", () => {
       runId: "run-2",
       requestKey: "request-2",
       task: {
-        id: "kimi-tool-9",
-        runtimeId: "kimi",
+        id: "agent-tool-9",
+        providerProfileId: "default",
         source: "agent",
         description: "Wrong run",
         background: false,
@@ -1323,7 +1297,7 @@ describe("createChatRunCoordinator", () => {
         runId: "run-1",
         requestKey: "req-1",
         threadId: "thread-1",
-        provider: "kimi",
+        provider: "core",
         action: "edit",
         title: "Edit demo.txt",
         options: [],
@@ -1352,7 +1326,7 @@ describe("createChatRunCoordinator", () => {
         runId: "run-1",
         requestKey: "req-1",
         threadId: "thread-1",
-        provider: "kimi",
+        provider: "core",
         action: "edit",
         title: "Edit demo.txt",
         options: [],
@@ -1375,13 +1349,12 @@ describe("createChatRunCoordinator", () => {
     expect(snapshot.pendingPermissions).toHaveLength(0);
   });
 
-  it("routes permission outcomes and Plan mode changes to the active request", () => {
+  it("routes permission outcomes to the active request", () => {
     const coordinator = createChatRunCoordinator();
     const outcomes: string[] = [];
     coordinator.beginRequest("req-1", "thread-1", {
       onPermissionResolved: (resolution) =>
         outcomes.push(`${resolution.optionId}:${resolution.optionKind}`),
-      onPlanModeChanged: (enabled) => outcomes.push(`plan:${enabled}`),
     });
 
     coordinator.handleEvent({
@@ -1389,21 +1362,15 @@ describe("createChatRunCoordinator", () => {
       runId: "run-1",
       requestKey: "req-1",
       permissionId: "perm-1",
-      optionId: "plan_revise",
-      optionName: "Revise",
+      optionId: "reject_once",
+      optionName: "Reject",
       optionKind: "reject_once",
     } satisfies ChatRunEvent);
-    coordinator.handleEvent({
-      type: "plan-mode-changed",
-      runId: "run-1",
-      requestKey: "req-1",
-      enabled: false,
-    } satisfies ChatRunEvent);
 
-    expect(outcomes).toEqual(["plan_revise:reject_once", "plan:false"]);
+    expect(outcomes).toEqual(["reject_once:reject_once"]);
   });
 
-  it("reports pending Plan Reviews as interrupted when a run ends", () => {
+  it("reports pending approvals as interrupted when a run ends", () => {
     const coordinator = createChatRunCoordinator();
     const interrupted: string[] = [];
     coordinator.beginRequest("req-1", "thread-1", {
@@ -1416,15 +1383,14 @@ describe("createChatRunCoordinator", () => {
       runId: "run-1",
       requestKey: "req-1",
       permission: {
-        id: "perm-plan",
+        id: "perm-write",
         runId: "run-1",
         requestKey: "req-1",
         threadId: "thread-1",
-        provider: "kimi",
+        provider: "core",
         action: "unknown",
-        title: "Review plan",
-        options: [{ optionId: "plan_approve", name: "Approve", kind: "allow_once" }],
-        planReview: { content: "# Plan" },
+        title: "Write file",
+        options: [{ optionId: "allow_once", name: "Allow once", kind: "allow_once" }],
         createdAt: "2026-01-01T00:00:00.000Z",
         expiresAt: "2026-01-01T00:01:00.000Z",
       },
@@ -1435,7 +1401,7 @@ describe("createChatRunCoordinator", () => {
       requestKey: "req-1",
     } satisfies ChatRunEvent);
 
-    expect(interrupted).toEqual(["perm-plan"]);
+    expect(interrupted).toEqual(["perm-write"]);
     expect(coordinator.getSnapshot().pendingPermissions).toEqual([]);
   });
 
@@ -1460,7 +1426,7 @@ describe("createChatRunCoordinator", () => {
         runId: "run-1",
         requestKey: "req-1",
         threadId: "thread-1",
-        provider: "kimi",
+        provider: "core",
         action: "edit",
         title: "Edit demo.txt",
         options: [],
@@ -1487,12 +1453,12 @@ describe("createChatRunCoordinator", () => {
 
   function makeQuestionEvent(overrides: Partial<ChatQuestionRequest> = {}): ChatQuestionRequest {
     return {
-      id: "kimi-question-run-1-7",
+      id: "agent-question-run-1-7",
       runId: "run-1",
       requestKey: "req-1",
       threadId: "thread-1",
-      provider: "kimi",
-      source: "native-acp",
+      provider: "core",
+      source: "core",
       questions: [
         {
           header: "Language",
@@ -1525,10 +1491,10 @@ describe("createChatRunCoordinator", () => {
     const snapshot = coordinator.getSnapshot();
     expect(snapshot.pendingQuestions).toHaveLength(1);
     expect(snapshot.pendingQuestions[0]).toMatchObject({
-      id: "kimi-question-run-1-7",
+      id: "agent-question-run-1-7",
       runId: "run-1",
       threadId: "thread-1",
-      source: "native-acp",
+      source: "core",
     });
   });
 
@@ -1547,7 +1513,7 @@ describe("createChatRunCoordinator", () => {
       type: "question-resolved",
       runId: "run-1",
       requestKey: "req-1",
-      questionId: "kimi-question-run-1-7",
+      questionId: "agent-question-run-1-7",
       outcome: "answered",
       optionId: "opt_ts",
       optionLabel: "TypeScript",
@@ -1594,7 +1560,7 @@ describe("createChatRunCoordinator", () => {
       type: "question-failed",
       runId: "run-1",
       requestKey: "req-1",
-      questionId: "kimi-question-run-1-7",
+      questionId: "agent-question-run-1-7",
       error: "Question option is no longer available.",
     } satisfies ChatRunEvent);
 
@@ -1619,7 +1585,7 @@ describe("createChatRunCoordinator", () => {
       type: "question-failed",
       runId: "run-1",
       requestKey: "req-1",
-      questionId: "kimi-question-run-2-1",
+      questionId: "agent-question-run-2-1",
       error: "Question request not found. The run may have already ended.",
     } satisfies ChatRunEvent);
 
@@ -1649,13 +1615,13 @@ describe("createChatRunCoordinator", () => {
       type: "question-resolved",
       runId: "run-1",
       requestKey: "req-1",
-      questionId: "kimi-question-run-1-7",
+      questionId: "agent-question-run-1-7",
       outcome: "answered",
     } satisfies ChatRunEvent);
 
     expect(received).toEqual([
-      "requested:kimi-question-run-1-7",
-      "resolved:kimi-question-run-1-7:answered",
+      "requested:agent-question-run-1-7",
+      "resolved:agent-question-run-1-7:answered",
     ]);
     expect(coordinator.getSnapshot().pendingQuestions).toHaveLength(0);
   });
@@ -1681,7 +1647,7 @@ describe("createChatRunCoordinator", () => {
       requestKey: "req-1",
     } satisfies ChatRunEvent);
 
-    expect(interrupted).toEqual(["kimi-question-run-1-7"]);
+    expect(interrupted).toEqual(["agent-question-run-1-7"]);
     expect(coordinator.getSnapshot().pendingQuestions).toEqual([]);
   });
 
@@ -1710,7 +1676,7 @@ describe("createChatRunCoordinator", () => {
       type: "question-resolved",
       runId: "run-1",
       requestKey: "req-1",
-      questionId: "kimi-question-run-1-7",
+      questionId: "agent-question-run-1-7",
       outcome: "skipped",
     } satisfies ChatRunEvent);
 

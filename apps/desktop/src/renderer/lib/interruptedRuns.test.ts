@@ -83,13 +83,13 @@ describe("reconcileInterruptedRuns", () => {
     ]);
   });
 
-  it("cancels persisted Kimi Thinking and tools during hydration", () => {
+  it("cancels persisted Agent Thinking and tools during hydration", () => {
     const [result] = reconcileInterruptedRuns([
       makeMessage({
         runStatus: "failed",
         parts: [
           {
-            type: "kimi_timeline",
+            type: "agent_activity",
             item: {
               type: "thinking",
               id: "run-1-thinking-1",
@@ -99,7 +99,7 @@ describe("reconcileInterruptedRuns", () => {
             },
           },
           {
-            type: "kimi_timeline",
+            type: "agent_activity",
             item: {
               type: "tool",
               id: "run-1-tool-1",
@@ -116,7 +116,7 @@ describe("reconcileInterruptedRuns", () => {
             },
           },
           {
-            type: "kimi_timeline",
+            type: "agent_activity",
             item: {
               type: "tool",
               id: "run-1-tool-2",
@@ -159,14 +159,6 @@ describe("reconcileInterruptedRuns", () => {
         parts: [
           { type: "text", content: "Partial answer" },
           {
-            type: "plan_review",
-            id: "approval-1",
-            permissionId: "permission-1",
-            content: "Approve the plan",
-            status: "pending",
-            options: [],
-          },
-          {
             type: "question",
             id: "question-part-1",
             questionId: "question-1",
@@ -176,7 +168,7 @@ describe("reconcileInterruptedRuns", () => {
           {
             type: "subagent_task",
             id: "task-1",
-            runtimeId: "kimi",
+            providerProfileId: "default",
             source: "agent",
             description: "Inspect the lifecycle",
             background: false,
@@ -192,7 +184,6 @@ describe("reconcileInterruptedRuns", () => {
       content: "Partial answer",
       parts: [
         { type: "text", content: "Partial answer" },
-        { type: "plan_review", status: "interrupted" },
         { type: "question", status: "interrupted" },
         { type: "subagent_task", status: "interrupted" },
       ],

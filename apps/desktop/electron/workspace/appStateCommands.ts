@@ -1,8 +1,8 @@
 import { isDeepStrictEqual } from "node:util";
 
 import { applyThreadDeletionToAppState } from "../../src/shared/chat";
-import { isRuntimeMode, type RuntimeMode } from "../../src/shared/runtimeMode";
-import { runtimeIds, type RuntimeId } from "../../src/shared/runtimes";
+import { isAgentMode, type AgentMode } from "../../src/shared/agentMode";
+import { isProviderProfileId, type ProviderProfileId } from "../../src/shared/providerProfiles";
 import {
   getProjectWorkingDirectoryIdentity,
   normalizeAppStateSettings,
@@ -10,7 +10,6 @@ import {
   normalizeThreadRunChecklist,
   type AppProjectRecord,
   type AppStateSnapshot,
-  type AppThreadActionRecord,
   type AppThreadMessageRecord,
   type AppThreadRecord,
   type AppThreadRunRecord,
@@ -104,29 +103,19 @@ function validatedAssociation(
   if (value.workspaceId !== workspaceId || value.projectId !== projectId || value.order !== order) {
     return null;
   }
-  if (!runtimeIds.includes(value.defaultRuntimeId as RuntimeId)) return null;
-  if (!isRuntimeMode(value.defaultRuntimeMode)) return null;
+  if (!isProviderProfileId(value.defaultProviderProfileId)) return null;
+  if (!isAgentMode(value.defaultAgentMode)) return null;
   if (value.alias !== undefined && (typeof value.alias !== "string" || !value.alias.trim())) {
     return null;
   }
-  if (
-    value.defaultRuntimeModelId !== undefined &&
-    (typeof value.defaultRuntimeModelId !== "string" || !value.defaultRuntimeModelId.trim())
-  ) {
-    return null;
-  }
-
   const alias = typeof value.alias === "string" ? value.alias.trim() : "";
-  const modelId =
-    typeof value.defaultRuntimeModelId === "string" ? value.defaultRuntimeModelId.trim() : "";
   return {
     workspaceId,
     projectId,
     ...(alias ? { alias } : {}),
     order,
-    defaultRuntimeId: value.defaultRuntimeId as RuntimeId,
-    ...(modelId ? { defaultRuntimeModelId: modelId } : {}),
-    defaultRuntimeMode: value.defaultRuntimeMode as RuntimeMode,
+    defaultProviderProfileId: value.defaultProviderProfileId as ProviderProfileId,
+    defaultAgentMode: value.defaultAgentMode as AgentMode,
   };
 }
 
@@ -374,24 +363,16 @@ const setAssociationDefaults: AppStateCommandReducer = (snapshot, payload) => {
   if (!association) return null;
 
   const defaults = payload.defaults;
-  if (!runtimeIds.includes(defaults.runtimeId as RuntimeId)) return null;
-  if (!isRuntimeMode(defaults.runtimeMode)) return null;
-  if (defaults.runtimeModelId !== undefined && typeof defaults.runtimeModelId !== "string") {
-    return null;
-  }
-  const runtimeModelId =
-    typeof defaults.runtimeModelId === "string" ? defaults.runtimeModelId.trim() : "";
-
+  if (!isProviderProfileId(defaults.providerProfileId)) return null;
+  if (!isAgentMode(defaults.agentMode)) return null;
   return {
     ...snapshot,
     associations: snapshot.associations.map((item) => {
       if (item !== association) return item;
-      const { defaultRuntimeModelId: _model, ...withoutModel } = item;
       return {
-        ...withoutModel,
-        defaultRuntimeId: defaults.runtimeId as RuntimeId,
-        ...(runtimeModelId ? { defaultRuntimeModelId: runtimeModelId } : {}),
-        defaultRuntimeMode: defaults.runtimeMode as RuntimeMode,
+        ...item,
+        defaultProviderProfileId: defaults.providerProfileId as ProviderProfileId,
+        defaultAgentMode: defaults.agentMode as AgentMode,
       };
     }),
   };
@@ -439,8 +420,7 @@ const restoreThread: AppStateCommandReducer = (snapshot, payload) => {
   };
 };
 
-// Mirrors updateThreadConfig: only the provided fields change; a blank
-// runtimeModelId clears it.
+// Mirrors updateThreadConfig: only the provided fields change.
 const updateThreadConfig: AppStateCommandReducer = (snapshot, payload) => {
   if (!isRecord(payload) || typeof payload.threadId !== "string" || !isRecord(payload.config)) {
     return null;
@@ -449,27 +429,15 @@ const updateThreadConfig: AppStateCommandReducer = (snapshot, payload) => {
   if (!thread) return null;
 
   const config = payload.config;
-  if (config.runtimeId !== undefined && !runtimeIds.includes(config.runtimeId as RuntimeId)) {
+  if (config.providerProfileId !== undefined && !isProviderProfileId(config.providerProfileId)) {
     return null;
   }
-  if (config.runtimeMode !== undefined && !isRuntimeMode(config.runtimeMode)) return null;
-  if (config.planMode !== undefined && typeof config.planMode !== "boolean") return null;
-  if (config.runtimeModelId !== undefined && typeof config.runtimeModelId !== "string") {
-    return null;
-  }
+  if (config.agentMode !== undefined && !isAgentMode(config.agentMode)) return null;
 
   const next = { ...thread };
-  if (config.runtimeId !== undefined) next.runtimeId = config.runtimeId as RuntimeId;
-  if (config.runtimeMode !== undefined) next.runtimeMode = config.runtimeMode as RuntimeMode;
-  if (config.planMode !== undefined) next.planMode = config.planMode as boolean;
-  if (config.runtimeModelId !== undefined) {
-    const runtimeModelId = config.runtimeModelId.trim();
-    if (runtimeModelId) {
-      next.runtimeModelId = runtimeModelId;
-    } else {
-      delete next.runtimeModelId;
-    }
-  }
+  if (config.providerProfileId !== undefined)
+    next.providerProfileId = config.providerProfileId as ProviderProfileId;
+  if (config.agentMode !== undefined) next.agentMode = config.agentMode as AgentMode;
 
   return {
     ...snapshot,
@@ -521,9 +489,7 @@ const rememberThreadLocation: AppStateCommandReducer = (snapshot, payload) => {
 // Settings are validated leniently (see AppStateSettings) and replace the
 // snapshot's current settings wholesale. The renderer always submits a full
 // AppStateSettings, and normalizeAppStateSettings fills every required field,
-// so replacing (rather than shallow-merging) is what lets an optional field
-// such as threadTitleModelId be cleared: a value omitted from the next update
-// must not stale-merge the previously chosen concrete model id.
+// so replacing rather than shallow-merging also drops removed legacy fields.
 const updateSettings: AppStateCommandReducer = (snapshot, payload) => {
   if (!isRecord(payload)) return null;
   const settings = normalizeAppStateSettings(payload.settings);
@@ -536,16 +502,8 @@ function isNonEmptyTrimmedString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.trim() === value;
 }
 
-function isValidRuntimeSelection(runtimeId: unknown, runtimeMode: unknown, planMode: unknown) {
-  return (
-    runtimeIds.includes(runtimeId as RuntimeId) &&
-    isRuntimeMode(runtimeMode) &&
-    typeof planMode === "boolean"
-  );
-}
-
-function isValidModelId(value: unknown): boolean {
-  return value === undefined || isNonEmptyTrimmedString(value);
+function isValidAgentSelection(providerProfileId: unknown, agentMode: unknown) {
+  return isProviderProfileId(providerProfileId) && isAgentMode(agentMode);
 }
 
 // Validates a renderer-built AssociationThreadDraftRecord the way the
@@ -571,8 +529,7 @@ function validatedDraftRecord(
     value.attachedSkillNames.some((name) => !isNonEmptyTrimmedString(name)) ||
     new Set(value.attachedSkillNames).size !== value.attachedSkillNames.length ||
     !Array.isArray(value.attachments) ||
-    !isValidRuntimeSelection(value.runtimeId, value.runtimeMode, value.planMode) ||
-    !isValidModelId(value.runtimeModelId)
+    !isValidAgentSelection(value.providerProfileId, value.agentMode)
   ) {
     return null;
   }
@@ -589,12 +546,8 @@ function validatedDraftRecord(
     attachedSkillNames: [...(value.attachedSkillNames as string[])],
     attachments: value.attachments as AssociationThreadDraftRecord["attachments"],
     ...(localPathContexts.length > 0 ? { localPathContexts } : {}),
-    runtimeId: value.runtimeId as RuntimeId,
-    ...(isNonEmptyTrimmedString(value.runtimeModelId)
-      ? { runtimeModelId: value.runtimeModelId }
-      : {}),
-    runtimeMode: value.runtimeMode as RuntimeMode,
-    planMode: value.planMode as boolean,
+    providerProfileId: value.providerProfileId as ProviderProfileId,
+    agentMode: value.agentMode as AgentMode,
   };
 }
 
@@ -647,8 +600,7 @@ function validatedRunRecord(
     (value.assistantMessageId !== undefined &&
       !isNonEmptyTrimmedString(value.assistantMessageId)) ||
     typeof value.startedAt !== "string" ||
-    !isValidRuntimeSelection(value.runtimeId, value.runtimeMode, value.planMode) ||
-    !isValidModelId(value.runtimeModelId)
+    !isValidAgentSelection(value.providerProfileId, value.agentMode)
   ) {
     return null;
   }
@@ -660,12 +612,8 @@ function validatedRunRecord(
       ? { assistantMessageId: value.assistantMessageId }
       : {}),
     startedAt: value.startedAt,
-    runtimeId: value.runtimeId as RuntimeId,
-    ...(isNonEmptyTrimmedString(value.runtimeModelId)
-      ? { runtimeModelId: value.runtimeModelId }
-      : {}),
-    runtimeMode: value.runtimeMode as RuntimeMode,
-    planMode: value.planMode as boolean,
+    providerProfileId: value.providerProfileId as ProviderProfileId,
+    agentMode: value.agentMode as AgentMode,
   };
 }
 
@@ -766,22 +714,16 @@ const updateThreadDraftConfig: AppStateCommandReducer = (snapshot, payload) => {
   }
   if (!(snapshot.threadDrafts ?? []).some((draft) => draft.id === payload.draftId)) return null;
   const config = payload.config;
-  if (!isValidRuntimeSelection(config.runtimeId, config.runtimeMode, config.planMode)) return null;
-  if (config.runtimeModelId !== undefined && typeof config.runtimeModelId !== "string") return null;
-  const runtimeModelId =
-    typeof config.runtimeModelId === "string" ? config.runtimeModelId.trim() : "";
+  if (!isValidAgentSelection(config.providerProfileId, config.agentMode)) return null;
 
   return {
     ...snapshot,
     threadDrafts: (snapshot.threadDrafts ?? []).map((item) => {
       if (item.id !== payload.draftId) return item;
-      const { runtimeModelId: _runtimeModelId, ...withoutModel } = item;
       return {
-        ...withoutModel,
-        runtimeId: config.runtimeId as RuntimeId,
-        ...(runtimeModelId ? { runtimeModelId } : {}),
-        runtimeMode: config.runtimeMode as RuntimeMode,
-        planMode: config.planMode as boolean,
+        ...item,
+        providerProfileId: config.providerProfileId as ProviderProfileId,
+        agentMode: config.agentMode as AgentMode,
       };
     }),
   };
@@ -838,12 +780,7 @@ const promoteThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
     threadInput.projectId !== draft.projectId ||
     typeof threadInput.createdAt !== "string" ||
     typeof threadInput.lastActivityAt !== "string" ||
-    !isValidRuntimeSelection(
-      threadInput.runtimeId,
-      threadInput.runtimeMode,
-      threadInput.planMode,
-    ) ||
-    !isValidModelId(threadInput.runtimeModelId)
+    !isValidAgentSelection(threadInput.providerProfileId, threadInput.agentMode)
   ) {
     return null;
   }
@@ -880,12 +817,8 @@ const promoteThreadDraft: AppStateCommandReducer = (snapshot, payload) => {
     }),
     createdAt: threadInput.createdAt,
     lastActivityAt: threadInput.lastActivityAt,
-    runtimeId: threadInput.runtimeId as RuntimeId,
-    ...(isNonEmptyTrimmedString(threadInput.runtimeModelId)
-      ? { runtimeModelId: threadInput.runtimeModelId }
-      : {}),
-    runtimeMode: threadInput.runtimeMode as RuntimeMode,
-    planMode: threadInput.planMode as boolean,
+    providerProfileId: threadInput.providerProfileId as ProviderProfileId,
+    agentMode: threadInput.agentMode as AgentMode,
   };
 
   return {
@@ -1025,38 +958,6 @@ const rollbackThreadRun: AppStateCommandReducer = (snapshot, payload) => {
   };
 };
 
-// Mirrors recordThreadAction.
-const recordThreadAction: AppStateCommandReducer = (snapshot, payload) => {
-  if (!isRecord(payload) || !isRecord(payload.action)) return null;
-  const action = payload.action;
-  if (
-    !isNonEmptyTrimmedString(action.id) ||
-    typeof action.threadId !== "string" ||
-    action.action !== "compact" ||
-    !runtimeIds.includes(action.runtimeId as RuntimeId) ||
-    typeof action.completedAt !== "string"
-  ) {
-    return null;
-  }
-  const thread = (snapshot.threads ?? []).find((item) => item.id === action.threadId);
-  if (!thread) return null;
-
-  const record: AppThreadActionRecord = {
-    id: action.id,
-    threadId: thread.id,
-    action: "compact",
-    runtimeId: action.runtimeId as RuntimeId,
-    completedAt: action.completedAt,
-  };
-  return {
-    ...snapshot,
-    threads: (snapshot.threads ?? []).map((item) =>
-      item.id === thread.id ? { ...item, lastActivityAt: record.completedAt } : item,
-    ),
-    threadActions: [...(snapshot.threadActions ?? []), record],
-  };
-};
-
 // Snapshot part of deleting a Thread from history; Thread data cleanup runs
 // through chat.deleteThreadData before the command is submitted.
 const removeThread: AppStateCommandReducer = (snapshot, payload) => {
@@ -1175,14 +1076,14 @@ const updateThreadContent: AppStateCommandReducer = (snapshot, payload) => {
     // deleteMessageIds (edit-resend prune) or via thread:rollback-run /
     // Permanent Thread Deletion.
     const existingById = new Map(threadMessages.map((message) => [message.id, message]));
-    const kimiRunMessageIds = new Set(
+    const runMessageIds = new Set(
       (snapshot.threadRuns ?? []).flatMap((run) =>
-        run.runtimeId === "kimi" && run.assistantMessageId ? [run.assistantMessageId] : [],
+        run.assistantMessageId ? [run.assistantMessageId] : [],
       ),
     );
     const reconcileIncoming = (message: AppThreadMessageRecord): AppThreadMessageRecord => {
       const existing = existingById.get(message.id);
-      if (!existing || !kimiRunMessageIds.has(message.id)) return message;
+      if (!existing || !runMessageIds.has(message.id)) return message;
 
       const existingEventCount = existing.runEventCount;
       const incomingEventCount = message.runEventCount;
@@ -1287,7 +1188,6 @@ export const appStateCommandReducers: Record<string, AppStateCommandReducer> = {
   "thread:update-config": updateThreadConfig,
   "thread:record-run": recordThreadRun,
   "thread:rollback-run": rollbackThreadRun,
-  "thread:record-action": recordThreadAction,
   "thread:remove": removeThread,
   "thread:set-automatic-title": setAutomaticThreadTitle,
   "thread-draft:open": openThreadDraft,

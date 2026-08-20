@@ -22,23 +22,23 @@ const associations: WorkspaceProjectAssociationRecord[] = [
     projectId: "project-1",
     alias: "Personal Carrent",
     order: 0,
-    defaultRuntimeId: "kimi",
-    defaultRuntimeMode: "approval-required",
+    defaultProviderProfileId: "default",
+    defaultAgentMode: "ask",
   },
   {
     workspaceId: "workspace-1",
     projectId: "project-2",
     order: 1,
-    defaultRuntimeId: "kimi",
-    defaultRuntimeMode: "approval-required",
+    defaultProviderProfileId: "default",
+    defaultAgentMode: "ask",
   },
   {
     workspaceId: "workspace-2",
     projectId: "project-1",
     alias: "Client Carrent",
     order: 0,
-    defaultRuntimeId: "kimi",
-    defaultRuntimeMode: "approval-required",
+    defaultProviderProfileId: "default",
+    defaultAgentMode: "ask",
   },
 ];
 
@@ -57,9 +57,8 @@ function makeThread(
     projectId,
     createdAt: lastActivityAt,
     lastActivityAt,
-    runtimeId: "kimi",
-    runtimeMode: "approval-required",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "ask",
     ...(archived ? { archived: true } : {}),
   };
 }

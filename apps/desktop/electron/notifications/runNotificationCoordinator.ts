@@ -7,7 +7,7 @@
 //
 // Content is intentionally minimal: only the Thread title and one concise
 // English state label. No message text, Agent Activity, structured questions,
-// Approval Request details, commands, paths, Runtime output, or failure
+// Approval Request details, commands, paths, Agent output, or failure
 // details ever reach a notification.
 
 import type { ChatRunAuthorityState, SharedChatRunStatus } from "../../src/shared/chat";

@@ -16,7 +16,7 @@ function makeTask(overrides: Partial<SubagentTaskPart> = {}): SubagentTaskPart {
   return {
     type: "subagent_task",
     id: "task-1",
-    runtimeId: "kimi",
+    providerProfileId: "default",
     source: "agent",
     description: "Implement persistence",
     background: false,
@@ -300,7 +300,7 @@ describe("ThreadInspectorContent", () => {
             id: "detail",
             status: "completed",
             agentType: "coder",
-            runtimeAgentId: "agent-0",
+            agentId: "agent-0",
             prompt: "Implement step 1 and report the result",
             summary: "Implemented persistence and tests.",
             finishedAt: 61_000,
@@ -324,7 +324,7 @@ describe("ThreadInspectorContent", () => {
     expect(html).toContain("break-words");
   });
 
-  it("renders no raw ACP keys or Kimi storage paths", () => {
+  it("renders no raw transport keys", () => {
     const html = renderContent({
       messages: [makeAssistantMessage([makeTask({ status: "completed", summary: "Done." })])],
       projectPath: "/tmp/project",
@@ -334,7 +334,6 @@ describe("ThreadInspectorContent", () => {
 
     expect(html).not.toContain("rawInput");
     expect(html).not.toContain("rawOutput");
-    expect(html).not.toContain(".kimi-code");
     expect(html).not.toContain("toolCallId");
   });
 

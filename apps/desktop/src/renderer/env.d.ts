@@ -1,11 +1,6 @@
 /// <reference types="vite/client" />
 
-import type {
-  RuntimeId,
-  RuntimeModelListResult,
-  RuntimeRecord,
-  RuntimeVerificationResult,
-} from "../shared/runtimes";
+import type { ProviderProfileId } from "../shared/providerProfiles";
 import type {
   ChatTurnRequest,
   ChatRunEvent,
@@ -13,16 +8,14 @@ import type {
   ThreadDeletionTransactionRequest,
   AttachmentMetadata,
   AttachmentIntegrityMetadata,
-  KimiSessionStatus,
-  KimiTelemetryStatus,
   ChatRunAuthorityState,
   ChatRunAuthorityChange,
   ChatRunCommandResult,
 } from "../shared/chat";
 import type { ChatPermissionResponse } from "../shared/chatPermissions";
 import type { ChatQuestionResponse } from "../shared/chatQuestions";
+import type { AgentDebugChanged, AgentDebugRequest, AgentDebugTrace } from "../shared/agentDebug";
 import type { SkillRecord } from "../shared/skills";
-import type { McpServerStatus } from "../shared/mcpServer";
 import type {
   GitBranchInfo,
   GitWorkspaceDiffResult,
@@ -30,13 +23,12 @@ import type {
 } from "../../electron/git/gitIpc";
 import type {
   AppStateSnapshot,
-  ProviderSessionSnapshot,
   ProjectRelocationResult,
   ProjectRelocationRequest,
 } from "../shared/workspacePersistence";
 import type { RtkGainStats } from "../shared/rtk";
 import type { UpdateCheckResult } from "../shared/updates";
-import type { KimiMemoryIndex } from "../shared/kimiMemory";
+import type { AgentAuthView, SaveAgentAuthRequest } from "../shared/agentAuth";
 import type {
   WorktreePruneRequest,
   WorktreePruneResult,
@@ -48,11 +40,9 @@ import type {
   WorktreeSizeStartResult,
   WorktreeSizeTarget,
 } from "../shared/worktrees";
-import type { KimiUsageStats } from "../shared/kimiUsage";
 
 import type { MainWindowApi } from "../shared/mainWindow";
 import type { KeybindingsApi } from "../shared/keybindings";
-import type { ThreadActionRequest, ThreadActionResult } from "../shared/threadActions";
 import type { TerminalApi } from "../shared/terminal";
 import type { BrowserApi, BrowserMenuOverlayApi } from "../shared/browser";
 import type { EditorsApi } from "../shared/editors";
@@ -84,41 +74,20 @@ declare global {
       electronVersion: string;
       mainWindow: MainWindowApi;
       keybindings: KeybindingsApi;
+      agentAuth: {
+        load: () => Promise<AgentAuthView>;
+        save: (request: SaveAgentAuthRequest) => Promise<AgentAuthView>;
+      };
       browser: BrowserApi;
-      runtimes: {
-        list: () => Promise<RuntimeRecord[]>;
-        localCheck: (id: RuntimeId) => Promise<RuntimeVerificationResult>;
-        modelPing: (id: RuntimeId) => Promise<RuntimeVerificationResult>;
-        listModels: (id: RuntimeId) => Promise<RuntimeModelListResult>;
-        start: (id: RuntimeId) => Promise<void>;
-        stop: (id: RuntimeId) => Promise<void>;
-        restart: (id: RuntimeId) => Promise<void>;
-        refreshVersion: (id: RuntimeId) => Promise<RuntimeRecord>;
-        startAll: () => Promise<void>;
-        stopAll: () => Promise<void>;
-        restartAll: () => Promise<void>;
-      };
-      mcpServer: {
-        start: () => Promise<McpServerStatus>;
-        stop: () => Promise<McpServerStatus>;
-        getStatus: () => Promise<McpServerStatus>;
-      };
       chat: {
         send: (request: ChatTurnRequest) => Promise<ChatRunCommandResult>;
         stop: (runId: string) => Promise<ChatRunCommandResult>;
-        executeThreadAction?: (request: ThreadActionRequest) => Promise<ThreadActionResult>;
-        removeRuntimeSession: (
-          request: import("../shared/chat").RuntimeSessionRecovery,
-        ) => Promise<void>;
         deleteThreadData: (request: DeleteThreadDataRequest) => Promise<void>;
         deleteThreadTransaction?: (request: ThreadDeletionTransactionRequest) => Promise<void>;
         respondToPermission: (response: ChatPermissionResponse) => Promise<ChatRunCommandResult>;
         respondToQuestion: (response: ChatQuestionResponse) => Promise<ChatRunCommandResult>;
-        getKimiStatus: (request: ChatTurnRequest) => Promise<KimiTelemetryStatus | null>;
-        getSessionStatus: (request: ChatTurnRequest) => Promise<KimiSessionStatus | null>;
-        getDebugTrace: (
-          request: import("../shared/runtimeDebug").RuntimeDebugRequest,
-        ) => Promise<import("../shared/runtimeDebug").RuntimeDebugTrace | null>;
+        getDebugTrace: (request: AgentDebugRequest) => Promise<AgentDebugTrace | null>;
+        onDebugChanged: (listener: (change: AgentDebugChanged) => void) => VoidFunction;
         onEvent: (listener: (event: ChatRunEvent) => void) => VoidFunction;
         subscribe: () => Promise<ChatRunAuthorityState>;
         unsubscribe: () => Promise<void>;
@@ -166,10 +135,6 @@ declare global {
         onFlushRequest: (listener: () => void) => VoidFunction;
         flushDone: () => Promise<void>;
       };
-      providerSessions: {
-        load: () => Promise<ProviderSessionSnapshot>;
-        save: (snapshot: ProviderSessionSnapshot) => Promise<void>;
-      };
       projectDirectories: {
         check: (workingDirectory: string) => Promise<{ available: boolean }>;
         relocate: (request: ProjectRelocationRequest) => Promise<ProjectRelocationResult>;
@@ -183,8 +148,6 @@ declare global {
         getAppVersion: () => Promise<string>;
         checkForUpdates: () => Promise<UpdateCheckResult>;
         rtkGain: () => Promise<RtkGainStats>;
-        kimiUsage: () => Promise<KimiUsageStats>;
-        kimiMemory: () => Promise<KimiMemoryIndex>;
         worktrees: () => Promise<WorktreeScanResult>;
         worktreesPrune: (request: WorktreePruneRequest) => Promise<WorktreePruneResult>;
         worktreesRemove: (request: WorktreeRemoveRequest) => Promise<WorktreeRemoveResult>;
@@ -194,7 +157,6 @@ declare global {
         ) => Promise<WorktreeSizeStartResult>;
         worktreeSizesCancel: (generation: number) => Promise<void>;
         onWorktreeSizeEvent: (listener: (event: WorktreeSizeEvent) => void) => VoidFunction;
-        kimiMemoryDelete: (filePath: string) => Promise<void>;
         readGlobalAgentInstructions: () => Promise<{
           path: string;
           content: string;

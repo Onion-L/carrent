@@ -15,7 +15,7 @@ export const LONG_STREAMING_ANSWER = [
   "",
   "## What the agent checked",
   "",
-  "- read the runtime detection module and its tests",
+  "- read the provider configuration module and its tests",
   "- reproduced the issue with a controlled animation frame harness",
   "- coalesced the streaming updates into one commit per frame",
   "- verified the final text matches the authoritative answer exactly",
@@ -42,7 +42,7 @@ export const LONG_STREAMING_ANSWER = [
   "After the code block the answer continues with more prose so that trailing ",
   "text also has to stream. The reveal must remain a strict prefix of the ",
   "authoritative text at every point, and the completed message must equal the ",
-  "Runtime answer character for character, including whitespace and newlines.",
+  "Provider answer character for character, including whitespace and newlines.",
   "",
   "Math renders while streaming too: the identity $e^{i\\pi} + 1 = 0$ inline,",
   "and a display formula below.",
@@ -55,7 +55,7 @@ export const LONG_STREAMING_ANSWER = [
   "catch-up without losing, duplicating or reordering a single character.",
 ].join("\n");
 
-// Deterministic irregular chunk sizes: simulates uneven Runtime chunking
+// Deterministic irregular chunk sizes: simulates uneven provider chunking.
 // (tiny keep-alive deltas mixed with large buffered dumps) without Math.random.
 const CHUNK_SIZE_PATTERN = [3, 64, 17, 240, 8, 128, 41, 5, 96, 512];
 

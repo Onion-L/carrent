@@ -39,11 +39,11 @@ const FEATURES_ITEM: ChatQuestionItem = {
 
 function makeQuestion(overrides: Partial<ChatQuestionRequest> = {}): ChatQuestionRequest {
   return {
-    id: "kimi-question-run-1-7",
+    id: "agent-question-run-1-7",
     runId: "run-1",
     threadId: "thread-1",
-    provider: "kimi",
-    source: "native-acp",
+    provider: "core",
+    source: "core",
     questions: [LANGUAGE_ITEM],
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -177,15 +177,14 @@ describe("canSubmitQuestion", () => {
 });
 
 describe("Other answers", () => {
-  it("offers Other only for MCP-sourced questions", () => {
-    expect(supportsOtherOption(makeQuestion({ source: "mcp" }))).toBe(true);
-    expect(supportsOtherOption(makeQuestion({ source: "native-acp" }))).toBe(false);
+  it("offers Other for Agent Core questions", () => {
+    expect(supportsOtherOption(makeQuestion({ source: "core" }))).toBe(true);
   });
 });
 
 describe("question response builders", () => {
   it("submit returns one indexed answer per question", () => {
-    const question = makeQuestion({ source: "mcp", questions: [LANGUAGE_ITEM, FEATURES_ITEM] });
+    const question = makeQuestion({ source: "core", questions: [LANGUAGE_ITEM, FEATURES_ITEM] });
 
     expect(
       buildQuestionSubmitResponse(question, [
@@ -193,7 +192,7 @@ describe("question response builders", () => {
         makeDraft({ optionIds: ["mcp-q2-opt-1", "mcp-q2-opt-3"] }),
       ]),
     ).toEqual({
-      questionId: "kimi-question-run-1-7",
+      questionId: "agent-question-run-1-7",
       runId: "run-1",
       action: "submit",
       answers: [
@@ -204,7 +203,7 @@ describe("question response builders", () => {
   });
 
   it("submit with Other carries the custom text and drops no predefined selection", () => {
-    const question = makeQuestion({ source: "mcp", questions: [FEATURES_ITEM] });
+    const question = makeQuestion({ source: "core", questions: [FEATURES_ITEM] });
 
     expect(
       buildQuestionSubmitResponse(question, [
@@ -214,7 +213,7 @@ describe("question response builders", () => {
         }),
       ]),
     ).toEqual({
-      questionId: "kimi-question-run-1-7",
+      questionId: "agent-question-run-1-7",
       runId: "run-1",
       action: "submit",
       answers: [
@@ -233,7 +232,7 @@ describe("question response builders", () => {
         makeDraft({ optionIds: ["mcp-q1-opt-1"], otherText: "ignored" }),
       ]),
     ).toEqual({
-      questionId: "kimi-question-run-1-7",
+      questionId: "agent-question-run-1-7",
       runId: "run-1",
       action: "submit",
       answers: [{ questionIndex: 0, optionIds: ["mcp-q1-opt-1"] }],
@@ -242,7 +241,7 @@ describe("question response builders", () => {
 
   it("skip dismisses the question without naming an option", () => {
     expect(buildQuestionSkipResponse(makeQuestion())).toEqual({
-      questionId: "kimi-question-run-1-7",
+      questionId: "agent-question-run-1-7",
       runId: "run-1",
       action: "skip",
     });

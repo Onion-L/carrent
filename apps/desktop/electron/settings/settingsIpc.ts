@@ -8,9 +8,7 @@ import {
   type WorktreeRemoveRequest,
   type WorktreeSizeTarget,
 } from "../../src/shared/worktrees";
-import { getKimiUsageStats } from "./kimiUsage";
 import { checkForUpdates } from "./checkForUpdates";
-import { deleteKimiMemoryFile, listKimiMemory } from "./kimiMemory";
 import { getRtkGainStats } from "./rtkGain";
 import { pruneWorktreeRecords, removeWorktree, scanWorktrees } from "./worktrees";
 import type { WorktreeSizeScanner } from "./worktreeSizes";
@@ -73,9 +71,7 @@ export function registerSettingsIpc(
 ): void {
   ipcMainLike.handle("settings:app-version", async () => getAppVersion());
 
-  ipcMainLike.handle("settings:check-for-updates", async () =>
-    checkForUpdates(getAppVersion()),
-  );
+  ipcMainLike.handle("settings:check-for-updates", async () => checkForUpdates(getAppVersion()));
 
   ipcMainLike.handle("settings:rtk-gain", async () => getRtkGainStats());
   ipcMainLike.handle("settings:worktrees", async () =>
@@ -164,18 +160,6 @@ export function registerSettingsIpc(
       throw new Error("Worktree size cancellation requires a scan generation.");
     }
     sizeScanner?.cancel(generation);
-  });
-
-  ipcMainLike.handle("settings:kimi-usage", async () => getKimiUsageStats());
-
-  ipcMainLike.handle("settings:kimi-memory", async () => listKimiMemory());
-
-  ipcMainLike.handle("settings:kimi-memory:delete", async (_event, filePath) => {
-    if (typeof filePath !== "string") {
-      throw new Error("Kimi memory file path must be a string.");
-    }
-
-    return deleteKimiMemoryFile(filePath);
   });
 
   ipcMainLike.handle("settings:global-agent-instructions:read", async () =>

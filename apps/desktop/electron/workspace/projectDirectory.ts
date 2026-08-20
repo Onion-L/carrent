@@ -6,13 +6,6 @@ import {
   type ProjectRelocationRequest,
 } from "../../src/shared/workspacePersistence";
 
-export type RuntimeSessionDetachmentReceipt = {
-  threadIds: string[];
-  providerSessions: Record<string, string>;
-  providerSessionsDetachedFromCache: boolean;
-  runtimeSessions: Record<string, string>;
-};
-
 type ProjectRelocationStore = {
   waitForWrites?: () => Promise<void>;
   loadAppStateSnapshot: () => Promise<AppStateSnapshot | null>;
@@ -22,21 +15,12 @@ type ProjectRelocationStore = {
     beforeWorkingDirectory: string;
     targetDirectory: string;
     threadIds: string[];
-    providerSessions: Record<string, string>;
-  }) => Promise<{
-    appState: AppStateSnapshot;
-    removedProviderSessions: Record<string, string>;
-  }>;
+  }) => Promise<{ appState: AppStateSnapshot }>;
 };
 
 type ProjectRelocationSessionManager = {
   hasLiveRunForThreads: (threadIds: string[]) => boolean;
-  detachRuntimeSessions: (
-    threadIds: string[],
-    options?: { deferProviderSessionDeletion?: boolean },
-  ) => Promise<RuntimeSessionDetachmentReceipt>;
-  restoreRuntimeSessions: (receipt: RuntimeSessionDetachmentReceipt) => Promise<void>;
-  completeRuntimeSessionDetachment: (receipt: RuntimeSessionDetachmentReceipt) => void;
+  setThreadsRelocating: (threadIds: string[], relocating: boolean) => void;
 };
 
 type IpcMainLike = {
@@ -52,19 +36,6 @@ export async function isProjectDirectoryAvailable(workingDirectory: string): Pro
   } catch {
     return false;
   }
-}
-
-async function retryTwice(operation: () => Promise<void>) {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      await operation();
-      return;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError;
 }
 
 export function createProjectRelocationManager(options: {
@@ -124,13 +95,8 @@ export function createProjectRelocationManager(options: {
           }
 
           const atomicRelocation = options.appStateStore.relocateProject;
-          const receipt = await options.sessionManager.detachRuntimeSessions(threadIds, {
-            deferProviderSessionDeletion: Boolean(atomicRelocation),
-          });
-          let result: {
-            appState: AppStateSnapshot;
-            removedProviderSessions: Record<string, string>;
-          };
+          options.sessionManager.setThreadsRelocating(threadIds, true);
+          let result: { appState: AppStateSnapshot };
           try {
             if (atomicRelocation) {
               result = await atomicRelocation({
@@ -138,7 +104,6 @@ export function createProjectRelocationManager(options: {
                 beforeWorkingDirectory: project.workingDirectory,
                 targetDirectory,
                 threadIds,
-                providerSessions: receipt.providerSessions,
               });
             } else {
               if (!options.appStateStore.saveAppStateSnapshot) {
@@ -151,30 +116,23 @@ export function createProjectRelocationManager(options: {
                 ),
               };
               await options.appStateStore.saveAppStateSnapshot(appState);
-              result = { appState, removedProviderSessions: receipt.providerSessions };
+              result = { appState };
             }
           } catch (error) {
-            const rollbackErrors: unknown[] = [];
-            const operations = [() => options.sessionManager.restoreRuntimeSessions(receipt)];
             if (!atomicRelocation && options.appStateStore.saveAppStateSnapshot) {
-              operations.unshift(() => options.appStateStore.saveAppStateSnapshot!(beforeAppState));
-            }
-            for (const operation of operations) {
               try {
-                await retryTwice(operation);
+                await options.appStateStore.saveAppStateSnapshot(beforeAppState);
               } catch (rollbackError) {
-                rollbackErrors.push(rollbackError);
+                throw new AggregateError(
+                  [error, rollbackError],
+                  "Project relocation failed and could not be fully rolled back.",
+                );
               }
             }
-            if (rollbackErrors.length > 0) {
-              throw new AggregateError(
-                [error, ...rollbackErrors],
-                "Project relocation failed and could not be fully rolled back.",
-              );
-            }
             throw error;
+          } finally {
+            options.sessionManager.setThreadsRelocating(threadIds, false);
           }
-          options.sessionManager.completeRuntimeSessionDetachment(receipt);
           try {
             options.onSnapshotCommitted?.(result.appState);
           } catch {

@@ -12,12 +12,10 @@ import {
   createEmptyAppStateSnapshot,
   normalizeAppStateSnapshotForWrite,
   normalizePersistedAppStateSnapshot,
-  normalizeProviderSessionSnapshot,
   isRecognizedLegacyWorkspaceSnapshot,
   type AppStateDiagnostic,
   type AppStateLoadResult,
   type AppStateSnapshot,
-  type ProviderSessionSnapshot,
 } from "../../src/shared/workspacePersistence";
 import type { AppStateCommand } from "../../src/shared/appStateAuthority";
 
@@ -32,8 +30,6 @@ export type AppStateStore = {
     before: AppStateSnapshot,
     after: AppStateSnapshot,
   ) => Promise<void>;
-  loadProviderSessions: () => Promise<ProviderSessionSnapshot>;
-  saveProviderSessions: (snapshot: ProviderSessionSnapshot) => Promise<void>;
 };
 
 type AppStateStoreOptions = {
@@ -56,7 +52,6 @@ const MISSING_APP_STATE_EVIDENCE_PREFIXES = [
   "app-state.json.tmp-",
   `${INITIALIZED_MARKER}.tmp-`,
   "workspace.json.tmp-",
-  "provider-sessions.json.tmp-",
   "thread-deletion-journal.json.tmp-",
 ] as const;
 const RESETTABLE_PATHS = [
@@ -77,7 +72,6 @@ export function createAppStateStore(
   const initializedMarkerPath = join(baseDir, INITIALIZED_MARKER);
   const resetStagingPath = join(baseDir, RESET_STAGING_DIRECTORY);
   const legacyWorkspacePath = join(baseDir, "workspace.json");
-  const providerSessionsPath = join(baseDir, "provider-sessions.json");
   const rename = options.rename ?? renameFile;
   const writeFile = options.writeFile ?? writeFileContents;
   const remove = options.remove ?? rm;
@@ -397,42 +391,6 @@ export function createAppStateStore(
 
     persistAppStateCommand(_command, _before, after) {
       return this.saveAppStateSnapshot(after);
-    },
-
-    async loadProviderSessions(): Promise<ProviderSessionSnapshot> {
-      let raw: string;
-      try {
-        raw = await readFile(providerSessionsPath, "utf-8");
-      } catch {
-        return { version: 1, sessions: {} };
-      }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        await rename(
-          providerSessionsPath,
-          `${baseDir}/provider-sessions.corrupt-${Date.now()}.json`,
-        );
-        return { version: 1, sessions: {} };
-      }
-
-      const snapshot = normalizeProviderSessionSnapshot(parsed);
-      if (!snapshot) {
-        await rename(
-          providerSessionsPath,
-          `${baseDir}/provider-sessions.corrupt-${Date.now()}.json`,
-        );
-      }
-      return snapshot ?? { version: 1, sessions: {} };
-    },
-
-    async saveProviderSessions(snapshot: ProviderSessionSnapshot): Promise<void> {
-      assertAppStateWritable();
-      await enqueueWrite(() =>
-        atomicWrite(providerSessionsPath, JSON.stringify(snapshot, null, 2)),
-      );
     },
   };
 }

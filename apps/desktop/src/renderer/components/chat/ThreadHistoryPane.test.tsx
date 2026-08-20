@@ -1,8 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { ProviderSessionSnapshot } from "../../../shared/workspacePersistence";
-import { getThreadRuntimeSessionId } from "../../../shared/providerSessions";
 import { getThreadContextMenuPosition, ThreadContextMenu } from "./ThreadHistoryPane";
 
 describe("getThreadContextMenuPosition", () => {
@@ -27,78 +25,16 @@ describe("getThreadContextMenuPosition", () => {
   });
 });
 
-describe("getThreadRuntimeSessionId", () => {
-  const snapshot = {
-    version: 1,
-    sessions: {
-      "kimi:thread-1": "kimi-session",
-      "codex:thread-1": "codex-session",
-    },
-  } satisfies ProviderSessionSnapshot;
-
-  it("uses the thread's selected runtime", () => {
-    expect(
-      getThreadRuntimeSessionId(snapshot, {
-        id: "thread-1",
-        workspaceId: "workspace-1",
-        projectId: "project-1",
-        title: "Test",
-        createdAt: "2026-07-27T08:00:00.000Z",
-        lastActivityAt: "2026-07-27T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
-      }),
-    ).toBe("kimi-session");
-  });
-
-  it("uses the persisted Kimi runtime", () => {
-    expect(
-      getThreadRuntimeSessionId(snapshot, {
-        id: "thread-1",
-        workspaceId: "workspace-1",
-        projectId: "project-1",
-        title: "Test",
-        createdAt: "2026-07-27T08:00:00.000Z",
-        lastActivityAt: "2026-07-27T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
-      }),
-    ).toBe("kimi-session");
-  });
-});
-
 describe("ThreadContextMenu", () => {
-  it("renders only the requested copy actions", () => {
+  it("renders only the project path action", () => {
     const markup = renderToStaticMarkup(
-      <ThreadContextMenu
-        threadTitle="Fix sidebar"
-        sessionId="session-1"
-        onCopyProjectPath={() => {}}
-        onCopySessionId={() => {}}
-      />,
+      <ThreadContextMenu threadTitle="Fix sidebar" onCopyProjectPath={() => {}} />,
     );
 
     expect(markup).toContain('role="menu"');
-    expect((markup.match(/role="menuitem"/gu) ?? []).length).toBe(2);
+    expect((markup.match(/role="menuitem"/gu) ?? []).length).toBe(1);
     expect(markup).toContain("Copy project path");
-    expect(markup).toContain("Copy session ID");
     expect(markup).not.toContain("Archive");
     expect(markup).not.toContain("deep link");
-  });
-
-  it("disables session copying when no session exists", () => {
-    const markup = renderToStaticMarkup(
-      <ThreadContextMenu
-        threadTitle="New thread"
-        sessionId={null}
-        onCopyProjectPath={() => {}}
-        onCopySessionId={() => {}}
-      />,
-    );
-
-    expect(markup).toContain('title="No session ID available"');
-    expect(markup).toContain("disabled");
   });
 });

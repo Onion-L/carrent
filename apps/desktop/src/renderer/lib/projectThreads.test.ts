@@ -16,9 +16,8 @@ function makeThread(overrides: Partial<AppThreadRecord> = {}): AppThreadRecord {
     title: "Thread",
     createdAt: "2026-01-01T00:00:00Z",
     lastActivityAt: "2026-01-01T00:00:00Z",
-    runtimeId: "kimi",
-    runtimeMode: "approval-required",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "ask",
     ...overrides,
   };
 }
@@ -90,7 +89,7 @@ describe("project Threads", () => {
   it("filters titles case-insensitively after trimming the query", () => {
     const threads = [
       makeThread({ id: "a", title: "Fix Sidebar" }),
-      makeThread({ id: "b", title: "Runtime setup" }),
+      makeThread({ id: "b", title: "Provider setup" }),
     ];
 
     expect(filterProjectThreads(threads, "  sidebar ").map((thread) => thread.id)).toEqual(["a"]);

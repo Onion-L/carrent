@@ -105,7 +105,6 @@ describe("SettingsContext", () => {
 
     expect(settingsValue!.theme).toBe("dark");
     expect(settingsValue!.fontSize).toBe(14);
-    expect(settingsValue!.autoDetectRuntimes).toBe(true);
     expect(localStorage.getItem("carrent:settings")).toBe(null);
   });
 
@@ -150,8 +149,6 @@ describe("SettingsContext", () => {
         theme: "light",
         fontSize: 20,
         terminalPanelHeight: 9999,
-        autoDetectRuntimes: false,
-        runtimeEnabledById: { kimi: false },
       }),
     );
     await renderProviders(baseSnapshot);
@@ -162,9 +159,7 @@ describe("SettingsContext", () => {
       ...DEFAULT_APP_STATE_SETTINGS,
       theme: "light",
       fontSizeInterface: 20,
-      autoDetectRuntimes: false,
       terminalPanelHeight: 720,
-      runtimeEnabledById: { kimi: false },
     });
     expect(localStorage.getItem("carrent:settings")).toBe(null);
   });

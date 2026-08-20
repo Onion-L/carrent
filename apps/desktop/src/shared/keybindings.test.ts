@@ -48,7 +48,7 @@ describe("ACTION_IDS", () => {
     expect(ACTION_IDS).toHaveLength(49);
     expect(ACTION_IDS).toContain("open-file-picker");
     expect(ACTION_IDS).toContain("thread-jump-9");
-    expect(ACTION_IDS).toContain("model-picker-select-9");
+    expect(ACTION_IDS).toContain("provider-picker-select-9");
     expect(ACTION_IDS).toContain("preview-new-tab");
     expect(ACTION_IDS).toContain("terminal-copy");
   });

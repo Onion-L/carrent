@@ -1,5 +1,5 @@
 import {
-  MODEL_PICKER_SELECT_ACTION_IDS,
+  PROVIDER_PICKER_SELECT_ACTION_IDS,
   THREAD_JUMP_ACTION_IDS,
   type ActionId,
   type KeyBinding,
@@ -7,7 +7,7 @@ import {
 } from "../../shared/keybindings";
 
 export type KeybindingCategory = "Navigation" | "Terminal" | "Preview" | "Chat" | "Window";
-export type KeybindingCondition = "default" | "model-picker-open" | "model-picker-closed";
+export type KeybindingCondition = "default" | "provider-picker-open" | "provider-picker-closed";
 
 export type KeybindingActionDefinition = {
   id: ActionId;
@@ -34,21 +34,20 @@ const threadJumpActions: KeybindingActionDefinition[] = THREAD_JUMP_ACTION_IDS.m
   category: "Navigation",
   defaultBindings: [binding(String(index + 1), "mod")],
   scopes: ALL_SCOPES,
-  whenLabel: "Model picker closed",
-  condition: "model-picker-closed",
+  whenLabel: "Provider picker closed",
+  condition: "provider-picker-closed",
 }));
 
-const modelPickerSelectActions: KeybindingActionDefinition[] = MODEL_PICKER_SELECT_ACTION_IDS.map(
-  (id, index) => ({
+const providerPickerSelectActions: KeybindingActionDefinition[] =
+  PROVIDER_PICKER_SELECT_ACTION_IDS.map((id, index) => ({
     id,
-    label: `Select Model Picker Item ${index + 1}`,
+    label: `Select Provider Picker Item ${index + 1}`,
     category: "Chat",
     defaultBindings: [binding(String(index + 1), "mod")],
     scopes: NON_TERMINAL_SCOPES,
-    whenLabel: "Model picker open",
-    condition: "model-picker-open",
-  }),
-);
+    whenLabel: "Provider picker open",
+    condition: "provider-picker-open",
+  }));
 
 /**
  * Default shortcuts for every customizable action. User modifications live in
@@ -277,14 +276,14 @@ export const KEYBINDING_ACTIONS: KeybindingActionDefinition[] = [
     whenLabel: "Composer available",
   },
   {
-    id: "toggle-model-picker",
-    label: "Toggle Model Picker",
+    id: "toggle-provider-picker",
+    label: "Toggle Provider Picker",
     category: "Chat",
     defaultBindings: [binding("m", "mod", "shift")],
     scopes: NON_TERMINAL_SCOPES,
     whenLabel: "Terminal not focused",
   },
-  ...modelPickerSelectActions,
+  ...providerPickerSelectActions,
   {
     id: "zoom-in",
     label: "Zoom In",

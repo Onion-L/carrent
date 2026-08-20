@@ -42,11 +42,11 @@ let questionCounter = 0;
 function makeQuestion(overrides: Partial<ChatQuestionRequest> = {}): ChatQuestionRequest {
   questionCounter += 1;
   return {
-    id: `kimi-question-run-1-ui-${questionCounter}`,
+    id: `agent-question-run-1-ui-${questionCounter}`,
     runId: "run-1",
     threadId: "thread-1",
-    provider: "kimi",
-    source: "mcp",
+    provider: "core",
+    source: "core",
     questions: [LANGUAGE_ITEM],
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -132,9 +132,8 @@ async function startRunForThread() {
   const request: ChatTurnRequest = {
     workspace: { kind: "chat" },
     threadId: "thread-1",
-    runtimeId: "kimi",
-    runtimeMode: "default",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "default",
     transcript: [],
     message: "hello",
   };
@@ -159,7 +158,6 @@ beforeEach(() => {
       respondToQuestion: async (response: ChatQuestionResponse) => {
         questionResponses.push(response);
       },
-      getKimiStatus: async () => null,
       onEvent: (listener: (event: ChatRunEvent) => void) => {
         chatEventListener = listener;
         return () => {
@@ -236,12 +234,6 @@ describe("QuestionPanel", () => {
     // Picking a predefined option leaves Other and hides the input again.
     await click(optionByLabel("JavaScript"));
     expect(customAnswerInput()).toBe(null);
-  });
-
-  it("never offers Other for native ACP questions", async () => {
-    await renderPanel(makeQuestion({ source: "native-acp" }));
-
-    expect(optionButtons().some((button) => button.textContent?.includes("Other"))).toBe(false);
   });
 
   it("replaces the selection for a single-select question", async () => {

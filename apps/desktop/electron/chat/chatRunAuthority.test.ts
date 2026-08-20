@@ -17,9 +17,8 @@ function request(runId = "run-1", threadId = "thread-1"): ChatTurnRequest {
       workspaceId: "workspace-1",
     },
     threadId,
-    runtimeId: "kimi",
-    runtimeMode: "approval-required",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "ask",
     transcript: [],
     message: "Implement it",
   };
@@ -72,7 +71,7 @@ describe("createChatRunAuthority", () => {
           const content = `${accumulated.get(runId) ?? ""}${"x".repeat(16)}`;
           accumulated.set(runId, content);
           authority.handleEvent({
-            type: "kimi-timeline",
+            type: "agent-timeline",
             runId,
             item: {
               type: "message",
@@ -83,7 +82,7 @@ describe("createChatRunAuthority", () => {
             },
           });
           authority.handleEvent({
-            type: "kimi-timeline",
+            type: "agent-timeline",
             runId,
             item: {
               type: "thinking",
@@ -94,7 +93,7 @@ describe("createChatRunAuthority", () => {
             },
           });
           authority.handleEvent({
-            type: "kimi-timeline",
+            type: "agent-timeline",
             runId,
             item: {
               type: "tool",
@@ -141,7 +140,7 @@ describe("createChatRunAuthority", () => {
     authority.subscribe(2);
     authority.send(request());
     authority.handleEvent({
-      type: "kimi-timeline",
+      type: "agent-timeline",
       runId: "run-1",
       item: {
         type: "message",
@@ -153,7 +152,7 @@ describe("createChatRunAuthority", () => {
     });
     authority.handleEvent({ type: "delta", runId: "run-1", text: "hello" });
     authority.handleEvent({
-      type: "kimi-timeline",
+      type: "agent-timeline",
       runId: "run-1",
       item: {
         type: "message",
@@ -170,7 +169,7 @@ describe("createChatRunAuthority", () => {
       revision: 3,
       run: { runId: "run-1", threadId: "thread-1" },
       event: {
-        type: "kimi-timeline-update",
+        type: "agent-timeline-update",
         update: {
           itemType: "message",
           id: "run-1-message-1",
@@ -181,7 +180,7 @@ describe("createChatRunAuthority", () => {
     });
     const events = authority.getState().runs[0]?.events ?? [];
     expect(events[0]).toMatchObject({
-      type: "kimi-timeline",
+      type: "agent-timeline",
       item: { type: "message", content: "hello world", isFinal: true },
     });
     expect(events).toHaveLength(1);
@@ -230,7 +229,7 @@ describe("createChatRunAuthority", () => {
     for (let index = 0; index < 200; index += 1) {
       content += "x".repeat(16);
       authority.handleEvent({
-        type: "kimi-timeline",
+        type: "agent-timeline",
         runId: "run-1",
         item: {
           type: "message",
@@ -246,7 +245,7 @@ describe("createChatRunAuthority", () => {
     const run = authority.getState().runs[0]!;
     expect(run.eventCount).toBe(201);
     expect(run.events).toHaveLength(2);
-    expect(run.events.map((event) => event.type)).toEqual(["started", "kimi-timeline"]);
+    expect(run.events.map((event) => event.type)).toEqual(["started", "agent-timeline"]);
     expect(serialize(authority.subscribe(1)).byteLength).toBeLessThan(10_000);
   });
 
@@ -437,7 +436,7 @@ describe("createChatRunAuthority", () => {
         runId: "run-1",
         requestKey: "request-run-1",
         threadId: "thread-1",
-        provider: "kimi",
+        provider: "core",
         action: "shell",
         title: "Run command",
         options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
@@ -465,8 +464,8 @@ describe("createChatRunAuthority", () => {
         runId: "run-1",
         requestKey: "request-run-1",
         threadId: "thread-1",
-        provider: "kimi",
-        source: "native-acp",
+        provider: "core",
+        source: "core",
         questions: [
           {
             header: "Choice",
@@ -511,8 +510,8 @@ describe("createChatRunAuthority", () => {
         id: "question-1",
         runId: "run-1",
         threadId: "thread-1",
-        provider: "kimi",
-        source: "native-acp",
+        provider: "core",
+        source: "core",
         questions: [
           {
             header: "Choice",
@@ -547,8 +546,8 @@ describe("createChatRunAuthority", () => {
         id: "question-1",
         runId: "run-1",
         threadId: "thread-1",
-        provider: "kimi",
-        source: "native-acp",
+        provider: "core",
+        source: "core",
         questions: [],
         createdAt: "2026-08-01T00:00:00.000Z",
       },

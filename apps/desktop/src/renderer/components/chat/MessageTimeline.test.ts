@@ -4,20 +4,19 @@ import { createElement } from "react";
 
 import {
   buildUserMessageEditContent,
-  formatKimiActivityGroupLabel,
+  formatAgentActivityGroupLabel,
   getAssistantMessagePresentation,
   getUserMessageEditDraft,
-  groupKimiTimelineItems,
+  groupAgentTimelineItems,
   MessageTimeline,
   parseFileReferenceSegments,
   parseSkillReferenceSegments,
   splitLeadingSkillReferences,
   UserMessageAttachmentList,
-  type KimiTimelineGroupableItem,
-  type KimiTimelinePresentationItem,
+  type AgentTimelineGroupableItem,
+  type AgentTimelinePresentationItem,
 } from "./MessageTimeline";
 import type { Message } from "../../../shared/threadContent";
-import { getPlanReviewStatusLabel } from "./PlanReviewBlock";
 import { ErrorBlock } from "./ErrorBlock";
 
 describe("parseSkillReferenceSegments", () => {
@@ -437,10 +436,10 @@ describe("user message inline editing", () => {
 });
 
 describe("assistant message presentation", () => {
-  it("presents Kimi thinking and message segments in normalized order", () => {
+  it("presents Agent thinking and message segments in normalized order", () => {
     const parts = [
       {
-        type: "kimi_timeline" as const,
+        type: "agent_activity" as const,
         item: {
           type: "message" as const,
           id: "message-2",
@@ -450,7 +449,7 @@ describe("assistant message presentation", () => {
         },
       },
       {
-        type: "kimi_timeline" as const,
+        type: "agent_activity" as const,
         item: {
           type: "thinking" as const,
           id: "thinking-1",
@@ -468,7 +467,7 @@ describe("assistant message presentation", () => {
         status: "completed" as const,
       },
       {
-        type: "kimi_timeline" as const,
+        type: "agent_activity" as const,
         item: {
           type: "thinking" as const,
           id: "thinking-2",
@@ -478,7 +477,7 @@ describe("assistant message presentation", () => {
         },
       },
       {
-        type: "kimi_timeline" as const,
+        type: "agent_activity" as const,
         item: {
           type: "message" as const,
           id: "message-1",
@@ -492,14 +491,14 @@ describe("assistant message presentation", () => {
     expect(getAssistantMessagePresentation(parts, "completed")).toEqual({
       timelineItems: [
         {
-          type: "kimi-thinking",
+          type: "agent-thinking",
           id: "thinking-1",
           content: "Inspect files",
           status: "completed",
         },
         { type: "text", id: "message-1", content: "I found it." },
         {
-          type: "kimi-thinking",
+          type: "agent-thinking",
           id: "thinking-2",
           content: "Verify",
           status: "running",
@@ -512,11 +511,11 @@ describe("assistant message presentation", () => {
     });
   });
 
-  it("keeps Kimi text, Thinking, tools, and Subagents in ACP order", () => {
+  it("keeps text, Thinking, tools, and Subagents in event order", () => {
     const subagent = {
       type: "subagent_task" as const,
       id: "tool-agent",
-      runtimeId: "kimi" as const,
+      providerProfileId: "default" as const,
       source: "agent" as const,
       agentType: "Explore",
       description: "Explore notification seams",
@@ -525,7 +524,7 @@ describe("assistant message presentation", () => {
       startedAt: 1_000,
     };
     const thinking = {
-      type: "kimi_timeline" as const,
+      type: "agent_activity" as const,
       item: {
         type: "thinking" as const,
         id: "thinking-1",
@@ -535,7 +534,7 @@ describe("assistant message presentation", () => {
       },
     };
     const intermediate = {
-      type: "kimi_timeline" as const,
+      type: "agent_activity" as const,
       item: {
         type: "message" as const,
         id: "message-intermediate",
@@ -545,7 +544,7 @@ describe("assistant message presentation", () => {
       },
     };
     const agentTool = {
-      type: "kimi_timeline" as const,
+      type: "agent_activity" as const,
       item: {
         type: "tool" as const,
         id: "tool-item-agent",
@@ -562,7 +561,7 @@ describe("assistant message presentation", () => {
       },
     };
     const finalMessage = {
-      type: "kimi_timeline" as const,
+      type: "agent_activity" as const,
       item: {
         type: "message" as const,
         id: "message-final",
@@ -572,7 +571,7 @@ describe("assistant message presentation", () => {
       },
     };
     const tool = {
-      type: "kimi_timeline" as const,
+      type: "agent_activity" as const,
       item: {
         type: "tool" as const,
         id: "tool-late",
@@ -596,7 +595,7 @@ describe("assistant message presentation", () => {
     ).toEqual({
       timelineItems: [
         {
-          type: "kimi-thinking",
+          type: "agent-thinking",
           id: "thinking-1",
           content: "Inspect the project",
           status: "completed",
@@ -606,10 +605,10 @@ describe("assistant message presentation", () => {
           id: "message-intermediate",
           content: "I will inspect the relevant files.",
         },
-        { type: "kimi-subagent", task: subagent },
+        { type: "agent-subagent", task: subagent },
         { type: "text", id: "message-final", content: "Final answer" },
         {
-          type: "kimi-tool",
+          type: "agent-tool",
           id: "tool-late",
           title: "Read",
           kind: "read",
@@ -627,10 +626,10 @@ describe("assistant message presentation", () => {
     });
   });
 
-  it("presents Kimi tool items in normalized order alongside thinking and message segments", () => {
+  it("presents Agent tool items in normalized order alongside thinking and message segments", () => {
     const parts = [
       {
-        type: "kimi_timeline" as const,
+        type: "agent_activity" as const,
         item: {
           type: "thinking" as const,
           id: "thinking-1",
@@ -640,7 +639,7 @@ describe("assistant message presentation", () => {
         },
       },
       {
-        type: "kimi_timeline" as const,
+        type: "agent_activity" as const,
         item: {
           type: "tool" as const,
           id: "tool-item-1",
@@ -657,7 +656,7 @@ describe("assistant message presentation", () => {
         },
       },
       {
-        type: "kimi_timeline" as const,
+        type: "agent_activity" as const,
         item: {
           type: "tool" as const,
           id: "tool-item-2",
@@ -674,7 +673,7 @@ describe("assistant message presentation", () => {
         },
       },
       {
-        type: "kimi_timeline" as const,
+        type: "agent_activity" as const,
         item: {
           type: "message" as const,
           id: "message-1",
@@ -688,13 +687,13 @@ describe("assistant message presentation", () => {
     expect(getAssistantMessagePresentation(parts, "completed")).toEqual({
       timelineItems: [
         {
-          type: "kimi-thinking",
+          type: "agent-thinking",
           id: "thinking-1",
           content: "Inspect the project",
           status: "completed",
         },
         {
-          type: "kimi-tool",
+          type: "agent-tool",
           id: "tool-item-1",
           title: "Bash",
           kind: "execute",
@@ -706,7 +705,7 @@ describe("assistant message presentation", () => {
           status: "completed",
         },
         {
-          type: "kimi-tool",
+          type: "agent-tool",
           id: "tool-item-2",
           title: "Read",
           kind: "read",
@@ -729,7 +728,7 @@ describe("assistant message presentation", () => {
     const parts = [
       {
         type: "reasoning" as const,
-        id: "kimi-thinking-1",
+        id: "agent-thinking-1",
         content: "Private thought",
         status: "completed" as const,
       },
@@ -745,6 +744,7 @@ describe("assistant message presentation", () => {
 
     expect(getAssistantMessagePresentation(parts, "running")).toEqual({
       activityItems: [
+        parts[0],
         {
           type: "commentary",
           id: "commentary-1",
@@ -794,14 +794,14 @@ describe("assistant message presentation", () => {
     const parts = [
       {
         type: "reasoning" as const,
-        id: "kimi-tool-0:tool_agent",
+        id: "agent-tool-0:tool_agent",
         content: "Launching coder agent: Implement persistence",
         status: "completed" as const,
       },
       {
         type: "subagent_task" as const,
         id: "0:tool_agent",
-        runtimeId: "kimi" as const,
+        providerProfileId: "default" as const,
         source: "agent" as const,
         agentType: "coder",
         description: "Implement persistence",
@@ -835,7 +835,7 @@ describe("assistant message presentation", () => {
       {
         type: "error" as const,
         id: "error-1",
-        message: "Kimi Code declined the request (provider refusal).",
+        message: "The provider declined the request.",
       },
     ];
 
@@ -847,36 +847,6 @@ describe("assistant message presentation", () => {
   });
 });
 
-describe("Plan Review presentation", () => {
-  const review = {
-    type: "plan_review" as const,
-    id: "review-1",
-    permissionId: "permission-1",
-    content: "# Plan",
-    status: "pending" as const,
-    options: [
-      { optionId: "plan_opt_0", name: "Approach A", kind: "allow_once" as const },
-      { optionId: "plan_opt_1", name: "Approach B", kind: "allow_once" as const },
-      { optionId: "plan_revise", name: "Revise", kind: "reject_once" as const },
-      {
-        optionId: "plan_reject_and_exit",
-        name: "Reject and Exit",
-        kind: "reject_once" as const,
-      },
-    ],
-  };
-
-  it("keeps the plan outcome visible after resolution", () => {
-    expect(getPlanReviewStatusLabel(review)).toBe("Plan ready");
-    expect(getPlanReviewStatusLabel({ ...review, status: "approved" })).toBe("Plan approved");
-    expect(getPlanReviewStatusLabel({ ...review, status: "revision-requested" })).toBe(
-      "Revision requested",
-    );
-    expect(getPlanReviewStatusLabel({ ...review, status: "rejected" })).toBe("Plan closed");
-    expect(getPlanReviewStatusLabel({ ...review, status: "interrupted" })).toBe("Plan interrupted");
-  });
-});
-
 describe("ErrorBlock", () => {
   it("renders the error message in a danger-styled card", () => {
     const markup = renderToStaticMarkup(
@@ -884,43 +854,23 @@ describe("ErrorBlock", () => {
         part: {
           type: "error",
           id: "error-1",
-          message: "Kimi Code declined the request (provider refusal).",
+          message: "The provider declined the request.",
         },
       }),
     );
 
-    expect(markup).toContain("Kimi Code declined the request (provider refusal).");
+    expect(markup).toContain("The provider declined the request.");
     expect(markup).toContain("text-danger");
-  });
-
-  it("offers explicit Runtime Session removal and retry for resume failures", () => {
-    const markup = renderToStaticMarkup(
-      createElement(ErrorBlock, {
-        part: {
-          type: "error",
-          id: "error-1",
-          message: "Kimi Code could not resume the Runtime Session.",
-          runtimeSessionRecovery: {
-            runtimeId: "kimi",
-            threadId: "thread-1",
-            userMessageId: "message-1",
-          },
-        },
-        onRemoveRuntimeSessionAndRetry: () => {},
-      }),
-    );
-
-    expect(markup).toContain("Remove Runtime Session and retry");
   });
 });
 
-function makeThinkingItem(id: string): KimiTimelineGroupableItem {
-  return { type: "kimi-thinking", id, content: `thought ${id}`, status: "completed" };
+function makeThinkingItem(id: string): AgentTimelineGroupableItem {
+  return { type: "agent-thinking", id, content: `thought ${id}`, status: "completed" };
 }
 
-function makeToolItem(id: string): KimiTimelineGroupableItem {
+function makeToolItem(id: string): AgentTimelineGroupableItem {
   return {
-    type: "kimi-tool",
+    type: "agent-tool",
     id,
     title: "Read",
     kind: "read",
@@ -933,13 +883,13 @@ function makeToolItem(id: string): KimiTimelineGroupableItem {
   };
 }
 
-function makeTextItem(id: string): KimiTimelinePresentationItem {
+function makeTextItem(id: string): AgentTimelinePresentationItem {
   return { type: "text", id, content: `text ${id}` };
 }
 
-describe("groupKimiTimelineItems", () => {
+describe("groupAgentTimelineItems", () => {
   it("collapses a continuous run of thoughts and tools into one group", () => {
-    const grouped = groupKimiTimelineItems([
+    const grouped = groupAgentTimelineItems([
       makeThinkingItem("t1"),
       makeToolItem("tool-1"),
       makeToolItem("tool-2"),
@@ -948,8 +898,8 @@ describe("groupKimiTimelineItems", () => {
 
     expect(grouped).toEqual([
       {
-        type: "kimi-activity-group",
-        id: "kimi-activity-group-t1",
+        type: "agent-activity-group",
+        id: "agent-activity-group-t1",
         items: [
           makeThinkingItem("t1"),
           makeToolItem("tool-1"),
@@ -961,7 +911,7 @@ describe("groupKimiTimelineItems", () => {
   });
 
   it("splits groups at text messages without reordering", () => {
-    const grouped = groupKimiTimelineItems([
+    const grouped = groupAgentTimelineItems([
       makeToolItem("tool-1"),
       makeThinkingItem("t1"),
       makeTextItem("m1"),
@@ -970,26 +920,26 @@ describe("groupKimiTimelineItems", () => {
     ]);
 
     expect(grouped.map((item) => item.type)).toEqual([
-      "kimi-activity-group",
+      "agent-activity-group",
       "text",
-      "kimi-activity-group",
+      "agent-activity-group",
     ]);
     expect(grouped[1]).toEqual(makeTextItem("m1"));
-    expect(grouped[0]).toMatchObject({ id: "kimi-activity-group-tool-1" });
-    expect(grouped[2]).toMatchObject({ id: "kimi-activity-group-tool-2" });
+    expect(grouped[0]).toMatchObject({ id: "agent-activity-group-tool-1" });
+    expect(grouped[2]).toMatchObject({ id: "agent-activity-group-tool-2" });
   });
 
   it("keeps a single activity item inline instead of grouping it", () => {
-    const grouped = groupKimiTimelineItems([makeTextItem("m1"), makeToolItem("tool-1")]);
+    const grouped = groupAgentTimelineItems([makeTextItem("m1"), makeToolItem("tool-1")]);
 
     expect(grouped).toEqual([makeTextItem("m1"), makeToolItem("tool-1")]);
   });
 });
 
-describe("formatKimiActivityGroupLabel", () => {
+describe("formatAgentActivityGroupLabel", () => {
   it("summarizes tool calls and thoughts in English", () => {
     expect(
-      formatKimiActivityGroupLabel([
+      formatAgentActivityGroupLabel([
         makeThinkingItem("t1"),
         makeToolItem("tool-1"),
         makeToolItem("tool-2"),
@@ -998,12 +948,12 @@ describe("formatKimiActivityGroupLabel", () => {
   });
 
   it("uses singular forms for single items", () => {
-    expect(formatKimiActivityGroupLabel([makeToolItem("tool-1")])).toBe("Ran 1 tool call");
+    expect(formatAgentActivityGroupLabel([makeToolItem("tool-1")])).toBe("Ran 1 tool call");
   });
 
   it("uses the Running verb while items are still active", () => {
     expect(
-      formatKimiActivityGroupLabel([makeThinkingItem("t1"), makeToolItem("tool-1")], {
+      formatAgentActivityGroupLabel([makeThinkingItem("t1"), makeToolItem("tool-1")], {
         active: true,
       }),
     ).toBe("Running 1 tool call · 1 thought");

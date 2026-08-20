@@ -4,17 +4,14 @@ import {
   Box,
   Check,
   ChevronDown,
-  CircleAlert,
   CornerDownRight,
   FileText,
   Folder,
   GitBranch,
   Lock,
-  ListChecks,
   Paperclip,
   Pencil,
   Plus,
-  RefreshCw,
   Search,
   Trash2,
   X,
@@ -23,28 +20,16 @@ import {
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
   type FormEvent,
 } from "react";
-import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
 
-import type {
-  AttachmentMetadata,
-  KimiSessionStatus,
-  KimiTelemetryStatus,
-  PlanUsageErrorKind,
-  RuntimeQuotaWindow,
-} from "../../../shared/chat";
+import type { AttachmentMetadata } from "../../../shared/chat";
 import { isTerminalSharedChatRunStatus } from "../../../shared/chat";
-import type {
-  AppThreadActionRecord,
-  AppThreadRunStartInput,
-} from "../../../shared/workspacePersistence";
+import type { AppThreadRunStartInput } from "../../../shared/workspacePersistence";
 import {
   FILE_ATTACHMENT_ICONS,
   fileAttachmentIconKind,
@@ -73,16 +58,7 @@ import { useThreadContent } from "../../context/ThreadContentContext";
 import { useAppState } from "../../context/AppStateContext";
 import { useChatRun } from "../../hooks/useChatRun";
 import { useRevealLocalPathContext } from "../../hooks/useRevealLocalPathContext";
-import { useSessionStatus } from "../../hooks/useSessionStatus";
-import { useThreadActions } from "../../hooks/useThreadActions";
-import {
-  getCompactAvailability,
-  getCompactUnavailableMessage,
-  parseLeadingCompactCommand,
-  parseLeadingStatusCommand,
-} from "../../lib/threadActions";
 import { QuestionPanel, getPendingQuestionForThread } from "./QuestionPanel";
-import { PlanDecisionPanel } from "./PlanDecisionPanel";
 import { RunChecklist } from "./RunChecklist";
 import {
   buildQuestionAnswerRecords,
@@ -118,25 +94,13 @@ import type {
   ChatPermissionOptionKind,
   ChatPermissionRequest,
 } from "../../../shared/chatPermissions";
-import {
-  DEFAULT_RUNTIME_MODE,
-  getRuntimeModeLabel,
-  type RuntimeMode,
-} from "../../../shared/runtimeMode";
-import {
-  runtimeNameMap,
-  type RuntimeId,
-  type RuntimeModelRecord,
-  type RuntimeRecord,
-} from "../../../shared/runtimes";
-import { RuntimeIcon } from "../RuntimeIcon";
-import { KimiIcon } from "../icons/KimiIcon";
-import { useRuntimeModels } from "../../hooks/useRuntimeModels";
-import { useRuntimes } from "../../hooks/useRuntimes";
+import { DEFAULT_AGENT_MODE, getAgentModeLabel, type AgentMode } from "../../../shared/agentMode";
+import type { ProviderProfileId, ProviderProfileRecord } from "../../../shared/providerProfiles";
+import { ProviderIcon } from "../ProviderIcon";
+import { useProviderProfiles } from "../../hooks/useProviderProfiles";
 import { useSkills } from "../../hooks/useSkills";
-import { useMcpServer } from "../../hooks/useMcpServer";
 import { useKeybinding } from "../../hooks/useKeybinding";
-import { getChatRuntimeOptions, isChatRuntimeAvailable } from "../../lib/runtimeSelection";
+import { getProviderProfileOptions, isProviderProfileAvailable } from "../../lib/providerSelection";
 import { useToast } from "../toast/ToastContext";
 import {
   ComposerEditor,
@@ -145,288 +109,15 @@ import {
 } from "./ComposerEditor";
 import { formatSkillLabel } from "./skillLabel";
 
-function RuntimeModeIcon({ mode, className }: { mode: RuntimeMode; className?: string }) {
+function AgentModeIcon({ mode, className }: { mode: AgentMode; className?: string }) {
   switch (mode) {
-    case "approval-required":
+    case "ask":
       return <Lock className={className} />;
-    case "auto-accept-edits":
+    case "auto-edit":
       return <Pencil className={className} />;
-    case "full-access":
+    case "full-project":
       return <AlertTriangle className={className} />;
   }
-}
-
-function ContextUsageIndicator({
-  status,
-  loadState,
-  onRefresh,
-}: {
-  status: KimiTelemetryStatus | null;
-  loadState: "loading" | "ready" | "error";
-  onRefresh: () => void;
-}) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const [isHovered, setIsHovered] = useState(false);
-  const [isPinned, setIsPinned] = useState(false);
-
-  useEffect(() => {
-    if (!isPinned) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setIsPinned(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isPinned]);
-
-  const radius = 8;
-  const circumference = 2 * Math.PI * radius;
-  const percentage = status?.percentage ?? 0;
-  const offset = circumference * (1 - Math.min(percentage, 100) / 100);
-  const showPopover = isHovered || isPinned;
-
-  return (
-    <div
-      ref={rootRef}
-      className="relative flex h-8 w-8 items-center justify-center"
-      onMouseEnter={() => {
-        setIsHovered(true);
-        onRefresh();
-      }}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      <button
-        type="button"
-        className="flex h-8 w-8 items-center justify-center"
-        title="Kimi context usage"
-        aria-label="Kimi context usage"
-        aria-expanded={showPopover}
-        onClick={() => {
-          setIsPinned((pinned) => !pinned);
-          if (!isHovered) onRefresh();
-        }}
-      >
-        {loadState === "error" ? (
-          <span className="text-app-11 font-medium text-muted">--</span>
-        ) : (
-          <svg className="h-5 w-5 -rotate-90" viewBox="0 0 20 20">
-            <circle
-              cx="10"
-              cy="10"
-              r={radius}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="text-border-strong"
-            />
-            <circle
-              cx="10"
-              cy="10"
-              r={radius}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeDasharray={circumference}
-              strokeDashoffset={offset}
-              strokeLinecap="round"
-              className={percentage > 90 ? "text-danger" : "text-fg"}
-            />
-          </svg>
-        )}
-      </button>
-      {showPopover && (
-        <div className="absolute bottom-full right-0 mb-2 w-80 rounded-lg border border-border-strong bg-surface px-5 pb-6 pt-4 shadow-xl">
-          {loadState === "error" ? (
-            <div className="text-app-12 text-muted">Context usage unavailable</div>
-          ) : status ? (
-            <>
-              <div className="text-app-11 text-muted">Context usage</div>
-              {status.total !== undefined && status.percentage !== undefined ? (
-                <div className="mt-1 text-app-14 font-semibold tabular-nums text-fg">
-                  {status.used.toLocaleString()} / {status.total.toLocaleString()} (
-                  {status.percentage.toFixed(1)}%)
-                </div>
-              ) : (
-                <div className="mt-1 text-app-14 font-semibold tabular-nums text-fg">
-                  {status.used.toLocaleString()} tokens used
-                </div>
-              )}
-              {status.planUsage?.weekly || status.planUsage?.fiveHour ? (
-                <div className="mt-3 border-t border-border pt-3">
-                  <div className="text-app-11 text-muted">Plan usage</div>
-                  <div className="mt-2 grid gap-3">
-                    {status.planUsage.weekly ? (
-                      <PlanUsageRow label="Weekly" window={status.planUsage.weekly} />
-                    ) : null}
-                    {status.planUsage.fiveHour ? (
-                      <PlanUsageRow label="5h" window={status.planUsage.fiveHour} />
-                    ) : null}
-                  </div>
-                </div>
-              ) : status.planUsageError ? (
-                <div className="mt-3 border-t border-border pt-3 text-app-11 text-subtle">
-                  {planUsageErrorCopy(status.planUsageError)}
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="text-app-12 text-muted">No context data yet</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function formatPercentage(value: number) {
-  const rounded = Math.round(value * 10) / 10;
-  return Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1);
-}
-
-/** One plan-usage row: label + percentage, a progress bar, and the reset countdown. */
-function PlanUsageRow({ label, window }: { label: string; window: RuntimeQuotaWindow }) {
-  const used =
-    window.usedPercentage !== undefined
-      ? Math.min(100, Math.max(0, window.usedPercentage))
-      : undefined;
-  return (
-    <div>
-      <div className="flex items-baseline justify-between gap-2 text-app-12">
-        <span className="font-medium text-fg">{label}</span>
-        <span className="shrink-0 font-medium tabular-nums text-muted">
-          {used !== undefined ? `${formatPercentage(used)}%` : ""}
-          {formatResetSuffix(window.resetAt)}
-        </span>
-      </div>
-      {used !== undefined ? (
-        <div className="mt-1.5 h-1.5 rounded-full bg-surface-hover">
-          <div className="h-1.5 rounded-full bg-skill-reference" style={{ width: `${used}%` }} />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function formatCompactTokens(value: number) {
-  return new Intl.NumberFormat("en", {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(value);
-}
-
-/** Compact countdown like "in 5d 2h" from an ISO reset timestamp. */
-function formatResetCountdown(resetAt: string): string | null {
-  const time = Date.parse(resetAt);
-  if (!Number.isFinite(time)) return null;
-  const remainingMs = time - Date.now();
-  if (remainingMs <= 0) return "soon";
-  const minutes = Math.floor(remainingMs / 60_000);
-  const days = Math.floor(minutes / 1440);
-  const hours = Math.floor((minutes % 1440) / 60);
-  const mins = minutes % 60;
-  if (days > 0) return `in ${days}d ${hours}h`;
-  if (hours > 0) return `in ${hours}h ${mins}m`;
-  return `in ${mins}m`;
-}
-
-/** Suffix like " · resets in 5d 2h" for the plan-usage lines. */
-function formatResetSuffix(resetAt: string | undefined): string {
-  if (!resetAt) return "";
-  const countdown = formatResetCountdown(resetAt);
-  return countdown ? ` · resets ${countdown}` : "";
-}
-
-function formatQuotaWindow(window: RuntimeQuotaWindow) {
-  const details: string[] = [];
-  if (window.usedPercentage !== undefined) {
-    const used = Math.min(100, Math.max(0, window.usedPercentage));
-    details.push(`Used ${formatPercentage(used)}%`, `Remaining ${formatPercentage(100 - used)}%`);
-  }
-  const countdown = window.resetAt ? formatResetCountdown(window.resetAt) : null;
-  if (countdown) {
-    details.push(`Resets ${countdown}`);
-  }
-  return details.join(" · ");
-}
-
-function planUsageErrorCopy(kind: PlanUsageErrorKind): string {
-  switch (kind) {
-    case "no-credentials":
-      return "Sign in with kimi to see plan usage.";
-    case "unauthorized":
-      return "Login expired — run kimi to sign in again.";
-    default:
-      return "Plan usage unavailable.";
-  }
-}
-
-function SessionStatusPanel({
-  status,
-  loading,
-  onClose,
-}: {
-  status: KimiSessionStatus;
-  loading: boolean;
-  onClose: () => void;
-}) {
-  const planUsage = status.planUsage;
-
-  return (
-    <section
-      aria-labelledby="session-status-title"
-      aria-busy={loading}
-      className="absolute bottom-full left-0 right-0 z-50 mb-2 max-h-80 overflow-y-auto rounded-xl border border-border-strong bg-surface px-4 py-3 shadow-[0_18px_60px_rgb(0_0_0/0.28)]"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <h2 id="session-status-title" className="text-app-13 font-semibold text-fg">
-          Status
-        </h2>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          title="Close"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-hover hover:text-fg"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <dl className="mt-3 grid gap-3 text-app-12">
-        <div>
-          <dt className="text-muted">Session</dt>
-          <dd className="mt-1 select-text break-all font-mono text-fg">{status.sessionId}</dd>
-        </div>
-        <div>
-          <dt className="text-muted">Context</dt>
-          <dd className="mt-1 text-fg">
-            {status.percentage !== undefined && status.total !== undefined
-              ? `Remaining ${formatPercentage(Math.min(100, Math.max(0, 100 - status.percentage)))}% (${status.used.toLocaleString("en-US")} used / ${formatCompactTokens(status.total)} total)`
-              : `${status.used.toLocaleString("en-US")} used`}
-          </dd>
-        </div>
-        {planUsage?.weekly || planUsage?.fiveHour ? (
-          <div>
-            <dt className="text-muted">Plan usage</dt>
-            <dd className="mt-1 grid gap-1.5 text-fg">
-              {planUsage.weekly ? (
-                <div>
-                  <span className="font-medium">Weekly</span>
-                  <span className="ml-2 text-muted">{formatQuotaWindow(planUsage.weekly)}</span>
-                </div>
-              ) : null}
-              {planUsage.fiveHour ? (
-                <div>
-                  <span className="font-medium">5h</span>
-                  <span className="ml-2 text-muted">{formatQuotaWindow(planUsage.fiveHour)}</span>
-                </div>
-              ) : null}
-            </dd>
-          </div>
-        ) : null}
-      </dl>
-    </section>
-  );
 }
 
 export type ComposerSubmitRequest = {
@@ -461,17 +152,7 @@ export function mergeComposerDraftContent(current: string, incoming: string): st
 }
 
 export function getMessageTranscriptContent(message: Message) {
-  if (
-    message.type === "changed_files" ||
-    !message.parts?.some((part) => part.type === "plan_review")
-  ) {
-    return message.content ?? "";
-  }
-
-  return message.parts
-    .flatMap((part) => (part.type === "text" || part.type === "plan_review" ? [part.content] : []))
-    .filter((content) => content.trim().length > 0)
-    .join("\n\n");
+  return message.content ?? "";
 }
 
 export function collectRunLocalPathContexts(
@@ -503,16 +184,12 @@ type ComposerProps =
       projectId: string;
       threadId: string;
       messages: Message[];
-      runtimeId: RuntimeId;
-      runtimeModelId?: string;
-      runtimeMode: RuntimeMode;
-      planMode: boolean;
+      providerProfileId: ProviderProfileId;
+      agentMode: AgentMode;
       submitRequest?: ComposerSubmitRequest;
       draftRequest?: ComposerDraftRequest;
-      onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
-      onRuntimeModelIdChange?: (modelId: string | undefined) => void;
-      onRuntimeModeChange?: (mode: RuntimeMode) => void;
-      onPlanModeChange?: (enabled: boolean) => void;
+      onProviderProfileIdChange?: (providerProfileId: ProviderProfileId) => void;
+      onAgentModeChange?: (mode: AgentMode) => void;
       onRunPrepared?: (input: ComposerAcceptedRunInput) => Promise<boolean>;
       onRunRejected?: (input: ComposerAcceptedRunInput) => Promise<void>;
     }
@@ -526,20 +203,16 @@ type ComposerProps =
       threadId: string;
       initialDraft: ThreadWorkDraftSnapshot;
       messages: Message[];
-      runtimeId: RuntimeId;
-      runtimeModelId?: string;
-      runtimeMode: RuntimeMode;
-      planMode: boolean;
+      providerProfileId: ProviderProfileId;
+      agentMode: AgentMode;
       submitRequest?: ComposerSubmitRequest;
       draftRequest?: ComposerDraftRequest;
       onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void;
       onPromote: (input: AssociationDraftPromotionInput) => Promise<boolean>;
       onPromotionRejected: (draft: ThreadWorkDraftSnapshot) => Promise<void>;
       onPromoted: (threadId: string) => void;
-      onRuntimeIdChange?: (runtimeId: RuntimeId) => void;
-      onRuntimeModelIdChange?: (modelId: string | undefined) => void;
-      onRuntimeModeChange?: (mode: RuntimeMode) => void;
-      onPlanModeChange?: (enabled: boolean) => void;
+      onProviderProfileIdChange?: (providerProfileId: ProviderProfileId) => void;
+      onAgentModeChange?: (mode: AgentMode) => void;
     };
 
 type AttachmentStoreBridge = {
@@ -982,59 +655,25 @@ export function getCascadingPanelPosition(
   };
 }
 
-export function getDisplayRuntimeModel({
-  models,
-  runtimeModelId,
-}: {
-  models: RuntimeModelRecord[];
-  runtimeModelId?: string;
-  defaultModelId?: string;
-}) {
-  return models.find((model) => model.id === runtimeModelId);
+export function getComposerProviderLabel(profile: Pick<ProviderProfileRecord, "id" | "name">) {
+  return profile.name || profile.id;
 }
 
-export function getComposerRuntimeLabel(runtime: Pick<RuntimeRecord, "id" | "name">) {
-  void runtime;
-  return "Kimi for coding";
-}
-
-export function formatKimiModelLabel(modelName: string) {
-  const normalizedName = modelName.replace(/^kimi-code\//u, "").toLowerCase();
-  if (normalizedName === "kimi-for-coding") return "Kimi for Coding";
-  if (normalizedName === "kimi-for-coding-highspeed") return "Kimi for Coding High Speed";
-  return modelName;
-}
-
-export function getRuntimeSelectionLabel({
-  runtimeId,
-  runtimeName,
+export function getProviderSelectionLabel({
+  providerProfileId,
+  providerName,
   modelName,
 }: {
-  runtimeId: RuntimeId;
-  runtimeName: string;
+  providerProfileId: ProviderProfileId;
+  providerName: string;
   modelName?: string;
 }) {
-  void runtimeId;
-  void runtimeName;
-  return modelName ?? "Kimi for Coding";
-}
-
-export function supportsRuntimeModelSelection(runtimeId: RuntimeId | null) {
-  return runtimeId === "kimi";
+  void providerProfileId;
+  return modelName ? `${providerName} / ${modelName}` : providerName;
 }
 
 export function getChatHistoryMode(isReplacement: boolean): "continue" | "replace" {
   return isReplacement ? "replace" : "continue";
-}
-
-export function getRuntimeModelIdForSend({
-  runtimeModelId,
-}: {
-  runtimeId?: RuntimeId;
-  runtimeModelId?: string;
-  defaultModelId?: string;
-}) {
-  return runtimeModelId;
 }
 
 export function getActionablePermissionsForThread({
@@ -1045,25 +684,7 @@ export function getActionablePermissionsForThread({
   threadId: string;
 }) {
   return pendingPermissions.filter(
-    (permission) =>
-      permission.threadId === threadId && permission.provider === "kimi" && !permission.planReview,
-  );
-}
-
-export function getPendingPlanReviewForThread({
-  pendingPermissions,
-  threadId,
-}: {
-  pendingPermissions: ChatPermissionRequest[];
-  threadId: string;
-}) {
-  return (
-    pendingPermissions.find(
-      (permission) =>
-        permission.threadId === threadId &&
-        permission.provider === "kimi" &&
-        !!permission.planReview,
-    ) ?? null
+    (permission) => permission.threadId === threadId && permission.provider === "core",
   );
 }
 
@@ -1108,46 +729,6 @@ export function getSkillSlashTrigger(
     end: cursor,
     query,
   };
-}
-
-export function parseLeadingPlanCommand(input: string) {
-  const match = /^\s*\/plan(?=$|\s)(?:[ \t]+)?([\s\S]*)$/u.exec(input);
-  if (!match) {
-    return null;
-  }
-
-  return {
-    task: (match[1] ?? "").trimStart(),
-  };
-}
-
-export function getPlanSubmissionState(
-  input: string,
-  runtimeId: RuntimeId,
-  currentPlanMode: boolean,
-) {
-  const command = runtimeId === "kimi" ? parseLeadingPlanCommand(input) : null;
-  return {
-    command,
-    task: command?.task ?? input,
-    planMode: runtimeId === "kimi" && (currentPlanMode || command !== null),
-    attachOnly: command !== null && command.task.trim().length === 0,
-  };
-}
-
-export function shouldShowPlanSlashSuggestion(
-  runtimeId: RuntimeId,
-  input: string,
-  trigger: SkillSlashTrigger | null,
-) {
-  if (runtimeId !== "kimi" || !trigger) {
-    return false;
-  }
-
-  return (
-    input.slice(0, trigger.start).trim().length === 0 &&
-    "plan".startsWith(trigger.query.trim().toLowerCase())
-  );
 }
 
 function normalizeSkillQuery(value: string) {
@@ -1223,7 +804,6 @@ export function replaceSkillSlashTrigger(
 }
 
 export function Composer(props: ComposerProps) {
-  const navigate = useNavigate();
   const {
     appendMessage,
     upsertMessages,
@@ -1238,7 +818,7 @@ export function Composer(props: ComposerProps) {
     removeThreadFromState,
     removeMessages,
   } = useThreadContent();
-  const { projects, threads, threadRuns, threadActions, recordThreadAction } = useAppState();
+  const { projects, threads, threadRuns } = useAppState();
   const projectId = props.projectId;
   const project =
     props.mode === "association-draft"
@@ -1260,15 +840,13 @@ export function Composer(props: ComposerProps) {
     stop,
     observeThread,
   } = useChatRun();
-  const { compactingThreadIds, execute: executeThreadAction } = useThreadActions();
-  const { runtimes, loading: runtimesLoading, refresh: refreshRuntimes } = useRuntimes();
+  const { profiles, activeProfileId, loading: profilesLoading } = useProviderProfiles();
   const {
     skills,
     loading: skillsLoading,
     error: skillsError,
     refresh: refreshSkills,
   } = useSkills(project?.workingDirectory);
-  const { status: mcpServerStatus } = useMcpServer();
   const { showToast } = useToast();
   const threadDraftSnapshotKey = useSyncExternalStore(subscribeToThreadWork, () =>
     getThreadDraftSnapshotKey(props.threadId),
@@ -1305,27 +883,13 @@ export function Composer(props: ComposerProps) {
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
   const [dismissedSkillInput, setDismissedSkillInput] = useState<string | null>(null);
   const [attachedSkills, setAttachedSkills] = useState<SkillRecord[]>([]);
-  const [showRuntimePicker, setShowRuntimePicker] = useState(false);
-  const [cascadingRuntimeId, setCascadingRuntimeId] = useState<RuntimeId | null>(null);
-  const [isPointerOverRuntimeMenu, setIsPointerOverRuntimeMenu] = useState(false);
-  const [isPointerOverCascadingPanel, setIsPointerOverCascadingPanel] = useState(false);
-  const [cascadingAnchorRect, setCascadingAnchorRect] = useState<RectLike | null>(null);
-  const [cascadingPanelPosition, setCascadingPanelPosition] =
-    useState<CascadingPanelPosition | null>(null);
+  const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showModePicker, setShowModePicker] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [localPathContexts, setLocalPathContexts] = useState<LocalPathContextItem[]>([]);
   const [isPreparingAttachments, setIsPreparingAttachments] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
-  const [threadActionError, setThreadActionError] = useState<string | null>(null);
   const [lightboxAttachmentIndex, setLightboxAttachmentIndex] = useState<number | null>(null);
-  const [kimiStatus, setKimiStatus] = useState<KimiTelemetryStatus | null>(null);
-  const [kimiStatusLoadState, setKimiStatusLoadState] = useState<"loading" | "ready" | "error">(
-    "loading",
-  );
-  const [latestCompactBoundary, setLatestCompactBoundary] = useState<AppThreadActionRecord | null>(
-    null,
-  );
   const [gitBranches, setGitBranches] = useState<string[]>([]);
   const [gitBranchWorktrees, setGitBranchWorktrees] = useState<GitBranchWorktree[]>([]);
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
@@ -1504,14 +1068,11 @@ export function Composer(props: ComposerProps) {
   const [showCreateBranchInput, setShowCreateBranchInput] = useState(false);
   const editorRef = useRef<ComposerEditorHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const runtimePickerRef = useRef<HTMLDivElement>(null);
-  const cascadingPanelRef = useRef<HTMLDivElement>(null);
+  const providerPickerRef = useRef<HTMLDivElement>(null);
   const modePickerRef = useRef<HTMLDivElement>(null);
   const branchPickerRef = useRef<HTMLDivElement>(null);
   const skillItemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
-  const runtimeCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushTypewriterRef = useRef<VoidFunction | null>(null);
-  const wasSendingRef = useRef(false);
   const wasSendingForQueueRef = useRef(false);
   const queueDrainRequestedRef = useRef(false);
   const [queueDrainVersion, setQueueDrainVersion] = useState(0);
@@ -1556,28 +1117,6 @@ export function Composer(props: ComposerProps) {
     props.mode === "association-draft"
       ? null
       : (threads.find((item) => item.id === threadId && item.projectId === projectId) ?? null);
-  const sessionStatusContextKey = [
-    props.workspaceId,
-    projectId,
-    project?.workingDirectory ?? "",
-    threadId,
-    props.runtimeId,
-    props.runtimeModelId ?? "",
-    props.runtimeMode,
-  ].join("\0");
-  const {
-    snapshot: sessionStatusSnapshot,
-    loading: isSessionStatusLoading,
-    error: sessionStatusError,
-    begin: beginSessionStatus,
-    succeed: succeedSessionStatus,
-    fail: failSessionStatus,
-    dismiss: dismissSessionStatus,
-    clear: clearSessionStatus,
-    reportError: reportSessionStatusError,
-  } = useSessionStatus(threadId, sessionStatusContextKey);
-  const sessionStatusContextKeyRef = useRef(sessionStatusContextKey);
-  sessionStatusContextKeyRef.current = sessionStatusContextKey;
   const runChecklist = thread?.runChecklist;
   const queuedMessages = useQueuedMessages(threadId);
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
@@ -1623,106 +1162,45 @@ export function Composer(props: ComposerProps) {
     setEditingQueuedText("");
   };
 
-  const refreshKimiStatus = useCallback(async () => {
-    if (props.runtimeId !== "kimi") {
-      return;
-    }
-
-    setKimiStatusLoadState("loading");
-
-    const context = {
-      kind: "project" as const,
-      projectId: props.projectId,
-      workingDirectory: project?.workingDirectory ?? "",
-      workspaceId: props.workspaceId,
-    };
-
-    try {
-      const status = await window.carrent.chat.getKimiStatus({
-        context,
-        threadId,
-        runtimeId: props.runtimeId,
-        runtimeModelId: getRuntimeModelIdForSend({
-          runtimeId: props.runtimeId,
-          runtimeModelId: props.runtimeModelId,
-        }),
-        runtimeMode: props.runtimeMode,
-        planMode: false,
-        transcript: [],
-        message: "",
-      });
-      setKimiStatus(status);
-      setKimiStatusLoadState("ready");
-    } catch {
-      setKimiStatusLoadState("error");
+  const providerOptions = useMemo(() => getProviderProfileOptions(profiles), [profiles]);
+  const selectedProvider = profiles.find((profile) => profile.id === props.providerProfileId);
+  const isSelectedProviderAvailable = isProviderProfileAvailable(props.providerProfileId, profiles);
+  useEffect(() => {
+    if (
+      !profilesLoading &&
+      !isSelectedProviderAvailable &&
+      isProviderProfileAvailable(activeProfileId, profiles)
+    ) {
+      props.onProviderProfileIdChange?.(activeProfileId);
     }
   }, [
-    props.mode,
-    projectId,
-    project?.workingDirectory,
-    threadId,
-    props.runtimeId,
-    props.runtimeModelId,
-    props.runtimeMode,
+    activeProfileId,
+    isSelectedProviderAvailable,
+    profiles,
+    profilesLoading,
+    props.onProviderProfileIdChange,
   ]);
-
-  const runtimeOptions = useMemo(() => getChatRuntimeOptions(runtimes), [runtimes]);
-  const modelRuntimeId = supportsRuntimeModelSelection(props.runtimeId) ? props.runtimeId : null;
-  const { models, defaultModelId } = useRuntimeModels(modelRuntimeId);
-  const {
-    models: kimiMenuModels,
-    defaultModelId: kimiMenuDefaultModelId,
-    loading: kimiMenuLoading,
-  } = useRuntimeModels(showRuntimePicker ? "kimi" : null);
-  const cascadingModelRuntimeId = supportsRuntimeModelSelection(cascadingRuntimeId)
-    ? cascadingRuntimeId
-    : null;
-  const { models: cascadingModels, loading: cascadingLoading } =
-    useRuntimeModels(cascadingModelRuntimeId);
-  const selectedRuntimeModel = getDisplayRuntimeModel({
-    models,
-    runtimeModelId: props.runtimeModelId,
-  });
-  const activeRuntimeModel =
-    selectedRuntimeModel ??
-    (props.runtimeId === "kimi"
-      ? (models.find((model) => model.id === defaultModelId) ?? models[0])
-      : undefined);
-  const selectedRuntime = runtimes.find((runtime) => runtime.id === props.runtimeId);
-  const isSelectedRuntimeAvailable = isChatRuntimeAvailable(props.runtimeId, runtimes);
-  const runtimeSetupRequired =
-    props.runtimeId === "kimi" &&
-    !runtimesLoading &&
-    !!selectedRuntime &&
-    selectedRuntime.availability !== "detected";
-  const runtimeButtonLabel = runtimesLoading
-    ? "Checking runtimes"
-    : runtimeOptions.length === 0
-      ? "No runtime available"
-      : isSelectedRuntimeAvailable
-        ? getRuntimeSelectionLabel({
-            runtimeId: props.runtimeId,
-            runtimeName: selectedRuntime
-              ? getComposerRuntimeLabel(selectedRuntime)
-              : runtimeNameMap[props.runtimeId],
-            modelName: activeRuntimeModel?.name,
+  const providerButtonLabel = profilesLoading
+    ? "Loading profiles"
+    : providerOptions.length === 0
+      ? "No Provider Profile available"
+      : isSelectedProviderAvailable
+        ? getProviderSelectionLabel({
+            providerProfileId: props.providerProfileId,
+            providerName: selectedProvider?.name ?? props.providerProfileId,
+            modelName: selectedProvider?.modelId,
           })
-        : "Select runtime";
-  const localMcpSkillsDisabled = props.runtimeId === "kimi" && !mcpServerStatus.enabled;
-  const skillMenuOpen = !!skillTrigger && !localMcpSkillsDisabled;
+        : "Select profile";
+  const skillMenuOpen = !!skillTrigger;
   useEffect(() => {
     if (skillMenuOpen) {
       void refreshSkills();
     }
   }, [refreshSkills, skillMenuOpen]);
   const filteredSkills = useMemo(
-    () =>
-      skillTrigger && !localMcpSkillsDisabled
-        ? filterSkillsForQuery(skills, skillTrigger.query)
-        : [],
-    [localMcpSkillsDisabled, skillTrigger, skills],
+    () => (skillTrigger ? filterSkillsForQuery(skills, skillTrigger.query) : []),
+    [skillTrigger, skills],
   );
-  const isThreadCompacting = compactingThreadIds.includes(threadId);
   const isThreadSending = runningThreadIds.includes(threadId);
   const sharedRun = [...sharedRuns].reverse().find((run) => run.threadId === threadId);
   const persistedRun = sharedRun
@@ -1777,7 +1255,7 @@ export function Composer(props: ComposerProps) {
         },
         onReasoning: (reasoning) =>
           updatePart({ kind: "upsert-reasoning", reasoning: { type: "reasoning", ...reasoning } }),
-        onKimiTimeline: (item) => updatePart({ kind: "upsert-kimi-timeline", item }),
+        onAgentTimeline: (item) => updatePart({ kind: "upsert-agent-timeline", item }),
         onShell: (shell) =>
           updatePart({ kind: "upsert-shell", shell: { type: "shell", ...shell } }),
         onSubagentTask: (task) =>
@@ -1786,41 +1264,11 @@ export function Composer(props: ComposerProps) {
           updateRunChecklist(owner.threadId, {
             kind: "snapshot",
             runId: owner.runId,
-            runtimeId: owner.runtimeId,
+            providerProfileId: owner.providerProfileId,
             entries: checklist.entries,
           }),
         onPermissionRequested: (permission) => {
           markThreadActivity(threadId, Date.parse(permission.createdAt));
-          if (!permission.planReview) return;
-          updatePart({
-            kind: "upsert-plan-review",
-            review: {
-              type: "plan_review",
-              id: `plan-review-${permission.id}`,
-              permissionId: permission.id,
-              content: permission.planReview.content,
-              status: "pending",
-              options: permission.options,
-            },
-          });
-        },
-        onPermissionResolved: (resolution) =>
-          updatePart({
-            kind: "resolve-plan-review",
-            permissionId: resolution.permissionId,
-            status:
-              resolution.optionId === "plan_revise"
-                ? "revision-requested"
-                : resolution.optionId === "plan_reject_and_exit"
-                  ? "rejected"
-                  : "approved",
-            selectedOptionId: resolution.optionId,
-            selectedOptionName: resolution.optionName,
-          }),
-        onPermissionsInterrupted: (permissions) => {
-          if (permissions.some((permission) => permission.planReview)) {
-            updatePart({ kind: "interrupt-plan-reviews" });
-          }
         },
         onQuestionRequested: (question) =>
           updatePart({
@@ -1863,7 +1311,7 @@ export function Composer(props: ComposerProps) {
           updateMessageRunStatus(assistantMessageId, "completed");
           markThreadActivity(threadId);
         },
-        onError: (error, runId, _writtenFiles, runtimeSessionRecovery) => {
+        onError: (error, runId) => {
           if (runId) updateRunChecklist(threadId, { kind: "outcome", runId, outcome: "failed" });
           updatePart({ kind: "interrupt-subagent-tasks" });
           updatePart({
@@ -1872,14 +1320,6 @@ export function Composer(props: ComposerProps) {
               type: "error",
               id: `error-${assistantMessageId}`,
               message: error,
-              ...(runtimeSessionRecovery
-                ? {
-                    runtimeSessionRecovery: {
-                      ...runtimeSessionRecovery,
-                      userMessageId: persistedRun.messageId,
-                    },
-                  }
-                : {}),
             },
           });
           updateMessageRunStatus(assistantMessageId, "failed");
@@ -1921,69 +1361,14 @@ export function Composer(props: ComposerProps) {
     scheduleStopGuardExpiry(threadId, entry, () => setStopGuarded(false));
     return () => scheduleStopGuardExpiry(threadId, entry);
   }, [isThreadSending, threadId]);
-  const compactAvailability = useMemo(
-    () =>
-      getCompactAvailability({
-        runtimeId: props.runtimeId,
-        status: kimiStatus,
-        running: isThreadSending,
-        compacting: isThreadCompacting,
-        statusLoading: isSessionStatusLoading,
-        messages: props.messages,
-        runs: threadRuns.filter((run) => run.threadId === threadId),
-        actions: [
-          ...threadActions.filter((action) => action.threadId === threadId),
-          ...(latestCompactBoundary?.threadId === threadId ? [latestCompactBoundary] : []),
-        ],
-      }),
-    [
-      isThreadCompacting,
-      isThreadSending,
-      isSessionStatusLoading,
-      kimiStatus,
-      latestCompactBoundary,
-      props.messages,
-      props.runtimeId,
-      threadActions,
-      threadId,
-      threadRuns,
-    ],
-  );
-  const showPlanSuggestion =
-    !isThreadCompacting &&
-    dismissedSkillInput !== input &&
-    shouldShowPlanSlashSuggestion(props.runtimeId, input, skillTrigger);
-  const showCompactSuggestion =
-    compactAvailability.available &&
-    !!skillTrigger &&
-    dismissedSkillInput !== input &&
-    "compact".startsWith(skillTrigger.query.toLocaleLowerCase());
-  const statusAvailable =
-    props.mode === "thread" &&
-    props.runtimeId === "kimi" &&
-    !!project?.workingDirectory &&
-    !!kimiStatus?.supportedCommands.includes("status") &&
-    !isThreadSending &&
-    !isThreadCompacting &&
-    !isSessionStatusLoading;
-  const showStatusSuggestion =
-    statusAvailable &&
-    !!skillTrigger &&
-    input.slice(0, skillTrigger.start).trim().length === 0 &&
-    dismissedSkillInput !== input &&
-    "status".startsWith(skillTrigger.query.toLocaleLowerCase());
   const showSkills =
     !!skillTrigger &&
-    !localMcpSkillsDisabled &&
     dismissedSkillInput !== input &&
     (skillsLoading || !!skillsError || filteredSkills.length > 0 || skillTrigger.query.length > 0);
-  const showSlashMenu =
-    showPlanSuggestion || showCompactSuggestion || showStatusSuggestion || showSkills;
-  const carrentCommandMenuItemCount =
-    (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0) + (showStatusSuggestion ? 1 : 0);
-  const slashMenuItemCount = carrentCommandMenuItemCount + filteredSkills.length;
+  const showSlashMenu = showSkills;
+  const slashMenuItemCount = filteredSkills.length;
 
-  const effectiveAttachedSkills = localMcpSkillsDisabled ? [] : attachedSkills;
+  const effectiveAttachedSkills = attachedSkills;
   const hasSendableContent = canSubmitComposerContent({
     content: input,
     attachedSkillCount: effectiveAttachedSkills.length,
@@ -1992,29 +1377,15 @@ export function Composer(props: ComposerProps) {
     isPreparingAttachments,
     hasUnavailableAttachments: hasUnavailablePendingAttachments(pendingAttachments),
   });
-  const canSend =
-    hasSendableContent &&
-    !!project &&
-    isSelectedRuntimeAvailable &&
-    !isThreadCompacting &&
-    !isSessionStatusLoading;
+  const canSend = hasSendableContent && !!project && isSelectedProviderAvailable;
   const threadPermissions = useMemo(
     () => getActionablePermissionsForThread({ pendingPermissions, threadId }),
-    [pendingPermissions, threadId],
-  );
-  const pendingPlanReview = useMemo(
-    () => getPendingPlanReviewForThread({ pendingPermissions, threadId }),
     [pendingPermissions, threadId],
   );
   const threadQuestion = useMemo(
     () => getPendingQuestionForThread({ pendingQuestions, threadId }),
     [pendingQuestions, threadId],
   );
-  const showCascadingPanel =
-    showRuntimePicker && !!cascadingModelRuntimeId && !!props.onRuntimeModelIdChange;
-  const cascadingPanelTransitionClass = !cascadingPanelPosition
-    ? "pointer-events-none opacity-0 translate-y-1 scale-95"
-    : "opacity-100 translate-x-0 translate-y-0 scale-100";
   const visibleGitBranches = useMemo(() => {
     const query = branchSearchQuery.trim().toLowerCase();
     return gitBranches.filter((branch) => branch.toLowerCase().includes(query));
@@ -2038,29 +1409,19 @@ export function Composer(props: ComposerProps) {
     [currentBranch, visibleGitBranches, worktreeBranchNames],
   );
 
-  const closeRuntimePicker = () => {
-    if (runtimeCloseTimerRef.current) {
-      clearTimeout(runtimeCloseTimerRef.current);
-      runtimeCloseTimerRef.current = null;
-    }
-    setShowRuntimePicker(false);
-    setCascadingRuntimeId(null);
-    setCascadingAnchorRect(null);
-    setCascadingPanelPosition(null);
-    setIsPointerOverRuntimeMenu(false);
-    setIsPointerOverCascadingPanel(false);
+  const closeProviderPicker = () => {
+    setShowProviderPicker(false);
   };
 
-  useKeybinding("toggle-model-picker", () => {
-    if (!props.onRuntimeIdChange || isThreadSending || isThreadCompacting) return;
-    if (showRuntimePicker) {
-      closeRuntimePicker();
+  useKeybinding("toggle-provider-picker", () => {
+    if (!props.onProviderProfileIdChange || isThreadSending) return;
+    if (showProviderPicker) {
+      closeProviderPicker();
       return;
     }
     setShowModePicker(false);
     setShowBranchPicker(false);
-    setIsPointerOverRuntimeMenu(true);
-    setShowRuntimePicker(true);
+    setShowProviderPicker(true);
   });
   useKeybinding("open-file-picker", () => {
     if (isThreadSending || isPreparingAttachments) return;
@@ -2091,70 +1452,29 @@ export function Composer(props: ComposerProps) {
       lastAppliedThreadDraftSourceKeyRef.current = `${props.mode}:${threadId}:${getThreadDraftSnapshotKey(threadId)}`;
     }
   });
-  const selectModelPickerOption = (index: number) => {
-    if (!showRuntimePicker || isThreadSending || isThreadCompacting) return;
-    const container =
-      document.querySelector<HTMLElement>('[data-model-picker-cascade="true"]') ??
-      runtimePickerRef.current;
+  const selectProviderPickerOption = (index: number) => {
+    if (!showProviderPicker || isThreadSending) return;
+    const container = providerPickerRef.current;
     const options = container
-      ? [...container.querySelectorAll<HTMLButtonElement>('[data-model-picker-option="true"]')]
+      ? [...container.querySelectorAll<HTMLButtonElement>('[data-provider-picker-option="true"]')]
       : [];
     options.filter((option) => !option.disabled)[index]?.click();
   };
-  useKeybinding("model-picker-select-1", () => selectModelPickerOption(0));
-  useKeybinding("model-picker-select-2", () => selectModelPickerOption(1));
-  useKeybinding("model-picker-select-3", () => selectModelPickerOption(2));
-  useKeybinding("model-picker-select-4", () => selectModelPickerOption(3));
-  useKeybinding("model-picker-select-5", () => selectModelPickerOption(4));
-  useKeybinding("model-picker-select-6", () => selectModelPickerOption(5));
-  useKeybinding("model-picker-select-7", () => selectModelPickerOption(6));
-  useKeybinding("model-picker-select-8", () => selectModelPickerOption(7));
-  useKeybinding("model-picker-select-9", () => selectModelPickerOption(8));
-
-  const scheduleRuntimePickerClose = () => {
-    if (runtimeCloseTimerRef.current) {
-      clearTimeout(runtimeCloseTimerRef.current);
-    }
-
-    runtimeCloseTimerRef.current = setTimeout(() => {
-      runtimeCloseTimerRef.current = null;
-      closeRuntimePicker();
-    }, 120);
-  };
+  useKeybinding("provider-picker-select-1", () => selectProviderPickerOption(0));
+  useKeybinding("provider-picker-select-2", () => selectProviderPickerOption(1));
+  useKeybinding("provider-picker-select-3", () => selectProviderPickerOption(2));
+  useKeybinding("provider-picker-select-4", () => selectProviderPickerOption(3));
+  useKeybinding("provider-picker-select-5", () => selectProviderPickerOption(4));
+  useKeybinding("provider-picker-select-6", () => selectProviderPickerOption(5));
+  useKeybinding("provider-picker-select-7", () => selectProviderPickerOption(6));
+  useKeybinding("provider-picker-select-8", () => selectProviderPickerOption(7));
+  useKeybinding("provider-picker-select-9", () => selectProviderPickerOption(8));
 
   useEffect(() => {
     return () => {
       flushTypewriterRef.current?.();
-      if (runtimeCloseTimerRef.current) {
-        clearTimeout(runtimeCloseTimerRef.current);
-      }
     };
   }, []);
-
-  useEffect(() => {
-    setKimiStatusLoadState("loading");
-  }, [threadId, props.runtimeId, projectId, project?.workingDirectory]);
-
-  useEffect(() => {
-    void refreshKimiStatus();
-  }, [refreshKimiStatus]);
-
-  useEffect(() => {
-    if (wasSendingRef.current && !isThreadSending) {
-      void refreshKimiStatus();
-    }
-    wasSendingRef.current = isThreadSending;
-  }, [isThreadSending, refreshKimiStatus]);
-
-  useEffect(() => {
-    if (!sessionStatusSnapshot) return;
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      dismissSessionStatus();
-    };
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [dismissSessionStatus, sessionStatusSnapshot]);
 
   useEffect(() => {
     if (!project?.workingDirectory) {
@@ -2244,17 +1564,17 @@ export function Composer(props: ComposerProps) {
   }, [showBranchPicker]);
 
   useEffect(() => {
-    if (!showRuntimePicker && !showModePicker && !showBranchPicker) return;
+    if (!showProviderPicker && !showModePicker && !showBranchPicker) return;
 
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       if (
-        showRuntimePicker &&
-        runtimePickerRef.current &&
-        !runtimePickerRef.current.contains(target) &&
-        !(cascadingPanelRef.current && cascadingPanelRef.current.contains(target))
+        showProviderPicker &&
+        providerPickerRef.current &&
+        !providerPickerRef.current.contains(target) &&
+        !providerPickerRef.current.contains(target)
       ) {
-        closeRuntimePicker();
+        closeProviderPicker();
       }
       if (showModePicker && modePickerRef.current && !modePickerRef.current.contains(target)) {
         setShowModePicker(false);
@@ -2270,8 +1590,8 @@ export function Composer(props: ComposerProps) {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        if (showRuntimePicker) {
-          closeRuntimePicker();
+        if (showProviderPicker) {
+          closeProviderPicker();
         }
         if (showModePicker) {
           setShowModePicker(false);
@@ -2288,17 +1608,11 @@ export function Composer(props: ComposerProps) {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [showRuntimePicker, showModePicker, showBranchPicker]);
+  }, [showProviderPicker, showModePicker, showBranchPicker]);
 
   useEffect(() => {
     setSelectedSkillIndex(0);
-  }, [
-    skillTrigger?.query,
-    filteredSkills.length,
-    showPlanSuggestion,
-    showCompactSuggestion,
-    showStatusSuggestion,
-  ]);
+  }, [skillTrigger?.query, filteredSkills.length]);
 
   useEffect(() => {
     if (!showSlashMenu) {
@@ -2310,103 +1624,6 @@ export function Composer(props: ComposerProps) {
       selectedButton.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
   }, [selectedSkillIndex, showSlashMenu]);
-
-  useEffect(() => {
-    if (!showRuntimePicker || !cascadingRuntimeId) {
-      return;
-    }
-
-    if (isPointerOverRuntimeMenu || isPointerOverCascadingPanel) {
-      if (runtimeCloseTimerRef.current) {
-        clearTimeout(runtimeCloseTimerRef.current);
-        runtimeCloseTimerRef.current = null;
-      }
-      return;
-    }
-
-    scheduleRuntimePickerClose();
-  }, [
-    cascadingRuntimeId,
-    isPointerOverCascadingPanel,
-    isPointerOverRuntimeMenu,
-    showRuntimePicker,
-  ]);
-
-  const updateCascadingPanelPosition = useCallback(() => {
-    if (!showRuntimePicker || !cascadingRuntimeId || !cascadingAnchorRect) {
-      return;
-    }
-
-    const panelElement = cascadingPanelRef.current;
-    if (!panelElement) {
-      return;
-    }
-
-    const panelRect = panelElement.getBoundingClientRect();
-    if (panelRect.width <= 0 || panelRect.height <= 0) {
-      return;
-    }
-
-    setCascadingPanelPosition(
-      getCascadingPanelPosition(
-        cascadingAnchorRect,
-        {
-          width: window.innerWidth,
-          height: window.innerHeight,
-        },
-        {
-          width: panelRect.width,
-          height: panelRect.height,
-        },
-      ),
-    );
-  }, [cascadingAnchorRect, cascadingRuntimeId, showRuntimePicker]);
-
-  useLayoutEffect(() => {
-    if (!showRuntimePicker || !cascadingRuntimeId || !cascadingAnchorRect) {
-      return;
-    }
-
-    updateCascadingPanelPosition();
-  }, [
-    cascadingAnchorRect,
-    cascadingRuntimeId,
-    cascadingLoading,
-    cascadingModels.length,
-    props.runtimeModelId,
-    showRuntimePicker,
-    updateCascadingPanelPosition,
-  ]);
-
-  useEffect(() => {
-    if (!showRuntimePicker || !cascadingRuntimeId || !cascadingAnchorRect) {
-      return;
-    }
-
-    const handleWindowUpdate = () => {
-      updateCascadingPanelPosition();
-    };
-
-    window.addEventListener("resize", handleWindowUpdate);
-    window.addEventListener("scroll", handleWindowUpdate, true);
-
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(() => {
-            handleWindowUpdate();
-          });
-
-    if (observer && cascadingPanelRef.current) {
-      observer.observe(cascadingPanelRef.current);
-    }
-
-    return () => {
-      window.removeEventListener("resize", handleWindowUpdate);
-      window.removeEventListener("scroll", handleWindowUpdate, true);
-      observer?.disconnect();
-    };
-  }, [cascadingAnchorRect, cascadingRuntimeId, showRuntimePicker, updateCascadingPanelPosition]);
 
   const handleAddFiles = useCallback(
     async (files: FileList | File[] | null) => {
@@ -2483,7 +1700,6 @@ export function Composer(props: ComposerProps) {
 
   const resolvePastedComposerContent = useCallback(
     (text: string) => {
-      if (localMcpSkillsDisabled) return null;
       const { references, rest } = parseLeadingSkillReferences(text);
       if (references.length === 0) return null;
 
@@ -2505,95 +1721,8 @@ export function Composer(props: ComposerProps) {
         text: [...unresolvedReferences, rest].filter(Boolean).join(" "),
       };
     },
-    [localMcpSkillsDisabled, skills],
+    [skills],
   );
-
-  const handleStatus = async (removeMenuQuery = false) => {
-    if (removeMenuQuery && skillTrigger) {
-      editorRef.current?.removeSlashTrigger();
-    }
-    setDismissedSkillInput(input);
-    if (!statusAvailable || !project?.workingDirectory) {
-      reportSessionStatusError("Status is unavailable for this runtime.");
-      return false;
-    }
-
-    const requestId = beginSessionStatus();
-    if (requestId === null) return false;
-    const requestContextKey = sessionStatusContextKey;
-    try {
-      const status = await window.carrent.chat.getSessionStatus({
-        context: {
-          kind: "project",
-          projectId: props.projectId,
-          workingDirectory: project.workingDirectory,
-          workspaceId: props.workspaceId,
-        },
-        threadId,
-        runtimeId: props.runtimeId,
-        runtimeModelId: getRuntimeModelIdForSend({
-          runtimeId: props.runtimeId,
-          runtimeModelId: props.runtimeModelId,
-        }),
-        runtimeMode: props.runtimeMode,
-        planMode: false,
-        transcript: [],
-        message: "",
-      });
-      if (!status) throw new Error("Session status is unavailable.");
-      const displayed = succeedSessionStatus(requestId, status);
-      if (displayed && sessionStatusContextKeyRef.current === requestContextKey) {
-        setKimiStatus(status);
-      }
-      return displayed;
-    } catch {
-      failSessionStatus(requestId, "Unable to load session status.");
-      return false;
-    }
-  };
-
-  const handleCompact = async (removeMenuQuery = false) => {
-    if (removeMenuQuery && skillTrigger) {
-      editorRef.current?.removeSlashTrigger();
-    }
-    setDismissedSkillInput(input);
-    if (!compactAvailability.available) {
-      setThreadActionError(getCompactUnavailableMessage(compactAvailability.reason));
-      return false;
-    }
-    if (!project?.workingDirectory) {
-      setThreadActionError("Project Working Directory is unavailable.");
-      return false;
-    }
-
-    setThreadActionError(null);
-    try {
-      const result = await executeThreadAction({
-        action: "compact",
-        threadId,
-        runtimeId: props.runtimeId,
-        workingDirectory: project.workingDirectory,
-      });
-      const boundary: AppThreadActionRecord = {
-        id: `thread-action-${crypto.randomUUID()}`,
-        threadId: result.threadId,
-        action: result.action,
-        runtimeId: result.runtimeId,
-        completedAt: result.completedAt,
-      };
-      setLatestCompactBoundary(boundary);
-      const recorded = await recordThreadAction(boundary);
-      if (!recorded) {
-        throw new Error("Compact completed, but its history boundary could not be saved.");
-      }
-      await refreshKimiStatus();
-      return true;
-    } catch (error) {
-      await refreshKimiStatus();
-      setThreadActionError(error instanceof Error ? error.message : String(error));
-      return false;
-    }
-  };
 
   const handleSend = async (override?: {
     messageId?: string;
@@ -2603,32 +1732,12 @@ export function Composer(props: ComposerProps) {
   }) => {
     const externalSubmit = override;
     const isExternalSubmit = externalSubmit !== undefined;
-    const statusCommand = isExternalSubmit ? null : parseLeadingStatusCommand(input);
-    if (statusCommand) {
-      setInput(statusCommand.draft);
-      editorRef.current?.replaceTextPreservingSkills(statusCommand.draft);
-      return handleStatus();
-    }
-    const compactCommand = isExternalSubmit ? null : parseLeadingCompactCommand(input);
-    if (compactCommand) {
-      setInput(compactCommand.draft);
-      editorRef.current?.replaceTextPreservingSkills(compactCommand.draft);
-      return handleCompact();
-    }
-    if (isThreadCompacting || isSessionStatusLoading) return false;
     const currentPendingAttachments = externalSubmit ? [] : pendingAttachments;
     const currentAttachedSkills = externalSubmit ? [] : effectiveAttachedSkills;
     const currentLocalPathContexts = externalSubmit
       ? (externalSubmit.localPathContexts ?? [])
       : localPathContexts;
-    const planSubmission = getPlanSubmissionState(input, props.runtimeId, props.planMode);
-    const planCommand = externalSubmit ? null : planSubmission.command;
-    const effectivePlanMode = externalSubmit
-      ? props.runtimeId === "kimi" && props.planMode
-      : planSubmission.planMode;
-    const currentInput = externalSubmit
-      ? externalSubmit.content.trim()
-      : planSubmission.task.trim();
+    const currentInput = externalSubmit ? externalSubmit.content.trim() : input.trim();
     const runLocalPathContexts = collectRunLocalPathContexts(
       props.messages,
       currentLocalPathContexts,
@@ -2643,27 +1752,14 @@ export function Composer(props: ComposerProps) {
       isExternalSubmit,
       hasUnavailableAttachments: hasUnavailablePendingAttachments(currentPendingAttachments),
     });
-    const canSendCurrent = hasCurrentSendableContent && !!project && isSelectedRuntimeAvailable;
-
-    if (planCommand && planSubmission.attachOnly) {
-      props.onPlanModeChange?.(true);
-      setInput("");
-      editorRef.current?.clear();
-      return true;
-    }
+    const canSendCurrent = hasCurrentSendableContent && !!project && isSelectedProviderAvailable;
 
     if (!canSendCurrent) return false;
-
-    clearSessionStatus();
 
     // External submits (message edit resend) rewrite history; never let one
     // through while a run is active — it would prune messages and then be
     // rejected by the run coordinator, leaving a stuck placeholder.
     if (isThreadSending && isExternalSubmit) return false;
-
-    if (planCommand) {
-      props.onPlanModeChange?.(true);
-    }
 
     // Clear the persisted draft before any state mutation below. Appending
     // the user message flips an empty thread's Composer placement, which
@@ -2878,11 +1974,7 @@ export function Composer(props: ComposerProps) {
       }));
 
     const requestedRunId = `run-${crypto.randomUUID()}`;
-    const runtimeModelIdForSend = getRuntimeModelIdForSend({
-      runtimeId: props.runtimeId,
-      runtimeModelId: props.runtimeModelId,
-    });
-    // The title source is the user-visible composer text, not the runtime
+    // The title source is the user-visible composer text, not the agent
     // prompt enriched with Skill references (currentInput is computed before
     // the skill prefix is concatenated into messageText). It is sent as source
     // data only: the Main Process derives the promoted Thread's fallback title
@@ -2908,10 +2000,8 @@ export function Composer(props: ComposerProps) {
       localPathContexts: currentLocalPathContexts,
       startedAt,
       messageCreatedAt: userMessageCreatedAt,
-      runtimeId: props.runtimeId,
-      runtimeModelId: runtimeModelIdForSend,
-      runtimeMode: props.runtimeMode,
-      planMode: effectivePlanMode,
+      providerProfileId: props.providerProfileId,
+      agentMode: props.agentMode,
     };
     let preparedPersistentRun = false;
 
@@ -2960,10 +2050,8 @@ export function Composer(props: ComposerProps) {
           workspaceId: props.workspaceId,
         },
         threadId,
-        runtimeId: props.runtimeId,
-        runtimeModelId: runtimeModelIdForSend,
-        runtimeMode: props.runtimeMode,
-        planMode: effectivePlanMode,
+        providerProfileId: props.providerProfileId,
+        agentMode: props.agentMode,
         transcript,
         message: messageText,
         attachments: attachmentMetadata,
@@ -2988,9 +2076,9 @@ export function Composer(props: ComposerProps) {
           textRevealer.flush();
           updateLocalMessageReasoningPart(assistantMsg.id, reasoning);
         },
-        onKimiTimeline: (item) => {
+        onAgentTimeline: (item) => {
           textRevealer.flush();
-          updateMessageParts(assistantMsg.id, { kind: "upsert-kimi-timeline", item });
+          updateMessageParts(assistantMsg.id, { kind: "upsert-agent-timeline", item });
         },
         onShell: (shell) => {
           textRevealer.flush();
@@ -3004,46 +2092,13 @@ export function Composer(props: ComposerProps) {
           updateRunChecklist(owner.threadId, {
             kind: "snapshot",
             runId: owner.runId,
-            runtimeId: owner.runtimeId,
+            providerProfileId: owner.providerProfileId,
             entries: checklist.entries,
           });
         },
         onPermissionRequested: (permission) => {
           markThreadActivity(threadId, Date.parse(permission.createdAt));
           textRevealer.flush();
-          if (permission.planReview) {
-            updateMessageParts(assistantMsg.id, {
-              kind: "upsert-plan-review",
-              review: {
-                type: "plan_review",
-                id: `plan-review-${permission.id}`,
-                permissionId: permission.id,
-                content: permission.planReview.content,
-                status: "pending",
-                options: permission.options,
-              },
-            });
-          }
-        },
-        onPermissionResolved: (resolution) => {
-          const status =
-            resolution.optionId === "plan_revise"
-              ? "revision-requested"
-              : resolution.optionId === "plan_reject_and_exit"
-                ? "rejected"
-                : "approved";
-          updateMessageParts(assistantMsg.id, {
-            kind: "resolve-plan-review",
-            permissionId: resolution.permissionId,
-            status,
-            selectedOptionId: resolution.optionId,
-            selectedOptionName: resolution.optionName,
-          });
-        },
-        onPermissionsInterrupted: (permissions) => {
-          if (permissions.some((permission) => permission.planReview)) {
-            updateMessageParts(assistantMsg.id, { kind: "interrupt-plan-reviews" });
-          }
         },
         onQuestionRequested: (question) => {
           textRevealer.flush();
@@ -3082,9 +2137,6 @@ export function Composer(props: ComposerProps) {
           updateMessageParts(assistantMsg.id, { kind: "interrupt-questions" });
           questions.forEach((question) => clearQuestionDraftState(question.id));
         },
-        onPlanModeChanged: (enabled) => {
-          props.onPlanModeChange?.(enabled);
-        },
         onEventApplied: (count) => {
           // Event acknowledgement must not flush pending reveal text; the
           // frame scheduler owns the visible cadence.
@@ -3108,7 +2160,7 @@ export function Composer(props: ComposerProps) {
             requestQueueDrain();
           });
         },
-        onError: (error, runId, writtenFiles, runtimeSessionRecovery) => {
+        onError: (error, runId, writtenFiles) => {
           runWrittenFilesRef.current = writtenFiles ?? [];
           if (runId) {
             updateRunChecklist(threadId, { kind: "outcome", runId, outcome: "failed" });
@@ -3121,9 +2173,6 @@ export function Composer(props: ComposerProps) {
               type: "error",
               id: `error-${assistantMsg.id}`,
               message: error,
-              ...(runtimeSessionRecovery
-                ? { runtimeSessionRecovery: { ...runtimeSessionRecovery, userMessageId } }
-                : {}),
             },
           });
           updateMessageRunStatus(assistantMsg.id, "failed");
@@ -3193,7 +2242,7 @@ export function Composer(props: ComposerProps) {
       // Legacy non-draft backfill: a Thread still literally named "New thread"
       // without a manual rename marker receives the deterministic local
       // fallback after a successful submission. The title is derived from the
-      // visible composer text (never the skill-enriched runtime prompt) and
+      // visible composer text (never the skill-enriched agent prompt) and
       // never invokes model generation. A manual rename — even one renamed
       // back to "New thread" — is protected by the customTitle guard.
       if (thread && thread.title === "New thread" && !thread.customTitle) {
@@ -3509,31 +2558,9 @@ export function Composer(props: ComposerProps) {
     editorRef.current?.insertSkill(skill);
   };
 
-  const handlePlanInsert = () => {
-    if (!skillTrigger) {
-      return;
-    }
-
-    props.onPlanModeChange?.(true);
-    setDismissedSkillInput(null);
-    editorRef.current?.removeSlashTrigger();
-  };
-
   const selectActiveSlashMenuItem = () => {
-    if (showPlanSuggestion && selectedSkillIndex === 0) {
-      handlePlanInsert();
-    } else if (showCompactSuggestion && selectedSkillIndex === (showPlanSuggestion ? 1 : 0)) {
-      void handleCompact(true);
-    } else if (
-      showStatusSuggestion &&
-      selectedSkillIndex === (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0)
-    ) {
-      void handleStatus(true);
-    } else {
-      const skillIndex = selectedSkillIndex - carrentCommandMenuItemCount;
-      const skill = filteredSkills[skillIndex] ?? filteredSkills[0];
-      if (skill) handleSkillInsert(skill);
-    }
+    const skill = filteredSkills[selectedSkillIndex] ?? filteredSkills[0];
+    if (skill) handleSkillInsert(skill);
   };
 
   const handlePermissionResponse = (permission: ChatPermissionRequest, optionId: string) => {
@@ -3542,32 +2569,6 @@ export function Composer(props: ComposerProps) {
       permissionId: permission.id,
       optionId,
     });
-  };
-  const handlePlanResponse = async (permission: ChatPermissionRequest, optionId: string) => {
-    const result = await respondToPermission({
-      runId: permission.runId,
-      permissionId: permission.id,
-      optionId,
-    });
-    return result.accepted;
-  };
-  const handlePlanRevision = async (
-    permission: ChatPermissionRequest,
-    optionId: string,
-    feedback: string,
-  ) => {
-    const queuedId = `plan-revision-${crypto.randomUUID()}`;
-    enqueueChatMessage(threadId, { id: queuedId, content: feedback });
-    try {
-      const accepted = await handlePlanResponse(permission, optionId);
-      if (!accepted) {
-        removeQueuedChatMessage(threadId, queuedId);
-      }
-      return accepted;
-    } catch (error) {
-      removeQueuedChatMessage(threadId, queuedId);
-      throw error;
-    }
   };
   const isCenteredPlacement = props.placement === "centered";
   // A pending permission turns the Composer into approval mode: the text
@@ -3590,28 +2591,8 @@ export function Composer(props: ComposerProps) {
     />
   ) : null;
 
-  // Plan Review is an explicit decision point. Keep it ahead of structured
-  // questions to match the Thread Status precedence for Approval Requests.
-  if (pendingPlanReview) {
-    return (
-      <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"}>
-        <div className="relative mx-auto w-full max-w-[56rem]">
-          {runChecklistPanel}
-          <PlanDecisionPanel
-            key={pendingPlanReview.id}
-            permission={pendingPlanReview}
-            onRespond={(optionId) => handlePlanResponse(pendingPlanReview, optionId)}
-            onRequestRevision={(optionId, feedback) =>
-              handlePlanRevision(pendingPlanReview, optionId, feedback)
-            }
-          />
-        </div>
-      </div>
-    );
-  }
-
   // A pending structured question fully replaces the Composer surface (text
-  // input, attachments, Skill and Runtime controls, queued-message controls)
+  // input, attachments, Skill and Agent controls, queued-message controls)
   // until it is submitted, skipped, or the Run stops.
   if (threadQuestion) {
     return (
@@ -3626,15 +2607,8 @@ export function Composer(props: ComposerProps) {
 
   return (
     <div className={isCenteredPlacement ? "w-full" : "px-6 pb-5 pt-2"}>
-      <div className="relative mx-auto w-full max-w-[56rem]" aria-busy={isSessionStatusLoading}>
+      <div className="relative mx-auto w-full max-w-[56rem]">
         {runChecklistPanel}
-        {sessionStatusSnapshot ? (
-          <SessionStatusPanel
-            status={sessionStatusSnapshot}
-            loading={isSessionStatusLoading}
-            onClose={dismissSessionStatus}
-          />
-        ) : null}
         {showSlashMenu ? (
           <div
             id="composer-slash-menu"
@@ -3643,111 +2617,6 @@ export function Composer(props: ComposerProps) {
             className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border-strong bg-surface shadow-[0_18px_60px_rgb(0_0_0/0.28)]"
           >
             <div className="max-h-80 overflow-y-auto p-1">
-              {showPlanSuggestion ? (
-                <button
-                  ref={(element) => {
-                    if (element) {
-                      skillItemRefs.current.set(0, element);
-                    } else {
-                      skillItemRefs.current.delete(0);
-                    }
-                  }}
-                  id="composer-slash-menu-item-0"
-                  role="option"
-                  aria-selected={selectedSkillIndex === 0}
-                  type="button"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    handlePlanInsert();
-                  }}
-                  onMouseEnter={() => setSelectedSkillIndex(0)}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left transition ${
-                    selectedSkillIndex === 0 ? "bg-surface-hover" : "hover:bg-surface-raised"
-                  }`}
-                >
-                  <span className="min-w-0 flex-1 truncate text-app-13 font-medium text-fg">
-                    Plan mode
-                  </span>
-                  <span className="shrink-0 text-app-12 text-subtle">Enable plan mode</span>
-                </button>
-              ) : null}
-              {showCompactSuggestion ? (
-                <button
-                  ref={(element) => {
-                    const index = showPlanSuggestion ? 1 : 0;
-                    if (element) {
-                      skillItemRefs.current.set(index, element);
-                    } else {
-                      skillItemRefs.current.delete(index);
-                    }
-                  }}
-                  id={`composer-slash-menu-item-${showPlanSuggestion ? 1 : 0}`}
-                  role="option"
-                  aria-selected={selectedSkillIndex === (showPlanSuggestion ? 1 : 0)}
-                  type="button"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    void handleCompact(true);
-                  }}
-                  onMouseEnter={() => setSelectedSkillIndex(showPlanSuggestion ? 1 : 0)}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left transition ${
-                    selectedSkillIndex === (showPlanSuggestion ? 1 : 0)
-                      ? "bg-surface-hover"
-                      : "hover:bg-surface-raised"
-                  }`}
-                >
-                  <span className="min-w-0 flex-1 truncate text-app-13 font-medium text-fg">
-                    Compact
-                  </span>
-                  <span className="shrink-0 text-app-12 text-subtle">
-                    Compress this thread&apos;s context ({Math.round(kimiStatus?.percentage ?? 0)}%
-                    used)
-                  </span>
-                </button>
-              ) : null}
-              {showStatusSuggestion ? (
-                <button
-                  ref={(element) => {
-                    const index = (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0);
-                    if (element) {
-                      skillItemRefs.current.set(index, element);
-                    } else {
-                      skillItemRefs.current.delete(index);
-                    }
-                  }}
-                  id={`composer-slash-menu-item-${
-                    (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0)
-                  }`}
-                  role="option"
-                  aria-selected={
-                    selectedSkillIndex ===
-                    (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0)
-                  }
-                  type="button"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    void handleStatus(true);
-                  }}
-                  onMouseEnter={() =>
-                    setSelectedSkillIndex(
-                      (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0),
-                    )
-                  }
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left transition ${
-                    selectedSkillIndex ===
-                    (showPlanSuggestion ? 1 : 0) + (showCompactSuggestion ? 1 : 0)
-                      ? "bg-surface-hover"
-                      : "hover:bg-surface-raised"
-                  }`}
-                >
-                  <span className="min-w-0 flex-1 truncate text-app-13 font-medium text-fg">
-                    Status
-                  </span>
-                  <span className="shrink-0 text-app-12 text-subtle">
-                    Inspect this Runtime Session
-                  </span>
-                </button>
-              ) : null}
               {showSkills ? (
                 <div className="px-3 pb-1 pt-2 text-app-12 font-medium text-muted">Skills</div>
               ) : null}
@@ -3757,7 +2626,7 @@ export function Composer(props: ComposerProps) {
                 <div className="px-3 py-2 text-app-12 text-danger">{skillsError}</div>
               ) : showSkills && filteredSkills.length > 0 ? (
                 filteredSkills.map((skill, index) => {
-                  const menuIndex = index + carrentCommandMenuItemCount;
+                  const menuIndex = index;
                   const isSelected = menuIndex === selectedSkillIndex;
 
                   return (
@@ -3796,9 +2665,9 @@ export function Composer(props: ComposerProps) {
                     </button>
                   );
                 })
-              ) : !showPlanSuggestion && !showCompactSuggestion && !showStatusSuggestion ? (
+              ) : (
                 <div className="px-3 py-2 text-app-12 text-subtle">No skills found.</div>
-              ) : null}
+              )}
             </div>
           </div>
         ) : null}
@@ -4040,46 +2909,8 @@ export function Composer(props: ComposerProps) {
               })}
             </div>
           )}
-          {localMcpSkillsDisabled ? (
-            <div className="mb-2 rounded-lg border border-border bg-bg/45 px-3 py-2 text-app-12 text-subtle">
-              Local MCP Server is off. Skills are unavailable for this Kimi message.
-            </div>
-          ) : null}
-          {runtimeSetupRequired ? (
-            <div className="mb-3 rounded-lg border border-border-strong bg-bg/55 px-3 py-2">
-              <div className="flex min-h-7 items-center gap-2.5">
-                <CircleAlert className="h-4 w-4 shrink-0 text-danger" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-app-12 font-medium leading-5 text-fg">
-                    {runtimeNameMap[props.runtimeId]} setup required
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => navigate("/settings?tab=general")}
-                    className="flex min-h-7 items-center rounded-md px-2 text-app-12 text-muted transition hover:bg-surface-hover hover:text-fg"
-                  >
-                    Setup
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void refreshRuntimes()}
-                    disabled={runtimesLoading}
-                    className="flex min-h-7 items-center gap-1.5 rounded-md px-2 text-app-12 text-muted transition hover:bg-surface-hover hover:text-fg disabled:opacity-40"
-                  >
-                    <RefreshCw className={`h-3 w-3 ${runtimesLoading ? "animate-spin" : ""}`} />
-                    Refresh
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : null}
           {activePermission ? (
-            <div
-              data-approval-open="true"
-              className="flex min-h-20 flex-col justify-center gap-2"
-            >
+            <div data-approval-open="true" className="flex min-h-20 flex-col justify-center gap-2">
               <div className="flex items-start gap-2.5">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                 <div className="min-w-0 flex-1">
@@ -4156,7 +2987,7 @@ export function Composer(props: ComposerProps) {
                   ? `composer-slash-menu-item-${selectedSkillIndex}`
                   : undefined
               }
-              skillsDisabled={localMcpSkillsDisabled}
+              skillsDisabled={false}
               onCompositionStart={handleCompositionStart}
               onCompositionEnd={handleCompositionEnd}
               onSnapshot={(snapshot) => {
@@ -4206,11 +3037,7 @@ export function Composer(props: ComposerProps) {
               onMenuSelect={selectActiveSlashMenuItem}
               onMenuDismiss={() => setDismissedSkillInput(input)}
               onSubmit={() => {
-                if (
-                  canSend ||
-                  parseLeadingCompactCommand(input) ||
-                  parseLeadingStatusCommand(input)
-                ) {
+                if (canSend) {
                   void handleSend();
                 }
               }}
@@ -4218,362 +3045,119 @@ export function Composer(props: ComposerProps) {
               resolvePastedContent={resolvePastedComposerContent}
             />
           )}
-          {isThreadCompacting ? (
-            <div className="mt-2 text-app-12 text-subtle" role="status">
-              Compacting
-            </div>
-          ) : null}
-          {threadActionError ? (
-            <div className="mt-2 text-app-12 text-danger" role="alert">
-              {threadActionError}
-            </div>
-          ) : null}
-          {isSessionStatusLoading ? (
-            <div className="mt-2 text-app-12 text-subtle" role="status">
-              Loading session status...
-            </div>
-          ) : null}
-          {sessionStatusError ? (
-            <div className="mt-2 text-app-12 text-danger" role="alert">
-              {sessionStatusError}
-            </div>
-          ) : null}
           {attachmentError && <div className="mt-2 text-app-12 text-danger">{attachmentError}</div>}
           <div className="mt-3 flex items-end justify-between gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-1">
-              {props.onRuntimeIdChange ? (
+              {props.onProviderProfileIdChange ? (
                 <div
-                  ref={runtimePickerRef}
-                  data-model-picker-open={showRuntimePicker ? "true" : undefined}
+                  ref={providerPickerRef}
+                  data-provider-picker-open={showProviderPicker ? "true" : undefined}
                   className="relative"
                 >
                   <button
                     onClick={() => {
-                      if (!isThreadSending && !isThreadCompacting) {
-                        setShowRuntimePicker((v) => {
-                          if (v) {
-                            closeRuntimePicker();
-                          } else {
-                            setIsPointerOverRuntimeMenu(true);
-                          }
-                          return !v;
-                        });
+                      if (!isThreadSending) {
+                        setShowProviderPicker((open) => !open);
                       }
                     }}
-                    disabled={isThreadSending || isThreadCompacting}
+                    disabled={isThreadSending}
                     className={`flex max-w-[14rem] items-center gap-1.5 rounded-md px-2 py-1 text-app-12 transition disabled:opacity-40 ${
-                      showRuntimePicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
+                      showProviderPicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
                     }`}
                     title={
-                      isThreadSending || isThreadCompacting
-                        ? "Locked while the Thread is busy"
-                        : "Runtime"
+                      isThreadSending ? "Locked while the agent is running" : "Provider Profile"
                     }
                   >
-                    <RuntimeIcon
-                      name={
-                        isSelectedRuntimeAvailable ? runtimeNameMap[props.runtimeId] : "Runtime"
-                      }
-                      size="xs"
-                    />
-                    <span className="min-w-0 truncate">{runtimeButtonLabel}</span>
+                    <ProviderIcon size="xs" />
+                    <span className="min-w-0 truncate">{providerButtonLabel}</span>
                     <ChevronDown className="h-3 w-3" />
                   </button>
-                  {showRuntimePicker && (
-                    <div
-                      className="absolute bottom-full left-0 mb-1.5 max-h-80 w-64 overflow-y-auto rounded-lg border border-border-strong bg-surface py-1 shadow-xl"
-                      onMouseEnter={() => setIsPointerOverRuntimeMenu(true)}
-                      onMouseLeave={() => {
-                        setIsPointerOverRuntimeMenu(false);
-                      }}
-                    >
-                      {runtimeOptions.length > 0 ? (
-                        runtimeOptions.map((runtime) => {
-                          const supportsModelCascade =
-                            runtime.id !== "kimi" &&
-                            supportsRuntimeModelSelection(runtime.id) &&
-                            props.onRuntimeModelIdChange;
-
-                          return (
-                            <div key={runtime.id}>
-                              {!(runtime.id === "kimi" && props.onRuntimeModelIdChange) ? (
-                                <button
-                                  data-model-picker-option="true"
-                                  onMouseEnter={(event) => {
-                                    if (!supportsModelCascade) {
-                                      setCascadingRuntimeId(null);
-                                      setCascadingAnchorRect(null);
-                                      setCascadingPanelPosition(null);
-                                      return;
-                                    }
-
-                                    const rect = event.currentTarget.getBoundingClientRect();
-                                    setCascadingRuntimeId(runtime.id);
-                                    setCascadingAnchorRect({
-                                      left: rect.left,
-                                      top: rect.top,
-                                      right: rect.right,
-                                      bottom: rect.bottom,
-                                      width: rect.width,
-                                      height: rect.height,
-                                    });
-                                    setIsPointerOverCascadingPanel(false);
-                                  }}
-                                  onClick={() => {
-                                    props.onRuntimeIdChange!(runtime.id);
-                                    if (
-                                      !supportsRuntimeModelSelection(runtime.id) ||
-                                      !props.onRuntimeModelIdChange
-                                    ) {
-                                      props.onRuntimeModelIdChange?.(undefined);
-                                      closeRuntimePicker();
-                                      return;
-                                    }
-
-                                    closeRuntimePicker();
-                                  }}
-                                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 transition hover:bg-surface-raised ${
-                                    runtime.id === props.runtimeId ? "text-fg" : "text-muted"
-                                  }`}
-                                >
-                                  <RuntimeIcon name={runtime.name} size="xs" />
-                                  <span className="min-w-0 flex-1">
-                                    {getComposerRuntimeLabel(runtime)}
-                                  </span>
-                                  {supportsModelCascade ? (
-                                    <ChevronDown className="ml-auto h-3 w-3 shrink-0" />
-                                  ) : null}
-                                </button>
-                              ) : null}
-                              {runtime.id === "kimi" && props.onRuntimeModelIdChange ? (
-                                <div className="mx-2 mb-1 pt-1">
-                                  <div className="px-2 pb-1 pt-1 text-app-11 font-semibold uppercase tracking-wider text-muted">
-                                    Kimi Code models
-                                  </div>
-                                  {kimiMenuLoading ? (
-                                    <div className="px-2 py-2 text-app-12 leading-5 text-subtle">
-                                      Loading models...
-                                    </div>
-                                  ) : kimiMenuModels.length > 0 ? (
-                                    kimiMenuModels.map((model) => {
-                                      const selectedModelId =
-                                        props.runtimeId === "kimi"
-                                          ? (props.runtimeModelId ??
-                                            kimiMenuDefaultModelId ??
-                                            kimiMenuModels[0]?.id)
-                                          : undefined;
-                                      const isSelected = model.id === selectedModelId;
-
-                                      return (
-                                        <button
-                                          key={model.id}
-                                          data-model-picker-option="true"
-                                          onClick={() => {
-                                            props.onRuntimeIdChange?.("kimi");
-                                            props.onRuntimeModelIdChange?.(model.id);
-                                            closeRuntimePicker();
-                                          }}
-                                          className={`flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-app-12 transition hover:bg-surface-raised ${
-                                            isSelected ? "text-fg" : "text-muted"
-                                          }`}
-                                        >
-                                          <span className="min-w-0 truncate">
-                                            {formatKimiModelLabel(model.name)}
-                                          </span>
-                                          {isSelected ? (
-                                            <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
-                                          ) : null}
-                                        </button>
-                                      );
-                                    })
-                                  ) : (
-                                    <div className="px-2 py-2 text-app-12 leading-5 text-subtle">
-                                      No models found.
-                                    </div>
-                                  )}
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })
+                  {showProviderPicker && (
+                    <div className="absolute bottom-full left-0 mb-1.5 max-h-80 w-72 overflow-y-auto rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
+                      {providerOptions.length > 0 ? (
+                        providerOptions.map((profile) => (
+                          <button
+                            key={profile.id}
+                            data-provider-picker-option="true"
+                            onClick={() => {
+                              props.onProviderProfileIdChange?.(profile.id);
+                              closeProviderPicker();
+                            }}
+                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-app-12 transition hover:bg-surface-raised ${
+                              profile.id === props.providerProfileId ? "text-fg" : "text-muted"
+                            }`}
+                          >
+                            <ProviderIcon size="xs" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate">
+                                {getComposerProviderLabel(profile)}
+                              </span>
+                              <span className="block truncate text-app-10 text-subtle">
+                                {profile.type} / {profile.modelId}
+                              </span>
+                            </span>
+                            {profile.id === props.providerProfileId ? (
+                              <Check className="h-3.5 w-3.5 shrink-0" />
+                            ) : null}
+                          </button>
+                        ))
                       ) : (
                         <div className="px-3 py-2 text-app-12 leading-5 text-subtle">
-                          No runtime available
+                          No Provider Profile available
                         </div>
                       )}
                     </div>
                   )}
                 </div>
               ) : null}
-              {showCascadingPanel && typeof document !== "undefined"
-                ? createPortal(
-                    <div
-                      ref={cascadingPanelRef}
-                      data-model-picker-cascade="true"
-                      onMouseEnter={() => {
-                        setIsPointerOverCascadingPanel(true);
-                        if (runtimeCloseTimerRef.current) {
-                          clearTimeout(runtimeCloseTimerRef.current);
-                          runtimeCloseTimerRef.current = null;
-                        }
-                      }}
-                      onMouseLeave={() => {
-                        setIsPointerOverCascadingPanel(false);
-                      }}
-                      className={`fixed z-50 rounded-lg border border-border-strong bg-surface py-1 shadow-xl transition-[opacity,transform] duration-150 ease-out ${cascadingPanelTransitionClass}`}
-                      style={{
-                        left: `${cascadingPanelPosition?.left ?? 0}px`,
-                        top: `${cascadingPanelPosition?.top ?? 0}px`,
-                        width: `${cascadingPanelPosition?.width ?? CASCADING_PANEL_DEFAULT_WIDTH}px`,
-                        maxHeight: `calc(100vh - ${CASCADING_PANEL_PADDING * 2}px)`,
-                        visibility: cascadingPanelPosition ? "visible" : "hidden",
-                        transformOrigin:
-                          cascadingPanelPosition?.side === "left"
-                            ? "top right"
-                            : cascadingPanelPosition?.side === "right"
-                              ? "top left"
-                              : "top center",
-                      }}
-                    >
-                      <div className="px-3 pb-1.5 pt-1.5">
-                        <div className="text-app-11 font-semibold uppercase tracking-wider text-muted">
-                          {cascadingRuntimeId
-                            ? `${runtimeNameMap[cascadingRuntimeId]} models`
-                            : "models"}
-                        </div>
-                      </div>
-                      <div className="max-h-[calc(100vh-24px)] overflow-y-auto px-1 pb-1">
-                        {props.runtimeModelId &&
-                        !cascadingModels.some((model) => model.id === props.runtimeModelId) ? (
-                          <button
-                            data-model-picker-option="true"
-                            onClick={() => {
-                              props.onRuntimeIdChange?.(cascadingRuntimeId ?? "kimi");
-                              props.onRuntimeModelIdChange?.(props.runtimeModelId);
-                              closeRuntimePicker();
-                            }}
-                            className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-app-12 text-fg transition hover:bg-surface-raised"
-                          >
-                            <span className="min-w-0 truncate">{props.runtimeModelId}</span>
-                            <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
-                          </button>
-                        ) : null}
-
-                        {cascadingLoading ? (
-                          <div className="px-3 py-2 text-app-12 leading-5 text-subtle">
-                            Loading models...
-                          </div>
-                        ) : cascadingModels.length > 0 ? (
-                          cascadingModels.map((model) => {
-                            const label = model.provider
-                              ? `${model.provider} / ${model.name}`
-                              : model.name;
-                            const isSelected = model.id === props.runtimeModelId;
-
-                            return (
-                              <button
-                                key={model.id}
-                                data-model-picker-option="true"
-                                onClick={() => {
-                                  props.onRuntimeIdChange?.(cascadingRuntimeId ?? "kimi");
-                                  props.onRuntimeModelIdChange?.(model.id);
-                                  closeRuntimePicker();
-                                }}
-                                className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-app-12 transition hover:bg-surface-raised ${
-                                  isSelected ? "text-fg" : "text-muted"
-                                }`}
-                              >
-                                <span className="min-w-0 truncate">{label}</span>
-                                {isSelected ? (
-                                  <Check className="h-3.5 w-3.5 shrink-0 text-fg" />
-                                ) : null}
-                              </button>
-                            );
-                          })
-                        ) : (
-                          <div className="px-3 py-2 text-app-12 leading-5 text-subtle">
-                            No models found.
-                          </div>
-                        )}
-                      </div>
-                    </div>,
-                    document.body,
-                  )
-                : null}
-              {props.onRuntimeModeChange ? (
+              {props.onAgentModeChange ? (
                 <div ref={modePickerRef} className="relative">
                   <button
                     onClick={() => {
-                      if (!isThreadSending && !isThreadCompacting) {
+                      if (!isThreadSending) {
                         setShowModePicker((v) => !v);
                       }
                     }}
-                    disabled={isThreadSending || isThreadCompacting}
+                    disabled={isThreadSending}
                     className={`flex max-w-[12rem] items-center gap-1.5 rounded-md px-2 py-1 text-app-12 transition disabled:opacity-40 ${
                       showModePicker ? "bg-surface-hover text-fg" : "text-muted hover:text-fg"
                     }`}
                     title={
-                      isThreadSending ? "Locked while runtime is running" : "Runtime permissions"
+                      isThreadSending ? "Locked while the agent is running" : "Agent permissions"
                     }
                   >
-                    <RuntimeModeIcon
-                      mode={props.runtimeMode ?? DEFAULT_RUNTIME_MODE}
+                    <AgentModeIcon
+                      mode={props.agentMode ?? DEFAULT_AGENT_MODE}
                       className="h-3 w-3"
                     />
                     <span className="min-w-0 truncate">
-                      {getRuntimeModeLabel(
-                        props.runtimeMode ?? DEFAULT_RUNTIME_MODE,
-                        props.runtimeId,
-                      )}
+                      {getAgentModeLabel(props.agentMode ?? DEFAULT_AGENT_MODE)}
                     </span>
                     <ChevronDown className="h-3 w-3" />
                   </button>
                   {showModePicker && (
                     <div className="absolute bottom-full left-0 mb-1.5 w-72 rounded-lg border border-border-strong bg-surface py-1 shadow-xl">
-                      {(
-                        ["approval-required", "auto-accept-edits", "full-access"] as RuntimeMode[]
-                      ).map((mode) => (
+                      {(["ask", "auto-edit", "full-project"] as AgentMode[]).map((mode) => (
                         <button
                           key={mode}
                           onClick={() => {
-                            props.onRuntimeModeChange!(mode);
+                            props.onAgentModeChange!(mode);
                             setShowModePicker(false);
                           }}
                           className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 transition hover:bg-surface-raised ${
-                            mode === props.runtimeMode ? "text-fg" : "text-muted"
+                            mode === props.agentMode ? "text-fg" : "text-muted"
                           }`}
                         >
-                          <RuntimeModeIcon mode={mode} className="h-3 w-3" />
+                          <AgentModeIcon mode={mode} className="h-3 w-3" />
                           <span>
-                            {getRuntimeModeLabel(mode, props.runtimeId)}
-                            {mode === "full-access" ? " (danger)" : ""}
+                            {getAgentModeLabel(mode)}
+                            {mode === "full-project" ? " (danger)" : ""}
                           </span>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
-              ) : null}
-              {props.runtimeId === "kimi" && props.planMode && props.onPlanModeChange ? (
-                <span className="flex items-center gap-1.5 rounded-md bg-surface-hover px-2 py-1 text-app-12 text-fg">
-                  <ListChecks className="h-3.5 w-3.5" />
-                  <span>Plan</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!isThreadSending && !isThreadCompacting) {
-                        props.onPlanModeChange?.(false);
-                      }
-                    }}
-                    disabled={isThreadSending || isThreadCompacting}
-                    className="flex h-4 w-4 items-center justify-center rounded-full text-muted transition hover:bg-surface-raised hover:text-fg disabled:opacity-40"
-                    title={
-                      isThreadSending ? "Locked while runtime is running" : "Disable plan mode"
-                    }
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
               ) : null}
               <input
                 ref={fileInputRef}
@@ -4602,14 +3186,6 @@ export function Composer(props: ComposerProps) {
             </div>
 
             <div className="flex items-center gap-2">
-              {props.runtimeId === "kimi" ? (
-                <ContextUsageIndicator
-                  key={threadId}
-                  status={kimiStatus}
-                  loadState={kimiStatusLoadState}
-                  onRefresh={refreshKimiStatus}
-                />
-              ) : null}
               {isThreadSending ? (
                 <button
                   aria-label="Stop run"

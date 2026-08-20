@@ -19,8 +19,8 @@ function baseHistorySnapshot(): AppStateSnapshot {
         workspaceId: "workspace-a",
         projectId: "project-a",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "auto-accept-edits",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "auto-edit",
       },
     ],
     threads: [
@@ -31,15 +31,13 @@ function baseHistorySnapshot(): AppStateSnapshot {
         title: "History thread",
         createdAt: "2026-08-09T08:00:00.000Z",
         lastActivityAt: "2026-08-09T09:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "auto-accept-edits",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "auto-edit",
       },
     ],
     threadDrafts: [],
     threadMessages: [],
     threadRuns: [],
-    threadActions: [],
     threadPromotionIntents: [],
     threadWork: {},
     lastThreadIdByWorkspace: {},
@@ -67,14 +65,6 @@ describe("SQLite App State thread history", () => {
           attachments: [],
           parts: [
             {
-              type: "plan_review",
-              id: "plan-1",
-              permissionId: "permission-1",
-              content: "Step 1",
-              status: "pending",
-              options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
-            },
-            {
               type: "question",
               id: "question-1",
               questionId: "q-1",
@@ -84,7 +74,7 @@ describe("SQLite App State thread history", () => {
             {
               type: "subagent_task",
               id: "task-1",
-              runtimeId: "kimi",
+              providerProfileId: "default",
               source: "agent",
               description: "Explore the codebase",
               background: false,
@@ -98,14 +88,13 @@ describe("SQLite App State thread history", () => {
 
       const loaded = await store.loadAppStateSnapshot();
       const message = loaded?.threadMessages?.[0];
-      // Pending approvals/questions and running Subagent Tasks load as
+      // Pending questions and running Subagent Tasks load as
       // interrupted instead of resuming as fake live state. The message-level
       // run flag round-trips untouched: the renderer owns that reconciliation,
       // exactly as with the JSON store.
       const parts = message && "parts" in message ? message.parts : undefined;
       expect(parts?.map((part) => [part.type, "status" in part ? part.status : undefined])).toEqual(
         [
-          ["plan_review", "interrupted"],
           ["question", "interrupted"],
           ["subagent_task", "interrupted"],
         ],
@@ -194,9 +183,8 @@ describe("SQLite App State thread history", () => {
           title: "Second thread",
           createdAt: "2026-08-09T08:10:00.000Z",
           lastActivityAt: "2026-08-09T08:10:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "auto-accept-edits",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "auto-edit",
         },
       ];
       snapshot.threadMessages = [
@@ -215,9 +203,8 @@ describe("SQLite App State thread history", () => {
           threadId: "thread-a",
           messageId: "message-user",
           startedAt: "2026-08-09T08:01:30.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "auto-accept-edits",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "auto-edit",
         },
       ];
       await store.saveAppStateSnapshot(snapshot);
@@ -249,9 +236,8 @@ describe("SQLite App State thread history", () => {
           content: "Draft",
           attachedSkillNames: [],
           attachments: [],
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ];
       snapshot.threadPromotionIntents = [
@@ -266,9 +252,8 @@ describe("SQLite App State thread history", () => {
           message: "Draft",
           attachments: [],
           startedAt: "2026-08-09T08:06:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ];
 
@@ -287,8 +272,8 @@ describe("SQLite App State thread history", () => {
           client.run(
             `INSERT INTO promotion_intents (
                draft_id, thread_id, workspace_id, project_id, title, run_id, message_id,
-               message, attachments, started_at, runtime_id, runtime_mode, plan_mode
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               message, attachments, started_at, provider_profile_id, agent_mode
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             "missing-draft",
             "reserved-thread",
             "workspace-a",
@@ -299,9 +284,8 @@ describe("SQLite App State thread history", () => {
             "Orphan",
             "[]",
             "2026-08-09T08:06:00.000Z",
-            "kimi",
-            "approval-required",
-            0,
+            "default",
+            "ask",
           ),
         );
       } catch {
@@ -314,7 +298,7 @@ describe("SQLite App State thread history", () => {
     }
   });
 
-  it("cleans up Messages, Runs, Actions, and Thread Work when the owning Thread is deleted", async () => {
+  it("cleans up Messages, Runs, and Thread Work when the owning Thread is deleted", async () => {
     const dir = await mkdtemp(join(tmpdir(), "carrent-sqlite-history-"));
     try {
       const store = createSqliteAppStateStore(join(dir, "carrent.sqlite"), {
@@ -338,18 +322,8 @@ describe("SQLite App State thread history", () => {
           threadId: "thread-a",
           messageId: "message-user",
           startedAt: "2026-08-09T08:01:30.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "auto-accept-edits",
-          planMode: false,
-        },
-      ];
-      snapshot.threadActions = [
-        {
-          id: "action-1",
-          threadId: "thread-a",
-          action: "compact",
-          runtimeId: "kimi",
-          completedAt: "2026-08-09T08:05:00.000Z",
+          providerProfileId: "default",
+          agentMode: "auto-edit",
         },
       ];
       snapshot.threadWork = {
@@ -363,11 +337,9 @@ describe("SQLite App State thread history", () => {
         messages: client.get<{ count: number }>("SELECT COUNT(*) AS count FROM thread_messages")
           ?.count,
         runs: client.get<{ count: number }>("SELECT COUNT(*) AS count FROM thread_runs")?.count,
-        actions: client.get<{ count: number }>("SELECT COUNT(*) AS count FROM thread_actions")
-          ?.count,
         work: client.get<{ count: number }>("SELECT COUNT(*) AS count FROM thread_work")?.count,
       }));
-      expect(counts).toEqual({ messages: 0, runs: 0, actions: 0, work: 0 });
+      expect(counts).toEqual({ messages: 0, runs: 0, work: 0 });
       await store.close();
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -455,7 +427,7 @@ describe("SQLite App State thread history", () => {
     }
   });
 
-  it("round-trips Runs, Thread Actions, Promotion Intents, and the Run Checklist", async () => {
+  it("round-trips Runs, Promotion Intents, and the Run Checklist", async () => {
     const dir = await mkdtemp(join(tmpdir(), "carrent-sqlite-history-"));
     const path = join(dir, "carrent.sqlite");
     try {
@@ -465,7 +437,7 @@ describe("SQLite App State thread history", () => {
           ...snapshot.threads![0]!,
           runChecklist: {
             runId: "run-1",
-            runtimeId: "kimi",
+            providerProfileId: "default",
             outcome: "completed",
             expanded: true,
             entries: [
@@ -509,28 +481,16 @@ describe("SQLite App State thread history", () => {
           messageId: "message-user",
           assistantMessageId: "message-assistant",
           startedAt: "2026-08-09T08:01:30.000Z",
-          runtimeId: "kimi",
-          runtimeModelId: "kimi-k2.5",
-          runtimeMode: "auto-accept-edits",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "auto-edit",
         },
         {
           id: "run-2",
           threadId: "thread-a",
           messageId: "message-follow-up",
           startedAt: "2026-08-09T08:04:30.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: true,
-        },
-      ];
-      snapshot.threadActions = [
-        {
-          id: "action-1",
-          threadId: "thread-a",
-          action: "compact",
-          runtimeId: "kimi",
-          completedAt: "2026-08-09T08:05:00.000Z",
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ];
       snapshot.threadDrafts = [
@@ -542,9 +502,8 @@ describe("SQLite App State thread history", () => {
           content: "Draft to promote",
           attachedSkillNames: ["tdd"],
           attachments: [],
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: true,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ];
       snapshot.threadPromotionIntents = [
@@ -568,10 +527,8 @@ describe("SQLite App State thread history", () => {
             },
           ],
           startedAt: "2026-08-09T08:06:00.000Z",
-          runtimeId: "kimi",
-          runtimeModelId: "kimi-k2.5",
-          runtimeMode: "approval-required",
-          planMode: true,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ];
 
@@ -704,7 +661,7 @@ describe("SQLite App State thread history", () => {
           ...snapshot.threads![0]!,
           runChecklist: {
             runId: "run-1",
-            runtimeId: "kimi",
+            providerProfileId: "default",
             outcome: "failed",
             expanded: false,
             entries: [{ content: "Only step", status: "completed" }],
@@ -727,18 +684,8 @@ describe("SQLite App State thread history", () => {
           threadId: "thread-a",
           messageId: "message-user",
           startedAt: "2026-08-09T08:01:30.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "auto-accept-edits",
-          planMode: false,
-        },
-      ];
-      snapshot.threadActions = [
-        {
-          id: "action-1",
-          threadId: "thread-a",
-          action: "compact",
-          runtimeId: "kimi",
-          completedAt: "2026-08-09T08:05:00.000Z",
+          providerProfileId: "default",
+          agentMode: "auto-edit",
         },
       ];
       snapshot.threadDrafts = [
@@ -750,9 +697,8 @@ describe("SQLite App State thread history", () => {
           content: "Draft",
           attachedSkillNames: [],
           attachments: [],
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ];
       snapshot.threadPromotionIntents = [
@@ -767,9 +713,8 @@ describe("SQLite App State thread history", () => {
           message: "Draft",
           attachments: [],
           startedAt: "2026-08-09T08:06:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ];
       snapshot.threadWork = {
@@ -779,7 +724,6 @@ describe("SQLite App State thread history", () => {
         },
       };
       snapshot.settings = {
-        autoDetectRuntimes: false,
         theme: "light",
         codeHighlightTheme: "classic",
         typographyMode: "simple",
@@ -796,8 +740,6 @@ describe("SQLite App State thread history", () => {
         defaultEditorId: "",
         enhancedTerminalCompletion: false,
         terminalPanelHeight: 400,
-        runtimeEnabledById: { kimi: true },
-        runtimeDefaultModelById: { kimi: "kimi-k2.5" },
       } as NonNullable<AppStateSnapshot["settings"]>;
       snapshot.lastThreadIdByWorkspace = { "workspace-a": "thread-a" };
 
@@ -829,9 +771,8 @@ describe("SQLite App State thread history", () => {
           title: "Second thread",
           createdAt: "2026-08-09T08:10:00.000Z",
           lastActivityAt: "2026-08-09T08:10:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "auto-accept-edits",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "auto-edit",
         },
       ];
       // Interleaved across threads and not in (thread, created_at) order.

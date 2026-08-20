@@ -1,7 +1,4 @@
-import type {
-  AppStateLoadResult,
-  ProviderSessionSnapshot,
-} from "../../src/shared/workspacePersistence";
+import type { AppStateLoadResult } from "../../src/shared/workspacePersistence";
 import type { AppStateStore } from "./appStateStore";
 
 export type AppStateIpcResultSource = "reread" | "full-reset";
@@ -60,9 +57,5 @@ export function registerAppStateIpc(
   );
   ipcMainLike.handle("app-state:full-reset", () =>
     runRecoveryOperation("full-reset", store.fullResetAppState),
-  );
-  ipcMainLike.handle("provider-sessions:load", () => store.loadProviderSessions());
-  ipcMainLike.handle("provider-sessions:save", (_event, snapshot) =>
-    store.saveProviderSessions(snapshot as ProviderSessionSnapshot),
   );
 }

@@ -10,10 +10,7 @@ import type {
   ThreadDeletionTransactionRequest,
 } from "../../src/shared/chat";
 import { applyThreadDeletionToAppState } from "../../src/shared/chat";
-import type {
-  AppStateSnapshot,
-  ProviderSessionSnapshot,
-} from "../../src/shared/workspacePersistence";
+import type { AppStateSnapshot } from "../../src/shared/workspacePersistence";
 
 export type ThreadDeletionJournal = {
   version: 1;
@@ -21,20 +18,15 @@ export type ThreadDeletionJournal = {
   phase: "preparing" | "committed";
   /**
    * Attachment storage keys staged for deletion, so recovery can finish or roll
-   * back the file phase. Requirement: the journal records only the operation,
-   * target attachments, and file phase — not full before/after App State
-   * Snapshots or Runtime Session content.
+   * back the file phase.
    */
   attachmentStorageKeys: string[];
   /**
-   * Carried only by the JSON-era full-snapshot path so its recovery can restore
-   * the pre-deletion snapshot and Runtime Sessions. The SQLite row-level path
-   * omits these: the database transaction is authoritative, so a `preparing`
-   * journal means the deletion rolled back and recovery only restores staged
-   * attachment files.
+   * Carried only by the JSON-era full-snapshot path so recovery can restore the
+   * pre-deletion snapshot. The SQLite row-level path omits it because the
+   * database transaction is authoritative.
    */
   request?: ThreadDeletionTransactionRequest;
-  removedProviderSessions?: Record<string, string>;
 };
 
 export type ThreadDeletionJournalStore = {
@@ -46,8 +38,6 @@ export type ThreadDeletionJournalStore = {
 type TransactionAppStateStore = {
   waitForWrites: () => Promise<void>;
   loadAppStateSnapshot: () => Promise<AppStateSnapshot | null>;
-  loadProviderSessions: () => Promise<ProviderSessionSnapshot>;
-  saveProviderSessions: (snapshot: ProviderSessionSnapshot) => Promise<void>;
   saveAppStateSnapshot: (snapshot: AppStateSnapshot) => Promise<void>;
   /**
    * Optional row-level deletion (SQLite path). When present, the manager deletes
@@ -58,11 +48,7 @@ type TransactionAppStateStore = {
     operationId: string,
     threadIds: string[],
     scope?: ThreadDeletionScope,
-    onCommitted?: (removedProviderSessions: Record<string, string>) => void,
-  ) => Promise<{
-    appState: AppStateSnapshot;
-    removedProviderSessions: Record<string, string>;
-  }>;
+  ) => Promise<{ appState: AppStateSnapshot }>;
   hasCommittedThreadDeletion?: (operationId: string) => Promise<boolean>;
   clearCommittedThreadDeletionMarker?: (operationId: string) => Promise<void>;
 };
@@ -79,20 +65,7 @@ type TransactionSessionManager = {
     options?: ThreadDataDeletionOptions,
   ) => Promise<ThreadDataDeletionReceipt | void>;
   rollbackThreadDataDeletion: (receipt: ThreadDataDeletionReceipt) => Promise<void>;
-  adoptCommittedProviderSessionDeletion?: (removedSessions: Record<string, string>) => void;
 };
-
-function removedProviderSessions(
-  snapshot: ProviderSessionSnapshot,
-  threadIds: string[],
-): Record<string, string> {
-  const suffixes = threadIds.map((threadId) => `:${threadId}`);
-  return Object.fromEntries(
-    Object.entries(snapshot.sessions).filter(([key]) =>
-      suffixes.some((suffix) => key.endsWith(suffix)),
-    ),
-  );
-}
 
 function collectScopedThreadIds(
   snapshot: AppStateSnapshot,
@@ -159,25 +132,11 @@ async function restorePreparingTransaction(options: {
 }) {
   const rollbackErrors: unknown[] = [];
   const { journal } = options;
-  // The JSON-era full-snapshot path carried the pre-deletion snapshot and
-  // removed Provider Sessions in the journal so recovery can restore them. The
-  // SQLite row-level path omits them: a `preparing` journal means the database
-  // deletion rolled back, so recovery only needs to restore the staged
-  // attachment files — the relational rows and Runtime Sessions are intact.
   const operations: Array<() => Promise<void>> = [];
   if (journal.request) {
     operations.push(() =>
       options.appStateStore.saveAppStateSnapshot(journal.request!.beforeAppState),
     );
-    if (journal.removedProviderSessions) {
-      operations.push(async () => {
-        const current = await options.appStateStore.loadProviderSessions();
-        await options.appStateStore.saveProviderSessions({
-          version: 1,
-          sessions: { ...current.sessions, ...journal.removedProviderSessions! },
-        });
-      });
-    }
   }
   operations.push(() => options.attachmentStore.rollbackDeletion(journal.operationId));
   for (const operation of operations) {
@@ -288,32 +247,16 @@ export function createThreadDeletionTransactionManager(options: {
           if (
             deleteAppStateForThreads &&
             (!options.appStateStore.hasCommittedThreadDeletion ||
-              !options.appStateStore.clearCommittedThreadDeletionMarker ||
-              !options.sessionManager.adoptCommittedProviderSessionDeletion)
+              !options.appStateStore.clearCommittedThreadDeletionMarker)
           ) {
             throw new Error("SQLite Thread deletion coordination is unavailable.");
           }
-          // The SQLite row-level path writes a slim journal (operation, target
-          // attachments, file phase) because the database transaction is
-          // authoritative; the JSON-era full-snapshot path still carries the
-          // before/after snapshot and removed sessions for its own recovery.
-          const providerSnapshot = deleteAppStateForThreads
-            ? null
-            : await options.appStateStore.loadProviderSessions();
           const journal: ThreadDeletionJournal = {
             version: 1,
             operationId: options.createOperationId?.() ?? randomUUID(),
             phase: "preparing",
             attachmentStorageKeys: transactionRequest.threadData.attachmentStorageKeys,
-            ...(deleteAppStateForThreads
-              ? {}
-              : {
-                  request: transactionRequest,
-                  removedProviderSessions: removedProviderSessions(
-                    providerSnapshot!,
-                    transactionRequest.threadData.threadIds,
-                  ),
-                }),
+            ...(deleteAppStateForThreads ? {} : { request: transactionRequest }),
           };
           await options.journalStore.save(journal);
           recoveryPending = true;
@@ -331,26 +274,22 @@ export function createThreadDeletionTransactionManager(options: {
                       ...transactionRequest.threadData,
                       attachmentStorageKeys: [],
                     },
-                    deleteAppStateForThreads ? { deferProviderSessionDeletion: true } : undefined,
+                    deleteAppStateForThreads ? { deferCommit: true } : undefined,
                   )
                 : undefined;
             receipt = deletionReceipt ?? {
               threadIds: transactionRequest.threadData.threadIds,
-              removedProviderSessions: journal.removedProviderSessions ?? {},
-              detachedRuntimeSessions: {},
             };
             if (deleteAppStateForThreads) {
               // Row-level: delete the Thread-owned rows in one database
               // transaction. The transaction owns the whole relational deletion,
               // so a failure rolls back every deleted row and leaves the
               // pre-deletion state authoritative; the catch below restores the
-              // staged attachments and Runtime Sessions.
+              // staged attachments and in-memory Thread state.
               const deletionResult = await deleteAppStateForThreads(
                 journal.operationId,
                 transactionRequest.threadData.threadIds,
                 request.scope,
-                (removedSessions) =>
-                  options.sessionManager.adoptCommittedProviderSessionDeletion!(removedSessions),
               );
               try {
                 options.onSnapshotCommitted?.(deletionResult.appState);

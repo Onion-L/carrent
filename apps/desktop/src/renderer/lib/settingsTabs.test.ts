@@ -7,10 +7,8 @@ describe("settings tabs", () => {
     expect(resolveSettingsTabId("missing")).toBe("general");
   });
 
-  it("resolves tabs merged into general", () => {
-    expect(resolveSettingsTabId("runtime")).toBe("general");
+  it("resolves retained legacy tabs into general", () => {
     expect(resolveSettingsTabId("personalization")).toBe("general");
-    expect(resolveSettingsTabId("local-server")).toBe("general");
     expect(resolveSettingsTabId("about")).toBe("general");
   });
 
@@ -25,8 +23,7 @@ describe("settings tabs", () => {
       "general",
       "interface",
       "keybindings",
-      "usage",
-      "memory",
+      "providers",
       "worktrees",
       "archives",
     ]);

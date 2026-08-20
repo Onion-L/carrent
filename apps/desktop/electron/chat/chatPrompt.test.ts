@@ -11,9 +11,8 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
       workingDirectory: "/Users/onion/workbench/timbre",
     },
     threadId: "thread-1",
-    runtimeId: "kimi",
-    runtimeMode: "approval-required",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "ask",
     transcript: [],
     message: "Hello",
     ...overrides,
@@ -26,7 +25,7 @@ describe("buildChatPrompt", () => {
     expect(prompt).toContain("Hello");
     expect(prompt).not.toContain("You are Architect.");
     expect(prompt).not.toContain("RTK is enabled.");
-    expect(prompt).not.toContain("Carrent runtime instruction");
+    expect(prompt).not.toContain("Carrent agent instruction");
   });
 
   it("keeps only the most recent transcript slice", () => {
@@ -89,7 +88,7 @@ describe("buildChatPrompt", () => {
     expect(prompt).toContain("assistant: Use composition.");
   });
 
-  it("can omit transcript when the runtime resumes its own session", () => {
+  it("can omit transcript when the agent resumes its own session", () => {
     const prompt = buildChatPrompt(
       makeRequest({
         transcript: [
@@ -190,7 +189,7 @@ describe("buildChatPrompt", () => {
     expect(prompt).toContain("Inspect the attached files and summarize the relevant contents.");
   });
 
-  it("lists image and file references for text-only runtimes", () => {
+  it("lists image and file references for text-only providers", () => {
     const prompt = buildChatPrompt(
       makeRequest({
         message: "Check this",

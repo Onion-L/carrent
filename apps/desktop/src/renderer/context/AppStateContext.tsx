@@ -20,7 +20,6 @@ import {
   type AppStateSettings,
   type AppStateSnapshot,
   type AppThreadMessageRecord,
-  type AppThreadActionRecord,
   type AppThreadPromotionIntentRecord,
   type AppThreadRecord,
   type AppThreadRunStartInput,
@@ -32,10 +31,9 @@ import {
   type WorkspaceRecord,
 } from "../../shared/workspacePersistence";
 import type { AppStateAuthorityState } from "../../shared/appStateAuthority";
-import { DEFAULT_RUNTIME_MODE, type RuntimeMode } from "../../shared/runtimeMode";
-import { DEFAULT_RUNTIME_ID, type RuntimeId } from "../../shared/runtimes";
+import { DEFAULT_AGENT_MODE, type AgentMode } from "../../shared/agentMode";
+import { DEFAULT_PROVIDER_PROFILE_ID, type ProviderProfileId } from "../../shared/providerProfiles";
 import { hasLiveRunForThread } from "../hooks/useChatRun";
-import { hasActiveThreadActionForThread } from "../hooks/useThreadActions";
 import {
   applyThreadDeletionToAppState,
   type ThreadDeletionAppStateSnapshots,
@@ -117,7 +115,6 @@ type AppStateContextValue = {
   threadDrafts: AssociationThreadDraftRecord[];
   threadMessages: AppThreadMessageRecord[];
   threadRuns: AppThreadRunRecord[];
-  threadActions: AppThreadActionRecord[];
   threadPromotionIntents: AppThreadPromotionIntentRecord[];
   threadWork: Record<string, ThreadWorkSnapshot>;
   lastThreadIdByWorkspace: Record<string, string>;
@@ -152,9 +149,8 @@ type AppStateContextValue = {
     workspaceId: string,
     projectId: string,
     defaults: {
-      runtimeId: RuntimeId;
-      runtimeModelId?: string;
-      runtimeMode: RuntimeMode;
+      providerProfileId: ProviderProfileId;
+      agentMode: AgentMode;
     },
   ) => Promise<boolean>;
   openThreadDraft: (
@@ -165,10 +161,8 @@ type AppStateContextValue = {
   updateThreadDraftConfig: (
     draftId: string,
     config: {
-      runtimeId: RuntimeId;
-      runtimeModelId?: string;
-      runtimeMode: RuntimeMode;
-      planMode: boolean;
+      providerProfileId: ProviderProfileId;
+      agentMode: AgentMode;
     },
   ) => Promise<boolean>;
   discardThreadDraft: (draftId: string) => Promise<boolean>;
@@ -176,9 +170,7 @@ type AppStateContextValue = {
   rollbackThreadDraftPromotion: (draft: AssociationThreadDraftRecord) => Promise<boolean>;
   updateThreadConfig: (
     threadId: string,
-    config: Partial<
-      Pick<AppThreadRecord, "runtimeId" | "runtimeModelId" | "runtimeMode" | "planMode">
-    >,
+    config: Partial<Pick<AppThreadRecord, "providerProfileId" | "agentMode">>,
   ) => Promise<boolean>;
   updateThreadContent: (
     update: (content: {
@@ -200,7 +192,6 @@ type AppStateContextValue = {
     messageId: string,
     assistantMessageId: string,
   ) => Promise<boolean>;
-  recordThreadAction: (action: AppThreadActionRecord) => Promise<boolean>;
   archiveThread: (threadId: string) => Promise<boolean>;
   restoreThread: (threadId: string) => Promise<boolean>;
   permanentlyDeleteThread: (
@@ -891,8 +882,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           workspaceId: workspace.id,
           projectId: project.id,
           order: seenDirectoryIdentities.size - 1,
-          defaultRuntimeId: DEFAULT_RUNTIME_ID,
-          defaultRuntimeMode: DEFAULT_RUNTIME_MODE,
+          defaultProviderProfileId: DEFAULT_PROVIDER_PROFILE_ID,
+          defaultAgentMode: DEFAULT_AGENT_MODE,
         });
       });
 
@@ -992,8 +983,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         workspaceId,
         projectId: project.id,
         order: snapshot.associations.filter((item) => item.workspaceId === workspaceId).length,
-        defaultRuntimeId: DEFAULT_RUNTIME_ID,
-        defaultRuntimeMode: DEFAULT_RUNTIME_MODE,
+        defaultProviderProfileId: DEFAULT_PROVIDER_PROFILE_ID,
+        defaultAgentMode: DEFAULT_AGENT_MODE,
       };
 
       const created = await submitCommand("project:add", {
@@ -1083,24 +1074,20 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       workspaceId: string,
       projectId: string,
       defaults: {
-        runtimeId: RuntimeId;
-        runtimeModelId?: string;
-        runtimeMode: RuntimeMode;
+        providerProfileId: ProviderProfileId;
+        agentMode: AgentMode;
       },
     ) => {
       const association = snapshot.associations.find(
         (item) => item.workspaceId === workspaceId && item.projectId === projectId,
       );
       if (!association) return false;
-      const runtimeModelId = defaults.runtimeModelId?.trim() || undefined;
-
       return submitCommand("association:set-defaults", {
         workspaceId,
         projectId,
         defaults: {
-          runtimeId: defaults.runtimeId,
-          ...(runtimeModelId ? { runtimeModelId } : {}),
-          runtimeMode: defaults.runtimeMode,
+          providerProfileId: defaults.providerProfileId,
+          agentMode: defaults.agentMode,
         },
       });
     },
@@ -1127,12 +1114,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         content: "",
         attachedSkillNames: [],
         attachments: [],
-        runtimeId: association.defaultRuntimeId,
-        ...(association.defaultRuntimeModelId
-          ? { runtimeModelId: association.defaultRuntimeModelId }
-          : {}),
-        runtimeMode: association.defaultRuntimeMode,
-        planMode: false,
+        providerProfileId: association.defaultProviderProfileId,
+        agentMode: association.defaultAgentMode,
       };
 
       const result = await sendCommand("thread-draft:open", { workspaceId, projectId, draft });
@@ -1156,10 +1139,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     async (
       draftId: string,
       config: {
-        runtimeId: RuntimeId;
-        runtimeModelId?: string;
-        runtimeMode: RuntimeMode;
-        planMode: boolean;
+        providerProfileId: ProviderProfileId;
+        agentMode: AgentMode;
       },
     ) => {
       const current = snapshotRef.current;
@@ -1201,10 +1182,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         projectId: draft.projectId,
         createdAt: input.startedAt,
         lastActivityAt: input.startedAt,
-        runtimeId: input.runtimeId,
-        ...(input.runtimeModelId ? { runtimeModelId: input.runtimeModelId } : {}),
-        runtimeMode: input.runtimeMode,
-        planMode: input.planMode,
+        providerProfileId: input.providerProfileId,
+        agentMode: input.agentMode,
       };
       const message: AppThreadMessageRecord = {
         id: input.messageId,
@@ -1231,10 +1210,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         messageId: input.messageId,
         assistantMessageId: input.assistantMessageId,
         startedAt: input.startedAt,
-        runtimeId: input.runtimeId,
-        ...(input.runtimeModelId ? { runtimeModelId: input.runtimeModelId } : {}),
-        runtimeMode: input.runtimeMode,
-        planMode: input.planMode,
+        providerProfileId: input.providerProfileId,
+        agentMode: input.agentMode,
       };
 
       const result = await sendCommand("thread-draft:promote", {
@@ -1261,9 +1238,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const updateThreadConfig = useCallback(
     async (
       threadId: string,
-      config: Partial<
-        Pick<AppThreadRecord, "runtimeId" | "runtimeModelId" | "runtimeMode" | "planMode">
-      >,
+      config: Partial<Pick<AppThreadRecord, "providerProfileId" | "agentMode">>,
     ) => {
       const current = snapshotRef.current;
       if (!(current.threads ?? []).some((item) => item.id === threadId)) return false;
@@ -1315,10 +1290,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         messageId: input.messageId,
         assistantMessageId: input.assistantMessageId,
         startedAt: input.startedAt,
-        runtimeId: input.runtimeId,
-        ...(input.runtimeModelId ? { runtimeModelId: input.runtimeModelId } : {}),
-        runtimeMode: input.runtimeMode,
-        planMode: input.planMode,
+        providerProfileId: input.providerProfileId,
+        agentMode: input.agentMode,
       };
       try {
         return await submitCommand("thread:record-run", {
@@ -1346,17 +1319,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [submitCommand],
   );
 
-  const recordThreadAction = useCallback(
-    async (action: AppThreadActionRecord) => {
-      const current = snapshotRef.current;
-      if (!(current.threads ?? []).some((thread) => thread.id === action.threadId)) {
-        return false;
-      }
-      return submitCommand("thread:record-action", { action });
-    },
-    [submitCommand],
-  );
-
   const archiveThread = useCallback(
     async (threadId: string) => {
       const current = snapshotRef.current;
@@ -1367,8 +1329,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       if (
         !thread ||
         mutatingThreadIdsRef.current.has(threadId) ||
-        startingRunThreadIdsRef.current.has(threadId) ||
-        hasActiveThreadActionForThread(threadId)
+        startingRunThreadIdsRef.current.has(threadId)
       ) {
         return false;
       }
@@ -1457,8 +1418,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           (thread) =>
             mutatingThreadIdsRef.current.has(thread.id) ||
             startingRunThreadIdsRef.current.has(thread.id) ||
-            hasLiveRunForThread(thread.id) ||
-            hasActiveThreadActionForThread(thread.id),
+            hasLiveRunForThread(thread.id),
         )
       ) {
         return false;
@@ -1545,7 +1505,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         threadDrafts: snapshot.threadDrafts ?? [],
         threadMessages: snapshot.threadMessages ?? [],
         threadRuns: snapshot.threadRuns ?? [],
-        threadActions: snapshot.threadActions ?? [],
         threadPromotionIntents: snapshot.threadPromotionIntents ?? [],
         threadWork: snapshot.threadWork ?? {},
         lastThreadIdByWorkspace: snapshot.lastThreadIdByWorkspace ?? {},
@@ -1581,7 +1540,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         updateThreadContent,
         recordThreadRun,
         rollbackThreadRun,
-        recordThreadAction,
         archiveThread,
         restoreThread,
         permanentlyDeleteThread,

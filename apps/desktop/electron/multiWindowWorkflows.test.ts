@@ -100,9 +100,8 @@ function runRequest(runId: string): ChatTurnRequest {
       workingDirectory: "/work/carrent",
     },
     threadId: "thread-1",
-    runtimeId: "kimi",
-    runtimeMode: "approval-required",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "ask",
     transcript: [],
     message: "verify multi-window",
   };
@@ -234,8 +233,8 @@ async function createRendererWorkflow() {
         workspaceId: "workspace-1",
         projectId: "project-1",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "ask",
       },
     ],
   });
@@ -253,9 +252,8 @@ describe("real multi-window workflows", () => {
       content: "",
       attachedSkillNames: [],
       attachments: [],
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
     };
     await clientB.command("thread-draft:open", {
       workspaceId: "workspace-1",
@@ -282,9 +280,8 @@ describe("real multi-window workflows", () => {
         title: "Multi-window",
         createdAt: "2026-08-01T00:00:00.000Z",
         lastActivityAt: "2026-08-01T00:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
       message: {
         id: "message-1",
@@ -310,9 +307,8 @@ describe("real multi-window workflows", () => {
         messageId: "message-1",
         assistantMessageId: "assistant-1",
         startedAt: "2026-08-01T00:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     };
     const promotions = await Promise.all([
@@ -328,7 +324,7 @@ describe("real multi-window workflows", () => {
     ).toHaveLength(1);
 
     const finalTimelinePart = {
-      type: "kimi_timeline" as const,
+      type: "agent_activity" as const,
       item: {
         type: "message" as const,
         id: "run-1-message-1",
@@ -373,7 +369,6 @@ describe("real multi-window workflows", () => {
         ...DEFAULT_APP_STATE_SETTINGS,
         theme: "light",
         fontSizeInterface: 17,
-        threadTitleModelId: "kimi-k2.5",
       },
     });
 
@@ -389,7 +384,7 @@ describe("real multi-window workflows", () => {
         id: "permission-1",
         runId,
         threadId: "thread-1",
-        provider: "kimi",
+        provider: "core",
         action: "shell",
         title: "Run command",
         options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
@@ -410,8 +405,8 @@ describe("real multi-window workflows", () => {
         id: "question-1",
         runId,
         threadId: "thread-1",
-        provider: "kimi",
-        source: "native-acp",
+        provider: "core",
+        source: "core",
         questions: [
           {
             header: "Choice",
@@ -455,7 +450,7 @@ describe("real multi-window workflows", () => {
       associations: [{ workspaceId: "workspace-1", projectId: "project-1" }],
       threads: [{ id: "thread-1" }],
       threadDrafts: [],
-      settings: { theme: "light", fontSizeInterface: 17, threadTitleModelId: "kimi-k2.5" },
+      settings: { theme: "light", fontSizeInterface: 17 },
     });
     expect(snapshot.threadWork?.["thread-1"]?.draft?.content).toBe("composer from B");
     expect(snapshot.threadMessages?.find((message) => message.id === "assistant-1")).toMatchObject({
@@ -489,9 +484,8 @@ describe("real multi-window workflows", () => {
         content: "",
         attachedSkillNames: [],
         attachments: [],
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     });
 

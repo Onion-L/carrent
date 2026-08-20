@@ -3,10 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createAppStateStore } from "./appStateStore";
-import type {
-  ProviderSessionSnapshot,
-  AppStateSnapshot,
-} from "../../src/shared/workspacePersistence";
+import type { AppStateSnapshot } from "../../src/shared/workspacePersistence";
 import { createEmptyAppStateSnapshot } from "../../src/shared/workspacePersistence";
 
 async function makeTempDir(): Promise<string> {
@@ -56,7 +53,6 @@ describe("createAppStateStore", () => {
         threadDrafts: [],
         threadMessages: [],
         threadRuns: [],
-        threadActions: [],
         threadPromotionIntents: [],
         threadWork: {},
         lastThreadIdByWorkspace: {},
@@ -532,7 +528,6 @@ describe("createAppStateStore", () => {
       notice: "full-reset",
     });
     expect(await store.loadAppStateSnapshot()).toEqual(createEmptyAppStateSnapshot());
-    expect(await store.loadProviderSessions()).toEqual({ version: 1, sessions: {} });
   });
 
   it("retries to a complete reset state after final cleanup fails", async () => {
@@ -572,7 +567,6 @@ describe("createAppStateStore", () => {
       notice: "full-reset",
     });
     expect(await store.loadAppStateSnapshot()).toEqual(createEmptyAppStateSnapshot());
-    expect(await store.loadProviderSessions()).toEqual({ version: 1, sessions: {} });
   });
 
   it("preserves all Carrent data when Full Reset deletion fails", async () => {
@@ -612,17 +606,16 @@ describe("createAppStateStore", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "kimi",
+          defaultAgentMode: "ask",
         },
         {
           workspaceId: "workspace-2",
           projectId: "project-1",
           alias: "Client Carrent",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeModelId: "gpt-5",
-          defaultRuntimeMode: "auto-accept-edits",
+          defaultProviderProfileId: "kimi",
+          defaultAgentMode: "auto-edit",
         },
       ],
       activeWorkspaceId: "workspace-2",
@@ -679,8 +672,8 @@ describe("createAppStateStore", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "kimi",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -691,9 +684,8 @@ describe("createAppStateStore", () => {
           title: "Attachment schema",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "kimi",
+          agentMode: "ask",
         },
       ],
       threadMessages: [
@@ -749,38 +741,5 @@ describe("createAppStateStore", () => {
 
     expect(String(saveError)).toContain("Invalid App State snapshot");
     expect(await readdir(baseDir)).not.toContain("app-state.json");
-  });
-
-  it("writes and reads provider sessions", async () => {
-    const baseDir = await makeTempDir();
-    const store = createAppStateStore(baseDir);
-    const snapshot: ProviderSessionSnapshot = {
-      version: 1,
-      sessions: { "kimi:thread-1": "sess-abc" },
-    };
-
-    await store.saveProviderSessions(snapshot);
-    const loaded = await store.loadProviderSessions();
-    expect(loaded).toEqual(snapshot);
-  });
-
-  it("returns empty sessions for missing provider file", async () => {
-    const baseDir = await makeTempDir();
-    const store = createAppStateStore(baseDir);
-    const loaded = await store.loadProviderSessions();
-    expect(loaded).toEqual({ version: 1, sessions: {} });
-  });
-
-  it("renames corrupt provider sessions json to corrupt backup", async () => {
-    const baseDir = await makeTempDir();
-    const store = createAppStateStore(baseDir);
-    const path = join(baseDir, "provider-sessions.json");
-    await writeFile(path, "not-json", "utf-8");
-
-    const loaded = await store.loadProviderSessions();
-    expect(loaded).toEqual({ version: 1, sessions: {} });
-
-    const files = await readdir(baseDir);
-    expect(files.some((f) => f.startsWith("provider-sessions.corrupt-"))).toBe(true);
   });
 });

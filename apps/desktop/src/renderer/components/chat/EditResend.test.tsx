@@ -11,7 +11,6 @@ import type { ChatRunEvent, ChatTurnRequest } from "../../../shared/chat";
 import type { AppStateSnapshot } from "../../../shared/workspacePersistence";
 import { createFakeAppStateAuthority } from "../../test/fakeAppStateAuthority";
 import { AppStateProvider } from "../../context/AppStateContext";
-import { RuntimeModelsProvider } from "../../context/RuntimeModelsContext";
 import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
 import { Composer, type ComposerSubmitRequest } from "./Composer";
 import { MessageTimeline, type UserMessageEditDraft } from "./MessageTimeline";
@@ -30,8 +29,8 @@ function baseSnapshot(): AppStateSnapshot {
         workspaceId: "workspace-1",
         projectId: "project-1",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "ask",
       },
     ],
     threads: [
@@ -42,9 +41,8 @@ function baseSnapshot(): AppStateSnapshot {
         title: "First",
         createdAt: "2026-07-27T08:00:00.000Z",
         lastActivityAt: "2026-07-27T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     ],
     threadDrafts: [],
@@ -83,6 +81,24 @@ function installCarrentBridge(
   requests: ChatTurnRequest[] = [],
 ) {
   window.carrent = {
+    agentAuth: {
+      load: async () => ({
+        path: "/home/test/.carrent/agent/auth.json",
+        activeProfileId: "default",
+        profiles: [
+          {
+            id: "default",
+            type: "anthropic",
+            baseUrl: "https://api.anthropic.com",
+            modelId: "claude-sonnet-4-5",
+            hasApiKey: true,
+          },
+        ],
+      }),
+      save: async () => {
+        throw new Error("Unexpected agent auth save");
+      },
+    },
     appState: {
       load: async () => ({ status: "ready", snapshot: authority.getState().snapshot }),
       reread: async () => ({ status: "ready", snapshot: authority.getState().snapshot }),
@@ -96,24 +112,7 @@ function installCarrentBridge(
     },
     projectDirectories: { check: async () => ({ available: true }) },
     attachments: { read: async () => new Uint8Array([1]) },
-    runtimes: {
-      list: async () => [
-        {
-          id: "kimi",
-          name: "Kimi Code",
-          command: "kimi",
-          availability: "detected",
-          enabled: true,
-          status: "stopped",
-          configuration: "configured",
-          verification: "never",
-          supportsModelPing: false,
-        },
-      ],
-      listModels: async () => ({ state: "listed", models: [] }),
-    },
     skills: { list: async () => [] },
-    mcpServer: { getStatus: async () => ({ enabled: true, running: true }) },
     git: {
       workspaceSnapshot: async () => ({ state: "ready", baseRevision: "abc" }),
       workspaceDiff: async () => ({ state: "ready", files: [], patch: "" }),
@@ -127,7 +126,6 @@ function installCarrentBridge(
       deleteThreadData: async () => {},
       respondToPermission: async () => {},
       respondToQuestion: async () => {},
-      getKimiStatus: async () => null,
       onEvent: (_listener: (event: ChatRunEvent) => void) => () => {},
     },
   } as unknown as Window["carrent"];
@@ -160,9 +158,8 @@ function EditResendHarness() {
         projectId="project-1"
         threadId="thread-1"
         messages={routeData.messages}
-        runtimeId="kimi"
-        runtimeMode="approval-required"
-        planMode={false}
+        providerProfileId="default"
+        agentMode="ask"
         submitRequest={submitRequest}
       />
       <div data-testid="assistant-ids">
@@ -179,11 +176,9 @@ function testTree() {
   return (
     <AppStateProvider>
       <ThreadContentProvider>
-        <RuntimeModelsProvider>
-          <MemoryRouter>
-            <EditResendHarness />
-          </MemoryRouter>
-        </RuntimeModelsProvider>
+        <MemoryRouter>
+          <EditResendHarness />
+        </MemoryRouter>
       </ThreadContentProvider>
     </AppStateProvider>
   );

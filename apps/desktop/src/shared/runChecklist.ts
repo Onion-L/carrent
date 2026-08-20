@@ -1,4 +1,4 @@
-import type { RuntimeId } from "./runtimes";
+import type { ProviderProfileId } from "./providerProfiles";
 
 export const MAX_RUN_CHECKLIST_ITEMS = 100;
 export const MAX_RUN_CHECKLIST_ITEM_BYTES = 8 * 1024;
@@ -18,7 +18,7 @@ export type RunChecklistOutcome = "running" | "completed" | "failed" | "cancelle
 
 export type ThreadRunChecklist = RunChecklistSnapshot & {
   runId: string;
-  runtimeId: RuntimeId;
+  providerProfileId: ProviderProfileId;
   outcome: RunChecklistOutcome;
   expanded: boolean;
 };

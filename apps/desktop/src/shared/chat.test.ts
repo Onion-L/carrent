@@ -18,32 +18,6 @@ describe("applyThreadDeletionToAppState", () => {
     });
   });
 
-  it("deletes Thread Action history owned by the removed Thread", () => {
-    const snapshot = {
-      ...createEmptyAppStateSnapshot(),
-      threadActions: [
-        {
-          id: "action-1",
-          threadId: "thread-1",
-          action: "compact" as const,
-          runtimeId: "kimi" as const,
-          completedAt: "2026-07-27T08:00:00.000Z",
-        },
-        {
-          id: "action-2",
-          threadId: "thread-2",
-          action: "compact" as const,
-          runtimeId: "kimi" as const,
-          completedAt: "2026-07-27T08:01:00.000Z",
-        },
-      ],
-    };
-
-    expect(applyThreadDeletionToAppState(snapshot, ["thread-1"]).threadActions).toEqual([
-      snapshot.threadActions[1],
-    ]);
-  });
-
   it("deletes a middle Workspace and keeps the remaining Workspace order valid", () => {
     const snapshot = {
       ...createEmptyAppStateSnapshot(),

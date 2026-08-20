@@ -82,8 +82,7 @@ export function AppStateRecoveryPage() {
                   Permanently reset Carrent data?
                 </h2>
                 <p className="mt-3 text-app-13 leading-5 text-muted">
-                  This deletes Carrent App State, Runtime Session mappings, attachments, and legacy
-                  projectless chat data.
+                  This deletes Carrent App State, attachments, and legacy projectless chat data.
                 </p>
                 <p className="mt-3 text-app-13 leading-5 text-muted">
                   Project Working Directories, project files, and Git state are not changed.

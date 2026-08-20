@@ -8,16 +8,12 @@ export type ChatPermissionOption = {
   kind: ChatPermissionOptionKind;
 };
 
-export type ChatPlanReview = {
-  content: string;
-};
-
 export type ChatPermissionRequest = {
   id: string;
   runId: string;
   requestKey?: string;
   threadId: string;
-  provider: "kimi";
+  provider: "core";
   action: ChatPermissionAction;
   title: string;
   description?: string;
@@ -25,7 +21,6 @@ export type ChatPermissionRequest = {
   filePath?: string;
   toolName?: string;
   options: ChatPermissionOption[];
-  planReview?: ChatPlanReview;
   createdAt: string;
   expiresAt: string;
 };

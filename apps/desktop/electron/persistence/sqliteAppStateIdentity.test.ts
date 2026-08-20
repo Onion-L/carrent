@@ -26,24 +26,23 @@ function completeIdentitySnapshot(): AppStateSnapshot {
         workspaceId: "workspace-a",
         projectId: "project-a",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "auto-accept-edits",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "auto-edit",
       },
       {
         workspaceId: "workspace-a",
         projectId: "project-b",
         alias: "Shared tools",
         order: 1,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeModelId: "kimi-k2.5",
-        defaultRuntimeMode: "full-access",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "full-project",
       },
       {
         workspaceId: "workspace-b",
         projectId: "project-b",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "ask",
       },
     ],
     threads: [
@@ -54,9 +53,8 @@ function completeIdentitySnapshot(): AppStateSnapshot {
         title: "SQLite identity graph",
         createdAt: "2026-08-09T08:00:00.000Z",
         lastActivityAt: "2026-08-09T09:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "auto-accept-edits",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "auto-edit",
       },
       {
         id: "thread-archived",
@@ -68,10 +66,8 @@ function completeIdentitySnapshot(): AppStateSnapshot {
         lastActivityAt: "2026-08-08T09:00:00.000Z",
         archived: true,
         pinned: true,
-        runtimeId: "kimi",
-        runtimeModelId: "kimi-k2.5",
-        runtimeMode: "full-access",
-        planMode: true,
+        providerProfileId: "default",
+        agentMode: "full-project",
       },
     ],
     threadDrafts: [
@@ -93,18 +89,15 @@ function completeIdentitySnapshot(): AppStateSnapshot {
             storageKey: "attachments/notes.txt",
           },
         ],
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: true,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     ],
     threadMessages: [],
     threadRuns: [],
-    threadActions: [],
     threadPromotionIntents: [],
     threadWork: {},
     settings: {
-      autoDetectRuntimes: false,
       theme: "system",
       codeHighlightTheme: "nord",
       typographyMode: "simple",
@@ -121,8 +114,6 @@ function completeIdentitySnapshot(): AppStateSnapshot {
       defaultEditorId: "",
       enhancedTerminalCompletion: false,
       terminalPanelHeight: 420,
-      runtimeEnabledById: { kimi: false },
-      runtimeDefaultModelById: { kimi: "kimi-k2.5" },
     } as NonNullable<AppStateSnapshot["settings"]>,
     lastThreadIdByWorkspace: {
       "workspace-a": "thread-current",
@@ -242,14 +233,12 @@ describe("SQLite App State identity graph", () => {
           JSON.stringify({
             theme: "neon",
             fontSizeInterface: 18,
-            runtimeEnabledById: { kimi: "yes" },
             unknown: "discarded",
           }),
         ),
       );
 
       expect((await store.loadAppStateSnapshot())?.settings).toEqual({
-        autoDetectRuntimes: true,
         theme: "dark",
         codeHighlightTheme: "classic",
         typographyMode: "simple",
@@ -266,8 +255,6 @@ describe("SQLite App State identity graph", () => {
         defaultEditorId: "",
         enhancedTerminalCompletion: true,
         terminalPanelHeight: 320,
-        runtimeEnabledById: {},
-        runtimeDefaultModelById: {},
       });
       await store.close();
     } finally {
@@ -354,15 +341,6 @@ describe("SQLite App State identity graph", () => {
           '{"attachments":[]}',
         );
         client.run(
-          `INSERT INTO thread_actions (id, thread_id, action, runtime_id, completed_at)
-           VALUES (?, ?, ?, ?, ?)`,
-          "action-1",
-          "thread-current",
-          "compact",
-          "kimi",
-          "2026-08-09T08:40:00.000Z",
-        );
-        client.run(
           "INSERT INTO thread_work (thread_id, queued_messages) VALUES (?, ?)",
           "thread-current",
           "[]",
@@ -382,11 +360,9 @@ describe("SQLite App State identity graph", () => {
       const counts = await store.run((client) => ({
         messages: client.get<{ count: number }>("SELECT COUNT(*) AS count FROM thread_messages")
           ?.count,
-        actions: client.get<{ count: number }>("SELECT COUNT(*) AS count FROM thread_actions")
-          ?.count,
         work: client.get<{ count: number }>("SELECT COUNT(*) AS count FROM thread_work")?.count,
       }));
-      expect(counts).toEqual({ messages: 0, actions: 0, work: 0 });
+      expect(counts).toEqual({ messages: 0, work: 0 });
       expect((await store.loadAppStateSnapshot())?.threads?.[0]?.title).toBe("Renamed identity");
       await store.close();
     } finally {
@@ -394,7 +370,7 @@ describe("SQLite App State identity graph", () => {
     }
   });
 
-  it("rolls back real foreign-key, unique, required, enum, and boolean failures", async () => {
+  it("rolls back real foreign-key, unique, required, and enum failures", async () => {
     const dir = await mkdtemp(join(tmpdir(), "carrent-sqlite-identity-"));
     try {
       const store = createSqliteAppStateStore(join(dir, "carrent.sqlite"), {
@@ -408,13 +384,13 @@ describe("SQLite App State identity graph", () => {
             client.transaction(() =>
               client.run(
                 `INSERT INTO workspace_project_associations
-                   (workspace_id, project_id, "order", default_runtime_id, default_runtime_mode)
+                   (workspace_id, project_id, "order", default_provider_profile_id, default_agent_mode)
                  VALUES (?, ?, ?, ?, ?)`,
                 "missing-workspace",
                 "missing-project",
                 0,
-                "kimi",
-                "approval-required",
+                "default",
+                "ask",
               ),
             ),
           ),
@@ -465,13 +441,13 @@ describe("SQLite App State identity graph", () => {
               );
               client.run(
                 `INSERT INTO workspace_project_associations
-                   (workspace_id, project_id, "order", default_runtime_id, default_runtime_mode)
+                   (workspace_id, project_id, "order", default_provider_profile_id, default_agent_mode)
                  VALUES (?, ?, ?, ?, ?)`,
                 "workspace-1",
                 "project-1",
                 0,
-                "invalid-runtime",
-                "approval-required",
+                "default",
+                "invalid-mode",
               );
             }),
           ),
@@ -494,28 +470,27 @@ describe("SQLite App State identity graph", () => {
               );
               client.run(
                 `INSERT INTO workspace_project_associations
-                   (workspace_id, project_id, "order", default_runtime_id, default_runtime_mode)
+                   (workspace_id, project_id, "order", default_provider_profile_id, default_agent_mode)
                  VALUES (?, ?, ?, ?, ?)`,
                 "workspace-1",
                 "project-1",
                 0,
-                "kimi",
-                "approval-required",
+                "default",
+                "ask",
               );
               client.run(
                 `INSERT INTO threads (
                    id, workspace_id, project_id, title, created_at, last_activity_at,
-                   runtime_id, runtime_mode, plan_mode
-                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                   provider_profile_id, agent_mode
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                 "thread-1",
                 "workspace-1",
                 "project-1",
                 "Invalid boolean",
                 "2026-08-09T08:00:00.000Z",
                 "2026-08-09T08:00:00.000Z",
-                "kimi",
-                "approval-required",
-                2,
+                "default",
+                "invalid-mode",
               );
             }),
           ),
@@ -558,9 +533,8 @@ describe("SQLite App State identity graph", () => {
         title: "Valid unusual identity",
         createdAt: "2026-08-09T09:30:00.000Z",
         lastActivityAt: "2026-08-09T09:30:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       });
       await store.saveAppStateSnapshot(snapshot);
 

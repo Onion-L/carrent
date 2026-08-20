@@ -1,8 +1,7 @@
 import {
   Archive,
-  Brain,
-  ChartColumn,
   GitBranch,
+  KeyRound,
   Keyboard,
   Monitor,
   Palette,
@@ -13,7 +12,7 @@ export const SETTINGS_TABS = [
   {
     id: "general",
     label: "General",
-    description: "Runtime, instructions, server and updates",
+    description: "Instructions, project defaults and updates",
   },
   {
     id: "interface",
@@ -26,15 +25,9 @@ export const SETTINGS_TABS = [
     description: "Customize keyboard shortcuts",
   },
   {
-    id: "usage",
-    label: "Usage",
-    description: "Kimi Code token usage",
-  },
-  {
-    id: "memory",
-    label: "Memory",
-    description: "Kimi Code agent memory",
-    badge: "Beta",
+    id: "providers",
+    label: "Providers",
+    description: "API credentials, endpoints and models",
   },
   {
     id: "worktrees",
@@ -54,16 +47,15 @@ export const SETTINGS_TAB_ICONS: Record<SettingsTabId, typeof Monitor> = {
   general: SlidersHorizontal,
   interface: Palette,
   keybindings: Keyboard,
-  usage: ChartColumn,
-  memory: Brain,
+  providers: KeyRound,
   worktrees: GitBranch,
   archives: Archive,
 };
 
 export const DEFAULT_SETTINGS_TAB_ID: SettingsTabId = "general";
 
-// Tabs merged into General; keep old links working.
-const LEGACY_GENERAL_TAB_IDS = new Set(["runtime", "personalization", "local-server", "about"]);
+// Removed tabs redirect to General.
+const LEGACY_GENERAL_TAB_IDS = new Set(["usage", "memory", "personalization", "about"]);
 
 export function resolveSettingsTabId(value: string | null | undefined): SettingsTabId {
   if (value && LEGACY_GENERAL_TAB_IDS.has(value)) {

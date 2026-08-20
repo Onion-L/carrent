@@ -2,7 +2,7 @@
 // folder. Unlike a File Attachment (ADR-0010), Carrent stores no bytes and owns
 // no snapshot — it keeps only the original absolute path and whether the item
 // is a file or a directory. Canonicalization (realpath) happens later, at Run
-// start, when the Runtime read allowlist is built; this layer deliberately
+// start, when Agent Core evaluates access; this layer deliberately
 // preserves the user-selected path verbatim so visually distinct selections
 // (including case differences and non-resolved symlinks) are not collapsed.
 

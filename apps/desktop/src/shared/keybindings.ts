@@ -15,16 +15,16 @@ export const THREAD_JUMP_ACTION_IDS = [
   "thread-jump-9",
 ] as const;
 
-export const MODEL_PICKER_SELECT_ACTION_IDS = [
-  "model-picker-select-1",
-  "model-picker-select-2",
-  "model-picker-select-3",
-  "model-picker-select-4",
-  "model-picker-select-5",
-  "model-picker-select-6",
-  "model-picker-select-7",
-  "model-picker-select-8",
-  "model-picker-select-9",
+export const PROVIDER_PICKER_SELECT_ACTION_IDS = [
+  "provider-picker-select-1",
+  "provider-picker-select-2",
+  "provider-picker-select-3",
+  "provider-picker-select-4",
+  "provider-picker-select-5",
+  "provider-picker-select-6",
+  "provider-picker-select-7",
+  "provider-picker-select-8",
+  "provider-picker-select-9",
 ] as const;
 
 export const BROWSER_LOCAL_ACTION_IDS = [
@@ -65,8 +65,8 @@ export type ActionId =
   | "new-local-thread"
   | "open-file-picker"
   | "save-composer-draft"
-  | "toggle-model-picker"
-  | (typeof MODEL_PICKER_SELECT_ACTION_IDS)[number]
+  | "toggle-provider-picker"
+  | (typeof PROVIDER_PICKER_SELECT_ACTION_IDS)[number]
   | "open-default-editor"
   | "thread-previous"
   | "thread-next"
@@ -132,8 +132,8 @@ export const ACTION_IDS: ActionId[] = [
   "new-local-thread",
   "open-file-picker",
   "save-composer-draft",
-  "toggle-model-picker",
-  ...MODEL_PICKER_SELECT_ACTION_IDS,
+  "toggle-provider-picker",
+  ...PROVIDER_PICKER_SELECT_ACTION_IDS,
   "open-default-editor",
   "thread-previous",
   "thread-next",

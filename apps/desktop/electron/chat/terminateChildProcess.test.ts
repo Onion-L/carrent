@@ -103,6 +103,6 @@ describe("terminateChildProcess", () => {
     );
 
     expect(rejection instanceof Error).toBe(true);
-    expect((rejection as Error).message).toBe("Runtime process did not exit after taskkill.");
+    expect((rejection as Error).message).toBe("Agent process did not exit after taskkill.");
   });
 });

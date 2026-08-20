@@ -34,9 +34,8 @@ function makeThread(overrides: Partial<AppThreadRecord> = {}): AppThreadRecord {
     title: "Tidy the docs",
     createdAt: "2026-01-01T00:00:00.000Z",
     lastActivityAt: "2026-01-01T00:00:00.000Z",
-    runtimeId: "kimi",
-    runtimeMode: "approval-required",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "ask",
     ...overrides,
   };
 }

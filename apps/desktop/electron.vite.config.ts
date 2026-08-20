@@ -30,7 +30,7 @@ export default defineConfig({
         },
       },
     },
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: ["@carrent/core"] })],
   },
   preload: {
     build: {

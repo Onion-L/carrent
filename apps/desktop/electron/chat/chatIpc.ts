@@ -2,9 +2,6 @@ import type {
   AttachmentMetadata,
   ChatTurnRequest,
   DeleteThreadDataRequest,
-  KimiSessionStatus,
-  KimiTelemetryStatus,
-  RuntimeSessionRecovery,
   ThreadDeletionTransactionRequest,
   ThreadDeletionScope,
 } from "../../src/shared/chat";
@@ -15,6 +12,7 @@ import {
 } from "../../src/shared/localPathContext";
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import type { ChatQuestionAnswer, ChatQuestionResponse } from "../../src/shared/chatQuestions";
+import type { AgentDebugRequest } from "../../src/shared/agentDebug";
 import {
   MAX_ATTACHMENT_COUNT,
   MAX_ATTACHMENT_ID_CHARS,
@@ -25,12 +23,11 @@ import {
   assertValidAttachmentStorageKey,
   isValidAttachmentSha256,
 } from "../../src/shared/attachment";
-import { runtimeIds, type RuntimeId } from "../../src/shared/runtimes";
+import { isProviderProfileId } from "../../src/shared/providerProfiles";
 import type { ChatSessionManager } from "./chatSessionManager";
-import type { ThreadActionRequest } from "../../src/shared/threadActions";
 import type { ChatRunAuthority } from "./chatRunAuthority";
 import type { ThreadTitleCoordinator } from "./threadTitleCoordinator";
-import type { RuntimeDebugRequest, RuntimeDebugTrace } from "../../src/shared/runtimeDebug";
+import type { AgentDebugStore } from "./agentDebugStore";
 
 interface IpcMainLike {
   handle: (
@@ -47,6 +44,7 @@ export interface ChatIpcServices {
     deleteThread: (request: ThreadDeletionTransactionRequest) => Promise<void>;
   };
   threadTitleCoordinator?: Pick<ThreadTitleCoordinator, "enqueue">;
+  debugStore?: AgentDebugStore;
 }
 
 function senderIdOf(event: unknown): number {
@@ -55,10 +53,19 @@ function senderIdOf(event: unknown): number {
   return id;
 }
 
-function assertSupportedRuntime(request: ChatTurnRequest) {
-  if (!runtimeIds.includes(request.runtimeId as RuntimeId)) {
-    throw new Error("Invalid runtime.");
+function assertValidProviderProfile(request: ChatTurnRequest) {
+  if (!isProviderProfileId(request.providerProfileId)) {
+    throw new Error("Invalid Provider Profile.");
   }
+}
+
+export function parseAgentDebugRequest(value: unknown): AgentDebugRequest {
+  if (!value || typeof value !== "object") throw new Error("Invalid Agent Debug request.");
+  const threadId = (value as Record<string, unknown>).threadId;
+  if (typeof threadId !== "string" || !threadId || threadId.trim() !== threadId) {
+    throw new Error("Invalid Agent Debug request.");
+  }
+  return { threadId };
 }
 
 const MAX_DELETE_THREAD_IDS = 10_000;
@@ -103,60 +110,6 @@ export function parseDeleteThreadDataRequest(
       MAX_DELETE_ATTACHMENT_KEYS,
       true,
     ),
-  };
-}
-
-export function parseRuntimeSessionRecovery(value: unknown): RuntimeSessionRecovery {
-  if (!value || typeof value !== "object") {
-    throw new Error("Invalid Runtime Session recovery request.");
-  }
-  const request = value as Record<string, unknown>;
-  if (
-    !runtimeIds.includes(request.runtimeId as RuntimeId) ||
-    typeof request.threadId !== "string" ||
-    request.threadId.trim().length === 0
-  ) {
-    throw new Error("Invalid Runtime Session recovery request.");
-  }
-  return { runtimeId: request.runtimeId as RuntimeId, threadId: request.threadId };
-}
-
-export function parseRuntimeDebugRequest(value: unknown): RuntimeDebugRequest {
-  if (!value || typeof value !== "object") {
-    throw new Error("Invalid Runtime Debug request.");
-  }
-  const request = value as Record<string, unknown>;
-  if (
-    request.runtimeId !== "kimi" ||
-    typeof request.threadId !== "string" ||
-    !request.threadId.trim() ||
-    request.threadId.trim() !== request.threadId
-  ) {
-    throw new Error("Invalid Runtime Debug request.");
-  }
-  return { runtimeId: "kimi", threadId: request.threadId };
-}
-
-export function parseThreadActionRequest(value: unknown): ThreadActionRequest {
-  if (!value || typeof value !== "object") {
-    throw new Error("Invalid Thread Action request.");
-  }
-  const request = value as Record<string, unknown>;
-  if (
-    request.action !== "compact" ||
-    !runtimeIds.includes(request.runtimeId as RuntimeId) ||
-    typeof request.threadId !== "string" ||
-    request.threadId.trim().length === 0 ||
-    typeof request.workingDirectory !== "string" ||
-    request.workingDirectory.trim().length === 0
-  ) {
-    throw new Error("Invalid Thread Action request.");
-  }
-  return {
-    action: "compact",
-    runtimeId: request.runtimeId as RuntimeId,
-    threadId: request.threadId,
-    workingDirectory: request.workingDirectory,
   };
 }
 
@@ -296,8 +249,8 @@ export function parseChatTurnAttachments(value: unknown): AttachmentMetadata[] |
 // Sanitizes the optional Local Path Context on a chat turn request. Lenient by
 // design at this boundary: absent resolves to undefined (the field is omitted),
 // and malformed entries are dropped rather than rejecting the whole request, so
-// the Runtime never receives authorization for an untrusted path. This is the
-// trust boundary where Runtime authorization begins — downstream code trusts
+// Agent Core never receives authorization for an untrusted path. This is the
+// trust boundary where Agent Core authorization begins; downstream code trusts
 // that every item here is a normalized, classified descriptor.
 export function parseChatTurnLocalPathContexts(value: unknown): LocalPathContextItem[] | undefined {
   if (value === undefined || value === null) return undefined;
@@ -398,7 +351,7 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
 
   ipcMainLike.handle("chat:send", async (_event, request) => {
     const req = request as ChatTurnRequest;
-    assertSupportedRuntime(req);
+    assertValidProviderProfile(req);
     if (
       services.isProjectDirectoryAvailable &&
       !(await services.isProjectDirectoryAvailable(req.context.workingDirectory))
@@ -443,18 +396,6 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
     return services.runAuthority.stop(runId as string);
   });
 
-  ipcMainLike.handle("chat:thread-action", async (_event, request) => {
-    if (!services.sessionManager.executeThreadAction) {
-      throw new Error("Thread Actions are unavailable. Restart Carrent and try again.");
-    }
-    return services.sessionManager.executeThreadAction(parseThreadActionRequest(request));
-  });
-
-  ipcMainLike.handle("chat:remove-runtime-session", async (_event, request) => {
-    await services.sessionManager.removeRuntimeSession(parseRuntimeSessionRecovery(request));
-    return undefined;
-  });
-
   ipcMainLike.handle("chat:delete-thread-data", async (_event, request) => {
     await services.sessionManager.deleteThreadData(parseDeleteThreadDataRequest(request));
     return undefined;
@@ -480,26 +421,8 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
     return services.runAuthority.respondToQuestion(parsed);
   });
 
-  ipcMainLike.handle("chat:kimi-status", async (_event, request) => {
-    const req = request as ChatTurnRequest;
-    assertSupportedRuntime(req);
-    return services.sessionManager.getStatus(req) as Promise<KimiTelemetryStatus | null>;
-  });
-
-  ipcMainLike.handle("chat:session-status", async (_event, request) => {
-    const req = request as ChatTurnRequest;
-    assertSupportedRuntime(req);
-    if (!services.sessionManager.inspectStatus) {
-      return null;
-    }
-
-    return services.sessionManager.inspectStatus(req) as Promise<KimiSessionStatus | null>;
-  });
-
-  ipcMainLike.handle("chat:debug-trace", async (_event, request) => {
-    if (!services.sessionManager.inspectDebugTrace) return null;
-    return services.sessionManager.inspectDebugTrace(
-      parseRuntimeDebugRequest(request),
-    ) as Promise<RuntimeDebugTrace | null>;
+  ipcMainLike.handle("chat:debug-trace", (_event, request) => {
+    const { threadId } = parseAgentDebugRequest(request);
+    return services.debugStore?.getTrace(threadId) ?? null;
   });
 }

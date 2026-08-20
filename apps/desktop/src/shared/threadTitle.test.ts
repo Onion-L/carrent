@@ -113,7 +113,7 @@ describe("deriveThreadTitle", () => {
   });
 
   // Raw source separation: the Composer derives the title from the visible
-  // composer text (currentInput), not the runtime prompt enriched with Skill
+  // composer text (currentInput), not the agent prompt enriched with Skill
   // references. A Skill reference is the markup `[$name](path)`; it must never
   // appear in a derived title. Pinning this property at the contract seam proves
   // the Composer feeds the visible text — a regression to the enriched prompt
@@ -121,7 +121,7 @@ describe("deriveThreadTitle", () => {
   it("strips no Skill-reference markup because the source is the visible text", () => {
     // The visible text a user typed — no Skill reference markup.
     expect(deriveThreadTitle("Fix the sidebar")).toBe("Fix the sidebar");
-    // The runtime-enriched prompt the Composer must NOT feed here. If it did,
+    // The agent-enriched prompt the Composer must NOT feed here. If it did,
     // the title would start with `[$tdd](/path)` instead of the user's words.
     const enriched = "[$tdd](/code/tdd) Fix the sidebar";
     // Guard against the function silently absorbing enriched input: the title

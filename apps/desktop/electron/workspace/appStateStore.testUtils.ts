@@ -18,8 +18,6 @@ export function createAppStateStoreStub(overrides: Partial<AppStateStore> = {}):
     persistAppStateCommand: async (_command, _before, after) => {
       await overrides.saveAppStateSnapshot?.(after);
     },
-    loadProviderSessions: async () => ({ version: 1, sessions: {} }),
-    saveProviderSessions: async () => {},
     ...overrides,
   };
 }

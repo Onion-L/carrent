@@ -11,9 +11,8 @@ function thread(id: string, projectId: string): AppThreadRecord {
     title: "Thread",
     createdAt: "2026-08-13T00:00:00.000Z",
     lastActivityAt: "2026-08-13T00:00:00.000Z",
-    runtimeId: "kimi",
-    runtimeMode: "full-access",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "full-project",
   };
 }
 

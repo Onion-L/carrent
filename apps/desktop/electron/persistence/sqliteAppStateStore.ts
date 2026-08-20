@@ -109,31 +109,22 @@ export interface SqliteAppStateStore {
   /**
    * Permanently delete the Thread-owned relational state for `threadIds`,
    * scoped by `scope` (threads / association / workspace), in one database
-   * transaction. Returns the removed Provider Session mappings so the caller
-   * can restore them on rollback. A failure rolls back every deleted row.
+   * transaction. A failure rolls back every deleted row.
    */
   deleteAppStateForThreads(
     operationId: string,
     threadIds: string[],
     scope?: ThreadDeletionScope,
-    onCommitted?: (removedProviderSessions: Record<string, string>) => void,
-  ): Promise<{
-    appState: AppStateSnapshot;
-    removedProviderSessions: Record<string, string>;
-  }>;
+  ): Promise<{ appState: AppStateSnapshot }>;
   hasCommittedThreadDeletion(operationId: string): Promise<boolean>;
   clearCommittedThreadDeletionMarker(operationId: string): Promise<void>;
-  /** Update one Project path and detach its Runtime Session mappings atomically. */
+  /** Update one Project path atomically. */
   relocateProject(request: {
     projectId: string;
     beforeWorkingDirectory: string;
     targetDirectory: string;
     threadIds: string[];
-    providerSessions: Record<string, string>;
-  }): Promise<{
-    appState: AppStateSnapshot;
-    removedProviderSessions: Record<string, string>;
-  }>;
+  }): Promise<{ appState: AppStateSnapshot }>;
   /**
    * Resolves once every operation submitted so far has settled, so quit-time
    * flows can drain pending writes before the process exits.
@@ -293,22 +284,17 @@ export function createSqliteAppStateStore(
     operationId: string,
     threadIds: string[],
     scope?: ThreadDeletionScope,
-    onCommitted?: (removedProviderSessions: Record<string, string>) => void,
-  ): Promise<{
-    appState: AppStateSnapshot;
-    removedProviderSessions: Record<string, string>;
-  }> {
+  ): Promise<{ appState: AppStateSnapshot }> {
     // The whole row-level deletion owns one transaction on the serialized
     // queue, so any constraint or statement failure rolls back every deleted
     // row and leaves the pre-deletion state authoritative.
     return run((connection) => {
       const result = connection.transaction(() => {
-        const deletion = deleteThreadsFromAppState(connection, operationId, threadIds, scope);
+        deleteThreadsFromAppState(connection, operationId, threadIds, scope);
         const appState = readAppStateSnapshot(connection);
         if (!appState) throw new Error("Thread deletion produced invalid App State.");
-        return { appState, ...deletion };
+        return { appState };
       });
-      onCommitted?.(result.removedProviderSessions);
       return result;
     });
   }
@@ -337,17 +323,13 @@ export function createSqliteAppStateStore(
     beforeWorkingDirectory: string;
     targetDirectory: string;
     threadIds: string[];
-    providerSessions: Record<string, string>;
-  }): Promise<{
-    appState: AppStateSnapshot;
-    removedProviderSessions: Record<string, string>;
-  }> {
+  }): Promise<{ appState: AppStateSnapshot }> {
     return run((connection) => {
       return connection.transaction(() => {
-        const result = relocateProjectInAppState(connection, request);
+        relocateProjectInAppState(connection, request);
         const appState = readAppStateSnapshot(connection);
         if (!appState) throw new Error("Project relocation produced invalid App State.");
-        return { appState, ...result };
+        return { appState };
       });
     });
   }

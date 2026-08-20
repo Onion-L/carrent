@@ -24,12 +24,11 @@ import type {
   ChatRunEvent,
 } from "../../../shared/chat";
 import type { ChatPermissionResponse } from "../../../shared/chatPermissions";
-import type { RuntimeModelRecord } from "../../../shared/runtimes";
+import type { ProviderProfileView } from "../../../shared/agentAuth";
 import type { AppStateSnapshot } from "../../../shared/workspacePersistence";
 import { createFakeAppStateAuthority } from "../../test/fakeAppStateAuthority";
 import { chunkStreamingAnswer, LONG_STREAMING_ANSWER } from "../../test/streamingFixture";
 import { AppStateProvider } from "../../context/AppStateContext";
-import { RuntimeModelsProvider } from "../../context/RuntimeModelsContext";
 import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
 import { ToastProvider } from "../toast/ToastContext";
 import {
@@ -61,21 +60,20 @@ let listedSkillProjectDirs: Array<string | undefined> = [];
 let revealedPaths: string[] = [];
 let latestAssistantMessage: { content: string; runStatus?: string } | null = null;
 let permissionResponses: ChatPermissionResponse[] = [];
-let selectedRuntimeModelIds: Array<string | undefined> = [];
+let selectedProviderProfileIds: string[] = [];
 
 function ComposerHarness({
   draftRequest,
   threadId = "thread-1",
   withTimeline = false,
-  withRuntimePicker = false,
+  withProviderPicker = false,
 }: {
   draftRequest?: ComposerDraftRequest;
   threadId?: string;
   withTimeline?: boolean;
-  withRuntimePicker?: boolean;
+  withProviderPicker?: boolean;
 }) {
   const { hasHydrated, getThreadRouteData } = useThreadContent();
-  const [runtimeModelId, setRuntimeModelId] = React.useState<string>();
   const routeData = getThreadRouteData("project-1", threadId);
   if (!hasHydrated || !routeData) {
     return null;
@@ -97,17 +95,13 @@ function ComposerHarness({
         projectId="project-1"
         threadId={threadId}
         messages={routeData.messages}
-        runtimeId="kimi"
-        runtimeModelId={runtimeModelId}
-        runtimeMode="approval-required"
-        planMode={false}
+        providerProfileId="default"
+        agentMode="ask"
         draftRequest={draftRequest}
-        onRuntimeIdChange={withRuntimePicker ? () => {} : undefined}
-        onRuntimeModelIdChange={
-          withRuntimePicker
-            ? (modelId) => {
-                selectedRuntimeModelIds.push(modelId);
-                setRuntimeModelId(modelId);
+        onProviderProfileIdChange={
+          withProviderPicker
+            ? (profileId) => {
+                selectedProviderProfileIds.push(profileId);
               }
             : undefined
         }
@@ -120,24 +114,22 @@ function composerTree(
   draftRequest?: ComposerDraftRequest,
   threadId = "thread-1",
   withTimeline = false,
-  withRuntimePicker = false,
+  withProviderPicker = false,
   composerKey = "composer",
 ) {
   return (
     <ToastProvider>
       <AppStateProvider>
         <ThreadContentProvider>
-          <RuntimeModelsProvider>
-            <MemoryRouter>
-              <ComposerHarness
-                key={composerKey}
-                draftRequest={draftRequest}
-                threadId={threadId}
-                withTimeline={withTimeline}
-                withRuntimePicker={withRuntimePicker}
-              />
-            </MemoryRouter>
-          </RuntimeModelsProvider>
+          <MemoryRouter>
+            <ComposerHarness
+              key={composerKey}
+              draftRequest={draftRequest}
+              threadId={threadId}
+              withTimeline={withTimeline}
+              withProviderPicker={withProviderPicker}
+            />
+          </MemoryRouter>
         </ThreadContentProvider>
       </AppStateProvider>
     </ToastProvider>
@@ -163,9 +155,8 @@ function AssociationDraftHarness({
         threadId="draft-thread-1"
         initialDraft={initialDraft}
         messages={[]}
-        runtimeId="kimi"
-        runtimeMode="approval-required"
-        planMode={false}
+        providerProfileId="default"
+        agentMode="ask"
         onDraftChange={onDraftChange}
         onPromote={async (_input: AssociationDraftPromotionInput) => false}
         onPromotionRejected={async () => {}}
@@ -183,11 +174,9 @@ function associationDraftTree(
     <ToastProvider>
       <AppStateProvider>
         <ThreadContentProvider>
-          <RuntimeModelsProvider>
-            <MemoryRouter>
-              <AssociationDraftHarness initialDraft={initialDraft} onDraftChange={onDraftChange} />
-            </MemoryRouter>
-          </RuntimeModelsProvider>
+          <MemoryRouter>
+            <AssociationDraftHarness initialDraft={initialDraft} onDraftChange={onDraftChange} />
+          </MemoryRouter>
         </ThreadContentProvider>
       </AppStateProvider>
     </ToastProvider>
@@ -216,8 +205,8 @@ function baseSnapshot(threadWork: AppStateSnapshot["threadWork"]): AppStateSnaps
         workspaceId: "workspace-1",
         projectId: "project-1",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "ask",
       },
     ],
     threads: [
@@ -228,9 +217,8 @@ function baseSnapshot(threadWork: AppStateSnapshot["threadWork"]): AppStateSnaps
         title: "First",
         createdAt: "2026-07-27T08:00:00.000Z",
         lastActivityAt: "2026-07-27T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
       {
         id: "thread-2",
@@ -239,9 +227,8 @@ function baseSnapshot(threadWork: AppStateSnapshot["threadWork"]): AppStateSnaps
         title: "Second",
         createdAt: "2026-07-27T08:00:00.000Z",
         lastActivityAt: "2026-07-27T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     ],
     threadDrafts: [],
@@ -260,10 +247,9 @@ function installCarrentBridge(
   options: {
     authorityState?: ChatRunAuthorityState;
     disableAutoComplete?: boolean;
-    getKimiStatus?: (request: Record<string, unknown>) => Promise<unknown>;
     readAttachment?: () => Promise<Uint8Array>;
     workspaceDiff?: () => Promise<unknown>;
-    runtimeModels?: RuntimeModelRecord[];
+    providerProfiles?: ProviderProfileView[];
   } = {},
 ) {
   emitChatEvent = null;
@@ -276,9 +262,27 @@ function installCarrentBridge(
   listedSkillProjectDirs = [];
   revealedPaths = [];
   permissionResponses = [];
-  selectedRuntimeModelIds = [];
+  selectedProviderProfileIds = [];
   window.carrent = {
     platform: "darwin",
+    agentAuth: {
+      load: async () => ({
+        path: "/home/test/.carrent/agent/auth.json",
+        activeProfileId: "default",
+        profiles: options.providerProfiles ?? [
+          {
+            id: "default",
+            type: "anthropic",
+            baseUrl: "https://api.anthropic.com",
+            modelId: "claude-sonnet-4-5",
+            hasApiKey: true,
+          },
+        ],
+      }),
+      save: async () => {
+        throw new Error("Unexpected agent auth save");
+      },
+    },
     appState: {
       load: async () => ({ status: "ready", snapshot }),
       reread: async () => ({ status: "ready", snapshot }),
@@ -301,22 +305,6 @@ function installCarrentBridge(
         size: input.data.length,
         storageKey: input.name,
       }),
-    },
-    runtimes: {
-      list: async () => [
-        {
-          id: "kimi",
-          name: "Kimi Code",
-          command: "kimi",
-          availability: "detected",
-          enabled: true,
-          status: "stopped",
-          configuration: "configured",
-          verification: "never",
-          supportsModelPing: false,
-        },
-      ],
-      listModels: async () => ({ state: "listed", models: options.runtimeModels ?? [] }),
     },
     skills: {
       list: async (projectDir) => {
@@ -354,9 +342,6 @@ function installCarrentBridge(
           },
         ];
       },
-    },
-    mcpServer: {
-      getStatus: async () => ({ enabled: true, running: true }),
     },
     git: {
       workspaceSnapshot: async () => ({ state: "ready", baseRevision: "base" }),
@@ -410,7 +395,6 @@ function installCarrentBridge(
         permissionResponses.push(response);
       },
       respondToQuestion: async () => {},
-      getKimiStatus: options.getKimiStatus ?? (async () => null),
       ...(activeChatAuthorityState
         ? {
             onChanged: (listener: (update: ChatRunAuthorityChange) => void) => {
@@ -471,12 +455,11 @@ async function renderComposer(
     authorityOptions?: Parameters<typeof createFakeAppStateAuthority>[1];
     authorityState?: ChatRunAuthorityState;
     disableAutoComplete?: boolean;
-    getKimiStatus?: (request: Record<string, unknown>) => Promise<unknown>;
     readAttachment?: () => Promise<Uint8Array>;
     workspaceDiff?: () => Promise<unknown>;
     withTimeline?: boolean;
-    withRuntimePicker?: boolean;
-    runtimeModels?: RuntimeModelRecord[];
+    withProviderPicker?: boolean;
+    providerProfiles?: ProviderProfileView[];
   } = {},
 ) {
   const snapshot = baseSnapshot(options.threadWork ?? {});
@@ -484,13 +467,12 @@ async function renderComposer(
   installCarrentBridge(authority, snapshot, {
     authorityState: options.authorityState,
     disableAutoComplete: options.disableAutoComplete,
-    getKimiStatus: options.getKimiStatus,
     readAttachment: options.readAttachment,
     workspaceDiff: options.workspaceDiff,
-    runtimeModels: options.runtimeModels,
+    providerProfiles: options.providerProfiles,
   });
   await mount(
-    composerTree(undefined, options.threadId, options.withTimeline, options.withRuntimePicker),
+    composerTree(undefined, options.threadId, options.withTimeline, options.withProviderPicker),
   );
   return authority;
 }
@@ -650,12 +632,24 @@ describe("Composer keybindings", () => {
     expect(getThreadDraft("thread-1")?.content).toBe("Save this before the debounce");
   });
 
-  it("selects a model picker item with the matching number key", async () => {
+  it("selects a provider picker item with the matching number key", async () => {
     await renderComposer({
-      withRuntimePicker: true,
-      runtimeModels: [
-        { id: "kimi-for-coding", name: "Kimi for Coding", source: "cli" },
-        { id: "kimi-latest", name: "Kimi Latest", source: "cli" },
+      withProviderPicker: true,
+      providerProfiles: [
+        {
+          id: "anthropic-main",
+          type: "anthropic",
+          baseUrl: "https://api.anthropic.com",
+          modelId: "claude-sonnet-4-5",
+          hasApiKey: true,
+        },
+        {
+          id: "openai-main",
+          type: "openai-compatible",
+          baseUrl: "https://api.openai.com/v1",
+          modelId: "gpt-5.2-codex",
+          hasApiKey: true,
+        },
       ],
     });
 
@@ -670,7 +664,7 @@ describe("Composer keybindings", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
-    expect(document.querySelector('[data-model-picker-open="true"]')).not.toBe(null);
+    expect(document.querySelector('[data-provider-picker-open="true"]')).not.toBe(null);
 
     await act(async () => {
       window.dispatchEvent(
@@ -679,8 +673,8 @@ describe("Composer keybindings", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(selectedRuntimeModelIds).toEqual(["kimi-latest"]);
-    expect(document.querySelector('[data-model-picker-open="true"]')).toBe(null);
+    expect(selectedProviderProfileIds).toEqual(["openai-main"]);
+    expect(document.querySelector('[data-provider-picker-open="true"]')).toBe(null);
   });
 
   it("responds to approval requests through the approval action buttons", async () => {
@@ -693,7 +687,7 @@ describe("Composer keybindings", () => {
       id: "permission-1",
       runId: "run-1",
       threadId: "thread-1",
-      provider: "kimi" as const,
+      provider: "core" as const,
       action: "shell" as const,
       title: "Run command",
       command: "pwd",
@@ -1686,67 +1680,6 @@ describe("Composer inline Skills", () => {
     }
   });
 
-  it("drains the queue after a Run completes even while a passive status refresh is in flight", async () => {
-    const threadId = "thread-2";
-    // The passive Kimi status refresh stays pending so the renderer's drain
-    // effect runs while a status request is notionally active — the queue-drain
-    // race that used to surface as a failed message.
-    let resolveKimiStatus!: (value: unknown) => void;
-    let kimiStatusCalls = 0;
-    await renderComposer({
-      threadId,
-      getKimiStatus: () => {
-        kimiStatusCalls += 1;
-        return new Promise((resolve) => {
-          resolveKimiStatus = resolve;
-        });
-      },
-    });
-
-    try {
-      await setComposerText("first message");
-      await submitComposer();
-      expect(sentChatMessages).toEqual(["first message"]);
-
-      await setComposerText("queued message");
-      await submitComposer();
-      expect(sentChatMessages).toEqual(["first message"]);
-      expect(getQueuedMessages(threadId).map((item) => item.content)).toEqual(["queued message"]);
-
-      await act(async () => {
-        emitChatEvent?.({
-          type: "completed",
-          runId: sentChatRunIds[0]!,
-          text: "done",
-          finishedAt: "2026-08-07T00:00:00.000Z",
-        });
-      });
-      await waitForQueueFlush(threadId, 2);
-
-      // The passive status refresh fired as part of completion, yet the queued
-      // message was still sent — the drain is not blocked by the in-flight
-      // status request.
-      expect(kimiStatusCalls).toBeGreaterThan(0);
-      expect(sentChatMessages).toEqual(["first message", "queued message"]);
-      expect(getQueuedMessages(threadId)).toEqual([]);
-    } finally {
-      resolveKimiStatus?.(null);
-      const latestRunId = sentChatRunIds.at(-1);
-      if (latestRunId) {
-        await act(async () => {
-          emitChatEvent?.({
-            type: "completed",
-            runId: latestRunId,
-            text: "done",
-            finishedAt: "2026-08-07T00:00:01.000Z",
-          });
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-      }
-      getQueuedMessages(threadId).forEach((item) => removeQueuedChatMessage(threadId, item.id));
-    }
-  });
-
   it("clears a persisted draft when the Composer is emptied immediately before switching Threads", async () => {
     await renderComposer();
     await setComposerText("old draft");
@@ -1888,7 +1821,8 @@ describe("Composer inline Skills", () => {
 
     await setComposerText("/");
 
-    expect(container!.textContent).toContain("Plan mode");
+    expect(container!.textContent).toContain("Skills");
+    expect(container!.textContent).toContain("Grilling");
   });
 
   it("loads and refreshes Skills for the current project", async () => {
@@ -2544,7 +2478,7 @@ describe("Composer streaming text reveal", () => {
     const visibleSnapshots: string[] = [];
     let frames = 0;
     for (let i = 0; i < chunks.length; i += chunksPerFrame) {
-      // Sample after every single delta: while Runtime deltas arrive inside
+      // Sample after every single delta: while provider deltas arrive inside
       // one animation frame nothing new may become visible. A regression to
       // per-delta synchronous commits would show up here immediately.
       let contentBeforeBatch: string | null = null;

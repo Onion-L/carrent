@@ -23,8 +23,8 @@ const baseSnapshot: AppStateSnapshot = {
       workspaceId: "workspace-1",
       projectId: "project-1",
       order: 0,
-      defaultRuntimeId: "kimi",
-      defaultRuntimeMode: "approval-required",
+      defaultProviderProfileId: "default",
+      defaultAgentMode: "ask",
     },
   ],
   threads: [
@@ -35,9 +35,8 @@ const baseSnapshot: AppStateSnapshot = {
       title: "First",
       createdAt: "2026-07-29T12:00:00.000Z",
       lastActivityAt: "2026-07-29T12:00:00.000Z",
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
     },
   ],
   threadDrafts: [],
@@ -127,9 +126,8 @@ describe("recordThreadRun", () => {
         attachments: [],
         startedAt: "2026-07-29T12:31:39.718Z",
         messageCreatedAt: "2026-07-29T12:31:39.700Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       });
     });
 
@@ -152,9 +150,8 @@ describe("recordThreadRun", () => {
         message: "hi",
         attachments: [],
         startedAt: "2026-07-29T12:31:39.718Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       });
     });
 
@@ -257,9 +254,8 @@ describe("prepareThreadDraftPromotion", () => {
           content: "first turn",
           attachedSkillNames: [],
           attachments: [],
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
     });
@@ -274,9 +270,8 @@ describe("prepareThreadDraftPromotion", () => {
         attachments: [],
         startedAt: "2026-07-29T12:31:39.718Z",
         messageCreatedAt: "2026-07-29T12:31:39.700Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
         titleSource: "first turn",
         draft: { content: "first turn", attachedSkillNames: [], attachments: [] },
       });
@@ -304,9 +299,8 @@ describe("prepareThreadDraftPromotion", () => {
           attachedSkillNames: [],
           attachments: [],
           localPathContexts,
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
     });
@@ -321,9 +315,8 @@ describe("prepareThreadDraftPromotion", () => {
         attachments: [],
         localPathContexts,
         startedAt: "2026-07-29T12:31:39.718Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
         titleSource: "first turn",
         draft: {
           content: "first turn",
@@ -356,22 +349,22 @@ describe("multi-window synchronization", () => {
         workspaceId: "workspace-1",
         projectId: "project-1",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "ask",
       },
       {
         workspaceId: "workspace-1",
         projectId: "project-2",
         order: 1,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "ask",
       },
       {
         workspaceId: "workspace-2",
         projectId: "project-2",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "approval-required",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "ask",
       },
     ],
     threads: [
@@ -382,9 +375,8 @@ describe("multi-window synchronization", () => {
         title: "First",
         createdAt: "2026-07-29T12:00:00.000Z",
         lastActivityAt: "2026-07-29T12:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
       {
         id: "sync-thread-2",
@@ -393,9 +385,8 @@ describe("multi-window synchronization", () => {
         title: "Second",
         createdAt: "2026-07-29T12:00:00.000Z",
         lastActivityAt: "2026-07-29T12:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     ],
     threadDrafts: [],
@@ -562,14 +553,12 @@ describe("multi-window synchronization", () => {
     await act(async () => {
       expect(
         await contextValue!.updateThreadConfig("sync-thread-1", {
-          runtimeId: "kimi",
-          planMode: true,
+          providerProfileId: "default",
         }),
       ).toBe(true);
     });
     expect(contextB!.threads.find((thread) => thread.id === "sync-thread-1")).toMatchObject({
-      runtimeId: "kimi",
-      planMode: true,
+      providerProfileId: "default",
     });
   });
 
@@ -670,16 +659,14 @@ describe("multi-window synchronization", () => {
     await act(async () => {
       expect(
         await contextB!.updateThreadDraftConfig(draft!.id, {
-          runtimeId: "kimi",
-          runtimeMode: "full-access",
-          planMode: true,
+          providerProfileId: "default",
+          agentMode: "full-project",
         }),
       ).toBe(true);
     });
     expect(contextValue!.threadDrafts[0]).toMatchObject({
-      runtimeId: "kimi",
-      runtimeMode: "full-access",
-      planMode: true,
+      providerProfileId: "default",
+      agentMode: "full-project",
     });
   });
 
@@ -721,9 +708,8 @@ describe("multi-window synchronization", () => {
       message: "race message",
       attachments: [],
       startedAt: "2026-07-30T08:00:00.000Z",
-      runtimeId: "kimi" as const,
-      runtimeMode: "approval-required" as const,
-      planMode: false,
+      providerProfileId: "default" as const,
+      agentMode: "ask" as const,
       draft: { content: "race message", attachedSkillNames: [], attachments: [] },
     });
 
@@ -857,9 +843,8 @@ describe("multi-window synchronization", () => {
     await act(async () => {
       expect(
         await contextValue!.updateThreadDraftConfig(draft!.id, {
-          runtimeId: "kimi",
-          runtimeMode: "full-access",
-          planMode: true,
+          providerProfileId: "default",
+          agentMode: "full-project",
         }),
       ).toBe(true);
     });
@@ -886,9 +871,8 @@ describe("multi-window synchronization", () => {
       content: "restart me",
       attachedSkillNames: ["tdd"],
       localPathContexts,
-      runtimeId: "kimi",
-      runtimeMode: "full-access",
-      planMode: true,
+      providerProfileId: "default",
+      agentMode: "full-project",
     });
   });
 });

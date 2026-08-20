@@ -1,12 +1,12 @@
-import { DEFAULT_RUNTIME_ID, type RuntimeId } from "./runtimes";
-import type { RuntimeMode } from "./runtimeMode";
+import { DEFAULT_PROVIDER_PROFILE_ID, type ProviderProfileId } from "./providerProfiles";
+import type { AgentMode } from "./agentMode";
 import type { ChatPermissionOptionKind, ChatPermissionRequest } from "./chatPermissions";
 import type { ChatQuestionAnswer, ChatQuestionRequest } from "./chatQuestions";
 import type { RunChecklistSnapshot } from "./runChecklist";
 import type { LocalPathContextItem } from "./localPathContext";
 import type { AppStateSnapshot } from "./workspacePersistence";
 
-export const DEFAULT_CHAT_RUNTIME_ID: RuntimeId = DEFAULT_RUNTIME_ID;
+export const DEFAULT_CHAT_PROVIDER_PROFILE_ID: ProviderProfileId = DEFAULT_PROVIDER_PROFILE_ID;
 
 export type ChatRunContext = {
   kind: "project";
@@ -38,58 +38,17 @@ export type Attachment = AttachmentMetadata & {
   localPath?: string;
 };
 
-export type RuntimeSessionCommand = "compact" | "status";
-
-export type RuntimeQuotaWindow = {
-  usedPercentage?: number;
-  /** ISO timestamp the window resets at; the renderer formats countdowns. */
-  resetAt?: string;
-  /** Raw quota units from the provider API. */
-  used?: number;
-  limit?: number;
-};
-
-export type PlanUsageErrorKind = "no-credentials" | "unauthorized" | "network" | "bad-payload";
-
-export type RuntimeSessionStatusData = {
-  model?: string;
-  used: number;
-  /** Context window size; omitted when it cannot be resolved. */
-  total?: number;
-  percentage?: number;
-  threadActions?: import("./threadActions").ThreadActionKind[];
-  supportedCommands: RuntimeSessionCommand[];
-  planUsage?: {
-    weekly?: RuntimeQuotaWindow;
-    fiveHour?: RuntimeQuotaWindow;
-  };
-  /** Set when planUsage is absent because the usage lookup failed. */
-  planUsageError?: PlanUsageErrorKind;
-};
-
-export type RuntimeSessionStatus = RuntimeSessionStatusData & {
-  sessionId: string;
-};
-
-export type KimiTelemetryStatus = RuntimeSessionStatusData & {
-  sessionId?: string;
-};
-
-export type KimiSessionStatus = RuntimeSessionStatus;
-
 export type DeleteThreadDataRequest = {
   threadIds: string[];
   attachmentStorageKeys: string[];
 };
 
 export type ThreadDataDeletionOptions = {
-  deferProviderSessionDeletion?: boolean;
+  deferCommit?: boolean;
 };
 
 export type ThreadDataDeletionReceipt = {
   threadIds: string[];
-  removedProviderSessions: Record<string, string>;
-  detachedRuntimeSessions: Record<string, string>;
 };
 
 export type ThreadDeletionScope =
@@ -126,7 +85,6 @@ export function applyThreadDeletionToAppState(
     threadDrafts: snapshot.threadDrafts?.filter((draft) => !ids.has(draft.threadId)),
     threadMessages: snapshot.threadMessages?.filter((message) => !ids.has(message.threadId)),
     threadRuns: snapshot.threadRuns?.filter((run) => !ids.has(run.threadId)),
-    threadActions: snapshot.threadActions?.filter((action) => !ids.has(action.threadId)),
     threadPromotionIntents: snapshot.threadPromotionIntents?.filter(
       (intent) => !ids.has(intent.threadId),
     ),
@@ -205,27 +163,19 @@ export interface ChatTurnRequest {
   runId?: string;
   context: ChatRunContext;
   threadId: string;
-  runtimeId: RuntimeId;
-  runtimeModelId?: string;
-  runtimeMode: RuntimeMode;
-  planMode: boolean;
+  providerProfileId: ProviderProfileId;
+  agentMode: AgentMode;
   transcript: Array<{
     role: "user" | "assistant";
     content: string;
   }>;
   message: string;
   attachments?: Attachment[];
-  // Structured Local Path Context for dragged files/folders. Runtime
-  // authorization consumes this structured field rather than re-parsing user
-  // Markdown; the Primary Runtime builds a read allowlist from it at Run start.
+  // Structured Local Path Context for dragged files/folders. Agent Core
+  // authorization consumes this field rather than re-parsing user Markdown.
   localPathContexts?: LocalPathContextItem[];
   historyMode?: "continue" | "replace";
 }
-
-export type RuntimeSessionRecovery = {
-  runtimeId: RuntimeId;
-  threadId: string;
-};
 
 type ChatRunEventBase = {
   runId: string;
@@ -250,9 +200,9 @@ export type ChatReasoningEventPayload = {
   status: ChatReasoningStatus;
 };
 
-export type KimiToolTimelineStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+export type AgentToolTimelineStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
-export type KimiTimelineItem =
+export type AgentTimelineItem =
   | {
       type: "thinking";
       id: string;
@@ -279,46 +229,46 @@ export type KimiTimelineItem =
       input: string;
       output: string;
       error: string;
-      status: KimiToolTimelineStatus;
+      status: AgentToolTimelineStatus;
     };
 
-export type KimiTimelineTextUpdate =
+export type AgentTimelineTextUpdate =
   | { kind: "append"; value: string }
   | { kind: "replace"; value: string };
 
-export type KimiTimelineItemUpdate =
+export type AgentTimelineItemUpdate =
   | {
       itemType: "thinking";
       id: string;
       order?: number;
-      content?: KimiTimelineTextUpdate;
+      content?: AgentTimelineTextUpdate;
       status?: ChatReasoningStatus | "cancelled";
     }
   | {
       itemType: "message";
       id: string;
       order?: number;
-      content?: KimiTimelineTextUpdate;
+      content?: AgentTimelineTextUpdate;
       isFinal?: boolean;
     }
   | {
       itemType: "tool";
       id: string;
       order?: number;
-      title?: KimiTimelineTextUpdate;
-      kind?: KimiTimelineTextUpdate;
-      command?: KimiTimelineTextUpdate;
-      filePath?: KimiTimelineTextUpdate;
-      input?: KimiTimelineTextUpdate;
-      output?: KimiTimelineTextUpdate;
-      error?: KimiTimelineTextUpdate;
-      status?: KimiToolTimelineStatus;
+      title?: AgentTimelineTextUpdate;
+      kind?: AgentTimelineTextUpdate;
+      command?: AgentTimelineTextUpdate;
+      filePath?: AgentTimelineTextUpdate;
+      input?: AgentTimelineTextUpdate;
+      output?: AgentTimelineTextUpdate;
+      error?: AgentTimelineTextUpdate;
+      status?: AgentToolTimelineStatus;
     };
 
-function compactKimiTimelineTextUpdate(
+function compactAgentTimelineTextUpdate(
   previous: string,
   next: string,
-): KimiTimelineTextUpdate | undefined {
+): AgentTimelineTextUpdate | undefined {
   if (previous === next) return undefined;
   if (next.startsWith(previous)) {
     return { kind: "append", value: next.slice(previous.length) };
@@ -326,15 +276,15 @@ function compactKimiTimelineTextUpdate(
   return { kind: "replace", value: next };
 }
 
-export function createKimiTimelineItemUpdate(
-  previous: KimiTimelineItem,
-  next: KimiTimelineItem,
-): KimiTimelineItemUpdate | null {
+export function createAgentTimelineItemUpdate(
+  previous: AgentTimelineItem,
+  next: AgentTimelineItem,
+): AgentTimelineItemUpdate | null {
   if (previous.id !== next.id || previous.type !== next.type) return null;
   const order = previous.order === next.order ? undefined : next.order;
 
   if (previous.type === "thinking" && next.type === "thinking") {
-    const content = compactKimiTimelineTextUpdate(previous.content, next.content);
+    const content = compactAgentTimelineTextUpdate(previous.content, next.content);
     return {
       itemType: "thinking",
       id: next.id,
@@ -344,7 +294,7 @@ export function createKimiTimelineItemUpdate(
     };
   }
   if (previous.type === "message" && next.type === "message") {
-    const content = compactKimiTimelineTextUpdate(previous.content, next.content);
+    const content = compactAgentTimelineTextUpdate(previous.content, next.content);
     return {
       itemType: "message",
       id: next.id,
@@ -354,13 +304,13 @@ export function createKimiTimelineItemUpdate(
     };
   }
   if (previous.type === "tool" && next.type === "tool") {
-    const title = compactKimiTimelineTextUpdate(previous.title, next.title);
-    const kind = compactKimiTimelineTextUpdate(previous.kind, next.kind);
-    const command = compactKimiTimelineTextUpdate(previous.command, next.command);
-    const filePath = compactKimiTimelineTextUpdate(previous.filePath, next.filePath);
-    const input = compactKimiTimelineTextUpdate(previous.input, next.input);
-    const output = compactKimiTimelineTextUpdate(previous.output, next.output);
-    const error = compactKimiTimelineTextUpdate(previous.error, next.error);
+    const title = compactAgentTimelineTextUpdate(previous.title, next.title);
+    const kind = compactAgentTimelineTextUpdate(previous.kind, next.kind);
+    const command = compactAgentTimelineTextUpdate(previous.command, next.command);
+    const filePath = compactAgentTimelineTextUpdate(previous.filePath, next.filePath);
+    const input = compactAgentTimelineTextUpdate(previous.input, next.input);
+    const output = compactAgentTimelineTextUpdate(previous.output, next.output);
+    const error = compactAgentTimelineTextUpdate(previous.error, next.error);
     return {
       itemType: "tool",
       id: next.id,
@@ -378,22 +328,22 @@ export function createKimiTimelineItemUpdate(
   return null;
 }
 
-function applyKimiTimelineTextUpdate(current: string, update?: KimiTimelineTextUpdate) {
+function applyAgentTimelineTextUpdate(current: string, update?: AgentTimelineTextUpdate) {
   if (!update) return current;
   return update.kind === "append" ? current + update.value : update.value;
 }
 
-export function applyKimiTimelineItemUpdate(
-  item: KimiTimelineItem,
-  update: KimiTimelineItemUpdate,
-): KimiTimelineItem | null {
+export function applyAgentTimelineItemUpdate(
+  item: AgentTimelineItem,
+  update: AgentTimelineItemUpdate,
+): AgentTimelineItem | null {
   if (item.id !== update.id || item.type !== update.itemType) return null;
 
   if (item.type === "thinking" && update.itemType === "thinking") {
     return {
       ...item,
       ...(update.order === undefined ? {} : { order: update.order }),
-      content: applyKimiTimelineTextUpdate(item.content, update.content),
+      content: applyAgentTimelineTextUpdate(item.content, update.content),
       status: update.status ?? item.status,
     };
   }
@@ -401,7 +351,7 @@ export function applyKimiTimelineItemUpdate(
     return {
       ...item,
       ...(update.order === undefined ? {} : { order: update.order }),
-      content: applyKimiTimelineTextUpdate(item.content, update.content),
+      content: applyAgentTimelineTextUpdate(item.content, update.content),
       isFinal: update.isFinal ?? item.isFinal,
     };
   }
@@ -409,13 +359,13 @@ export function applyKimiTimelineItemUpdate(
     return {
       ...item,
       ...(update.order === undefined ? {} : { order: update.order }),
-      title: applyKimiTimelineTextUpdate(item.title, update.title),
-      kind: applyKimiTimelineTextUpdate(item.kind, update.kind),
-      command: applyKimiTimelineTextUpdate(item.command, update.command),
-      filePath: applyKimiTimelineTextUpdate(item.filePath, update.filePath),
-      input: applyKimiTimelineTextUpdate(item.input, update.input),
-      output: applyKimiTimelineTextUpdate(item.output, update.output),
-      error: applyKimiTimelineTextUpdate(item.error, update.error),
+      title: applyAgentTimelineTextUpdate(item.title, update.title),
+      kind: applyAgentTimelineTextUpdate(item.kind, update.kind),
+      command: applyAgentTimelineTextUpdate(item.command, update.command),
+      filePath: applyAgentTimelineTextUpdate(item.filePath, update.filePath),
+      input: applyAgentTimelineTextUpdate(item.input, update.input),
+      output: applyAgentTimelineTextUpdate(item.output, update.output),
+      error: applyAgentTimelineTextUpdate(item.error, update.error),
       status: update.status ?? item.status,
     };
   }
@@ -431,9 +381,9 @@ export type ChatSubagentTaskStatus =
 
 export type ChatSubagentTaskPayload = {
   id: string;
-  runtimeId: "kimi";
+  providerProfileId: ProviderProfileId;
   source: "agent" | "agent-swarm";
-  runtimeAgentId?: string;
+  agentId?: string;
   agentType?: string;
   agentCount?: number;
   description: string;
@@ -454,14 +404,14 @@ export type ChatRunEvent =
   | (ChatRunEventBase & { type: "delta"; text: string })
   | (ChatRunEventBase & { type: "text-snapshot"; text: string })
   | (ChatRunEventBase & { type: "reasoning"; reasoning: ChatReasoningEventPayload })
-  | (ChatRunEventBase & { type: "kimi-timeline"; item: KimiTimelineItem })
-  | (ChatRunEventBase & { type: "kimi-timeline-update"; update: KimiTimelineItemUpdate })
+  | (ChatRunEventBase & { type: "agent-timeline"; item: AgentTimelineItem })
+  | (ChatRunEventBase & { type: "agent-timeline-update"; update: AgentTimelineItemUpdate })
   | (ChatRunEventBase & { type: "shell"; shell: ChatShellEventPayload })
   | (ChatRunEventBase & { type: "subagent-task"; task: ChatSubagentTaskPayload })
   | (ChatRunEventBase & {
       type: "checklist";
       threadId: string;
-      runtimeId: RuntimeId;
+      providerProfileId: ProviderProfileId;
       checklist: RunChecklistSnapshot;
     })
   | (ChatRunEventBase & {
@@ -474,7 +424,6 @@ export type ChatRunEvent =
       type: "failed";
       error: string;
       writtenFiles?: string[];
-      runtimeSessionRecovery?: RuntimeSessionRecovery;
     })
   | (ChatRunEventBase & { type: "stopped"; writtenFiles?: string[] })
   | (ChatRunEventBase & {
@@ -487,10 +436,6 @@ export type ChatRunEvent =
       optionId: string;
       optionName: string;
       optionKind: ChatPermissionOptionKind;
-    })
-  | (ChatRunEventBase & {
-      type: "plan-mode-changed";
-      enabled: boolean;
     })
   | (ChatRunEventBase & {
       type: "permission-failed";
@@ -544,24 +489,24 @@ export function compactChatRunEvents(events: ChatRunEvent[], event: ChatRunEvent
   if (event.type === "text-snapshot") {
     return replaceCompactEvent(events, (item) => item.type === "text-snapshot", event);
   }
-  if (event.type === "kimi-timeline" || event.type === "kimi-timeline-update") {
-    const id = event.type === "kimi-timeline" ? event.item.id : event.update.id;
+  if (event.type === "agent-timeline" || event.type === "agent-timeline-update") {
+    const id = event.type === "agent-timeline" ? event.item.id : event.update.id;
     const current = events.find(
-      (item): item is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
-        item.type === "kimi-timeline" && item.item.id === id,
+      (item): item is Extract<ChatRunEvent, { type: "agent-timeline" }> =>
+        item.type === "agent-timeline" && item.item.id === id,
     );
     const item =
-      event.type === "kimi-timeline"
+      event.type === "agent-timeline"
         ? event.item
         : current
-          ? applyKimiTimelineItemUpdate(current.item, event.update)
+          ? applyAgentTimelineItemUpdate(current.item, event.update)
           : null;
     if (!item) return events;
     return replaceCompactEvent(
       events,
-      (candidate) => candidate.type === "kimi-timeline" && candidate.item.id === id,
+      (candidate) => candidate.type === "agent-timeline" && candidate.item.id === id,
       {
-        type: "kimi-timeline",
+        type: "agent-timeline",
         runId: event.runId,
         ...(event.requestKey ? { requestKey: event.requestKey } : {}),
         item,
@@ -589,11 +534,7 @@ export function compactChatRunEvents(events: ChatRunEvent[], event: ChatRunEvent
       event,
     );
   }
-  if (
-    event.type === "started" ||
-    event.type === "checklist" ||
-    event.type === "plan-mode-changed"
-  ) {
+  if (event.type === "started" || event.type === "checklist") {
     return replaceCompactEvent(events, (item) => item.type === event.type, event);
   }
   if (event.type === "permission-requested") {

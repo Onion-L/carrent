@@ -19,21 +19,14 @@ import { useAppState } from "../context/AppStateContext";
 import { useSettings } from "../context/SettingsContext";
 import { RTK_MD_CONTENT, upsertRtkAgentsBlock, type RtkGainStats } from "../../shared/rtk";
 import type { UpdateCheckResult } from "../../shared/updates";
-import type { RuntimeModelRecord, RuntimeRecord } from "../../shared/runtimes";
 import { resolveSettingsTabId, SETTINGS_TAB_ICONS, SETTINGS_TABS } from "../lib/settingsTabs";
-import { RuntimeIcon } from "../components/RuntimeIcon";
 import { EditorIcon } from "../components/EditorIcon";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MarqueeText } from "../components/MarqueeText";
 import { WorktreesPanel } from "../components/worktrees/WorktreesPanel";
-import { McpServerControl } from "../components/mcp/McpServerControl";
-import { UsagePanel } from "../components/usage/UsagePanel";
-import { MemoryPanel } from "../components/memory/MemoryPanel";
 import { KeybindingsTab } from "../components/settings/KeybindingsTab";
-import { useRuntimeModels } from "../hooks/useRuntimeModels";
-import { useRuntimes } from "../hooks/useRuntimes";
+import { ProviderProfilesPanel } from "../components/settings/ProviderProfilesPanel";
 import { useNewProjectBase } from "../hooks/useNewProjectBase";
-import { formatKimiModelLabel } from "../components/chat/Composer";
 import { formatAbsoluteTime } from "../lib/formatRelativeTime";
 import { useToast } from "../components/toast/ToastContext";
 import type { AppThreadRecord } from "../../shared/workspacePersistence";
@@ -1090,155 +1083,6 @@ function CheckForUpdatesRow() {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Runtime status                                                            */
-/* -------------------------------------------------------------------------- */
-
-function RuntimeStatusPanel() {
-  const { runtimes, loading, refresh } = useRuntimes();
-  const sortedRuntimes = [...runtimes].sort((a, b) => a.name.localeCompare(b.name));
-  const kimiRuntime = sortedRuntimes.find((runtime) => runtime.id === "kimi");
-  const canCheckKimi = kimiRuntime ? canCheckKimiConnection(kimiRuntime) : false;
-  const {
-    loading: kimiModelsLoading,
-    error: kimiModelsError,
-    refresh: refreshRuntimeModels,
-  } = useRuntimeModels(canCheckKimi ? "kimi" : null);
-
-  async function handleCheck(runtime: RuntimeRecord) {
-    if (runtime.id === "kimi" && canCheckKimiConnection(runtime)) {
-      await refreshRuntimeModels("kimi");
-      return;
-    }
-
-    await refresh();
-  }
-
-  return (
-    <div className="py-3.5">
-      {loading && sortedRuntimes.length === 0 ? (
-        <div className="flex min-h-16 items-center gap-3 border-y border-border py-3">
-          <div className="h-8 w-8 shrink-0 rounded-lg bg-surface-raised" />
-          <div className="min-w-0 flex-1 space-y-2">
-            <div className="h-3.5 w-28 rounded bg-surface-raised" />
-            <div className="h-2.5 w-16 rounded bg-surface-raised" />
-          </div>
-          <div className="h-8 w-20 rounded-md bg-surface-raised" />
-          <div className="h-8 w-16 rounded-md bg-surface-raised" />
-        </div>
-      ) : sortedRuntimes.length > 0 ? (
-        <div className="divide-y divide-border">
-          {sortedRuntimes.map((runtime) => {
-            const checking = loading || (runtime.id === "kimi" && kimiModelsLoading);
-
-            return (
-              <div
-                key={runtime.id}
-                className="flex min-h-16 flex-wrap items-center gap-x-3 gap-y-2 py-3"
-              >
-                <RuntimeIcon name={runtime.name} size="sm" />
-                <div className="min-w-0 flex-1">
-                  <h3 className="truncate text-app-13 font-medium text-fg">{runtime.name}</h3>
-                  <div className="mt-0.5 truncate font-mono text-app-11 text-subtle">
-                    {getRuntimeVersionLabel(runtime)}
-                  </div>
-                  <KimiCliSetupNotice runtime={runtime} />
-                  <KimiConnectionCheckError runtimeId={runtime.id} error={kimiModelsError} />
-                </div>
-                <div className="ml-auto flex shrink-0 items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => void handleCheck(runtime)}
-                    disabled={checking}
-                    className="flex min-h-8 items-center gap-1.5 rounded-md bg-fg px-3 text-app-12 text-bg transition-opacity hover:opacity-90 disabled:opacity-30"
-                  >
-                    <RefreshCw className={`h-3 w-3 ${checking ? "animate-spin" : ""}`} />
-                    Check
-                  </button>
-                  {runtime.id === "kimi" ? (
-                    <button
-                      type="button"
-                      onClick={() => window.open(KIMI_DOCS_URL, "_blank", "noopener,noreferrer")}
-                      className="flex min-h-8 items-center gap-1.5 rounded-md px-3 text-app-12 text-muted transition-colors hover:bg-surface-hover hover:text-fg"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      Docs
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-export function canCheckKimiConnection(
-  runtime: Pick<RuntimeRecord, "id" | "availability" | "configuration">,
-) {
-  return (
-    runtime.id === "kimi" &&
-    runtime.availability === "detected" &&
-    runtime.configuration === "configured"
-  );
-}
-
-export function KimiConnectionCheckError({
-  runtimeId,
-  error,
-}: {
-  runtimeId: RuntimeRecord["id"];
-  error?: string;
-}) {
-  if (runtimeId !== "kimi" || !error) {
-    return null;
-  }
-
-  return (
-    <p role="alert" className="mt-1 break-words text-app-11 text-danger">
-      {error}
-    </p>
-  );
-}
-
-const KIMI_DOCS_URL = "https://moonshotai.github.io/kimi-code/en/guides/getting-started";
-
-export function getRuntimeVersionLabel(
-  runtime: Pick<RuntimeRecord, "id" | "availability" | "version">,
-) {
-  if (runtime.id === "kimi" && runtime.availability === "unavailable") {
-    return "Not installed";
-  }
-
-  return runtime.version ?? "Unknown";
-}
-
-export function KimiCliSetupNotice({
-  runtime,
-}: {
-  runtime: Pick<RuntimeRecord, "id" | "availability">;
-}) {
-  if (runtime.id !== "kimi" || runtime.availability !== "unavailable") {
-    return null;
-  }
-
-  return (
-    <p className="mt-1 text-app-11 leading-relaxed text-danger">
-      Kimi CLI was not detected on this computer.{" "}
-      <button
-        type="button"
-        onClick={() => window.open(KIMI_DOCS_URL, "_blank", "noopener,noreferrer")}
-        className="underline underline-offset-2 transition-opacity hover:opacity-80"
-      >
-        Download and install Kimi Code
-      </button>
-      , then sign in before checking again.
-    </p>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
 /*  RTK check panel                                                           */
 /* -------------------------------------------------------------------------- */
 
@@ -1680,121 +1524,6 @@ function Section({
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Thread title model                                                        */
-/* -------------------------------------------------------------------------- */
-
-export function ThreadTitleModelControl({
-  threadTitleModelId,
-  models,
-  defaultModelId,
-  loading,
-  error,
-  onChange,
-  onRefresh,
-}: {
-  threadTitleModelId: string | undefined;
-  models: RuntimeModelRecord[];
-  defaultModelId: string | undefined;
-  loading: boolean;
-  error: string | undefined;
-  onChange: (modelId: string | undefined) => void;
-  onRefresh: () => void;
-}) {
-  // A persisted concrete model that is no longer in the Kimi catalog stays
-  // visible (marked unavailable) until the user picks another value, rather
-  // than silently reverting to the default.
-  const availableIds = new Set(models.map((model) => model.id));
-  const configuredUnavailable = !!threadTitleModelId && !availableIds.has(threadTitleModelId);
-  // The live Kimi default (the ACP `model` currentValue). When no concrete
-  // model is pinned, the dropdown selects this one and the setting stays unset
-  // so title generation follows Kimi's default.
-  const resolvedDefaultId =
-    defaultModelId && availableIds.has(defaultModelId) ? defaultModelId : undefined;
-
-  // While the catalog is still loading and no models are known yet, show a
-  // placeholder instead of an empty dropdown.
-  if (loading && models.length === 0) {
-    return (
-      <div className="flex items-center justify-between gap-6 py-3.5">
-        <div className="min-w-0">
-          <div className="text-app-13 text-fg">Thread title model</div>
-          <div className="mt-0.5 text-app-12 text-subtle">
-            Kimi model used to generate automatic Thread titles
-          </div>
-        </div>
-        <span className="shrink-0 text-app-13 text-subtle">Loading Kimi models…</span>
-      </div>
-    );
-  }
-
-  const options: { value: string; label: string }[] = [
-    ...models.map((model) => {
-      const label = formatKimiModelLabel(model.name);
-      return {
-        value: model.id,
-        label: model.id === resolvedDefaultId ? `${label} (default)` : label,
-      };
-    }),
-    ...(configuredUnavailable && threadTitleModelId
-      ? [{ value: threadTitleModelId, label: `${threadTitleModelId} (unavailable)` }]
-      : []),
-  ];
-
-  // Unset preference ⇒ follow Kimi's current default; fall back to the first
-  // catalog model purely for display when no default is reported.
-  const selected = threadTitleModelId ?? resolvedDefaultId ?? models[0]?.id;
-
-  return (
-    <div>
-      <Select
-        label="Thread title model"
-        description="Kimi model used to generate automatic Thread titles"
-        value={selected}
-        options={options}
-        icon={<RuntimeIcon name="Kimi" size="xs" />}
-        wide
-        onChange={(value) => {
-          // Picking the current default model restores follow mode (unset);
-          // any other choice pins a concrete model id.
-          onChange(value === resolvedDefaultId ? undefined : value);
-        }}
-      />
-      {error ? (
-        <div className="-mt-2 flex items-center justify-end gap-2 pb-2 text-app-11 text-danger">
-          <span title={error}>Kimi model catalog unavailable</span>
-          <button
-            type="button"
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-subtle transition-colors hover:bg-surface-hover hover:text-fg"
-            aria-label="Retry loading Kimi models"
-            title="Retry loading Kimi models"
-            onClick={onRefresh}
-          >
-            <RefreshCw className="h-3 w-3" />
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ThreadTitleModelPanel() {
-  const { threadTitleModelId, updateSetting } = useSettings();
-  const { models, defaultModelId, loading, error, refresh } = useRuntimeModels("kimi");
-
-  return (
-    <ThreadTitleModelControl
-      threadTitleModelId={threadTitleModelId}
-      models={models}
-      defaultModelId={defaultModelId}
-      loading={loading}
-      error={error}
-      onChange={(modelId) => updateSetting("threadTitleModelId", modelId)}
-      onRefresh={() => void refresh("kimi")}
-    />
-  );
-}
-
-/* -------------------------------------------------------------------------- */
 /*  Settings Page                                                             */
 /* -------------------------------------------------------------------------- */
 
@@ -2128,14 +1857,8 @@ export function SettingsPage() {
   const { setSelectedThreadId, deleteThread: deleteThreadContent } = useThreadContent();
   const { workspaces, projects, associations, threads, restoreThread, permanentlyDeleteThread } =
     useAppState();
-  const {
-    autoDetectRuntimes,
-    theme,
-    codeHighlightTheme,
-    defaultEditorId,
-    enhancedTerminalCompletion,
-    updateSetting,
-  } = useSettings();
+  const { theme, codeHighlightTheme, defaultEditorId, enhancedTerminalCompletion, updateSetting } =
+    useSettings();
   const [searchParams] = useSearchParams();
   const activeTabId = resolveSettingsTabId(searchParams.get("tab"));
   const activeTab = SETTINGS_TABS.find((tab) => tab.id === activeTabId) ?? SETTINGS_TABS[0];
@@ -2147,22 +1870,13 @@ export function SettingsPage() {
 
   const generalContent = (
     <div className="flex flex-col">
-      <RuntimeStatusPanel />
-      <Toggle
-        label="Auto-detect runtimes"
-        description="Automatically detect installed runtimes on startup"
-        enabled={autoDetectRuntimes}
-        onChange={(value) => updateSetting("autoDetectRuntimes", value)}
-      />
       <DefaultEditorControl
         defaultEditorId={defaultEditorId}
         onChange={(editorId) => updateSetting("defaultEditorId", editorId)}
       />
       <NewProjectLocationControl />
-      <ThreadTitleModelPanel />
       <RtkCheckPanel />
       <GlobalAgentInstructionsPanel />
-      <McpServerControl />
       <AppVersionField />
       <CheckForUpdatesRow />
     </div>
@@ -2170,12 +1884,7 @@ export function SettingsPage() {
 
   return (
     <div className="flex h-full w-full flex-col bg-bg">
-      {activeTabId === "memory" ? (
-        // Full-bleed: the shell card is the only frame, so the memory browser
-        // fills it edge to edge. No inner titlebar spacer — MemoryPanel's own
-        // h-14 header aligns with the settings nav pane header.
-        <MemoryPanel />
-      ) : activeTabId === "worktrees" ? (
+      {activeTabId === "worktrees" ? (
         // Same full-bleed treatment: WorktreesPanel owns its h-14 header and
         // scrolls its own list, so the scan list stays stable at the minimum
         // window size instead of being squeezed into the centered layout.
@@ -2195,7 +1904,7 @@ export function SettingsPage() {
               <div>
                 {activeTabId === "general" ? generalContent : null}
 
-                {activeTabId === "usage" ? <UsagePanel /> : null}
+                {activeTabId === "providers" ? <ProviderProfilesPanel /> : null}
 
                 {activeTabId === "keybindings" ? <KeybindingsTab /> : null}
 

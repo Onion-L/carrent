@@ -21,7 +21,6 @@ import {
   type AttachmentMetadata,
   type SubagentTaskPart,
 } from "../../../shared/threadContent";
-import type { AppThreadActionRecord } from "../../../shared/workspacePersistence";
 import type { LocalPathContextItem } from "../../../shared/localPathContext";
 import { isFileAttachment, isImageAttachment } from "../../../shared/attachment";
 import {
@@ -38,7 +37,6 @@ import { ChangedFilesCard } from "./ChangedFilesCard";
 import { ErrorBlock } from "./ErrorBlock";
 import { ImageAttachmentLightbox, type StoredLightboxItem } from "./ImageAttachmentLightbox";
 import { MarkdownContent, type MarkdownLinkRender } from "./MarkdownContent";
-import { PlanReviewBlock } from "./PlanReviewBlock";
 import { QuestionBlock } from "./QuestionBlock";
 import { parseFileReferenceSegments } from "./fileReferences";
 import { formatSkillLabel } from "./skillLabel";
@@ -57,10 +55,6 @@ export type UserMessageEditDraft = {
   attachments?: AttachmentMetadata[];
   localPathContexts?: LocalPathContextItem[];
 };
-
-export type RuntimeSessionRetryRequest = NonNullable<
-  Extract<MessagePart, { type: "error" }>["runtimeSessionRecovery"]
->;
 
 function getMessageTimestamp(message: Message) {
   if (message.timestamp) return message.timestamp;
@@ -604,14 +598,12 @@ function UserMessage({
   );
 }
 
-type ActivityPart = Extract<MessagePart, { type: "reasoning" | "shell" }>;
-
-export type KimiTimelinePresentationItem =
-  | Extract<AgentActivityItem, { type: "kimi-thinking" | "kimi-tool" }>
+export type AgentTimelinePresentationItem =
+  | Extract<AgentActivityItem, { type: "agent-thinking" | "agent-tool" }>
   | { type: "text"; id: string; content: string }
-  | { type: "kimi-subagent"; task: SubagentTaskPart };
+  | { type: "agent-subagent"; task: SubagentTaskPart };
 
-function KimiSubagentItem({
+function AgentSubagentItem({
   task,
   onSelect,
 }: {
@@ -656,41 +648,37 @@ function KimiSubagentItem({
   );
 }
 
-function isRawThoughtPart(part: ActivityPart) {
-  return part.type === "reasoning" && part.id.startsWith("kimi-thinking-");
-}
-
-export type KimiTimelineGroupableItem = Extract<
-  KimiTimelinePresentationItem,
-  { type: "kimi-thinking" | "kimi-tool" | "kimi-subagent" }
+export type AgentTimelineGroupableItem = Extract<
+  AgentTimelinePresentationItem,
+  { type: "agent-thinking" | "agent-tool" | "agent-subagent" }
 >;
 
-export type KimiTimelineActivityGroup = {
-  type: "kimi-activity-group";
+export type AgentTimelineActivityGroup = {
+  type: "agent-activity-group";
   id: string;
-  items: KimiTimelineGroupableItem[];
+  items: AgentTimelineGroupableItem[];
 };
 
-export type KimiTimelineDisplayItem = KimiTimelinePresentationItem | KimiTimelineActivityGroup;
+export type AgentTimelineDisplayItem = AgentTimelinePresentationItem | AgentTimelineActivityGroup;
 
-function kimiTimelineItemId(item: KimiTimelineGroupableItem) {
-  return item.type === "kimi-subagent" ? item.task.id : item.id;
+function agentTimelineItemId(item: AgentTimelineGroupableItem) {
+  return item.type === "agent-subagent" ? item.task.id : item.id;
 }
 
 // Collapses runs of consecutive thinking/tool/subagent entries into a single
 // expandable group. Text messages break a run, so the visible order of events
 // is never changed. Runs of a single item stay inline.
-export function groupKimiTimelineItems(
-  items: KimiTimelinePresentationItem[],
-): KimiTimelineDisplayItem[] {
-  const result: KimiTimelineDisplayItem[] = [];
-  let buffer: KimiTimelineGroupableItem[] = [];
+export function groupAgentTimelineItems(
+  items: AgentTimelinePresentationItem[],
+): AgentTimelineDisplayItem[] {
+  const result: AgentTimelineDisplayItem[] = [];
+  let buffer: AgentTimelineGroupableItem[] = [];
 
   const flush = () => {
     if (buffer.length >= 2) {
       result.push({
-        type: "kimi-activity-group",
-        id: `kimi-activity-group-${kimiTimelineItemId(buffer[0]!)}`,
+        type: "agent-activity-group",
+        id: `agent-activity-group-${agentTimelineItemId(buffer[0]!)}`,
         items: buffer,
       });
     } else {
@@ -712,12 +700,12 @@ export function groupKimiTimelineItems(
   return result;
 }
 
-export function formatKimiActivityGroupLabel(
-  items: KimiTimelineGroupableItem[],
+export function formatAgentActivityGroupLabel(
+  items: AgentTimelineGroupableItem[],
   { active = false }: { active?: boolean } = {},
 ) {
-  const thoughts = items.filter((item) => item.type === "kimi-thinking").length;
-  const tools = items.filter((item) => item.type === "kimi-tool").length;
+  const thoughts = items.filter((item) => item.type === "agent-thinking").length;
+  const tools = items.filter((item) => item.type === "agent-tool").length;
   const subagents = items.length - thoughts - tools;
   const parts: string[] = [];
   if (tools > 0) parts.push(`${tools} tool call${tools === 1 ? "" : "s"}`);
@@ -726,39 +714,39 @@ export function formatKimiActivityGroupLabel(
   return `${active ? "Running" : "Ran"} ${parts.join(" · ")}`;
 }
 
-function isKimiTimelineItemActive(item: KimiTimelineGroupableItem) {
-  if (item.type === "kimi-subagent") {
+function isAgentTimelineItemActive(item: AgentTimelineGroupableItem) {
+  if (item.type === "agent-subagent") {
     return item.task.status === "running";
   }
   if (item.status === "running") {
     return true;
   }
-  return item.type === "kimi-tool" && item.status === "pending";
+  return item.type === "agent-tool" && item.status === "pending";
 }
 
-function renderKimiTimelineItem(
-  item: KimiTimelinePresentationItem,
+function renderAgentTimelineItem(
+  item: AgentTimelinePresentationItem,
   onSelectSubagent?: (taskId: string) => void,
 ) {
   if (item.type === "text") {
     return <MarkdownContent key={item.id}>{item.content}</MarkdownContent>;
   }
-  if (item.type === "kimi-thinking" || item.type === "kimi-tool") {
+  if (item.type === "agent-thinking" || item.type === "agent-tool") {
     return <AgentActivityList key={item.id} items={[item]} />;
   }
-  return <KimiSubagentItem key={item.task.id} task={item.task} onSelect={onSelectSubagent} />;
+  return <AgentSubagentItem key={item.task.id} task={item.task} onSelect={onSelectSubagent} />;
 }
 
-function KimiActivityGroup({
+function AgentActivityGroup({
   group,
   hasFollowingText,
   onSelectSubagent,
 }: {
-  group: KimiTimelineActivityGroup;
+  group: AgentTimelineActivityGroup;
   hasFollowingText: boolean;
   onSelectSubagent?: (taskId: string) => void;
 }) {
-  const isActive = group.items.some(isKimiTimelineItemActive);
+  const isActive = group.items.some(isAgentTimelineItemActive);
   const shouldCollapse = !isActive && hasFollowingText;
   const [expanded, setExpanded] = useState(!shouldCollapse);
 
@@ -779,11 +767,11 @@ function KimiActivityGroup({
         aria-expanded={expanded}
       >
         <ChevronRight className={`h-4 w-4 shrink-0 transition ${expanded ? "rotate-90" : ""}`} />
-        <span>{formatKimiActivityGroupLabel(group.items, { active: isActive })}</span>
+        <span>{formatAgentActivityGroupLabel(group.items, { active: isActive })}</span>
       </button>
       {expanded ? (
         <div className="mt-2 flex flex-col gap-3 border-l border-border pl-5">
-          {group.items.map((item) => renderKimiTimelineItem(item, onSelectSubagent))}
+          {group.items.map((item) => renderAgentTimelineItem(item, onSelectSubagent))}
         </div>
       ) : null}
     </div>
@@ -794,26 +782,26 @@ export function getAssistantMessagePresentation(
   parts: MessagePart[],
   runStatus: Message["runStatus"],
 ): {
-  timelineItems?: KimiTimelinePresentationItem[];
+  timelineItems?: AgentTimelinePresentationItem[];
   activityItems: AgentActivityItem[];
   answerText: string;
   postAnswerActivityItems: AgentActivityItem[];
 } {
-  const kimiItems = parts
+  const agentItems = parts
     .filter(
-      (part): part is Extract<MessagePart, { type: "kimi_timeline" }> =>
-        part.type === "kimi_timeline",
+      (part): part is Extract<MessagePart, { type: "agent_activity" }> =>
+        part.type === "agent_activity",
     )
     .map((part) => part.item)
     .sort((left, right) => left.order - right.order);
-  if (kimiItems.length > 0) {
+  if (agentItems.length > 0) {
     const subagentTasks = new Map(
       parts.flatMap((part) => (part.type === "subagent_task" ? [[part.id, part] as const] : [])),
     );
-    const timelineItems: KimiTimelinePresentationItem[] = kimiItems.map((item) => {
+    const timelineItems: AgentTimelinePresentationItem[] = agentItems.map((item) => {
       if (item.type === "thinking") {
         return {
-          type: "kimi-thinking",
+          type: "agent-thinking",
           id: item.id,
           content: item.content,
           status: item.status,
@@ -826,11 +814,11 @@ export function getAssistantMessagePresentation(
 
       const subagentTask = subagentTasks.get(item.toolCallId);
       if (subagentTask) {
-        return { type: "kimi-subagent", task: subagentTask };
+        return { type: "agent-subagent", task: subagentTask };
       }
 
       return {
-        type: "kimi-tool",
+        type: "agent-tool",
         id: item.id,
         title: item.title,
         kind: item.kind,
@@ -851,8 +839,7 @@ export function getAssistantMessagePresentation(
     };
   }
 
-  const hasPlanReview = parts.some((part) => part.type === "plan_review");
-  const answerCanStart = runStatus !== "running" || hasPlanReview;
+  const answerCanStart = runStatus !== "running";
   const lastActivityIndex = parts.reduce(
     (lastIndex, part, index) =>
       part.type === "reasoning" || part.type === "shell" ? index : lastIndex,
@@ -891,7 +878,7 @@ export function getAssistantMessagePresentation(
       return;
     }
 
-    if ((part.type === "reasoning" || part.type === "shell") && !isRawThoughtPart(part)) {
+    if (part.type === "reasoning" || part.type === "shell") {
       activityItems.push(part);
     }
   });
@@ -909,12 +896,10 @@ export function getAssistantMessagePresentation(
 const AssistantMessage = memo(function AssistantMessage({
   message,
   timestamp,
-  onRemoveRuntimeSessionAndRetry,
   onSelectSubagent,
 }: {
   message: Message;
   timestamp: string;
-  onRemoveRuntimeSessionAndRetry?: (request: RuntimeSessionRetryRequest) => Promise<void> | void;
   onSelectSubagent?: (taskId: string) => void;
 }) {
   const content = message.content ?? "";
@@ -924,7 +909,6 @@ const AssistantMessage = memo(function AssistantMessage({
   const [copied, setCopied] = useState(false);
 
   const textParts = parts?.filter((part) => part.type === "text") ?? [];
-  const planReviewParts = parts?.filter((part) => part.type === "plan_review") ?? [];
   // Pending questions already have the live Composer panel; only settled or
   // interrupted records render in the timeline.
   const questionParts =
@@ -939,20 +923,19 @@ const AssistantMessage = memo(function AssistantMessage({
   const presentation = parts
     ? getAssistantMessagePresentation(parts, message.runStatus)
     : { activityItems: [], answerText: content, postAnswerActivityItems: [] };
-  const hasKimiTimeline = !!presentation.timelineItems;
+  const hasAgentTimeline = !!presentation.timelineItems;
   const isStreaming =
-    (!hasKimiTimeline && !hasParts && content === "" && !message.runStatus) ||
+    (!hasAgentTimeline && !hasParts && content === "" && !message.runStatus) ||
     (message.runStatus === "running" &&
-      !hasKimiTimeline &&
+      !hasAgentTimeline &&
       presentation.activityItems.length === 0 &&
       !presentation.answerText &&
-      planReviewParts.length === 0 &&
       questionParts.length === 0);
 
   const copyText =
     presentation.answerText || textParts.map((part) => part.content).join("\n") || content;
-  const kimiDisplayItems = hasKimiTimeline
-    ? groupKimiTimelineItems(presentation.timelineItems!)
+  const agentDisplayItems = hasAgentTimeline
+    ? groupAgentTimelineItems(presentation.timelineItems!)
     : [];
 
   const handleCopy = async () => {
@@ -983,8 +966,8 @@ const AssistantMessage = memo(function AssistantMessage({
           finishedAt={message.runFinishedAt}
           duration={message.duration}
         />
-      ) : hasKimiTimeline ? (
-        <div data-kimi-timeline className="flex flex-col gap-4">
+      ) : hasAgentTimeline ? (
+        <div data-agent-timeline className="flex flex-col gap-4">
           <AgentActivityBlock
             items={[]}
             status={message.runStatus}
@@ -997,36 +980,25 @@ const AssistantMessage = memo(function AssistantMessage({
             finishedAt={message.runFinishedAt}
             duration={message.duration}
           />
-          {kimiDisplayItems.map((item, index) =>
-            item.type === "kimi-activity-group" ? (
-              <KimiActivityGroup
+          {agentDisplayItems.map((item, index) =>
+            item.type === "agent-activity-group" ? (
+              <AgentActivityGroup
                 key={item.id}
                 group={item}
-                hasFollowingText={kimiDisplayItems
+                hasFollowingText={agentDisplayItems
                   .slice(index + 1)
                   .some((later) => later.type === "text")}
                 onSelectSubagent={onSelectSubagent}
               />
             ) : (
-              renderKimiTimelineItem(item, onSelectSubagent)
+              renderAgentTimelineItem(item, onSelectSubagent)
             ),
           )}
-          {planReviewParts.map((review) => (
-            <PlanReviewBlock key={review.id} review={review} />
-          ))}
           {questionParts.map((part) => (
             <QuestionBlock key={part.id} part={part} />
           ))}
           {errorParts.map((part) => (
-            <ErrorBlock
-              key={part.id}
-              part={part}
-              onRemoveRuntimeSessionAndRetry={
-                part.runtimeSessionRecovery && onRemoveRuntimeSessionAndRetry
-                  ? () => onRemoveRuntimeSessionAndRetry(part.runtimeSessionRecovery!)
-                  : undefined
-              }
-            />
+            <ErrorBlock key={part.id} part={part} />
           ))}
         </div>
       ) : hasParts ? (
@@ -1045,9 +1017,6 @@ const AssistantMessage = memo(function AssistantMessage({
               hasFinalAnswerStarted={presentation.answerText.length > 0}
             />
           )}
-          {planReviewParts.map((review) => (
-            <PlanReviewBlock key={review.id} review={review} />
-          ))}
           {questionParts.map((part) => (
             <QuestionBlock key={part.id} part={part} />
           ))}
@@ -1056,22 +1025,14 @@ const AssistantMessage = memo(function AssistantMessage({
             <AgentActivityList items={presentation.postAnswerActivityItems} className="py-1" />
           )}
           {errorParts.map((part) => (
-            <ErrorBlock
-              key={part.id}
-              part={part}
-              onRemoveRuntimeSessionAndRetry={
-                part.runtimeSessionRecovery && onRemoveRuntimeSessionAndRetry
-                  ? () => onRemoveRuntimeSessionAndRetry(part.runtimeSessionRecovery!)
-                  : undefined
-              }
-            />
+            <ErrorBlock key={part.id} part={part} />
           ))}
         </div>
       ) : (
         <MarkdownContent>{content}</MarkdownContent>
       )}
       {message.runStatus === "cancelled" &&
-      !hasKimiTimeline &&
+      !hasAgentTimeline &&
       !(hasParts && presentation.activityItems.length > 0) ? (
         <div className="flex items-center gap-1.5 text-app-12 text-subtle">
           <XCircle className="h-3.5 w-3.5" />
@@ -1163,17 +1124,13 @@ function EmptyState() {
 
 export function MessageTimeline({
   messages,
-  threadActions = [],
   threadId,
   onSubmitUserEdit,
-  onRemoveRuntimeSessionAndRetry,
   onSelectSubagent,
 }: {
   messages: Message[];
-  threadActions?: AppThreadActionRecord[];
   threadId?: string;
   onSubmitUserEdit?: (draft: UserMessageEditDraft) => void;
-  onRemoveRuntimeSessionAndRetry?: (request: RuntimeSessionRetryRequest) => Promise<void> | void;
   onSelectSubagent?: (taskId: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1254,7 +1211,7 @@ export function MessageTimeline({
         el.scrollTo({ top: el.scrollHeight });
       }
     });
-  }, [messages, threadActions]);
+  }, [messages]);
 
   useEffect(
     () => () => {
@@ -1271,18 +1228,16 @@ export function MessageTimeline({
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
 
-  const timelineItems = [
-    ...messages.map((message) => ({ kind: "message" as const, at: message.createdAt, message })),
-    ...threadActions.map((action) => ({
-      kind: "thread-action" as const,
-      at: action.completedAt,
-      action,
-    })),
-  ].sort((left, right) => {
-    const leftAt = typeof left.at === "number" ? left.at : Date.parse(left.at ?? "");
-    const rightAt = typeof right.at === "number" ? right.at : Date.parse(right.at ?? "");
-    return (Number.isFinite(leftAt) ? leftAt : 0) - (Number.isFinite(rightAt) ? rightAt : 0);
-  });
+  const timelineItems = messages
+    .map((message) => ({
+      at: message.createdAt,
+      message,
+    }))
+    .sort((left, right) => {
+      const leftAt = typeof left.at === "number" ? left.at : Date.parse(left.at ?? "");
+      const rightAt = typeof right.at === "number" ? right.at : Date.parse(right.at ?? "");
+      return (Number.isFinite(leftAt) ? leftAt : 0) - (Number.isFinite(rightAt) ? rightAt : 0);
+    });
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -1292,18 +1247,6 @@ export function MessageTimeline({
         ) : (
           <div className="mx-auto flex w-full max-w-[56rem] flex-col pb-4">
             {timelineItems.map((item) => {
-              if (item.kind === "thread-action") {
-                return (
-                  <div
-                    key={item.action.id}
-                    className="flex items-center gap-3 px-6 py-4 text-app-12 text-subtle"
-                  >
-                    <span className="h-px flex-1 bg-border" />
-                    <span>Context compacted</span>
-                    <span className="h-px flex-1 bg-border" />
-                  </div>
-                );
-              }
               const msg = item.message;
               if (msg.role === "user") {
                 const editDraft = getUserMessageEditDraft(msg);
@@ -1348,7 +1291,6 @@ export function MessageTimeline({
                   <AssistantMessage
                     message={msg}
                     timestamp={getMessageTimestamp(msg)}
-                    onRemoveRuntimeSessionAndRetry={onRemoveRuntimeSessionAndRetry}
                     onSelectSubagent={onSelectSubagent}
                   />
                 </div>

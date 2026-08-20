@@ -28,7 +28,6 @@ function emptySnapshot(): AppStateSnapshot {
     threadDrafts: [],
     threadMessages: [],
     threadRuns: [],
-    threadActions: [],
     threadPromotionIntents: [],
     threadWork: {},
     lastThreadIdByWorkspace: {},
@@ -54,8 +53,8 @@ function jsonSourceSnapshot(): AppStateSnapshot {
         workspaceId: "workspace-1",
         projectId: "project-1",
         order: 0,
-        defaultRuntimeId: "kimi",
-        defaultRuntimeMode: "auto-accept-edits",
+        defaultProviderProfileId: "default",
+        defaultAgentMode: "auto-edit",
       },
     ],
     threads: [
@@ -66,9 +65,8 @@ function jsonSourceSnapshot(): AppStateSnapshot {
         title: "Imported thread",
         createdAt: "2026-08-09T08:00:00.000Z",
         lastActivityAt: "2026-08-09T09:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "auto-accept-edits",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "auto-edit",
       },
     ],
     threadDrafts: [],
@@ -88,12 +86,10 @@ function jsonSourceSnapshot(): AppStateSnapshot {
         threadId: "thread-1",
         messageId: "message-1",
         startedAt: "2026-08-09T08:01:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "auto-accept-edits",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "auto-edit",
       },
     ],
-    threadActions: [],
     threadPromotionIntents: [],
     threadWork: {},
     lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
@@ -219,28 +215,27 @@ describe("SQLite App State recovery lifecycle", () => {
           );
           client.run(
             `INSERT INTO workspace_project_associations (
-               workspace_id, project_id, "order", default_runtime_id, default_runtime_mode
+               workspace_id, project_id, "order", default_provider_profile_id, default_agent_mode
              ) VALUES (?, ?, ?, ?, ?)`,
             "workspace-1",
             "project-1",
             0,
-            "kimi",
-            "auto-accept-edits",
+            "default",
+            "auto-edit",
           );
           client.run(
             `INSERT INTO threads (
                id, workspace_id, project_id, title, created_at, last_activity_at,
-               runtime_id, runtime_mode, plan_mode
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               provider_profile_id, agent_mode
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             "thread-1",
             "workspace-1",
             "project-1",
             "Thread",
             "2026-08-09T08:00:00.000Z",
             "2026-08-09T09:00:00.000Z",
-            "kimi",
-            "auto-accept-edits",
-            0,
+            "default",
+            "auto-edit",
           );
           // A message with a malformed payload fails the repository's strict
           // JSON parse and invalidates the whole load.
@@ -315,33 +310,6 @@ describe("SQLite App State recovery lifecycle", () => {
     );
   });
 
-  it("initialize keeps an isolated Runtime Session fault local instead of escalating to recovery", async () => {
-    await withLifecycle(
-      async (baseDir) => {
-        await writeFile(
-          join(baseDir, "app-state.json"),
-          JSON.stringify(jsonSourceSnapshot()),
-          "utf-8",
-        );
-        // An inconsistent Runtime Session mapping is quarantined/discarded by
-        // the import; it must NOT escalate to global recovery-required.
-        await writeFile(
-          join(baseDir, "provider-sessions.json"),
-          JSON.stringify({
-            version: 1,
-            sessions: { "kimi:thread-missing": "session-bad" },
-          }),
-          "utf-8",
-        );
-      },
-      {},
-      async ({ lifecycle }) => {
-        const result = await lifecycle.initialize();
-        expect(result.status).toBe("ready");
-      },
-    );
-  });
-
   it("reread returns the current snapshot and only replaces authority on full success", async () => {
     await withLifecycle(
       async () => {},
@@ -361,8 +329,8 @@ describe("SQLite App State recovery lifecycle", () => {
             workspaceId: "workspace-1",
             projectId: "project-1",
             order: 0,
-            defaultRuntimeId: "kimi",
-            defaultRuntimeMode: "auto-accept-edits",
+            defaultProviderProfileId: "default",
+            defaultAgentMode: "auto-edit",
           },
         ];
         await store.saveAppStateSnapshot(snapshot);
@@ -395,8 +363,8 @@ describe("SQLite App State recovery lifecycle", () => {
             workspaceId: "workspace-1",
             projectId: "project-1",
             order: 0,
-            defaultRuntimeId: "kimi",
-            defaultRuntimeMode: "auto-accept-edits",
+            defaultProviderProfileId: "default",
+            defaultAgentMode: "auto-edit",
           },
         ];
         snapshot.activeWorkspaceId = "workspace-1";
@@ -408,9 +376,8 @@ describe("SQLite App State recovery lifecycle", () => {
             title: "Thread",
             createdAt: "2026-08-09T08:00:00.000Z",
             lastActivityAt: "2026-08-09T08:00:00.000Z",
-            runtimeId: "kimi",
-            runtimeMode: "auto-accept-edits",
-            planMode: false,
+            providerProfileId: "default",
+            agentMode: "auto-edit",
           },
         ];
         snapshot.threadMessages = [
@@ -756,8 +723,6 @@ describe("SQLite App State recovery lifecycle", () => {
           appStateStore: {
             waitForWrites: () => store.waitForIdle(),
             loadAppStateSnapshot: () => store.loadAppStateSnapshot(),
-            loadProviderSessions: async () => ({ version: 1, sessions: {} }),
-            saveProviderSessions: async () => {},
             saveAppStateSnapshot: (snapshot) => store.saveAppStateSnapshot(snapshot),
           },
           attachmentStore,

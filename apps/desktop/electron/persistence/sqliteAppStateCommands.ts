@@ -4,7 +4,6 @@ import {
   serializeAppStateSettings,
   type AppProjectRecord,
   type AppStateSnapshot,
-  type AppThreadActionRecord,
   type AppThreadMessageRecord,
   type AppThreadRecord,
   type AppThreadRunRecord,
@@ -79,16 +78,14 @@ function insertAssociation(
 ): void {
   client.run(
     `INSERT INTO workspace_project_associations (
-       workspace_id, project_id, "order", alias, default_runtime_id,
-       default_runtime_model_id, default_runtime_mode
-     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       workspace_id, project_id, "order", alias, default_provider_profile_id, default_agent_mode
+     ) VALUES (?, ?, ?, ?, ?, ?)`,
     association.workspaceId,
     association.projectId,
     association.order,
     association.alias ?? null,
-    association.defaultRuntimeId,
-    association.defaultRuntimeModelId ?? null,
-    association.defaultRuntimeMode,
+    association.defaultProviderProfileId,
+    association.defaultAgentMode,
   );
 }
 
@@ -109,9 +106,8 @@ function insertThread(client: CommandClient, thread: AppThreadRecord): void {
   client.run(
     `INSERT INTO threads (
        id, workspace_id, project_id, title, custom_title, archived, pinned,
-       created_at, last_activity_at, runtime_id, runtime_model_id, runtime_mode,
-       plan_mode, run_checklist
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       created_at, last_activity_at, provider_profile_id, agent_mode, run_checklist
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     thread.id,
     thread.workspaceId,
     thread.projectId,
@@ -121,10 +117,8 @@ function insertThread(client: CommandClient, thread: AppThreadRecord): void {
     thread.pinned === true ? 1 : 0,
     thread.createdAt,
     thread.lastActivityAt,
-    thread.runtimeId,
-    thread.runtimeModelId ?? null,
-    thread.runtimeMode,
-    thread.planMode ? 1 : 0,
+    thread.providerProfileId,
+    thread.agentMode,
     thread.runChecklist ? JSON.stringify(thread.runChecklist) : null,
   );
 }
@@ -135,9 +129,8 @@ function insertDraft(client: CommandClient, draft: AssociationThreadDraftRecord)
   client.run(
     `INSERT INTO thread_drafts (
        id, reserved_thread_id, workspace_id, project_id, content, composer_state,
-       attached_skill_names, attachments, runtime_id, runtime_model_id,
-       runtime_mode, plan_mode
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       attached_skill_names, attachments, provider_profile_id, agent_mode
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     draft.id,
     draft.threadId,
     draft.workspaceId,
@@ -146,10 +139,8 @@ function insertDraft(client: CommandClient, draft: AssociationThreadDraftRecord)
     draft.composerState ?? null,
     JSON.stringify(draft.attachedSkillNames),
     JSON.stringify(draft.attachments),
-    draft.runtimeId,
-    draft.runtimeModelId ?? null,
-    draft.runtimeMode,
-    draft.planMode ? 1 : 0,
+    draft.providerProfileId,
+    draft.agentMode,
   );
 }
 
@@ -177,31 +168,15 @@ function insertRun(client: CommandClient, run: AppThreadRunRecord): void {
   client.run(
     `INSERT INTO thread_runs (
        id, thread_id, message_id, assistant_message_id, started_at,
-       runtime_id, runtime_model_id, runtime_mode, plan_mode
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       provider_profile_id, agent_mode
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     run.id,
     run.threadId,
     run.messageId,
     run.assistantMessageId ?? null,
     run.startedAt,
-    run.runtimeId,
-    run.runtimeModelId ?? null,
-    run.runtimeMode,
-    run.planMode ? 1 : 0,
-  );
-}
-
-// Keep in sync with replaceAppStateSnapshot's `thread_actions` insert
-// (sqliteAppStateRepository.ts).
-function insertAction(client: CommandClient, action: AppThreadActionRecord): void {
-  client.run(
-    `INSERT INTO thread_actions (id, thread_id, action, runtime_id, completed_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    action.id,
-    action.threadId,
-    action.action,
-    action.runtimeId,
-    action.completedAt,
+    run.providerProfileId,
+    run.agentMode,
   );
 }
 
@@ -215,8 +190,7 @@ function updateThreadMetadata(client: CommandClient, thread: AppThreadRecord): v
     `UPDATE threads SET
        workspace_id = ?, project_id = ?, title = ?, custom_title = ?,
        archived = ?, pinned = ?, created_at = ?, last_activity_at = ?,
-       runtime_id = ?, runtime_model_id = ?, runtime_mode = ?, plan_mode = ?,
-       run_checklist = ?
+       provider_profile_id = ?, agent_mode = ?, run_checklist = ?
      WHERE id = ?`,
     thread.workspaceId,
     thread.projectId,
@@ -226,10 +200,8 @@ function updateThreadMetadata(client: CommandClient, thread: AppThreadRecord): v
     thread.pinned === true ? 1 : 0,
     thread.createdAt,
     thread.lastActivityAt,
-    thread.runtimeId,
-    thread.runtimeModelId ?? null,
-    thread.runtimeMode,
-    thread.planMode ? 1 : 0,
+    thread.providerProfileId,
+    thread.agentMode,
     thread.runChecklist ? JSON.stringify(thread.runChecklist) : null,
     thread.id,
   );
@@ -276,10 +248,8 @@ function threadMetadataIdentity(thread: AppThreadRecord): string {
     pinned: thread.pinned === true,
     createdAt: thread.createdAt,
     lastActivityAt: thread.lastActivityAt,
-    runtimeId: thread.runtimeId,
-    runtimeModelId: thread.runtimeModelId ?? null,
-    runtimeMode: thread.runtimeMode,
-    planMode: thread.planMode,
+    providerProfileId: thread.providerProfileId,
+    agentMode: thread.agentMode,
     runChecklist: thread.runChecklist ?? null,
   });
 }
@@ -396,11 +366,10 @@ export function persistIncrementalAppStateCommand(
       const { association, workspaceId, projectId } = requireAfterAssociation(command, after);
       client.run(
         `UPDATE workspace_project_associations
-         SET default_runtime_id = ?, default_runtime_model_id = ?, default_runtime_mode = ?
+         SET default_provider_profile_id = ?, default_agent_mode = ?
          WHERE workspace_id = ? AND project_id = ?`,
-        association.defaultRuntimeId,
-        association.defaultRuntimeModelId ?? null,
-        association.defaultRuntimeMode,
+        association.defaultProviderProfileId,
+        association.defaultAgentMode,
         workspaceId,
         projectId,
       );
@@ -486,12 +455,10 @@ export function persistIncrementalAppStateCommand(
       );
       client.run(
         `UPDATE thread_drafts
-         SET runtime_id = ?, runtime_model_id = ?, runtime_mode = ?, plan_mode = ?
+         SET provider_profile_id = ?, agent_mode = ?
          WHERE id = ?`,
-        draft.runtimeId,
-        draft.runtimeModelId ?? null,
-        draft.runtimeMode,
-        draft.planMode ? 1 : 0,
+        draft.providerProfileId,
+        draft.agentMode,
         draftId,
       );
       return;
@@ -609,7 +576,7 @@ export function persistIncrementalAppStateCommand(
         "Thread",
       );
       // One Thread row. Writing the full metadata set from `after` mirrors the
-      // reducer's resolved runtime config (a blank modelId clears it) without
+      // reducer's resolved Agent config without
       // per-column drift.
       updateThreadMetadata(client, thread);
       return;
@@ -666,33 +633,6 @@ export function persistIncrementalAppStateCommand(
       for (const removedId of removedRuns) {
         client.run("DELETE FROM thread_runs WHERE id = ?", removedId);
       }
-      updateThreadMetadata(client, thread);
-      return;
-    }
-    case "thread:record-action": {
-      const actionPayload = payloadRecord(command).action;
-      if (
-        typeof actionPayload !== "object" ||
-        actionPayload === null ||
-        typeof (actionPayload as Record<string, unknown>).id !== "string"
-      ) {
-        throw new Error(`Invalid action for incremental App State command: ${command.type}`);
-      }
-      const actionId = (actionPayload as Record<string, unknown>).id as string;
-      const threadId = payloadId(command, "threadId");
-      // The reducer bumps the owning Thread's activity time to the action's
-      // completion, so both commit in the same transaction.
-      const thread = requireAfterEntity(
-        (after.threads ?? []).find((item) => item.id === threadId),
-        command,
-        "Thread",
-      );
-      const action = requireAfterEntity(
-        (after.threadActions ?? []).find((item) => item.id === actionId),
-        command,
-        "Thread Action",
-      );
-      insertAction(client, action);
       updateThreadMetadata(client, thread);
       return;
     }

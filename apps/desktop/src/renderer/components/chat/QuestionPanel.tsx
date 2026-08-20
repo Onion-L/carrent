@@ -61,10 +61,8 @@ export function isQuestionDraftValid(draft: QuestionDraft): boolean {
   return true;
 }
 
-// Carrent adds the automatic Other free-text choice for MCP-sourced questions;
-// the native ACP path only offers the options Kimi actually forwarded.
-export function supportsOtherOption(question: ChatQuestionRequest) {
-  return question.source === "mcp";
+export function supportsOtherOption(_question: ChatQuestionRequest) {
+  return true;
 }
 
 export function canSubmitQuestion(question: ChatQuestionRequest, drafts: QuestionDraft[]) {
@@ -358,13 +356,7 @@ function optionRowClass({ selected, active }: { selected: boolean; active: boole
   }`;
 }
 
-function OptionIndicator({
-  multiSelect,
-  selected,
-}: {
-  multiSelect: boolean;
-  selected: boolean;
-}) {
+function OptionIndicator({ multiSelect, selected }: { multiSelect: boolean; selected: boolean }) {
   return (
     <span
       className={`flex h-[13px] w-[13px] shrink-0 items-center justify-center border-[1.5px] ${
@@ -372,7 +364,9 @@ function OptionIndicator({
       } ${selected ? "border-fg" : "border-border-strong"}`}
     >
       {selected ? (
-        <span className={`h-[5px] w-[5px] bg-fg ${multiSelect ? "rounded-[1px]" : "rounded-full"}`} />
+        <span
+          className={`h-[5px] w-[5px] bg-fg ${multiSelect ? "rounded-[1px]" : "rounded-full"}`}
+        />
       ) : null}
     </span>
   );

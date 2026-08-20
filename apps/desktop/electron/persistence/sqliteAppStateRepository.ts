@@ -6,8 +6,8 @@ import {
   serializeAppStateSettings,
   type AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
-import type { RuntimeMode } from "../../src/shared/runtimeMode";
-import type { RuntimeId } from "../../src/shared/runtimes";
+import type { AgentMode } from "../../src/shared/agentMode";
+import type { ProviderProfileId } from "../../src/shared/providerProfiles";
 import type { SqliteClient } from "./sqliteClient";
 
 type RepositoryClient = Pick<SqliteClient, "all" | "get" | "run">;
@@ -19,9 +19,8 @@ type AssociationRow = {
   project_id: string;
   alias: string | null;
   order_value: number;
-  default_runtime_id: RuntimeId;
-  default_runtime_model_id: string | null;
-  default_runtime_mode: RuntimeMode;
+  default_provider_profile_id: ProviderProfileId;
+  default_agent_mode: AgentMode;
 };
 type ThreadRow = {
   id: string;
@@ -33,10 +32,8 @@ type ThreadRow = {
   pinned: number;
   created_at: string;
   last_activity_at: string;
-  runtime_id: RuntimeId;
-  runtime_model_id: string | null;
-  runtime_mode: RuntimeMode;
-  plan_mode: number;
+  provider_profile_id: ProviderProfileId;
+  agent_mode: AgentMode;
   run_checklist: string | null;
 };
 type DraftRow = {
@@ -48,10 +45,8 @@ type DraftRow = {
   composer_state: string | null;
   attached_skill_names: string;
   attachments: string;
-  runtime_id: RuntimeId;
-  runtime_model_id: string | null;
-  runtime_mode: RuntimeMode;
-  plan_mode: number;
+  provider_profile_id: ProviderProfileId;
+  agent_mode: AgentMode;
 };
 type MessageRow = {
   id: string;
@@ -67,17 +62,8 @@ type RunRow = {
   message_id: string;
   assistant_message_id: string | null;
   started_at: string;
-  runtime_id: RuntimeId;
-  runtime_model_id: string | null;
-  runtime_mode: RuntimeMode;
-  plan_mode: number;
-};
-type ActionRow = {
-  id: string;
-  thread_id: string;
-  action: "compact";
-  runtime_id: RuntimeId;
-  completed_at: string;
+  provider_profile_id: ProviderProfileId;
+  agent_mode: AgentMode;
 };
 type PromotionIntentRow = {
   draft_id: string;
@@ -91,10 +77,8 @@ type PromotionIntentRow = {
   attachments: string;
   message_created_at: string | null;
   started_at: string;
-  runtime_id: RuntimeId;
-  runtime_model_id: string | null;
-  runtime_mode: RuntimeMode;
-  plan_mode: number;
+  provider_profile_id: ProviderProfileId;
+  agent_mode: AgentMode;
 };
 type ThreadWorkRow = {
   thread_id: string;
@@ -225,22 +209,19 @@ export function replaceAppStateSnapshot(
   for (const association of snapshot.associations) {
     client.run(
       `INSERT INTO workspace_project_associations (
-         workspace_id, project_id, "order", alias, default_runtime_id,
-         default_runtime_model_id, default_runtime_mode
-       ) VALUES (?, ?, ?, ?, ?, ?, ?)
+         workspace_id, project_id, "order", alias, default_provider_profile_id, default_agent_mode
+       ) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(workspace_id, project_id) DO UPDATE SET
          "order" = excluded."order",
          alias = excluded.alias,
-         default_runtime_id = excluded.default_runtime_id,
-         default_runtime_model_id = excluded.default_runtime_model_id,
-         default_runtime_mode = excluded.default_runtime_mode`,
+         default_provider_profile_id = excluded.default_provider_profile_id,
+         default_agent_mode = excluded.default_agent_mode`,
       association.workspaceId,
       association.projectId,
       association.order,
       association.alias ?? null,
-      association.defaultRuntimeId,
-      association.defaultRuntimeModelId ?? null,
-      association.defaultRuntimeMode,
+      association.defaultProviderProfileId,
+      association.defaultAgentMode,
     );
   }
 
@@ -257,9 +238,8 @@ export function replaceAppStateSnapshot(
     client.run(
       `INSERT INTO threads (
          id, workspace_id, project_id, title, custom_title, archived, pinned,
-         created_at, last_activity_at, runtime_id, runtime_model_id, runtime_mode,
-         plan_mode, run_checklist
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         created_at, last_activity_at, provider_profile_id, agent_mode, run_checklist
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          workspace_id = excluded.workspace_id,
          project_id = excluded.project_id,
@@ -269,10 +249,8 @@ export function replaceAppStateSnapshot(
          pinned = excluded.pinned,
          created_at = excluded.created_at,
          last_activity_at = excluded.last_activity_at,
-         runtime_id = excluded.runtime_id,
-         runtime_model_id = excluded.runtime_model_id,
-         runtime_mode = excluded.runtime_mode,
-         plan_mode = excluded.plan_mode,
+         provider_profile_id = excluded.provider_profile_id,
+         agent_mode = excluded.agent_mode,
          run_checklist = excluded.run_checklist`,
       thread.id,
       thread.workspaceId,
@@ -283,10 +261,8 @@ export function replaceAppStateSnapshot(
       thread.pinned === true ? 1 : 0,
       thread.createdAt,
       thread.lastActivityAt,
-      thread.runtimeId,
-      thread.runtimeModelId ?? null,
-      thread.runtimeMode,
-      thread.planMode ? 1 : 0,
+      thread.providerProfileId,
+      thread.agentMode,
       thread.runChecklist ? JSON.stringify(thread.runChecklist) : null,
     );
   }
@@ -294,9 +270,8 @@ export function replaceAppStateSnapshot(
     client.run(
       `INSERT INTO thread_drafts (
          id, reserved_thread_id, workspace_id, project_id, content, composer_state,
-         attached_skill_names, attachments, runtime_id, runtime_model_id,
-         runtime_mode, plan_mode
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         attached_skill_names, attachments, provider_profile_id, agent_mode
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          reserved_thread_id = excluded.reserved_thread_id,
          workspace_id = excluded.workspace_id,
@@ -305,10 +280,8 @@ export function replaceAppStateSnapshot(
          composer_state = excluded.composer_state,
          attached_skill_names = excluded.attached_skill_names,
          attachments = excluded.attachments,
-         runtime_id = excluded.runtime_id,
-         runtime_model_id = excluded.runtime_model_id,
-         runtime_mode = excluded.runtime_mode,
-         plan_mode = excluded.plan_mode`,
+         provider_profile_id = excluded.provider_profile_id,
+         agent_mode = excluded.agent_mode`,
       draft.id,
       draft.threadId,
       draft.workspaceId,
@@ -317,10 +290,8 @@ export function replaceAppStateSnapshot(
       draft.composerState ?? null,
       JSON.stringify(draft.attachedSkillNames),
       JSON.stringify(draft.attachments),
-      draft.runtimeId,
-      draft.runtimeModelId ?? null,
-      draft.runtimeMode,
-      draft.planMode ? 1 : 0,
+      draft.providerProfileId,
+      draft.agentMode,
     );
   }
 
@@ -329,7 +300,6 @@ export function replaceAppStateSnapshot(
   // exactly what the snapshot carries. Threads and Drafts were upserted above,
   // so every foreign key target already exists.
   client.run("DELETE FROM thread_runs");
-  client.run("DELETE FROM thread_actions");
   client.run("DELETE FROM promotion_intents");
   client.run("DELETE FROM thread_work");
   client.run("DELETE FROM thread_messages");
@@ -350,37 +320,24 @@ export function replaceAppStateSnapshot(
     client.run(
       `INSERT INTO thread_runs (
          id, thread_id, message_id, assistant_message_id, started_at,
-         runtime_id, runtime_model_id, runtime_mode, plan_mode
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         provider_profile_id, agent_mode
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       run.id,
       run.threadId,
       run.messageId,
       run.assistantMessageId ?? null,
       run.startedAt,
-      run.runtimeId,
-      run.runtimeModelId ?? null,
-      run.runtimeMode,
-      run.planMode ? 1 : 0,
-    );
-  }
-  for (const action of snapshot.threadActions ?? []) {
-    client.run(
-      `INSERT INTO thread_actions (id, thread_id, action, runtime_id, completed_at)
-       VALUES (?, ?, ?, ?, ?)`,
-      action.id,
-      action.threadId,
-      action.action,
-      action.runtimeId,
-      action.completedAt,
+      run.providerProfileId,
+      run.agentMode,
     );
   }
   for (const intent of snapshot.threadPromotionIntents ?? []) {
     client.run(
       `INSERT INTO promotion_intents (
          draft_id, thread_id, workspace_id, project_id, title, run_id, message_id,
-         message, attachments, message_created_at, started_at, runtime_id,
-         runtime_model_id, runtime_mode, plan_mode
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         message, attachments, message_created_at, started_at, provider_profile_id,
+         agent_mode
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       intent.draftId,
       intent.threadId,
       intent.workspaceId,
@@ -392,10 +349,8 @@ export function replaceAppStateSnapshot(
       JSON.stringify(intent.attachments),
       intent.messageCreatedAt ?? null,
       intent.startedAt,
-      intent.runtimeId,
-      intent.runtimeModelId ?? null,
-      intent.runtimeMode,
-      intent.planMode ? 1 : 0,
+      intent.providerProfileId,
+      intent.agentMode,
     );
   }
   for (const [threadId, work] of Object.entries(snapshot.threadWork ?? {})) {
@@ -465,7 +420,7 @@ export function readAppStateSnapshot(client: RepositoryClient): AppStateSnapshot
   const associations = client
     .all<AssociationRow>(
       `SELECT workspace_id, project_id, alias, "order" AS order_value,
-              default_runtime_id, default_runtime_model_id, default_runtime_mode
+              default_provider_profile_id, default_agent_mode
        FROM workspace_project_associations
        ORDER BY workspace_id, "order", project_id`,
     )
@@ -474,17 +429,13 @@ export function readAppStateSnapshot(client: RepositoryClient): AppStateSnapshot
       projectId: row.project_id,
       ...(row.alias === null ? {} : { alias: row.alias }),
       order: row.order_value,
-      defaultRuntimeId: row.default_runtime_id,
-      ...(row.default_runtime_model_id === null
-        ? {}
-        : { defaultRuntimeModelId: row.default_runtime_model_id }),
-      defaultRuntimeMode: row.default_runtime_mode,
+      defaultProviderProfileId: row.default_provider_profile_id,
+      defaultAgentMode: row.default_agent_mode,
     }));
   const threads = client
     .all<ThreadRow>(
       `SELECT id, workspace_id, project_id, title, custom_title, archived, pinned,
-              created_at, last_activity_at, runtime_id, runtime_model_id, runtime_mode,
-              plan_mode, run_checklist
+              created_at, last_activity_at, provider_profile_id, agent_mode, run_checklist
        FROM threads
        ORDER BY workspace_id, project_id, last_activity_at, id`,
     )
@@ -498,10 +449,8 @@ export function readAppStateSnapshot(client: RepositoryClient): AppStateSnapshot
       lastActivityAt: row.last_activity_at,
       ...(row.archived === 1 ? { archived: true } : {}),
       ...(row.pinned === 1 ? { pinned: true } : {}),
-      runtimeId: row.runtime_id,
-      ...(row.runtime_model_id === null ? {} : { runtimeModelId: row.runtime_model_id }),
-      runtimeMode: row.runtime_mode,
-      planMode: row.plan_mode === 1,
+      providerProfileId: row.provider_profile_id,
+      agentMode: row.agent_mode,
       ...(row.run_checklist === null
         ? {}
         : { runChecklist: parseRequiredJson(row.run_checklist, invalid) }),
@@ -509,8 +458,7 @@ export function readAppStateSnapshot(client: RepositoryClient): AppStateSnapshot
   const threadDrafts = client
     .all<DraftRow>(
       `SELECT id, reserved_thread_id, workspace_id, project_id, content, composer_state,
-              attached_skill_names, attachments, runtime_id, runtime_model_id,
-              runtime_mode, plan_mode
+              attached_skill_names, attachments, provider_profile_id, agent_mode
        FROM thread_drafts
        ORDER BY workspace_id, project_id, id`,
     )
@@ -523,10 +471,8 @@ export function readAppStateSnapshot(client: RepositoryClient): AppStateSnapshot
       ...(row.composer_state === null ? {} : { composerState: row.composer_state }),
       attachedSkillNames: parseRequiredJson(row.attached_skill_names, invalid),
       attachments: parseRequiredJson(row.attachments, invalid),
-      runtimeId: row.runtime_id,
-      ...(row.runtime_model_id === null ? {} : { runtimeModelId: row.runtime_model_id }),
-      runtimeMode: row.runtime_mode,
-      planMode: row.plan_mode === 1,
+      providerProfileId: row.provider_profile_id,
+      agentMode: row.agent_mode,
     }));
   const threadMessages = client
     .all<MessageRow>(
@@ -551,7 +497,7 @@ export function readAppStateSnapshot(client: RepositoryClient): AppStateSnapshot
   const threadRuns = client
     .all<RunRow>(
       `SELECT id, thread_id, message_id, assistant_message_id, started_at,
-              runtime_id, runtime_model_id, runtime_mode, plan_mode
+              provider_profile_id, agent_mode
        FROM thread_runs
        ORDER BY thread_id, started_at, id`,
     )
@@ -563,29 +509,14 @@ export function readAppStateSnapshot(client: RepositoryClient): AppStateSnapshot
         ? {}
         : { assistantMessageId: row.assistant_message_id }),
       startedAt: row.started_at,
-      runtimeId: row.runtime_id,
-      ...(row.runtime_model_id === null ? {} : { runtimeModelId: row.runtime_model_id }),
-      runtimeMode: row.runtime_mode,
-      planMode: row.plan_mode === 1,
-    }));
-  const threadActions = client
-    .all<ActionRow>(
-      `SELECT id, thread_id, action, runtime_id, completed_at
-       FROM thread_actions
-       ORDER BY thread_id, completed_at, id`,
-    )
-    .map((row) => ({
-      id: row.id,
-      threadId: row.thread_id,
-      action: row.action,
-      runtimeId: row.runtime_id,
-      completedAt: row.completed_at,
+      providerProfileId: row.provider_profile_id,
+      agentMode: row.agent_mode,
     }));
   const threadPromotionIntents = client
     .all<PromotionIntentRow>(
       `SELECT draft_id, thread_id, workspace_id, project_id, title, run_id, message_id,
-              message, attachments, message_created_at, started_at, runtime_id,
-              runtime_model_id, runtime_mode, plan_mode
+              message, attachments, message_created_at, started_at, provider_profile_id,
+              agent_mode
        FROM promotion_intents
        ORDER BY draft_id`,
     )
@@ -601,10 +532,8 @@ export function readAppStateSnapshot(client: RepositoryClient): AppStateSnapshot
       attachments: parseRequiredJson(row.attachments, invalid),
       ...(row.message_created_at === null ? {} : { messageCreatedAt: row.message_created_at }),
       startedAt: row.started_at,
-      runtimeId: row.runtime_id,
-      ...(row.runtime_model_id === null ? {} : { runtimeModelId: row.runtime_model_id }),
-      runtimeMode: row.runtime_mode,
-      planMode: row.plan_mode === 1,
+      providerProfileId: row.provider_profile_id,
+      agentMode: row.agent_mode,
     }));
   const threadWork: Record<string, unknown> = {};
   for (const row of client.all<ThreadWorkRow>(
@@ -646,7 +575,6 @@ export function readAppStateSnapshot(client: RepositoryClient): AppStateSnapshot
     threadDrafts,
     threadMessages,
     threadRuns,
-    threadActions,
     threadPromotionIntents,
     threadWork,
     ...(settings ? { settings } : {}),

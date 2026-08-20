@@ -9,73 +9,10 @@ import {
   normalizeAppStateSnapshotForMemory,
   normalizeAppStateSnapshotForWrite,
   normalizePersistedAppStateSnapshot,
-  normalizeProviderSessionSnapshot,
   serializeAppStateSettings,
 } from "./workspacePersistence";
 
 describe("normalizeAppStateSnapshot", () => {
-  it("round-trips valid Compact history and drops malformed Thread Action records", () => {
-    const snapshot = {
-      version: APP_STATE_SNAPSHOT_VERSION,
-      workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
-      projects: [{ id: "project-1", name: "Carrent", workingDirectory: "/code/carrent" }],
-      associations: [
-        {
-          workspaceId: "workspace-1",
-          projectId: "project-1",
-          order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
-        },
-      ],
-      threads: [
-        {
-          id: "thread-1",
-          workspaceId: "workspace-1",
-          projectId: "project-1",
-          title: "Compact history",
-          createdAt: "2026-07-27T08:00:00.000Z",
-          lastActivityAt: "2026-07-27T08:03:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
-        },
-      ],
-      threadMessages: [
-        {
-          id: "message-1",
-          threadId: "thread-1",
-          role: "user",
-          content: "Before Compact",
-          createdAt: "2026-07-27T08:01:00.000Z",
-          attachments: [],
-        },
-      ],
-      threadActions: [
-        {
-          id: "action-1",
-          threadId: "thread-1",
-          action: "compact",
-          runtimeId: "kimi",
-          completedAt: "2026-07-27T08:02:00.000Z",
-        },
-      ],
-      activeWorkspaceId: "workspace-1",
-    };
-
-    expect(normalizeAppStateSnapshot(snapshot)).toEqual(snapshot);
-    expect(
-      normalizeAppStateSnapshot({
-        ...snapshot,
-        threadActions: [
-          ...snapshot.threadActions,
-          { ...snapshot.threadActions[0], id: "bad-action", threadId: "other-thread" },
-          { ...snapshot.threadActions[0], id: "unknown-action", action: "unknown" },
-        ],
-      }),
-    ).toEqual(snapshot);
-  });
-
   it("round-trips valid per-Workspace last Thread locations", () => {
     const snapshot = {
       version: APP_STATE_SNAPSHOT_VERSION,
@@ -86,8 +23,8 @@ describe("normalizeAppStateSnapshot", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -98,9 +35,8 @@ describe("normalizeAppStateSnapshot", () => {
           title: "Navigation",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
@@ -126,8 +62,8 @@ describe("normalizeAppStateSnapshot", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -139,9 +75,8 @@ describe("normalizeAppStateSnapshot", () => {
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
           archived: true,
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       threadDrafts: [],
@@ -182,15 +117,15 @@ describe("normalizeAppStateSnapshot", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
         {
           workspaceId: "workspace-2",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -201,9 +136,8 @@ describe("normalizeAppStateSnapshot", () => {
           title: "Client Thread",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       lastThreadIdByWorkspace: { "workspace-1": "thread-1" },
@@ -230,34 +164,21 @@ describe("normalizeAppStateSnapshot", () => {
           projectId: "project-1",
           alias: "Personal Carrent",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
         {
           workspaceId: "workspace-2",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "codex",
-          defaultRuntimeModelId: "gpt-5",
-          defaultRuntimeMode: "auto-accept-edits",
+          defaultProviderProfileId: "codex",
+          defaultAgentMode: "auto-edit",
         },
       ],
       activeWorkspaceId: "workspace-2",
     };
 
-    expect(normalizeAppStateSnapshot(snapshot)).toEqual({
-      ...snapshot,
-      associations: [
-        snapshot.associations[0],
-        {
-          workspaceId: "workspace-2",
-          projectId: "project-1",
-          order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "auto-accept-edits",
-        },
-      ],
-    });
+    expect(normalizeAppStateSnapshot(snapshot)).toEqual(snapshot);
   });
 
   it("rejects duplicate Project directories and broken Association references", () => {
@@ -270,8 +191,8 @@ describe("normalizeAppStateSnapshot", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       activeWorkspaceId: "workspace-1",
@@ -309,15 +230,15 @@ describe("normalizeAppStateSnapshot", () => {
             workspaceId: "workspace-1",
             projectId: "project-1",
             order: 0,
-            defaultRuntimeId: "kimi",
-            defaultRuntimeMode: "approval-required",
+            defaultProviderProfileId: "default",
+            defaultAgentMode: "ask",
           },
           {
             workspaceId: "workspace-1",
             projectId: "project-2",
             order: 1,
-            defaultRuntimeId: "kimi",
-            defaultRuntimeMode: "approval-required",
+            defaultProviderProfileId: "default",
+            defaultAgentMode: "ask",
           },
         ],
         activeWorkspaceId: "workspace-1",
@@ -335,9 +256,8 @@ describe("normalizeAppStateSnapshot", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeModelId: "kimi-k2.5",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -349,10 +269,8 @@ describe("normalizeAppStateSnapshot", () => {
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
           archived: true,
-          runtimeId: "kimi",
-          runtimeModelId: "kimi-k2.5",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       threadDrafts: [
@@ -364,10 +282,8 @@ describe("normalizeAppStateSnapshot", () => {
           content: "Unsent request",
           attachedSkillNames: ["tdd"],
           attachments: [],
-          runtimeId: "codex",
-          runtimeModelId: "gpt-5",
-          runtimeMode: "full-access",
-          planMode: true,
+          providerProfileId: "codex",
+          agentMode: "full-project",
         },
       ],
       threadMessages: [
@@ -386,35 +302,17 @@ describe("normalizeAppStateSnapshot", () => {
           threadId: "thread-1",
           messageId: "message-1",
           startedAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeModelId: "kimi-k2.5",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       activeWorkspaceId: "workspace-1",
     };
 
-    expect(normalizeAppStateSnapshot(snapshot)).toEqual({
-      ...snapshot,
-      threadDrafts: [
-        {
-          id: "draft-2",
-          threadId: "thread-2",
-          workspaceId: "workspace-1",
-          projectId: "project-1",
-          content: "Unsent request",
-          attachedSkillNames: ["tdd"],
-          attachments: [],
-          runtimeId: "kimi",
-          runtimeMode: "full-access",
-          planMode: true,
-        },
-      ],
-    });
+    expect(normalizeAppStateSnapshot(snapshot)).toEqual(snapshot);
   });
 
-  it("clears legacy runtime models when migrating Thread Runs", () => {
+  it("clears legacy model fields when migrating Thread Runs", () => {
     const snapshot = {
       version: APP_STATE_SNAPSHOT_VERSION,
       workspaces: [{ id: "workspace-1", name: "Personal", order: 0 }],
@@ -424,8 +322,8 @@ describe("normalizeAppStateSnapshot", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -436,9 +334,8 @@ describe("normalizeAppStateSnapshot", () => {
           title: "Legacy run",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       threadMessages: [
@@ -457,10 +354,9 @@ describe("normalizeAppStateSnapshot", () => {
           threadId: "thread-1",
           messageId: "message-1",
           startedAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "codex",
-          runtimeModelId: "gpt-5",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "codex",
+          modelId: "legacy-model",
+          agentMode: "ask",
         },
       ],
       activeWorkspaceId: "workspace-1",
@@ -472,9 +368,8 @@ describe("normalizeAppStateSnapshot", () => {
         threadId: "thread-1",
         messageId: "message-1",
         startedAt: "2026-07-27T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "codex",
+        agentMode: "ask",
       },
     ]);
   });
@@ -489,8 +384,8 @@ describe("normalizeAppStateSnapshot", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -502,12 +397,11 @@ describe("normalizeAppStateSnapshot", () => {
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:01:00.000Z",
           pinned: true,
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
           runChecklist: {
             runId: "run-1",
-            runtimeId: "kimi",
+            providerProfileId: "default",
             entries: [{ content: "Persist content", status: "in_progress" }],
             outcome: "running",
             expanded: true,
@@ -532,20 +426,20 @@ describe("normalizeAppStateSnapshot", () => {
               status: "running",
             },
             {
-              type: "kimi_timeline",
+              type: "agent_activity",
               item: {
                 type: "thinking",
-                id: "kimi-run-1-thinking-1",
+                id: "agent-run-1-thinking-1",
                 order: 0,
                 content: "Inspecting state",
                 status: "cancelled",
               },
             },
             {
-              type: "kimi_timeline",
+              type: "agent_activity",
               item: {
                 type: "tool",
-                id: "kimi-run-1-tool-item-0",
+                id: "agent-run-1-tool-item-0",
                 order: 1,
                 toolCallId: "tool-read",
                 title: "Read",
@@ -559,10 +453,10 @@ describe("normalizeAppStateSnapshot", () => {
               },
             },
             {
-              type: "kimi_timeline",
+              type: "agent_activity",
               item: {
                 type: "message",
-                id: "kimi-run-1-message-1",
+                id: "agent-run-1-message-1",
                 order: 2,
                 content: "Working",
                 isFinal: false,
@@ -602,8 +496,8 @@ describe("normalizeAppStateSnapshot", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -614,9 +508,8 @@ describe("normalizeAppStateSnapshot", () => {
           title: "Validate content",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       threadDrafts: [],
@@ -678,8 +571,8 @@ describe("normalizeAppStateSnapshot", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [],
@@ -692,9 +585,8 @@ describe("normalizeAppStateSnapshot", () => {
           content: "Pending request",
           attachedSkillNames: [],
           attachments: [],
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       threadMessages: [],
@@ -711,9 +603,8 @@ describe("normalizeAppStateSnapshot", () => {
           message: "Pending request",
           attachments: [],
           startedAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       activeWorkspaceId: "workspace-1",
@@ -733,8 +624,8 @@ describe("normalizeAppStateSnapshot", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       activeWorkspaceId: "workspace-1",
@@ -747,9 +638,8 @@ describe("normalizeAppStateSnapshot", () => {
       content: "Unsent",
       attachedSkillNames: [],
       attachments: [],
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
     };
     const thread = {
       id: "thread-1",
@@ -758,9 +648,8 @@ describe("normalizeAppStateSnapshot", () => {
       title: "Missing parent",
       createdAt: "2026-07-27T08:00:00.000Z",
       lastActivityAt: "2026-07-27T08:00:00.000Z",
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
     };
 
     expect(normalizeAppStateSnapshot({ ...base, threadDrafts: [draft] })).toBe(null);
@@ -777,8 +666,8 @@ describe("normalizeAppStateSnapshot", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       activeWorkspaceId: "workspace-1",
@@ -791,9 +680,8 @@ describe("normalizeAppStateSnapshot", () => {
       content: "Unsent",
       attachedSkillNames: [],
       attachments: [],
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
     };
 
     expect(
@@ -811,9 +699,8 @@ describe("normalizeAppStateSnapshot", () => {
             threadId: "thread-missing",
             messageId: "message-missing",
             startedAt: "2026-07-27T08:00:00.000Z",
-            runtimeId: "kimi",
-            runtimeMode: "approval-required",
-            planMode: false,
+            providerProfileId: "default",
+            agentMode: "ask",
           },
         ],
       }),
@@ -831,8 +718,8 @@ describe("normalizeAppStateSnapshot", () => {
             workspaceId: "workspace-1",
             projectId: "project-1",
             order: 0,
-            defaultRuntimeId: "kimi",
-            defaultRuntimeMode: "approval-required",
+            defaultProviderProfileId: "default",
+            defaultAgentMode: "ask",
           },
         ],
         threads: [
@@ -843,9 +730,8 @@ describe("normalizeAppStateSnapshot", () => {
             title: "Thread",
             createdAt: "July 27, 2026",
             lastActivityAt: "2026-07-27T08:00:00.000Z",
-            runtimeId: "kimi",
-            runtimeMode: "approval-required",
-            planMode: false,
+            providerProfileId: "default",
+            agentMode: "ask",
           },
         ],
         activeWorkspaceId: "workspace-1",
@@ -863,8 +749,8 @@ describe("normalizeAppStateSnapshot", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -876,9 +762,8 @@ describe("normalizeAppStateSnapshot", () => {
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
           customTitle: true,
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       threadDrafts: [],
@@ -908,8 +793,8 @@ describe("normalizeAppStateSnapshot", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -920,9 +805,8 @@ describe("normalizeAppStateSnapshot", () => {
           title: "Attachment schema",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       threadDrafts: [],
@@ -965,8 +849,8 @@ describe("queued message requiresConfirmation stamping", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -977,9 +861,8 @@ describe("queued message requiresConfirmation stamping", () => {
           title: "Tidy the docs",
           createdAt: "2026-01-01T00:00:00.000Z",
           lastActivityAt: "2026-01-01T00:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       threadDrafts: [],
@@ -1026,17 +909,6 @@ describe("queued message requiresConfirmation stamping", () => {
   });
 });
 
-describe("normalizeProviderSessionSnapshot", () => {
-  it("preserves an invalid mapping marker for isolated Run-time recovery", () => {
-    expect(
-      normalizeProviderSessionSnapshot({
-        version: 1,
-        sessions: { "kimi:thread-1": { unexpected: true } },
-      }),
-    ).toEqual({ version: 1, sessions: { "kimi:thread-1": "" } });
-  });
-});
-
 describe("Local Path Context persistence", () => {
   // Edge-case paths already in normalized form (absolute, forward slashes,
   // explicit basename) so the round-trip assertion can compare verbatim.
@@ -1067,8 +939,8 @@ describe("Local Path Context persistence", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -1079,9 +951,8 @@ describe("Local Path Context persistence", () => {
           title: "Local Path Context",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       activeWorkspaceId: "workspace-1",
@@ -1101,9 +972,8 @@ describe("Local Path Context persistence", () => {
           attachedSkillNames: [],
           attachments: [],
           localPathContexts: orderedContexts,
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       threadMessages: [
@@ -1131,9 +1001,8 @@ describe("Local Path Context persistence", () => {
           attachments: [],
           localPathContexts: [folderContext],
           startedAt: "2026-07-27T08:02:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
         },
       ],
       threadWork: {
@@ -1336,8 +1205,8 @@ describe("normalizeAppStateSettings keybindingOverrides", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       settings: {

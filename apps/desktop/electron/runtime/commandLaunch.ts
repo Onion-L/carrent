@@ -10,8 +10,8 @@ export interface CommandLaunchOptions {
 
 // Windows cannot exec npm's .cmd/.bat CLI shims directly: CreateProcess only
 // resolves .exe. Bare CLI names and batch files are routed through cmd.exe,
-// whose PATH + PATHEXT lookup resolves "kimi" to kimi.cmd the way a shell
-// would. `shell: true` is deliberately avoided — Node 24 deprecates it with
+// whose PATH + PATHEXT lookup resolves CLI shims the way a shell would.
+// `shell: true` is deliberately avoided — Node 24 deprecates it with
 // args and it never escaped them.
 //
 // Callers must pass arguments without cmd.exe metacharacters (space-free

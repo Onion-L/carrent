@@ -22,8 +22,8 @@ describe("SqliteAppStateStore", () => {
       const result = await store.open();
       expect(store.isOpen).toBe(true);
       expect(result.pragmas).toEqual(DEFAULT_SQLITE_PRAGMAS);
-      expect(result.migrations.appliedVersion).toBe(3);
-      expect(result.migrations.newlyApplied).toEqual([1, 2, 3]);
+      expect(result.migrations.appliedVersion).toBe(5);
+      expect(result.migrations.newlyApplied).toEqual([1, 2, 3, 4, 5]);
 
       // PRAGMAs are actually set as SQLite reports them.
       const pragmas = await store.run((client) => ({
@@ -65,7 +65,7 @@ describe("SqliteAppStateStore", () => {
         now: () => "2026-08-09T00:00:01.000Z",
       });
       const result = await second.open();
-      expect(result.migrations.appliedVersion).toBe(3);
+      expect(result.migrations.appliedVersion).toBe(5);
       expect(result.migrations.newlyApplied).toEqual([]);
 
       // The data written before close survived the reopen.

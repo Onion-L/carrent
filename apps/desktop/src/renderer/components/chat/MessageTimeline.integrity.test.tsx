@@ -96,7 +96,7 @@ describe("Local Path Context reveal", () => {
     await act(async () => {
       root.render(
         <ToastProvider>
-          <MessageTimeline messages={[message]} threadActions={[]} />
+          <MessageTimeline messages={[message]} />
         </ToastProvider>,
       );
     });
@@ -140,16 +140,13 @@ describe("streaming Markdown output integrity", () => {
     };
 
     await act(async () => {
-      root.render(<MessageTimeline messages={[streaming]} threadActions={[]} />);
+      root.render(<MessageTimeline messages={[streaming]} />);
     });
     expect(container.querySelector("ul")).toBe(null);
 
     await act(async () => {
       root.render(
-        <MessageTimeline
-          messages={[{ ...streaming, content: full, runStatus: "completed" }]}
-          threadActions={[]}
-        />,
+        <MessageTimeline messages={[{ ...streaming, content: full, runStatus: "completed" }]} />,
       );
     });
 
@@ -190,7 +187,7 @@ describe("user Markdown links", () => {
     };
 
     await act(async () => {
-      root.render(<MessageTimeline messages={[message]} threadActions={[]} />);
+      root.render(<MessageTimeline messages={[message]} />);
     });
 
     const safeLink = container.querySelector<HTMLAnchorElement>('a[href="https://example.com"]');
@@ -207,8 +204,8 @@ describe("user Markdown links", () => {
   });
 });
 
-describe("Kimi message timeline", () => {
-  it("renders ordinary text in ACP order while Thinking stays collapsed", async () => {
+describe("Agent message timeline", () => {
+  it("renders ordinary text in event order while Thinking stays collapsed", async () => {
     const message: Message = {
       id: "assistant-1",
       role: "assistant",
@@ -218,7 +215,7 @@ describe("Kimi message timeline", () => {
       runStatus: "running",
       parts: [
         {
-          type: "kimi_timeline",
+          type: "agent_activity",
           item: {
             type: "thinking",
             id: "thinking-1",
@@ -228,7 +225,7 @@ describe("Kimi message timeline", () => {
           },
         },
         {
-          type: "kimi_timeline",
+          type: "agent_activity",
           item: {
             type: "message",
             id: "message-1",
@@ -238,7 +235,7 @@ describe("Kimi message timeline", () => {
           },
         },
         {
-          type: "kimi_timeline",
+          type: "agent_activity",
           item: {
             type: "message",
             id: "message-2",
@@ -251,7 +248,7 @@ describe("Kimi message timeline", () => {
     };
 
     await act(async () => {
-      root.render(<MessageTimeline messages={[message]} threadActions={[]} />);
+      root.render(<MessageTimeline messages={[message]} />);
     });
 
     expect(container.textContent).toContain("Thinking");
@@ -261,7 +258,7 @@ describe("Kimi message timeline", () => {
     expect(container.textContent!.indexOf("I will inspect the files.")).toBeLessThan(
       container.textContent!.indexOf("Inspection complete."),
     );
-    expect(container.querySelector("[data-kimi-timeline] .border-l")).toBe(null);
+    expect(container.querySelector("[data-agent-timeline] .border-l")).toBe(null);
   });
 
   it("renders a dedicated Subagent row that opens its task", async () => {
@@ -275,7 +272,7 @@ describe("Kimi message timeline", () => {
       runStatus: "running",
       parts: [
         {
-          type: "kimi_timeline",
+          type: "agent_activity",
           item: {
             type: "tool",
             id: "tool-item-agent",
@@ -294,7 +291,7 @@ describe("Kimi message timeline", () => {
         {
           type: "subagent_task",
           id: "tool-agent",
-          runtimeId: "kimi",
+          providerProfileId: "default",
           source: "agent",
           agentType: "Explore",
           description: "Explore notification seams",
@@ -309,7 +306,6 @@ describe("Kimi message timeline", () => {
       root.render(
         <MessageTimeline
           messages={[message]}
-          threadActions={[]}
           onSelectSubagent={(taskId) => {
             selectedTaskId = taskId;
           }}
@@ -328,7 +324,7 @@ describe("Kimi message timeline", () => {
     expect(selectedTaskId).toBe("tool-agent");
   });
 
-  it("does not repeat Stopped after a cancelled Kimi timeline", async () => {
+  it("does not repeat Stopped after a cancelled Agent timeline", async () => {
     const message: Message = {
       id: "assistant-cancelled",
       role: "assistant",
@@ -338,7 +334,7 @@ describe("Kimi message timeline", () => {
       runStatus: "cancelled",
       parts: [
         {
-          type: "kimi_timeline",
+          type: "agent_activity",
           item: {
             type: "message",
             id: "message-1",
@@ -351,7 +347,7 @@ describe("Kimi message timeline", () => {
     };
 
     await act(async () => {
-      root.render(<MessageTimeline messages={[message]} threadActions={[]} />);
+      root.render(<MessageTimeline messages={[message]} />);
     });
 
     expect(container.textContent).toContain("Cancelled");

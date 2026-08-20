@@ -12,14 +12,13 @@ import type { ChatRunEvent } from "../../../shared/chat";
 import type { AppStateSnapshot } from "../../../shared/workspacePersistence";
 import { createFakeAppStateAuthority } from "../../test/fakeAppStateAuthority";
 import { AppStateProvider } from "../../context/AppStateContext";
-import { RuntimeModelsProvider } from "../../context/RuntimeModelsContext";
 import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
 import { Composer } from "./Composer";
 import { getRunChecklistProgress, RunChecklist } from "./RunChecklist";
 
 const checklist: ThreadRunChecklist = {
   runId: "run-1",
-  runtimeId: "kimi",
+  providerProfileId: "default",
   outcome: "running",
   expanded: true,
   entries: [
@@ -71,9 +70,8 @@ function ComposerHarness({ threadId }: { threadId: string }) {
       projectId="project-1"
       threadId={threadId}
       messages={routeData.messages}
-      runtimeId="kimi"
-      runtimeMode="approval-required"
-      planMode={false}
+      providerProfileId="default"
+      agentMode="ask"
     />
   );
 }
@@ -81,6 +79,24 @@ function ComposerHarness({ threadId }: { threadId: string }) {
 async function renderComposer(threadId: string, snapshot: AppStateSnapshot) {
   const authority = createFakeAppStateAuthority(snapshot);
   window.carrent = {
+    agentAuth: {
+      load: async () => ({
+        path: "/home/test/.carrent/agent/auth.json",
+        activeProfileId: "default",
+        profiles: [
+          {
+            id: "default",
+            type: "anthropic",
+            baseUrl: "https://api.anthropic.com",
+            modelId: "claude-sonnet-4-5",
+            hasApiKey: true,
+          },
+        ],
+      }),
+      save: async () => {
+        throw new Error("Unexpected agent auth save");
+      },
+    },
     appState: {
       load: async () => ({ status: "ready", snapshot }),
       reread: async () => ({ status: "ready", snapshot }),
@@ -93,33 +109,13 @@ async function renderComposer(threadId: string, snapshot: AppStateSnapshot) {
       flushDone: async () => {},
     },
     projectDirectories: { check: async () => ({ available: true }) },
-    runtimes: {
-      list: async () => [
-        {
-          id: "kimi",
-          name: "Kimi Code",
-          command: "kimi",
-          availability: "detected",
-          enabled: true,
-          status: "stopped",
-          configuration: "configured",
-          verification: "never",
-          supportsModelPing: false,
-        },
-      ],
-      listModels: async () => ({ state: "listed", models: [] }),
-    },
     skills: { list: async () => [] },
-    mcpServer: {
-      getStatus: async () => ({ enabled: true, running: false }),
-    },
     chat: {
       send: async () => ({ runId: nextRunId }),
       stop: async () => {},
       deleteThreadData: async () => {},
       respondToPermission: async () => {},
       respondToQuestion: async () => {},
-      getKimiStatus: async () => null,
       onEvent: (listener: (event: ChatRunEvent) => void) => {
         chatEventListener = listener;
         return () => {
@@ -136,11 +132,9 @@ async function renderComposer(threadId: string, snapshot: AppStateSnapshot) {
     root!.render(
       <AppStateProvider>
         <ThreadContentProvider>
-          <RuntimeModelsProvider>
-            <MemoryRouter>
-              <ComposerHarness threadId={threadId} />
-            </MemoryRouter>
-          </RuntimeModelsProvider>
+          <MemoryRouter>
+            <ComposerHarness threadId={threadId} />
+          </MemoryRouter>
         </ThreadContentProvider>
       </AppStateProvider>,
     );
@@ -155,11 +149,9 @@ async function rerenderComposer(threadId: string) {
     root!.render(
       <AppStateProvider>
         <ThreadContentProvider>
-          <RuntimeModelsProvider>
-            <MemoryRouter>
-              <ComposerHarness threadId={threadId} />
-            </MemoryRouter>
-          </RuntimeModelsProvider>
+          <MemoryRouter>
+            <ComposerHarness threadId={threadId} />
+          </MemoryRouter>
         </ThreadContentProvider>
       </AppStateProvider>,
     );
@@ -276,8 +268,8 @@ describe("RunChecklist", () => {
           workspaceId: "workspace-1",
           projectId: "project-1",
           order: 0,
-          defaultRuntimeId: "kimi",
-          defaultRuntimeMode: "approval-required",
+          defaultProviderProfileId: "default",
+          defaultAgentMode: "ask",
         },
       ],
       threads: [
@@ -288,9 +280,8 @@ describe("RunChecklist", () => {
           title: "First",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
           runChecklist: checklist,
         },
         {
@@ -300,9 +291,8 @@ describe("RunChecklist", () => {
           title: "Second",
           createdAt: "2026-07-27T08:00:00.000Z",
           lastActivityAt: "2026-07-27T08:00:00.000Z",
-          runtimeId: "kimi",
-          runtimeMode: "approval-required",
-          planMode: false,
+          providerProfileId: "default",
+          agentMode: "ask",
           runChecklist: {
             ...checklist,
             runId: "run-2",
@@ -345,7 +335,7 @@ describe("RunChecklist", () => {
         type: "checklist",
         runId: "run-next",
         threadId: "thread-1",
-        runtimeId: "kimi",
+        providerProfileId: "default",
         checklist: { entries: [{ content: "New Run step", status: "in_progress" }] },
       });
     });
@@ -362,7 +352,7 @@ describe("RunChecklist", () => {
         type: "checklist",
         runId: "run-next",
         threadId: "thread-1",
-        runtimeId: "kimi",
+        providerProfileId: "default",
         checklist: {
           entries: [
             { content: "Replacement complete", status: "completed" },
@@ -390,7 +380,7 @@ describe("RunChecklist", () => {
         type: "checklist",
         runId: "run-failed",
         threadId: "thread-1",
-        runtimeId: "kimi",
+        providerProfileId: "default",
         checklist: { entries: [{ content: "Failed Run step", status: "in_progress" }] },
       });
       chatEventListener?.({ type: "failed", runId: "run-failed", error: "Failed" });
@@ -410,7 +400,7 @@ describe("RunChecklist", () => {
         type: "checklist",
         runId: "run-completed",
         threadId: "thread-1",
-        runtimeId: "kimi",
+        providerProfileId: "default",
         checklist: { entries: [{ content: "Completed Run step", status: "completed" }] },
       });
       chatEventListener?.({

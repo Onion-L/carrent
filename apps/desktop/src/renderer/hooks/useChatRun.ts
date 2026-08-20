@@ -7,12 +7,11 @@ import type {
   ChatRunEvent,
   ChatShellEventPayload,
   ChatSubagentTaskPayload,
-  KimiTimelineItem,
+  AgentTimelineItem,
   ChatTurnRequest,
-  RuntimeSessionRecovery,
 } from "../../shared/chat";
 import {
-  applyKimiTimelineItemUpdate,
+  applyAgentTimelineItemUpdate,
   compactChatRunEvents,
   isTerminalSharedChatRunStatus,
 } from "../../shared/chat";
@@ -28,7 +27,7 @@ export type ChatRunCallbacks = {
   onDelta?: (text: string) => void;
   onTextSnapshot?: (text: string) => void;
   onReasoning?: (reasoning: ChatReasoningEventPayload) => void;
-  onKimiTimeline?: (item: KimiTimelineItem) => void;
+  onAgentTimeline?: (item: AgentTimelineItem) => void;
   onShell?: (shell: ChatShellEventPayload) => void;
   onSubagentTask?: (task: ChatSubagentTaskPayload) => void;
   onChecklist?: (
@@ -36,7 +35,7 @@ export type ChatRunCallbacks = {
     owner: {
       runId: string;
       threadId: string;
-      runtimeId: import("../../shared/runtimes").RuntimeId;
+      providerProfileId: import("../../shared/providerProfiles").ProviderProfileId;
     },
   ) => void;
   onPermissionRequested?: (permission: ChatPermissionRequest) => void;
@@ -54,14 +53,8 @@ export type ChatRunCallbacks = {
     answers?: import("../../shared/chatQuestions").ChatQuestionAnswer[];
   }) => void;
   onQuestionsInterrupted?: (questions: ChatQuestionRequest[]) => void;
-  onPlanModeChanged?: (enabled: boolean) => void;
   onComplete?: (text: string, runId: string, writtenFiles?: string[]) => ChatRunFinalization;
-  onError?: (
-    error: string,
-    runId?: string,
-    writtenFiles?: string[],
-    runtimeSessionRecovery?: RuntimeSessionRecovery,
-  ) => ChatRunFinalization;
+  onError?: (error: string, runId?: string, writtenFiles?: string[]) => ChatRunFinalization;
   onStop?: (runId: string, writtenFiles?: string[]) => ChatRunFinalization;
   onEventApplied?: (count: number) => void;
 };
@@ -113,25 +106,25 @@ export function createChatRunCoordinator() {
   const pendingQuestionById = new Map<string, ChatQuestionRequest>();
   const observersByThreadId = new Map<string, PendingChatRun>();
   const deliveredEventCountByRunId = new Map<string, number>();
-  const kimiTimelineItemsByRunId = new Map<string, Map<string, KimiTimelineItem>>();
+  const agentTimelineItemsByRunId = new Map<string, Map<string, AgentTimelineItem>>();
   let authorityState: ChatRunAuthorityState | null = null;
   let batchingChanges = 0;
   let pendingEmit = false;
 
-  const materializeKimiTimelineEvent = (event: ChatRunEvent) => {
-    if (event.type !== "kimi-timeline" && event.type !== "kimi-timeline-update") return null;
-    let items = kimiTimelineItemsByRunId.get(event.runId);
+  const materializeAgentActivityEvent = (event: ChatRunEvent) => {
+    if (event.type !== "agent-timeline" && event.type !== "agent-timeline-update") return null;
+    let items = agentTimelineItemsByRunId.get(event.runId);
     if (!items) {
       items = new Map();
-      kimiTimelineItemsByRunId.set(event.runId, items);
+      agentTimelineItemsByRunId.set(event.runId, items);
     }
-    if (event.type === "kimi-timeline") {
+    if (event.type === "agent-timeline") {
       items.set(event.item.id, event.item);
       return event.item;
     }
     const current = items.get(event.update.id);
     if (!current) return null;
-    const next = applyKimiTimelineItemUpdate(current, event.update);
+    const next = applyAgentTimelineItemUpdate(current, event.update);
     if (!next) return null;
     items.set(next.id, next);
     return next;
@@ -148,7 +141,7 @@ export function createChatRunCoordinator() {
       } else if (event.type === "question-resolved") {
         pendingQuestionById.delete(event.questionId);
       }
-      materializeKimiTimelineEvent(event);
+      materializeAgentActivityEvent(event);
     });
   };
 
@@ -291,16 +284,16 @@ export function createChatRunCoordinator() {
     }
     const eventCount = eventCountOf(run);
     if ((deliveredEventCountByRunId.get(run.runId) ?? 0) >= eventCount) return;
-    kimiTimelineItemsByRunId.delete(run.runId);
-    const kimiMessages = run.events
+    agentTimelineItemsByRunId.delete(run.runId);
+    const agentMessages = run.events
       .filter(
-        (event): event is Extract<ChatRunEvent, { type: "kimi-timeline" }> =>
-          event.type === "kimi-timeline" && event.item.type === "message",
+        (event): event is Extract<ChatRunEvent, { type: "agent-timeline" }> =>
+          event.type === "agent-timeline" && event.item.type === "message",
       )
       .sort((left, right) => left.item.order - right.item.order);
-    if (kimiMessages.length > 0) {
+    if (agentMessages.length > 0) {
       target.callbacks.onTextSnapshot?.(
-        kimiMessages
+        agentMessages
           .map((event) => (event.item.type === "message" ? event.item.content : ""))
           .join(""),
       );
@@ -330,7 +323,7 @@ export function createChatRunCoordinator() {
       pendingQuestionById.clear();
       observersByThreadId.clear();
       deliveredEventCountByRunId.clear();
-      kimiTimelineItemsByRunId.clear();
+      agentTimelineItemsByRunId.clear();
       authorityState = null;
       updateSnapshot(null);
       emit();
@@ -407,8 +400,8 @@ export function createChatRunCoordinator() {
       deliveredEventCountByRunId.forEach((_count, runId) => {
         if (!runIds.has(runId)) deliveredEventCountByRunId.delete(runId);
       });
-      kimiTimelineItemsByRunId.forEach((_items, runId) => {
-        if (!runIds.has(runId)) kimiTimelineItemsByRunId.delete(runId);
+      agentTimelineItemsByRunId.forEach((_items, runId) => {
+        if (!runIds.has(runId)) agentTimelineItemsByRunId.delete(runId);
       });
       state.runs.forEach(deliverRunSnapshot);
       updateSnapshot();
@@ -440,7 +433,7 @@ export function createChatRunCoordinator() {
 
       if ("removedRunId" in update) {
         deliveredEventCountByRunId.delete(update.removedRunId);
-        kimiTimelineItemsByRunId.delete(update.removedRunId);
+        agentTimelineItemsByRunId.delete(update.removedRunId);
         authorityState = {
           revision: update.revision,
           runs: authorityState.runs.filter((run) => run.runId !== update.removedRunId),
@@ -452,7 +445,7 @@ export function createChatRunCoordinator() {
 
       if (update.replacedRunId) {
         deliveredEventCountByRunId.delete(update.replacedRunId);
-        kimiTimelineItemsByRunId.delete(update.replacedRunId);
+        agentTimelineItemsByRunId.delete(update.replacedRunId);
       }
       const replacedIndex = update.replacedRunId
         ? authorityState.runs.findIndex((run) => run.runId === update.replacedRunId)
@@ -582,12 +575,12 @@ export function createChatRunCoordinator() {
         return;
       }
 
-      if (event.type === "kimi-timeline" || event.type === "kimi-timeline-update") {
-        const item = materializeKimiTimelineEvent(event);
+      if (event.type === "agent-timeline" || event.type === "agent-timeline-update") {
+        const item = materializeAgentActivityEvent(event);
         if (item) {
-          run.callbacks.onKimiTimeline?.(item);
+          run.callbacks.onAgentTimeline?.(item);
           if (!fromSnapshot && item.type === "message") {
-            if (event.type === "kimi-timeline") {
+            if (event.type === "agent-timeline") {
               run.callbacks.onDelta?.(item.content);
             } else if (
               event.update.itemType === "message" &&
@@ -615,14 +608,9 @@ export function createChatRunCoordinator() {
           run.callbacks.onChecklist?.(event.checklist, {
             runId: event.runId,
             threadId: event.threadId,
-            runtimeId: event.runtimeId,
+            providerProfileId: event.providerProfileId,
           });
         }
-        return;
-      }
-
-      if (event.type === "plan-mode-changed") {
-        run.callbacks.onPlanModeChanged?.(event.enabled);
         return;
       }
 
@@ -641,12 +629,7 @@ export function createChatRunCoordinator() {
       if (event.type === "failed") {
         clearPermissionsForRun(run, event.runId, true);
         clearQuestionsForRun(run, event.runId, true);
-        const finalization = run.callbacks.onError?.(
-          event.error,
-          event.runId,
-          event.writtenFiles,
-          event.runtimeSessionRecovery,
-        );
+        const finalization = run.callbacks.onError?.(event.error, event.runId, event.writtenFiles);
         finishPendingRun(run, finalization, event.error);
         return;
       }

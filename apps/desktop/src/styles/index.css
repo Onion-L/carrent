@@ -308,6 +308,10 @@
   transition: none;
 }
 
+.field-input {
+  @apply min-h-9 w-full rounded-md border border-border bg-surface px-2.5 text-app-13 text-fg outline-none transition-colors placeholder:text-subtle focus:border-border-strong;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .panel-collapse-x,
   .panel-collapse-y,

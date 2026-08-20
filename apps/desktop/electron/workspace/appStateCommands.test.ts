@@ -32,8 +32,8 @@ function makeAssociation(
     workspaceId,
     projectId,
     order,
-    defaultRuntimeId: "kimi",
-    defaultRuntimeMode: "approval-required",
+    defaultProviderProfileId: "default",
+    defaultAgentMode: "ask",
     ...overrides,
   };
 }
@@ -51,9 +51,8 @@ function makeThread(
     title: `Thread ${id}`,
     createdAt: "2026-07-01T00:00:00.000Z",
     lastActivityAt: "2026-07-01T00:00:00.000Z",
-    runtimeId: "kimi",
-    runtimeMode: "approval-required",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "ask",
     ...overrides,
   };
 }
@@ -72,9 +71,8 @@ function makeDraft(
     content: "",
     attachedSkillNames: [],
     attachments: [],
-    runtimeId: "kimi",
-    runtimeMode: "approval-required",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "ask",
   };
 }
 
@@ -383,7 +381,7 @@ describe("project:add", () => {
         workspaceId: "ws-a",
         project: makeProject("proj-4", "four", "/repo/four"),
         association: makeAssociation("ws-a", "proj-4", 2, {
-          defaultRuntimeId: "not-a-runtime" as never,
+          defaultProviderProfileId: "invalid profile!" as never,
         }),
       }),
     ).toBe(null);
@@ -496,11 +494,11 @@ describe("association:remove", () => {
 });
 
 describe("association:set-defaults", () => {
-  it("updates the runtime defaults of an association", () => {
+  it("updates the Agent defaults of an association", () => {
     const next = reduce("association:set-defaults", makeSnapshot(), {
       workspaceId: "ws-a",
       projectId: "proj-1",
-      defaults: { runtimeId: "kimi", runtimeModelId: "kimi-k2.5", runtimeMode: "full-access" },
+      defaults: { providerProfileId: "default", agentMode: "full-project" },
     });
 
     const snapshot = next as AppStateSnapshot;
@@ -509,54 +507,31 @@ describe("association:set-defaults", () => {
         (item) => item.workspaceId === "ws-a" && item.projectId === "proj-1",
       ),
     ).toMatchObject({
-      defaultRuntimeId: "kimi",
-      defaultRuntimeModelId: "kimi-k2.5",
-      defaultRuntimeMode: "full-access",
+      defaultProviderProfileId: "default",
+      defaultAgentMode: "full-project",
     });
   });
 
-  it("clears the default model when none is provided", () => {
-    const snapshot = makeSnapshot({
-      associations: [
-        makeAssociation("ws-a", "proj-1", 0, { defaultRuntimeModelId: "k2" }),
-        makeAssociation("ws-a", "proj-3", 1),
-        makeAssociation("ws-b", "proj-2", 0),
-        makeAssociation("ws-b", "proj-3", 1),
-      ],
-    });
-
-    const next = reduce("association:set-defaults", snapshot, {
-      workspaceId: "ws-a",
-      projectId: "proj-1",
-      defaults: { runtimeId: "kimi", runtimeMode: "approval-required" },
-    }) as AppStateSnapshot;
-
-    expect(
-      next.associations.find((item) => item.workspaceId === "ws-a" && item.projectId === "proj-1")
-        ?.defaultRuntimeModelId,
-    ).toBe(undefined);
-  });
-
-  it("rejects unknown associations and invalid runtime values", () => {
+  it("rejects unknown associations and invalid Agent values", () => {
     expect(
       reduce("association:set-defaults", makeSnapshot(), {
         workspaceId: "ws-a",
         projectId: "proj-2",
-        defaults: { runtimeId: "kimi", runtimeMode: "approval-required" },
+        defaults: { providerProfileId: "default", agentMode: "ask" },
       }),
     ).toBe(null);
     expect(
       reduce("association:set-defaults", makeSnapshot(), {
         workspaceId: "ws-a",
         projectId: "proj-1",
-        defaults: { runtimeId: "not-a-runtime", runtimeMode: "approval-required" },
+        defaults: { providerProfileId: "invalid profile!", agentMode: "ask" },
       }),
     ).toBe(null);
     expect(
       reduce("association:set-defaults", makeSnapshot(), {
         workspaceId: "ws-a",
         projectId: "proj-1",
-        defaults: { runtimeId: "kimi", runtimeMode: "not-a-mode" },
+        defaults: { providerProfileId: "default", agentMode: "not-a-mode" },
       }),
     ).toBe(null);
   });
@@ -599,33 +574,14 @@ describe("thread:update-config", () => {
   it("updates only the provided fields", () => {
     const next = reduce("thread:update-config", makeSnapshot(), {
       threadId: "t-1",
-      config: { runtimeId: "kimi", planMode: true },
+      config: { providerProfileId: "default", agentMode: "full-project" },
     });
 
     const thread = (next as AppStateSnapshot).threads?.find((item) => item.id === "t-1");
     expect(thread).toMatchObject({
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: true,
+      providerProfileId: "default",
+      agentMode: "full-project",
     });
-  });
-
-  it("clears the model override with a blank runtimeModelId", () => {
-    const snapshot = makeSnapshot({
-      threads: [
-        makeThread("t-1", "ws-a", "proj-1", { runtimeModelId: "k2" }),
-        makeThread("t-2", "ws-a", "proj-3"),
-        makeThread("t-3", "ws-a", "proj-1", { archived: true }),
-        makeThread("t-4", "ws-b", "proj-2"),
-      ],
-    });
-
-    const next = reduce("thread:update-config", snapshot, {
-      threadId: "t-1",
-      config: { runtimeModelId: "  " },
-    }) as AppStateSnapshot;
-
-    expect(next.threads?.find((item) => item.id === "t-1")?.runtimeModelId).toBe(undefined);
   });
 
   it("rejects unknown threads and invalid config values", () => {
@@ -635,19 +591,13 @@ describe("thread:update-config", () => {
     expect(
       reduce("thread:update-config", makeSnapshot(), {
         threadId: "t-1",
-        config: { runtimeId: "not-a-runtime" },
+        config: { providerProfileId: "invalid profile!" },
       }),
     ).toBe(null);
     expect(
       reduce("thread:update-config", makeSnapshot(), {
         threadId: "t-1",
-        config: { runtimeMode: "not-a-mode" },
-      }),
-    ).toBe(null);
-    expect(
-      reduce("thread:update-config", makeSnapshot(), {
-        threadId: "t-1",
-        config: { planMode: "yes" },
+        config: { agentMode: "not-a-mode" },
       }),
     ).toBe(null);
   });
@@ -710,26 +660,20 @@ describe("settings:update", () => {
   it("stores validated settings on a snapshot that has none", () => {
     const next = reduce("settings:update", makeSnapshot(), {
       settings: {
-        autoDetectRuntimes: false,
         theme: "light",
         fontSize: 18,
         enhancedTerminalCompletion: false,
         terminalPanelHeight: 400,
-        runtimeEnabledById: { kimi: false },
-        runtimeDefaultModelById: { kimi: "kimi-k2.5" },
       },
     });
 
     const snapshot = next as AppStateSnapshot;
     expect(snapshot.settings).toEqual({
       ...DEFAULT_APP_STATE_SETTINGS,
-      autoDetectRuntimes: false,
       theme: "light",
       enhancedTerminalCompletion: false,
       fontSizeInterface: 18,
       terminalPanelHeight: 400,
-      runtimeEnabledById: { kimi: false },
-      runtimeDefaultModelById: { kimi: "kimi-k2.5" },
     });
     expect(normalizeAppStateSnapshotForWrite(snapshot)).not.toBe(null);
   });
@@ -765,43 +709,14 @@ describe("settings:update", () => {
     expect(reduce("settings:update", makeSnapshot(), null)).toBe(null);
   });
 
-  it("persists a concrete threadTitleModelId selection", () => {
-    const next = reduce("settings:update", makeSnapshot(), {
-      settings: { ...DEFAULT_APP_STATE_SETTINGS, threadTitleModelId: "kimi-k2.5" },
-    }) as AppStateSnapshot;
-    expect(next.settings?.threadTitleModelId).toBe("kimi-k2.5");
-    expect(normalizeAppStateSnapshotForWrite(next)).not.toBe(null);
-  });
-
-  it("omits threadTitleModelId when unset, leaving the Kimi default active", () => {
-    const next = reduce("settings:update", makeSnapshot(), {
-      settings: { ...DEFAULT_APP_STATE_SETTINGS },
-    }) as AppStateSnapshot;
-    expect(next.settings?.threadTitleModelId).toBe(undefined);
-  });
-
-  it("drops a blank or non-string threadTitleModelId back to the default", () => {
+  it("drops removed legacy Agent settings fields", () => {
     const next = reduce("settings:update", makeSnapshot(), {
       settings: {
         ...DEFAULT_APP_STATE_SETTINGS,
-        threadTitleModelId: "   ",
+        threadTitleModelId: "legacy-model",
       },
     }) as AppStateSnapshot;
-    expect(next.settings?.threadTitleModelId).toBe(undefined);
-    expect(next.settings?.theme).toBe(DEFAULT_APP_STATE_SETTINGS.theme);
-  });
-
-  it("clears a previously chosen threadTitleModelId when the next update omits it", () => {
-    // Selecting "Kimi default" in the UI submits a full settings object with
-    // no threadTitleModelId. The reducer must drop the previously stored
-    // concrete id so title generation falls back to the live Kimi default.
-    const previous = reduce("settings:update", makeSnapshot(), {
-      settings: { ...DEFAULT_APP_STATE_SETTINGS, threadTitleModelId: "kimi-k2.5" },
-    }) as AppStateSnapshot;
-    const next = reduce("settings:update", previous, {
-      settings: { ...DEFAULT_APP_STATE_SETTINGS },
-    }) as AppStateSnapshot;
-    expect(next.settings?.threadTitleModelId).toBe(undefined);
+    expect(next.settings).toEqual(DEFAULT_APP_STATE_SETTINGS);
   });
 
   it("defaults fontFamilySans to an empty string when omitted", () => {
@@ -868,19 +783,6 @@ describe("settings snapshot persistence", () => {
     expect(normalized).not.toBe(null);
     expect(normalized?.settings).toBe(undefined);
   });
-
-  it("round-trips a concrete threadTitleModelId through the snapshot normalizer", () => {
-    const snapshot = makeSnapshot({
-      settings: { ...DEFAULT_APP_STATE_SETTINGS, threadTitleModelId: "kimi-k2.5" },
-    });
-
-    const normalized = normalizeAppStateSnapshotForWrite(snapshot);
-
-    expect(normalized?.settings).toEqual({
-      ...DEFAULT_APP_STATE_SETTINGS,
-      threadTitleModelId: "kimi-k2.5",
-    });
-  });
 });
 
 describe("thread-draft commands", () => {
@@ -892,9 +794,8 @@ describe("thread-draft commands", () => {
     content: "",
     attachedSkillNames: [],
     attachments: [],
-    runtimeId: "kimi",
-    runtimeMode: "approval-required",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "ask",
     ...overrides,
   });
 
@@ -1023,32 +924,28 @@ describe("thread-draft commands", () => {
     expect(cleared.threadDrafts?.[0]?.localPathContexts).toBeUndefined();
   });
 
-  it("updates draft config and clears the model override", () => {
+  it("updates draft config", () => {
     const updated = reduce("thread-draft:update-config", makeSnapshot(), {
       draftId: "d-1",
       config: {
-        runtimeId: "kimi",
-        runtimeModelId: "kimi-k2.5",
-        runtimeMode: "full-access",
-        planMode: true,
+        providerProfileId: "default",
+        agentMode: "full-project",
       },
     }) as AppStateSnapshot;
     expect(updated.threadDrafts?.[0]).toMatchObject({
-      runtimeId: "kimi",
-      runtimeModelId: "kimi-k2.5",
-      runtimeMode: "full-access",
-      planMode: true,
+      providerProfileId: "default",
+      agentMode: "full-project",
     });
 
     const cleared = reduce("thread-draft:update-config", updated, {
       draftId: "d-1",
-      config: { runtimeId: "kimi", runtimeMode: "approval-required", planMode: false },
+      config: { providerProfileId: "default", agentMode: "ask" },
     }) as AppStateSnapshot;
-    expect(cleared.threadDrafts?.[0]?.runtimeModelId).toBe(undefined);
+    expect(cleared.threadDrafts?.[0]?.agentMode).toBe("ask");
     expect(
       reduce("thread-draft:update-config", makeSnapshot(), {
         draftId: "d-1",
-        config: { runtimeId: "nope", runtimeMode: "approval-required", planMode: false },
+        config: { providerProfileId: "invalid profile!", agentMode: "ask" },
       }),
     ).toBe(null);
   });
@@ -1069,9 +966,8 @@ describe("thread-draft commands", () => {
       projectId: "proj-1",
       createdAt: "2026-07-30T08:00:00.000Z",
       lastActivityAt: "2026-07-30T08:00:00.000Z",
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
     },
     message: {
       id: "m-1",
@@ -1097,9 +993,8 @@ describe("thread-draft commands", () => {
       messageId: "m-1",
       assistantMessageId: "assistant-1",
       startedAt: "2026-07-30T08:00:00.000Z",
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
     },
   });
 
@@ -1245,9 +1140,8 @@ describe("thread run and action commands", () => {
       messageId: "m-1",
       assistantMessageId: "assistant-1",
       startedAt: "2026-07-30T08:00:00.000Z",
-      runtimeId: "kimi",
-      runtimeMode: "approval-required",
-      planMode: false,
+      providerProfileId: "default",
+      agentMode: "ask",
     },
   });
 
@@ -1280,7 +1174,7 @@ describe("thread run and action commands", () => {
     const userMessage = recorded.threadMessages?.find((message) => message.id === "m-1");
     if (!userMessage) throw new Error("Expected the recorded user message.");
     const timelineItem = {
-      type: "kimi_timeline" as const,
+      type: "agent_activity" as const,
       item: {
         type: "message" as const,
         id: "run-1-message-1",
@@ -1378,7 +1272,7 @@ describe("thread run and action commands", () => {
       content: "",
       parts: [
         {
-          type: "kimi_timeline" as const,
+          type: "agent_activity" as const,
           item: {
             type: "thinking" as const,
             id: "run-1-thinking-1",
@@ -1477,34 +1371,6 @@ describe("thread run and action commands", () => {
 
     expect(rolledBack.threadMessages?.map((message) => message.id)).toEqual(["m-1", "assistant-1"]);
     expect(rolledBack.threadRuns?.map((run) => run.id)).toEqual(["run-1"]);
-  });
-
-  it("records a thread action and bumps thread activity", () => {
-    const next = reduce("thread:record-action", makeSnapshot(), {
-      action: {
-        id: "action-1",
-        threadId: "t-1",
-        action: "compact",
-        runtimeId: "kimi",
-        completedAt: "2026-07-30T09:00:00.000Z",
-      },
-    }) as AppStateSnapshot;
-
-    expect(next.threadActions?.map((action) => action.id)).toEqual(["action-1"]);
-    expect(next.threads?.find((thread) => thread.id === "t-1")?.lastActivityAt).toBe(
-      "2026-07-30T09:00:00.000Z",
-    );
-    expect(
-      reduce("thread:record-action", makeSnapshot(), {
-        action: {
-          id: "action-2",
-          threadId: "t-404",
-          action: "compact",
-          runtimeId: "kimi",
-          completedAt: "2026-07-30T09:00:00.000Z",
-        },
-      }),
-    ).toBe(null);
   });
 
   it("removes a thread and all of its records", () => {
@@ -1669,7 +1535,7 @@ describe("thread-content:update / thread-work:update", () => {
           pinned: true,
           runChecklist: {
             runId: "run-1",
-            runtimeId: "kimi",
+            providerProfileId: "default",
             outcome: "running",
             expanded: true,
             entries: [{ content: "step", status: "completed" }],
@@ -2039,9 +1905,8 @@ describe("appStateCommandReducers through createAppStateAuthority", () => {
         title: "First turn",
         createdAt: "2026-07-30T08:00:00.000Z",
         lastActivityAt: "2026-07-30T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
       message: {
         id: "m-1",
@@ -2067,9 +1932,8 @@ describe("appStateCommandReducers through createAppStateAuthority", () => {
         messageId: "m-1",
         assistantMessageId: "assistant-1",
         startedAt: "2026-07-30T08:00:00.000Z",
-        runtimeId: "kimi",
-        runtimeMode: "approval-required",
-        planMode: false,
+        providerProfileId: "default",
+        agentMode: "ask",
       },
     };
 

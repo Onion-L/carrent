@@ -4,17 +4,11 @@ import "../test/registerHappyDom";
 
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { renderToStaticMarkup } from "react-dom/server";
 import {
   FontFamilyInput,
   DefaultEditorControl,
-  KimiConnectionCheckError,
-  KimiCliSetupNotice,
-  ThreadTitleModelControl,
-  canCheckKimiConnection,
   formatGlobalAgentInstructionsSize,
   getGlobalAgentInstructionsByteLength,
-  getRuntimeVersionLabel,
   readGlobalAgentInstructions,
   readRtkGainStats,
   revealInFinder,
@@ -31,34 +25,6 @@ afterEach(async () => {
   root = null;
   container = null;
 });
-
-const kimiModel = {
-  id: "kimi-k2.5",
-  name: "Kimi K2.5",
-  source: "cli" as const,
-};
-const kimiK3Model = {
-  id: "kimi-k3",
-  name: "Kimi K3",
-  source: "cli" as const,
-};
-
-function renderThreadTitleModelControl(
-  overrides: Partial<Parameters<typeof ThreadTitleModelControl>[0]> = {},
-) {
-  return renderToStaticMarkup(
-    createElement(ThreadTitleModelControl, {
-      threadTitleModelId: undefined,
-      models: [kimiModel],
-      defaultModelId: undefined,
-      loading: false,
-      error: undefined,
-      onChange: () => {},
-      onRefresh: () => {},
-      ...overrides,
-    }),
-  );
-}
 
 async function renderFontFamilyInput(onChange: (value: string) => void) {
   container = document.createElement("div");
@@ -117,53 +83,6 @@ function typeIntoInput(input: HTMLInputElement, text: string) {
   input.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: text.at(-1) }));
 }
 
-describe("Thread title model setting", () => {
-  it("follows the live Kimi default model when unset, tagged (default)", () => {
-    const markup = renderThreadTitleModelControl({
-      models: [kimiModel, kimiK3Model],
-      defaultModelId: kimiK3Model.id,
-    });
-    expect(markup).toContain("Thread title model");
-    expect(markup).toContain("Kimi K3 (default)");
-    expect(markup).toContain("<title>Kimi</title>");
-    expect(markup).toContain("w-[200px]");
-    expect(markup).toContain("h-4 w-4");
-    expect(markup).toContain("whitespace-nowrap");
-  });
-
-  it("shows a pinned concrete model without the default tag", () => {
-    const markup = renderThreadTitleModelControl({
-      threadTitleModelId: kimiModel.id,
-      models: [kimiModel, kimiK3Model],
-      defaultModelId: kimiK3Model.id,
-    });
-    expect(markup).toContain("Kimi K2.5");
-    expect(markup).not.toContain("Kimi K2.5 (default)");
-  });
-
-  it("keeps an unavailable saved concrete model visible", () => {
-    const markup = renderThreadTitleModelControl({
-      threadTitleModelId: "kimi-removed",
-      models: [],
-    });
-    expect(markup).toContain("kimi-removed (unavailable)");
-  });
-
-  it("shows catalog loading and failure states", () => {
-    expect(renderThreadTitleModelControl({ models: [], loading: true })).toContain(
-      "Loading Kimi models…",
-    );
-
-    const failed = renderThreadTitleModelControl({
-      models: [],
-      error: "Authentication required",
-    });
-    expect(failed).toContain("Kimi model catalog unavailable");
-    expect(failed).toContain('aria-label="Retry loading Kimi models"');
-    expect(failed).toContain('title="Authentication required"');
-  });
-});
-
 describe("Font family setting", () => {
   it("discards an uncommitted draft when Escape is pressed", async () => {
     const changes: string[] = [];
@@ -206,72 +125,6 @@ describe("Default editor setting", () => {
     await act(async () => cursorOption.click());
 
     expect(changes).toEqual(["cursor"]);
-  });
-});
-
-describe("canCheckKimiConnection", () => {
-  it("requires the detected Kimi command and configured runtime", () => {
-    expect(
-      canCheckKimiConnection({
-        id: "kimi",
-        availability: "detected",
-        configuration: "configured",
-      }),
-    ).toBe(true);
-    expect(
-      canCheckKimiConnection({
-        id: "kimi",
-        availability: "unavailable",
-        configuration: "unknown",
-      }),
-    ).toBe(false);
-    expect(
-      canCheckKimiConnection({
-        id: "kimi",
-        availability: "detected",
-        configuration: "missing",
-      }),
-    ).toBe(false);
-  });
-});
-
-describe("Kimi CLI setup guidance", () => {
-  it("replaces the unknown version and explains how to finish setup when Kimi is unavailable", () => {
-    const runtime = {
-      id: "kimi" as const,
-      availability: "unavailable" as const,
-    };
-
-    expect(getRuntimeVersionLabel(runtime)).toBe("Not installed");
-
-    const markup = renderToStaticMarkup(createElement(KimiCliSetupNotice, { runtime }));
-    expect(markup).toContain("Kimi CLI was not detected on this computer.");
-    expect(markup).toContain("Download and install Kimi Code");
-    expect(markup).toContain("sign in before checking again");
-  });
-
-  it("keeps the setup guidance hidden when Kimi is detected", () => {
-    const runtime = {
-      id: "kimi" as const,
-      availability: "detected" as const,
-      version: "1.2.3",
-    };
-
-    expect(getRuntimeVersionLabel(runtime)).toBe("1.2.3");
-    expect(renderToStaticMarkup(createElement(KimiCliSetupNotice, { runtime }))).toBe("");
-  });
-});
-
-describe("Kimi connection check", () => {
-  it("shows the model-list error when Kimi is no longer signed in", () => {
-    const markup = renderToStaticMarkup(
-      createElement(KimiConnectionCheckError, {
-        runtimeId: "kimi",
-        error: "Authentication required. Run `kimi login`.",
-      }),
-    );
-
-    expect(markup).toContain("Authentication required. Run `kimi login`.");
   });
 });
 

@@ -6,15 +6,14 @@ import {
   MAX_ATTACHMENT_COUNT,
 } from "./attachment";
 import { normalizeLocalPathContexts, type LocalPathContextItem } from "./localPathContext";
-import type { ChatPermissionOption } from "./chatPermissions";
 import { ACTION_IDS, isKeyBinding, type ActionId, type KeyBinding } from "./keybindings";
 import {
   DEFAULT_CODE_HIGHLIGHT_THEME,
   isCodeHighlightThemeId,
   type CodeHighlightThemeId,
 } from "./codeHighlightThemes";
-import { isRuntimeMode, type RuntimeMode } from "./runtimeMode";
-import { normalizePersistedRuntimeId, runtimeIds, type RuntimeId } from "./runtimes";
+import { isAgentMode, type AgentMode } from "./agentMode";
+import { normalizePersistedProviderProfileId, type ProviderProfileId } from "./providerProfiles";
 import { MAX_TERMINAL_PANEL_HEIGHT, MIN_TERMINAL_PANEL_HEIGHT } from "./terminal";
 import {
   normalizeRunChecklistEntries,
@@ -72,9 +71,8 @@ export type WorkspaceProjectAssociationRecord = {
   projectId: string;
   alias?: string;
   order: number;
-  defaultRuntimeId: RuntimeId;
-  defaultRuntimeModelId?: string;
-  defaultRuntimeMode: RuntimeMode;
+  defaultProviderProfileId: ProviderProfileId;
+  defaultAgentMode: AgentMode;
 };
 
 export type AppThreadRecord = {
@@ -90,10 +88,8 @@ export type AppThreadRecord = {
   lastActivityAt: string;
   archived?: boolean;
   pinned?: boolean;
-  runtimeId: RuntimeId;
-  runtimeModelId?: string;
-  runtimeMode: RuntimeMode;
-  planMode: boolean;
+  providerProfileId: ProviderProfileId;
+  agentMode: AgentMode;
   runChecklist?: ThreadRunChecklist;
 };
 
@@ -107,10 +103,8 @@ export type AssociationThreadDraftRecord = {
   attachedSkillNames: string[];
   attachments: AttachmentMetadata[];
   localPathContexts?: LocalPathContextItem[];
-  runtimeId: RuntimeId;
-  runtimeModelId?: string;
-  runtimeMode: RuntimeMode;
-  planMode: boolean;
+  providerProfileId: ProviderProfileId;
+  agentMode: AgentMode;
 };
 
 type PersistedMessage = Message<{ timestamp?: string }>;
@@ -128,18 +122,8 @@ export type AppThreadRunRecord = {
   messageId: string;
   assistantMessageId?: string;
   startedAt: string;
-  runtimeId: RuntimeId;
-  runtimeModelId?: string;
-  runtimeMode: RuntimeMode;
-  planMode: boolean;
-};
-
-export type AppThreadActionRecord = {
-  id: string;
-  threadId: string;
-  action: "compact";
-  runtimeId: RuntimeId;
-  completedAt: string;
+  providerProfileId: ProviderProfileId;
+  agentMode: AgentMode;
 };
 
 export type AppThreadRunStartInput = {
@@ -154,10 +138,8 @@ export type AppThreadRunStartInput = {
   // recording and draft promotion persist it so the user message cannot sort
   // after the assistant placeholder created alongside it.
   messageCreatedAt?: string;
-  runtimeId: RuntimeId;
-  runtimeModelId?: string;
-  runtimeMode: RuntimeMode;
-  planMode: boolean;
+  providerProfileId: ProviderProfileId;
+  agentMode: AgentMode;
 };
 
 export type AppThreadPromotionIntentRecord = AppThreadRunStartInput & {
@@ -182,7 +164,6 @@ export type TypographyMode = "simple" | "advanced";
  * not an object at all.
  */
 export type AppStateSettings = {
-  autoDetectRuntimes: boolean;
   theme: AppStateSettingsTheme;
   codeHighlightTheme: CodeHighlightThemeId;
   typographyMode: TypographyMode;
@@ -202,8 +183,6 @@ export type AppStateSettings = {
   defaultEditorId: string;
   enhancedTerminalCompletion: boolean;
   terminalPanelHeight: number;
-  runtimeEnabledById: Partial<Record<RuntimeId, boolean>>;
-  runtimeDefaultModelById: Partial<Record<RuntimeId, string>>;
   // Optional UI font-family override. When empty, the renderer uses the base
   // Geist/Inter stack; when set, it is prepended to that stack so the user's
   // font wins and Geist/Inter/system remain as fallbacks. CSS escaping happens
@@ -212,13 +191,6 @@ export type AppStateSettings = {
   // truncate.
   /** @deprecated Legacy input-only field. Normalized settings omit it. */
   customFontFamily?: string;
-  // Concrete Kimi model id used by automatic Thread title generation. Omitted
-  // means "use the current Kimi default" (resolved per job from the live ACP
-  // model config). A concrete id is validated against the ACP model catalog at
-  // enqueue time; a removed or unavailable id skips generation rather than
-  // switching to another model. Affects only title generation — never a Thread
-  // Draft's selected Run model or an Association default.
-  threadTitleModelId?: string;
   // User-customized keyboard shortcuts, keyed by action. An absent action
   // falls back to the renderer's platform-specific default; an own property with value undefined is
   // explicitly unbound and is serialized as null for JSON persistence.
@@ -249,15 +221,12 @@ const TYPOGRAPHY_DEFAULTS = {
 };
 
 export const DEFAULT_APP_STATE_SETTINGS: AppStateSettings = {
-  autoDetectRuntimes: true,
   theme: "dark",
   codeHighlightTheme: DEFAULT_CODE_HIGHLIGHT_THEME,
   ...TYPOGRAPHY_DEFAULTS,
   defaultEditorId: "",
   enhancedTerminalCompletion: true,
   terminalPanelHeight: 320,
-  runtimeEnabledById: {},
-  runtimeDefaultModelById: {},
 };
 
 /** Preserves explicitly unbound shortcuts as null across the JSON boundary. */
@@ -313,10 +282,6 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     value.fontSizeTerminal,
     TYPOGRAPHY_DEFAULTS.fontSizeTerminal,
   );
-  const autoDetectRuntimes =
-    typeof value.autoDetectRuntimes === "boolean"
-      ? value.autoDetectRuntimes
-      : DEFAULT_APP_STATE_SETTINGS.autoDetectRuntimes;
   const defaultEditorIdCandidate =
     typeof value.defaultEditorId === "string" ? value.defaultEditorId.trim() : "";
   const defaultEditorId = /^[a-z0-9][a-z0-9._-]{0,63}$/i.test(defaultEditorIdCandidate)
@@ -333,32 +298,6 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
           Math.min(MAX_TERMINAL_PANEL_HEIGHT, value.terminalPanelHeight),
         )
       : DEFAULT_APP_STATE_SETTINGS.terminalPanelHeight;
-
-  const runtimeEnabledById: Partial<Record<RuntimeId, boolean>> = {};
-  if (isRecord(value.runtimeEnabledById)) {
-    for (const runtimeId of runtimeIds) {
-      const enabled = value.runtimeEnabledById[runtimeId];
-      if (typeof enabled === "boolean") runtimeEnabledById[runtimeId] = enabled;
-    }
-  }
-
-  const runtimeDefaultModelById: Partial<Record<RuntimeId, string>> = {};
-  if (isRecord(value.runtimeDefaultModelById)) {
-    for (const runtimeId of runtimeIds) {
-      const modelId = value.runtimeDefaultModelById[runtimeId];
-      if (typeof modelId === "string" && modelId.trim()) {
-        runtimeDefaultModelById[runtimeId] = modelId.trim();
-      }
-    }
-  }
-
-  // threadTitleModelId is a single concrete model id (mirrors the per-runtime
-  // model id policy): a non-empty trimmed string survives, anything else is
-  // dropped so the title generator falls back to the Kimi default.
-  const threadTitleModelId =
-    typeof value.threadTitleModelId === "string" && value.threadTitleModelId.trim()
-      ? value.threadTitleModelId.trim()
-      : undefined;
 
   const normalizeFontFamily = (candidate: unknown, fallback: string) => {
     if (typeof candidate !== "string") return fallback;
@@ -417,7 +356,6 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
   }
 
   return {
-    autoDetectRuntimes,
     theme,
     codeHighlightTheme,
     typographyMode,
@@ -434,9 +372,6 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     defaultEditorId,
     enhancedTerminalCompletion,
     terminalPanelHeight,
-    runtimeEnabledById,
-    runtimeDefaultModelById,
-    ...(threadTitleModelId ? { threadTitleModelId } : {}),
     ...(newProjectLocation ? { newProjectLocation } : {}),
     ...(Object.keys(keybindingOverrides).length > 0 ? { keybindingOverrides } : {}),
   };
@@ -451,7 +386,6 @@ export type AppStateSnapshot = {
   threadDrafts?: AssociationThreadDraftRecord[];
   threadMessages?: AppThreadMessageRecord[];
   threadRuns?: AppThreadRunRecord[];
-  threadActions?: AppThreadActionRecord[];
   threadPromotionIntents?: AppThreadPromotionIntentRecord[];
   threadWork?: Record<string, ThreadWorkSnapshot>;
   settings?: AppStateSettings;
@@ -469,7 +403,6 @@ export function createEmptyAppStateSnapshot(): AppStateSnapshot {
     threadDrafts: [],
     threadMessages: [],
     threadRuns: [],
-    threadActions: [],
     threadPromotionIntents: [],
     threadWork: {},
     lastThreadIdByWorkspace: {},
@@ -478,10 +411,6 @@ export function createEmptyAppStateSnapshot(): AppStateSnapshot {
 }
 
 const MAX_PATCH_BYTES = 256 * 1024;
-const MAX_PLAN_REVIEW_BYTES = 256 * 1024;
-const MAX_PLAN_REVIEW_OPTIONS = 5;
-const MAX_THREAD_ACTIONS = 10_000;
-const MAX_THREAD_ACTION_ID_CHARS = 256;
 const MAX_QUESTION_ITEMS = 10;
 const MAX_QUESTION_TEXT_BYTES = 8 * 1024;
 export const MAX_SUBAGENT_TASK_TEXT_LENGTH = 12_000;
@@ -507,11 +436,6 @@ export type ThreadWorkQueuedMessage = {
 export type ThreadWorkSnapshot = {
   draft?: ThreadWorkDraftSnapshot;
   queuedMessages: ThreadWorkQueuedMessage[];
-};
-
-export type ProviderSessionSnapshot = {
-  version: 1;
-  sessions: Record<string, string>;
 };
 
 export type ProjectRelocationResult = {
@@ -694,20 +618,11 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       typeof association.order !== "number" ||
       !Number.isInteger(association.order) ||
       association.order < 0 ||
-      !normalizePersistedRuntimeId(association.defaultRuntimeId) ||
-      !isRuntimeMode(association.defaultRuntimeMode)
+      !normalizePersistedProviderProfileId(association.defaultProviderProfileId) ||
+      !isAgentMode(association.defaultAgentMode)
     ) {
       return null;
     }
-    if (
-      association.defaultRuntimeModelId !== undefined &&
-      (typeof association.defaultRuntimeModelId !== "string" ||
-        association.defaultRuntimeModelId.trim() !== association.defaultRuntimeModelId ||
-        !association.defaultRuntimeModelId)
-    ) {
-      return null;
-    }
-
     const key = `${association.workspaceId}\u0000${association.projectId}`;
     const orders = associationOrders.get(association.workspaceId) ?? new Set<number>();
     if (associationKeys.has(key) || orders.has(association.order)) return null;
@@ -721,11 +636,10 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       projectId: association.projectId,
       ...(association.alias ? { alias: association.alias } : {}),
       order: association.order,
-      defaultRuntimeId: normalizePersistedRuntimeId(association.defaultRuntimeId)!,
-      ...(association.defaultRuntimeId === "kimi" && association.defaultRuntimeModelId
-        ? { defaultRuntimeModelId: association.defaultRuntimeModelId }
-        : {}),
-      defaultRuntimeMode: association.defaultRuntimeMode,
+      defaultProviderProfileId: normalizePersistedProviderProfileId(
+        association.defaultProviderProfileId,
+      )!,
+      defaultAgentMode: association.defaultAgentMode,
     });
   }
 
@@ -755,15 +669,9 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       (thread.customTitle !== undefined && typeof thread.customTitle !== "boolean") ||
       (thread.archived !== undefined && typeof thread.archived !== "boolean") ||
       (thread.pinned !== undefined && typeof thread.pinned !== "boolean") ||
-      !normalizePersistedRuntimeId(thread.runtimeId) ||
-      !isRuntimeMode(thread.runtimeMode) ||
-      typeof thread.planMode !== "boolean"
+      !normalizePersistedProviderProfileId(thread.providerProfileId) ||
+      !isAgentMode(thread.agentMode)
     ) {
-      return null;
-    }
-    const runtimeModelId =
-      thread.runtimeId === "kimi" ? normalizePersistedModelId(thread.runtimeModelId) : undefined;
-    if (thread.runtimeId === "kimi" && thread.runtimeModelId !== undefined && !runtimeModelId) {
       return null;
     }
     const runChecklist = normalizeThreadRunChecklist(thread.runChecklist);
@@ -780,10 +688,8 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       ...(thread.customTitle === true ? { customTitle: true } : {}),
       ...(thread.archived === true ? { archived: true } : {}),
       ...(thread.pinned === true ? { pinned: true } : {}),
-      runtimeId: normalizePersistedRuntimeId(thread.runtimeId)!,
-      ...(runtimeModelId ? { runtimeModelId } : {}),
-      runtimeMode: thread.runtimeMode,
-      planMode: thread.planMode,
+      providerProfileId: normalizePersistedProviderProfileId(thread.providerProfileId)!,
+      agentMode: thread.agentMode,
       ...(runChecklist ? { runChecklist } : {}),
     });
   }
@@ -835,9 +741,8 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       ) ||
       new Set(draft.attachedSkillNames).size !== draft.attachedSkillNames.length ||
       !Array.isArray(draft.attachments) ||
-      !normalizePersistedRuntimeId(draft.runtimeId) ||
-      !isRuntimeMode(draft.runtimeMode) ||
-      typeof draft.planMode !== "boolean"
+      !normalizePersistedProviderProfileId(draft.providerProfileId) ||
+      !isAgentMode(draft.agentMode)
     ) {
       return null;
     }
@@ -845,12 +750,6 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       normalizeAttachmentMetadata(attachment, allowLegacyAttachmentKindInference),
     );
     if (attachments.some((attachment) => !attachment)) return null;
-    const runtimeModelId =
-      draft.runtimeId === "kimi" ? normalizePersistedModelId(draft.runtimeModelId) : undefined;
-    if (draft.runtimeId === "kimi" && draft.runtimeModelId !== undefined && !runtimeModelId) {
-      return null;
-    }
-
     draftIds.add(draft.id);
     draftAssociationKeys.add(associationKey);
     reservedThreadIds.add(draft.threadId);
@@ -865,10 +764,8 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       attachedSkillNames: [...draft.attachedSkillNames],
       attachments: attachments as AttachmentMetadata[],
       ...(draftLocalPathContexts.length > 0 ? { localPathContexts: draftLocalPathContexts } : {}),
-      runtimeId: normalizePersistedRuntimeId(draft.runtimeId)!,
-      ...(runtimeModelId ? { runtimeModelId } : {}),
-      runtimeMode: draft.runtimeMode,
-      planMode: draft.planMode,
+      providerProfileId: normalizePersistedProviderProfileId(draft.providerProfileId)!,
+      agentMode: draft.agentMode,
     });
   }
 
@@ -933,18 +830,11 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
           run.assistantMessageId === run.messageId ||
           messageThreadIds.get(run.assistantMessageId) !== run.threadId)) ||
       !isIsoTimestamp(run.startedAt) ||
-      !normalizePersistedRuntimeId(run.runtimeId) ||
-      !isRuntimeMode(run.runtimeMode) ||
-      typeof run.planMode !== "boolean"
+      !normalizePersistedProviderProfileId(run.providerProfileId) ||
+      !isAgentMode(run.agentMode)
     ) {
       return null;
     }
-    const runtimeModelId =
-      run.runtimeId === "kimi" ? normalizePersistedModelId(run.runtimeModelId) : undefined;
-    if (run.runtimeId === "kimi" && run.runtimeModelId !== undefined && !runtimeModelId) {
-      return null;
-    }
-
     runIds.add(run.id);
     threadRuns.push({
       id: run.id,
@@ -954,41 +844,8 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
         ? { assistantMessageId: run.assistantMessageId }
         : {}),
       startedAt: run.startedAt,
-      runtimeId: normalizePersistedRuntimeId(run.runtimeId)!,
-      ...(runtimeModelId ? { runtimeModelId } : {}),
-      runtimeMode: run.runtimeMode,
-      planMode: run.planMode,
-    });
-  }
-
-  const threadActions: AppThreadActionRecord[] = [];
-  const actionIds = new Set<string>();
-  const actionValues = Array.isArray(value.threadActions)
-    ? value.threadActions.slice(0, MAX_THREAD_ACTIONS)
-    : [];
-  for (const action of actionValues) {
-    if (
-      !isRecord(action) ||
-      typeof action.id !== "string" ||
-      !action.id ||
-      action.id.length > MAX_THREAD_ACTION_ID_CHARS ||
-      action.id.trim() !== action.id ||
-      actionIds.has(action.id) ||
-      typeof action.threadId !== "string" ||
-      !threadIds.has(action.threadId) ||
-      action.action !== "compact" ||
-      !normalizePersistedRuntimeId(action.runtimeId) ||
-      !isIsoTimestamp(action.completedAt)
-    ) {
-      continue;
-    }
-    actionIds.add(action.id);
-    threadActions.push({
-      id: action.id,
-      threadId: action.threadId,
-      action: "compact",
-      runtimeId: normalizePersistedRuntimeId(action.runtimeId)!,
-      completedAt: action.completedAt,
+      providerProfileId: normalizePersistedProviderProfileId(run.providerProfileId)!,
+      agentMode: run.agentMode,
     });
   }
 
@@ -1025,9 +882,8 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       typeof intent.message !== "string" ||
       !Array.isArray(intent.attachments) ||
       !isIsoTimestamp(intent.startedAt) ||
-      !normalizePersistedRuntimeId(intent.runtimeId) ||
-      !isRuntimeMode(intent.runtimeMode) ||
-      typeof intent.planMode !== "boolean"
+      !normalizePersistedProviderProfileId(intent.providerProfileId) ||
+      !isAgentMode(intent.agentMode)
     ) {
       return null;
     }
@@ -1035,12 +891,6 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       normalizeAttachmentMetadata(attachment, allowLegacyAttachmentKindInference),
     );
     if (attachments.some((attachment) => !attachment)) return null;
-    const runtimeModelId =
-      intent.runtimeId === "kimi" ? normalizePersistedModelId(intent.runtimeModelId) : undefined;
-    if (intent.runtimeId === "kimi" && intent.runtimeModelId !== undefined && !runtimeModelId) {
-      return null;
-    }
-
     intentDraftIds.add(intent.draftId);
     intentRunIds.add(intent.runId);
     intentMessageIds.add(intent.messageId);
@@ -1057,10 +907,8 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
       attachments: attachments as AttachmentMetadata[],
       ...(intentLocalPathContexts.length > 0 ? { localPathContexts: intentLocalPathContexts } : {}),
       startedAt: intent.startedAt,
-      runtimeId: normalizePersistedRuntimeId(intent.runtimeId)!,
-      ...(runtimeModelId ? { runtimeModelId } : {}),
-      runtimeMode: intent.runtimeMode,
-      planMode: intent.planMode,
+      providerProfileId: normalizePersistedProviderProfileId(intent.providerProfileId)!,
+      agentMode: intent.agentMode,
     });
   }
 
@@ -1086,7 +934,6 @@ function normalizeAppStateSnapshotWithAttachmentPolicy(
     ...(value.threadDrafts !== undefined ? { threadDrafts } : {}),
     ...(value.threadMessages !== undefined ? { threadMessages } : {}),
     ...(value.threadRuns !== undefined ? { threadRuns } : {}),
-    ...(value.threadActions !== undefined ? { threadActions } : {}),
     ...(value.threadPromotionIntents !== undefined ? { threadPromotionIntents } : {}),
     ...(value.threadWork !== undefined ? { threadWork: threadWork ?? {} } : {}),
     ...(settings ? { settings } : {}),
@@ -1100,7 +947,6 @@ export function normalizePersistedAppStateSnapshot(value: unknown): AppStateSnap
   if (!Array.isArray(value.projects) || !Array.isArray(value.associations)) return null;
   if (!Array.isArray(value.threads) || !Array.isArray(value.threadDrafts)) return null;
   if (!Array.isArray(value.threadMessages) || !Array.isArray(value.threadRuns)) return null;
-  if (value.threadActions !== undefined && !Array.isArray(value.threadActions)) return null;
   if (!Array.isArray(value.threadPromotionIntents)) return null;
   return normalizeAppStateSnapshotForWrite({
     ...value,
@@ -1115,17 +961,11 @@ function isIsoTimestamp(value: unknown): value is string {
   return new Date(value).toISOString() === value;
 }
 
-function normalizePersistedModelId(value: unknown): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "string" || !value || value.trim() !== value) return undefined;
-  return value;
-}
-
 export function normalizeThreadRunChecklist(value: unknown): ThreadRunChecklist | null {
   if (!isRecord(value)) return null;
   if (typeof value.runId !== "string" || !value.runId.trim()) return null;
-  const runtimeId = normalizePersistedRuntimeId(value.runtimeId);
-  if (!runtimeId) return null;
+  const providerProfileId = normalizePersistedProviderProfileId(value.providerProfileId);
+  if (!providerProfileId) return null;
   if (typeof value.expanded !== "boolean") return null;
   if (
     value.outcome !== "running" &&
@@ -1140,7 +980,7 @@ export function normalizeThreadRunChecklist(value: unknown): ThreadRunChecklist 
 
   return {
     runId: value.runId,
-    runtimeId,
+    providerProfileId,
     outcome: value.outcome as RunChecklistOutcome,
     expanded: value.expanded,
     entries,
@@ -1233,53 +1073,6 @@ function normalizeChangedFilesSnapshot(value: unknown): ChangedFilesMessage["sna
   };
 }
 
-function normalizePlanReviewPart(
-  value: unknown,
-): Extract<MessagePart, { type: "plan_review" }> | null {
-  if (!isRecord(value) || value.type !== "plan_review") return null;
-  if (typeof value.id !== "string" || typeof value.permissionId !== "string") return null;
-  if (typeof value.content !== "string") return null;
-  if (new TextEncoder().encode(value.content).length > MAX_PLAN_REVIEW_BYTES) return null;
-  if (!Array.isArray(value.options) || value.options.length > MAX_PLAN_REVIEW_OPTIONS) return null;
-
-  const options: ChatPermissionOption[] = value.options.flatMap((item) => {
-    if (!isRecord(item)) return [];
-    if (typeof item.optionId !== "string" || typeof item.name !== "string") return [];
-    if (item.kind !== "allow_once" && item.kind !== "allow_always" && item.kind !== "reject_once") {
-      return [];
-    }
-    return [{ optionId: item.optionId, name: item.name, kind: item.kind }];
-  });
-  if (options.length !== value.options.length) return null;
-
-  const validStatus =
-    value.status === "pending" ||
-    value.status === "approved" ||
-    value.status === "revision-requested" ||
-    value.status === "rejected" ||
-    value.status === "interrupted";
-  if (!validStatus) return null;
-  const status: Extract<MessagePart, { type: "plan_review" }>["status"] =
-    value.status === "pending"
-      ? "interrupted"
-      : (value.status as Extract<MessagePart, { type: "plan_review" }>["status"]);
-
-  return {
-    type: "plan_review",
-    id: value.id,
-    permissionId: value.permissionId,
-    content: value.content,
-    status,
-    options,
-    ...(typeof value.selectedOptionId === "string"
-      ? { selectedOptionId: value.selectedOptionId }
-      : {}),
-    ...(typeof value.selectedOptionName === "string"
-      ? { selectedOptionName: value.selectedOptionName }
-      : {}),
-  };
-}
-
 function normalizeQuestionPart(value: unknown): Extract<MessagePart, { type: "question" }> | null {
   if (!isRecord(value) || value.type !== "question") return null;
   if (typeof value.id !== "string" || typeof value.questionId !== "string") return null;
@@ -1358,7 +1151,8 @@ function normalizeSubagentTaskPart(
 ): Extract<MessagePart, { type: "subagent_task" }> | null {
   if (!isRecord(value) || value.type !== "subagent_task") return null;
   if (typeof value.id !== "string" || !value.id) return null;
-  if (value.runtimeId !== "kimi") return null;
+  const providerProfileId = normalizePersistedProviderProfileId(value.providerProfileId);
+  if (!providerProfileId) return null;
   if (value.source !== "agent" && value.source !== "agent-swarm") return null;
   if (typeof value.description !== "string") return null;
   if (value.description.length > MAX_SUBAGENT_TASK_TEXT_LENGTH) return null;
@@ -1396,7 +1190,7 @@ function normalizeSubagentTaskPart(
     return null;
   }
 
-  const optionalStrings = ["runtimeAgentId", "agentType", "prompt", "summary"] as const;
+  const optionalStrings = ["agentId", "agentType", "prompt", "summary"] as const;
   for (const key of optionalStrings) {
     if (value[key] !== undefined && typeof value[key] !== "string") return null;
   }
@@ -1415,13 +1209,13 @@ function normalizeSubagentTaskPart(
   return {
     type: "subagent_task",
     id: value.id,
-    runtimeId: "kimi",
+    providerProfileId,
     source: value.source,
     description: value.description,
     background: value.background,
     status,
     startedAt: value.startedAt,
-    ...(typeof value.runtimeAgentId === "string" ? { runtimeAgentId: value.runtimeAgentId } : {}),
+    ...(typeof value.agentId === "string" ? { agentId: value.agentId } : {}),
     ...(typeof value.agentType === "string" ? { agentType: value.agentType } : {}),
     ...(typeof value.agentCount === "number" ? { agentCount: value.agentCount } : {}),
     ...(typeof value.prompt === "string" ? { prompt: value.prompt } : {}),
@@ -1436,7 +1230,7 @@ function normalizeMessagePart(value: unknown): MessagePart | null {
   if (value.type === "text") {
     return typeof value.content === "string" ? { type: "text", content: value.content } : null;
   }
-  if (value.type === "kimi_timeline") {
+  if (value.type === "agent_activity") {
     const item = value.item;
     if (
       !isRecord(item) ||
@@ -1453,7 +1247,7 @@ function normalizeMessagePart(value: unknown): MessagePart | null {
       (item.status === "running" || item.status === "completed" || item.status === "cancelled")
     ) {
       return {
-        type: "kimi_timeline",
+        type: "agent_activity",
         item: {
           type: "thinking",
           id: item.id,
@@ -1469,7 +1263,7 @@ function normalizeMessagePart(value: unknown): MessagePart | null {
       typeof item.isFinal === "boolean"
     ) {
       return {
-        type: "kimi_timeline",
+        type: "agent_activity",
         item: {
           type: "message",
           id: item.id,
@@ -1496,7 +1290,7 @@ function normalizeMessagePart(value: unknown): MessagePart | null {
         item.status === "cancelled")
     ) {
       return {
-        type: "kimi_timeline",
+        type: "agent_activity",
         item: {
           type: "tool",
           id: item.id,
@@ -1554,15 +1348,11 @@ function normalizeMessagePart(value: unknown): MessagePart | null {
       ...(value.exitCode !== undefined ? { exitCode: value.exitCode as number | null } : {}),
     };
   }
-  if (value.type === "plan_review") return normalizePlanReviewPart(value);
   if (value.type === "question") return normalizeQuestionPart(value);
   if (value.type === "subagent_task") return normalizeSubagentTaskPart(value);
   if (value.type === "error") {
     if (typeof value.id !== "string" || typeof value.message !== "string") return null;
-    if (value.runtimeSessionRecovery !== undefined && !isRecord(value.runtimeSessionRecovery)) {
-      return null;
-    }
-    return value as MessagePart;
+    return { type: "error", id: value.id, message: value.message };
   }
   return null;
 }
@@ -1739,19 +1529,4 @@ export function isRecognizedLegacyWorkspaceSnapshot(value: unknown): boolean {
   const chats = value.chats === undefined ? [] : value.chats;
   if (!Array.isArray(chats)) return false;
   return value.projects.every((project) => isRecord(project) && Array.isArray(project.threads));
-}
-
-export function normalizeProviderSessionSnapshot(value: unknown): ProviderSessionSnapshot | null {
-  if (!isRecord(value)) return null;
-  if (value.version !== 1) return null;
-  if (!isRecord(value.sessions)) return null;
-
-  const sessions: Record<string, string> = {};
-  for (const [key, sessionId] of Object.entries(value.sessions)) {
-    if (key.startsWith("kimi:")) {
-      sessions[key] = typeof sessionId === "string" ? sessionId : "";
-    }
-  }
-
-  return { version: 1, sessions };
 }

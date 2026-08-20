@@ -3,8 +3,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { openBunSqliteClient } from "./bunSqliteDriver";
-import { MIGRATIONS, assertMigrationsWellFormed, type Migration } from "./migrations";
+import {
+  INITIAL_APP_STATE_SCHEMA_SQL,
+  MIGRATIONS,
+  assertMigrationsWellFormed,
+  type Migration,
+} from "./migrations";
 import { runMigrations } from "./migrationRunner";
+import { readAppStateSnapshot } from "./sqliteAppStateRepository";
 
 async function makeTempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "carrent-sqlite-migrations-"));
@@ -13,7 +19,7 @@ async function makeTempDir(): Promise<string> {
 describe("migration registry", () => {
   it("is the contiguous sequence 1..n", () => {
     expect(() => assertMigrationsWellFormed(MIGRATIONS)).not.toThrow();
-    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2, 3]);
+    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it("rejects a reordered or gapped registry", () => {
@@ -26,14 +32,144 @@ describe("migration registry", () => {
 });
 
 describe("runMigrations", () => {
+  it("migrates legacy permission modes into valid Agent Modes", async () => {
+    const dir = await makeTempDir();
+    try {
+      const db = openBunSqliteClient(join(dir, "app.db"));
+      db.exec(
+        INITIAL_APP_STATE_SCHEMA_SQL.replaceAll(
+          "('ask', 'auto-edit', 'full-project')",
+          "('approval-required', 'auto-accept-edits', 'full-access')",
+        ),
+      );
+      db.run(
+        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+        1,
+        "initial-app-state-schema",
+        "2026-08-09T00:00:00.000Z",
+      );
+      runMigrations(db, MIGRATIONS.slice(0, 3), {
+        now: () => "2026-08-09T00:00:01.000Z",
+      });
+      db.exec("PRAGMA foreign_keys = ON");
+      db.run('INSERT INTO workspaces (id, name, "order") VALUES (?, ?, ?)', "w1", "Work", 0);
+      db.run(
+        `INSERT INTO projects (id, name, working_directory, working_directory_identity)
+         VALUES (?, ?, ?, ?)`,
+        "p1",
+        "Project",
+        "/work/project",
+        "/work/project",
+      );
+      db.run(
+        `INSERT INTO workspace_project_associations
+           (workspace_id, project_id, "order", default_runtime_id, default_runtime_mode)
+         VALUES (?, ?, ?, ?, ?)`,
+        "w1",
+        "p1",
+        0,
+        "kimi",
+        "approval-required",
+      );
+      db.run(
+        `INSERT INTO threads (
+           id, workspace_id, project_id, title, created_at, last_activity_at,
+           runtime_id, runtime_mode, plan_mode
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        "thread-1",
+        "w1",
+        "p1",
+        "Existing",
+        "2026-08-09T00:00:00.000Z",
+        "2026-08-09T00:00:00.000Z",
+        "kimi",
+        "auto-accept-edits",
+        0,
+      );
+      db.run(
+        `INSERT INTO thread_messages (id, thread_id, role, message, created_at, payload)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        "message-1",
+        "thread-1",
+        "user",
+        "legacy request",
+        "2026-08-09T00:00:00.000Z",
+        '{"attachments":[]}',
+      );
+      db.run(
+        `INSERT INTO thread_runs (
+           id, thread_id, message_id, started_at, runtime_id, runtime_mode, plan_mode
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        "run-1",
+        "thread-1",
+        "message-1",
+        "2026-08-09T00:00:00.000Z",
+        "kimi",
+        "approval-required",
+        0,
+      );
+      db.run(
+        `INSERT INTO thread_drafts (
+           id, reserved_thread_id, workspace_id, project_id, content,
+           attached_skill_names, attachments, runtime_id, runtime_mode, plan_mode
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        "draft-1",
+        "future-thread-1",
+        "w1",
+        "p1",
+        "legacy draft",
+        "[]",
+        "[]",
+        "kimi",
+        "full-access",
+        0,
+      );
+      db.run(
+        `INSERT INTO promotion_intents (
+           draft_id, thread_id, workspace_id, project_id, title, run_id, message_id,
+           message, attachments, started_at, runtime_id, runtime_mode, plan_mode
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        "draft-1",
+        "future-thread-1",
+        "w1",
+        "p1",
+        "Future",
+        "future-run-1",
+        "future-message-1",
+        "legacy promotion",
+        "[]",
+        "2026-08-09T00:00:00.000Z",
+        "kimi",
+        "auto-accept-edits",
+        0,
+      );
+
+      runMigrations(db, MIGRATIONS, { now: () => "2026-08-09T00:00:02.000Z" });
+
+      const snapshot = readAppStateSnapshot(db);
+      expect(snapshot).not.toBeNull();
+      expect(snapshot?.associations[0]?.defaultAgentMode).toBe("ask");
+      expect(snapshot?.threads?.[0]?.agentMode).toBe("auto-edit");
+      expect(snapshot?.threadDrafts?.[0]?.agentMode).toBe("full-project");
+      expect(snapshot?.threadRuns?.[0]?.agentMode).toBe("ask");
+      expect(snapshot?.threadPromotionIntents?.[0]?.agentMode).toBe("auto-edit");
+      expect(() =>
+        db.run("UPDATE threads SET agent_mode = ? WHERE id = ?", "auto-accept-edits", "thread-1"),
+      ).toThrow();
+      db.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("creates the schema from an empty database and records every migration", async () => {
     const dir = await makeTempDir();
     try {
       const db = openBunSqliteClient(join(dir, "app.db"));
       const outcome = runMigrations(db, MIGRATIONS, { now: () => "2026-08-09T00:00:00.000Z" });
 
-      expect(outcome.appliedVersion).toBe(3);
-      expect(outcome.newlyApplied).toEqual([1, 2, 3]);
+      expect(outcome.appliedVersion).toBe(5);
+      expect(outcome.newlyApplied).toEqual([1, 2, 3, 4, 5]);
 
       const recorded = db.get<{ version: number; name: string; applied_at: string }>(
         "SELECT version, name, applied_at FROM schema_migrations WHERE version = ?",
@@ -59,11 +195,9 @@ describe("runMigrations", () => {
         "thread_drafts",
         "thread_messages",
         "thread_runs",
-        "thread_actions",
         "promotion_intents",
         "thread_work",
         "workspace_last_threads",
-        "provider_sessions",
         "settings",
       ]) {
         expect(tables).toContain(expected);
@@ -85,12 +219,12 @@ describe("runMigrations", () => {
 
       const second = openBunSqliteClient(path);
       const outcome = runMigrations(second, MIGRATIONS, { now: () => "2026-08-09T00:00:01.000Z" });
-      expect(outcome.appliedVersion).toBe(3);
+      expect(outcome.appliedVersion).toBe(5);
       expect(outcome.newlyApplied).toEqual([]);
 
       // No duplicate migration rows exist after a second run.
       const count = second.get<{ c: number }>("SELECT COUNT(*) AS c FROM schema_migrations")?.c;
-      expect(count).toBe(3);
+      expect(count).toBe(5);
       second.close();
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -110,7 +244,7 @@ describe("runMigrations", () => {
       const failingRegistry: Migration[] = [
         ...MIGRATIONS,
         {
-          version: 4,
+          version: 6,
           name: "failing",
           up: (ctx) => {
             ctx.exec("CREATE TABLE sentinel (id INTEGER PRIMARY KEY)");
@@ -122,7 +256,7 @@ describe("runMigrations", () => {
       const db = openBunSqliteClient(path);
       expect(() => runMigrations(db, failingRegistry)).toThrow("injected failure");
 
-      // The failed migration left no trace: no sentinel table, no version-4 row.
+      // The failed migration left no trace: no sentinel table, no version-6 row.
       const sentinel = db
         .all<{ name: string }>(
           "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sentinel'",
@@ -132,7 +266,7 @@ describe("runMigrations", () => {
       const recorded = db
         .all<{ version: number }>("SELECT version FROM schema_migrations ORDER BY version")
         .map((row) => row.version);
-      expect(recorded).toEqual([1, 2, 3]);
+      expect(recorded).toEqual([1, 2, 3, 4, 5]);
       db.close();
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -176,20 +310,20 @@ describe("runMigrations", () => {
       );
       db.run(
         `INSERT INTO workspace_project_associations
-           (workspace_id, project_id, "order", default_runtime_id, default_runtime_mode)
+           (workspace_id, project_id, "order", default_provider_profile_id, default_agent_mode)
          VALUES (?, ?, ?, ?, ?)`,
         "w1",
         "p1",
         0,
-        "kimi",
-        "approval-required",
+        "default",
+        "ask",
       );
 
       db.run(
         `INSERT INTO thread_drafts
            (id, reserved_thread_id, workspace_id, project_id, content,
-            attached_skill_names, attachments, runtime_id, runtime_mode, plan_mode)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            attached_skill_names, attachments, provider_profile_id, agent_mode)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         "d1",
         "future-thread-1",
         "w1",
@@ -197,9 +331,8 @@ describe("runMigrations", () => {
         "hello",
         "[]",
         "[]",
-        "kimi",
-        "approval-required",
-        0,
+        "default",
+        "ask",
       );
 
       // Reserved thread id must be unique across drafts (no threads row exists).
@@ -207,8 +340,8 @@ describe("runMigrations", () => {
         db.run(
           `INSERT INTO thread_drafts
              (id, reserved_thread_id, workspace_id, project_id, content,
-              attached_skill_names, attachments, runtime_id, runtime_mode, plan_mode)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              attached_skill_names, attachments, provider_profile_id, agent_mode)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           "d2",
           "future-thread-1",
           "w1",
@@ -216,9 +349,8 @@ describe("runMigrations", () => {
           "again",
           "[]",
           "[]",
-          "kimi",
-          "approval-required",
-          0,
+          "default",
+          "ask",
         ),
       ).toThrow();
 
@@ -254,7 +386,7 @@ describe("runMigrations", () => {
         "p1",
         0,
         "kimi",
-        "approval-required",
+        "ask",
       );
       setup.run(
         `INSERT INTO threads (
@@ -268,7 +400,7 @@ describe("runMigrations", () => {
         "2026-08-09T00:00:00.000Z",
         "2026-08-09T00:00:00.000Z",
         "kimi",
-        "approval-required",
+        "ask",
         0,
       );
       setup.run(
@@ -284,7 +416,7 @@ describe("runMigrations", () => {
         "[]",
         "[]",
         "kimi",
-        "approval-required",
+        "ask",
         0,
       );
       setup.close();
@@ -330,7 +462,7 @@ describe("runMigrations", () => {
         "p1",
         0,
         "kimi",
-        "approval-required",
+        "ask",
       );
       setup.run(
         `INSERT INTO threads (
@@ -344,7 +476,7 @@ describe("runMigrations", () => {
         "2026-08-09T00:00:00.000Z",
         "2026-08-09T00:00:00.000Z",
         "kimi",
-        "approval-required",
+        "ask",
         0,
       );
       // A message row written before payloads existed.
@@ -363,8 +495,8 @@ describe("runMigrations", () => {
       const outcome = runMigrations(upgrade, MIGRATIONS, {
         now: () => "2026-08-09T00:00:01.000Z",
       });
-      expect(outcome.appliedVersion).toBe(3);
-      expect(outcome.newlyApplied).toEqual([3]);
+      expect(outcome.appliedVersion).toBe(5);
+      expect(outcome.newlyApplied).toEqual([3, 4, 5]);
 
       const message = upgrade.get<{ payload: string }>(
         "SELECT payload FROM thread_messages WHERE id = ?",

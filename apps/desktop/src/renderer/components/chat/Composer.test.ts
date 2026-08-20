@@ -6,23 +6,18 @@ import {
   buildThreadDraftSnapshot,
   getCascadingPanelPosition,
   getActionablePermissionsForThread,
-  getPendingPlanReviewForThread,
   buildSkillReference,
   canSubmitComposerContent,
   collectRunLocalPathContexts,
   createWorkspaceDiffCapture,
   filterSkillsForQuery,
-  formatKimiModelLabel,
-  getComposerRuntimeLabel,
+  getComposerProviderLabel,
   getGitBridge,
   getGitToastMessage,
-  getDisplayRuntimeModel,
   getMessageTranscriptContent,
   getMissingRunCompletionText,
   getPermissionDetail,
-  getPlanSubmissionState,
-  getRuntimeModelIdForSend,
-  getRuntimeSelectionLabel,
+  getProviderSelectionLabel,
   getSkillSlashTrigger,
   getChatHistoryMode,
   mergeComposerDraftContent,
@@ -30,30 +25,13 @@ import {
   parseLeadingSkillReferences,
   replaceSkillSlashTrigger,
   resolveDraftSkillRecords,
-  shouldShowPlanSlashSuggestion,
   shouldRemoveLastSkillOnBackspace,
-  supportsRuntimeModelSelection,
   shouldSubmitComposerOnKeyDown,
   storeAttachmentFile,
 } from "./Composer";
 import { pendingAttachmentFromMetadata } from "../../lib/attachments";
 import type { ChatPermissionRequest } from "../../../shared/chatPermissions";
 import type { SkillRecord } from "../../../shared/skills";
-
-const piModels = [
-  {
-    id: "deepseek/deepseek-v4-flash",
-    name: "deepseek-v4-flash",
-    provider: "deepseek",
-    source: "cli" as const,
-  },
-  {
-    id: "minimax-cn/MiniMax-M2.7",
-    name: "MiniMax-M2.7",
-    provider: "minimax-cn",
-    source: "cli" as const,
-  },
-];
 
 describe("mergeComposerDraftContent", () => {
   const incoming = "Follow up on this workspace diff review.\n\nSelected changes:\n- Entire file";
@@ -138,12 +116,6 @@ describe("collectRunLocalPathContexts", () => {
         "user-1",
       ),
     ).toEqual([]);
-  });
-});
-
-describe("supportsRuntimeModelSelection", () => {
-  it("supports model selection for Kimi", () => {
-    expect(supportsRuntimeModelSelection("kimi")).toBe(true);
   });
 });
 
@@ -389,79 +361,21 @@ describe("getCascadingPanelPosition", () => {
   });
 });
 
-describe("getDisplayRuntimeModel", () => {
-  it("uses the explicit model when one is selected", () => {
-    expect(
-      getDisplayRuntimeModel({
-        models: piModels,
-        runtimeModelId: "minimax-cn/MiniMax-M2.7",
-        defaultModelId: "deepseek/deepseek-v4-flash",
-      }),
-    ).toEqual(piModels[1]);
-  });
-
-  it("does not display the local CLI default model when no explicit model is selected", () => {
-    expect(
-      getDisplayRuntimeModel({
-        models: piModels,
-        runtimeModelId: undefined,
-        defaultModelId: "deepseek/deepseek-v4-flash",
-      }),
-    ).toBeUndefined();
+describe("getComposerProviderLabel", () => {
+  it("uses the profile name", () => {
+    expect(getComposerProviderLabel({ id: "work", name: "Work API" })).toBe("Work API");
   });
 });
 
-describe("getRuntimeModelIdForSend", () => {
-  it("does not send the local CLI default as an explicit model override", () => {
+describe("getProviderSelectionLabel", () => {
+  it("shows the profile and model", () => {
     expect(
-      getRuntimeModelIdForSend({
-        runtimeModelId: undefined,
-        defaultModelId: "deepseek/deepseek-v4-flash",
+      getProviderSelectionLabel({
+        providerProfileId: "work",
+        providerName: "Work API",
+        modelName: "claude-sonnet-4-6",
       }),
-    ).toBeUndefined();
-  });
-
-  it("sends an explicitly selected model", () => {
-    expect(
-      getRuntimeModelIdForSend({
-        runtimeModelId: "minimax-cn/MiniMax-M2.7",
-        defaultModelId: "deepseek/deepseek-v4-flash",
-      }),
-    ).toBe("minimax-cn/MiniMax-M2.7");
-  });
-
-  it("sends an explicitly selected Kimi model", () => {
-    expect(
-      getRuntimeModelIdForSend({
-        runtimeId: "kimi",
-        runtimeModelId: "kimi-code/kimi-for-coding-highspeed",
-      }),
-    ).toBe("kimi-code/kimi-for-coding-highspeed");
-  });
-});
-
-describe("getComposerRuntimeLabel", () => {
-  it("uses the product label for the Kimi coding runtime", () => {
-    expect(getComposerRuntimeLabel({ id: "kimi", name: "Kimi Code" })).toBe("Kimi for coding");
-  });
-});
-
-describe("formatKimiModelLabel", () => {
-  it("formats Kimi model ids for the primary selector", () => {
-    expect(formatKimiModelLabel("kimi-for-coding")).toBe("Kimi for Coding");
-    expect(formatKimiModelLabel("kimi-for-coding-highspeed")).toBe("Kimi for Coding High Speed");
-  });
-});
-
-describe("getRuntimeSelectionLabel", () => {
-  it("shows only the model name for Kimi", () => {
-    expect(
-      getRuntimeSelectionLabel({
-        runtimeId: "kimi",
-        runtimeName: "Kimi Code",
-        modelName: "kimi-for-coding-highspeed",
-      }),
-    ).toBe("kimi-for-coding-highspeed");
+    ).toBe("Work API / claude-sonnet-4-6");
   });
 });
 
@@ -621,11 +535,11 @@ describe("getGitToastMessage", () => {
 });
 
 describe("getActionablePermissionsForThread", () => {
-  const kimiPermission: ChatPermissionRequest = {
-    id: "perm-kimi",
+  const corePermission: ChatPermissionRequest = {
+    id: "perm-core",
     runId: "run-1",
     threadId: "thread-1",
-    provider: "kimi",
+    provider: "core",
     action: "shell",
     title: "Run command: pwd",
     command: "pwd",
@@ -637,41 +551,20 @@ describe("getActionablePermissionsForThread", () => {
     expiresAt: "2026-01-01T00:01:00.000Z",
   };
 
-  it("returns only Kimi permissions for the current thread", () => {
+  it("returns only Agent Core permissions for the current thread", () => {
     expect(
       getActionablePermissionsForThread({
         threadId: "thread-1",
         pendingPermissions: [
-          kimiPermission,
+          corePermission,
           {
-            ...kimiPermission,
+            ...corePermission,
             id: "perm-other-thread",
             threadId: "thread-2",
           },
         ],
       }),
-    ).toEqual([kimiPermission]);
-  });
-
-  it("separates a pending Plan Review from ordinary permissions", () => {
-    const planReview = {
-      ...kimiPermission,
-      id: "plan-review",
-      planReview: { content: "# Plan" },
-    };
-
-    expect(
-      getActionablePermissionsForThread({
-        threadId: "thread-1",
-        pendingPermissions: [kimiPermission, planReview],
-      }),
-    ).toEqual([kimiPermission]);
-    expect(
-      getPendingPlanReviewForThread({
-        threadId: "thread-1",
-        pendingPermissions: [kimiPermission, planReview],
-      }),
-    ).toEqual(planReview);
+    ).toEqual([corePermission]);
   });
 });
 
@@ -679,10 +572,10 @@ describe("getPermissionDetail", () => {
   it("prefers command details", () => {
     expect(
       getPermissionDetail({
-        id: "perm-kimi",
+        id: "perm-core",
         runId: "run-1",
         threadId: "thread-1",
-        provider: "kimi",
+        provider: "core",
         action: "shell",
         title: "Run command",
         command: "pwd",
@@ -859,35 +752,7 @@ describe("parseLeadingSkillReferences", () => {
   });
 });
 
-describe("plan slash helpers", () => {
-  it("includes Plan Review content in fresh-session transcripts", () => {
-    expect(
-      getMessageTranscriptContent({
-        id: "assistant-plan",
-        role: "assistant",
-        timestamp: "12:00",
-        threadId: "thread-1",
-        content: "",
-        parts: [
-          {
-            type: "reasoning",
-            id: "reasoning-1",
-            content: "Preparing the plan",
-            status: "completed",
-          },
-          {
-            type: "plan_review",
-            id: "plan-review-1",
-            permissionId: "permission-1",
-            content: "# Plan\n\n- Implement the feature",
-            status: "rejected",
-            options: [],
-          },
-        ],
-      }),
-    ).toBe("# Plan\n\n- Implement the feature");
-  });
-
+describe("message transcript content", () => {
   it("keeps ordinary transcript content unchanged", () => {
     expect(
       getMessageTranscriptContent({
@@ -914,7 +779,7 @@ describe("plan slash helpers", () => {
           {
             type: "subagent_task",
             id: "0:tool_agent",
-            runtimeId: "kimi",
+            providerProfileId: "default",
             source: "agent",
             description: "Implement persistence",
             prompt: "delegated prompt",
@@ -927,49 +792,6 @@ describe("plan slash helpers", () => {
         ],
       }),
     ).toBe("Done");
-  });
-
-  it("attaches Plan mode without sending a bare command", () => {
-    expect(getPlanSubmissionState("/plan", "kimi", false)).toEqual({
-      command: { task: "" },
-      task: "",
-      planMode: true,
-      attachOnly: true,
-    });
-    expect(getPlanSubmissionState("  /plan  ", "kimi", false).attachOnly).toBe(true);
-  });
-
-  it("strips the command and preserves multiline task text", () => {
-    expect(getPlanSubmissionState("/plan  inspect first\nthen implement", "kimi", false)).toEqual({
-      command: { task: "inspect first\nthen implement" },
-      task: "inspect first\nthen implement",
-      planMode: true,
-      attachOnly: false,
-    });
-  });
-
-  it("does not parse non-leading or similar commands", () => {
-    expect(getPlanSubmissionState("please use /plan", "kimi", false).command).toBe(null);
-    expect(getPlanSubmissionState("/planner task", "kimi", false).command).toBe(null);
-  });
-
-  it("keeps an already attached marker active for normal input", () => {
-    expect(getPlanSubmissionState("implement it", "kimi", true)).toMatchObject({
-      command: null,
-      task: "implement it",
-      planMode: true,
-      attachOnly: false,
-    });
-  });
-
-  it("shows the suggestion only for a leading Kimi slash token", () => {
-    expect(shouldShowPlanSlashSuggestion("kimi", "/pl", getSkillSlashTrigger("/pl"))).toBe(true);
-    expect(shouldShowPlanSlashSuggestion("kimi", "  /plan", getSkillSlashTrigger("  /plan"))).toBe(
-      true,
-    );
-    expect(
-      shouldShowPlanSlashSuggestion("kimi", "use /plan", getSkillSlashTrigger("use /plan")),
-    ).toBe(false);
   });
 });
 

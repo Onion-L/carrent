@@ -113,7 +113,7 @@ export function boundThreadTitleSource(
 //      "New thread").
 //   3. Preserve the complete first usable line.
 //
-// The source is the user-visible composer text, never the runtime prompt
+// The source is the user-visible composer text, never the agent prompt
 // enriched with Skill references, and never attachment contents.
 export function deriveThreadTitle(
   visibleText: string,

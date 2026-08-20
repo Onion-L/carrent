@@ -5,7 +5,6 @@ import { DesktopShell } from "./components/DesktopShell";
 import { ToastProvider } from "./components/toast/ToastContext";
 import { useThreadContent } from "./context/ThreadContentContext";
 import { SettingsProvider } from "./context/SettingsContext";
-import { RuntimeModelsProvider } from "./context/RuntimeModelsContext";
 import { SettingsPage } from "./routes/SettingsPage";
 import { ThreadPage } from "./routes/ThreadPage";
 import { ThreadContentProvider } from "./context/ThreadContentContext";
@@ -241,7 +240,6 @@ function AppRoutes() {
             path="/workspace/:workspaceId/project/:projectId/thread/:threadId"
           />
           <Route element={null} path="/workspace/*" />
-          <Route element={<Navigate replace to="/settings?tab=general" />} path="/runtimes" />
           <Route element={<SettingsPage />} path="/settings" />
           <Route element={<Navigate replace to="/" />} path="*" />
         </Routes>
@@ -266,9 +264,7 @@ function AppContent() {
   return (
     <ThreadContentProvider>
       <SettingsProvider>
-        <RuntimeModelsProvider>
-          <AppRoutes />
-        </RuntimeModelsProvider>
+        <AppRoutes />
       </SettingsProvider>
     </ThreadContentProvider>
   );

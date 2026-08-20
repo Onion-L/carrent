@@ -225,7 +225,7 @@ function SubagentTaskDetail({
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <MetadataRow label="Status" value={SUBAGENT_STATUS_LABEL[task.status]} />
         {task.agentType && <MetadataRow label="Agent type" value={task.agentType} />}
-        {task.runtimeAgentId && <MetadataRow label="Runtime agent" value={task.runtimeAgentId} />}
+        {task.agentId && <MetadataRow label="Agent ID" value={task.agentId} />}
         <MetadataRow label="Duration" value={formatSubagentTaskDuration(task)} />
 
         {task.prompt && (

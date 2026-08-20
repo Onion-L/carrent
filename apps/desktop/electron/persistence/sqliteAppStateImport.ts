@@ -2,14 +2,10 @@ import { copyFile, readFile, readdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 import {
   normalizePersistedAppStateSnapshot,
-  normalizeProviderSessionSnapshot,
   createEmptyAppStateSnapshot,
   type AppStateDiagnostic,
   type AppStateSnapshot,
 } from "../../src/shared/workspacePersistence";
-import { isInconsistentProviderSessionKey } from "../../src/shared/providerSessions";
-import { runtimeIds, type RuntimeId } from "../../src/shared/runtimes";
-import { readProviderSessions, replaceProviderSessions } from "./providerSessionRepository";
 import { readAppStateSnapshot, replaceAppStateSnapshot } from "./sqliteAppStateRepository";
 import type { SqliteClient } from "./sqliteClient";
 import type { SqliteAppStateStore } from "./sqliteAppStateStore";
@@ -21,7 +17,6 @@ export type SqliteAppStateInitializationResult =
       status: "ready";
       source: "json" | "fresh" | "sqlite";
       snapshot: AppStateSnapshot;
-      providerSessions: Record<string, string>;
       diagnostics: string[];
     }
   | { status: "recovery-required"; diagnostics: AppStateDiagnostic[] };
@@ -43,7 +38,6 @@ export type SqliteAppStateImportOptions = {
 
 const FRESH_INSTALL_EVIDENCE_NAMES = new Set([
   "app-state.initialized",
-  "provider-sessions.json",
   "attachments",
   "thread-deletion-journal.json",
   ".app-state-reset",
@@ -55,8 +49,6 @@ const FRESH_INSTALL_EVIDENCE_PREFIXES = [
   "app-state.json.tmp-",
   "app-state.initialized.tmp-",
   "workspace.json.tmp-",
-  "provider-sessions.json.tmp-",
-  "provider-sessions.corrupt-",
   "thread-deletion-journal.json.tmp-",
   "app-state.recovery-",
   "app-state.imported-",
@@ -129,10 +121,6 @@ function canonicalSnapshotJson(snapshot: AppStateSnapshot): string {
       snapshot.threadRuns,
       (item) => `${item.threadId}:${item.startedAt}:${item.id}`,
     ),
-    threadActions: sortedBy(
-      snapshot.threadActions,
-      (item) => `${item.threadId}:${item.completedAt}:${item.id}`,
-    ),
     threadPromotionIntents: sortedBy(snapshot.threadPromotionIntents, (item) => item.draftId),
   });
 }
@@ -144,7 +132,6 @@ export async function initializeSqliteAppState(
 ): Promise<SqliteAppStateInitializationResult> {
   const now = options.now ?? (() => new Date().toISOString());
   const appStatePath = join(baseDir, "app-state.json");
-  const providerSessionsPath = join(baseDir, "provider-sessions.json");
   const completedAt = now();
   const appVersion = options.appVersion ?? "unknown";
   const renameFile = options.renameFile ?? rename;
@@ -170,7 +157,6 @@ export async function initializeSqliteAppState(
       status: "ready",
       source: "sqlite",
       snapshot,
-      providerSessions: await store.run((client) => readProviderSessions(client)),
       diagnostics: [],
     };
   }
@@ -211,14 +197,12 @@ export async function initializeSqliteAppState(
       const empty = createEmptyAppStateSnapshot();
       const existing = await store.run((client) => ({
         snapshot: readAppStateSnapshot(client),
-        providerSessions: readProviderSessions(client),
         metadataCount:
           client.get<{ count: number }>("SELECT COUNT(*) AS count FROM app_metadata")?.count ?? 0,
       }));
       if (
         !existing.snapshot ||
         canonicalSnapshotJson(existing.snapshot) !== canonicalSnapshotJson(empty) ||
-        Object.keys(existing.providerSessions).length > 0 ||
         existing.metadataCount > 0
       ) {
         return recoveryDiagnostic(
@@ -233,7 +217,6 @@ export async function initializeSqliteAppState(
       await store.run((client) =>
         client.transaction(() => {
           replaceAppStateSnapshot(client, empty);
-          replaceProviderSessions(client, {});
           client.run(
             "INSERT INTO app_metadata (key, value) VALUES (?, ?)",
             JSON_IMPORT_MARKER,
@@ -246,7 +229,6 @@ export async function initializeSqliteAppState(
         status: "ready",
         source: "fresh",
         snapshot: empty,
-        providerSessions: {},
         diagnostics: [],
       };
     }
@@ -283,61 +265,6 @@ export async function initializeSqliteAppState(
 
   const suffix = completedAt.replaceAll(":", "-");
   const diagnostics: string[] = [];
-  const threadRuntimeIds = new Map(
-    (snapshot.threads ?? []).map((thread) => [thread.id, thread.runtimeId]),
-  );
-  let providerSessions: Record<string, string> = {};
-  try {
-    const parsed = JSON.parse(await readFile(providerSessionsPath, "utf-8"));
-    const normalized = normalizeProviderSessionSnapshot(parsed);
-    if (!normalized) throw new Error("Invalid Runtime Session snapshot.");
-    const rawSessions =
-      typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed) &&
-      typeof (parsed as { sessions?: unknown }).sessions === "object" &&
-      (parsed as { sessions?: unknown }).sessions !== null &&
-      !Array.isArray((parsed as { sessions?: unknown }).sessions)
-        ? ((parsed as { sessions: Record<string, unknown> }).sessions ?? {})
-        : {};
-    for (const key of Object.keys(rawSessions)) {
-      if (!(key in normalized.sessions)) {
-        diagnostics.push("An invalid Runtime Session mapping was discarded.");
-      }
-    }
-    providerSessions = Object.fromEntries(
-      Object.entries(normalized.sessions).filter(([key, sessionId]) => {
-        const separator = key.indexOf(":");
-        const runtimeId = key.slice(0, separator) as RuntimeId;
-        const threadId = key.slice(separator + 1);
-        const inconsistent = (snapshot.threads ?? []).some((thread) =>
-          isInconsistentProviderSessionKey(key, thread.runtimeId, thread.id),
-        );
-        const valid =
-          runtimeIds.includes(runtimeId) &&
-          threadId.length > 0 &&
-          threadRuntimeIds.get(threadId) === runtimeId &&
-          sessionId.trim().length > 0 &&
-          sessionId.trim() === sessionId &&
-          !inconsistent;
-        if (!valid) diagnostics.push("An invalid Runtime Session mapping was discarded.");
-        return valid;
-      }),
-    );
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      diagnostics.push("Runtime Session data was malformed and was quarantined.");
-      try {
-        await renameFile(
-          providerSessionsPath,
-          join(baseDir, `provider-sessions.corrupt-${suffix}.json`),
-        );
-      } catch {
-        diagnostics.push("Malformed Runtime Session data could not be quarantined.");
-      }
-    }
-  }
-
   try {
     await copySource(appStatePath, join(baseDir, `app-state.recovery-${suffix}.json`));
   } catch {
@@ -353,7 +280,6 @@ export async function initializeSqliteAppState(
   await store.run((client) =>
     client.transaction(() => {
       replaceAppStateSnapshot(client, snapshot);
-      replaceProviderSessions(client, providerSessions);
       options.beforeReadBack?.(client);
       const readBack = readAppStateSnapshot(client);
       if (!readBack || canonicalSnapshotJson(readBack) !== canonicalSnapshotJson(snapshot)) {
@@ -378,7 +304,6 @@ export async function initializeSqliteAppState(
     status: "ready",
     source: "json",
     snapshot,
-    providerSessions: await store.run((client) => readProviderSessions(client)),
     diagnostics,
   };
 }

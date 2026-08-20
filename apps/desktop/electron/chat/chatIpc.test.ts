@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { ChatTurnRequest } from "../../src/shared/chat";
 import {
+  parseAgentDebugRequest,
   parseChatTurnLocalPathContexts,
   registerChatIpc as registerProductionChatIpc,
 } from "./chatIpc";
@@ -50,9 +51,8 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
       workingDirectory: "/Users/onion/workbench/timbre",
     },
     threadId: "thread-1",
-    runtimeId: "kimi",
-    runtimeMode: "approval-required",
-    planMode: false,
+    providerProfileId: "default",
+    agentMode: "ask",
     transcript: [],
     message: "Hello",
     ...overrides,
@@ -60,18 +60,23 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
 }
 
 describe("registerChatIpc", () => {
+  it("validates Agent Debug trace requests", () => {
+    expect(parseAgentDebugRequest({ threadId: "thread-1" })).toEqual({ threadId: "thread-1" });
+    expect(() => parseAgentDebugRequest({ threadId: " thread-1" })).toThrow(
+      "Invalid Agent Debug request.",
+    );
+  });
+
   it("enqueues automatic title work only after the first Run is accepted", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const titleJobs: Array<{ threadId: string; runId: string }> = [];
     const sessionManager = {
       start: () => {},
       stop: () => {},
-      removeRuntimeSession: async () => {},
       deleteThreadData: async () => {},
       respondToPermission: () => {},
       respondToQuestion: () => {},
       shutdown: async () => {},
-      getStatus: async () => null,
     };
     const runAuthority = createChatRunAuthority({
       start: sessionManager.start,
@@ -120,12 +125,10 @@ describe("registerChatIpc", () => {
         throw new Error("synchronous startup failure");
       },
       stop: () => {},
-      removeRuntimeSession: async () => {},
       deleteThreadData: async () => {},
       respondToPermission: () => {},
       respondToQuestion: () => {},
       shutdown: async () => {},
-      getStatus: async () => null,
     };
     const runAuthority = createChatRunAuthority({
       start: sessionManager.start,
@@ -171,12 +174,10 @@ describe("registerChatIpc", () => {
         });
       },
       stop: () => {},
-      removeRuntimeSession: async () => {},
       deleteThreadData: async () => {},
       respondToPermission: () => {},
       respondToQuestion: () => {},
       shutdown: async () => {},
-      getStatus: async () => null,
     };
     runAuthority = createChatRunAuthority({
       start: sessionManager.start,
@@ -214,12 +215,10 @@ describe("registerChatIpc", () => {
     const sessionManager = {
       start: () => {},
       stop: () => {},
-      removeRuntimeSession: async () => {},
       deleteThreadData: async () => {},
       respondToPermission: () => {},
       respondToQuestion: () => {},
       shutdown: async () => {},
-      getStatus: async () => null,
     };
     const runAuthority = createChatRunAuthority({
       start: sessionManager.start,
@@ -264,12 +263,10 @@ describe("registerChatIpc", () => {
     const sessionManager = {
       start: (runId: string) => starts.push(runId),
       stop: (runId: string) => stops.push(runId),
-      removeRuntimeSession: async () => {},
       deleteThreadData: async () => {},
       respondToPermission: () => {},
       respondToQuestion: () => {},
       shutdown: async () => {},
-      getStatus: async () => null,
     };
     const runAuthority = createChatRunAuthority({
       start: sessionManager.start,
@@ -321,12 +318,10 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );
@@ -335,127 +330,13 @@ describe("registerChatIpc", () => {
       "chat:debug-trace",
       "chat:delete-thread-data",
       "chat:delete-thread-transaction",
-      "chat:kimi-status",
       "chat:permission-response",
       "chat:question-response",
-      "chat:remove-runtime-session",
       "chat:send",
-      "chat:session-status",
       "chat:stop",
       "chat:subscribe",
-      "chat:thread-action",
       "chat:unsubscribe",
     ]);
-  });
-
-  it("validates and forwards Runtime Debug trace requests", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const requests: import("../../src/shared/runtimeDebug").RuntimeDebugRequest[] = [];
-    registerChatIpc(
-      { handle: (channel, listener) => handlers.set(channel, listener) },
-      {
-        sessionManager: {
-          start: () => {},
-          stop: () => {},
-          removeRuntimeSession: async () => {},
-          deleteThreadData: async () => {},
-          respondToPermission: () => {},
-          respondToQuestion: () => {},
-          shutdown: async () => {},
-          getStatus: async () => null,
-          inspectDebugTrace: async (request) => {
-            requests.push(request);
-            return null;
-          },
-        },
-      },
-    );
-
-    expect(
-      await handlers.get("chat:debug-trace")?.({}, { runtimeId: "kimi", threadId: "thread-1" }),
-    ).toBeNull();
-    expect(requests).toEqual([{ runtimeId: "kimi", threadId: "thread-1" }]);
-
-    let error: unknown;
-    try {
-      await handlers.get("chat:debug-trace")?.({}, { runtimeId: "codex", threadId: "thread-1" });
-    } catch (caught) {
-      error = caught;
-    }
-    expect(error instanceof Error ? error.message : String(error)).toBe(
-      "Invalid Runtime Debug request.",
-    );
-  });
-
-  it("validates and forwards a Thread Action", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const requests: import("../../src/shared/threadActions").ThreadActionRequest[] = [];
-    registerChatIpc(
-      {
-        handle: (channel, listener) => handlers.set(channel, listener),
-      },
-      {
-        sessionManager: {
-          start: () => {},
-          stop: () => {},
-          removeRuntimeSession: async () => {},
-          deleteThreadData: async () => {},
-          respondToPermission: () => {},
-          respondToQuestion: () => {},
-          shutdown: async () => {},
-          getStatus: async () => null,
-          executeThreadAction: async (request) => {
-            requests.push(request);
-            return { ...request, completedAt: "2026-07-27T08:02:00.000Z" };
-          },
-        },
-      },
-    );
-
-    await handlers.get("chat:thread-action")!(null, {
-      action: "compact",
-      threadId: "thread-1",
-      runtimeId: "kimi",
-      workingDirectory: "/repo",
-    });
-
-    expect(requests).toEqual([
-      {
-        action: "compact",
-        threadId: "thread-1",
-        runtimeId: "kimi",
-        workingDirectory: "/repo",
-      },
-    ]);
-  });
-
-  it("validates and forwards Runtime Session removal", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const removed: unknown[] = [];
-    registerChatIpc(
-      { handle: (channel, listener) => handlers.set(channel, listener) },
-      {
-        sessionManager: {
-          start: () => {},
-          stop: () => {},
-          removeRuntimeSession: async (request) => {
-            removed.push(request);
-          },
-          deleteThreadData: async () => {},
-          respondToPermission: () => {},
-          respondToQuestion: () => {},
-          shutdown: async () => {},
-          getStatus: async () => null,
-        },
-      },
-    );
-
-    await handlers.get("chat:remove-runtime-session")?.(
-      {},
-      { runtimeId: "kimi", threadId: "thread-1" },
-    );
-
-    expect(removed).toEqual([{ runtimeId: "kimi", threadId: "thread-1" }]);
   });
 
   it("validates and forwards thread data deletion", async () => {
@@ -468,14 +349,12 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async (request) => {
             deleted.push(request);
           },
           respondToPermission: () => {},
           respondToQuestion: () => {},
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );
@@ -506,12 +385,10 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
           shutdown: async () => {},
-          getStatus: async () => null,
         },
         threadDeletionManager: {
           deleteThread: async (request) => {
@@ -572,14 +449,12 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async (request) => {
             deleted.push(request);
           },
           respondToPermission: () => {},
           respondToQuestion: () => {},
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );
@@ -624,12 +499,10 @@ describe("registerChatIpc", () => {
             started.push({ runId, request });
           },
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );
@@ -651,12 +524,10 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: (...args) => started.push(args),
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
           shutdown: async () => {},
-          getStatus: async () => null,
         },
         isProjectDirectoryAvailable: async () => false,
       },
@@ -684,12 +555,10 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: (runId, request) => started.push({ runId, request }),
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );
@@ -719,12 +588,10 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: (...args) => started.push(args),
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );
@@ -739,7 +606,7 @@ describe("registerChatIpc", () => {
     expect(started).toHaveLength(0);
   });
 
-  it("rejects a legacy runtime in chat:send", async () => {
+  it("rejects a malformed Provider Profile ID in chat:send", async () => {
     const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
     const started: unknown[] = [];
     registerChatIpc(
@@ -748,12 +615,10 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: (...args) => started.push(args),
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );
@@ -762,56 +627,16 @@ describe("registerChatIpc", () => {
     try {
       await handlers.get("chat:send")?.({}, {
         ...makeRequest(),
-        runtimeId: "codex",
+        providerProfileId: "invalid profile",
       } as unknown as ChatTurnRequest);
     } catch (caught) {
       error = caught;
     }
 
-    expect(error instanceof Error ? error.message : String(error)).toBe("Invalid runtime.");
-    expect(started).toHaveLength(0);
-  });
-
-  it("rejects a legacy runtime in status requests", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const statusRequests: unknown[] = [];
-    registerChatIpc(
-      { handle: (channel, listener) => handlers.set(channel, listener) },
-      {
-        sessionManager: {
-          start: () => {},
-          stop: () => {},
-          removeRuntimeSession: async () => {},
-          deleteThreadData: async () => {},
-          respondToPermission: () => {},
-          respondToQuestion: () => {},
-          shutdown: async () => {},
-          getStatus: async (request) => {
-            statusRequests.push(request);
-            return null;
-          },
-          inspectStatus: async (request) => {
-            statusRequests.push(request);
-            return null;
-          },
-        },
-      },
+    expect(error instanceof Error ? error.message : String(error)).toBe(
+      "Invalid Provider Profile.",
     );
-
-    for (const channel of ["chat:kimi-status", "chat:session-status"]) {
-      let error: unknown;
-      try {
-        await handlers.get(channel)?.({}, {
-          ...makeRequest(),
-          runtimeId: "codex",
-        } as unknown as ChatTurnRequest);
-      } catch (caught) {
-        error = caught;
-      }
-      expect(error instanceof Error ? error.message : String(error)).toBe("Invalid runtime.");
-    }
-
-    expect(statusRequests).toHaveLength(0);
+    expect(started).toHaveLength(0);
   });
 
   it("forwards attachments with the chat:send request", async () => {
@@ -830,12 +655,10 @@ describe("registerChatIpc", () => {
             started.push({ runId, request });
           },
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );
@@ -878,12 +701,10 @@ describe("registerChatIpc", () => {
               started.push({ runId, request });
             },
             stop: () => {},
-            removeRuntimeSession: async () => {},
             deleteThreadData: async () => {},
             respondToPermission: () => {},
             respondToQuestion: () => {},
             shutdown: async () => {},
-            getStatus: async () => null,
           },
         },
       );
@@ -1047,12 +868,10 @@ describe("registerChatIpc", () => {
           sessionManager: {
             start: (runId, request) => started.push({ runId, request }),
             stop: () => {},
-            removeRuntimeSession: async () => {},
             deleteThreadData: async () => {},
             respondToPermission: () => {},
             respondToQuestion: () => {},
             shutdown: async () => {},
-            getStatus: async () => null,
           },
         },
       );
@@ -1099,103 +918,16 @@ describe("registerChatIpc", () => {
           stop: (runId) => {
             stopped.push(runId);
           },
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: () => {},
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );
 
     await handlers.get("chat:stop")?.({}, "run-123");
     expect(stopped).toEqual(["run-123"]);
-  });
-
-  it("chat:kimi-status forwards to the session manager for kimi", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const requested: ChatTurnRequest[] = [];
-
-    registerChatIpc(
-      {
-        handle(channel, listener) {
-          handlers.set(channel, listener);
-        },
-      },
-      {
-        sessionManager: {
-          start: () => {},
-          stop: () => {},
-          removeRuntimeSession: async () => {},
-          deleteThreadData: async () => {},
-          respondToPermission: () => {},
-          respondToQuestion: () => {},
-          shutdown: async () => {},
-          getStatus: async (request) => {
-            requested.push(request);
-            return {
-              sessionId: "session-status",
-              model: "kimi-code/kimi-for-coding",
-              used: 21169,
-              total: 262144,
-              percentage: 8.1,
-              supportedCommands: ["status"],
-            };
-          },
-        },
-      },
-    );
-
-    const request = makeRequest({ runtimeId: "kimi" });
-    const result = await handlers.get("chat:kimi-status")?.({}, request);
-    expect(requested).toHaveLength(1);
-    expect(requested[0].threadId).toBe("thread-1");
-    expect(result).toEqual({
-      sessionId: "session-status",
-      model: "kimi-code/kimi-for-coding",
-      used: 21169,
-      total: 262144,
-      percentage: 8.1,
-      supportedCommands: ["status"],
-    });
-  });
-
-  it("chat:session-status forwards explicit inspection without using normal chat sending", async () => {
-    const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
-    const requested: ChatTurnRequest[] = [];
-    registerChatIpc(
-      { handle: (channel, listener) => handlers.set(channel, listener) },
-      {
-        sessionManager: {
-          start: () => {},
-          stop: () => {},
-          removeRuntimeSession: async () => {},
-          deleteThreadData: async () => {},
-          respondToPermission: () => {},
-          respondToQuestion: () => {},
-          shutdown: async () => {},
-          getStatus: async () => null,
-          inspectStatus: async (request) => {
-            requested.push(request);
-            return {
-              sessionId: "session-status",
-              used: 35193,
-              total: 1048576,
-              percentage: 3.4,
-              supportedCommands: ["status"],
-            };
-          },
-        },
-      },
-    );
-
-    const request = makeRequest();
-    expect(await handlers.get("chat:session-status")?.({}, request)).toMatchObject({
-      sessionId: "session-status",
-      used: 35193,
-    });
-    expect(requested).toEqual([request]);
   });
 
   it("chat:permission-response forwards selected options to the session manager", async () => {
@@ -1209,12 +941,10 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: (response) => responses.push(response),
           respondToQuestion: () => {},
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );
@@ -1251,12 +981,10 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: (response) => responses.push(response),
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );
@@ -1265,7 +993,7 @@ describe("registerChatIpc", () => {
       {},
       {
         runId: "run-1",
-        questionId: "kimi-question-run-1-7",
+        questionId: "agent-question-run-1-7",
         action: "submit",
         answers: [
           { questionIndex: 0, optionIds: ["opt_ts"] },
@@ -1277,7 +1005,7 @@ describe("registerChatIpc", () => {
     expect(responses).toEqual([
       {
         runId: "run-1",
-        questionId: "kimi-question-run-1-7",
+        questionId: "agent-question-run-1-7",
         action: "submit",
         answers: [
           { questionIndex: 0, optionIds: ["opt_ts"] },
@@ -1299,12 +1027,10 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: (response) => responses.push(response),
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );
@@ -1313,7 +1039,7 @@ describe("registerChatIpc", () => {
       {},
       {
         runId: "run-1",
-        questionId: "kimi-question-run-1-7",
+        questionId: "agent-question-run-1-7",
         action: "submit",
         answers: [{ questionIndex: 0, optionIds: ["other"], customText: "Use Python instead" }],
       },
@@ -1322,7 +1048,7 @@ describe("registerChatIpc", () => {
     expect(responses).toEqual([
       {
         runId: "run-1",
-        questionId: "kimi-question-run-1-7",
+        questionId: "agent-question-run-1-7",
         action: "submit",
         answers: [{ questionIndex: 0, optionIds: ["other"], customText: "Use Python instead" }],
       },
@@ -1341,12 +1067,10 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: (response) => responses.push(response),
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );
@@ -1355,7 +1079,7 @@ describe("registerChatIpc", () => {
       {},
       {
         runId: "run-1",
-        questionId: "kimi-question-run-1-7",
+        questionId: "agent-question-run-1-7",
         action: "skip",
       },
     );
@@ -1363,7 +1087,7 @@ describe("registerChatIpc", () => {
     expect(responses).toEqual([
       {
         runId: "run-1",
-        questionId: "kimi-question-run-1-7",
+        questionId: "agent-question-run-1-7",
         action: "skip",
       },
     ]);
@@ -1381,12 +1105,10 @@ describe("registerChatIpc", () => {
         sessionManager: {
           start: () => {},
           stop: () => {},
-          removeRuntimeSession: async () => {},
           deleteThreadData: async () => {},
           respondToPermission: () => {},
           respondToQuestion: (response) => responses.push(response),
           shutdown: async () => {},
-          getStatus: async () => null,
         },
       },
     );

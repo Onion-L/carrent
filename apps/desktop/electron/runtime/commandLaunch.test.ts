@@ -5,17 +5,17 @@ import { resolveCommandLaunch } from "./commandLaunch";
 describe("resolveCommandLaunch", () => {
   it("passes commands through unchanged on POSIX platforms", () => {
     for (const platform of ["darwin", "linux"] as const) {
-      expect(resolveCommandLaunch("kimi", ["acp"], { platform })).toEqual({
-        command: "kimi",
-        args: ["acp"],
+      expect(resolveCommandLaunch("tool", ["--check"], { platform })).toEqual({
+        command: "tool",
+        args: ["--check"],
       });
     }
   });
 
   it("routes bare CLI names through cmd.exe on Windows", () => {
-    expect(resolveCommandLaunch("kimi", ["acp"], { platform: "win32", env: {} })).toEqual({
+    expect(resolveCommandLaunch("tool", ["--check"], { platform: "win32", env: {} })).toEqual({
       command: "cmd.exe",
-      args: ["/d", "/s", "/c", "kimi", "acp"],
+      args: ["/d", "/s", "/c", "tool", "--check"],
     });
   });
 
@@ -33,18 +33,18 @@ describe("resolveCommandLaunch", () => {
 
   it("ignores an empty COMSPEC value", () => {
     expect(
-      resolveCommandLaunch("kimi", ["acp"], { platform: "win32", env: { COMSPEC: "" } }),
+      resolveCommandLaunch("tool", ["--check"], { platform: "win32", env: { COMSPEC: "" } }),
     ).toEqual({
       command: "cmd.exe",
-      args: ["/d", "/s", "/c", "kimi", "acp"],
+      args: ["/d", "/s", "/c", "tool", "--check"],
     });
   });
 
   it("also routes .cmd and .bat shims through cmd.exe", () => {
-    const shim = "C:\\Users\\tester\\AppData\\Roaming\\npm\\kimi.cmd";
-    expect(resolveCommandLaunch(shim, ["acp"], { platform: "win32", env: {} })).toEqual({
+    const shim = "C:\\Users\\tester\\AppData\\Roaming\\npm\\tool.cmd";
+    expect(resolveCommandLaunch(shim, ["--check"], { platform: "win32", env: {} })).toEqual({
       command: "cmd.exe",
-      args: ["/d", "/s", "/c", shim, "acp"],
+      args: ["/d", "/s", "/c", shim, "--check"],
     });
     const batch = "C:\\tools\\rtk.bat";
     expect(resolveCommandLaunch(batch, [], { platform: "win32", env: {} })).toEqual({
@@ -65,8 +65,8 @@ describe("resolveCommandLaunch", () => {
   });
 
   it("does not mutate the incoming args", () => {
-    const args = ["acp"];
-    resolveCommandLaunch("kimi", args, { platform: "win32", env: {} });
-    expect(args).toEqual(["acp"]);
+    const args = ["--check"];
+    resolveCommandLaunch("tool", args, { platform: "win32", env: {} });
+    expect(args).toEqual(["--check"]);
   });
 });

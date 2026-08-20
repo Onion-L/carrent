@@ -216,10 +216,8 @@ export function ProjectOverviewPage() {
                     localPathContexts: openDraft.localPathContexts,
                   }}
                   messages={[]}
-                  runtimeId={openDraft.runtimeId}
-                  runtimeModelId={openDraft.runtimeModelId}
-                  runtimeMode={openDraft.runtimeMode}
-                  planMode={openDraft.planMode}
+                  providerProfileId={openDraft.providerProfileId}
+                  agentMode={openDraft.agentMode}
                   onDraftChange={(draft) => {
                     setOpenDraft({
                       ...openDraft,
@@ -231,40 +229,18 @@ export function ProjectOverviewPage() {
                     });
                     void updateThreadDraft(openDraft.id, draft);
                   }}
-                  onRuntimeIdChange={(runtimeId) => {
-                    setOpenDraft({ ...openDraft, runtimeId, runtimeModelId: undefined });
+                  onProviderProfileIdChange={(providerProfileId) => {
+                    setOpenDraft({ ...openDraft, providerProfileId });
                     void updateThreadDraftConfig(openDraft.id, {
-                      runtimeId,
-                      runtimeModelId: undefined,
-                      runtimeMode: openDraft.runtimeMode,
-                      planMode: openDraft.planMode,
+                      providerProfileId,
+                      agentMode: openDraft.agentMode,
                     });
                   }}
-                  onRuntimeModelIdChange={(runtimeModelId) => {
-                    setOpenDraft({ ...openDraft, runtimeModelId });
+                  onAgentModeChange={(agentMode) => {
+                    setOpenDraft({ ...openDraft, agentMode });
                     void updateThreadDraftConfig(openDraft.id, {
-                      runtimeId: openDraft.runtimeId,
-                      runtimeModelId,
-                      runtimeMode: openDraft.runtimeMode,
-                      planMode: openDraft.planMode,
-                    });
-                  }}
-                  onRuntimeModeChange={(runtimeMode) => {
-                    setOpenDraft({ ...openDraft, runtimeMode });
-                    void updateThreadDraftConfig(openDraft.id, {
-                      runtimeId: openDraft.runtimeId,
-                      runtimeModelId: openDraft.runtimeModelId,
-                      runtimeMode,
-                      planMode: openDraft.planMode,
-                    });
-                  }}
-                  onPlanModeChange={(planMode) => {
-                    setOpenDraft({ ...openDraft, planMode });
-                    void updateThreadDraftConfig(openDraft.id, {
-                      runtimeId: openDraft.runtimeId,
-                      runtimeModelId: openDraft.runtimeModelId,
-                      runtimeMode: openDraft.runtimeMode,
-                      planMode,
+                      providerProfileId: openDraft.providerProfileId,
+                      agentMode,
                     });
                   }}
                   onPromote={async (input) =>

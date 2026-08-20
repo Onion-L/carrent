@@ -11,18 +11,15 @@ import {
   type WebContents,
 } from "electron";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureCliPaths } from "./runtime/processPath";
 import { createLogger, type Logger } from "./diagnostics/logger";
-import { registerRuntimeIpc } from "./runtime/runtimeIpc";
-import { listKimiRuntimeModels } from "./runtime/runtimeModelLister";
 import { registerChatIpc } from "./chat/chatIpc";
 import { createChatSessionManager, type ChatSessionManager } from "./chat/chatSessionManager";
 import { createChatRunAuthority, type ChatRunAuthority } from "./chat/chatRunAuthority";
-import { createKimiAcpProcessTransportFactory } from "./chat/kimiAcpChat";
+import { createAgentDebugStore } from "./chat/agentDebugStore";
 import {
   createThreadTitleCoordinator,
   registerAcceptedThreadTitlePromotion,
@@ -61,23 +58,17 @@ import {
   createSqliteProductionAppStateStore,
   type SqliteProductionAppStateStore,
 } from "./persistence/sqliteProductionAppStateStore";
-import { createSqliteProviderSessionStore } from "./persistence/sqliteProviderSessionStore";
 import { createAttachmentStore } from "./attachments/attachmentStore";
 import { reconcileAttachmentsAfterValidStateLoad } from "./attachments/attachmentReconciliation";
 import { registerAttachmentIpc } from "./attachments/attachmentIpc";
 import { registerSkillIpc } from "./skills/skillIpc";
 import { registerGitIpc } from "./git/gitIpc";
-import {
-  createCarrentBridgeManager,
-  createMcpServerPreferenceStore,
-} from "./bridge/carrentBridgeManager";
-import { registerMcpServerIpc } from "./bridge/mcpServerIpc";
 import { registerSettingsIpc } from "./settings/settingsIpc";
+import { registerAgentAuthIpc } from "./agent/agentAuthIpc";
 import { buildWorktreeActivitySnapshot } from "./settings/worktreeActivity";
 import { createWorktreeSizeScanner, measureWorktreeDirectorySize } from "./settings/worktreeSizes";
 import { registerDialogIpc } from "./dialog/dialogIpc";
 import { registerEditorsIpc } from "./editors/editorIpc";
-import { spawn } from "node:child_process";
 import { cascadeWindowBounds, type WindowBounds } from "./carrentWindowGeometry";
 import { consumeWindowCreationSmokeFailure, openThreadInNewWindow } from "./carrentWindowOpener";
 import { createCarrentWindowRegistry } from "./carrentWindowRegistry";
@@ -97,10 +88,7 @@ import {
   createCarrentWindowSessionStore,
   type CarrentWindowSessionStore,
 } from "./carrentWindowSessionStore";
-import {
-  createAppStateIpcGate,
-  loadProviderSessionsForAppState,
-} from "./workspace/appStateIpcGate";
+import { createAppStateIpcGate } from "./workspace/appStateIpcGate";
 import { createProjectPathAllowlist } from "./workspace/projectPathAllowlist";
 import { createAppStateLifecycle } from "./workspace/appStateLifecycle";
 import {
@@ -666,7 +654,6 @@ if (!hasSingleInstanceLock) {
       diagnostics: [],
     });
     const guardedIpcMain = appStateIpcGate.ipcMain;
-    let providerSessionStore: ReturnType<typeof createSqliteProviderSessionStore> | null = null;
     appStateStore = store;
     browserManager = createBrowserManager({
       userDataPath,
@@ -700,7 +687,6 @@ if (!hasSingleInstanceLock) {
         effectiveKeybindingsByContentsId.get(ownerId) ?? latestEffectiveKeybindings,
     });
     registerBrowserIpc(guardedIpcMain, browserManager);
-    registerRuntimeIpc(guardedIpcMain);
 
     const attachmentStore = createAttachmentStore(userDataPath);
     if (
@@ -747,11 +733,6 @@ if (!hasSingleInstanceLock) {
     });
     registerTerminalIpc(guardedIpcMain, terminalSessionManager, windowRegistry);
 
-    const bridgeManager = createCarrentBridgeManager({
-      preferenceStore: createMcpServerPreferenceStore(app.getPath("userData")),
-    });
-    registerMcpServerIpc(guardedIpcMain, bridgeManager);
-
     const appStateLifecycle = createAppStateLifecycle({
       recoverThreadDeletion: () =>
         recoverThreadDeletionTransaction({
@@ -766,17 +747,9 @@ if (!hasSingleInstanceLock) {
           deleteOrphanedAttachments: attachmentStore.deleteOrphanedAttachments,
         });
       },
-      reloadProviderSessions: async () => {
-        const snapshot = await store.loadProviderSessions();
-        await providerSessionStore?.reinitialize(snapshot);
+      resetThreadState: () => {
+        chatSessionManager?.resetThreadState?.();
       },
-      clearProviderSessions: async () => {
-        await providerSessionStore?.reinitialize({ version: 1, sessions: {} });
-      },
-      resetRuntimeSessions: () => {
-        chatSessionManager?.resetRuntimeSessions?.();
-      },
-      initializeMcpBridge: () => bridgeManager.initialize(),
       updateIpcGate: (result) => appStateIpcGate.update(result),
     });
     const startupAppStateResult = await appStateLifecycle.apply(appStateInitialization, "startup");
@@ -811,31 +784,9 @@ if (!hasSingleInstanceLock) {
         }
       },
     });
-    const threadTitleTransportFactory = createKimiAcpProcessTransportFactory(
-      (command, args, options) =>
-        spawn(command, args, {
-          cwd: options.cwd,
-          stdio: options.stdio,
-          windowsHide: options.windowsHide,
-        }),
-    );
     threadTitleCoordinator = createThreadTitleCoordinator({
       getSnapshot: () => appStateAuthority.getState().snapshot,
       submitCommand: (command) => appStateAuthority.submit(0, command),
-      resolveDefaultModelId: async (signal) => {
-        const result = await listKimiRuntimeModels(homedir(), threadTitleTransportFactory, signal);
-        const modelId = result.defaultModelId;
-        return result.state === "listed" &&
-          modelId &&
-          result.models.some((model) => model.id === modelId)
-          ? modelId
-          : null;
-      },
-      transportFactory: threadTitleTransportFactory,
-      log: (diagnostic) => {
-        const level = diagnostic.category === "success" ? "info" : "warn";
-        logger?.[level]("thread-title", "automatic title job finished", diagnostic);
-      },
     });
     registerAppStateAuthorityIpc(guardedIpcMain, appStateAuthority);
     const setAppStateTransactionActiveEverywhere = (active: boolean) => {
@@ -904,20 +855,19 @@ if (!hasSingleInstanceLock) {
       await shell.openExternal(url.toString());
     });
 
-    const providerSessionsSnapshot = await loadProviderSessionsForAppState(
-      store,
-      startupAppStateResult,
-    );
-
-    providerSessionStore = createSqliteProviderSessionStore(sqliteStore, providerSessionsSnapshot);
+    const agentDebugStore = app.isPackaged
+      ? undefined
+      : createAgentDebugStore({
+          onChanged: (change) => {
+            BrowserWindow.getAllWindows().forEach((window) => {
+              if (!window.isDestroyed()) window.webContents.send("chat:debug-changed", change);
+            });
+          },
+        });
     const sessionManager = createChatSessionManager({
       emit: (event) => chatRunAuthority?.handleEvent(event),
-      spawn,
-      providerSessions: providerSessionStore,
       attachmentStore,
-      carrentBridgeFactory: async ({ runId, cwd }) => {
-        return bridgeManager.getRuntimeHandle({ runId, cwd });
-      },
+      debugStore: agentDebugStore,
     });
     runNotificationCoordinator = createRunNotificationCoordinator({
       getSnapshot: () => appStateAuthority.getState().snapshot,
@@ -963,21 +913,14 @@ if (!hasSingleInstanceLock) {
     if (!sessionManager.rollbackThreadDataDeletion) {
       throw new Error("Thread data rollback is unavailable.");
     }
-    if (
-      !sessionManager.hasLiveRunForThreads ||
-      !sessionManager.detachRuntimeSessions ||
-      !sessionManager.restoreRuntimeSessions ||
-      !sessionManager.completeRuntimeSessionDetachment
-    ) {
+    if (!sessionManager.hasLiveRunForThreads || !sessionManager.setThreadsRelocating) {
       throw new Error("Project relocation Session cleanup is unavailable.");
     }
     const projectRelocationManager = createProjectRelocationManager({
       appStateStore: store,
       sessionManager: {
         hasLiveRunForThreads: sessionManager.hasLiveRunForThreads,
-        detachRuntimeSessions: sessionManager.detachRuntimeSessions,
-        restoreRuntimeSessions: sessionManager.restoreRuntimeSessions,
-        completeRuntimeSessionDetachment: sessionManager.completeRuntimeSessionDetachment,
+        setThreadsRelocating: sessionManager.setThreadsRelocating,
       },
       onActiveChange: setAppStateTransactionActiveEverywhere,
       onSnapshotCommitted: (snapshot) => appStateAuthority.adoptExternalSnapshot(snapshot),
@@ -997,7 +940,6 @@ if (!hasSingleInstanceLock) {
       sessionManager: {
         deleteThreadData: sessionManager.deleteThreadData,
         rollbackThreadDataDeletion: sessionManager.rollbackThreadDataDeletion,
-        adoptCommittedProviderSessionDeletion: sessionManager.adoptCommittedProviderSessionDeletion,
       },
       onActiveChange: setAppStateTransactionActiveEverywhere,
       onSnapshotCommitted: (snapshot) => appStateAuthority.adoptExternalSnapshot(snapshot),
@@ -1010,6 +952,7 @@ if (!hasSingleInstanceLock) {
       isProjectDirectoryAvailable,
       threadDeletionManager,
       threadTitleCoordinator,
+      debugStore: agentDebugStore,
     });
 
     // Registered here so the Worktrees scan can read live Run and Terminal Tab
@@ -1023,6 +966,7 @@ if (!hasSingleInstanceLock) {
         }
       },
     });
+    registerAgentAuthIpc(guardedIpcMain);
     registerSettingsIpc(
       guardedIpcMain,
       () => app.getVersion(),

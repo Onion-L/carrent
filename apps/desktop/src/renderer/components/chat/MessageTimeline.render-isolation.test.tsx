@@ -66,14 +66,14 @@ describe("MessageTimeline render isolation", () => {
     const active = assistantMessage("assistant-live", "partial", "running");
 
     await act(async () => {
-      root.render(<MessageTimeline messages={[historical, active]} threadActions={[]} />);
+      root.render(<MessageTimeline messages={[historical, active]} />);
     });
     expect(countRendersOf(historicalContent)).toBe(1);
     expect(countRendersOf("partial")).toBe(1);
 
     const grown = { ...active, content: "partial plus more" };
     await act(async () => {
-      root.render(<MessageTimeline messages={[historical, grown]} threadActions={[]} />);
+      root.render(<MessageTimeline messages={[historical, grown]} />);
     });
 
     expect(countRendersOf(historicalContent)).toBe(1);
@@ -87,12 +87,12 @@ describe("MessageTimeline render isolation", () => {
     const active = assistantMessage("assistant-live", "partial", "running");
 
     await act(async () => {
-      root.render(<MessageTimeline messages={[historical, active]} threadActions={[]} />);
+      root.render(<MessageTimeline messages={[historical, active]} />);
     });
     markdownRenderLog.length = 0;
 
     await act(async () => {
-      root.render(<MessageTimeline messages={[historical, active]} threadActions={[]} />);
+      root.render(<MessageTimeline messages={[historical, active]} />);
     });
 
     expect(markdownRenderLog).toHaveLength(0);
@@ -103,12 +103,12 @@ describe("MessageTimeline render isolation", () => {
     const active = assistantMessage("assistant-live", "partial", "running");
 
     await act(async () => {
-      root.render(<MessageTimeline messages={[historical, active]} threadActions={[]} />);
+      root.render(<MessageTimeline messages={[historical, active]} />);
     });
 
     const edited = { ...historical, content: "edited answer" };
     await act(async () => {
-      root.render(<MessageTimeline messages={[edited, active]} threadActions={[]} />);
+      root.render(<MessageTimeline messages={[edited, active]} />);
     });
 
     expect(countRendersOf("edited answer")).toBe(1);

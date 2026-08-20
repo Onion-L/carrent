@@ -12,11 +12,11 @@ import {
 
 function makeQuestion(overrides: Partial<ChatQuestionRequest> = {}): ChatQuestionRequest {
   return {
-    id: "kimi-question-run-1-7",
+    id: "agent-question-run-1-7",
     runId: "run-1",
     threadId: "thread-1",
-    provider: "kimi",
-    source: "mcp",
+    provider: "core",
+    source: "core",
     questions: [
       {
         header: "Language",

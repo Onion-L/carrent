@@ -2,14 +2,13 @@ import os from "node:os";
 
 // Packaged macOS/Linux apps launch from a desktop session (launchd, .desktop)
 // whose PATH is minimal ("/usr/bin:/bin:...") and misses user-level CLI install
-// dirs. CLI detection and every runtime spawn inherit process.env.PATH, so we
+// dirs. CLI detection and child processes inherit process.env.PATH, so we
 // prepend the well-known install locations once at startup.
 const EXTRA_CLI_PATHS = [
   "/opt/homebrew/bin",
   "/usr/local/bin",
   `${os.homedir()}/.local/bin`,
   `${os.homedir()}/.bun/bin`,
-  `${os.homedir()}/.kimi-code/bin`,
 ];
 
 export function ensureCliPaths(

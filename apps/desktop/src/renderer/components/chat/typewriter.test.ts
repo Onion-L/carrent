@@ -221,4 +221,5 @@ describe("StreamingTextRevealer", () => {
     frames.runFrame();
     expect(revealed).toEqual([]);
   });
+
 });

@@ -52,6 +52,16 @@ export const MIGRATIONS: readonly Migration[] = [
     name: "thread-message-payloads",
     up: addThreadMessagePayloads,
   },
+  {
+    version: 4,
+    name: "agent-core-schema",
+    up: migrateToAgentCoreSchema,
+  },
+  {
+    version: 5,
+    name: "normalize-agent-modes",
+    up: normalizeAgentModes,
+  },
 ];
 
 /**
@@ -133,7 +143,7 @@ export const INITIAL_APP_STATE_SCHEMA_SQL = `
       default_runtime_id     TEXT NOT NULL,
       default_runtime_model_id TEXT,
       default_runtime_mode   TEXT    NOT NULL
-        CHECK (default_runtime_mode IN ('approval-required', 'auto-accept-edits', 'full-access')),
+        CHECK (default_runtime_mode IN ('ask', 'auto-edit', 'full-project')),
       PRIMARY KEY (workspace_id, project_id)
     );
     CREATE UNIQUE INDEX workspace_project_associations_workspace_order_unique
@@ -156,7 +166,7 @@ export const INITIAL_APP_STATE_SCHEMA_SQL = `
       runtime_id       TEXT NOT NULL,
       runtime_model_id TEXT,
       runtime_mode     TEXT NOT NULL
-        CHECK (runtime_mode IN ('approval-required', 'auto-accept-edits', 'full-access')),
+        CHECK (runtime_mode IN ('ask', 'auto-edit', 'full-project')),
       plan_mode        INTEGER NOT NULL DEFAULT 0 CHECK (plan_mode IN (0, 1)),
       run_checklist    TEXT,
       FOREIGN KEY (workspace_id, project_id)
@@ -176,7 +186,7 @@ export const INITIAL_APP_STATE_SCHEMA_SQL = `
       runtime_id        TEXT NOT NULL,
       runtime_model_id  TEXT,
       runtime_mode      TEXT NOT NULL
-        CHECK (runtime_mode IN ('approval-required', 'auto-accept-edits', 'full-access')),
+        CHECK (runtime_mode IN ('ask', 'auto-edit', 'full-project')),
       plan_mode         INTEGER NOT NULL DEFAULT 0 CHECK (plan_mode IN (0, 1)),
       FOREIGN KEY (workspace_id, project_id)
         REFERENCES workspace_project_associations (workspace_id, project_id)
@@ -205,7 +215,7 @@ export const INITIAL_APP_STATE_SCHEMA_SQL = `
       runtime_id         TEXT NOT NULL,
       runtime_model_id   TEXT,
       runtime_mode       TEXT NOT NULL
-        CHECK (runtime_mode IN ('approval-required', 'auto-accept-edits', 'full-access')),
+        CHECK (runtime_mode IN ('ask', 'auto-edit', 'full-project')),
       plan_mode          INTEGER NOT NULL DEFAULT 0 CHECK (plan_mode IN (0, 1)),
       CHECK (assistant_message_id IS NULL OR assistant_message_id <> message_id)
     );
@@ -239,7 +249,7 @@ export const INITIAL_APP_STATE_SCHEMA_SQL = `
       runtime_id         TEXT NOT NULL,
       runtime_model_id   TEXT,
       runtime_mode       TEXT NOT NULL
-        CHECK (runtime_mode IN ('approval-required', 'auto-accept-edits', 'full-access')),
+        CHECK (runtime_mode IN ('ask', 'auto-edit', 'full-project')),
       plan_mode          INTEGER NOT NULL DEFAULT 0 CHECK (plan_mode IN (0, 1)),
       FOREIGN KEY (workspace_id, project_id)
         REFERENCES workspace_project_associations (workspace_id, project_id)
@@ -279,10 +289,9 @@ export const INITIAL_APP_STATE_SCHEMA_SQL = `
  * - `app_metadata`: single-row App-level values (currently the import marker).
  * - `workspaces`, `projects`, `workspace_project_associations`: the identity
  *   and ownership graph.
- * - `threads`, `thread_drafts`, `promotion_intents`, `thread_actions`,
+ * - `threads`, `thread_drafts`, `promotion_intents`,
  *   `thread_work`, `thread_messages`, `thread_runs`: conversation state.
  * - `workspace_last_threads`: per-Workspace active Thread (relation, not JSON).
- * - `provider_sessions`: Runtime Session mappings.
  *
  * Notable constraint choices (see PRD "Implementation Decisions"):
  * - A Thread Draft's `reserved_thread_id` is `UNIQUE` but is NOT a foreign key
@@ -314,6 +323,82 @@ function addThreadMessagePayloads(context: MigrationContext): void {
     ALTER TABLE thread_messages ADD COLUMN payload TEXT;
     UPDATE thread_messages SET payload = '{"attachments":[]}' WHERE payload IS NULL;
   `);
+}
+
+function migrateToAgentCoreSchema(context: MigrationContext): void {
+  context.exec(`
+    DROP TRIGGER IF EXISTS associations_runtime_id_insert;
+    DROP TRIGGER IF EXISTS associations_runtime_id_update;
+    DROP TRIGGER IF EXISTS threads_runtime_id_insert;
+    DROP TRIGGER IF EXISTS threads_runtime_id_update;
+    DROP TRIGGER IF EXISTS thread_drafts_runtime_id_insert;
+    DROP TRIGGER IF EXISTS thread_drafts_runtime_id_update;
+
+    ALTER TABLE workspace_project_associations
+      RENAME COLUMN default_runtime_id TO default_provider_profile_id;
+    ALTER TABLE workspace_project_associations
+      RENAME COLUMN default_runtime_mode TO default_agent_mode;
+    ALTER TABLE workspace_project_associations DROP COLUMN default_runtime_model_id;
+
+    ALTER TABLE threads RENAME COLUMN runtime_id TO provider_profile_id;
+    ALTER TABLE threads RENAME COLUMN runtime_mode TO agent_mode;
+    ALTER TABLE threads DROP COLUMN runtime_model_id;
+    ALTER TABLE threads DROP COLUMN plan_mode;
+
+    ALTER TABLE thread_drafts RENAME COLUMN runtime_id TO provider_profile_id;
+    ALTER TABLE thread_drafts RENAME COLUMN runtime_mode TO agent_mode;
+    ALTER TABLE thread_drafts DROP COLUMN runtime_model_id;
+    ALTER TABLE thread_drafts DROP COLUMN plan_mode;
+
+    ALTER TABLE thread_runs RENAME COLUMN runtime_id TO provider_profile_id;
+    ALTER TABLE thread_runs RENAME COLUMN runtime_mode TO agent_mode;
+    ALTER TABLE thread_runs DROP COLUMN runtime_model_id;
+    ALTER TABLE thread_runs DROP COLUMN plan_mode;
+
+    ALTER TABLE promotion_intents RENAME COLUMN runtime_id TO provider_profile_id;
+    ALTER TABLE promotion_intents RENAME COLUMN runtime_mode TO agent_mode;
+    ALTER TABLE promotion_intents DROP COLUMN runtime_model_id;
+    ALTER TABLE promotion_intents DROP COLUMN plan_mode;
+
+    UPDATE workspace_project_associations
+      SET default_provider_profile_id = 'default'
+      WHERE default_provider_profile_id = 'kimi';
+    UPDATE threads SET provider_profile_id = 'default' WHERE provider_profile_id = 'kimi';
+    UPDATE thread_drafts SET provider_profile_id = 'default' WHERE provider_profile_id = 'kimi';
+    UPDATE thread_runs SET provider_profile_id = 'default' WHERE provider_profile_id = 'kimi';
+    UPDATE promotion_intents SET provider_profile_id = 'default' WHERE provider_profile_id = 'kimi';
+
+    DROP TABLE thread_actions;
+    DROP TABLE provider_sessions;
+  `);
+}
+
+function normalizeAgentModes(context: MigrationContext): void {
+  const normalizeColumn = (table: string, column: string) => {
+    const legacyColumn = `legacy_${column}`;
+    context.exec(`
+      ALTER TABLE ${table} RENAME COLUMN ${column} TO ${legacyColumn};
+      ALTER TABLE ${table} ADD COLUMN ${column} TEXT NOT NULL DEFAULT 'ask'
+        CHECK (${column} IN ('ask', 'auto-edit', 'full-project'));
+      UPDATE ${table}
+      SET ${column} = CASE ${legacyColumn}
+        WHEN 'approval-required' THEN 'ask'
+        WHEN 'auto-accept-edits' THEN 'auto-edit'
+        WHEN 'full-access' THEN 'full-project'
+        WHEN 'ask' THEN 'ask'
+        WHEN 'auto-edit' THEN 'auto-edit'
+        WHEN 'full-project' THEN 'full-project'
+        ELSE 'ask'
+      END;
+      ALTER TABLE ${table} DROP COLUMN ${legacyColumn};
+    `);
+  };
+
+  normalizeColumn("workspace_project_associations", "default_agent_mode");
+  normalizeColumn("threads", "agent_mode");
+  normalizeColumn("thread_drafts", "agent_mode");
+  normalizeColumn("thread_runs", "agent_mode");
+  normalizeColumn("promotion_intents", "agent_mode");
 }
 
 function enforceIdentityGraphConstraints(context: MigrationContext): void {

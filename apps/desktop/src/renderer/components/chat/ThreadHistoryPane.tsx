@@ -1,4 +1,4 @@
-import { Copy, Folder, Pencil, SquarePen, Trash2 } from "lucide-react";
+import { Folder, Pencil, SquarePen, Trash2 } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -11,7 +11,6 @@ import {
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { getThreadRuntimeSessionId } from "../../../shared/providerSessions";
 import type { AppThreadRecord } from "../../../shared/workspacePersistence";
 import { useAppState } from "../../context/AppStateContext";
 import { useThreadContent } from "../../context/ThreadContentContext";
@@ -31,7 +30,6 @@ const THREAD_STATUS_META: Record<ThreadDisplayStatus, { label: string; className
   running: { label: "Running", className: "text-success" },
   approval: { label: "Approval", className: "font-medium text-warning" },
   question: { label: "Question", className: "font-medium text-warning" },
-  compacting: { label: "Compacting", className: "text-success" },
   failed: { label: "Failed", className: "font-medium text-danger" },
 };
 
@@ -57,24 +55,13 @@ export function getThreadContextMenuPosition(
 
 export function ThreadContextMenu({
   threadTitle,
-  sessionId,
   onCopyProjectPath,
-  onCopySessionId,
   firstItemRef,
 }: {
   threadTitle: string;
-  sessionId: string | null | undefined;
   onCopyProjectPath: () => void;
-  onCopySessionId: () => void;
   firstItemRef?: Ref<HTMLButtonElement>;
 }) {
-  const sessionTitle =
-    sessionId === undefined
-      ? "Loading session ID"
-      : sessionId === null
-        ? "No session ID available"
-        : undefined;
-
   return (
     <div
       data-thread-context-menu="true"
@@ -91,16 +78,6 @@ export function ThreadContextMenu({
         <Folder className="h-3.5 w-3.5 shrink-0 text-muted" />
         Copy project path
       </button>
-      <button
-        role="menuitem"
-        onClick={onCopySessionId}
-        disabled={!sessionId}
-        title={sessionTitle}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 text-fg transition hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg/25 disabled:cursor-not-allowed disabled:text-subtle disabled:hover:bg-transparent"
-      >
-        <Copy className="h-3.5 w-3.5 shrink-0 text-muted" />
-        Copy session ID
-      </button>
     </div>
   );
 }
@@ -109,7 +86,6 @@ type ThreadContextMenuState = {
   threadId: string;
   x: number;
   y: number;
-  sessionId: string | null | undefined;
 };
 
 export function ThreadHistoryPane() {
@@ -290,21 +266,7 @@ export function ThreadHistoryPane() {
     const x = event.clientX || triggerRect.left + 12;
     const y = event.clientY || triggerRect.top + 12;
     setThreadContextMenuPosition(null);
-    setThreadContextMenu({ threadId: thread.id, x, y, sessionId: undefined });
-
-    void window.carrent.providerSessions
-      .load()
-      .then((snapshot) => {
-        const sessionId = getThreadRuntimeSessionId(snapshot, thread);
-        setThreadContextMenu((current) =>
-          current?.threadId === thread.id ? { ...current, sessionId } : current,
-        );
-      })
-      .catch(() => {
-        setThreadContextMenu((current) =>
-          current?.threadId === thread.id ? { ...current, sessionId: null } : current,
-        );
-      });
+    setThreadContextMenu({ threadId: thread.id, x, y });
   };
 
   const copyThreadContextValue = async (value: string, successMessage: string) => {
@@ -515,7 +477,6 @@ export function ThreadHistoryPane() {
             >
               <ThreadContextMenu
                 threadTitle={contextMenuThread.title}
-                sessionId={threadContextMenu.sessionId}
                 firstItemRef={threadContextMenuFirstItemRef}
                 onCopyProjectPath={() =>
                   void copyThreadContextValue(
@@ -523,11 +484,6 @@ export function ThreadHistoryPane() {
                     "Project path copied",
                   )
                 }
-                onCopySessionId={() => {
-                  if (threadContextMenu.sessionId) {
-                    void copyThreadContextValue(threadContextMenu.sessionId, "Session ID copied");
-                  }
-                }}
               />
             </div>,
             document.body,

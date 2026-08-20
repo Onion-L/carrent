@@ -12,11 +12,14 @@ import type {
 } from "../src/shared/chat";
 import type { ChatPermissionResponse } from "../src/shared/chatPermissions";
 import type { ChatQuestionResponse } from "../src/shared/chatQuestions";
+import type {
+  AgentDebugChanged,
+  AgentDebugRequest,
+  AgentDebugTrace,
+} from "../src/shared/agentDebug";
 import type { SkillRecord } from "../src/shared/skills";
-import type { McpServerStatus } from "../src/shared/mcpServer";
 import type {
   AppStateLoadResult,
-  ProviderSessionSnapshot,
   ProjectRelocationResult,
   ProjectRelocationRequest,
 } from "../src/shared/workspacePersistence";
@@ -30,7 +33,6 @@ import type {
   CreateEmptyProjectDirectoryRequest,
   CreateEmptyProjectDirectoryResult,
 } from "../src/shared/emptyProject";
-import type { RuntimeId } from "../src/shared/runtimes";
 import type {
   GitBranchInfo,
   GitWorkspaceDiffResult,
@@ -38,8 +40,7 @@ import type {
 } from "./git/gitIpc";
 import type { RtkGainStats } from "../src/shared/rtk";
 import type { UpdateCheckResult } from "../src/shared/updates";
-import type { KimiUsageStats } from "../src/shared/kimiUsage";
-import type { KimiMemoryIndex } from "../src/shared/kimiMemory";
+import type { AgentAuthView, SaveAgentAuthRequest } from "../src/shared/agentAuth";
 import type {
   WorktreePruneRequest,
   WorktreePruneResult,
@@ -53,7 +54,6 @@ import type {
 } from "../src/shared/worktrees";
 import type { DetectedEditor, EditorsApi } from "../src/shared/editors";
 import type { MainWindowApi, MainWindowZoomAction } from "../src/shared/mainWindow";
-import type { ThreadActionRequest, ThreadActionResult } from "../src/shared/threadActions";
 import type {
   CreateTerminalRequest,
   TerminalEvent,
@@ -129,6 +129,11 @@ const carrent = {
   electronVersion: process.versions.electron,
   mainWindow,
   keybindings,
+  agentAuth: {
+    load: () => ipcRenderer.invoke("agent-auth:load") as Promise<AgentAuthView>,
+    save: (request: SaveAgentAuthRequest) =>
+      ipcRenderer.invoke("agent-auth:save", request) as Promise<AgentAuthView>,
+  },
   browser: {
     activate: (target: BrowserThreadTarget | null) =>
       ipcRenderer.invoke("browser:activate", target) as Promise<BrowserThreadState | null>,
@@ -198,33 +203,11 @@ const carrent = {
       return () => ipcRenderer.removeListener("browser:menu-closed", wrapped);
     },
   } satisfies BrowserApi,
-  runtimes: {
-    list: () => ipcRenderer.invoke("runtimes:list"),
-    localCheck: (id: RuntimeId) => ipcRenderer.invoke("runtimes:local-check", id),
-    modelPing: (id: RuntimeId) => ipcRenderer.invoke("runtimes:model-ping", id),
-    listModels: (id: RuntimeId) => ipcRenderer.invoke("runtimes:list-models", id),
-    start: (id: RuntimeId) => ipcRenderer.invoke("runtimes:start", id),
-    stop: (id: RuntimeId) => ipcRenderer.invoke("runtimes:stop", id),
-    restart: (id: RuntimeId) => ipcRenderer.invoke("runtimes:restart", id),
-    refreshVersion: (id: RuntimeId) => ipcRenderer.invoke("runtimes:refresh-version", id),
-    startAll: () => ipcRenderer.invoke("runtimes:start-all"),
-    stopAll: () => ipcRenderer.invoke("runtimes:stop-all"),
-    restartAll: () => ipcRenderer.invoke("runtimes:restart-all"),
-  },
-  mcpServer: {
-    start: () => ipcRenderer.invoke("mcp-server:start") as Promise<McpServerStatus>,
-    stop: () => ipcRenderer.invoke("mcp-server:stop") as Promise<McpServerStatus>,
-    getStatus: () => ipcRenderer.invoke("mcp-server:status") as Promise<McpServerStatus>,
-  },
   chat: {
     send: (request: ChatTurnRequest) =>
       ipcRenderer.invoke("chat:send", request) as Promise<ChatRunCommandResult>,
     stop: (runId: string) =>
       ipcRenderer.invoke("chat:stop", runId) as Promise<ChatRunCommandResult>,
-    executeThreadAction: (request: ThreadActionRequest) =>
-      ipcRenderer.invoke("chat:thread-action", request) as Promise<ThreadActionResult>,
-    removeRuntimeSession: (request: import("../src/shared/chat").RuntimeSessionRecovery) =>
-      ipcRenderer.invoke("chat:remove-runtime-session", request) as Promise<void>,
     deleteThreadData: (request: DeleteThreadDataRequest) =>
       ipcRenderer.invoke("chat:delete-thread-data", request) as Promise<void>,
     deleteThreadTransaction: (request: ThreadDeletionTransactionRequest) =>
@@ -233,18 +216,13 @@ const carrent = {
       ipcRenderer.invoke("chat:permission-response", response) as Promise<ChatRunCommandResult>,
     respondToQuestion: (response: ChatQuestionResponse) =>
       ipcRenderer.invoke("chat:question-response", response) as Promise<ChatRunCommandResult>,
-    getKimiStatus: (request: ChatTurnRequest) =>
-      ipcRenderer.invoke("chat:kimi-status", request) as Promise<
-        import("../src/shared/chat").KimiTelemetryStatus | null
-      >,
-    getSessionStatus: (request: ChatTurnRequest) =>
-      ipcRenderer.invoke("chat:session-status", request) as Promise<
-        import("../src/shared/chat").KimiSessionStatus | null
-      >,
-    getDebugTrace: (request: import("../src/shared/runtimeDebug").RuntimeDebugRequest) =>
-      ipcRenderer.invoke("chat:debug-trace", request) as Promise<
-        import("../src/shared/runtimeDebug").RuntimeDebugTrace | null
-      >,
+    getDebugTrace: (request: AgentDebugRequest) =>
+      ipcRenderer.invoke("chat:debug-trace", request) as Promise<AgentDebugTrace | null>,
+    onDebugChanged: (listener: (change: AgentDebugChanged) => void) => {
+      const wrapped = (_event: IpcRendererEvent, change: AgentDebugChanged) => listener(change);
+      ipcRenderer.on("chat:debug-changed", wrapped);
+      return () => ipcRenderer.removeListener("chat:debug-changed", wrapped);
+    },
     onEvent: (listener: (event: ChatRunEvent) => void) => {
       const wrapped = (_event: IpcRendererEvent, evt: ChatRunEvent) => listener(evt);
       ipcRenderer.on("chat:event", wrapped);
@@ -342,11 +320,6 @@ const carrent = {
     },
     flushDone: () => ipcRenderer.invoke("app-state:flush-done") as Promise<void>,
   },
-  providerSessions: {
-    load: () => ipcRenderer.invoke("provider-sessions:load") as Promise<ProviderSessionSnapshot>,
-    save: (snapshot: ProviderSessionSnapshot) =>
-      ipcRenderer.invoke("provider-sessions:save", snapshot),
-  },
   projectDirectories: {
     check: (workingDirectory: string) =>
       ipcRenderer.invoke("project-directory:check", workingDirectory) as Promise<{
@@ -373,8 +346,6 @@ const carrent = {
     checkForUpdates: () =>
       ipcRenderer.invoke("settings:check-for-updates") as Promise<UpdateCheckResult>,
     rtkGain: () => ipcRenderer.invoke("settings:rtk-gain") as Promise<RtkGainStats>,
-    kimiUsage: () => ipcRenderer.invoke("settings:kimi-usage") as Promise<KimiUsageStats>,
-    kimiMemory: () => ipcRenderer.invoke("settings:kimi-memory") as Promise<KimiMemoryIndex>,
     worktrees: () => ipcRenderer.invoke("settings:worktrees") as Promise<WorktreeScanResult>,
     worktreesPrune: (request: WorktreePruneRequest) =>
       ipcRenderer.invoke("settings:worktrees:prune", request) as Promise<WorktreePruneResult>,
@@ -394,8 +365,6 @@ const carrent = {
       ipcRenderer.on("settings:worktrees:sizes:event", wrapped);
       return () => ipcRenderer.removeListener("settings:worktrees:sizes:event", wrapped);
     },
-    kimiMemoryDelete: (filePath: string) =>
-      ipcRenderer.invoke("settings:kimi-memory:delete", filePath) as Promise<void>,
     readGlobalAgentInstructions: () =>
       ipcRenderer.invoke("settings:global-agent-instructions:read") as Promise<{
         path: string;

@@ -93,7 +93,7 @@ function buildTextOnlyAttachmentSection(
 // Presents dragged Local Path Context as plain-text prompt context. No Markdown
 // is used so exact paths containing spaces, brackets, parentheses, and Unicode
 // survive verbatim without fragile escaping. This text is informational; the
-// Runtime read allowlist (built at Run start) is the authorization boundary.
+// Agent read allowlist (built at Run start) is the authorization boundary.
 export function buildLocalPathContextSection(
   contexts: LocalPathContextItem[] | undefined,
 ): string | null {

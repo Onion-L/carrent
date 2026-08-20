@@ -10,6 +10,13 @@ describe("classifyCommand", () => {
     expect(classifyCommand("bun test", "/work/project", "auto-edit").requiresApproval).toBe(true);
   });
 
+  it("allows commands that discard output to /dev/null in Full Project mode", () => {
+    expect(
+      classifyCommand("git log --oneline -5 2>/dev/null", "/work/project", "full-project")
+        .requiresApproval,
+    ).toBe(false);
+  });
+
   it("always requests approval for network and dangerous commands", () => {
     expect(classifyCommand("curl https://example.com", "/work/project", "full-project").action).toBe(
       "network",

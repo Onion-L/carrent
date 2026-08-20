@@ -10,6 +10,7 @@ const DANGEROUS_COMMAND =
 const ABSOLUTE_PATH = /(?:^|\s|[><|;&])((?:\/[\w.@+~ -]+)+)/g;
 const EXTERNAL_RELATIVE_PATH = /(?:^|\s|[><|;&])(?:\.\.\/|~\/)/;
 const EXTERNAL_ENV_PATH = /\$(?:HOME|USERPROFILE)\b|\$\{(?:HOME|USERPROFILE)\}|%USERPROFILE%/i;
+const SAFE_EXTERNAL_PATHS = new Set(["/dev/null"]);
 
 export type CommandClassification = {
   action: Extract<AgentApprovalAction, "shell" | "network" | "dangerous">;
@@ -27,7 +28,11 @@ export function classifyCommand(
   let outsideProject = false;
   for (const match of command.matchAll(ABSOLUTE_PATH)) {
     const candidate = match[1]?.trim();
-    if (candidate && !isPathInside(workingDirectory, path.resolve(candidate))) {
+    if (
+      candidate &&
+      !SAFE_EXTERNAL_PATHS.has(candidate) &&
+      !isPathInside(workingDirectory, path.resolve(candidate))
+    ) {
       outsideProject = true;
       break;
     }

@@ -1736,11 +1736,22 @@ export function Composer(props: ComposerProps) {
     content: string;
     attachments?: AttachmentMetadata[];
     localPathContexts?: LocalPathContextItem[];
+    skillReadPaths?: string[];
   }) => {
     const externalSubmit = override;
     const isExternalSubmit = externalSubmit !== undefined;
     const currentPendingAttachments = externalSubmit ? [] : pendingAttachments;
     const currentAttachedSkills = externalSubmit ? [] : effectiveAttachedSkills;
+    const currentSkillReadPaths = externalSubmit
+      ? (externalSubmit.skillReadPaths ?? [])
+      : [
+          ...new Set(
+            currentAttachedSkills.map((skill) => {
+              const catalogSkill = skills.find((candidate) => candidate.path === skill.path);
+              return catalogSkill?.realRootPath ?? catalogSkill?.declaredRootPath ?? skill.path;
+            }),
+          ),
+        ];
     const currentLocalPathContexts = externalSubmit
       ? (externalSubmit.localPathContexts ?? [])
       : localPathContexts;
@@ -1805,6 +1816,7 @@ export function Composer(props: ComposerProps) {
         content: messageText,
         attachments: attachmentMetadata,
         localPathContexts: currentLocalPathContexts,
+        skillReadPaths: currentSkillReadPaths,
       });
       setInput("");
       setAttachedSkills([]);
@@ -2063,6 +2075,7 @@ export function Composer(props: ComposerProps) {
         message: messageText,
         attachments: attachmentMetadata,
         localPathContexts: runLocalPathContexts,
+        skillReadPaths: currentSkillReadPaths,
         historyMode: getChatHistoryMode(!!externalSubmit?.messageId),
       },
       {
@@ -2273,6 +2286,7 @@ export function Composer(props: ComposerProps) {
         content: item.content,
         attachments: item.attachments,
         localPathContexts: item.localPathContexts,
+        skillReadPaths: item.skillReadPaths,
       }).then((sent) => {
         if (sent) {
           // A queued item can be reintroduced by an older Thread Work
@@ -2299,6 +2313,7 @@ export function Composer(props: ComposerProps) {
         content: queuedItem.content,
         attachments: queuedItem.attachments,
         localPathContexts: queuedItem.localPathContexts,
+        skillReadPaths: queuedItem.skillReadPaths,
       }).then((sent) => {
         if (!sent) {
           unshiftQueuedChatMessage(threadId, queuedItem);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -45,6 +45,38 @@ describe("classifyToolApproval", () => {
     expect(
       (await classifyToolApproval({ toolName: "bash", args: { command: "rm -rf ./build" }, workingDirectory: project, mode: "full-project" }))
         .requiresApproval,
+    ).toBe(true);
+  });
+
+  it("allows reads from explicitly authorized external paths without allowing writes", async () => {
+    const project = await mkdtemp(path.join(os.tmpdir(), "carrent-approval-project-"));
+    const skillRoot = await mkdtemp(path.join(os.tmpdir(), "carrent-approval-skill-"));
+    const resourceDirectory = path.join(skillRoot, "references");
+    const skillFile = path.join(resourceDirectory, "SKILL.md");
+    await mkdir(resourceDirectory);
+    await writeFile(skillFile, "skill instructions");
+
+    expect(
+      (
+        await classifyToolApproval({
+          toolName: "read",
+          args: { path: skillFile },
+          workingDirectory: project,
+          mode: "full-project",
+          additionalReadPaths: [skillRoot],
+        })
+      ).requiresApproval,
+    ).toBe(false);
+    expect(
+      (
+        await classifyToolApproval({
+          toolName: "write",
+          args: { path: skillFile },
+          workingDirectory: project,
+          mode: "full-project",
+          additionalReadPaths: [skillRoot],
+        })
+      ).requiresApproval,
     ).toBe(true);
   });
 });

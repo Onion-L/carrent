@@ -430,6 +430,7 @@ export type ThreadWorkQueuedMessage = {
   content: string;
   attachments?: AttachmentMetadata[];
   localPathContexts?: LocalPathContextItem[];
+  skillReadPaths?: string[];
   requiresConfirmation?: boolean;
 };
 
@@ -1483,11 +1484,20 @@ function normalizeThreadWorkQueuedMessage(
   const requiresConfirmation =
     forceConfirm || value.requiresConfirmation === true ? true : undefined;
   const localPathContexts = normalizeLocalPathContexts(value.localPathContexts);
+  const skillReadPaths = value.skillReadPaths ?? [];
+  if (
+    !Array.isArray(skillReadPaths) ||
+    skillReadPaths.length > 32 ||
+    skillReadPaths.some((item) => typeof item !== "string" || !item.trim())
+  ) {
+    return null;
+  }
   return {
     id: value.id,
     content: value.content,
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
     ...(localPathContexts.length > 0 ? { localPathContexts } : {}),
+    ...(skillReadPaths.length > 0 ? { skillReadPaths: [...new Set(skillReadPaths)] } : {}),
     ...(requiresConfirmation === undefined ? {} : { requiresConfirmation }),
   };
 }

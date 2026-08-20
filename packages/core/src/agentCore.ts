@@ -141,6 +141,7 @@ export function createAgentCore(dependencies: AgentCoreDependencies = {}) {
               args,
               workingDirectory: input.workingDirectory,
               mode: input.mode,
+              additionalReadPaths: input.additionalReadPaths,
             });
             if (!classification.requiresApproval) return undefined;
             const decision = await input.requestApproval({

@@ -171,7 +171,12 @@ export function createChatSessionManager(options: {
         mode: modeOf(request),
         transcript: request.historyMode === "replace" ? [] : request.transcript,
         prompt: buildChatPrompt(request, { includeTranscript: false }),
-        additionalReadPaths: request.localPathContexts?.map((item) => item.path),
+        additionalReadPaths: [
+          ...new Set([
+            ...(request.localPathContexts?.map((item) => item.path) ?? []),
+            ...(request.skillReadPaths ?? []),
+          ]),
+        ],
         requestApproval: async (approvalRequest) => {
           const grants = approvalGrantsByThread.get(request.threadId);
           if (grants?.has(approvalRequest.allowAlwaysKey)) {

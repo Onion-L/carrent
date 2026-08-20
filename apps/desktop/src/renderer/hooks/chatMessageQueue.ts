@@ -11,6 +11,7 @@ export type QueuedChatMessage = {
   content: string;
   attachments?: AttachmentMetadata[];
   localPathContexts?: LocalPathContextItem[];
+  skillReadPaths?: string[];
   requiresConfirmation?: boolean;
 };
 
@@ -210,6 +211,7 @@ function queueContentOf(queue: QueuedChatMessage[] | undefined) {
     content: item.content,
     attachments: item.attachments ?? [],
     localPathContexts: item.localPathContexts ?? [],
+    skillReadPaths: item.skillReadPaths ?? [],
   }));
 }
 
@@ -296,7 +298,8 @@ export function syncThreadWorkFromSnapshot(threadWork: Record<string, ThreadWork
           queued.content === item.content &&
           JSON.stringify(queued.attachments ?? []) === JSON.stringify(item.attachments ?? []) &&
           JSON.stringify(queued.localPathContexts ?? []) ===
-            JSON.stringify(item.localPathContexts ?? []),
+            JSON.stringify(item.localPathContexts ?? []) &&
+          JSON.stringify(queued.skillReadPaths ?? []) === JSON.stringify(item.skillReadPaths ?? []),
       );
       if (local) return [local];
       const copy = { ...item };

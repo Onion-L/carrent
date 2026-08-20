@@ -4,7 +4,7 @@ import type { ChatTurnRequest } from "../../src/shared/chat";
 import { createAgentDebugStore } from "./agentDebugStore";
 import { createChatSessionManager } from "./chatSessionManager";
 
-function request(): ChatTurnRequest {
+function request(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest {
   return {
     context: {
       kind: "project",
@@ -17,6 +17,7 @@ function request(): ChatTurnRequest {
     agentMode: "ask",
     transcript: [],
     message: "hello",
+    ...overrides,
   };
 }
 
@@ -38,8 +39,10 @@ describe("createChatSessionManager", () => {
   it("maps Agent Core text and tool events into Run events", async () => {
     const events: Array<{ type: string; text?: string }> = [];
     const debugStore = createAgentDebugStore();
+    let additionalReadPaths: string[] | undefined;
     const fakeCore = {
-      run(input: { onEvent?: (event: unknown) => void }) {
+      run(input: { additionalReadPaths?: string[]; onEvent?: (event: unknown) => void }) {
+        additionalReadPaths = input.additionalReadPaths;
         input.onEvent?.({ type: "text-delta", delta: "done" });
         input.onEvent?.({ type: "agent-event", event: { type: "agent_start" } });
         return {
@@ -67,10 +70,19 @@ describe("createChatSessionManager", () => {
       }),
     });
 
-    manager.start("run-1", request());
+    manager.start(
+      "run-1",
+      request({
+        localPathContexts: [
+          { path: "/external/reference", basename: "reference", kind: "directory" },
+        ],
+        skillReadPaths: ["/skills/pdf", "/external/reference"],
+      }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(events.map((event) => event.type)).toEqual(["started", "delta", "completed"]);
+    expect(additionalReadPaths).toEqual(["/external/reference", "/skills/pdf"]);
     expect(debugStore.getTrace("thread-1")?.records.map((record) => record.type)).toEqual([
       "run.requested",
       "agent_start",

@@ -349,6 +349,7 @@ function installCarrentBridge(
             name: "pdf",
             description: "Work with PDF files.",
             path: "/skills/pdf/SKILL.md",
+            realRootPath: "/skills/pdf",
             source: "codex",
           },
           {
@@ -1267,6 +1268,57 @@ describe("Composer Local Path Context", () => {
 });
 
 describe("Composer inline Skills", () => {
+  it("authorizes the attached Skill root for the Run", async () => {
+    await renderComposer();
+
+    await setComposerText("/pdf");
+    await chooseSkill("Work with PDF files.");
+    await submitComposer();
+
+    expect(sentChatRequests[0]?.skillReadPaths).toEqual(["/skills/pdf"]);
+  });
+
+  it("preserves attached Skill read roots while a message is queued", async () => {
+    const threadId = "thread-2";
+    await renderComposer({ threadId });
+
+    try {
+      await setComposerText("first message");
+      await submitComposer();
+      await setComposerText("queued /pdf");
+      await chooseSkill("Work with PDF files.");
+      await submitComposer();
+
+      expect(getQueuedMessages(threadId)[0]?.skillReadPaths).toEqual(["/skills/pdf"]);
+
+      await act(async () => {
+        emitChatEvent?.({
+          type: "completed",
+          runId: sentChatRunIds[0]!,
+          text: "done",
+          finishedAt: "2026-08-07T00:00:00.000Z",
+        });
+      });
+      await waitForQueueFlush(threadId, 2);
+
+      expect(sentChatRequests[1]?.skillReadPaths).toEqual(["/skills/pdf"]);
+    } finally {
+      const latestRunId = sentChatRunIds.at(-1);
+      if (latestRunId) {
+        await act(async () => {
+          emitChatEvent?.({
+            type: "completed",
+            runId: latestRunId,
+            text: "done",
+            finishedAt: "2026-08-07T00:00:01.000Z",
+          });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+      getQueuedMessages(threadId).forEach((item) => removeQueuedChatMessage(threadId, item.id));
+    }
+  });
+
   it("automatically sends the next queued message when a Run completes", async () => {
     const threadId = "thread-2";
     await renderComposer({ threadId });

@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type {
   AttachmentMetadata,
   ChatTurnRequest,
@@ -13,6 +15,7 @@ import {
 import type { ChatPermissionResponse } from "../../src/shared/chatPermissions";
 import type { ChatQuestionAnswer, ChatQuestionResponse } from "../../src/shared/chatQuestions";
 import type { AgentDebugRequest } from "../../src/shared/agentDebug";
+import type { SkillRecord } from "../../src/shared/skills";
 import {
   MAX_ATTACHMENT_COUNT,
   MAX_ATTACHMENT_ID_CHARS,
@@ -28,6 +31,7 @@ import type { ChatSessionManager } from "./chatSessionManager";
 import type { ChatRunAuthority } from "./chatRunAuthority";
 import type { ThreadTitleCoordinator } from "./threadTitleCoordinator";
 import type { AgentDebugStore } from "./agentDebugStore";
+import { listInstalledSkills } from "../skills/skillCatalog";
 
 interface IpcMainLike {
   handle: (
@@ -261,6 +265,41 @@ export function parseChatTurnLocalPathContexts(value: unknown): LocalPathContext
   return items.length > 0 ? items : undefined;
 }
 
+export function parseChatTurnSkillReadPaths(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length > 32 ||
+    value.some(
+      (item) => typeof item !== "string" || !item || item.trim() !== item || !path.isAbsolute(item),
+    )
+  ) {
+    throw new Error("Invalid Skill read paths.");
+  }
+  const paths = [...new Set(value as string[])];
+  return paths.length > 0 ? paths : undefined;
+}
+
+export async function resolveChatTurnSkillReadPaths(
+  value: unknown,
+  projectDir: string,
+  listSkills: (projectDir?: string) => Promise<SkillRecord[]> = (directory) =>
+    listInstalledSkills({ projectDir: directory }),
+): Promise<string[] | undefined> {
+  const requestedPaths = parseChatTurnSkillReadPaths(value);
+  if (!requestedPaths) return undefined;
+
+  const allowedRoots = new Set(
+    (await listSkills(projectDir)).flatMap((skill) => [
+      skill.realRootPath,
+      skill.declaredRootPath,
+      path.dirname(skill.path),
+    ]),
+  );
+  const paths = requestedPaths.filter((candidate) => allowedRoots.has(candidate));
+  return paths.length > 0 ? paths : undefined;
+}
+
 export function parseChatPermissionResponse(value: unknown): ChatPermissionResponse {
   if (!value || typeof value !== "object") {
     throw new Error("Invalid permission response.");
@@ -366,6 +405,10 @@ export function registerChatIpc(ipcMainLike: IpcMainLike, services: ChatIpcServi
       ),
       localPathContexts: parseChatTurnLocalPathContexts(
         (request as { localPathContexts?: unknown } | null)?.localPathContexts,
+      ),
+      skillReadPaths: await resolveChatTurnSkillReadPaths(
+        (request as { skillReadPaths?: unknown } | null)?.skillReadPaths,
+        req.context.workingDirectory,
       ),
     };
 

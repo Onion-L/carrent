@@ -174,6 +174,9 @@ export interface ChatTurnRequest {
   // Structured Local Path Context for dragged files/folders. Agent Core
   // authorization consumes this field rather than re-parsing user Markdown.
   localPathContexts?: LocalPathContextItem[];
+  // Read roots for Skills explicitly attached by the user. Main validates
+  // these before Agent Core treats them as already-authorized reads.
+  skillReadPaths?: string[];
   historyMode?: "continue" | "replace";
 }
 

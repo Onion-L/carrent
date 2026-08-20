@@ -27,6 +27,7 @@ export async function classifyToolApproval(options: {
   args: unknown;
   workingDirectory: string;
   mode: AgentMode;
+  additionalReadPaths?: string[];
 }): Promise<ToolApprovalClassification> {
   const args =
     typeof options.args === "object" && options.args !== null
@@ -59,8 +60,17 @@ export async function classifyToolApproval(options: {
     const canonical = await canonicalizePath(resolved);
     const outsideProject = !isPathInside(projectRoot, canonical);
     const writes = options.toolName === "write" || options.toolName === "edit";
+    const authorizedReadRoots = writes
+      ? []
+      : await Promise.all(
+          (options.additionalReadPaths ?? []).map((candidate) =>
+            canonicalizePath(resolveToolPath(projectRoot, candidate)),
+          ),
+        );
+    const authorizedRead = authorizedReadRoots.some((root) => isPathInside(root, canonical));
     const action: AgentApprovalAction = writes ? "write" : "read";
-    const requiresApproval = outsideProject || (writes && options.mode === "ask");
+    const requiresApproval =
+      (outsideProject && !authorizedRead) || (writes && options.mode === "ask");
     return {
       action,
       requiresApproval,

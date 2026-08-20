@@ -3,7 +3,9 @@ import type { ChatTurnRequest } from "../../src/shared/chat";
 import {
   parseAgentDebugRequest,
   parseChatTurnLocalPathContexts,
+  parseChatTurnSkillReadPaths,
   registerChatIpc as registerProductionChatIpc,
+  resolveChatTurnSkillReadPaths,
 } from "./chatIpc";
 import { createChatRunAuthority } from "./chatRunAuthority";
 
@@ -60,6 +62,25 @@ function makeRequest(overrides: Partial<ChatTurnRequest> = {}): ChatTurnRequest 
 }
 
 describe("registerChatIpc", () => {
+  it("accepts only absolute Skill read paths and removes duplicates", () => {
+    expect(parseChatTurnSkillReadPaths(["/skills/pdf", "/skills/pdf"])).toEqual(["/skills/pdf"]);
+    expect(() => parseChatTurnSkillReadPaths(["skills/pdf"])).toThrow("Invalid Skill read paths.");
+  });
+
+  it("authorizes only Skill roots returned by the Main Process catalog", async () => {
+    expect(
+      await resolveChatTurnSkillReadPaths(["/skills/pdf", "/"], "/project", async () => [
+        {
+          name: "pdf",
+          description: "Work with PDF files.",
+          path: "/skills/pdf/SKILL.md",
+          source: "codex",
+          realRootPath: "/skills/pdf",
+        },
+      ]),
+    ).toEqual(["/skills/pdf"]);
+  });
+
   it("validates Agent Debug trace requests", () => {
     expect(parseAgentDebugRequest({ threadId: "thread-1" })).toEqual({ threadId: "thread-1" });
     expect(() => parseAgentDebugRequest({ threadId: " thread-1" })).toThrow(

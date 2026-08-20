@@ -51,6 +51,10 @@ import {
   isProjectDirectoryAvailable,
   registerProjectDirectoryIpc,
 } from "./workspace/projectDirectory";
+import {
+  createEmptyProjectDirectoryManager,
+  registerEmptyProjectDirectoryIpc,
+} from "./workspace/emptyProjectDirectory";
 import { createSqliteAppStateStore } from "./persistence/sqliteAppStateStore";
 import { createSqliteAppStateLifecycle } from "./persistence/sqliteAppStateLifecycle";
 import {
@@ -979,6 +983,12 @@ if (!hasSingleInstanceLock) {
       onSnapshotCommitted: (snapshot) => appStateAuthority.adoptExternalSnapshot(snapshot),
     });
     registerProjectDirectoryIpc(guardedIpcMain, { relocationManager: projectRelocationManager });
+    registerEmptyProjectDirectoryIpc(
+      guardedIpcMain,
+      createEmptyProjectDirectoryManager({
+        loadSettings: async () => (await store.loadAppStateSnapshot())?.settings ?? null,
+      }),
+    );
     chatSessionManager = sessionManager;
     const threadDeletionManager = createThreadDeletionTransactionManager({
       journalStore: threadDeletionJournalStore,

@@ -1386,3 +1386,34 @@ describe("normalizeAppStateSettings codeHighlightTheme", () => {
     expect(normalizeAppStateSettings({})?.codeHighlightTheme).toBe("classic");
   });
 });
+
+describe("normalizeAppStateSettings newProjectLocation", () => {
+  it("keeps a non-empty custom base path and trims surrounding whitespace", () => {
+    expect(
+      normalizeAppStateSettings({ newProjectLocation: "  /Users/me/Projects  " })
+        ?.newProjectLocation,
+    ).toBe("/Users/me/Projects");
+  });
+
+  it("omits empty or malformed values so the dynamic default applies", () => {
+    expect(normalizeAppStateSettings({})?.newProjectLocation).toBeUndefined();
+    expect(
+      normalizeAppStateSettings({ newProjectLocation: "" })?.newProjectLocation,
+    ).toBeUndefined();
+    expect(
+      normalizeAppStateSettings({ newProjectLocation: "   " })?.newProjectLocation,
+    ).toBeUndefined();
+    expect(
+      normalizeAppStateSettings({ newProjectLocation: 42 })?.newProjectLocation,
+    ).toBeUndefined();
+  });
+
+  it("round-trips through JSON serialization", () => {
+    const settings = normalizeAppStateSettings({ newProjectLocation: "/data/projects" })!;
+    const restored = normalizeAppStateSettings(JSON.parse(serializeAppStateSettings(settings)))!;
+    expect(restored.newProjectLocation).toBe("/data/projects");
+
+    const withoutCustom = normalizeAppStateSettings({})!;
+    expect(serializeAppStateSettings(withoutCustom)).not.toContain("newProjectLocation");
+  });
+});

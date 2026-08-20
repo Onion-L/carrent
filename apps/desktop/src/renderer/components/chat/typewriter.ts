@@ -120,6 +120,16 @@ export class StreamingTextRevealer {
     if (!this.receivedText || finalText.startsWith(this.receivedText)) {
       this.receivedText = finalText;
     }
+    if (this.disposed) {
+      if (this.receivedText.startsWith(this.visibleText)) {
+        const delta = this.receivedText.slice(this.visibleText.length);
+        this.visibleText = this.receivedText;
+        if (delta) {
+          this.options.onReveal(delta);
+        }
+      }
+      return;
+    }
     const pending = this.receivedText.length - this.visibleText.length;
     if (pending <= 0) {
       return;

@@ -30,6 +30,7 @@ import { createFakeAppStateAuthority } from "../../test/fakeAppStateAuthority";
 import { chunkStreamingAnswer, LONG_STREAMING_ANSWER } from "../../test/streamingFixture";
 import { AppStateProvider } from "../../context/AppStateContext";
 import { ThreadContentProvider, useThreadContent } from "../../context/ThreadContentContext";
+import { useChatRun } from "../../hooks/useChatRun";
 import { ToastProvider } from "../toast/ToastContext";
 import {
   clearThreadDraft,
@@ -110,25 +111,47 @@ function ComposerHarness({
   );
 }
 
+function UnmountedComposerHarness({ threadId }: { threadId: string }) {
+  const { hasHydrated, getThreadRouteData } = useThreadContent();
+  useChatRun();
+  const routeData = getThreadRouteData("project-1", threadId);
+  if (!hasHydrated || !routeData) {
+    return null;
+  }
+
+  const assistantMessage = [...routeData.messages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  latestAssistantMessage = assistantMessage
+    ? { content: assistantMessage.content, runStatus: assistantMessage.runStatus }
+    : null;
+  return null;
+}
+
 function composerTree(
   draftRequest?: ComposerDraftRequest,
   threadId = "thread-1",
   withTimeline = false,
   withProviderPicker = false,
   composerKey = "composer",
+  showComposer = true,
 ) {
   return (
     <ToastProvider>
       <AppStateProvider>
         <ThreadContentProvider>
           <MemoryRouter>
-            <ComposerHarness
-              key={composerKey}
-              draftRequest={draftRequest}
-              threadId={threadId}
-              withTimeline={withTimeline}
-              withProviderPicker={withProviderPicker}
-            />
+            {showComposer ? (
+              <ComposerHarness
+                key={composerKey}
+                draftRequest={draftRequest}
+                threadId={threadId}
+                withTimeline={withTimeline}
+                withProviderPicker={withProviderPicker}
+              />
+            ) : (
+              <UnmountedComposerHarness threadId={threadId} />
+            )}
           </MemoryRouter>
         </ThreadContentProvider>
       </AppStateProvider>
@@ -2468,6 +2491,31 @@ describe("Composer streaming text reveal", () => {
 
     expect(frameCallbacks.size).toBe(0);
     await runAllAnimationFrames();
+  });
+
+  it("commits the final response when the composer unmounts before Run completion", async () => {
+    const driver = await renderStreamingComposer();
+    const initialText = "answer before switching views";
+    const finalText = `${initialText} and the final response`;
+
+    await act(async () => {
+      driver.emit(runEvent({ type: "delta", text: initialText }));
+    });
+    await act(async () => {
+      root!.render(composerTree(undefined, threadId, false, false, "composer", false));
+    });
+
+    await act(async () => {
+      driver.emit(runEvent({ type: "delta", text: " and the final response" }));
+      driver.emit(
+        runEvent({ type: "completed", text: finalText, finishedAt: "2026-08-07T00:00:00.000Z" }),
+        "completed",
+      );
+    });
+
+    expect(latestAssistantMessage?.runStatus).toBe("completed");
+    expect(latestAssistantMessage?.content).toBe(finalText);
+    expect(frameCallbacks.size).toBe(0);
   });
 
   it("bounds visible commits to one per frame across the long-answer fixture", async () => {

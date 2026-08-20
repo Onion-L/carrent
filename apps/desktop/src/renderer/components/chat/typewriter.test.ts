@@ -222,4 +222,15 @@ describe("StreamingTextRevealer", () => {
     expect(revealed).toEqual([]);
   });
 
+  it("finish commits the authoritative final text after disposal", () => {
+    const { frames, revealer, visibleText } = createRevealer();
+
+    revealer.appendDelta("complete");
+    revealer.flush();
+    revealer.dispose();
+    revealer.finish("complete answer");
+
+    expect(frames.hasScheduledFrame()).toBe(false);
+    expect(visibleText()).toBe("complete answer");
+  });
 });

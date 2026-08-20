@@ -67,7 +67,9 @@ export async function classifyToolApproval(options: {
             canonicalizePath(resolveToolPath(projectRoot, candidate)),
           ),
         );
-    const authorizedRead = authorizedReadRoots.some((root) => isPathInside(root, canonical));
+    const authorizedRead =
+      options.mode === "full-project" &&
+      authorizedReadRoots.some((root) => isPathInside(root, canonical));
     const action: AgentApprovalAction = writes ? "write" : "read";
     const requiresApproval =
       (outsideProject && !authorizedRead) || (writes && options.mode === "ask");

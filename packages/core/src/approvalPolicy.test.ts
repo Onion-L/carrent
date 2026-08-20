@@ -48,7 +48,7 @@ describe("classifyToolApproval", () => {
     ).toBe(true);
   });
 
-  it("allows reads from explicitly authorized external paths without allowing writes", async () => {
+  it("allows explicitly authorized external reads only in Full Project", async () => {
     const project = await mkdtemp(path.join(os.tmpdir(), "carrent-approval-project-"));
     const skillRoot = await mkdtemp(path.join(os.tmpdir(), "carrent-approval-skill-"));
     const resourceDirectory = path.join(skillRoot, "references");
@@ -67,6 +67,17 @@ describe("classifyToolApproval", () => {
         })
       ).requiresApproval,
     ).toBe(false);
+    expect(
+      (
+        await classifyToolApproval({
+          toolName: "read",
+          args: { path: skillFile },
+          workingDirectory: project,
+          mode: "ask",
+          additionalReadPaths: [skillRoot],
+        })
+      ).requiresApproval,
+    ).toBe(true);
     expect(
       (
         await classifyToolApproval({

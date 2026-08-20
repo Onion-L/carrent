@@ -28,6 +28,16 @@ describe("classifyCommand", () => {
       "dangerous",
     );
     expect(classifyCommand("gh pr view", "/work/project", "full-project").action).toBe("network");
+    const askNpx = classifyCommand("npx -y skills find frontend", "/work/project", "ask");
+    expect(askNpx.action).toBe("network");
+    expect(askNpx.requiresApproval).toBe(true);
+    const fullProjectNpx = classifyCommand(
+      "npx -y skills find frontend",
+      "/work/project",
+      "full-project",
+    );
+    expect(fullProjectNpx.action).toBe("network");
+    expect(fullProjectNpx.requiresApproval).toBe(true);
   });
 
   it("requests approval for absolute paths outside the project", () => {

@@ -1,5 +1,5 @@
 import { Bot, FileDiff, Globe2, SquareTerminal } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import type { RightSurface } from "./useRightSurface";
 
@@ -14,6 +14,9 @@ type SurfaceAvailability = {
 // retained content is dropped; until then the pane keeps sweeping over it.
 const COLLAPSE_DURATION_MS = 200;
 const PANE_WIDTH_STORAGE_KEY = "carrent:right-surface-pane-width";
+const MIN_PANE_WIDTH = 352;
+// The pane may never squeeze the main content (chat) below this width.
+const MIN_MAIN_CONTENT_WIDTH = 480;
 
 export function shouldOpenDiffSurface(diffScopeKey: string | null, currentScopeKey: string | null) {
   return diffScopeKey !== null && diffScopeKey === currentScopeKey;
@@ -103,9 +106,37 @@ export function RightSurfacePane({
   const shownSurface = activeSurface ?? retainedSurface;
   const isClosing = activeSurface === null && retainedSurface !== null;
 
+  // Track the flex row that hosts chat + pane so the pane can never squeeze
+  // the chat below MIN_MAIN_CONTENT_WIDTH, no matter the window size.
+  const asideRef = useRef<HTMLElement>(null);
+  const [containerWidth, setContainerWidth] = useState(() =>
+    typeof window === "undefined" ? 0 : window.innerWidth,
+  );
+  useEffect(() => {
+    const parent = asideRef.current?.parentElement;
+    if (!parent || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      setContainerWidth(parent.getBoundingClientRect().width);
+    });
+    observer.observe(parent);
+    setContainerWidth(parent.getBoundingClientRect().width);
+    return () => observer.disconnect();
+  }, []);
+
   const viewportWidth = typeof window === "undefined" ? 1200 : window.innerWidth;
-  const minWidth = 352;
-  const maxWidth = Math.round(viewportWidth * 0.7);
+  const minWidth = MIN_PANE_WIDTH;
+  // A zero container width means the parent has not been laid out (or is not
+  // laid out at all, e.g. in tests); fall back to the viewport heuristic.
+  const maxWidth =
+    containerWidth > 0
+      ? Math.max(
+          minWidth,
+          Math.min(
+            Math.round(viewportWidth * 0.7),
+            Math.round(containerWidth - MIN_MAIN_CONTENT_WIDTH),
+          ),
+        )
+      : Math.round(viewportWidth * 0.7);
   const resolvedWidth = Math.max(
     minWidth,
     Math.min(maxWidth, width ?? readStoredPaneWidth() ?? Math.round(viewportWidth * 0.45)),
@@ -123,6 +154,7 @@ export function RightSurfacePane({
 
   return (
     <aside
+      ref={asideRef}
       aria-label="Right panel"
       className={`flex h-full shrink-0 justify-end overflow-hidden ${
         isResizing ? "panel-dragging" : "panel-collapse-x"

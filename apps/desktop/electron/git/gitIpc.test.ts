@@ -113,6 +113,24 @@ describe("registerGitIpc", () => {
     }
   });
 
+  it("returns empty branch info instead of throwing for a non-git directory", async () => {
+    const root = mkdtempSync(join(tmpdir(), "carrent-git-ipc-"));
+
+    try {
+      const handlers = new Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>();
+      registerGitIpc({
+        handle: (channel, listener) => {
+          handlers.set(channel, listener);
+        },
+      });
+
+      const info = await handlers.get("git:branches")!({}, root);
+      expect(info).toEqual({ current: "", branches: [], branchWorktrees: [] });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("creates and checks out a branch", async () => {
     const root = mkdtempSync(join(tmpdir(), "carrent-git-ipc-"));
     const repo = join(root, "repo");

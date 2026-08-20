@@ -2176,7 +2176,8 @@ export function Composer(props: ComposerProps) {
         if (!cancelled) {
           setGitBranches(info.branches);
           setGitBranchWorktrees(info.branchWorktrees);
-          setCurrentBranch(info.current);
+          // A non-git Project directory reports an empty current branch.
+          setCurrentBranch(info.current || null);
         }
       } catch (error) {
         if (!cancelled) {

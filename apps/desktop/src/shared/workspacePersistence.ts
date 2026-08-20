@@ -223,6 +223,11 @@ export type AppStateSettings = {
   // falls back to the renderer's platform-specific default; an own property with value undefined is
   // explicitly unbound and is serialized as null for JSON persistence.
   keybindingOverrides?: Partial<Record<ActionId, KeyBinding>>;
+  // Custom base directory for newly created empty Projects. Omitted means the
+  // dynamic default (<OS user home>/CarrentProjects), so the per-user absolute
+  // default path is never persisted. Applies to future empty Projects only;
+  // existing Project paths are never moved.
+  newProjectLocation?: string;
 };
 
 // Font-size bounds mirror src/renderer/lib/fontSize (kept renderer-local).
@@ -390,6 +395,10 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     typeof value.terminalFontForce === "boolean"
       ? value.terminalFontForce
       : TYPOGRAPHY_DEFAULTS.terminalFontForce;
+  const newProjectLocation =
+    typeof value.newProjectLocation === "string" && value.newProjectLocation.trim()
+      ? value.newProjectLocation.trim()
+      : undefined;
 
   // keybindingOverrides: valid bindings survive, while null/undefined on a
   // known action preserves an explicit unbind. Everything else is dropped.
@@ -428,6 +437,7 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     runtimeEnabledById,
     runtimeDefaultModelById,
     ...(threadTitleModelId ? { threadTitleModelId } : {}),
+    ...(newProjectLocation ? { newProjectLocation } : {}),
     ...(Object.keys(keybindingOverrides).length > 0 ? { keybindingOverrides } : {}),
   };
 }

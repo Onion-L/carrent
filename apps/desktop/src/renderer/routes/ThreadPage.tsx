@@ -263,7 +263,7 @@ function ThreadPageContent() {
         DEFAULT_PROVIDER_PROFILE_ID
       }
       agentMode={appThread?.agentMode ?? routeData.thread.agentMode ?? DEFAULT_AGENT_MODE}
-      trustedProject={routeData.project.trustedAt !== undefined}
+      trustedProject={routeData.project.trustedAt ? true : undefined}
       submitRequest={
         submitRequest?.threadId === routeData.thread.id ? submitRequest.request : undefined
       }

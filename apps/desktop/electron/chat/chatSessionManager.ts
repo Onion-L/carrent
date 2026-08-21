@@ -182,7 +182,7 @@ export function createChatSessionManager(options: {
         id: runId,
         workingDirectory: request.context.workingDirectory,
         profile,
-        mode: request.context.trustedProject === false ? "ask" : modeOf(request),
+        mode: modeOf(request),
         transcript: request.historyMode === "replace" ? [] : request.transcript,
         prompt: buildChatPrompt(request, { includeTranscript: false }),
         trustedProject: request.context.trustedProject,

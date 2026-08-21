@@ -218,7 +218,7 @@ export function ProjectOverviewPage() {
                   messages={[]}
                   providerProfileId={openDraft.providerProfileId}
                   agentMode={openDraft.agentMode}
-                  trustedProject={project.trustedAt !== undefined}
+                  trustedProject={project.trustedAt ? true : undefined}
                   onDraftChange={(draft) => {
                     setOpenDraft({
                       ...openDraft,

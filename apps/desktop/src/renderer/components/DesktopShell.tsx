@@ -169,7 +169,9 @@ export function DesktopShell({ children }: { children: React.ReactNode }) {
   const navigateAdjacentThread = useCallback(
     (direction: -1 | 1) => {
       if (currentProjectThreads.length === 0) return;
-      const currentIndex = currentProjectThreads.findIndex((thread) => thread.id === currentThreadId);
+      const currentIndex = currentProjectThreads.findIndex(
+        (thread) => thread.id === currentThreadId,
+      );
       const startIndex = currentIndex < 0 ? (direction === 1 ? -1 : 0) : currentIndex;
       const nextIndex =
         (startIndex + direction + currentProjectThreads.length) % currentProjectThreads.length;

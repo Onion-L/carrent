@@ -58,6 +58,13 @@ function buttonWithText(text: string): HTMLButtonElement {
   return match;
 }
 
+async function expandRow(id: string) {
+  const rows = Array.from(document.body.querySelectorAll<HTMLDivElement>('[role="button"]'));
+  const row = rows.find((element) => element.textContent?.includes(id));
+  if (!row) throw new Error(`Row not found: ${id}`);
+  await act(async () => row.click());
+}
+
 describe("ProviderProfilesPanel", () => {
   it("activates the first connected provider on a fresh install", async () => {
     const savedRequests: SaveAgentAuthRequest[] = [];
@@ -205,6 +212,7 @@ describe("ProviderProfilesPanel", () => {
       },
     });
 
+    await expandRow("kimi");
     const idInput = document.body.querySelector<HTMLInputElement>("input.field-input")!;
     const setter = Object.getOwnPropertyDescriptor(
       window.HTMLInputElement.prototype,
@@ -214,11 +222,9 @@ describe("ProviderProfilesPanel", () => {
       idInput.focus();
       setter.call(idInput, "kimi-work");
       idInput.dispatchEvent(new window.Event("input", { bubbles: true }));
-      idInput.dispatchEvent(
-        new window.KeyboardEvent("keyup", { bubbles: true, key: "k" }),
-      );
+      idInput.dispatchEvent(new window.KeyboardEvent("keyup", { bubbles: true, key: "k" }));
     });
-    await act(async () => buttonWithText("Save Profiles").click());
+    await act(async () => buttonWithText("保存").click());
     await act(async () => {
       await Promise.resolve();
     });
@@ -226,5 +232,57 @@ describe("ProviderProfilesPanel", () => {
     expect(savedRequests).toHaveLength(1);
     expect(savedRequests[0]?.profiles[0]).toMatchObject({ id: "kimi-work", previousId: "kimi" });
     expect(savedRequests[0]?.activeProfileId).toBe("kimi-work");
+  });
+
+  it("persists the default switch immediately from the row editor", async () => {
+    const savedRequests: SaveAgentAuthRequest[] = [];
+    await renderPanel({
+      load: async () =>
+        viewWith(
+          [
+            {
+              id: "default",
+              type: "anthropic",
+              baseUrl: "https://api.anthropic.com",
+              modelId: "claude-sonnet-4-6",
+              hasApiKey: true,
+            },
+            {
+              id: "kimi",
+              type: "kimi-coding",
+              baseUrl: "https://api.kimi.com/coding",
+              modelId: "k3",
+              authType: "oauth",
+              hasApiKey: false,
+              oauthSupported: true,
+            },
+          ],
+          "default",
+        ),
+      save: async (request) => {
+        savedRequests.push(request);
+        return viewWith(
+          request.profiles.map((profile) => ({
+            id: profile.id,
+            type: profile.type,
+            baseUrl: profile.baseUrl,
+            modelId: profile.modelId,
+            thinking: false,
+            hasApiKey: profile.id === "default",
+            oauthSupported: profile.type === "kimi-coding",
+          })),
+          request.activeProfileId,
+        );
+      },
+    });
+
+    await expandRow("kimi");
+    await act(async () => buttonWithText("设为默认").click());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(savedRequests).toHaveLength(1);
+    expect(savedRequests[0]?.activeProfileId).toBe("kimi");
   });
 });

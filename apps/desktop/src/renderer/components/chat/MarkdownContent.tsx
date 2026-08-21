@@ -55,7 +55,9 @@ function MarkdownPre({ children, variant }: { children: ReactNode; variant: Mark
   const { codeHighlightTheme } = useSettings();
   const details = fencedCodeDetails(children);
   const highlighted =
-    details === null ? null : highlightCodeBlock(details.code, details.language, codeHighlightTheme);
+    details === null
+      ? null
+      : highlightCodeBlock(details.code, details.language, codeHighlightTheme);
 
   if (highlighted === null) {
     return (
@@ -192,9 +194,7 @@ function createComponents(
       // plain fallback when highlighting is unavailable.
       return <code className={`font-code ${styles.text}`}>{children}</code>;
     },
-    pre: ({ children }) => (
-      <MarkdownPre variant={variant}>{children}</MarkdownPre>
-    ),
+    pre: ({ children }) => <MarkdownPre variant={variant}>{children}</MarkdownPre>,
     blockquote: ({ children }) => (
       <blockquote className={`border-l-2 pl-3 ${styles.border} ${styles.muted}`}>
         {children}

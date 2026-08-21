@@ -11,6 +11,7 @@ import { ThreadContentProvider } from "./context/ThreadContentContext";
 import { AppStateProvider, useAppState } from "./context/AppStateContext";
 import { FirstUsePage } from "./routes/FirstUsePage";
 import { ProviderConnectPrototypePage } from "./routes/ProviderConnectPrototypePage";
+import { ProviderListPrototypePage } from "./routes/ProviderListPrototypePage";
 import { WorkspaceOverviewPage } from "./routes/WorkspaceOverviewPage";
 import { ProjectOverviewPage } from "./routes/ProjectOverviewPage";
 import { AppStateRecoveryPage } from "./routes/AppStateRecoveryPage";
@@ -275,10 +276,13 @@ export default function App() {
   useFileDropNavigationGuard();
   const location = useLocation();
 
-  // PROTOTYPE — throwaway route for provider-connect page variants, mounted
-  // before AppStateProvider so it renders without real app state. Remove after review.
+  // PROTOTYPE — throwaway routes for provider page variants, mounted before
+  // AppStateProvider so they render without real app state. Remove after review.
   if (location.pathname === "/prototype/provider-connect") {
     return <ProviderConnectPrototypePage />;
+  }
+  if (location.pathname === "/prototype/provider-list") {
+    return <ProviderListPrototypePage />;
   }
 
   return (

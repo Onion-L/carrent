@@ -6,11 +6,11 @@ Only the latest release of Carrent receives security fixes. Older versions are
 not supported — if you are running anything other than the newest release,
 please upgrade.
 
-| Version              | Supported |
-| -------------------- | --------- |
-| Latest release       | Yes       |
-| Older releases       | No        |
-| Beta / nightly builds | No       |
+| Version               | Supported |
+| --------------------- | --------- |
+| Latest release        | Yes       |
+| Older releases        | No        |
+| Beta / nightly builds | No        |
 
 ## Beta and Nightly Builds
 

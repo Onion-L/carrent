@@ -138,9 +138,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     const root = document.documentElement;
     const sizes = resolveTypographySizes(settings);
-    for (const [property, value] of Object.entries(
-      getFontSizeCssVariables(sizes.interface),
-    )) {
+    for (const [property, value] of Object.entries(getFontSizeCssVariables(sizes.interface))) {
       root.style.setProperty(property, value);
     }
     root.style.setProperty("--font-size-interface", `${sizes.interface}px`);

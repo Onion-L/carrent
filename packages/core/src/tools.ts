@@ -71,9 +71,7 @@ async function runProcess(options: {
       if (stderr.length < MAX_OUTPUT_BYTES) stderr += String(chunk);
     });
     child.once("error", (error) => finish(() => reject(error)));
-    child.once("close", (exitCode) =>
-      finish(() => resolve({ stdout, stderr, exitCode })),
-    );
+    child.once("close", (exitCode) => finish(() => resolve({ stdout, stderr, exitCode })));
     options.signal?.addEventListener("abort", abort, { once: true });
     if (options.signal?.aborted) abort();
   });
@@ -176,7 +174,8 @@ export function createAgentTools(workingDirectory: string): AgentTool[] {
     execute: async (_id, params, signal) => {
       const input = params as { command: string; timeoutMs?: number };
       const shell = process.platform === "win32" ? process.env.COMSPEC || "cmd.exe" : "/bin/zsh";
-      const args = process.platform === "win32" ? ["/d", "/s", "/c", input.command] : ["-lc", input.command];
+      const args =
+        process.platform === "win32" ? ["/d", "/s", "/c", input.command] : ["-lc", input.command];
       const result = await runProcess({
         command: shell,
         args,
@@ -185,7 +184,9 @@ export function createAgentTools(workingDirectory: string): AgentTool[] {
         timeoutMs: input.timeoutMs,
       });
       const output = truncateOutput(
-        [result.stdout, result.stderr].filter(Boolean).join(result.stdout && result.stderr ? "\n" : ""),
+        [result.stdout, result.stderr]
+          .filter(Boolean)
+          .join(result.stdout && result.stderr ? "\n" : ""),
       );
       if (result.exitCode !== 0) {
         throw new Error(output || `Command exited with code ${result.exitCode}.`);
@@ -209,9 +210,20 @@ export function createAgentTools(workingDirectory: string): AgentTool[] {
       maxResults: Type.Optional(Type.Number({ minimum: 1, maximum: 1000 })),
     }),
     execute: async (_id, params, signal) => {
-      const input = params as { pattern: string; path?: string; glob?: string; maxResults?: number };
+      const input = params as {
+        pattern: string;
+        path?: string;
+        glob?: string;
+        maxResults?: number;
+      };
       const searchPath = resolveToolPath(workingDirectory, input.path ?? ".");
-      const args = ["--line-number", "--color", "never", "--max-count", String(input.maxResults ?? 200)];
+      const args = [
+        "--line-number",
+        "--color",
+        "never",
+        "--max-count",
+        String(input.maxResults ?? 200),
+      ];
       if (input.glob) args.push("--glob", input.glob);
       args.push("--", input.pattern, searchPath);
       const result = await runProcess({ command: "rg", args, cwd: workingDirectory, signal });

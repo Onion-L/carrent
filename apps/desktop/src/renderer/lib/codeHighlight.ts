@@ -122,7 +122,10 @@ function classicTheme(name: string, type: "dark" | "light", palette: ClassicPale
       },
       { scope: ["string"], settings: { foreground: palette.string } },
       { scope: ["entity.other.attribute-name"], settings: { foreground: palette.string } },
-      { scope: ["entity.name.function", "support.function"], settings: { foreground: palette.function } },
+      {
+        scope: ["entity.name.function", "support.function"],
+        settings: { foreground: palette.function },
+      },
       { scope: ["keyword.operator"], settings: { foreground: palette.operator } },
       {
         scope: [

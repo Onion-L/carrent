@@ -53,11 +53,7 @@ export function resolveTypography(
 export function resolveTypographySizes(
   settings: Pick<
     AppStateSettings,
-    | "typographyMode"
-    | "fontSizeInterface"
-    | "fontSizePrompt"
-    | "fontSizeCode"
-    | "fontSizeTerminal"
+    "typographyMode" | "fontSizeInterface" | "fontSizePrompt" | "fontSizeCode" | "fontSizeTerminal"
   >,
 ): {
   interface: number;
@@ -68,9 +64,7 @@ export function resolveTypographySizes(
   return {
     interface: settings.fontSizeInterface,
     prompt:
-      settings.typographyMode === "advanced"
-        ? settings.fontSizePrompt
-        : settings.fontSizeInterface,
+      settings.typographyMode === "advanced" ? settings.fontSizePrompt : settings.fontSizeInterface,
     code: settings.fontSizeCode,
     terminal:
       settings.typographyMode === "advanced" ? settings.fontSizeTerminal : settings.fontSizeCode,

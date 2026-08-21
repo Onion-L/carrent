@@ -91,8 +91,9 @@ export function createChatSessionManager(options: {
   agentCore?: ReturnType<typeof createAgentCore>;
   loadAuth?: typeof loadAgentAuth;
   debugStore?: AgentDebugStore;
+  clientVersion?: string;
 }): ChatSessionManager {
-  const core = options.agentCore ?? createAgentCore();
+  const core = options.agentCore ?? createAgentCore({ clientVersion: options.clientVersion });
   const liveRuns = new Map<string, LiveRun>();
   const pendingApprovals = new Map<string, PendingApproval>();
   const approvalGrantsByThread = new Map<string, Set<string>>();

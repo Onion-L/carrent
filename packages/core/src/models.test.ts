@@ -21,7 +21,7 @@ describe("agent pi-ai models", () => {
       home,
     );
 
-    const { models, model } = createAgentModels(profile, home);
+    const { models, model } = createAgentModels(profile, home, "9.9.9");
     expect((await models.getAuth(model))?.auth.apiKey).toBe("secret");
     expect((await models.getAvailable(profile.id)).map((item) => item.id)).toContain("claude-test");
     expect(models.getProvider(profile.id)?.auth.oauth).toBe(undefined);
@@ -46,10 +46,11 @@ describe("agent pi-ai models", () => {
       home,
     );
 
-    const { models, model } = createAgentModels(profile, home);
+    const { models, model } = createAgentModels(profile, home, "9.9.9");
     const auth = await models.getAuth(model);
     expect(auth?.source).toBe("OAuth");
     expect(auth?.auth.headers?.Authorization).toBe("Bearer access-token");
+    expect(model.headers?.["User-Agent"]).toBe("carrent/9.9.9");
     expect(await models.checkAuth(profile.id)).toEqual({ source: "OAuth", type: "oauth" });
 
     await models.logout(profile.id);

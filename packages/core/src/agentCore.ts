@@ -77,7 +77,11 @@ export function createAgentCore(dependencies: AgentCoreDependencies = {}) {
 
         const messages = historyMessages(input, now);
         const tools = createAgentTools(input.workingDirectory);
-        const agentModels = createAgentModels(input.profile, dependencies.homeDirectory);
+        const agentModels = createAgentModels(
+          input.profile,
+          dependencies.homeDirectory,
+          dependencies.clientVersion,
+        );
         await input.onEvent?.({
           type: "run-context",
           systemPrompt,

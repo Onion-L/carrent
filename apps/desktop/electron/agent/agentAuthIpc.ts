@@ -22,12 +22,12 @@ type IpcMainLike = {
   ) => void;
 };
 
-function viewOf(auth: AgentAuthFile | null): AgentAuthView {
+function viewOf(auth: AgentAuthFile | null, clientVersion?: string): AgentAuthView {
   return {
     path: getAgentAuthPath(),
     activeProfileId: auth?.activeProfileId ?? "",
     profiles: Object.values(auth?.profiles ?? {}).map((profile) => {
-      const { models } = createAgentModels(profile);
+      const { models } = createAgentModels(profile, undefined, clientVersion);
       return {
         id: profile.id,
         type: profile.type,
@@ -46,6 +46,7 @@ function viewOf(auth: AgentAuthFile | null): AgentAuthView {
 type AgentAuthIpcOptions = {
   openExternal?: (url: string) => Promise<void>;
   fetch?: typeof fetch;
+  clientVersion?: string;
 };
 
 export function parseAgentAuthSaveRequest(value: unknown): SaveAgentAuthRequest {
@@ -171,7 +172,9 @@ export async function listProviderModels(
 
 export function registerAgentAuthIpc(ipcMainLike: IpcMainLike, options: AgentAuthIpcOptions = {}) {
   const loginControllers = new Map<string, AbortController>();
-  ipcMainLike.handle("agent-auth:load", async () => viewOf(await loadAgentAuth()));
+  ipcMainLike.handle("agent-auth:load", async () =>
+    viewOf(await loadAgentAuth(), options.clientVersion),
+  );
   ipcMainLike.handle("agent-auth:list-models", async (_event, value) =>
     listProviderModels(parseListProviderModelsRequest(value), options.fetch),
   );
@@ -205,7 +208,7 @@ export function registerAgentAuthIpc(ipcMainLike: IpcMainLike, options: AgentAut
       };
     }
     await saveAgentAuth({ version: 1, activeProfileId: request.activeProfileId, profiles });
-    return viewOf(await loadAgentAuth());
+    return viewOf(await loadAgentAuth(), options.clientVersion);
   });
   ipcMainLike.handle("agent-auth:login", async (_event, value) => {
     if (
@@ -224,7 +227,7 @@ export function registerAgentAuthIpc(ipcMainLike: IpcMainLike, options: AgentAut
     if (loginControllers.has(profile.id)) throw new Error("OAuth login is already in progress.");
     const controller = new AbortController();
     loginControllers.set(profile.id, controller);
-    const { models } = createAgentModels(profile);
+    const { models } = createAgentModels(profile, undefined, options.clientVersion);
     try {
       await models.login(profile.id, "oauth", {
         signal: controller.signal,
@@ -248,7 +251,7 @@ export function registerAgentAuthIpc(ipcMainLike: IpcMainLike, options: AgentAut
           }
         },
       });
-      return viewOf(await loadAgentAuth());
+      return viewOf(await loadAgentAuth(), options.clientVersion);
     } finally {
       loginControllers.delete(profile.id);
     }
@@ -274,8 +277,8 @@ export function registerAgentAuthIpc(ipcMainLike: IpcMainLike, options: AgentAut
     const auth = await loadAgentAuth();
     const profile = auth?.profiles[(value as { profileId: string }).profileId];
     if (!profile) throw new Error("Provider Profile does not exist.");
-    const { models } = createAgentModels(profile);
+    const { models } = createAgentModels(profile, undefined, options.clientVersion);
     await models.logout(profile.id);
-    return viewOf(await loadAgentAuth());
+    return viewOf(await loadAgentAuth(), options.clientVersion);
   });
 }

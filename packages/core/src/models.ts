@@ -22,6 +22,12 @@ import type { ProviderProfile } from "./types";
 
 registerBunOAuthFlows();
 
+const DEFAULT_CARRENT_VERSION = "0.0.3";
+
+function kimiUserAgent(version = DEFAULT_CARRENT_VERSION) {
+  return `carrent/${version}`;
+}
+
 function profileCredential(profile: ProviderProfile): Credential | undefined {
   if (profile.credential) return profile.credential;
   return profile.apiKey ? { type: "api_key", key: profile.apiKey } : undefined;
@@ -85,7 +91,12 @@ export function createAgentCredentialStore(homeDirectory = os.homedir()): Creden
   };
 }
 
-function customModel(profile: ProviderProfile, id = profile.modelId, name = id): Model<Api> {
+function customModel(
+  profile: ProviderProfile,
+  id = profile.modelId,
+  name = id,
+  clientVersion?: string,
+): Model<Api> {
   const api =
     profile.type === "anthropic" || profile.type === "kimi-coding"
       ? "anthropic-messages"
@@ -101,6 +112,9 @@ function customModel(profile: ProviderProfile, id = profile.modelId, name = id):
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: profile.type === "anthropic" ? 200_000 : 128_000,
     maxTokens: 8_192,
+    ...(profile.type === "kimi-coding"
+      ? { headers: { "User-Agent": kimiUserAgent(clientVersion) } }
+      : {}),
     ...(profile.thinking
       ? {
           thinkingLevelMap: {
@@ -116,7 +130,7 @@ function customModel(profile: ProviderProfile, id = profile.modelId, name = id):
   } as Model<Api>;
 }
 
-function providerFor(profile: ProviderProfile): Provider {
+function providerFor(profile: ProviderProfile, clientVersion?: string): Provider {
   const builtin =
     profile.type === "anthropic"
       ? anthropicProvider()
@@ -131,13 +145,16 @@ function providerFor(profile: ProviderProfile): Provider {
     profile.type === "anthropic" && builtin
       ? { apiKey: builtin.auth.apiKey }
       : (builtin?.auth ?? { apiKey: envApiKeyAuth("Provider API key", []) });
-  const model = customModel(profile);
+  const model = customModel(profile, profile.modelId, profile.modelId, clientVersion);
   const catalog = builtin
     ? [
         ...builtin.getModels().map((catalogModel) => ({
           ...catalogModel,
           provider: profile.id,
           baseUrl: profile.baseUrl.replace(/\/$/, ""),
+          ...(profile.type === "kimi-coding"
+            ? { headers: { ...catalogModel.headers, "User-Agent": kimiUserAgent(clientVersion) } }
+            : {}),
         })),
         ...(builtin.getModels().some((catalogModel) => catalogModel.id === model.id)
           ? []
@@ -150,7 +167,7 @@ function providerFor(profile: ProviderProfile): Provider {
     ? profile.models.map(
         (selected) =>
           catalog.find((candidate) => candidate.id === selected.id) ??
-          customModel(profile, selected.id, selected.name),
+          customModel(profile, selected.id, selected.name, clientVersion),
       )
     : catalog;
   return createProvider({
@@ -166,9 +183,10 @@ function providerFor(profile: ProviderProfile): Provider {
 export function createAgentModels(
   profile: ProviderProfile,
   homeDirectory = os.homedir(),
+  clientVersion?: string,
 ): { models: Models; model: Model<Api> } {
   const models = createModels({ credentials: createAgentCredentialStore(homeDirectory) });
-  const provider = providerFor(profile);
+  const provider = providerFor(profile, clientVersion);
   models.setProvider(provider);
   return {
     models,

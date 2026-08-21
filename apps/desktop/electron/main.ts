@@ -868,6 +868,7 @@ if (!hasSingleInstanceLock) {
       emit: (event) => chatRunAuthority?.handleEvent(event),
       attachmentStore,
       debugStore: agentDebugStore,
+      clientVersion: app.getVersion(),
     });
     runNotificationCoordinator = createRunNotificationCoordinator({
       getSnapshot: () => appStateAuthority.getState().snapshot,
@@ -966,7 +967,10 @@ if (!hasSingleInstanceLock) {
         }
       },
     });
-    registerAgentAuthIpc(guardedIpcMain, { openExternal: (url) => shell.openExternal(url) });
+    registerAgentAuthIpc(guardedIpcMain, {
+      openExternal: (url) => shell.openExternal(url),
+      clientVersion: app.getVersion(),
+    });
     registerSettingsIpc(
       guardedIpcMain,
       () => app.getVersion(),

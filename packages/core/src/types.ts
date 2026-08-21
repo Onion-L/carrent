@@ -104,4 +104,5 @@ export type AgentCoreDependencies = {
   streamFn?: StreamFn;
   now?: () => number;
   homeDirectory?: string;
+  clientVersion?: string;
 };

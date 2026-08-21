@@ -15,8 +15,19 @@ export function getAgentModeLabel(mode: AgentMode) {
     case "ask":
       return "Ask";
     case "auto-edit":
-      return "Auto Edit";
+      return "Auto";
     case "full-project":
-      return "Full Project";
+      return "Full Access";
+  }
+}
+
+export function getAgentModeDescription(mode: AgentMode) {
+  switch (mode) {
+    case "ask":
+      return "Approve every write and command";
+    case "auto-edit":
+      return "Write and run safe commands inside the project";
+    case "full-project":
+      return "Full access inside the project, including deletes";
   }
 }

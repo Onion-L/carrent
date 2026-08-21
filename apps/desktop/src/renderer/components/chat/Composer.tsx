@@ -94,7 +94,12 @@ import type {
   ChatPermissionOptionKind,
   ChatPermissionRequest,
 } from "../../../shared/chatPermissions";
-import { DEFAULT_AGENT_MODE, getAgentModeLabel, type AgentMode } from "../../../shared/agentMode";
+import {
+  DEFAULT_AGENT_MODE,
+  getAgentModeDescription,
+  getAgentModeLabel,
+  type AgentMode,
+} from "../../../shared/agentMode";
 import type { ProviderProfileId, ProviderProfileRecord } from "../../../shared/providerProfiles";
 import { ProviderIcon } from "../ProviderIcon";
 import { useProviderProfiles } from "../../hooks/useProviderProfiles";
@@ -3166,14 +3171,21 @@ export function Composer(props: ComposerProps) {
                             props.onAgentModeChange!(mode);
                             setShowModePicker(false);
                           }}
-                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-app-12 transition hover:bg-surface-raised ${
+                          className={`flex w-full items-start gap-2 px-3 py-1.5 text-left text-app-12 transition hover:bg-surface-raised ${
                             mode === props.agentMode ? "text-fg" : "text-muted"
                           }`}
                         >
-                          <AgentModeIcon mode={mode} className="h-3 w-3" />
+                          <AgentModeIcon mode={mode} className="mt-0.5 h-3 w-3" />
                           <span>
-                            {getAgentModeLabel(mode)}
-                            {mode === "full-project" ? " (danger)" : ""}
+                            <span className="block">
+                              {getAgentModeLabel(mode)}
+                              {mode === "full-project" ? (
+                                <span className="text-danger"> (danger)</span>
+                              ) : null}
+                            </span>
+                            <span className="block text-app-11 leading-4 text-subtle">
+                              {getAgentModeDescription(mode)}
+                            </span>
                           </span>
                         </button>
                       ))}

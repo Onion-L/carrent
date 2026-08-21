@@ -5,6 +5,8 @@ export type AgentMode = "ask" | "auto-edit" | "full-project";
 
 export type ProviderProfileType = "anthropic" | "openai-compatible" | "kimi-coding";
 
+export type ProviderProfileModel = { id: string; name: string };
+
 export type ProviderProfile = {
   id: string;
   type: ProviderProfileType;
@@ -13,6 +15,8 @@ export type ProviderProfile = {
   baseUrl: string;
   modelId: string;
   thinking?: boolean;
+  /** User-selected model list; when absent the provider catalog applies. */
+  models?: ProviderProfileModel[];
 };
 
 export type AgentAuthFile = {

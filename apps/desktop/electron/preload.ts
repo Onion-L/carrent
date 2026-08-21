@@ -40,7 +40,12 @@ import type {
 } from "./git/gitIpc";
 import type { RtkGainStats } from "../src/shared/rtk";
 import type { UpdateCheckResult } from "../src/shared/updates";
-import type { AgentAuthView, SaveAgentAuthRequest } from "../src/shared/agentAuth";
+import type {
+  AgentAuthView,
+  ListProviderModelsRequest,
+  ProviderModelInfo,
+  SaveAgentAuthRequest,
+} from "../src/shared/agentAuth";
 import type {
   WorktreePruneRequest,
   WorktreePruneResult,
@@ -133,6 +138,8 @@ const carrent = {
     load: () => ipcRenderer.invoke("agent-auth:load") as Promise<AgentAuthView>,
     save: (request: SaveAgentAuthRequest) =>
       ipcRenderer.invoke("agent-auth:save", request) as Promise<AgentAuthView>,
+    listModels: (request: ListProviderModelsRequest) =>
+      ipcRenderer.invoke("agent-auth:list-models", request) as Promise<ProviderModelInfo[]>,
     login: (profileId: string) =>
       ipcRenderer.invoke("agent-auth:login", { profileId }) as Promise<AgentAuthView>,
     cancelLogin: (profileId: string) =>

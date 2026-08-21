@@ -51,6 +51,15 @@ function readProfile(id: string, value: unknown): ProviderProfile | null {
   const baseUrl = typeof value.baseUrl === "string" ? value.baseUrl.trim() : "";
   const modelId = typeof value.modelId === "string" ? value.modelId.trim() : "";
   if (!type || !baseUrl || !modelId) return null;
+  const models = Array.isArray(value.models)
+    ? value.models.flatMap((entry) => {
+        if (!isRecord(entry)) return [];
+        const id = typeof entry.id === "string" ? entry.id.trim() : "";
+        if (!id) return [];
+        const name = typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : id;
+        return [{ id, name }];
+      })
+    : undefined;
   try {
     const url = new URL(baseUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
@@ -65,6 +74,7 @@ function readProfile(id: string, value: unknown): ProviderProfile | null {
     baseUrl,
     modelId,
     thinking: value.thinking === true,
+    ...(models?.length ? { models } : {}),
   };
 }
 

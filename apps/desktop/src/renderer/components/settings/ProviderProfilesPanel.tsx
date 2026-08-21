@@ -7,6 +7,7 @@ import type {
   SaveAgentAuthRequest,
 } from "../../../shared/agentAuth";
 import { useToast } from "../toast/ToastContext";
+import { AddProviderFlow, type NewProviderDraft } from "./AddProviderFlow";
 
 type DraftProfile = SaveAgentAuthRequest["profiles"][number] & { hasApiKey: boolean };
 
@@ -31,6 +32,7 @@ export function ProviderProfilesPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [oauthProfileId, setOauthProfileId] = useState<string | null>(null);
+  const [addingProvider, setAddingProvider] = useState(false);
 
   const applyView = (view: AgentAuthView) => {
     const next = view.profiles.map((profile) => ({ ...profile, apiKey: "" }));
@@ -75,6 +77,74 @@ export function ProviderProfilesPanel() {
       }),
     ),
   });
+
+  // The Add Provider flow saves immediately: existing drafts (which never
+  // carry a model selection, preserving stored ones on the main process) plus
+  // the new profile with its fetched models and API key.
+  const addProvider = async (draft: NewProviderDraft) => {
+    const baseId = draft.type === "kimi-coding" ? "kimi" : "custom";
+    let id = baseId;
+    let suffix = 2;
+    while (profiles.some((profile) => profile.id === id)) {
+      id = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+    const request = saveRequest();
+    request.profiles.push({
+      id,
+      type: draft.type,
+      baseUrl: draft.baseUrl,
+      modelId: draft.modelId,
+      thinking: false,
+      apiKey: draft.apiKey,
+      models: draft.models,
+    });
+    if (!request.activeProfileId) request.activeProfileId = id;
+    setSaving(true);
+    try {
+      applyView(await window.carrent.agentAuth.save(request));
+      showToast("Provider added.", "success");
+      setAddingProvider(false);
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "The provider could not be added.",
+        "error",
+      );
+      throw error;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // The Kimi OAuth entry saves a fresh kimi-coding profile first (the login
+  // IPC requires the profile to exist), then runs the browser OAuth flow.
+  const loginWithKimiOAuth = async () => {
+    let id = "kimi";
+    let suffix = 2;
+    while (profiles.some((profile) => profile.id === id)) {
+      id = `kimi-${suffix}`;
+      suffix += 1;
+    }
+    const request = saveRequest();
+    request.profiles.push({
+      id,
+      type: "kimi-coding",
+      baseUrl: "https://api.kimi.com/coding",
+      modelId: "k3",
+      thinking: false,
+    });
+    if (!request.activeProfileId) request.activeProfileId = id;
+    try {
+      applyView(await window.carrent.agentAuth.save(request));
+      if (!window.carrent.agentAuth.login) throw new Error("OAuth login is not available.");
+      applyView(await window.carrent.agentAuth.login(id));
+      showToast("OAuth login completed.", "success");
+      setAddingProvider(false);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "OAuth login failed.", "error");
+      throw error;
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -140,11 +210,11 @@ export function ProviderProfilesPanel() {
         </div>
         <button
           type="button"
-          onClick={() => setProfiles((current) => [...current, emptyProfile(current.length)])}
+          onClick={() => setAddingProvider(true)}
           className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 text-app-12 text-muted transition-colors hover:bg-surface-hover hover:text-fg"
         >
           <Plus className="h-3.5 w-3.5" />
-          Add Profile
+          Add Provider
         </button>
       </div>
 
@@ -359,6 +429,14 @@ export function ProviderProfilesPanel() {
           Save Profiles
         </button>
       </div>
+
+      {addingProvider && (
+        <AddProviderFlow
+          onCancel={() => setAddingProvider(false)}
+          onSubmit={addProvider}
+          onOAuthLogin={loginWithKimiOAuth}
+        />
+      )}
     </div>
   );
 }

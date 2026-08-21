@@ -28,7 +28,12 @@ import type {
 } from "../shared/workspacePersistence";
 import type { RtkGainStats } from "../shared/rtk";
 import type { UpdateCheckResult } from "../shared/updates";
-import type { AgentAuthView, SaveAgentAuthRequest } from "../shared/agentAuth";
+import type {
+  AgentAuthView,
+  ListProviderModelsRequest,
+  ProviderModelInfo,
+  SaveAgentAuthRequest,
+} from "../shared/agentAuth";
 import type {
   WorktreePruneRequest,
   WorktreePruneResult,
@@ -77,6 +82,7 @@ declare global {
       agentAuth: {
         load: () => Promise<AgentAuthView>;
         save: (request: SaveAgentAuthRequest) => Promise<AgentAuthView>;
+        listModels: (request: ListProviderModelsRequest) => Promise<ProviderModelInfo[]>;
         login?: (profileId: string) => Promise<AgentAuthView>;
         cancelLogin?: (profileId: string) => Promise<void>;
         logout?: (profileId: string) => Promise<AgentAuthView>;

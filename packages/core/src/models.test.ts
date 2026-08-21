@@ -75,4 +75,34 @@ describe("agent pi-ai models", () => {
     expect(model.baseUrl).toBe(profile.baseUrl);
     expect((await models.getAuth(model))?.auth.apiKey).toBe("secret");
   });
+
+  it("replaces the catalog with a stored model selection and round-trips it", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "carrent-models-"));
+    const profile = {
+      id: "kimi",
+      type: "kimi-coding" as const,
+      apiKey: "secret",
+      baseUrl: "https://api.kimi.com/coding",
+      modelId: "k3",
+      models: [
+        { id: "k3", name: "Kimi K3" },
+        { id: "endpoint-only-model", name: "endpoint-only-model" },
+      ],
+    };
+    await saveAgentAuth(
+      { version: 1, activeProfileId: profile.id, profiles: { [profile.id]: profile } },
+      home,
+    );
+
+    // The selection survives a save/load round-trip.
+    expect((await loadAgentAuth(home))?.profiles[profile.id]?.models).toEqual(profile.models);
+
+    // The provider exposes exactly the selected models; ids the builtin
+    // catalog does not know get a synthesized entry.
+    const { models } = createAgentModels(profile, home);
+    expect(models.getModels(profile.id).map((item) => item.id)).toEqual([
+      "k3",
+      "endpoint-only-model",
+    ]);
+  });
 });

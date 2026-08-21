@@ -23,3 +23,11 @@ export type SaveAgentAuthRequest = {
   activeProfileId: string;
   profiles: Array<Omit<ProviderProfileView, "hasApiKey"> & { apiKey?: string }>;
 };
+
+export type ProviderModelInfo = { id: string; name: string };
+
+export type ListProviderModelsRequest = {
+  type: ProviderProfileType;
+  baseUrl: string;
+  apiKey: string;
+};

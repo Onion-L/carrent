@@ -85,14 +85,14 @@ export function createAgentCredentialStore(homeDirectory = os.homedir()): Creden
   };
 }
 
-function customModel(profile: ProviderProfile): Model<Api> {
+function customModel(profile: ProviderProfile, id = profile.modelId, name = id): Model<Api> {
   const api =
     profile.type === "anthropic" || profile.type === "kimi-coding"
       ? "anthropic-messages"
       : "openai-completions";
   return {
-    id: profile.modelId,
-    name: profile.modelId,
+    id,
+    name,
     api,
     provider: profile.id,
     baseUrl: profile.baseUrl.replace(/\/$/, ""),
@@ -132,7 +132,7 @@ function providerFor(profile: ProviderProfile): Provider {
       ? { apiKey: builtin.auth.apiKey }
       : (builtin?.auth ?? { apiKey: envApiKeyAuth("Provider API key", []) });
   const model = customModel(profile);
-  const models = builtin
+  const catalog = builtin
     ? [
         ...builtin.getModels().map((catalogModel) => ({
           ...catalogModel,
@@ -144,6 +144,15 @@ function providerFor(profile: ProviderProfile): Provider {
           : [model]),
       ]
     : [model];
+  // A stored selection (chosen in the Add Provider flow) replaces the catalog;
+  // ids the catalog doesn't know get a synthesized entry so they still run.
+  const models = profile.models?.length
+    ? profile.models.map(
+        (selected) =>
+          catalog.find((candidate) => candidate.id === selected.id) ??
+          customModel(profile, selected.id, selected.name),
+      )
+    : catalog;
   return createProvider({
     id: profile.id,
     name: profile.id,

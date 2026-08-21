@@ -3,9 +3,13 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { classifyToolApproval } from "./approvalPolicy";
+import { classifyToolApproval, extractNetworkHost } from "./approvalPolicy";
 
 describe("classifyToolApproval", () => {
+  it("extracts network hosts for host-scoped grants", () => {
+    expect(extractNetworkHost("curl https://api.example.com/v1" )).toBe("api.example.com");
+    expect(extractNetworkHost("git push origin main")).toBe(undefined);
+  });
   it("runs reads free in every mode, including outside the project", async () => {
     const project = await mkdtemp(path.join(os.tmpdir(), "carrent-approval-"));
     const outside = await mkdtemp(path.join(os.tmpdir(), "carrent-approval-outside-"));

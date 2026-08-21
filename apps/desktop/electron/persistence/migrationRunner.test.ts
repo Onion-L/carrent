@@ -19,7 +19,7 @@ async function makeTempDir(): Promise<string> {
 describe("migration registry", () => {
   it("is the contiguous sequence 1..n", () => {
     expect(() => assertMigrationsWellFormed(MIGRATIONS)).not.toThrow();
-    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2, 3, 4, 5]);
+    expect(MIGRATIONS.map((migration) => migration.version)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
   it("rejects a reordered or gapped registry", () => {
@@ -168,8 +168,8 @@ describe("runMigrations", () => {
       const db = openBunSqliteClient(join(dir, "app.db"));
       const outcome = runMigrations(db, MIGRATIONS, { now: () => "2026-08-09T00:00:00.000Z" });
 
-      expect(outcome.appliedVersion).toBe(5);
-      expect(outcome.newlyApplied).toEqual([1, 2, 3, 4, 5]);
+      expect(outcome.appliedVersion).toBe(6);
+      expect(outcome.newlyApplied).toEqual([1, 2, 3, 4, 5, 6]);
 
       const recorded = db.get<{ version: number; name: string; applied_at: string }>(
         "SELECT version, name, applied_at FROM schema_migrations WHERE version = ?",
@@ -219,12 +219,12 @@ describe("runMigrations", () => {
 
       const second = openBunSqliteClient(path);
       const outcome = runMigrations(second, MIGRATIONS, { now: () => "2026-08-09T00:00:01.000Z" });
-      expect(outcome.appliedVersion).toBe(5);
+      expect(outcome.appliedVersion).toBe(6);
       expect(outcome.newlyApplied).toEqual([]);
 
       // No duplicate migration rows exist after a second run.
       const count = second.get<{ c: number }>("SELECT COUNT(*) AS c FROM schema_migrations")?.c;
-      expect(count).toBe(5);
+      expect(count).toBe(6);
       second.close();
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -244,7 +244,7 @@ describe("runMigrations", () => {
       const failingRegistry: Migration[] = [
         ...MIGRATIONS,
         {
-          version: 6,
+          version: 7,
           name: "failing",
           up: (ctx) => {
             ctx.exec("CREATE TABLE sentinel (id INTEGER PRIMARY KEY)");
@@ -256,7 +256,7 @@ describe("runMigrations", () => {
       const db = openBunSqliteClient(path);
       expect(() => runMigrations(db, failingRegistry)).toThrow("injected failure");
 
-      // The failed migration left no trace: no sentinel table, no version-6 row.
+      // The failed migration left no trace: no sentinel table, no version-7 row.
       const sentinel = db
         .all<{ name: string }>(
           "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sentinel'",
@@ -266,7 +266,7 @@ describe("runMigrations", () => {
       const recorded = db
         .all<{ version: number }>("SELECT version FROM schema_migrations ORDER BY version")
         .map((row) => row.version);
-      expect(recorded).toEqual([1, 2, 3, 4, 5]);
+      expect(recorded).toEqual([1, 2, 3, 4, 5, 6]);
       db.close();
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -495,8 +495,8 @@ describe("runMigrations", () => {
       const outcome = runMigrations(upgrade, MIGRATIONS, {
         now: () => "2026-08-09T00:00:01.000Z",
       });
-      expect(outcome.appliedVersion).toBe(5);
-      expect(outcome.newlyApplied).toEqual([3, 4, 5]);
+      expect(outcome.appliedVersion).toBe(6);
+      expect(outcome.newlyApplied).toEqual([3, 4, 5, 6]);
 
       const message = upgrade.get<{ payload: string }>(
         "SELECT payload FROM thread_messages WHERE id = ?",

@@ -26,6 +26,7 @@ import { MarqueeText } from "../components/MarqueeText";
 import { WorktreesPanel } from "../components/worktrees/WorktreesPanel";
 import { KeybindingsTab } from "../components/settings/KeybindingsTab";
 import { ProviderProfilesPanel } from "../components/settings/ProviderProfilesPanel";
+import { PermissionRulesPanel } from "../components/settings/PermissionRulesPanel";
 import { useNewProjectBase } from "../hooks/useNewProjectBase";
 import { formatAbsoluteTime } from "../lib/formatRelativeTime";
 import { useToast } from "../components/toast/ToastContext";
@@ -1905,6 +1906,8 @@ export function SettingsPage() {
                 {activeTabId === "general" ? generalContent : null}
 
                 {activeTabId === "providers" ? <ProviderProfilesPanel /> : null}
+
+                {activeTabId === "permissions" ? <PermissionRulesPanel /> : null}
 
                 {activeTabId === "keybindings" ? <KeybindingsTab /> : null}
 

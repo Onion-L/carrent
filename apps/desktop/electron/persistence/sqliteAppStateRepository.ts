@@ -13,7 +13,12 @@ import type { SqliteClient } from "./sqliteClient";
 type RepositoryClient = Pick<SqliteClient, "all" | "get" | "run">;
 
 type WorkspaceRow = { id: string; name: string; order_value: number };
-type ProjectRow = { id: string; name: string; working_directory: string };
+type ProjectRow = {
+  id: string;
+  name: string;
+  working_directory: string;
+  trusted_at: string | null;
+};
 type AssociationRow = {
   workspace_id: string;
   project_id: string;
@@ -194,16 +199,18 @@ export function replaceAppStateSnapshot(
   }
   for (const project of snapshot.projects) {
     client.run(
-      `INSERT INTO projects (id, name, working_directory, working_directory_identity)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO projects (id, name, working_directory, working_directory_identity, trusted_at)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          working_directory = excluded.working_directory,
-         working_directory_identity = excluded.working_directory_identity`,
+         working_directory_identity = excluded.working_directory_identity,
+         trusted_at = excluded.trusted_at`,
       project.id,
       project.name,
       project.workingDirectory,
       getProjectWorkingDirectoryIdentity(project.workingDirectory),
+      project.trustedAt ?? null,
     );
   }
   for (const association of snapshot.associations) {
@@ -415,8 +422,13 @@ export function readAppStateSnapshot(client: RepositoryClient): AppStateSnapshot
     )
     .map((row) => ({ id: row.id, name: row.name, order: row.order_value }));
   const projects = client
-    .all<ProjectRow>("SELECT id, name, working_directory FROM projects ORDER BY id")
-    .map((row) => ({ id: row.id, name: row.name, workingDirectory: row.working_directory }));
+    .all<ProjectRow>("SELECT id, name, working_directory, trusted_at FROM projects ORDER BY id")
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      workingDirectory: row.working_directory,
+      ...(row.trusted_at ? { trustedAt: row.trusted_at } : {}),
+    }));
   const associations = client
     .all<AssociationRow>(
       `SELECT workspace_id, project_id, alias, "order" AS order_value,

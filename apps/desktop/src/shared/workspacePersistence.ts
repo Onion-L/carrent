@@ -64,6 +64,7 @@ export type AppProjectRecord = {
   id: string;
   name: string;
   workingDirectory: string;
+  trustedAt?: string;
 };
 
 export type WorkspaceProjectAssociationRecord = {

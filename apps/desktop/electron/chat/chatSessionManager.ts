@@ -1,4 +1,9 @@
-import { createAgentCore, loadAgentAuth, type AgentApprovalRequest } from "@carrent/core";
+import {
+  createAgentCore,
+  loadAgentAuth,
+  writeUserPermissionRule,
+  type AgentApprovalRequest,
+} from "@carrent/core";
 
 import type {
   AgentTimelineItem,
@@ -54,14 +59,17 @@ type PendingApproval = {
   runId: string;
   threadId: string;
   request: AgentApprovalRequest;
-  resolve: (decision: "allow_once" | "allow_always" | "reject") => void;
+  workingDirectory: string;
+  resolve: (decision: "allow_once" | "allow_session" | "allow_always" | "reject") => void;
 };
 
 function permissionOptions() {
   return [
     { optionId: "allow_once", name: "Allow once", kind: "allow_once" as const },
+    { optionId: "allow_session", name: "Allow for session", kind: "allow_session" as const },
     { optionId: "allow_always", name: "Always allow", kind: "allow_always" as const },
     { optionId: "reject", name: "Reject", kind: "reject_once" as const },
+    { optionId: "reject_explain", name: "Reject and explain", kind: "reject_once" as const },
   ];
 }
 
@@ -92,11 +100,16 @@ export function createChatSessionManager(options: {
   loadAuth?: typeof loadAgentAuth;
   debugStore?: AgentDebugStore;
   clientVersion?: string;
+  persistPermissionRule?: (rule: {
+    prefix: string[];
+    decision: "allow";
+    domain?: string;
+  }) => Promise<void>;
 }): ChatSessionManager {
   const core = options.agentCore ?? createAgentCore({ clientVersion: options.clientVersion });
   const liveRuns = new Map<string, LiveRun>();
   const pendingApprovals = new Map<string, PendingApproval>();
-  const approvalGrantsByThread = new Map<string, Set<string>>();
+  const approvalGrantsByRun = new Map<string, Set<string>>();
   const deletedThreadIds = new Set<string>();
   const relocatingThreadIds = new Set<string>();
 
@@ -169,12 +182,14 @@ export function createChatSessionManager(options: {
         id: runId,
         workingDirectory: request.context.workingDirectory,
         profile,
-        mode: modeOf(request),
+        mode: request.context.trustedProject === false ? "ask" : modeOf(request),
         transcript: request.historyMode === "replace" ? [] : request.transcript,
         prompt: buildChatPrompt(request, { includeTranscript: false }),
+        trustedProject: request.context.trustedProject,
         requestApproval: async (approvalRequest) => {
-          const grants = approvalGrantsByThread.get(request.threadId);
-          if (grants?.has(approvalRequest.allowAlwaysKey)) {
+          const grants = approvalGrantsByRun.get(runId);
+          const grantKey = `${request.context.workingDirectory}\n${approvalRequest.normalizedCommand ?? approvalRequest.allowAlwaysKey}`;
+          if (grants?.has(grantKey)) {
             options.debugStore?.append(request.threadId, {
               runId,
               type: "approval.resolved",
@@ -197,6 +212,7 @@ export function createChatSessionManager(options: {
               runId,
               threadId: request.threadId,
               request: approvalRequest,
+              workingDirectory: request.context.workingDirectory,
               resolve,
             });
             emit(runId, request, {
@@ -211,6 +227,7 @@ export function createChatSessionManager(options: {
                 title: approvalRequest.title,
                 description: approvalRequest.description,
                 command: approvalRequest.command,
+                warning: approvalRequest.warning,
                 filePath: approvalRequest.path,
                 toolName: approvalRequest.toolName,
                 options: permissionOptions(),
@@ -333,6 +350,7 @@ export function createChatSessionManager(options: {
       })
       .finally(() => {
         liveRuns.delete(runId);
+        approvalGrantsByRun.delete(runId);
         for (const [id, approval] of pendingApprovals) {
           if (approval.runId === runId) pendingApprovals.delete(id);
         }
@@ -346,15 +364,38 @@ export function createChatSessionManager(options: {
   function respondToPermission(response: ChatPermissionResponse) {
     const pending = pendingApprovals.get(response.permissionId);
     if (!pending || pending.runId !== response.runId) return;
+    const explainRejection = response.optionId === "reject_explain";
     const decision =
-      response.optionId === "allow_once" || response.optionId === "allow_always"
+      response.optionId === "allow_once" ||
+      response.optionId === "allow_session" ||
+      response.optionId === "allow_always"
         ? response.optionId
         : "reject";
     pendingApprovals.delete(response.permissionId);
+    const grantKey = `${pending.workingDirectory}\n${pending.request.normalizedCommand ?? pending.request.allowAlwaysKey}`;
+    if (decision === "allow_session") {
+      const grants = approvalGrantsByRun.get(pending.runId) ?? new Set<string>();
+      grants.add(grantKey);
+      approvalGrantsByRun.set(pending.runId, grants);
+    }
     if (decision === "allow_always") {
-      const grants = approvalGrantsByThread.get(pending.threadId) ?? new Set<string>();
-      grants.add(pending.request.allowAlwaysKey);
-      approvalGrantsByThread.set(pending.threadId, grants);
+      const prefix = (
+        pending.request.normalizedCommand ??
+        pending.request.command ??
+        (pending.request.path ? `${pending.request.action} ${pending.request.path}` : "")
+      )
+        .split(" ")
+        .filter(Boolean);
+      if (prefix.length > 0) {
+        const rule = pending.request.networkHost
+          ? { prefix: [], domain: pending.request.networkHost, decision: "allow" as const }
+          : { prefix, decision: "allow" as const };
+        void (
+          options.persistPermissionRule
+            ? options.persistPermissionRule(rule)
+            : writeUserPermissionRule({ rule })
+        ).catch(() => undefined);
+      }
     }
     options.debugStore?.append(pending.threadId, {
       runId: response.runId,
@@ -373,17 +414,22 @@ export function createChatSessionManager(options: {
       optionName:
         decision === "allow_once"
           ? "Allow once"
-          : decision === "allow_always"
-            ? "Always allow"
-            : "Reject",
+          : decision === "allow_session"
+            ? "Allow for session"
+            : decision === "allow_always"
+              ? "Always allow"
+              : "Reject",
       optionKind:
         decision === "allow_once"
           ? "allow_once"
-          : decision === "allow_always"
-            ? "allow_always"
-            : "reject_once",
+          : decision === "allow_session"
+            ? "allow_session"
+            : decision === "allow_always"
+              ? "allow_always"
+              : "reject_once",
     });
     pending.resolve(decision);
+    if (explainRejection) liveRuns.get(response.runId)?.cancel();
   }
 
   const hasLiveRunForThreads = (threadIds: string[]) => {
@@ -403,7 +449,9 @@ export function createChatSessionManager(options: {
       options.debugStore?.deleteThreads(request.threadIds);
       request.threadIds.forEach((threadId) => {
         deletedThreadIds.add(threadId);
-        approvalGrantsByThread.delete(threadId);
+        for (const runId of approvalGrantsByRun.keys()) {
+          if (!liveRuns.has(runId)) approvalGrantsByRun.delete(runId);
+        }
       });
       for (const [runId, run] of liveRuns) {
         if (request.threadIds.includes(run.threadId)) stop(runId);
@@ -422,7 +470,7 @@ export function createChatSessionManager(options: {
         else relocatingThreadIds.delete(threadId);
       });
     },
-    resetThreadState: () => approvalGrantsByThread.clear(),
+    resetThreadState: () => approvalGrantsByRun.clear(),
     respondToPermission,
     respondToQuestion: (_response) => {},
   };

@@ -2,6 +2,7 @@ import path from "node:path";
 
 import type { AccessMode, AgentApprovalAction } from "./types";
 import { isPathInside } from "./paths";
+import { prefixMatches, type PermissionRule, type PermissionRules } from "./rules";
 import { findCommandWords, parseSegments } from "./shellCommand";
 
 // Loose literal scans, kept as the backstop for commands the strict parser cannot prove.
@@ -67,9 +68,7 @@ const DANGEROUS_COMMANDS = new Set([
 const RM_FORCE_FLAG = /^-[a-z]*[rf]/i;
 
 function rmHasForceFlags(args: string[]): boolean {
-  return args.some(
-    (arg) => RM_FORCE_FLAG.test(arg) || arg === "--force" || arg === "--recursive",
-  );
+  return args.some((arg) => RM_FORCE_FLAG.test(arg) || arg === "--force" || arg === "--recursive");
 }
 
 /** Danger patterns matched as argv prefixes over command positions. */
@@ -166,12 +165,24 @@ export type CommandClassification = {
   action: Extract<AgentApprovalAction, "shell" | "network" | "dangerous">;
   outsideProject: boolean;
   requiresApproval: boolean;
+  blocked?: boolean;
 };
+
+function ruleMatches(rule: PermissionRule, commandWords: string[][], command: string): boolean {
+  const hostMatches = rule.domain
+    ? [...command.matchAll(/https?:\/\/([^\s/'"]+)/gi)].some((match) => {
+        const host = match[1]?.toLowerCase().replace(/\.$/u, "");
+        return host === rule.domain || host?.endsWith(`.${rule.domain}`);
+      })
+    : false;
+  return hostMatches || commandWords.some((argv) => prefixMatches(rule.prefix, argv));
+}
 
 export function classifyCommand(
   command: string,
   workingDirectory: string,
   access: AccessMode,
+  rules?: PermissionRules,
 ): CommandClassification {
   // Fail closed: an unparseable command is treated as dangerous.
   const commandWords = findCommandWords(command);
@@ -181,9 +192,7 @@ export function classifyCommand(
   // is provable; the loose literal scans are the backstop when it is not.
   const segments = parseSegments(command);
   const network =
-    segments === null
-      ? NETWORK_COMMAND.test(command)
-      : (commandWords ?? []).some(isNetworkArgv);
+    segments === null ? NETWORK_COMMAND.test(command) : (commandWords ?? []).some(isNetworkArgv);
   const outsideProject =
     segments === null
       ? looseOutsideScan(command, workingDirectory)
@@ -192,9 +201,41 @@ export function classifyCommand(
         );
   const plainRm = (commandWords ?? []).some(isPlainRmArgv);
 
+  const userForbidden =
+    rules?.user.some(
+      (rule) => rule.decision === "forbidden" && ruleMatches(rule, commandWords ?? [], command),
+    ) ?? false;
+  const projectForbidden =
+    rules?.project.some(
+      (rule) => rule.decision === "forbidden" && ruleMatches(rule, commandWords ?? [], command),
+    ) ?? false;
+  const projectPrompt =
+    rules?.project.some(
+      (rule) => rule.decision === "prompt" && ruleMatches(rule, commandWords ?? [], command),
+    ) ?? false;
+  const userAllow =
+    rules?.user.some(
+      (rule) => rule.decision === "allow" && ruleMatches(rule, commandWords ?? [], command),
+    ) ?? false;
+  const userPrompt =
+    rules?.user.some(
+      (rule) => rule.decision === "prompt" && ruleMatches(rule, commandWords ?? [], command),
+    ) ?? false;
+
   const action = dangerous ? "dangerous" : network ? "network" : "shell";
   let requiresApproval: boolean;
-  if (dangerous || network || outsideProject) {
+  const blocked = userForbidden || projectForbidden;
+  if (blocked) {
+    requiresApproval = false;
+  } else if (rules?.malformed || projectPrompt || userPrompt) {
+    requiresApproval = true;
+  } else if (outsideProject) {
+    requiresApproval = true;
+  } else if (userAllow) {
+    // Explicit user rules are the only rules allowed to override built-in
+    // danger/network heuristics. They never bypass the outside-project guard.
+    requiresApproval = false;
+  } else if (dangerous || network) {
     // Danger, network, and the outside-project invariant prompt in every mode.
     requiresApproval = true;
   } else if (access === "read-only") {
@@ -207,5 +248,5 @@ export function classifyCommand(
   } else {
     requiresApproval = false;
   }
-  return { action, outsideProject, requiresApproval };
+  return { action, outsideProject, requiresApproval, ...(blocked ? { blocked: true } : {}) };
 }

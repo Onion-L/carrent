@@ -62,7 +62,17 @@ export const MIGRATIONS: readonly Migration[] = [
     name: "normalize-agent-modes",
     up: normalizeAgentModes,
   },
+  {
+    version: 6,
+    name: "project-trust-timestamps",
+    up: addProjectTrustTimestamps,
+  },
 ];
+
+function addProjectTrustTimestamps(context: MigrationContext): void {
+  context.run("ALTER TABLE projects ADD COLUMN trusted_at TEXT");
+  context.run("UPDATE projects SET trusted_at = COALESCE(trusted_at, datetime('now'))");
+}
 
 /**
  * Validate that a migration list is the contiguous, monotonically increasing

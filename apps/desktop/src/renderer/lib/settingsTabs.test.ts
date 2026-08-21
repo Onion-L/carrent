@@ -24,6 +24,7 @@ describe("settings tabs", () => {
       "interface",
       "keybindings",
       "providers",
+      "permissions",
       "worktrees",
       "archives",
     ]);

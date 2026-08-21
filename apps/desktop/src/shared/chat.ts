@@ -13,6 +13,7 @@ export type ChatRunContext = {
   workingDirectory: string;
   projectId: string;
   workspaceId: string;
+  trustedProject?: boolean;
 };
 
 export type AttachmentKind = "image" | "file";

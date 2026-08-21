@@ -2,6 +2,7 @@ import { Agent, type AgentEvent, type AgentMessage } from "@earendil-works/pi-ag
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 
 import { classifyToolApproval } from "./approvalPolicy";
+import { loadPermissionRules } from "./rules";
 import { createAgentModels } from "./models";
 import { buildSystemPrompt } from "./systemPrompt";
 import { createAgentTools } from "./tools";
@@ -69,6 +70,13 @@ export function createAgentCore(dependencies: AgentCoreDependencies = {}) {
       let cancelled = false;
 
       const result = (async (): Promise<AgentRunResult> => {
+        const rules =
+          input.rules ??
+          (await loadPermissionRules({
+            homeDirectory: dependencies.homeDirectory,
+            projectDirectory: input.workingDirectory,
+            trusted: input.trustedProject,
+          }));
         const systemPrompt = await buildSystemPrompt({
           workingDirectory: input.workingDirectory,
           homeDirectory: dependencies.homeDirectory,
@@ -120,7 +128,11 @@ export function createAgentCore(dependencies: AgentCoreDependencies = {}) {
               args,
               workingDirectory: input.workingDirectory,
               access: accessModeOf(input.mode),
+              rules,
             });
+            if (classification.blocked) {
+              return { block: true, reason: "This action is forbidden by a permission rule." };
+            }
             if (!classification.requiresApproval) return undefined;
             const decision = await input.requestApproval({
               id: `${input.id}:${toolCall.id}`,

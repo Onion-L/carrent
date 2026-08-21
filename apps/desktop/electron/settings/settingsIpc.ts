@@ -18,6 +18,11 @@ import {
   writeGlobalAgentInstructions,
   writeGlobalRtkInstructions,
 } from "./globalAgentInstructions";
+import {
+  addUserPermissionRule,
+  listPermissionRules,
+  revokeUserPermissionRule,
+} from "./permissionRules";
 interface IpcMainLike {
   handle: (
     channel: string,
@@ -180,5 +185,28 @@ export function registerSettingsIpc(
     }
 
     return writeGlobalRtkInstructions(content);
+  });
+
+  ipcMainLike.handle("settings:permission-rules:list", async () =>
+    listPermissionRules(getProjects().map((project) => project.workingDirectory)),
+  );
+  ipcMainLike.handle("settings:permission-rules:revoke", async (_event, id) => {
+    if (typeof id !== "string") throw new Error("Permission rule id must be a string.");
+    return revokeUserPermissionRule(id);
+  });
+  ipcMainLike.handle("settings:permission-rules:add", async (_event, rule) => {
+    if (
+      typeof rule !== "object" ||
+      rule === null ||
+      !Array.isArray((rule as { prefix?: unknown }).prefix) ||
+      !(rule as { prefix: unknown[] }).prefix.every((part) => typeof part === "string") ||
+      !["allow", "prompt", "forbidden"].includes(
+        (rule as { decision?: unknown }).decision as string,
+      )
+    )
+      throw new Error("Invalid permission rule.");
+    return addUserPermissionRule(
+      rule as { prefix: string[]; decision: "allow" | "prompt" | "forbidden"; domain?: string },
+    );
   });
 }

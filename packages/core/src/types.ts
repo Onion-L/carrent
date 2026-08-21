@@ -1,5 +1,6 @@
 import type { AgentEvent, StreamFn } from "@earendil-works/pi-agent-core";
 import type { Credential } from "@earendil-works/pi-ai";
+import type { PermissionRules } from "./rules";
 
 export type AgentMode = "ask" | "auto-edit" | "full-project";
 
@@ -56,9 +57,12 @@ export type AgentApprovalRequest = {
   path?: string;
   command?: string;
   allowAlwaysKey: string;
+  normalizedCommand?: string;
+  warning?: boolean;
+  networkHost?: string;
 };
 
-export type AgentApprovalDecision = "allow_once" | "allow_always" | "reject";
+export type AgentApprovalDecision = "allow_once" | "allow_session" | "allow_always" | "reject";
 
 export type AgentCoreEvent =
   | {
@@ -99,6 +103,8 @@ export type AgentRunInput = {
   transcript: AgentTranscriptMessage[];
   prompt: string;
   systemPrompt?: string;
+  rules?: PermissionRules;
+  trustedProject?: boolean;
   requestApproval: (request: AgentApprovalRequest) => Promise<AgentApprovalDecision>;
   onEvent?: (event: AgentCoreEvent) => void | Promise<void>;
 };

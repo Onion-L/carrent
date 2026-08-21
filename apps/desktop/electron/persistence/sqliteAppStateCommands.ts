@@ -63,12 +63,13 @@ function insertWorkspace(client: CommandClient, workspace: WorkspaceRecord): voi
 
 function insertProject(client: CommandClient, project: AppProjectRecord): void {
   client.run(
-    `INSERT INTO projects (id, name, working_directory, working_directory_identity)
-     VALUES (?, ?, ?, ?)`,
+    `INSERT INTO projects (id, name, working_directory, working_directory_identity, trusted_at)
+     VALUES (?, ?, ?, ?, ?)`,
     project.id,
     project.name,
     project.workingDirectory,
     getProjectWorkingDirectoryIdentity(project.workingDirectory),
+    project.trustedAt ?? null,
   );
 }
 

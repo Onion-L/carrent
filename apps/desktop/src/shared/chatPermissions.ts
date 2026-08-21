@@ -1,6 +1,10 @@
 export type ChatPermissionAction = "edit" | "write" | "shell" | "read" | "network" | "unknown";
 
-export type ChatPermissionOptionKind = "allow_once" | "allow_always" | "reject_once";
+export type ChatPermissionOptionKind =
+  | "allow_once"
+  | "allow_session"
+  | "allow_always"
+  | "reject_once";
 
 export type ChatPermissionOption = {
   optionId: string;
@@ -23,6 +27,7 @@ export type ChatPermissionRequest = {
   options: ChatPermissionOption[];
   createdAt: string;
   expiresAt: string;
+  warning?: boolean;
 };
 
 export type ChatPermissionResponse = {
@@ -34,7 +39,12 @@ export type ChatPermissionResponse = {
 export const CHAT_PERMISSION_TIMEOUT_MS = 60_000;
 
 export function isChatPermissionOptionKind(value: unknown): value is ChatPermissionOptionKind {
-  return value === "allow_once" || value === "allow_always" || value === "reject_once";
+  return (
+    value === "allow_once" ||
+    value === "allow_session" ||
+    value === "allow_always" ||
+    value === "reject_once"
+  );
 }
 
 export function buildPermissionExpiry(createdAt: string, timeoutMs = CHAT_PERMISSION_TIMEOUT_MS) {

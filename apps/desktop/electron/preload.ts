@@ -397,6 +397,18 @@ const carrent = {
         path: string;
         content: string;
       }>,
+    permissionRules: {
+      list: () =>
+        ipcRenderer.invoke("settings:permission-rules:list") as Promise<
+          import("../src/shared/permissionRules").PermissionRuleView[]
+        >,
+      revoke: (id: string) =>
+        ipcRenderer.invoke("settings:permission-rules:revoke", id) as Promise<void>,
+      add: (rule: {
+        prefix: string[];
+        decision: import("../src/shared/permissionRules").PermissionRuleDecision;
+      }) => ipcRenderer.invoke("settings:permission-rules:add", rule) as Promise<void>,
+    },
   },
   git: {
     branches: (projectPath: string) =>

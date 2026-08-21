@@ -198,6 +198,7 @@ type ComposerProps =
       messages: Message[];
       providerProfileId: ProviderProfileId;
       agentMode: AgentMode;
+      trustedProject?: boolean;
       submitRequest?: ComposerSubmitRequest;
       draftRequest?: ComposerDraftRequest;
       onProviderProfileIdChange?: (providerProfileId: ProviderProfileId) => void;
@@ -217,6 +218,7 @@ type ComposerProps =
       messages: Message[];
       providerProfileId: ProviderProfileId;
       agentMode: AgentMode;
+      trustedProject?: boolean;
       submitRequest?: ComposerSubmitRequest;
       draftRequest?: ComposerDraftRequest;
       onDraftChange: (draft: ThreadWorkDraftSnapshot | null) => void;
@@ -2072,6 +2074,7 @@ export function Composer(props: ComposerProps) {
           projectId: props.projectId,
           workingDirectory: project!.workingDirectory,
           workspaceId: props.workspaceId,
+          trustedProject: props.trustedProject,
         },
         threadId,
         providerProfileId: props.providerProfileId,
@@ -2608,9 +2611,14 @@ export function Composer(props: ComposerProps) {
   const allowAlwaysOption = activePermission
     ? getPermissionOption(activePermission, "allow_always")
     : null;
+  const allowSessionOption = activePermission
+    ? getPermissionOption(activePermission, "allow_session")
+    : null;
   const rejectOnceOption = activePermission
     ? getPermissionOption(activePermission, "reject_once")
     : null;
+  const rejectExplainOption =
+    activePermission?.options.find((option) => option.optionId === "reject_explain") ?? null;
   const runChecklistPanel = runChecklist ? (
     <RunChecklist
       checklist={runChecklist}
@@ -2947,6 +2955,11 @@ export function Composer(props: ComposerProps) {
                   <div className="mt-0.5 break-words text-app-12 leading-5 text-subtle">
                     {getPermissionDetail(activePermission)}
                   </div>
+                  {activePermission.warning ? (
+                    <div className="mt-1 text-app-11 font-medium text-warning">
+                      This command is potentially destructive.
+                    </div>
+                  ) : null}
                 </div>
                 {threadPermissions.length > 1 ? (
                   <span className="shrink-0 text-app-11 text-subtle">
@@ -2984,6 +2997,19 @@ export function Composer(props: ComposerProps) {
                     {allowAlwaysOption.name || "Allow for session"}
                   </button>
                 ) : null}
+                {allowSessionOption ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePermissionResponse(activePermission, allowSessionOption.optionId)
+                    }
+                    aria-label={`Allow for session: ${activePermission.title}`}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-[7px] text-left text-app-13 text-muted transition hover:bg-surface-hover/60 hover:text-fg"
+                  >
+                    <Check className="h-3.5 w-3.5 shrink-0 text-subtle" />
+                    {allowSessionOption.name || "Allow for session"}
+                  </button>
+                ) : null}
                 {rejectOnceOption ? (
                   <button
                     type="button"
@@ -2995,6 +3021,19 @@ export function Composer(props: ComposerProps) {
                   >
                     <X className="h-3.5 w-3.5 shrink-0 text-subtle transition group-hover:text-danger" />
                     {rejectOnceOption.name || "Deny"}
+                  </button>
+                ) : null}
+                {rejectExplainOption ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePermissionResponse(activePermission, rejectExplainOption.optionId)
+                    }
+                    aria-label={`Reject and explain: ${activePermission.title}`}
+                    className="group flex w-full items-center gap-2.5 rounded-lg px-2 py-[7px] text-left text-app-13 text-muted transition hover:bg-surface-hover/60 hover:text-danger"
+                  >
+                    <X className="h-3.5 w-3.5 shrink-0 text-subtle transition group-hover:text-danger" />
+                    {rejectExplainOption.name}
                   </button>
                 ) : null}
               </div>

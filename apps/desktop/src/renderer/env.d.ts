@@ -182,6 +182,14 @@ declare global {
           path: string;
           content: string;
         }>;
+        permissionRules: {
+          list: () => Promise<import("../shared/permissionRules").PermissionRuleView[]>;
+          revoke: (id: string) => Promise<void>;
+          add: (rule: {
+            prefix: string[];
+            decision: import("../shared/permissionRules").PermissionRuleDecision;
+          }) => Promise<void>;
+        };
       };
       git: {
         branches: (projectPath: string) => Promise<GitBranchInfo>;

@@ -6,6 +6,7 @@ import {
   Monitor,
   Palette,
   SlidersHorizontal,
+  ShieldCheck,
 } from "lucide-react";
 
 export const SETTINGS_TABS = [
@@ -30,6 +31,11 @@ export const SETTINGS_TABS = [
     description: "API credentials, endpoints and models",
   },
   {
+    id: "permissions",
+    label: "Permissions",
+    description: "Review saved agent access rules",
+  },
+  {
     id: "worktrees",
     label: "Worktrees",
     description: "Git worktrees across Projects",
@@ -48,6 +54,7 @@ export const SETTINGS_TAB_ICONS: Record<SettingsTabId, typeof Monitor> = {
   interface: Palette,
   keybindings: Keyboard,
   providers: KeyRound,
+  permissions: ShieldCheck,
   worktrees: GitBranch,
   archives: Archive,
 };

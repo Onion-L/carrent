@@ -10,24 +10,54 @@ describe("classifyToolApproval", () => {
     const project = await mkdtemp(path.join(os.tmpdir(), "carrent-approval-"));
 
     expect(
-      (await classifyToolApproval({ toolName: "read", args: { path: "." }, workingDirectory: project, mode: "ask" }))
-        .requiresApproval,
+      (
+        await classifyToolApproval({
+          toolName: "read",
+          args: { path: "." },
+          workingDirectory: project,
+          mode: "ask",
+        })
+      ).requiresApproval,
     ).toBe(false);
     expect(
-      (await classifyToolApproval({ toolName: "write", args: { path: "a.ts" }, workingDirectory: project, mode: "ask" }))
-        .requiresApproval,
+      (
+        await classifyToolApproval({
+          toolName: "write",
+          args: { path: "a.ts" },
+          workingDirectory: project,
+          mode: "ask",
+        })
+      ).requiresApproval,
     ).toBe(true);
     expect(
-      (await classifyToolApproval({ toolName: "write", args: { path: "a.ts" }, workingDirectory: project, mode: "auto-edit" }))
-        .requiresApproval,
+      (
+        await classifyToolApproval({
+          toolName: "write",
+          args: { path: "a.ts" },
+          workingDirectory: project,
+          mode: "auto-edit",
+        })
+      ).requiresApproval,
     ).toBe(false);
     expect(
-      (await classifyToolApproval({ toolName: "bash", args: { command: "git status" }, workingDirectory: project, mode: "auto-edit" }))
-        .requiresApproval,
+      (
+        await classifyToolApproval({
+          toolName: "bash",
+          args: { command: "git status" },
+          workingDirectory: project,
+          mode: "auto-edit",
+        })
+      ).requiresApproval,
     ).toBe(true);
     expect(
-      (await classifyToolApproval({ toolName: "bash", args: { command: "git status" }, workingDirectory: project, mode: "full-project" }))
-        .requiresApproval,
+      (
+        await classifyToolApproval({
+          toolName: "bash",
+          args: { command: "git status" },
+          workingDirectory: project,
+          mode: "full-project",
+        })
+      ).requiresApproval,
     ).toBe(false);
   });
 
@@ -35,20 +65,38 @@ describe("classifyToolApproval", () => {
     const project = await mkdtemp(path.join(os.tmpdir(), "carrent-approval-"));
 
     expect(
-      (await classifyToolApproval({ toolName: "read", args: { path: "../outside.txt" }, workingDirectory: project, mode: "full-project" }))
-        .requiresApproval,
+      (
+        await classifyToolApproval({
+          toolName: "read",
+          args: { path: "../outside.txt" },
+          workingDirectory: project,
+          mode: "full-project",
+        })
+      ).requiresApproval,
     ).toBe(true);
     expect(
-      (await classifyToolApproval({ toolName: "bash", args: { command: "curl https://example.com" }, workingDirectory: project, mode: "full-project" }))
-        .requiresApproval,
+      (
+        await classifyToolApproval({
+          toolName: "bash",
+          args: { command: "curl https://example.com" },
+          workingDirectory: project,
+          mode: "full-project",
+        })
+      ).requiresApproval,
     ).toBe(true);
     expect(
-      (await classifyToolApproval({ toolName: "bash", args: { command: "rm -rf ./build" }, workingDirectory: project, mode: "full-project" }))
-        .requiresApproval,
+      (
+        await classifyToolApproval({
+          toolName: "bash",
+          args: { command: "rm -rf ./build" },
+          workingDirectory: project,
+          mode: "full-project",
+        })
+      ).requiresApproval,
     ).toBe(true);
   });
 
-  it("allows explicitly authorized external reads only in Full Project", async () => {
+  it("allows explicitly authorized external reads in every mode, but never writes", async () => {
     const project = await mkdtemp(path.join(os.tmpdir(), "carrent-approval-project-"));
     const skillRoot = await mkdtemp(path.join(os.tmpdir(), "carrent-approval-skill-"));
     const resourceDirectory = path.join(skillRoot, "references");
@@ -77,7 +125,7 @@ describe("classifyToolApproval", () => {
           additionalReadPaths: [skillRoot],
         })
       ).requiresApproval,
-    ).toBe(true);
+    ).toBe(false);
     expect(
       (
         await classifyToolApproval({

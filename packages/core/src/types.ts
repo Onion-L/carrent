@@ -3,6 +3,20 @@ import type { Credential } from "@earendil-works/pi-ai";
 
 export type AgentMode = "ask" | "auto-edit" | "full-project";
 
+/** Access axis of the permission model; `AgentMode` values double as preset ids over it (ADR 0015). */
+export type AccessMode = "read-only" | "workspace-write" | "full-access";
+
+export function accessModeOf(mode: AgentMode): AccessMode {
+  switch (mode) {
+    case "ask":
+      return "read-only";
+    case "auto-edit":
+      return "workspace-write";
+    case "full-project":
+      return "full-access";
+  }
+}
+
 export type ProviderProfileType = "anthropic" | "openai-compatible" | "kimi-coding";
 
 export type ProviderProfileModel = { id: string; name: string };
@@ -84,7 +98,6 @@ export type AgentRunInput = {
   mode: AgentMode;
   transcript: AgentTranscriptMessage[];
   prompt: string;
-  additionalReadPaths?: string[];
   systemPrompt?: string;
   requestApproval: (request: AgentApprovalRequest) => Promise<AgentApprovalDecision>;
   onEvent?: (event: AgentCoreEvent) => void | Promise<void>;

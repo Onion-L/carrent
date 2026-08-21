@@ -5,6 +5,7 @@ import { classifyToolApproval } from "./approvalPolicy";
 import { createAgentModels } from "./models";
 import { buildSystemPrompt } from "./systemPrompt";
 import { createAgentTools } from "./tools";
+import { accessModeOf } from "./types";
 import type { AgentCoreDependencies, AgentRunHandle, AgentRunInput, AgentRunResult } from "./types";
 
 const ZERO_USAGE: Usage = {
@@ -118,8 +119,7 @@ export function createAgentCore(dependencies: AgentCoreDependencies = {}) {
               toolName: toolCall.name,
               args,
               workingDirectory: input.workingDirectory,
-              mode: input.mode,
-              additionalReadPaths: input.additionalReadPaths,
+              access: accessModeOf(input.mode),
             });
             if (!classification.requiresApproval) return undefined;
             const decision = await input.requestApproval({

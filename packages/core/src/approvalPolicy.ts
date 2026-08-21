@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 
-import type { AgentMode, AgentApprovalAction } from "./types";
+import type { AccessMode, AgentApprovalAction } from "./types";
 import { classifyCommand } from "./commandPolicy";
 import { canonicalizePath, isPathInside, resolveToolPath } from "./paths";
 
@@ -15,19 +15,27 @@ export type ToolApprovalClassification = {
   allowAlwaysKey: string;
 };
 
+const READ_TOOLS = ["read", "grep", "find", "ls"];
+
 function readPathArgument(toolName: string, args: Record<string, unknown>): string | null {
-  if (["read", "write", "edit", "grep", "find", "ls"].includes(toolName)) {
+  if ([...READ_TOOLS, "write", "edit"].includes(toolName)) {
     return typeof args.path === "string" ? args.path : ".";
   }
   return null;
+}
+
+function isProtectedProjectPath(canonical: string, projectRoot: string): boolean {
+  return (
+    isPathInside(path.join(projectRoot, ".git"), canonical) ||
+    isPathInside(path.join(projectRoot, ".carrent"), canonical)
+  );
 }
 
 export async function classifyToolApproval(options: {
   toolName: string;
   args: unknown;
   workingDirectory: string;
-  mode: AgentMode;
-  additionalReadPaths?: string[];
+  access: AccessMode;
 }): Promise<ToolApprovalClassification> {
   const args =
     typeof options.args === "object" && options.args !== null
@@ -37,7 +45,7 @@ export async function classifyToolApproval(options: {
 
   if (options.toolName === "bash") {
     const command = typeof args.command === "string" ? args.command : "";
-    const classification = classifyCommand(command, projectRoot, options.mode);
+    const classification = classifyCommand(command, projectRoot, options.access);
     return {
       action: classification.action,
       requiresApproval: classification.requiresApproval,
@@ -60,17 +68,15 @@ export async function classifyToolApproval(options: {
     const canonical = await canonicalizePath(resolved);
     const outsideProject = !isPathInside(projectRoot, canonical);
     const writes = options.toolName === "write" || options.toolName === "edit";
-    const authorizedReadRoots = writes
-      ? []
-      : await Promise.all(
-          (options.additionalReadPaths ?? []).map((candidate) =>
-            canonicalizePath(resolveToolPath(projectRoot, candidate)),
-          ),
-        );
-    const authorizedRead = authorizedReadRoots.some((root) => isPathInside(root, canonical));
     const action: AgentApprovalAction = writes ? "write" : "read";
-    const requiresApproval =
-      (outsideProject && !authorizedRead) || (writes && options.mode === "ask");
+    // Reads are free in every mode. Writes prompt outside the project in every
+    // mode (the invariant), always under read-only, and for .git/.carrent
+    // unless the mode is full-access.
+    const requiresApproval = writes
+      ? outsideProject ||
+        options.access === "read-only" ||
+        (isProtectedProjectPath(canonical, projectRoot) && options.access !== "full-access")
+      : false;
     return {
       action,
       requiresApproval,

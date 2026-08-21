@@ -6,6 +6,8 @@ declare module "bun:test" {
     toEqual(expected: unknown): void;
     toContain(expected: unknown): void;
     toBeTruthy(): void;
+    toBeNull(): void;
+    toContainEqual(expected: unknown): void;
   }
   export function expect<T>(actual: T): Matchers<T>;
 }

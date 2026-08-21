@@ -49,6 +49,12 @@ type AgentAuthIpcOptions = {
   clientVersion?: string;
 };
 
+const PROFILE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
+
+function isValidProfileId(value: unknown): value is string {
+  return typeof value === "string" && PROFILE_ID_PATTERN.test(value);
+}
+
 export function parseAgentAuthSaveRequest(value: unknown): SaveAgentAuthRequest {
   if (!value || typeof value !== "object") throw new Error("Invalid Provider Profile request.");
   const request = value as Partial<SaveAgentAuthRequest>;
@@ -64,8 +70,8 @@ export function parseAgentAuthSaveRequest(value: unknown): SaveAgentAuthRequest 
     if (
       !profile ||
       typeof profile !== "object" ||
-      typeof profile.id !== "string" ||
-      !/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(profile.id) ||
+      !isValidProfileId(profile.id) ||
+      (profile.previousId !== undefined && !isValidProfileId(profile.previousId)) ||
       (profile.type !== "anthropic" &&
         profile.type !== "openai-compatible" &&
         profile.type !== "kimi-coding") ||
@@ -170,6 +176,45 @@ export async function listProviderModels(
   throw new Error("The model list could not be fetched from this endpoint.");
 }
 
+/**
+ * Builds the profiles to persist from the save request. Credentials and model
+ * selections carry over from the stored profile addressed by `previousId`
+ * (renames) or `id`, as long as the provider type is unchanged.
+ */
+export function mergeSavedProfiles(
+  existing: AgentAuthFile | null,
+  request: SaveAgentAuthRequest,
+): Record<string, ProviderProfile> {
+  const profiles: Record<string, ProviderProfile> = {};
+  for (const profile of request.profiles) {
+    const existingProfile = existing?.profiles[profile.previousId ?? profile.id];
+    const sameProviderType = existingProfile?.type === profile.type;
+    const apiKey =
+      profile.apiKey?.trim() || (sameProviderType ? existingProfile?.apiKey : "") || "";
+    const credential = sameProviderType ? existingProfile?.credential : undefined;
+    if (profile.type === "openai-compatible" && !apiKey) {
+      throw new Error(`API Key or OAuth login is required for ${profile.id}.`);
+    }
+    // A profile saved without a model list keeps its previous selection;
+    // profiles that never went through model selection have none.
+    const models = profile.models?.length
+      ? profile.models
+      : sameProviderType
+        ? existingProfile?.models
+        : undefined;
+    profiles[profile.id] = {
+      id: profile.id,
+      type: profile.type,
+      ...(apiKey ? { apiKey } : { credential }),
+      baseUrl: profile.baseUrl.trim().replace(/\/$/, ""),
+      modelId: profile.modelId.trim(),
+      thinking: profile.thinking === true,
+      ...(models?.length ? { models } : {}),
+    };
+  }
+  return profiles;
+}
+
 export function registerAgentAuthIpc(ipcMainLike: IpcMainLike, options: AgentAuthIpcOptions = {}) {
   const loginControllers = new Map<string, AbortController>();
   ipcMainLike.handle("agent-auth:load", async () =>
@@ -181,32 +226,7 @@ export function registerAgentAuthIpc(ipcMainLike: IpcMainLike, options: AgentAut
   ipcMainLike.handle("agent-auth:save", async (_event, value) => {
     const request = parseAgentAuthSaveRequest(value);
     const existing = await loadAgentAuth();
-    const profiles: Record<string, ProviderProfile> = {};
-    for (const profile of request.profiles) {
-      const existingProfile = existing?.profiles[profile.id];
-      const sameProviderType = existingProfile?.type === profile.type;
-      const apiKey =
-        profile.apiKey?.trim() || (sameProviderType ? existingProfile?.apiKey : "") || "";
-      const credential = sameProviderType ? existingProfile?.credential : undefined;
-      // A profile saved without a model list keeps its previous selection;
-      // profiles that never went through model selection have none.
-      const models = profile.models?.length
-        ? profile.models
-        : sameProviderType
-          ? existingProfile?.models
-          : undefined;
-      if (profile.type === "openai-compatible" && !apiKey)
-        throw new Error(`API Key or OAuth login is required for ${profile.id}.`);
-      profiles[profile.id] = {
-        id: profile.id,
-        type: profile.type,
-        ...(apiKey ? { apiKey } : { credential }),
-        baseUrl: profile.baseUrl.trim().replace(/\/$/, ""),
-        modelId: profile.modelId.trim(),
-        thinking: profile.thinking === true,
-        ...(models?.length ? { models } : {}),
-      };
-    }
+    const profiles = mergeSavedProfiles(existing, request);
     await saveAgentAuth({ version: 1, activeProfileId: request.activeProfileId, profiles });
     return viewOf(await loadAgentAuth(), options.clientVersion);
   });

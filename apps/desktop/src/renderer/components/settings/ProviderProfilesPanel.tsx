@@ -9,7 +9,11 @@ import type {
 import { useToast } from "../toast/ToastContext";
 import { AddProviderFlow, type NewProviderDraft } from "./AddProviderFlow";
 
-type DraftProfile = SaveAgentAuthRequest["profiles"][number] & { hasApiKey: boolean };
+type DraftProfile = SaveAgentAuthRequest["profiles"][number] & {
+  hasApiKey: boolean;
+  /** Id the profile was loaded with, to carry credentials over a rename. */
+  originalId?: string;
+};
 
 function emptyProfile(index: number): DraftProfile {
   return {
@@ -21,7 +25,13 @@ function emptyProfile(index: number): DraftProfile {
     apiKey: "",
     hasApiKey: false,
     oauthSupported: false,
+    originalId: index === 0 ? "default" : undefined,
   };
+}
+
+/** A draft counts as configured when it holds (or keeps) any credential. */
+function isDraftConfigured(profile: DraftProfile): boolean {
+  return Boolean(profile.apiKey?.trim() || profile.hasApiKey || profile.authType);
 }
 
 export function ProviderProfilesPanel() {
@@ -35,7 +45,11 @@ export function ProviderProfilesPanel() {
   const [addingProvider, setAddingProvider] = useState(false);
 
   const applyView = (view: AgentAuthView) => {
-    const next = view.profiles.map((profile) => ({ ...profile, apiKey: "" }));
+    const next = view.profiles.map((profile) => ({
+      ...profile,
+      apiKey: "",
+      originalId: profile.id,
+    }));
     setPath(view.path);
     setProfiles(next.length > 0 ? next : [emptyProfile(0)]);
     setActiveProfileId(view.activeProfileId || next[0]?.id || "default");
@@ -70,13 +84,22 @@ export function ProviderProfilesPanel() {
         authType: _authType,
         oauthSupported: _oauthSupported,
         models: _models,
+        originalId,
         ...profile
       }) => ({
         ...profile,
         ...(profile.apiKey?.trim() ? { apiKey: profile.apiKey.trim() } : {}),
+        ...(originalId && originalId !== profile.id ? { previousId: originalId } : {}),
       }),
     ),
   });
+
+  // A freshly connected provider takes over as active when the current active
+  // profile has no credential yet (e.g. the first-run placeholder).
+  const activateWhenActiveUnconfigured = (request: SaveAgentAuthRequest, id: string) => {
+    const active = profiles.find((profile) => profile.id === activeProfileId);
+    if (!active || !isDraftConfigured(active)) request.activeProfileId = id;
+  };
 
   // The Add Provider flow saves immediately: existing drafts (which never
   // carry a model selection, preserving stored ones on the main process) plus
@@ -99,7 +122,7 @@ export function ProviderProfilesPanel() {
       apiKey: draft.apiKey,
       models: draft.models,
     });
-    if (!request.activeProfileId) request.activeProfileId = id;
+    activateWhenActiveUnconfigured(request, id);
     setSaving(true);
     try {
       applyView(await window.carrent.agentAuth.save(request));
@@ -133,7 +156,7 @@ export function ProviderProfilesPanel() {
       modelId: "k3",
       thinking: false,
     });
-    if (!request.activeProfileId) request.activeProfileId = id;
+    activateWhenActiveUnconfigured(request, id);
     try {
       applyView(await window.carrent.agentAuth.save(request));
       if (!window.carrent.agentAuth.login) throw new Error("OAuth login is not available.");

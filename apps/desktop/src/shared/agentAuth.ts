@@ -21,7 +21,13 @@ export type AgentAuthView = {
 
 export type SaveAgentAuthRequest = {
   activeProfileId: string;
-  profiles: Array<Omit<ProviderProfileView, "hasApiKey"> & { apiKey?: string }>;
+  profiles: Array<
+    Omit<ProviderProfileView, "hasApiKey"> & {
+      apiKey?: string;
+      /** Pre-rename profile id, so the main process can carry credentials over. */
+      previousId?: string;
+    }
+  >;
 };
 
 export type ProviderModelInfo = { id: string; name: string };

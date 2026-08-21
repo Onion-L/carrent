@@ -1,4 +1,4 @@
-import { Check, Eye, EyeOff, Loader2, RefreshCw, Server, X } from "lucide-react";
+import { Check, Eye, EyeOff, KeyRound, Loader2, RefreshCw, Server, X } from "lucide-react";
 import { useEffect, useState, type ComponentType } from "react";
 import { createPortal } from "react-dom";
 
@@ -53,6 +53,15 @@ const PRESETS: Preset[] = [
     description: "Sign in with your Kimi Code account (OAuth).",
   },
   {
+    key: "anthropic",
+    label: "Anthropic",
+    type: "anthropic",
+    baseUrl: "https://api.anthropic.com",
+    mode: "apiKey",
+    icon: KeyRound,
+    description: "Enter your Anthropic API key.",
+  },
+  {
     key: "custom",
     label: "Custom",
     type: "openai-compatible",
@@ -64,7 +73,7 @@ const PRESETS: Preset[] = [
 ];
 
 // The API-key configuration page defaults to the Custom preset.
-const CONFIG_DEFAULT_PRESET = PRESETS[1]!;
+const CONFIG_DEFAULT_PRESET = PRESETS.find((preset) => preset.key === "custom")!;
 
 /**
  * Full-screen Add Provider flow: a variant-A-style option list — Kimi OAuth

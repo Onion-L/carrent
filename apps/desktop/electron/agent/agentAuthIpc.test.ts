@@ -1,7 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
+import type { AgentAuthFile, ProviderProfile } from "@carrent/core";
+
 import {
   listProviderModels,
+  mergeSavedProfiles,
   parseAgentAuthSaveRequest,
   parseListProviderModelsRequest,
 } from "./agentAuthIpc";
@@ -97,6 +100,152 @@ describe("parseAgentAuthSaveRequest", () => {
         request({ profiles: [{ ...request().profiles[0], models: [{ id: 42 }] }] }),
       ),
     ).toThrow("invalid");
+  });
+
+  it("accepts a previousId for renames and rejects malformed ones", () => {
+    expect(
+      parseAgentAuthSaveRequest(
+        request({ profiles: [{ ...request().profiles[0], previousId: "old-id" }] }),
+      ).profiles[0]?.previousId,
+    ).toBe("old-id");
+    expect(() =>
+      parseAgentAuthSaveRequest(
+        request({ profiles: [{ ...request().profiles[0], previousId: 42 }] }),
+      ),
+    ).toThrow("invalid");
+    expect(() =>
+      parseAgentAuthSaveRequest(
+        request({ profiles: [{ ...request().profiles[0], previousId: "-bad id" }] }),
+      ),
+    ).toThrow("invalid");
+  });
+});
+
+describe("mergeSavedProfiles", () => {
+  const oauthProfile: ProviderProfile = {
+    id: "kimi",
+    type: "kimi-coding",
+    credential: {
+      type: "oauth",
+      access: "access-token",
+      refresh: "refresh-token",
+      expires: Date.now() + 3_600_000,
+    },
+    baseUrl: "https://api.kimi.com/coding",
+    modelId: "k3",
+    models: [{ id: "k3", name: "Kimi K3" }],
+  };
+
+  function existingWith(profiles: Record<string, ProviderProfile>): AgentAuthFile {
+    return { version: 1, activeProfileId: Object.keys(profiles)[0]!, profiles };
+  }
+
+  it("carries the credential and model selection over a rename via previousId", () => {
+    const merged = mergeSavedProfiles(existingWith({ kimi: oauthProfile }), {
+      activeProfileId: "kimi-work",
+      profiles: [
+        {
+          id: "kimi-work",
+          previousId: "kimi",
+          type: "kimi-coding",
+          baseUrl: "https://api.kimi.com/coding",
+          modelId: "k3",
+          thinking: false,
+        },
+      ],
+    });
+    expect(merged["kimi-work"]?.credential).toMatchObject({
+      type: "oauth",
+      access: "access-token",
+    });
+    expect(merged["kimi-work"]?.models).toEqual([{ id: "k3", name: "Kimi K3" }]);
+    expect(merged.kimi).toBeUndefined();
+  });
+
+  it("does not inherit credentials when a profile id appears without previousId", () => {
+    const merged = mergeSavedProfiles(existingWith({ kimi: oauthProfile }), {
+      activeProfileId: "kimi-2",
+      profiles: [
+        {
+          id: "kimi-2",
+          type: "kimi-coding",
+          baseUrl: "https://api.kimi.com/coding",
+          modelId: "k3",
+          thinking: false,
+        },
+      ],
+    });
+    expect(merged["kimi-2"]?.credential).toBeUndefined();
+    expect(merged["kimi-2"]?.apiKey).toBeUndefined();
+  });
+
+  it("drops stored credentials when the provider type changes", () => {
+    const merged = mergeSavedProfiles(
+      existingWith({
+        custom: {
+          id: "custom",
+          type: "openai-compatible",
+          apiKey: "secret",
+          baseUrl: "https://api.example.com/v1",
+          modelId: "m1",
+        },
+      }),
+      {
+        activeProfileId: "custom",
+        profiles: [
+          {
+            id: "custom",
+            type: "anthropic",
+            baseUrl: "https://api.anthropic.com",
+            modelId: "claude-sonnet-4-6",
+            thinking: false,
+          },
+        ],
+      },
+    );
+    expect(merged.custom?.apiKey).toBeUndefined();
+    expect(merged.custom?.credential).toBeUndefined();
+  });
+
+  it("keeps a blank-key API-key profile unchanged and requires a key for openai-compatible", () => {
+    const anthropicExisting = existingWith({
+      default: {
+        id: "default",
+        type: "anthropic",
+        apiKey: "stored-key",
+        baseUrl: "https://api.anthropic.com",
+        modelId: "claude-sonnet-4-6",
+      },
+    });
+    const merged = mergeSavedProfiles(anthropicExisting, {
+      activeProfileId: "default",
+      profiles: [
+        {
+          id: "default",
+          type: "anthropic",
+          baseUrl: "https://api.anthropic.com",
+          modelId: "claude-sonnet-4-6",
+          thinking: true,
+        },
+      ],
+    });
+    expect(merged.default?.apiKey).toBe("stored-key");
+    expect(merged.default?.thinking).toBe(true);
+
+    expect(() =>
+      mergeSavedProfiles(null, {
+        activeProfileId: "custom",
+        profiles: [
+          {
+            id: "custom",
+            type: "openai-compatible",
+            baseUrl: "https://api.example.com/v1",
+            modelId: "m1",
+            thinking: false,
+          },
+        ],
+      }),
+    ).toThrow("API Key or OAuth login is required");
   });
 });
 

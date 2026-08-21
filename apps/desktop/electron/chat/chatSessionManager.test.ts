@@ -1279,7 +1279,7 @@ describe("createChatSessionManager", () => {
       type: "failed",
       runId: "run-kimi-mode-unsupported",
       error:
-        "Kimi Code did not expose a mode configuration option. Use Approval required or update Kimi Code.",
+        "Kimi Code did not expose a mode configuration option. Use Approve Required or update Kimi Code.",
     });
   });
 

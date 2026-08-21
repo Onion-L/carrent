@@ -6048,7 +6048,7 @@ describe("Run-scoped MCP questions", () => {
       return { session, questionServer };
     }
 
-    it("starts the question server for Approval required, Auto-accept edits, and Plan mode runs", async () => {
+    it("starts the question server for Approve Required, Auto Accept, and Plan mode runs", async () => {
       const supportedModes: Array<Partial<ChatTurnRequest>> = [
         { runtimeMode: "approval-required" },
         { runtimeMode: "auto-accept-edits" },

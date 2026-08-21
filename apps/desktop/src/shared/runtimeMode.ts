@@ -16,10 +16,10 @@ export function getRuntimeModeLabel(mode: RuntimeMode, runtimeId?: RuntimeId) {
   void runtimeId;
   switch (mode) {
     case "approval-required":
-      return "Approval required";
+      return "Approve Required";
     case "auto-accept-edits":
-      return "Auto";
+      return "Auto Accept";
     case "full-access":
-      return "Yolo";
+      return "Full Access";
   }
 }

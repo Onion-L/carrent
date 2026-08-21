@@ -1181,7 +1181,7 @@ class KimiAcpRun {
       throw new Error(
         this.options.request.planMode
           ? "Kimi Code did not expose Plan Mode. Update Kimi Code or remove Plan mode."
-          : "Kimi Code did not expose a mode configuration option. Use Approval required or update Kimi Code.",
+          : "Kimi Code did not expose a mode configuration option. Use Approve Required or update Kimi Code.",
       );
     }
 

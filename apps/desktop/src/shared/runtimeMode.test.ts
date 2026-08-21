@@ -24,13 +24,13 @@ describe("runtimeMode", () => {
   });
 
   it("provides user-facing labels", () => {
-    expect(getRuntimeModeLabel("approval-required")).toContain("Approval");
-    expect(getRuntimeModeLabel("full-access")).toBe("Yolo");
+    expect(getRuntimeModeLabel("approval-required")).toContain("Approve");
+    expect(getRuntimeModeLabel("full-access")).toBe("Full Access");
   });
 
   it("uses Kimi's native mode names for the Kimi runtime", () => {
-    expect(getRuntimeModeLabel("approval-required", "kimi")).toBe("Approval required");
-    expect(getRuntimeModeLabel("auto-accept-edits", "kimi")).toBe("Auto");
-    expect(getRuntimeModeLabel("full-access", "kimi")).toBe("Yolo");
+    expect(getRuntimeModeLabel("approval-required", "kimi")).toBe("Approve Required");
+    expect(getRuntimeModeLabel("auto-accept-edits", "kimi")).toBe("Auto Accept");
+    expect(getRuntimeModeLabel("full-access", "kimi")).toBe("Full Access");
   });
 });

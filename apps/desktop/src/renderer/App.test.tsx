@@ -1452,12 +1452,16 @@ describe("three-level navigation", () => {
   });
 
   it("restores Project collapse state after the renderer is remounted", async () => {
-    await renderApp(navigationState(), "/workspace/workspace-1/project/project-1/thread/thread-1");
+    const saved = await renderApp(
+      navigationState(),
+      "/workspace/workspace-1/project/project-1/thread/thread-1",
+    );
 
     await click(buttonNamed("Collapse Personal Carrent"));
     expect(container!.querySelector("aside.border-r")!.textContent).not.toContain(
       "Personal Thread",
     );
+    expect(saved.at(-1)?.settings?.collapsedProjectIds).toEqual(["project-1"]);
 
     await act(async () => root!.unmount());
     container!.remove();

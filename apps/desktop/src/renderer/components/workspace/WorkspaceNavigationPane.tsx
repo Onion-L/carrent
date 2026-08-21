@@ -92,20 +92,26 @@ export function WorkspaceNavigationPane() {
     setProjectAlias,
     removeAssociation,
     projectDirectoryStatusById,
+    hasHydrated,
+    settings,
+    updateSettings,
   } = useAppState();
   const { messages, renameThread, toggleThreadPin, deleteThreads } = useThreadContent();
   const { runningThreadIds, pendingPermissions, pendingQuestions, stop } = useChatRun();
   const { compactingThreadIds } = useThreadActions();
+  const [initialNavigationPreferences] = useState(loadNavigationPreferences);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingProjectName, setEditingProjectName] = useState("");
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(
-    () => new Set(loadNavigationPreferences().collapsedProjectIds),
+    () => new Set(initialNavigationPreferences.collapsedProjectIds),
   );
   const [expandedThreadListProjectIds, setExpandedThreadListProjectIds] = useState<Set<string>>(
-    () => new Set(loadNavigationPreferences().expandedThreadListProjectIds),
+    () => new Set(initialNavigationPreferences.expandedThreadListProjectIds),
   );
+  const navigationPreferencesHydratedRef = useRef(false);
+  const navigationPreferencesChangedRef = useRef(false);
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
   const [threadMenu, setThreadMenu] = useState<{
     threadId: string;
@@ -143,7 +149,52 @@ export function WorkspaceNavigationPane() {
     }
   }, [collapsedProjectIds, expandedThreadListProjectIds]);
 
+  useEffect(() => {
+    if (!hasHydrated || navigationPreferencesHydratedRef.current) return;
+    navigationPreferencesHydratedRef.current = true;
+    const persistedCollapsed = settings.collapsedProjectIds;
+    const persistedExpanded = settings.expandedThreadListProjectIds;
+    if (persistedCollapsed !== undefined || persistedExpanded !== undefined) {
+      setCollapsedProjectIds(new Set(persistedCollapsed ?? []));
+      setExpandedThreadListProjectIds(new Set(persistedExpanded ?? []));
+      return;
+    }
+
+    // Migrate the old renderer-only preference into the durable App State
+    // snapshot on the first hydrated render.
+    if (
+      initialNavigationPreferences.collapsedProjectIds.length > 0 ||
+      initialNavigationPreferences.expandedThreadListProjectIds.length > 0
+    ) {
+      void updateSettings({
+        ...settings,
+        collapsedProjectIds: [...collapsedProjectIds],
+        expandedThreadListProjectIds: [...expandedThreadListProjectIds],
+      });
+    }
+  }, [
+    collapsedProjectIds,
+    expandedThreadListProjectIds,
+    hasHydrated,
+    initialNavigationPreferences,
+    settings,
+    updateSettings,
+  ]);
+
+  useEffect(() => {
+    if (!navigationPreferencesHydratedRef.current || !navigationPreferencesChangedRef.current) {
+      return;
+    }
+    navigationPreferencesChangedRef.current = false;
+    void updateSettings({
+      ...settings,
+      collapsedProjectIds: [...collapsedProjectIds],
+      expandedThreadListProjectIds: [...expandedThreadListProjectIds],
+    });
+  }, [collapsedProjectIds, expandedThreadListProjectIds, settings, updateSettings]);
+
   const toggleThreadListExpanded = (projectId: string) => {
+    navigationPreferencesChangedRef.current = true;
     setExpandedThreadListProjectIds((prev) => {
       const next = new Set(prev);
       if (next.has(projectId)) {
@@ -168,6 +219,7 @@ export function WorkspaceNavigationPane() {
         .map((thread) => thread.projectId),
     );
     if (newProjectIds.size === 0) return;
+    navigationPreferencesChangedRef.current = true;
     setExpandedThreadListProjectIds((prev) => new Set([...prev, ...newProjectIds]));
   }, [threads]);
 
@@ -392,7 +444,8 @@ export function WorkspaceNavigationPane() {
                     type="button"
                     aria-expanded={expanded}
                     aria-label={`${expanded ? "Collapse" : "Expand"} ${displayName}`}
-                    onClick={() =>
+                    onClick={() => {
+                      navigationPreferencesChangedRef.current = true;
                       setCollapsedProjectIds((current) => {
                         const next = new Set(current);
                         if (next.has(project.id)) {
@@ -401,8 +454,8 @@ export function WorkspaceNavigationPane() {
                           next.add(project.id);
                         }
                         return next;
-                      })
-                    }
+                      });
+                    }}
                     title={project.workingDirectory}
                     className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg/20"
                   >

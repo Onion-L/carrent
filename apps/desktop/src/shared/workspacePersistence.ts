@@ -228,6 +228,10 @@ export type AppStateSettings = {
   // default path is never persisted. Applies to future empty Projects only;
   // existing Project paths are never moved.
   newProjectLocation?: string;
+  // Project navigation UI preferences. These are kept in the app-state
+  // settings snapshot so they survive renderer reloads and app restarts.
+  collapsedProjectIds?: string[];
+  expandedThreadListProjectIds?: string[];
 };
 
 // Font-size bounds mirror src/renderer/lib/fontSize (kept renderer-local).
@@ -399,6 +403,17 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     typeof value.newProjectLocation === "string" && value.newProjectLocation.trim()
       ? value.newProjectLocation.trim()
       : undefined;
+  const normalizeNavigationIds = (candidate: unknown) => {
+    if (!Array.isArray(candidate)) return undefined;
+    const ids = [
+      ...new Set(
+        candidate.filter((item): item is string => typeof item === "string" && item.length > 0),
+      ),
+    ];
+    return ids.length > 0 ? ids : [];
+  };
+  const collapsedProjectIds = normalizeNavigationIds(value.collapsedProjectIds);
+  const expandedThreadListProjectIds = normalizeNavigationIds(value.expandedThreadListProjectIds);
 
   // keybindingOverrides: valid bindings survive, while null/undefined on a
   // known action preserves an explicit unbind. Everything else is dropped.
@@ -438,6 +453,8 @@ export function normalizeAppStateSettings(value: unknown): AppStateSettings | nu
     runtimeDefaultModelById,
     ...(threadTitleModelId ? { threadTitleModelId } : {}),
     ...(newProjectLocation ? { newProjectLocation } : {}),
+    ...(collapsedProjectIds !== undefined ? { collapsedProjectIds } : {}),
+    ...(expandedThreadListProjectIds !== undefined ? { expandedThreadListProjectIds } : {}),
     ...(Object.keys(keybindingOverrides).length > 0 ? { keybindingOverrides } : {}),
   };
 }

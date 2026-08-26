@@ -1175,7 +1175,7 @@ describe("Workspace App State foundation", () => {
     );
     expect((buttonNamed("Reset to Default") as HTMLButtonElement).disabled).toBe(true);
 
-    await click(buttonNamed("Choose Folder..."));
+    await click(buttonNamed("New project location path"));
     expect(saved.at(-1)?.settings?.newProjectLocation).toBe("/data/projects");
     expect(container!.querySelector('[aria-label="New project location path"]')?.textContent).toBe(
       "/data/projects",

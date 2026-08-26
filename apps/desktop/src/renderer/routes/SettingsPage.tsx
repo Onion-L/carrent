@@ -90,8 +90,8 @@ function Toggle({
 
 /**
  * Settings > General row for the base directory of newly created empty
- * Projects. The displayed path is read-only; "Choose Folder..." stores a
- * custom override, "Reset to Default" clears it so the dynamic default
+ * Projects. Clicking the path field opens a folder picker that stores a
+ * custom override; the reset button clears it so the dynamic default
  * (~/CarrentProjects) applies again. Affects future empty Projects only.
  */
 function NewProjectLocationControl() {
@@ -111,30 +111,26 @@ function NewProjectLocationControl() {
       <div className="min-w-0">
         <div className="text-app-13 text-fg">New project location</div>
         <div className="mt-0.5 text-app-12 text-subtle">Where new empty Projects are created</div>
-        <div
-          aria-label="New project location path"
-          className="mt-1.5 truncate rounded-md border border-border bg-bg px-2.5 py-1.5 text-app-12 text-subtle"
-        >
-          {effectiveBase ?? "…"}
-        </div>
       </div>
-      <div className="flex shrink-0 flex-col items-end gap-2">
+      <div className="flex shrink-0 items-center gap-1.5">
         <button
           type="button"
+          aria-label="New project location path"
+          title={effectiveBase ?? undefined}
           onClick={() => void chooseFolder()}
-          className="flex min-h-8 items-center gap-1.5 rounded-md border border-border-strong px-3 text-app-12 font-medium text-muted transition hover:bg-surface-hover hover:text-fg"
+          className="flex min-h-8 w-[260px] items-center rounded-md border border-border bg-bg px-2.5 text-left text-app-12 text-subtle transition hover:border-border-strong hover:text-fg"
         >
-          <FolderOpen className="h-3.5 w-3.5" />
-          Choose Folder...
+          <span className="truncate">{effectiveBase ?? "…"}</span>
         </button>
         <button
           type="button"
+          aria-label="Reset to Default"
+          title="Reset to Default"
           disabled={!newProjectLocation}
           onClick={() => updateSetting("newProjectLocation", undefined)}
-          className="flex min-h-8 items-center gap-1.5 rounded-md border border-border-strong px-3 text-app-12 font-medium text-muted transition hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border-strong text-muted transition hover:bg-surface-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
         >
           <RotateCcw className="h-3.5 w-3.5" />
-          Reset to Default
         </button>
       </div>
     </div>

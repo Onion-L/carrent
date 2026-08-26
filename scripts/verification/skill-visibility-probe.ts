@@ -492,7 +492,14 @@ async function runScenario(
       };
 
       const handleMessage = async (message: JsonRpcMessage) => {
-        if (message.id != null && pending.has(message.id as number)) {
+        // A response carries `result`/`error` and no `method`; kimi's own
+        // host-bound requests reuse the same numeric id space, so an id match
+        // alone is not enough to treat a message as a response.
+        if (
+          message.id != null &&
+          message.method === undefined &&
+          pending.has(message.id as number)
+        ) {
           const handler = pending.get(message.id as number)!;
           pending.delete(message.id as number);
           if (message.error) {

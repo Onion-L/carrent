@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "scripts": {
-    "postinstall": "node apps/desktop/node_modules/electron/install.js",
+    "postinstall": "node apps/desktop/node_modules/electron/install.js && (bun scripts/fix-node-pty-permissions.ts || echo \"[postinstall] skipped node-pty helper fix (bun unavailable)\")",
     "dev": "turbo dev",
     "dev:desktop": "cd apps/desktop && bun run dev",
     "dev:web": "cd apps/landing && bun run dev",

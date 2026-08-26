@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import type { ChatRunEvent, ChatTurnRequest, KimiTimelineItem } from "../../src/shared/chat";
 import { MAX_SUBAGENT_TASK_TEXT_LENGTH } from "../../src/shared/workspacePersistence";
 import type { CarrentBridgeFactory, CarrentBridgeHandle } from "../bridge/carrentBridge";
-import type { AcpTerminalManager } from "./acpTerminalManager";
+import { AcpTerminalSpawnError, type AcpTerminalManager } from "./acpTerminalManager";
 import { DEFAULT_FILE_ONLY_PROMPT, DEFAULT_FOLDER_ONLY_PROMPT } from "./chatPrompt";
 import {
   buildKimiPromptParts,
@@ -452,11 +452,11 @@ describe("buildKimiPromptParts", () => {
 });
 
 describe("startKimiAcpChatRun", () => {
-  it("avoids unsupported process-backed tools only for affected Kimi versions", async () => {
+  it("injects the process-tool workaround for every Kimi version not verified unaffected", async () => {
     for (const testCase of [
       { name: "Kimi Code CLI", version: "0.37.1", expectsCompatibility: true },
-      { name: "Kimi Code CLI", version: "1.41.0", expectsCompatibility: false },
-      { name: "Kimi Code CLI", version: "0.37.2", expectsCompatibility: false },
+      { name: "Kimi Code CLI", version: "0.38.0", expectsCompatibility: true },
+      { name: "Kimi Code CLI", version: "1.41.0", expectsCompatibility: true },
       { name: "Unknown ACP agent", version: "0.37.1", expectsCompatibility: false },
     ]) {
       let promptText = "";
@@ -581,6 +581,98 @@ describe("startKimiAcpChatRun", () => {
       "terminal-release": {},
     });
     expect(closed).toBe(true);
+  });
+
+  it("propagates terminal spawn failures with structured diagnostics", async () => {
+    const spawnFailure = new AcpTerminalSpawnError(
+      {
+        phase: "pty.spawn",
+        platform: "darwin",
+        arch: "arm64",
+        appEnvironment: "packaged",
+        file: "/bin/zsh",
+        argCount: 2,
+        legacyCommand: true,
+        cwd: "/test/project",
+        cwdExists: true,
+        shell: { selected: "/bin/zsh", source: "env.SHELL", executable: true },
+        requestEnvNames: ["SECRET_TOKEN"],
+        ptyModuleDir: "/app/node_modules/node-pty",
+        ptyHelpers: [
+          {
+            path: "/app/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper",
+            exists: true,
+            ptyNodeExists: true,
+            mode: "0755",
+            executableBit: true,
+            machOArch: "arm64",
+            provenanceHex: "01 02 00 A3 D0 16 65 59 CD 76 01",
+          },
+        ],
+        error: { name: "Error", message: "posix_spawnp failed.", code: null },
+      },
+      new Error("posix_spawnp failed."),
+    );
+    const terminalManager: AcpTerminalManager = {
+      async create() {
+        throw spawnFailure;
+      },
+      async output() {
+        return { output: "", truncated: false };
+      },
+      async waitForExit() {
+        return { exitCode: 0 };
+      },
+      async kill() {
+        return {};
+      },
+      async release() {
+        return {};
+      },
+      async close() {},
+    };
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-spawn-failure" });
+        return;
+      }
+      if (message.method !== "session/prompt") return;
+
+      fakeTransport.emitMessage({
+        jsonrpc: "2.0",
+        id: "terminal-create",
+        method: "terminal/create",
+        params: { sessionId: "session-spawn-failure", command: "echo hello" },
+      });
+      setTimeout(() => respondAcp(fakeTransport, message, { stopReason: "end_turn" }), 0);
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-spawn-failure",
+      request: makeRequest(),
+      cwd: "/test/project",
+      emit: () => {},
+      transportFactory: () => transport,
+      terminalManager,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const response = transport.sent.find((sent) => sent.id === "terminal-create") as Record<
+      string,
+      unknown
+    >;
+    expect(response.error).toMatchObject({
+      code: -32000,
+      message: spawnFailure.message,
+    });
+    const data = (response.error as { data?: { diagnostics?: unknown } }).data;
+    expect(JSON.stringify(data)).toContain("provenanceHex");
+    expect(spawnFailure.message).toContain("com.apple.provenance");
+    expect(JSON.stringify(data)).not.toContain("hunter2");
   });
 
   it("replaces the advertised command snapshot when Kimi withdraws a command", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -67,5 +67,28 @@ describe("restoreSpawnHelperPermissions", () => {
     const app = packagedApp(root, "darwin");
 
     await restoreSpawnHelperPermissions(app.context);
+  });
+
+  it("rewrites packaged spawn-helpers through a fresh inode on macOS and leaves no temp files", async () => {
+    const root = mkdtempSync(join(tmpdir(), "afterpack-"));
+    const app = packagedApp(root, "darwin");
+    const helper = app.file("prebuilds/darwin-arm64/spawn-helper");
+    writeFileSync(helper, Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01]));
+    const inodeBefore = statSync(helper).ino;
+
+    await restoreSpawnHelperPermissions(app.context);
+
+    expect(readFileSync(helper).subarray(0, 8)).toEqual(
+      Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01]),
+    );
+    expect(mode(helper)).toBe(0o755);
+    // The provenance reset swaps the inode; only meaningful on darwin builds.
+    if (process.platform === "darwin") {
+      expect(statSync(helper).ino).not.toBe(inodeBefore);
+    }
+    const strayTemps = readdirSync(join(helper, "..")).filter((name) =>
+      name.includes(".reset-"),
+    );
+    expect(strayTemps).toEqual([]);
   });
 });

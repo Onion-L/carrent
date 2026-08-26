@@ -33,6 +33,7 @@ import {
 } from "../../src/shared/chatQuestions";
 import type { RuntimeMode } from "../../src/shared/runtimeMode";
 import {
+  KIMI_NATIVE_PROCESS_TOOL_VERSIONS,
   resolveRuntimeCapabilities,
   type RuntimeAgentInfo,
 } from "../../src/shared/runtimeCapabilities";
@@ -62,7 +63,12 @@ import {
 import { terminateChildProcess } from "./terminateChildProcess";
 import { shouldAttachCarrentBridge } from "./bridgePolicy";
 import { resolveCommandLaunch } from "../runtime/commandLaunch";
-import type { AcpTerminalCreateRequest, AcpTerminalManager } from "./acpTerminalManager";
+import {
+  AcpTerminalSpawnError,
+  type AcpTerminalCreateRequest,
+  type AcpTerminalManager,
+  type AcpTerminalSpawnDiagnostics,
+} from "./acpTerminalManager";
 
 type JsonRpcId = string | number;
 type JsonObject = Record<string, unknown>;
@@ -1700,9 +1706,15 @@ class KimiAcpRun {
         message: `Unsupported Kimi ACP client method: ${method ?? "unknown"}`,
       });
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Spawn failures carry sanitized structured evidence; forwarding it in
+      // `data` lets the agent (and logs) distinguish shell, helper, permission,
+      // and path problems without exposing environment values.
+      const diagnostics = readAcpTerminalDiagnostics(error);
       await this.respondError(id, {
         code: -32000,
-        message: error instanceof Error ? error.message : String(error),
+        message,
+        ...(diagnostics ? { data: { diagnostics } } : {}),
       });
     }
   }
@@ -2742,6 +2754,10 @@ function readObject(value: unknown): JsonObject | null {
   return value && typeof value === "object" ? (value as JsonObject) : null;
 }
 
+function readAcpTerminalDiagnostics(error: unknown): AcpTerminalSpawnDiagnostics | null {
+  return error instanceof AcpTerminalSpawnError ? error.diagnostics : null;
+}
+
 function readKimiAgentInfo(value: unknown): RuntimeAgentInfo | null {
   const agentInfo = readObject(value);
   const name = readString(agentInfo?.name);
@@ -2749,8 +2765,21 @@ function readKimiAgentInfo(value: unknown): RuntimeAgentInfo | null {
   return name && version ? { name, version } : null;
 }
 
+// Kimi's ACP runtime rejects the built-in Glob/Grep tools with "ACP runtime
+// only supports interactive Bash tool processes" (probe-verified for 0.38.0
+// on 2026-08-26; 0.37.1 hit the same rejection in the plan-007 incident and
+// was the originally pinned version; 0.37.2 and anything newer are unprobed).
+// Inject the rg-via-Bash workaround for every Kimi version except the few
+// verified to run Glob/Grep natively (KIMI_NATIVE_PROCESS_TOOL_VERSIONS):
+// an unpinned new version hitting the rejection without the workaround is
+// exactly the plan-007 incident, so unknown versions get the conservative
+// fallback. Rerun scripts/verification/process-tool-compat-probe.ts before
+// adding any version to the native list.
 function needsKimiProcessToolCompatibility(agentInfo: RuntimeAgentInfo | null): boolean {
-  return agentInfo?.name === "Kimi Code CLI" && agentInfo.version === "0.37.1";
+  return (
+    agentInfo?.name === "Kimi Code CLI" &&
+    !KIMI_NATIVE_PROCESS_TOOL_VERSIONS.includes(agentInfo.version)
+  );
 }
 
 function readString(value: unknown): string | null {

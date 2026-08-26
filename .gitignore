@@ -16,3 +16,4 @@ docs/superpowers
 .playwright-cli
 plans/
 .scratch/
+scripts/verification/reports/

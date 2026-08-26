@@ -37,6 +37,18 @@ export type RuntimeAgentInfo = {
 export const KIMI_PROVIDER_NATIVE_SKILL_VERSIONS: readonly string[] = ["0.37.2", "0.38.0"];
 
 /**
+ * Kimi Code CLI versions verified to run their built-in Glob/Grep tools under
+ * ACP without the "ACP runtime only supports interactive Bash tool processes"
+ * rejection, per scripts/verification/process-tool-compat-probe.ts. Any
+ * version not listed here is treated as potentially affected and gets the
+ * rg-via-Bash compatibility instruction as the conservative fallback: the
+ * plan-007 incident happened precisely because a newer, unpinned version hit
+ * the rejection without receiving the workaround. Only add a version after
+ * the probe shows Glob and Grep both succeed for it.
+ */
+export const KIMI_NATIVE_PROCESS_TOOL_VERSIONS: readonly string[] = [];
+
+/**
  * Classifies a runtime from its ACP `agentInfo`. Unknown runtimes and unknown
  * Kimi versions get the conservative profile: keep the Carrent Bridge
  * attached and do not assume provider-native skill discovery.

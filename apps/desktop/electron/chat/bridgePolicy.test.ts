@@ -15,16 +15,12 @@ const bridgeDiscovered: RuntimeCapabilities = {
   hostTerminal: true,
 };
 
-const plainRequest = { hasAttachments: false, hasLocalPathContexts: false };
-
 describe("shouldAttachCarrentBridge", () => {
   it("attaches for unknown runtimes and unconfirmed versions", () => {
     expect(
       shouldAttachCarrentBridge({
         runtimeCapabilities: bridgeDiscovered,
         localMcpServerEnabled: true,
-        omitProviderNativeBridge: true,
-        request: plainRequest,
       }),
     ).toBe("attach");
   });
@@ -35,47 +31,17 @@ describe("shouldAttachCarrentBridge", () => {
         shouldAttachCarrentBridge({
           runtimeCapabilities,
           localMcpServerEnabled: false,
-          omitProviderNativeBridge: true,
-          request: plainRequest,
         }),
       ).toBe("omit");
     }
   });
 
-  it("attaches for provider-native runs while the omit flag is off", () => {
+  it("omits the Bridge for provider-native runs", () => {
     expect(
       shouldAttachCarrentBridge({
         runtimeCapabilities: providerNative,
         localMcpServerEnabled: true,
-        request: plainRequest,
-      }),
-    ).toBe("attach");
-  });
-
-  it("omits provider-native plain runs only when the omit flag is on", () => {
-    expect(
-      shouldAttachCarrentBridge({
-        runtimeCapabilities: providerNative,
-        localMcpServerEnabled: true,
-        omitProviderNativeBridge: true,
-        request: plainRequest,
       }),
     ).toBe("omit");
-  });
-
-  it("keeps host-bound runs on the Bridge even with the omit flag on", () => {
-    for (const request of [
-      { hasAttachments: true, hasLocalPathContexts: false },
-      { hasAttachments: false, hasLocalPathContexts: true },
-    ]) {
-      expect(
-        shouldAttachCarrentBridge({
-          runtimeCapabilities: providerNative,
-          localMcpServerEnabled: true,
-          omitProviderNativeBridge: true,
-          request,
-        }),
-      ).toBe("attach");
-    }
   });
 });

@@ -23,6 +23,48 @@ export type SkillCatalogOptions = {
   projectDir?: string;
 };
 
+/**
+ * The one source of truth for skill catalog directories. Skill enumeration and
+ * the ACP fs read guard both derive their roots from here, so the granted read
+ * surface always covers the same roots the catalog serves (the guard applies
+ * no depth limit, so reads may reach deeper than enumeration does).
+ */
+export function skillCatalogRoots(options: SkillCatalogOptions = {}): SkillRoot[] {
+  const homeDir = options.homeDir ?? os.homedir();
+  const projectDir = options.projectDir?.trim();
+  const projectRoots: SkillRoot[] = projectDir
+    ? [
+        {
+          path: path.join(projectDir, ".agents", "skills"),
+          source: "agents",
+          scope: "project",
+          maxDepth: 2,
+        },
+        {
+          path: path.join(projectDir, ".codex", "skills"),
+          source: "codex",
+          scope: "project",
+          maxDepth: 3,
+        },
+      ]
+    : [];
+  return [
+    ...projectRoots,
+    {
+      path: path.join(homeDir, ".agents", "skills"),
+      source: "agents",
+      scope: "user",
+      maxDepth: 2,
+    },
+    {
+      path: path.join(homeDir, ".codex", "skills"),
+      source: "codex",
+      scope: "user",
+      maxDepth: 3,
+    },
+  ];
+}
+
 export type ResolvedSkillRecord = SkillRecord & {
   scope: SkillScope;
   declaredPath: string;
@@ -72,39 +114,7 @@ export class SkillCatalogError extends Error {
 export async function listInstalledSkills(
   options: SkillCatalogOptions = {},
 ): Promise<SkillRecord[]> {
-  const homeDir = options.homeDir ?? os.homedir();
-  const projectDir = options.projectDir?.trim();
-  const projectRoots: SkillRoot[] = projectDir
-    ? [
-        {
-          path: path.join(projectDir, ".agents", "skills"),
-          source: "agents",
-          scope: "project",
-          maxDepth: 2,
-        },
-        {
-          path: path.join(projectDir, ".codex", "skills"),
-          source: "codex",
-          scope: "project",
-          maxDepth: 3,
-        },
-      ]
-    : [];
-  const roots: SkillRoot[] = [
-    ...projectRoots,
-    {
-      path: path.join(homeDir, ".agents", "skills"),
-      source: "agents",
-      scope: "user",
-      maxDepth: 2,
-    },
-    {
-      path: path.join(homeDir, ".codex", "skills"),
-      source: "codex",
-      scope: "user",
-      maxDepth: 3,
-    },
-  ];
+  const roots = skillCatalogRoots(options);
 
   const skillFiles = (
     await Promise.all(

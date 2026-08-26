@@ -2400,7 +2400,7 @@ describe("startKimiAcpChatRun", () => {
       });
     }
 
-    it("omits the Bridge for provider-native runs when the omit flag is on", async () => {
+    it("omits the Bridge for provider-native runs", async () => {
       const emitted: ChatRunEvent[] = [];
       const bridge = createCountingNullBridgeFactory();
       let sessionNewParams: unknown = null;
@@ -2419,7 +2419,6 @@ describe("startKimiAcpChatRun", () => {
         emit: (event) => emitted.push(event),
         transportFactory: () => transport,
         bridgeFactory: bridge.factory,
-        omitProviderNativeBridge: true,
         questionServerFactory: questionServer.factory,
       });
 
@@ -2436,25 +2435,7 @@ describe("startKimiAcpChatRun", () => {
       });
     });
 
-    it("keeps the Bridge for provider-native runs when the omit flag is off", async () => {
-      const bridge = createFakeCarrentBridgeFactory();
-      const transport = createPolicyTransport({ agentInfo: providerNativeAgentInfo });
-
-      startKimiAcpChatRun({
-        runId: "run-kimi-bridge-omit-flag-off",
-        request: makeRequest({ runtimeId: "kimi" }),
-        cwd: "/Users/onion/workbench/carrent",
-        emit: () => {},
-        transportFactory: () => transport,
-        bridgeFactory: bridge.factory,
-      });
-
-      await waitForAsyncEvents();
-
-      expect(bridge.handles).toHaveLength(1);
-    });
-
-    it("keeps the Bridge for unconfirmed Kimi versions even with the omit flag on", async () => {
+    it("keeps the Bridge for unconfirmed Kimi versions as the fallback", async () => {
       const bridge = createFakeCarrentBridgeFactory();
       const transport = createPolicyTransport({
         agentInfo: { name: "Kimi Code CLI", version: "0.0.0-unconfirmed" },
@@ -2467,7 +2448,6 @@ describe("startKimiAcpChatRun", () => {
         emit: () => {},
         transportFactory: () => transport,
         bridgeFactory: bridge.factory,
-        omitProviderNativeBridge: true,
       });
 
       await waitForAsyncEvents();
@@ -2475,8 +2455,8 @@ describe("startKimiAcpChatRun", () => {
       expect(bridge.handles).toHaveLength(1);
     });
 
-    it("keeps the Bridge for runs with attachments even with the omit flag on", async () => {
-      const bridge = createFakeCarrentBridgeFactory();
+    it("omits the Bridge for provider-native runs even with attachments", async () => {
+      const bridge = createCountingNullBridgeFactory();
       const transport = createPolicyTransport({ agentInfo: providerNativeAgentInfo });
 
       startKimiAcpChatRun({
@@ -2498,12 +2478,11 @@ describe("startKimiAcpChatRun", () => {
         emit: () => {},
         transportFactory: () => transport,
         bridgeFactory: bridge.factory,
-        omitProviderNativeBridge: true,
       });
 
       await waitForAsyncEvents();
 
-      expect(bridge.handles).toHaveLength(1);
+      expect(bridge.calls()).toBe(0);
     });
 
     it("does not start the Bridge when the Local MCP Server is off", async () => {
@@ -2525,7 +2504,6 @@ describe("startKimiAcpChatRun", () => {
         transportFactory: () => transport,
         bridgeFactory: bridge.factory,
         localMcpServerEnabled: false,
-        omitProviderNativeBridge: true,
       });
 
       await waitForAsyncEvents();
@@ -2553,7 +2531,6 @@ describe("startKimiAcpChatRun", () => {
         emit: (event) => emitted.push(event),
         transportFactory: () => transport,
         bridgeFactory: bridge.factory,
-        omitProviderNativeBridge: true,
         resumeSessionId: "session-previous",
       });
 
@@ -2582,7 +2559,6 @@ describe("startKimiAcpChatRun", () => {
         emit: (event) => emitted.push(event),
         transportFactory: () => transport,
         bridgeFactory: bridge.factory,
-        omitProviderNativeBridge: true,
       });
 
       await waitForAsyncEvents();
@@ -2613,7 +2589,6 @@ describe("startKimiAcpChatRun", () => {
         emit: (event) => emitted.push(event),
         transportFactory: () => transport,
         bridgeFactory: bridge.factory,
-        omitProviderNativeBridge: true,
       });
 
       await waitForAsyncEvents();
@@ -3671,6 +3646,151 @@ describe("startKimiAcpChatRun", () => {
       uri: pathToFileURL(targetPath).toString(),
       name: "notes.md",
     });
+  });
+
+  it("reads skill catalog files outside the project read-only and refuses writes and escapes", async () => {
+    const projectDir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-skill-project-"));
+    // Stand-in home so the test never touches the real user skill catalog.
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "carrent-kimi-skill-home-"));
+    const agentsSkillsDir = path.join(homeDir, ".agents", "skills");
+    const skillPath = path.join(agentsSkillsDir, "ask-matt", "SKILL.md");
+    const siblingPath = path.join(agentsSkillsDir, "other-skill", "reference.md");
+    const outsidePath = path.join(homeDir, ".agents", "notes-outside.md");
+    const secretPath = path.join(homeDir, "secret.md");
+    const symlinkPath = path.join(agentsSkillsDir, "link.md");
+    await mkdir(path.dirname(skillPath), { recursive: true });
+    await mkdir(path.dirname(siblingPath), { recursive: true });
+    await writeFile(skillPath, "---\nname: ask-matt\ndescription: Ask.\n---\nbody");
+    await writeFile(siblingPath, "reference");
+    await writeFile(outsidePath, "outside");
+    await writeFile(secretPath, "secret");
+    await symlink(secretPath, symlinkPath);
+
+    const emitted: ChatRunEvent[] = [];
+    let promptRequest: Record<string, unknown> | null = null;
+    const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+      if (message.method === "initialize") {
+        respondAcp(fakeTransport, message, { protocolVersion: 1 });
+        return;
+      }
+      if (message.method === "session/new") {
+        respondAcp(fakeTransport, message, { sessionId: "session-1" });
+        return;
+      }
+      if (message.method === "session/prompt") {
+        promptRequest = message;
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-skill",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: skillPath },
+        });
+        return;
+      }
+      if (message.id === "read-skill" && "result" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-sibling",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: siblingPath },
+        });
+        return;
+      }
+      if (message.id === "read-sibling" && "result" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "write-skill",
+          method: "fs/write_text_file",
+          params: { sessionId: "session-1", path: skillPath, content: "hacked" },
+        });
+        return;
+      }
+      if (message.id === "write-skill" && "error" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-outside",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: outsidePath },
+        });
+        return;
+      }
+      if (message.id === "read-outside" && "error" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          id: "read-symlink",
+          method: "fs/read_text_file",
+          params: { sessionId: "session-1", path: symlinkPath },
+        });
+        return;
+      }
+      if (message.id === "read-symlink" && "error" in message) {
+        fakeTransport.emitMessage({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Done" },
+            },
+          },
+        });
+        if (promptRequest) {
+          respondAcp(fakeTransport, promptRequest, { stopReason: "end_turn" });
+        }
+        return;
+      }
+    });
+
+    startKimiAcpChatRun({
+      runId: "run-kimi-skill-catalog",
+      request: makeRequest({
+        context: {
+          kind: "project",
+          workspaceId: "workspace-1",
+          projectId: "p1",
+          workingDirectory: projectDir,
+        },
+      }),
+      cwd: projectDir,
+      homeDir,
+      emit: (event) => emitted.push(event),
+      transportFactory: () => transport,
+    });
+    await waitForAsyncEvents();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Skill content inside the catalog root is readable outside the project.
+    expect(transport.sent.find((message) => message.id === "read-skill")?.result).toEqual({
+      content: "---\nname: ask-matt\ndescription: Ask.\n---\nbody",
+    });
+    // Containment is the whole catalog root, so sibling skills are covered too.
+    expect(transport.sent.find((message) => message.id === "read-sibling")?.result).toEqual({
+      content: "reference",
+    });
+    // The grant is read-only.
+    expect(transport.sent.find((message) => message.id === "write-skill")?.error).toMatchObject({
+      code: -32000,
+    });
+    // Files next to the root are not part of the catalog grant.
+    expect(transport.sent.find((message) => message.id === "read-outside")?.error).toMatchObject({
+      code: -32000,
+    });
+    // A symlink inside the root that escapes it is refused.
+    expect(transport.sent.find((message) => message.id === "read-symlink")?.error).toMatchObject({
+      code: -32000,
+    });
+    expect(await readFile(skillPath, "utf8")).toBe(
+      "---\nname: ask-matt\ndescription: Ask.\n---\nbody",
+    );
+
+    const readEvent = emitted.find(
+      (event) => event.type === "reasoning" && event.reasoning.content.startsWith("Read skill "),
+    );
+    expect(readEvent && readEvent.type === "reasoning" && readEvent.reasoning.content).toBe(
+      "Read skill ask-matt/SKILL.md",
+    );
+    expect(JSON.stringify(emitted)).not.toContain(homeDir);
   });
 
   it("reads only existing descendants of a Local Path Context folder", async () => {

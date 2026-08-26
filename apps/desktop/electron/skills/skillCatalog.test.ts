@@ -9,6 +9,7 @@ import {
   parseSkillFrontMatter,
   readSkill,
   readSkillResource,
+  skillCatalogRoots,
 } from "./skillCatalog";
 
 async function createTempHome() {
@@ -31,6 +32,25 @@ async function expectRejectsWithMessage(promise: Promise<unknown>, message: stri
     expect((error as Error).message).toContain(message);
   }
 }
+
+describe("skillCatalogRoots", () => {
+  it("lists project-scope roots before user-scope roots across both sources", () => {
+    const roots = skillCatalogRoots({ homeDir: "/home/dev", projectDir: "/work/app" });
+
+    expect(roots).toEqual([
+      { path: "/work/app/.agents/skills", source: "agents", scope: "project", maxDepth: 2 },
+      { path: "/work/app/.codex/skills", source: "codex", scope: "project", maxDepth: 3 },
+      { path: "/home/dev/.agents/skills", source: "agents", scope: "user", maxDepth: 2 },
+      { path: "/home/dev/.codex/skills", source: "codex", scope: "user", maxDepth: 3 },
+    ]);
+  });
+
+  it("skips project-scope roots when no project directory is given", () => {
+    const roots = skillCatalogRoots({ homeDir: "/home/dev" });
+
+    expect(roots.map((root) => root.scope)).toEqual(["user", "user"]);
+  });
+});
 
 describe("parseSkillFrontMatter", () => {
   it("reads quoted and unquoted skill metadata", () => {

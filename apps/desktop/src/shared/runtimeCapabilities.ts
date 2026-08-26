@@ -24,13 +24,15 @@ export type RuntimeAgentInfo = {
  * Kimi Code CLI versions confirmed to discover and read project/user skills
  * through their provider-owned `Skill` tool without using the Carrent Bridge.
  * 0.37.2 was confirmed by the original ad-hoc probe; 0.38.0 by the archived
- * matrix (`scripts/verification/skill-visibility-probe.ts`). Any version not
- * listed here is treated as unknown.
+ * matrix (`scripts/verification/skill-visibility-probe.ts`, rerun 2026-08-26).
+ * Any version not listed here is treated as unknown and keeps the Bridge
+ * attached as the compatibility fallback.
  *
- * Confirmation scope: `.agents/skills` roots (project and user). The 0.38.0
- * matrix showed Kimi does not reliably discover `.codex/skills` roots and
- * scans deeper than the Skill Catalog, so the Bridge stays attached by
- * default even for these versions (see plans/verification-skill-visibility-probe.md).
+ * Confirmation scope: `.agents/skills` roots (project and user). The matrix
+ * showed Kimi does not reliably discover `.codex/skills` roots and scans
+ * deeper than the Skill Catalog; that gap is accepted — provider-native
+ * versions run Bridge-less (see ADR 0014 for the flip decision and the
+ * fs skill-catalog read grant that covers user-scope skill content).
  */
 export const KIMI_PROVIDER_NATIVE_SKILL_VERSIONS: readonly string[] = ["0.37.2", "0.38.0"];
 

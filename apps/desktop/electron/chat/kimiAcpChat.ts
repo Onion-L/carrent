@@ -43,6 +43,7 @@ import type {
   CarrentBridgeHandle,
   CarrentBridgeMcpServerDescriptor,
 } from "../bridge/carrentBridge";
+import { skillCatalogRoots } from "../skills/skillCatalog";
 import {
   buildChatPrompt,
   buildLocalPathContextSection,
@@ -394,12 +395,12 @@ export function startKimiAcpChatRun(options: {
   bridgeFactory?: CarrentBridgeFactory | null;
   /** Local MCP Server switch; when off, the per-run Carrent Bridge is omitted. */
   localMcpServerEnabled?: boolean;
-  /** Grey-release flag: allow omitting the Bridge for provider-native runs. */
-  omitProviderNativeBridge?: boolean;
   questionServerFactory?: QuestionMcpServerFactory | null;
   terminalManager?: AcpTerminalManager | null;
   kimiSessionsRoot?: string;
   attachmentStoreRoot?: string;
+  /** Overrides the home directory used to resolve user-scope skill catalog roots. */
+  homeDir?: string;
 }): KimiAcpRunHandle {
   const runner = new KimiAcpRun(options);
   void runner.start();
@@ -711,6 +712,10 @@ class KimiAcpRun {
     realPath: string;
     item: LocalPathContextItem;
   }> | null = null;
+  // Lexical skill catalog directories for this Run (project and user scopes),
+  // shared with the Bridge catalog. Read-only containment grant; canonicalized
+  // lazily per request so Run start stays free of extra filesystem work.
+  private readonly skillCatalogRootPaths: string[];
   private pendingPermissions = new Map<
     string,
     {
@@ -752,14 +757,18 @@ class KimiAcpRun {
       bridgeFactory?: CarrentBridgeFactory | null;
       /** Local MCP Server switch; when off, the per-run Carrent Bridge is omitted. */
       localMcpServerEnabled?: boolean;
-      /** Grey-release flag: allow omitting the Bridge for provider-native runs. */
-      omitProviderNativeBridge?: boolean;
       questionServerFactory?: QuestionMcpServerFactory | null;
       terminalManager?: AcpTerminalManager | null;
       kimiSessionsRoot?: string;
       attachmentStoreRoot?: string;
+      /** Overrides the home directory used to resolve user-scope skill catalog roots. */
+      homeDir?: string;
     },
   ) {
+    this.skillCatalogRootPaths = skillCatalogRoots({
+      homeDir: options.homeDir,
+      projectDir: options.cwd,
+    }).map((root) => root.path);
     this.transport = options.transportFactory({ cwd: options.cwd });
     this.transport.onMessage((message) => {
       void this.handleMessage(message);
@@ -1036,11 +1045,6 @@ class KimiAcpRun {
     const attachment = shouldAttachCarrentBridge({
       runtimeCapabilities: resolveRuntimeCapabilities(this.agentInfo),
       localMcpServerEnabled: this.options.localMcpServerEnabled ?? true,
-      omitProviderNativeBridge: this.options.omitProviderNativeBridge ?? false,
-      request: {
-        hasAttachments: (this.options.request.attachments ?? []).length > 0,
-        hasLocalPathContexts: (this.options.request.localPathContexts ?? []).length > 0,
-      },
     });
     if (attachment === "omit") {
       return;
@@ -1934,6 +1938,19 @@ class KimiAcpRun {
       });
     }
 
+    if (target.kind === "skillCatalog") {
+      this.emit({
+        type: "reasoning",
+        runId: this.options.runId,
+        requestKey: this.options.request.requestKey,
+        reasoning: {
+          id: `kimi-fs-read-skill-${target.relativePath}`,
+          content: `Read skill ${target.relativePath}`,
+          status: "completed",
+        },
+      });
+    }
+
     return { content: await readFile(target.path, "utf8") };
   }
 
@@ -2084,6 +2101,37 @@ class KimiAcpRun {
         kind: "project" as const,
         path: targetPath,
         relativePath: projectRelativePath,
+      };
+    }
+
+    // Skill catalog roots (user scope in practice; project scope is already
+    // covered by the Project Working Directory grant above). Read-only
+    // containment mirroring the Bridge's pre-authorized catalog reads, so a
+    // provider-native Run without the Bridge can still read skill content.
+    const lexicalSkillRoot = this.skillCatalogRootPaths.find((rootPath) =>
+      isContainedRelativePath(path.relative(rootPath, resolvedPath)),
+    );
+    if (lexicalSkillRoot) {
+      if (access === "write") {
+        throw new Error(`Refusing to write skill catalog directory: ${requestedPath}`);
+      }
+      const rootRealPath = await realpath(lexicalSkillRoot).catch(() => null);
+      const candidateRealPath = await realpath(resolvedPath).catch(() => null);
+      const isInsideCanonicalRoot =
+        rootRealPath !== null &&
+        candidateRealPath !== null &&
+        isContainedRelativePath(path.relative(rootRealPath, candidateRealPath));
+      if (!isInsideCanonicalRoot) {
+        throw new Error(`Refusing to read outside skill catalog directory: ${requestedPath}`);
+      }
+      const stats = await stat(candidateRealPath!);
+      if (!stats.isFile()) {
+        throw new Error(`Skill catalog path is not a file: ${requestedPath}`);
+      }
+      return {
+        kind: "skillCatalog" as const,
+        path: candidateRealPath!,
+        relativePath: path.relative(rootRealPath!, candidateRealPath!),
       };
     }
 

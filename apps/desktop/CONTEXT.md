@@ -177,7 +177,7 @@ The internal, Run-scoped MCP server (`carrent_session`) that lets a coding agent
 _Avoid_: Local MCP Server, global MCP server, user setting
 
 **Skill Catalog**:
-The set of installed skills Carrent can present to users and expose through the Carrent Bridge. A Runtime may also discover skills through its own provider-owned mechanism, which is separate from the Bridge catalog and audit surface.
+The set of installed skills Carrent can present to users and expose through the Carrent Bridge. A Runtime may also discover skills through its own provider-owned mechanism, which is separate from the Bridge catalog and audit surface. The catalog's root directories (project and user scope) are also a standing read-only grant on the ACP file-read surface, so provider-native skill reads keep working when the Bridge is omitted.
 _Avoid_: Prompt prefix, static skill dump
 
 **CLI Runtime**:

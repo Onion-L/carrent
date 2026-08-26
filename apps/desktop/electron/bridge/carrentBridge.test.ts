@@ -255,11 +255,13 @@ describe("startCarrentBridge", () => {
           at: "2026-01-01T00:00:00.000Z",
           runId: "run-1",
           toolName: "list_skills",
+          outcome: "allow",
         },
         {
           at: "2026-01-01T00:00:00.000Z",
           runId: "run-1",
           toolName: "read_skill",
+          outcome: "allow",
           skillName: "grilling",
           skillPath: "/skills/grilling/SKILL.md",
         },
@@ -411,6 +413,7 @@ description: Release this project.
           at: "2026-01-02T00:00:00.000Z",
           runId: "run-default-audit",
           toolName: "read_skill",
+          outcome: "allow",
           skillName: "grilling",
           skillPath: "/skills/grilling/SKILL.md",
         },
@@ -418,6 +421,119 @@ description: Release this project.
     } finally {
       await bridge.close();
       clearCarrentBridgeAuditEntries();
+    }
+  });
+
+  it("audits denied calls with their error code and no request payload", async () => {
+    const audit: CarrentBridgeAuditEntry[] = [];
+    const bridge = await startCarrentBridge({
+      runId: "run-deny",
+      runtimeId: "kimi",
+      token: "deny-token",
+      now: () => new Date("2026-01-03T00:00:00.000Z"),
+      audit: (entry) => audit.push(entry),
+      catalog: {
+        async listSkills() {
+          return [grillingSkill];
+        },
+        async readSkill() {
+          throw new SkillCatalogError("skill_not_found", "No such skill.");
+        },
+        async listSkillResources() {
+          return { skill: grillingSkill, resources: [] };
+        },
+        async readSkillResource(_locator, resourcePath) {
+          throw new SkillCatalogError(
+            "resource_outside_skill",
+            `Refusing to read outside skill root: ${resourcePath}`,
+          );
+        },
+      },
+    });
+
+    try {
+      await rpc(bridge.mcpServer.url, "tools/call", {
+        name: "read_skill",
+        arguments: { name: "missing-skill" },
+      });
+      await rpc(bridge.mcpServer.url, "tools/call", {
+        name: "read_skill_resource",
+        arguments: { name: "grilling", resourcePath: "../secret.txt" },
+      });
+      await rpc(bridge.mcpServer.url, "tools/call", { name: "delete_skill" });
+
+      expect(audit).toEqual([
+        {
+          at: "2026-01-03T00:00:00.000Z",
+          runId: "run-deny",
+          runtimeId: "kimi",
+          toolName: "read_skill",
+          outcome: "deny",
+          errorCode: "skill_not_found",
+        },
+        {
+          at: "2026-01-03T00:00:00.000Z",
+          runId: "run-deny",
+          runtimeId: "kimi",
+          toolName: "read_skill_resource",
+          outcome: "deny",
+          errorCode: "resource_outside_skill",
+        },
+        {
+          at: "2026-01-03T00:00:00.000Z",
+          runId: "run-deny",
+          runtimeId: "kimi",
+          toolName: "delete_skill",
+          outcome: "deny",
+          errorCode: "unknown_tool",
+        },
+      ]);
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it("audits unexpected catalog failures as errors", async () => {
+    const audit: CarrentBridgeAuditEntry[] = [];
+    const bridge = await startCarrentBridge({
+      runId: "run-error",
+      token: "error-token",
+      now: () => new Date("2026-01-04T00:00:00.000Z"),
+      audit: (entry) => audit.push(entry),
+      catalog: {
+        async listSkills() {
+          throw new Error("disk exploded");
+        },
+        async readSkill() {
+          throw new Error("unused");
+        },
+        async listSkillResources() {
+          throw new Error("unused");
+        },
+        async readSkillResource() {
+          throw new Error("unused");
+        },
+      },
+    });
+
+    try {
+      const response = await rpc(bridge.mcpServer.url, "tools/call", { name: "list_skills" });
+      expect(resultObject(response)).toMatchObject({
+        isError: true,
+        structuredContent: { error: { code: "tool_error" } },
+      });
+
+      expect(audit).toEqual([
+        {
+          at: "2026-01-04T00:00:00.000Z",
+          runId: "run-error",
+          toolName: "list_skills",
+          outcome: "error",
+          errorCode: "tool_error",
+        },
+      ]);
+    } finally {
+      await bridge.close();
     }
   });
 });

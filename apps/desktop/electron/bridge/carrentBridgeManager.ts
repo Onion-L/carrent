@@ -22,6 +22,7 @@ export type CarrentBridgeManager = {
   getRuntimeHandle: (context?: {
     runId: string;
     cwd: string;
+    runtimeId?: string;
   }) => Promise<CarrentBridgeHandle | null>;
 };
 
@@ -231,6 +232,7 @@ export function createCarrentBridgeManager(
       if (context) {
         const runtimeHandle = await startBridge({
           runId: context.runId,
+          runtimeId: context.runtimeId,
           projectDir: context.cwd,
         });
         if (!enabled) {

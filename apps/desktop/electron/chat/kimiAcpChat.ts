@@ -32,6 +32,10 @@ import {
   type ChatQuestionSource,
 } from "../../src/shared/chatQuestions";
 import type { RuntimeMode } from "../../src/shared/runtimeMode";
+import {
+  resolveRuntimeCapabilities,
+  type RuntimeAgentInfo,
+} from "../../src/shared/runtimeCapabilities";
 import { normalizeRunChecklistEntries } from "../../src/shared/runChecklist";
 import { MAX_SUBAGENT_TASK_TEXT_LENGTH } from "../../src/shared/workspacePersistence";
 import type {
@@ -55,6 +59,7 @@ import {
   type SessionQuestionToolResult,
 } from "./questionMcpServer";
 import { terminateChildProcess } from "./terminateChildProcess";
+import { shouldAttachCarrentBridge } from "./bridgePolicy";
 import { resolveCommandLaunch } from "../runtime/commandLaunch";
 import type { AcpTerminalCreateRequest, AcpTerminalManager } from "./acpTerminalManager";
 
@@ -387,6 +392,10 @@ export function startKimiAcpChatRun(options: {
   onDone?: () => void;
   requestTimeoutMs?: number;
   bridgeFactory?: CarrentBridgeFactory | null;
+  /** Local MCP Server switch; when off, the per-run Carrent Bridge is omitted. */
+  localMcpServerEnabled?: boolean;
+  /** Grey-release flag: allow omitting the Bridge for provider-native runs. */
+  omitProviderNativeBridge?: boolean;
   questionServerFactory?: QuestionMcpServerFactory | null;
   terminalManager?: AcpTerminalManager | null;
   kimiSessionsRoot?: string;
@@ -717,7 +726,7 @@ class KimiAcpRun {
   // Commands advertised via `available_commands_update`, harvested so passive
   // status requests can reuse them without respawning the CLI.
   private availableCommands = new Set<string>();
-  private agentInfo: { name: string; version: string } | null = null;
+  private agentInfo: RuntimeAgentInfo | null = null;
   private toolStates = new Map<
     string,
     {
@@ -741,6 +750,10 @@ class KimiAcpRun {
       onDone?: () => void;
       requestTimeoutMs?: number;
       bridgeFactory?: CarrentBridgeFactory | null;
+      /** Local MCP Server switch; when off, the per-run Carrent Bridge is omitted. */
+      localMcpServerEnabled?: boolean;
+      /** Grey-release flag: allow omitting the Bridge for provider-native runs. */
+      omitProviderNativeBridge?: boolean;
       questionServerFactory?: QuestionMcpServerFactory | null;
       terminalManager?: AcpTerminalManager | null;
       kimiSessionsRoot?: string;
@@ -1012,8 +1025,24 @@ class KimiAcpRun {
     return { configOptions: session?.configOptions, resumed: false };
   }
 
+  // Decided after `initialize`, so the policy can key off the negotiated
+  // agentInfo. An omit decision means the Bridge factory is never invoked;
+  // there is no handle to close on the completion/failure/stop paths.
   private async startBridge() {
     if (!this.options.bridgeFactory) {
+      return;
+    }
+
+    const attachment = shouldAttachCarrentBridge({
+      runtimeCapabilities: resolveRuntimeCapabilities(this.agentInfo),
+      localMcpServerEnabled: this.options.localMcpServerEnabled ?? true,
+      omitProviderNativeBridge: this.options.omitProviderNativeBridge ?? false,
+      request: {
+        hasAttachments: (this.options.request.attachments ?? []).length > 0,
+        hasLocalPathContexts: (this.options.request.localPathContexts ?? []).length > 0,
+      },
+    });
+    if (attachment === "omit") {
       return;
     }
 
@@ -2665,16 +2694,14 @@ function readObject(value: unknown): JsonObject | null {
   return value && typeof value === "object" ? (value as JsonObject) : null;
 }
 
-function readKimiAgentInfo(value: unknown): { name: string; version: string } | null {
+function readKimiAgentInfo(value: unknown): RuntimeAgentInfo | null {
   const agentInfo = readObject(value);
   const name = readString(agentInfo?.name);
   const version = readString(agentInfo?.version);
   return name && version ? { name, version } : null;
 }
 
-function needsKimiProcessToolCompatibility(
-  agentInfo: { name: string; version: string } | null,
-): boolean {
+function needsKimiProcessToolCompatibility(agentInfo: RuntimeAgentInfo | null): boolean {
   return agentInfo?.name === "Kimi Code CLI" && agentInfo.version === "0.37.1";
 }
 

@@ -161,8 +161,12 @@ A runtime driven through Agent Client Protocol over stdio, where Carrent acts as
 _Avoid_: Stream parser, CLI prompt mode
 
 **Carrent Bridge**:
-A Carrent-owned capability surface that lets a runtime discover and request Carrent-provided skills, tools, or resources during a run. Skill reads through this surface are explicit, logged, and separate from prompt-injected skill text.
+A Carrent-owned capability surface that lets a compatible runtime or external MCP client discover and request Carrent-provided skills, tools, or resources during a run. Reads through this surface are explicit and logged. A provider may have its own skill-discovery path; current Kimi ACP versions read skills with a provider-owned `Skill` tool, which is outside Carrent Bridge audit entries.
 _Avoid_: Kimi Bridge, prompt-injected skills
+
+**Runtime Capability Profile**:
+The behavior snapshot Carrent computes after ACP `initialize` from the runtime's identity and probe-confirmed capabilities: how the runtime discovers skills (provider-native, Carrent Bridge, or none) and which host surfaces (file proxy, terminal) Carrent offers it. The profile describes behavior only; it never grants permissions, and unknown runtimes or versions fall back to keeping the Carrent Bridge attached.
+_Avoid_: Permission grant, sandbox policy
 
 **Local MCP Server**:
 The user-controlled built-in Carrent MCP server that exposes Carrent-owned capabilities, including skills, to runtimes and MCP clients for the current desktop app. Turning it off disables those local MCP capabilities. The internal Run Interaction Server is not part of this surface and remains available when it is off.
@@ -173,7 +177,7 @@ The internal, Run-scoped MCP server (`carrent_session`) that lets a coding agent
 _Avoid_: Local MCP Server, global MCP server, user setting
 
 **Skill Catalog**:
-The set of installed skills Carrent can present to users and expose to runtimes through the Carrent Bridge.
+The set of installed skills Carrent can present to users and expose through the Carrent Bridge. A Runtime may also discover skills through its own provider-owned mechanism, which is separate from the Bridge catalog and audit surface.
 _Avoid_: Prompt prefix, static skill dump
 
 **CLI Runtime**:

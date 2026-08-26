@@ -40,6 +40,7 @@ Current automated tests are concentrated in `apps/desktop/electron/runtime` and 
 - Name tests after behavior, not implementation details.
 - Before opening a PR, run `bun run lint`, `bun run typecheck`, and targeted Bun tests for changed runtime files.
 - `bun test` runs all files in one process; the `bunfig.toml` test preload (`apps/desktop/src/renderer/test/resetChatRuns.ts`) resets module-level renderer state between tests. Keep new preload-dependent state resets there instead of per-file hooks, which only apply to the first importing file.
+- `bun scripts/verification/skill-visibility-probe.ts` reruns the real Kimi skill-discovery compatibility matrix against a live `kimi acp` and the real Carrent Bridge; run it before adding a Kimi version to `KIMI_PROVIDER_NATIVE_SKILL_VERSIONS` or changing the Bridge attachment default.
 
 ## Commit & Pull Request Guidelines
 

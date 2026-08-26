@@ -103,6 +103,10 @@ export function createChatSessionManager(options: {
   kimiAcpTransportFactory?: KimiAcpTransportFactory;
   acpTerminalManagerFactory?: (options: { cwd: string }) => AcpTerminalManager;
   carrentBridgeFactory?: CarrentBridgeFactory;
+  /** Local MCP Server switch, read at Run start; defaults to enabled. */
+  isLocalMcpServerEnabled?: () => boolean;
+  /** Grey-release flag: allow omitting the Bridge for provider-native runs. */
+  omitProviderNativeBridge?: boolean;
   questionMcpServerFactory?: QuestionMcpServerFactory;
   attachmentStore?: AttachmentStore;
   threadActionTimeoutMs?: number;
@@ -289,6 +293,8 @@ export function createChatSessionManager(options: {
               emit: options.emit,
               transportFactory,
               bridgeFactory,
+              localMcpServerEnabled: options.isLocalMcpServerEnabled?.(),
+              omitProviderNativeBridge: options.omitProviderNativeBridge,
               questionServerFactory,
               terminalManager,
               attachmentStoreRoot: options.attachmentStore?.resolveRoot(),

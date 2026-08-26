@@ -916,8 +916,12 @@ if (!hasSingleInstanceLock) {
       providerSessions: providerSessionStore,
       attachmentStore,
       carrentBridgeFactory: async ({ runId, cwd }) => {
-        return bridgeManager.getRuntimeHandle({ runId, cwd });
+        return bridgeManager.getRuntimeHandle({ runId, cwd, runtimeId: "kimi" });
       },
+      isLocalMcpServerEnabled: () => bridgeManager.getStatus().enabled,
+      // Grey-release switch for plan 006: lets probe-confirmed provider-native
+      // Kimi versions run without the per-run Bridge. Default stays "attach".
+      omitProviderNativeBridge: process.env.CARRENT_OMIT_PROVIDER_NATIVE_BRIDGE === "1",
     });
     runNotificationCoordinator = createRunNotificationCoordinator({
       getSnapshot: () => appStateAuthority.getState().snapshot,

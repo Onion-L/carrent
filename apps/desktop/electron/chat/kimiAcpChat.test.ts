@@ -74,6 +74,29 @@ function createFakeCarrentBridgeFactory() {
   return { factory, handles };
 }
 
+function createFakeQuestionServerFactory() {
+  const handles: Array<QuestionMcpServerHandle & { closed: boolean }> = [];
+  const factory: QuestionMcpServerFactory = async () => {
+    const handle: QuestionMcpServerHandle & { closed: boolean } = {
+      closed: false,
+      mcpServer: {
+        id: "carrent_session",
+        name: "carrent_session",
+        type: "http",
+        url: `http://127.0.0.1/question-${handles.length}/mcp?token=question-test`,
+        headers: [],
+      },
+      async close() {
+        handle.closed = true;
+      },
+    };
+    handles.push(handle);
+    return handle;
+  };
+
+  return { factory, handles };
+}
+
 class FakeKimiAcpTransport implements KimiAcpTransport {
   readonly sent: Array<Record<string, unknown>> = [];
   private readonly messageListeners: Array<(message: Record<string, unknown>) => void> = [];
@@ -2318,6 +2341,294 @@ describe("startKimiAcpChatRun", () => {
         writtenFiles: [],
       },
     ]);
+  });
+
+  describe("Carrent Bridge attachment policy", () => {
+    const providerNativeAgentInfo = { name: "Kimi Code CLI", version: "0.37.2" };
+
+    function createCountingNullBridgeFactory() {
+      let calls = 0;
+      const factory: CarrentBridgeFactory = async () => {
+        calls += 1;
+        return null;
+      };
+      return { factory, calls: () => calls };
+    }
+
+    function createPolicyTransport(options: {
+      agentInfo?: { name: string; version: string };
+      onSessionOpen?: (params: unknown) => void;
+      failPrompt?: boolean;
+    }) {
+      return new FakeKimiAcpTransport((fakeTransport, message) => {
+        if (message.method === "initialize") {
+          respondAcp(fakeTransport, message, {
+            protocolVersion: 1,
+            ...(options.agentInfo ? { agentInfo: options.agentInfo } : {}),
+          });
+          return;
+        }
+
+        if (message.method === "session/new" || message.method === "session/resume") {
+          options.onSessionOpen?.(message.params);
+          respondAcp(fakeTransport, message, { sessionId: "session-1" });
+          return;
+        }
+
+        if (message.method === "session/prompt") {
+          if (options.failPrompt) {
+            fakeTransport.emitMessage({
+              jsonrpc: "2.0",
+              id: message.id,
+              error: { code: -32000, message: "prompt failed" },
+            });
+            return;
+          }
+          fakeTransport.emitMessage({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "session-1",
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "Done" },
+              },
+            },
+          });
+          respondAcp(fakeTransport, message, { stopReason: "end_turn" });
+        }
+      });
+    }
+
+    it("omits the Bridge for provider-native runs when the omit flag is on", async () => {
+      const emitted: ChatRunEvent[] = [];
+      const bridge = createCountingNullBridgeFactory();
+      let sessionNewParams: unknown = null;
+      const questionServer = createFakeQuestionServerFactory();
+      const transport = createPolicyTransport({
+        agentInfo: providerNativeAgentInfo,
+        onSessionOpen: (params) => {
+          sessionNewParams = params;
+        },
+      });
+
+      startKimiAcpChatRun({
+        runId: "run-kimi-bridge-omit",
+        request: makeRequest({ runtimeId: "kimi" }),
+        cwd: "/Users/onion/workbench/carrent",
+        emit: (event) => emitted.push(event),
+        transportFactory: () => transport,
+        bridgeFactory: bridge.factory,
+        omitProviderNativeBridge: true,
+        questionServerFactory: questionServer.factory,
+      });
+
+      await waitForAsyncEvents();
+
+      expect(bridge.calls()).toBe(0);
+      // The Run-scoped question server is independent of the Bridge policy.
+      expect(sessionNewParams).toMatchObject({
+        mcpServers: [questionServer.handles[0]!.mcpServer],
+      });
+      expect(emitted.find((event) => event.type === "completed")).toMatchObject({
+        type: "completed",
+        text: "Done",
+      });
+    });
+
+    it("keeps the Bridge for provider-native runs when the omit flag is off", async () => {
+      const bridge = createFakeCarrentBridgeFactory();
+      const transport = createPolicyTransport({ agentInfo: providerNativeAgentInfo });
+
+      startKimiAcpChatRun({
+        runId: "run-kimi-bridge-omit-flag-off",
+        request: makeRequest({ runtimeId: "kimi" }),
+        cwd: "/Users/onion/workbench/carrent",
+        emit: () => {},
+        transportFactory: () => transport,
+        bridgeFactory: bridge.factory,
+      });
+
+      await waitForAsyncEvents();
+
+      expect(bridge.handles).toHaveLength(1);
+    });
+
+    it("keeps the Bridge for unconfirmed Kimi versions even with the omit flag on", async () => {
+      const bridge = createFakeCarrentBridgeFactory();
+      const transport = createPolicyTransport({
+        agentInfo: { name: "Kimi Code CLI", version: "0.0.0-unconfirmed" },
+      });
+
+      startKimiAcpChatRun({
+        runId: "run-kimi-bridge-unknown-version",
+        request: makeRequest({ runtimeId: "kimi" }),
+        cwd: "/Users/onion/workbench/carrent",
+        emit: () => {},
+        transportFactory: () => transport,
+        bridgeFactory: bridge.factory,
+        omitProviderNativeBridge: true,
+      });
+
+      await waitForAsyncEvents();
+
+      expect(bridge.handles).toHaveLength(1);
+    });
+
+    it("keeps the Bridge for runs with attachments even with the omit flag on", async () => {
+      const bridge = createFakeCarrentBridgeFactory();
+      const transport = createPolicyTransport({ agentInfo: providerNativeAgentInfo });
+
+      startKimiAcpChatRun({
+        runId: "run-kimi-bridge-omit-attachment",
+        request: makeRequest({
+          runtimeId: "kimi",
+          attachments: [
+            {
+              id: "attachment-1",
+              kind: "file",
+              name: "notes.txt",
+              mimeType: "text/plain",
+              size: 12,
+              storageKey: "stored/notes.txt",
+            },
+          ],
+        }),
+        cwd: "/Users/onion/workbench/carrent",
+        emit: () => {},
+        transportFactory: () => transport,
+        bridgeFactory: bridge.factory,
+        omitProviderNativeBridge: true,
+      });
+
+      await waitForAsyncEvents();
+
+      expect(bridge.handles).toHaveLength(1);
+    });
+
+    it("does not start the Bridge when the Local MCP Server is off", async () => {
+      const emitted: ChatRunEvent[] = [];
+      const bridge = createCountingNullBridgeFactory();
+      let sessionNewParams: unknown = null;
+      const transport = createPolicyTransport({
+        agentInfo: providerNativeAgentInfo,
+        onSessionOpen: (params) => {
+          sessionNewParams = params;
+        },
+      });
+
+      startKimiAcpChatRun({
+        runId: "run-kimi-bridge-local-mcp-off",
+        request: makeRequest({ runtimeId: "kimi" }),
+        cwd: "/Users/onion/workbench/carrent",
+        emit: (event) => emitted.push(event),
+        transportFactory: () => transport,
+        bridgeFactory: bridge.factory,
+        localMcpServerEnabled: false,
+        omitProviderNativeBridge: true,
+      });
+
+      await waitForAsyncEvents();
+
+      expect(bridge.calls()).toBe(0);
+      expect(sessionNewParams).toMatchObject({ mcpServers: [] });
+      expect(emitted.find((event) => event.type === "completed")).toBeDefined();
+    });
+
+    it("passes the same omitted MCP server list to resumed sessions", async () => {
+      const emitted: ChatRunEvent[] = [];
+      const bridge = createCountingNullBridgeFactory();
+      let sessionResumeParams: unknown = null;
+      const transport = createPolicyTransport({
+        agentInfo: providerNativeAgentInfo,
+        onSessionOpen: (params) => {
+          sessionResumeParams = params;
+        },
+      });
+
+      startKimiAcpChatRun({
+        runId: "run-kimi-bridge-omit-resume",
+        request: makeRequest({ runtimeId: "kimi" }),
+        cwd: "/Users/onion/workbench/carrent",
+        emit: (event) => emitted.push(event),
+        transportFactory: () => transport,
+        bridgeFactory: bridge.factory,
+        omitProviderNativeBridge: true,
+        resumeSessionId: "session-previous",
+      });
+
+      await waitForAsyncEvents();
+
+      expect(bridge.calls()).toBe(0);
+      expect(sessionResumeParams).toMatchObject({
+        sessionId: "session-previous",
+        mcpServers: [],
+      });
+      expect(emitted.find((event) => event.type === "completed")).toBeDefined();
+    });
+
+    it("fails without leaking a Bridge handle when an omitted run's prompt fails", async () => {
+      const emitted: ChatRunEvent[] = [];
+      const bridge = createCountingNullBridgeFactory();
+      const transport = createPolicyTransport({
+        agentInfo: providerNativeAgentInfo,
+        failPrompt: true,
+      });
+
+      startKimiAcpChatRun({
+        runId: "run-kimi-bridge-omit-prompt-fail",
+        request: makeRequest({ runtimeId: "kimi" }),
+        cwd: "/Users/onion/workbench/carrent",
+        emit: (event) => emitted.push(event),
+        transportFactory: () => transport,
+        bridgeFactory: bridge.factory,
+        omitProviderNativeBridge: true,
+      });
+
+      await waitForAsyncEvents();
+
+      expect(bridge.calls()).toBe(0);
+      expect(emitted.find((event) => event.type === "failed")).toMatchObject({
+        type: "failed",
+        error: "prompt failed",
+      });
+    });
+
+    it("stops an omitted run without ever starting the Bridge", async () => {
+      const emitted: ChatRunEvent[] = [];
+      const bridge = createCountingNullBridgeFactory();
+      const transport = new FakeKimiAcpTransport((fakeTransport, message) => {
+        if (message.method === "initialize") {
+          respondAcp(fakeTransport, message, {
+            protocolVersion: 1,
+            agentInfo: providerNativeAgentInfo,
+          });
+        }
+      });
+
+      const handle = startKimiAcpChatRun({
+        runId: "run-kimi-bridge-omit-stop",
+        request: makeRequest({ runtimeId: "kimi" }),
+        cwd: "/Users/onion/workbench/carrent",
+        emit: (event) => emitted.push(event),
+        transportFactory: () => transport,
+        bridgeFactory: bridge.factory,
+        omitProviderNativeBridge: true,
+      });
+
+      await waitForAsyncEvents();
+      handle.stop();
+      await waitForAsyncEvents();
+
+      expect(bridge.calls()).toBe(0);
+      expect(emitted).toEqual([
+        {
+          type: "stopped",
+          runId: "run-kimi-bridge-omit-stop",
+          writtenFiles: [],
+        },
+      ]);
+    });
   });
 
   it("omits transcript when resuming an existing Kimi ACP session", async () => {
@@ -5032,29 +5343,6 @@ describe("Run-scoped MCP questions", () => {
       },
     ],
   };
-
-  function createFakeQuestionServerFactory() {
-    const handles: Array<QuestionMcpServerHandle & { closed: boolean }> = [];
-    const factory: QuestionMcpServerFactory = async () => {
-      const handle: QuestionMcpServerHandle & { closed: boolean } = {
-        closed: false,
-        mcpServer: {
-          id: "carrent_session",
-          name: "carrent_session",
-          type: "http",
-          url: `http://127.0.0.1/${handles.length}/mcp?token=question-test`,
-          headers: [],
-        },
-        async close() {
-          handle.closed = true;
-        },
-      };
-      handles.push(handle);
-      return handle;
-    };
-
-    return { factory, handles };
-  }
 
   function createMcpSessionTransport() {
     let promptRequest: Record<string, unknown> | null = null;
